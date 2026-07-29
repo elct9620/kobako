@@ -74,9 +74,9 @@ The result surface carries the frontends' one lasting asymmetry, the
 error model. The guest reports success or failure as a value (its
 `Outcome`); the Ruby host raises a taxonomy error carrying the frozen
 `Execution` on `#execution`, while the SDK keeps failure a value — a run
-that reached the guest is `Ok(Execution)`, its outcome (the value or a
-failure `Error`) rides `Execution::value`, and `into_value` folds it into
-a `Result` so a caller cannot pass over a guest failure unnoticed. Ruby's
+that reached the guest is `Ok(Execution)`, and its outcome (the value or a
+failure `Error`) rides `Execution::value` as a `Result`, so a caller cannot
+pass over a guest failure unnoticed. Ruby's
 `Execution#failed?` is the mirror of the SDK's `Err` arm: both let a
 caller tell a failed run from a success whose value was legitimately
 `nil`, on either side of the raise-versus-return split. A run that never

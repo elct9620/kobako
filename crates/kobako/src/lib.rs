@@ -43,28 +43,21 @@ pub mod extension;
 pub mod handles;
 #[cfg(feature = "msgpack")]
 pub mod msgpack;
-mod outcome;
 pub mod payload;
 pub mod receiver;
 pub mod sandbox;
 mod snippet;
 pub mod yielder;
 
+// The root carries what every build has. The `msgpack` overlay's own
+// names stay in `msgpack`, since a name that vanishes from the root when a
+// feature goes off was never a root name.
 pub use error::{Error, Failure};
-pub use execution::Execution;
+pub use execution::{Execution, Usage};
 pub use extension::{Backend, Extension, Provider};
 pub use handles::Handles;
-/// The value tree the `Value`-flavoured surface speaks.
-///
-/// Its variant set is one schema's type mapping, not a neutral one, so a
-/// codec that cannot carry every variant is not a candidate for that
-/// surface — it implements `Receiver` and owns its own bytes instead.
-#[cfg(feature = "msgpack")]
-pub use kobako_codec::msgpack::codec::Value;
 pub use kobako_runtime::profile::Profile;
-#[cfg(feature = "msgpack")]
-pub use msgpack::{RunArg, ValueReceiver};
 pub use payload::RunPayload;
 pub use receiver::{Fault, FaultKind, Receiver};
-pub use sandbox::{Context, Options, Sandbox, Usage};
+pub use sandbox::{Context, Options, Sandbox};
 pub use yielder::{YieldError, Yielder};

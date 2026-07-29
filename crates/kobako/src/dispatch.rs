@@ -214,7 +214,7 @@ mod tests {
                     Ok(Value::Sym("swallowed".into()))
                 }
                 "make" => handles
-                    .alloc(Arc::new(Tagged("bob").into_receiver()))
+                    .alloc(Tagged("bob").into_receiver())
                     .map(Value::Handle),
                 "read_label" => {
                     // A Handle is an id wherever it travels; this schema
@@ -243,7 +243,7 @@ mod tests {
 
     fn handler() -> CatalogHandler {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::KV", Arc::new(Echo.into_receiver()));
+        catalog.bind("MyService::KV", Echo.into_receiver());
         CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new())
     }
 
@@ -376,13 +376,13 @@ mod tests {
     #[test]
     fn resolution_wins_over_the_sealed_catalog() {
         let mut catalog = Catalog::default();
-        catalog.bind("File", Arc::new(Echo.into_receiver()));
+        catalog.bind("File", Echo.into_receiver());
         let handler = CatalogHandler::new(
             Arc::new(catalog),
             Arc::default(),
             vec![(
                 "File".to_string(),
-                Arc::new(Tagged("fresh").into_receiver()) as Arc<dyn Receiver>,
+                Tagged("fresh").into_receiver() as Arc<dyn Receiver>,
             )],
         );
         let req = request(Target::Path("File"), "label", vec![]);
@@ -444,7 +444,7 @@ mod tests {
     #[test]
     fn narrowing_predicate_rejects_an_unexposed_method_before_it_runs() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::Narrow", Arc::new(Narrowed.into_receiver()));
+        catalog.bind("MyService::Narrow", Narrowed.into_receiver());
         let handler = CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new());
         let visible = request(
             Target::Path("MyService::Narrow"),
@@ -470,7 +470,7 @@ mod tests {
         let id = handles
             .lock()
             .unwrap()
-            .alloc(Arc::new(Narrowed.into_receiver()))
+            .alloc(Narrowed.into_receiver())
             .unwrap();
         let handler = CatalogHandler::new(Arc::new(Catalog::default()), handles, Vec::new());
         let visible = request(Target::Handle(id), "echo", vec![Value::Int(7)]);

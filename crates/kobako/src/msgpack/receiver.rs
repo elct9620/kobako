@@ -41,16 +41,21 @@ pub trait ValueReceiver: Any + Send + Sync {
     /// Present this at the byte-level seam — what `Sandbox::bind`,
     /// `Context::bind`, and `Handles::alloc` all take.
     ///
+    /// Hands back an `Arc` rather than the bare wrapper: every binding site
+    /// takes one, and the wrapper holds its receiver behind an `Arc`
+    /// already, so returning the bare form only ever bought a second layer
+    /// at each call site.
+    ///
     /// A type implementing two schemas' receiver traits has two of these
     /// in scope, and the call is ambiguous until one is named
     /// (`ValueReceiver::into_receiver(kv)`). That is the right question to
     /// be asked: binding an object is choosing the schema the guest will
     /// reach it through.
-    fn into_receiver(self) -> IntoReceiver<Self>
+    fn into_receiver(self) -> Arc<IntoReceiver<Self>>
     where
         Self: Sized,
     {
-        IntoReceiver(Arc::new(self))
+        Arc::new(IntoReceiver(Arc::new(self)))
     }
 }
 
@@ -68,18 +73,9 @@ pub trait ValueReceiver: Any + Send + Sync {
 pub struct IntoReceiver<V>(Arc<V>);
 
 impl<V> IntoReceiver<V> {
-    /// The wrapped receiver.
-    pub fn get_ref(&self) -> &V {
-        &self.0
-    }
-
-    /// The wrapped receiver, as the shared handle this holds it by.
-    pub fn into_inner(self) -> Arc<V> {
-        self.0
-    }
-
-    /// That same handle, borrowed — what `resolve_as` clones out when it
-    /// walks a resolved receiver back to the type that bound it.
+    /// The shared handle this holds its receiver by, borrowed — what
+    /// `resolve_as` clones out when it walks a resolved receiver back to
+    /// the type that bound it.
     pub(crate) fn shared(&self) -> &Arc<V> {
         &self.0
     }
@@ -149,7 +145,7 @@ mod tests {
 
         let answer = Echo
             .into_receiver()
-            .call("echo", &payload, None, &table.view())
+            .call("echo", &payload, None, &table.as_handles())
             .unwrap();
 
         assert_eq!(
@@ -168,7 +164,7 @@ mod tests {
         // as one.
         let refusal = Echo
             .into_receiver()
-            .call("echo", &[0xd9], None, &table.view());
+            .call("echo", &[0xd9], None, &table.as_handles());
 
         assert!(
             matches!(refusal, Err(fault) if fault.kind == FaultKind::Runtime),
@@ -185,17 +181,6 @@ mod tests {
             bound.respond_to_guest("echo") && !bound.respond_to_guest("label"),
             "a narrowed ValueReceiver at the seam must keep its own answer, since the \
              predicate is forwarded unchanged"
-        );
-    }
-
-    #[test]
-    fn get_ref_reaches_the_receiver_the_seam_wraps() {
-        let bound = Echo.into_receiver();
-
-        assert!(
-            bound.get_ref().respond_to_guest("echo"),
-            "get_ref must hand back the wrapped receiver itself, so a caller reaches its \
-             own type without going through the seam"
         );
     }
 }

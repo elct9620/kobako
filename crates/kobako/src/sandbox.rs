@@ -16,7 +16,6 @@ use std::time::Duration;
 
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime};
-pub use kobako_runtime::snapshot::Usage;
 use kobako_runtime::snapshot::{Completion, Snapshot};
 use kobako_transport::envelope::Run;
 #[cfg(feature = "wasmtime")]
@@ -25,10 +24,9 @@ use kobako_wasmtime::{Config, Driver};
 use crate::catalog::Catalog;
 use crate::dispatch::CatalogHandler;
 use crate::error::{Error, SetupError};
-use crate::execution::Execution;
+use crate::execution::{classify, Execution};
 use crate::extension::{install_object, unresolved, Extension, Extensions};
 use crate::handles::HandleTable;
-use crate::outcome;
 use crate::payload::RunPayload;
 use crate::receiver::Receiver;
 use crate::snippet;
@@ -148,19 +146,20 @@ impl Sandbox {
     /// engine's own caps (its artifact, timeout, and memory limit) are
     /// configured, since only the isolation floor is this tier's business.
     ///
-    /// `floor` is a request the engine's declaration must meet, not an
+    /// `profile` is a request the engine's declaration must meet, not an
     /// equality: a stricter posture constructs, a weaker one fails with
     /// `Error::Setup` rather than running untrusted code under less
-    /// isolation than the host asked for.
+    /// isolation than the host asked for — so the request is also the
+    /// floor. Same concept and same name as `Options::profile`.
     pub fn with_runtime(
         runtime: impl Runtime + Send + Sync + 'static,
-        floor: Profile,
+        profile: Profile,
     ) -> Result<Self, Error> {
         let declared = runtime.profile();
-        if declared < floor {
+        if declared < profile {
             return Err(Error::Setup(SetupError::Dead(format!(
                 "runtime declares the {declared:?} isolation profile, \
-                 below the requested {floor:?} floor"
+                 below the requested {profile:?} floor"
             ))));
         }
         Ok(Sandbox {
@@ -397,7 +396,7 @@ impl Sandbox {
 /// the payload meets a schema.
 fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>) -> Execution {
     let outcome = match snapshot.completion {
-        Completion::Outcome(bytes) => outcome::classify(&bytes),
+        Completion::Outcome(bytes) => classify(&bytes),
         Completion::Trap(trap) => Err(trap.into()),
     };
     Execution::new(

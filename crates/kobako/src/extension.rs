@@ -20,7 +20,11 @@ use crate::yielder::Yielder;
 
 /// A backend factory invoked once per invocation. The same `Arc` shared by
 /// several Extensions is resolved once per invocation to one object.
-type ProviderFn = Arc<dyn Fn() -> Arc<dyn Receiver> + Send + Sync>;
+///
+/// Public because `Provider::PerInvocation` carries it: a third party can
+/// build one by inference, but without the name they cannot declare a
+/// helper that takes or returns one.
+pub type ProviderFn = Arc<dyn Fn() -> Arc<dyn Receiver> + Send + Sync>;
 
 /// A guest idiom paired with an optional host backend — the contract
 /// `Sandbox::install` consumes. Implement it on your own type; the four

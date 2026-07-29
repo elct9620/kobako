@@ -54,7 +54,7 @@ use kobako::{Options, Sandbox};
 
 // Options::default() is secure by default: no caps, hermetic isolation.
 let sandbox = Sandbox::new("kobako.wasm", Options::default())?;
-sandbox.eval("1 + 2")?.into_value()?;  // => Value::Int(3)
+sandbox.eval("1 + 2")?.value()?;  // => Value::Int(3)
 ```
 
 Each invocation returns the record of that one run — `Kobako::Execution` in Ruby, `Execution` in Rust — carrying the guest value alongside the run's output and resource usage. Nothing a run observes is stored on the Sandbox, so the same Sandbox serves concurrent invocations without them seeing each other.

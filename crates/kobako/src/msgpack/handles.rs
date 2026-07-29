@@ -70,8 +70,8 @@ mod tests {
     #[test]
     fn resolve_as_hands_back_the_type_that_was_bound() {
         let table = Detached::new();
-        let handles = table.view();
-        let id = handles.alloc(Arc::new(Kv.into_receiver())).unwrap();
+        let handles = table.as_handles();
+        let id = handles.alloc(Kv.into_receiver()).unwrap();
 
         let kv: Option<Arc<Kv>> = handles.resolve_as(id);
 
@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn resolve_as_refuses_an_id_standing_for_another_type() {
         let table = Detached::new();
-        let handles = table.view();
+        let handles = table.as_handles();
         let id = handles.alloc(Arc::new(Probe) as Arc<dyn Receiver>).unwrap();
 
         let kv: Option<Arc<Kv>> = handles.resolve_as(id);
@@ -100,8 +100,8 @@ mod tests {
     #[test]
     fn resolve_as_refuses_an_id_the_invocation_never_issued() {
         let table = Detached::new();
-        let handles = table.view();
-        let id = handles.alloc(Arc::new(Kv.into_receiver())).unwrap();
+        let handles = table.as_handles();
+        let id = handles.alloc(Kv.into_receiver()).unwrap();
 
         let kv: Option<Arc<Kv>> = handles.resolve_as(id + 1);
 

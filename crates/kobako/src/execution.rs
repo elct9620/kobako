@@ -10,10 +10,10 @@
 //!
 //! Two divergences from the Ruby frontend are deliberate, not
 //! oversights. Ruby raises on guest failure and hangs the same frozen
-//! Execution off the exception; the SDK keeps the failure a value on
-//! `outcome`, and `into_value` folds it back into a `Result` so a caller
-//! that only wants the value cannot silently pass over a guest failure —
-//! the footgun `std::process::Output`'s ignorable `status` is known for.
+//! Execution off the exception; the SDK keeps the failure a value, and
+//! `payload` / `value` return a `Result` so a caller that only wants the
+//! value cannot silently pass over a guest failure — the footgun
+//! `std::process::Output`'s ignorable `status` is known for.
 //! And where Ruby eagerly restores a result Handle to its host object
 //! during decode, the SDK resolves lazily through `resolve`, so the wire
 //! `Value::Handle` stays inspectable and the host object is recovered on
@@ -22,9 +22,13 @@
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use kobako_runtime::snapshot::{Capture, Usage};
+use kobako_runtime::snapshot::Capture;
+// The observables the contract already expresses frontend-free: `usage`
+// returns this type, so it is re-exported from here rather than restated.
+pub use kobako_runtime::snapshot::Usage;
+use kobako_transport::envelope::{Origin, Outcome, Panic};
 
-use crate::error::Error;
+use crate::error::{Error, Failure};
 use crate::handles::{HandleTable, Handles};
 use crate::receiver::Receiver;
 
@@ -130,6 +134,55 @@ impl fmt::Debug for Execution {
     }
 }
 
+/// Classify one OUTCOME_BUFFER by its envelope alone: the Result arm's
+/// payload bytes, or the `Error` its failure attributes to. Reads no
+/// payload byte, so attribution works for a host whose Receivers speak
+/// a schema this crate does not know.
+///
+/// One half of turning a raw `Snapshot` into the `Execution` above — the
+/// half that reads the envelope; `Sandbox`'s `build_execution` is the
+/// other. The Ruby gem's `Kobako::Outcome` is its twin, so both frontends
+/// reading the same bytes reach the same variant.
+pub(crate) fn classify(bytes: &[u8]) -> Result<Vec<u8>, Error> {
+    match Outcome::decode(bytes) {
+        Ok(Outcome::Result(payload)) => Ok(payload),
+        Ok(Outcome::Panic(panic)) => Err(classify_panic(panic)),
+        // Framing the outcome is the one thing the host does before
+        // attribution, so a message it cannot frame — an empty buffer
+        // included — leaves nothing to attribute to.
+        Err(_) if bytes.is_empty() => Err(Error::Trap(
+            "Sandbox exited without producing a result".into(),
+        )),
+        Err(_) => Err(Error::Trap(
+            "Sandbox produced an unrecognised result; the runtime is corrupted, \
+             discard this Sandbox before another invocation"
+                .into(),
+        )),
+    }
+}
+
+/// `origin == "service"` → `Service`; a sandbox-origin panic carrying
+/// the bytecode rejection class → `Bytecode`; everything else →
+/// `Sandbox`. Every field is typed at the envelope, so classifying a
+/// Panic reads no payload byte and cannot fail.
+fn classify_panic(panic: Panic) -> Error {
+    let from_service = panic.origin == Origin::Service;
+    let failure = Box::new(Failure {
+        name: panic.error.name,
+        message: panic.error.message,
+        backtrace: panic.error.backtrace,
+        available: panic.available,
+        diagnostic: None,
+    });
+    if from_service {
+        Error::Service(failure)
+    } else if failure.name == "Kobako::BytecodeError" {
+        Error::Bytecode(failure)
+    } else {
+        Error::Sandbox(failure)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,6 +229,96 @@ mod tests {
             execution.resolve(id + 1).is_none(),
             "an unissued id through Execution::resolve must resolve to nothing, \
              so a corrupted outcome reaches no host object"
+        );
+    }
+}
+
+#[cfg(test)]
+mod classify_tests {
+    use kobako_transport::envelope::ErrorRecord;
+
+    use super::*;
+
+    fn panic_bytes(origin: Origin, name: &str) -> Vec<u8> {
+        Outcome::Panic(Panic {
+            origin,
+            error: ErrorRecord {
+                name: name.into(),
+                message: "boom".into(),
+                backtrace: Vec::new(),
+            },
+            available: Vec::new(),
+        })
+        .encode()
+    }
+
+    #[test]
+    fn the_result_arm_yields_the_payload_bytes_it_carried() {
+        assert_eq!(
+            classify(&Outcome::Result(vec![0x2a]).encode()).unwrap(),
+            vec![0x2a],
+            "a Result arm through classify must hand back its payload bytes untouched, \
+             since attribution reads no payload byte"
+        );
+    }
+
+    #[test]
+    fn service_origin_panic_becomes_service_error() {
+        let result = classify(&panic_bytes(Origin::Service, "Kobako::ServiceError"));
+        assert!(matches!(result, Err(Error::Service(f)) if f.message == "boom"));
+    }
+
+    #[test]
+    fn bytecode_class_panic_becomes_bytecode_error() {
+        let result = classify(&panic_bytes(Origin::Sandbox, "Kobako::BytecodeError"));
+        assert!(matches!(result, Err(Error::Bytecode(_))));
+    }
+
+    #[test]
+    fn sandbox_origin_panic_becomes_sandbox_error() {
+        let result = classify(&panic_bytes(Origin::Sandbox, "RuntimeError"));
+        assert!(matches!(result, Err(Error::Sandbox(f)) if f.name == "RuntimeError"));
+    }
+
+    #[test]
+    fn empty_bytes_walk_the_trap_path() {
+        assert!(matches!(classify(&[]), Err(Error::Trap(_))));
+    }
+
+    #[test]
+    fn unknown_tag_walks_the_trap_path() {
+        assert!(matches!(classify(&[0x7f, 0x2a]), Err(Error::Trap(_))));
+    }
+
+    #[test]
+    fn a_panic_record_the_envelope_cannot_frame_walks_the_trap_path() {
+        // The Panic arm followed by a truncated origin length prefix.
+        let result = classify(&[0x02, 0x00, 0x00]);
+        assert!(
+            matches!(result, Err(Error::Trap(_))),
+            "a Panic the envelope cannot frame leaves nothing to attribute to, got {result:?}"
+        );
+    }
+
+    // E-27: an unresolved entrypoint reaches the caller with the names it
+    // could have been, matching what the Ruby frontend exposes as
+    // `#available` on its own subclass.
+    #[test]
+    fn an_unresolved_entrypoint_carries_the_names_it_could_have_been() {
+        let bytes = Outcome::Panic(Panic {
+            origin: Origin::Sandbox,
+            error: ErrorRecord {
+                name: "Kobako::UndefinedEntrypointError".into(),
+                message: "undefined entrypoint: Wrker".into(),
+                backtrace: Vec::new(),
+            },
+            available: vec!["Worker".into(), "Helper".into()],
+        })
+        .encode();
+        let result = classify(&bytes);
+        assert!(
+            matches!(result, Err(Error::Sandbox(ref f)) if f.available == ["Worker", "Helper"]),
+            "an unresolved entrypoint must reach the caller with its correction, got {result:?}"
         );
     }
 }

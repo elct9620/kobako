@@ -120,7 +120,7 @@ fn a_receiver_answers_through_a_detached_handle_table() {
     let table = Detached::new();
 
     let answer = echo
-        .call("call", &run_args(Value::Int(7)), None, &table.view())
+        .call("call", &run_args(Value::Int(7)), None, &table.as_handles())
         .expect("the Receiver answers");
 
     assert_eq!(

@@ -14,10 +14,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use kobako::{
-    Backend, Error, Extension, Fault, Handles, Options, Provider, Sandbox, Value, ValueReceiver,
-    Yielder,
-};
+use kobako::msgpack::{Value, ValueReceiver};
+use kobako::{Backend, Error, Extension, Fault, Handles, Options, Provider, Sandbox, Yielder};
 
 const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
@@ -85,7 +83,7 @@ fn an_unfilled_fillable_dispatch_fails_closed_as_a_service_error() {
     let err = sandbox
         .eval("Store.get(1)")
         .expect("the guest ran")
-        .into_value()
+        .value()
         .expect_err("a dispatch to an unfilled fillable must fail closed (B-62)");
 
     assert!(
@@ -109,7 +107,7 @@ fn a_fillable_is_distinct_from_an_undeclared_constant() {
     let err = sandbox
         .eval("Undeclared.get(1)")
         .expect("the guest ran")
-        .into_value()
+        .value()
         .expect_err("a reference to a never-declared constant must fail");
 
     assert!(
@@ -131,7 +129,7 @@ fn an_extension_fillable_backend_left_unfilled_fails_closed() {
     let err = sandbox
         .eval("Store.get(1)")
         .expect("the guest ran")
-        .into_value()
+        .value()
         .expect_err("a dispatch to an unfilled Extension fillable backend must fail closed (B-56)");
 
     assert!(
@@ -152,10 +150,10 @@ fn a_ctx_bind_override_fills_an_extension_fillable_backend() {
 
     let value = sandbox
         .eval_with("Store.get(1)", |ctx| {
-            ctx.bind("Store", Arc::new(Kv("filled").into_receiver()))
+            ctx.bind("Store", Kv("filled").into_receiver())
         })
         .expect("the guest ran")
-        .into_value()
+        .value()
         .expect("a filled Extension backend dispatches to the override object (B-56 / B-63)");
 
     assert_eq!(

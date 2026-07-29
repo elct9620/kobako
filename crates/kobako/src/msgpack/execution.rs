@@ -25,14 +25,6 @@ impl Execution {
         Ok(value)
     }
 
-    /// Consume the Execution and fold its outcome into a `Result` — the
-    /// ergonomic path for a caller that wants the value and lets a guest
-    /// failure propagate with `?`. Reach for the captures / `usage`
-    /// before calling this, since it drops them.
-    pub fn into_value(self) -> Result<Value, Error> {
-        self.value()
-    }
-
     fn require_live_handles(&self, value: &Value) -> Result<(), Error> {
         match value {
             Value::Handle(id) => self.resolve(*id).map(|_| ()).ok_or_else(|| {
@@ -80,7 +72,7 @@ mod tests {
     use kobako_transport::envelope::Outcome;
 
     use super::*;
-    use crate::outcome::classify;
+    use crate::execution::classify;
 
     #[test]
     fn the_result_arm_yields_payload_bytes_the_codec_reads_back() {

@@ -94,8 +94,12 @@ impl<'a> Handles<'a> {
 /// without driving a guest.
 ///
 /// `Receiver::call` takes a `Handles`, and every real one belongs to an
-/// invocation — which would leave an implementation written outside this
-/// crate with no way to call its own method except through a whole run.
+/// invocation: the Sandbox mints a fresh table per run, hands it to the
+/// dispatch handler, and leaves it on the returned `Execution` for the
+/// caller to resolve against. That is where a Handle's lifetime comes
+/// from, and it would leave an implementation written outside this crate
+/// with no way to call its own method except through a whole run.
+///
 /// A detached table answers `alloc` and `resolve` the same way; what it
 /// does not have is a guest on the other end, so the ids it issues name
 /// nothing beyond it.
@@ -107,8 +111,8 @@ impl Detached {
         Detached::default()
     }
 
-    /// The view to hand a `Receiver` under test.
-    pub fn view(&self) -> Handles<'_> {
+    /// This table as the `Handles` a `Receiver` takes.
+    pub fn as_handles(&self) -> Handles<'_> {
         Handles::new(&self.0)
     }
 }

@@ -23,3 +23,12 @@ mod yielder;
 
 pub use payload::RunArg;
 pub use receiver::{IntoReceiver, ValueReceiver};
+
+/// The value tree this overlay speaks.
+///
+/// Its variant set is this schema's type mapping — a byte-string family
+/// apart from text, a signed / unsigned split, an ext code for a Symbol
+/// and another for a Handle. A schema shaped the same way can reuse it;
+/// one that is not (JSON has no byte string and no ext) cannot, and its
+/// host implements `Receiver` and owns its own bytes instead.
+pub use kobako_codec::msgpack::Value;
