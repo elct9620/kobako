@@ -9,3 +9,10 @@
 
 pub mod codec;
 pub mod payload;
+
+// The schema's own names, one level up: `msgpack::codec::Value` repeats
+// this crate's name in the middle of the path, and a caller naming the
+// schema has already said which codec they mean. The modules stay, so a
+// second schema is still an addition rather than a reshuffle.
+pub use codec::{Decode, Decoder, Encode, Encoder, Error, Value};
+pub use payload::Arguments;
