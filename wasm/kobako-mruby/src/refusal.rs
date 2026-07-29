@@ -12,7 +12,10 @@
 use crate::codec::CodecError;
 
 /// The wire-layer error class an exchange that did not complete carries.
-const TRANSPORT_ERROR: &str = "Kobako::Transport::Error";
+/// The one class in this table that is kobako's own namespaced constant
+/// rather than an mruby core class, so a caller delivering a refusal into
+/// a guest frame reaches it through `Kobako` instead of by name.
+pub(crate) const TRANSPORT_ERROR: &str = "Kobako::Transport::Error";
 
 /// A place a payload codec is asked to carry a value across.
 ///
@@ -331,6 +334,32 @@ mod tests {
                 "a position only the host reads must refuse as the invocation failing at \
                  {position:?}, since no guest frame is left to raise into"
             );
+        }
+    }
+
+    // The two dispatch positions are the only ones delivered by raising
+    // into a live guest frame, which resolves a class by name. Anything
+    // they could name beyond mruby's own core classes would have to come
+    // from kobako's namespace, where no name lookup reaches it.
+    #[test]
+    fn a_dispatch_refusal_names_a_class_a_guest_frame_can_raise() {
+        for position in [Position::CallArguments, Position::ReplyValue] {
+            for err in [
+                unrepresentable(),
+                CodecError::Interpreter(IntegerOutOfRange(1 << 40)),
+                CodecError::Malformed,
+                CodecError::Unsupported,
+            ] {
+                let class = at(position, err).class;
+
+                assert!(
+                    class == TRANSPORT_ERROR
+                        || ["TypeError", "NotImplementedError"].contains(&class),
+                    "a refusal raised into a guest frame must name an mruby core class or \
+                     kobako's own transport class, since nothing else resolves there — \
+                     {position:?} named {class}"
+                );
+            }
         }
     }
 

@@ -178,9 +178,12 @@ fn forward_to_dispatch(
 /// refusal at `position` attributes to. The attribution itself is
 /// `crate::refusal`'s; this is only its delivery into a running script.
 ///
-/// A core class is fetched by name; anything else is kobako's own
-/// namespaced constant, which no name lookup reaches, so it comes from
-/// the class `Kobako` already holds.
+/// `Kobako::Transport::Error` is kobako's own namespaced constant, which
+/// no name lookup reaches, so it comes from the class `Kobako` already
+/// holds; every other class the table names is an mruby core class and is
+/// fetched by name. A lookup that fails there means the interpreter is
+/// missing a core class, which is not a condition to raise something else
+/// about.
 ///
 /// # Safety
 ///
@@ -192,15 +195,17 @@ unsafe fn raise_refusal(
 ) -> ! {
     let refusal = crate::refusal::at(position, err);
     let msg = std::ffi::CString::new(refusal.message).unwrap_or_default();
-    let core_class = std::ffi::CString::new(refusal.class)
-        .ok()
-        .and_then(|name| kobako.mrb().exc_get(&*name).ok());
-    match core_class {
+    if refusal.class == crate::refusal::TRANSPORT_ERROR {
         // SAFETY: bridge frame — caller upholds the unwind contract.
-        Some(class) => unsafe { class.raise(kobako.mrb(), &msg) },
-        // SAFETY: as above.
-        None => unsafe { kobako.raise_transport_error(&msg) },
+        unsafe { kobako.raise_transport_error(&msg) }
     }
+    let name = std::ffi::CString::new(refusal.class).expect("a class name carries no interior NUL");
+    let class = kobako
+        .mrb()
+        .exc_get(&*name)
+        .expect("the refusal table names mruby core classes");
+    // SAFETY: bridge frame — caller upholds the unwind contract.
+    unsafe { class.raise(kobako.mrb(), &msg) }
 }
 
 /// `Kobako::Proxy#method_missing(name, *args)` C bridge — the single
