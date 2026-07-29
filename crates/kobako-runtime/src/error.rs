@@ -50,6 +50,9 @@ pub enum SetupError {
 ///
 /// Named for where it comes from — the `Err` of `Runtime::invoke` — so a
 /// host that also has its own `Error` in scope can hold both.
+///
+/// Non-exhaustive, as its two channels are: a later way an invocation can
+/// fail to start must not break the frontends already destructuring it.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum InvokeError {

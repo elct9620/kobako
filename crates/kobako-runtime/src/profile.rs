@@ -16,6 +16,14 @@
 /// live ambient time and entropy at the WASI boundary. Ordering
 /// follows strength (`Permissive < Hermetic`), so a floor check is a
 /// plain comparison.
+///
+/// Deliberately not `#[non_exhaustive]`, unlike this crate's error
+/// types. A wildcard arm here would let a runtime silently keep building
+/// the posture it already knows while declaring it satisfied a rung it
+/// never implemented; the compile error a new rung causes is what forces
+/// each runtime to answer for it. The ordering is the same reason — a
+/// rung inserted mid-ladder changes what every existing `>=` means, which
+/// no wildcard could have absorbed either.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Profile {
     Permissive,

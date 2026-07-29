@@ -17,6 +17,11 @@ use crate::snapshot::Snapshot;
 /// The per-invocation entry: a one-shot mruby source (`Eval`) or an
 /// entrypoint-dispatch envelope (`Run`). Both ride alongside the stdin
 /// `Frames`; `Run` additionally copies its envelope into guest memory.
+///
+/// Closed rather than `#[non_exhaustive]`: the arms are the ABI's
+/// invocation exports, so the set only grows with an ABI version, and a
+/// runtime that has not implemented the new export should fail to
+/// compile rather than fall into a wildcard.
 pub enum Entry<'a> {
     Eval { source: &'a [u8] },
     Run { envelope: &'a [u8] },

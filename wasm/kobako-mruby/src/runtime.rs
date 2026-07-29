@@ -54,7 +54,12 @@ use beni::Mrb;
 /// cannot be registered — a path segment that cannot pass through the
 /// mruby C API (which expects NUL-terminated strings), or a registration
 /// mruby itself rejected.
+///
+/// Non-exhaustive: a flow of one's own matches this to word its own boot
+/// failure, and a later way registration can fail must not break the
+/// wordings already written.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum InstallError {
     /// A bind path segment contained an interior NUL byte.
     NulInName,

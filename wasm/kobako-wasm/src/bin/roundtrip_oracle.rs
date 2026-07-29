@@ -110,6 +110,10 @@ fn codec_to_tag(e: codec::Error) -> (u8, String) {
         // Structural faults are produced by the envelope layer, not by
         // the value-level round-trip this oracle drives; unreachable here.
         codec::Error::Malformed(_) => b'M',
+        // A kind added since this mapping was written. Folding it into an
+        // existing tag would let the differential agree on two refusals
+        // that are not the same one, so it stops here instead.
+        ref other => panic!("codec::Error kind has no differential tag: {other:?}"),
     };
     (tag, e.to_string())
 }

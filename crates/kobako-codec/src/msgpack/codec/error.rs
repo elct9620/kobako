@@ -10,7 +10,12 @@ use rmp::decode::{MarkerReadError, NumValueReadError, ValueReadError};
 /// type). The host raises both through a single `Codec::Error`, so per
 /// SPEC the host need not distinguish the two when reporting a
 /// wire-contract violation.
+///
+/// Non-exhaustive: an embedder matches this to word its own report, and a
+/// later way these bytes can be wrong must not break the wordings already
+/// written.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     Truncated,
     InvalidType,

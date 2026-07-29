@@ -17,7 +17,7 @@
 //! map to "service" — preloaded snippets are sandbox code.
 
 #[cfg(mruby_linked)]
-use crate::runtime::{InstallError, Kobako};
+use crate::runtime::Kobako;
 #[cfg(mruby_linked)]
 use beni::Ccontext;
 #[cfg(mruby_linked)]
@@ -176,12 +176,9 @@ pub(crate) fn bake_boot<G: crate::MrbGuest>() {
 /// `paths` onto the invocation's VM.
 #[cfg(mruby_linked)]
 pub(super) fn install_preamble(kobako: &Kobako, paths: &[String]) -> Result<(), Panic> {
-    kobako.install_bindings(paths).map_err(|err| match err {
-        InstallError::NulInName => boot_panic("bind path segment contains an invalid character"),
-        InstallError::Rejected(ref msg) => {
-            boot_panic(format!("bind path registration rejected: {msg}"))
-        }
-    })
+    kobako
+        .install_bindings(paths)
+        .map_err(|err| boot_panic(err.to_string()))
 }
 
 /// Replay every snippet in `snippets` against `kobako`'s VM in

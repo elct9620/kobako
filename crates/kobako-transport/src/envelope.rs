@@ -11,6 +11,12 @@
 //! past that buffer's life — a binding's path and a snippet's body, read
 //! from a frame at boot and consumed later — are copied at decode.
 //!
+//! No type here is `#[non_exhaustive]`. Every arm is a tag byte the layout
+//! document fixes, so the set grows only with an ABI version — and when it
+//! does, a peer that has not been taught the new arm should fail to
+//! compile rather than fall into a wildcard and answer a message it cannot
+//! read.
+//!
 //! This layer has one implementation, so its `golden_layout_*` tests are
 //! what hold it to the layout document. They spell each tag as the literal
 //! byte that document fixes, never as the constant beside it: a golden
