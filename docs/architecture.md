@@ -161,15 +161,19 @@ live:
 
 | Endpoint | dialect implementation | overlay |
 |---|---|---|
-| Ruby gem | `lib/kobako/codec/` — an independent second implementation | `lib/kobako/payload/`, the Handle walk |
+| Ruby gem | `lib/kobako/{codec,payload}/` — an independent second implementation | the same files |
 | Rust SDK | `kobako-codec` | `kobako`'s `msgpack` module |
 | mruby guest | `kobako-codec` | `kobako-mruby`'s `msgpack` module |
 
-`ext/` has none, and that is not an omission: a shuttle has no objects of its
-own to bind a dialect to — Ruby's values are on one side of it and the driver's
-bytes on the other. The same reasoning places a dialect kobako does not ship:
-its overlay belongs in the crate holding the objects it speaks to, which is why
-one can be written entirely outside this repository.
+Two endpoints consume a shared dialect crate, so their overlay is a module of
+their own beside it. The Ruby gem writes the dialect itself, so the dialect is
+already where its objects are and there is nowhere else for an overlay to be:
+the Handle walk in `lib/kobako/codec/` is the overlay, not a misplacement of
+it. `ext/` has none at all, and that is not an omission either: a shuttle has
+no objects of its own to bind a dialect to — Ruby's values are on one side of
+it and the driver's bytes on the other. The same reasoning places a dialect
+kobako does not ship: its overlay belongs wherever the objects it speaks to
+live, which is why one can be written entirely outside this repository.
 
 ## The fixed pillar
 
