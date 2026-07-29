@@ -75,7 +75,7 @@ fn sandbox_panic(class: &str, message: impl Into<String>) -> Panic {
 /// bodies, so the outcome attribution cannot drift between them.
 #[cfg(mruby_linked)]
 pub(super) fn write_value_outcome<G: crate::MrbGuest>(kobako: &Kobako, result_val: beni::Value) {
-    use crate::codec::{CodecError, PayloadCodec};
+    use crate::codec::PayloadCodec;
     use crate::refusal::Position;
     use kobako_core::abi::{write_outcome, write_panic};
     use kobako_transport::envelope::Outcome;
