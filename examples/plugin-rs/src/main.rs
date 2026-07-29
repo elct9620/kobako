@@ -17,7 +17,6 @@
 //! to the very `Note` the plugin mutated and reads the final state — the
 //! Rust spelling of restore-to-original-object.
 
-use std::any::Any;
 use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
@@ -25,10 +24,8 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use kobako::{
-    Error, Execution, Fault, FaultKind, Handles, Options, Receiver, Sandbox, Value, YieldError,
-    Yielder,
-};
+use kobako::msgpack::{IntoReceiver, Value, ValueReceiver};
+use kobako::{Error, Execution, Fault, FaultKind, Handles, Options, Sandbox, YieldError, Yielder};
 
 /// The plugin the host runs when none is given on the command line. It
 /// reaches the host only through the granted capabilities: the
@@ -74,10 +71,10 @@ fn main() -> ExitCode {
         }
     };
 
-    // The host state the plugin edits. `Store` is shared behind an `Arc`:
-    // the same store the plugin dispatches into outlives the invocation,
-    // so the edits are ordinary host state afterwards.
-    let store = Arc::new(Store::seeded());
+    // The host state the plugin edits. The bound store is shared, so the
+    // same store the plugin dispatches into outlives the invocation and
+    // the edits are ordinary host state afterwards.
+    let store = Store::seeded().into_receiver();
     if let Err(err) = sandbox.bind("Notes::Store", store.clone()) {
         eprintln!("cannot bind Notes::Store: {err}");
         return ExitCode::FAILURE;
@@ -96,16 +93,15 @@ fn main() -> ExitCode {
     };
     dump_output(&execution);
     match execution.value() {
-        Ok(value) => report_success(&execution, value),
-        Err(err) => report_error(err),
+        Ok(value) => report_success(&execution, &value),
+        Err(err) => report_error(&err),
     }
 }
 
 /// A single note: an immutable id plus the mutable body and tags the
-/// plugin edits. State lives behind a `Mutex` because `Receiver::call`
-/// takes `&self` — the receiver crosses the engine boundary as
-/// `Arc<dyn Receiver>` and answers dispatches through interior
-/// mutability.
+/// plugin edits. State lives behind a `Mutex` because `ValueReceiver::call`
+/// takes `&self` — the receiver crosses the engine boundary behind a
+/// shared handle and answers dispatches through interior mutability.
 struct Note {
     id: String,
     state: Mutex<NoteState>,
@@ -142,7 +138,7 @@ impl Note {
         let tags = self.lock().tags.clone();
         let mut yielded = 0;
         for tag in tags {
-            match yielder.call(&[Value::Str(tag)]) {
+            match yielder.call_values(&[Value::Str(tag)]) {
                 Ok(_) => yielded += 1,
                 Err(YieldError::Break) => break,
                 Err(err) => return Err(err.into()),
@@ -152,7 +148,7 @@ impl Note {
     }
 }
 
-impl Receiver for Note {
+impl ValueReceiver for Note {
     fn call(
         &self,
         method: &str,
@@ -195,24 +191,20 @@ impl Receiver for Note {
     }
 }
 
-/// The note store bound as `Notes::Store`. Holds every note behind an
-/// `Arc` so the Handle it hands the guest and the host both point at one
-/// live object.
+/// The note store bound as `Notes::Store`. Every note is held in the
+/// bound form `into_receiver` produces, because that call consumes the
+/// note: keeping the wrapper is what lets one live object be both the
+/// Handle the guest holds and the note the host reads back afterwards.
 struct Store {
-    notes: Mutex<HashMap<String, Arc<Note>>>,
+    notes: Mutex<HashMap<String, Arc<IntoReceiver<Note>>>>,
 }
 
 impl Store {
     /// A store pre-seeded with the note the default plugin opens.
     fn seeded() -> Self {
-        let welcome = Arc::new(Note::new(
-            "welcome",
-            "Welcome",
-            "Welcome to kobako!",
-            &["greeting"],
-        ));
+        let welcome = Note::new("welcome", "Welcome", "Welcome to kobako!", &["greeting"]);
         let mut notes = HashMap::new();
-        notes.insert(welcome.id.clone(), welcome);
+        notes.insert(welcome.id.clone(), welcome.into_receiver());
         Store {
             notes: Mutex::new(notes),
         }
@@ -220,17 +212,17 @@ impl Store {
 
     /// Look up a note, creating an empty one on first open — so a plugin
     /// can start a new note as well as edit a seeded one.
-    fn open(&self, id: &str) -> Arc<Note> {
+    fn open(&self, id: &str) -> Arc<IntoReceiver<Note>> {
         self.notes
             .lock()
             .expect("the store mutex is never poisoned")
             .entry(id.to_string())
-            .or_insert_with(|| Arc::new(Note::new(id, id, "", &[])))
+            .or_insert_with(|| Note::new(id, id, "", &[]).into_receiver())
             .clone()
     }
 }
 
-impl Receiver for Store {
+impl ValueReceiver for Store {
     fn call(
         &self,
         method: &str,
@@ -248,7 +240,9 @@ impl Receiver for Store {
         match (method, args) {
             // `open` hands the guest a capability Handle: the live note
             // rides the wire as an opaque token, never a serialized copy.
-            ("open", [Value::Str(id)]) => handles.alloc(self.open(id)),
+            // The table issues the id; this schema decides it is spelled
+            // `Value::Handle`.
+            ("open", [Value::Str(id)]) => handles.alloc(self.open(id)).map(Value::Handle),
             ("open", _) => Err(Fault::new(
                 FaultKind::Argument,
                 "Notes::Store.open takes one String note id",
@@ -286,15 +280,15 @@ fn report_error(err: &Error) -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// Resolve a returned `Value::Handle` back to the concrete `Note`:
-/// upcast the resolved `Arc<dyn Receiver>` to `Arc<dyn Any>` and
-/// downcast — a plugin cannot fabricate a Handle, so a live id always
-/// recovers the object the host allocated. The Handle table lives on the
-/// Execution, so the note outlives the invocation that minted it.
+/// Resolve a returned `Value::Handle` back to the concrete `Note` the
+/// host allocated — a plugin cannot fabricate a Handle, so a live id
+/// always recovers that object. The Handle table lives on the Execution,
+/// so the note outlives the invocation that minted it.
 fn resolve_note(execution: &Execution, value: &Value) -> Option<Arc<Note>> {
-    let receiver = execution.resolve(value)?;
-    let any: Arc<dyn Any + Send + Sync> = receiver;
-    any.downcast::<Note>().ok()
+    let Value::Handle(id) = value else {
+        return None;
+    };
+    execution.resolve_as::<Note>(*id)
 }
 
 /// Print the captured stdout / stderr and the resource usage of this run.
@@ -351,6 +345,5 @@ fn render(value: &Value) -> String {
                 .collect();
             format!("{{{}}}", inner.join(", "))
         }
-        Value::ErrEnv(bytes) => format!("<{} fault envelope bytes>", bytes.len()),
     }
 }

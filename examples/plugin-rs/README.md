@@ -6,7 +6,7 @@ This is the narrative tour of the three SDK conveniences a lower-level host woul
 
 A **Service** is a host object the plugin calls like a constant. The host binds one as `Notes::Store`, and the plugin reaches it as `Notes::Store.open("welcome")` with no import or setup.
 
-A **capability Handle** is a live host object the plugin holds but can never serialize or forge. `Store.open` hands back a `Note`; the plugin calls `note.title`, `note.append`, and `note.tag` on it, and every call dispatches back to the same host object. When the plugin returns the note, the host `resolve`s the returned Handle back to the very `Note` it mutated and reads the final state — the Rust spelling of restore-to-original-object.
+A **capability Handle** is a live host object the plugin holds but can never serialize or forge. `Store.open` hands back a `Note`; the plugin calls `note.title`, `note.append`, and `note.tag` on it, and every call dispatches back to the same host object. When the plugin returns the note, the host resolves the returned Handle back to the very `Note` it mutated and reads the final state — the Rust spelling of restore-to-original-object.
 
 A **block yield** runs a guest block the host drives. `note.each_tag { |name| … }` yields each tag into the plugin's block one at a time; a `break` in the block ends the iteration, and its value becomes the call's result.
 
@@ -59,4 +59,6 @@ The caps the host hard-codes are the same knobs the Ruby gem exposes as `Kobako:
 | `stderr_limit`  | 64 KiB       | Captured-stderr cap.                           |
 | `profile`       | `Hermetic`   | Ambient-denial posture: frozen clocks and entropy. |
 
-This example is a standalone cargo workspace depending on the crates.io release, so it builds and runs from this directory alone — the Guest Binary is the only artifact it needs. It requires Rust 1.86 (trait upcasting, used to recover a `Note` from a resolved Handle).
+The host objects here implement `ValueReceiver`, the overlay the SDK's bundled MessagePack schema puts on its byte-level `Receiver` seam — so a dispatch arrives as decoded values rather than payload bytes. A host speaking its own schema implements `Receiver` directly and owns its own bytes instead.
+
+This example is a standalone cargo workspace depending on the crates.io release, so it builds and runs from this directory alone — the Guest Binary is the only artifact it needs. It requires Rust 1.86, inherited from the SDK.

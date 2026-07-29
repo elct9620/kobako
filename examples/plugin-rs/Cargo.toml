@@ -14,11 +14,12 @@
 name = "kobako-plugin-host"
 version = "0.0.0"
 edition = "2021"
-# Trait-upcasting `Arc<dyn Receiver>` to `Arc<dyn Any>` in `resolve`.
+# Inherited from the SDK, which trait-upcasts to recover a host object
+# from a resolved Handle.
 rust-version = "1.86"
 publish = false
 
 [workspace]
 
 [dependencies]
-kobako = "0.12"
+kobako = "0.13"
