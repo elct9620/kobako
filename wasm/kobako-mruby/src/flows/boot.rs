@@ -7,8 +7,8 @@
 //! snippets before running the entry-specific body. When any of those
 //! steps fails, the failure surfaces as a Panic with
 //! `origin = sandbox` and `name = "Kobako::BootError"` — this module
-//! centralises both the orchestration and the Panic-construction
-//! shapes the entry flows share (`boot_panic`, `transport_panic`).
+//! centralises both the orchestration and every Panic shape the entry
+//! flows build a host-visible failure from.
 //!
 //! Snippet replay compiles each snippet under a
 //! `(snippet:Name)` filename so any uncaught exception's backtrace
@@ -45,6 +45,14 @@ pub(super) fn transport_panic(message: impl Into<String>) -> Panic {
     sandbox_panic("Kobako::Transport::Error", message)
 }
 
+/// Frame a codec refusal as the Panic the host reads it as. The class and
+/// wording are the refusal's; this only gives them the invocation
+/// boundary's envelope shape.
+#[cfg(mruby_linked)]
+pub(super) fn panic_for(refusal: &crate::refusal::Refusal) -> Panic {
+    sandbox_panic(refusal.class, refusal.message.clone())
+}
+
 /// The shape every host-detected failure at the invocation boundary
 /// shares: sandbox origin, no backtrace (the failure is the host's
 /// reading of the wire, not a guest stack), no correction to offer.
@@ -61,24 +69,6 @@ fn sandbox_panic(class: &str, message: impl Into<String>) -> Panic {
     }
 }
 
-/// Build the Panic envelope for a return value that has no wire
-/// representation. Both `__kobako_eval`
-/// and `__kobako_run` reach this when `Kobako::try_codec_value` returns
-/// `None`. A sandbox origin maps host-side to `Kobako::SandboxError`,
-/// attributing the unrepresentable-value case to the guest code;
-/// the value's class name rides the message so the developer can see
-/// which type failed without an implicit `inspect`.
-#[cfg(mruby_linked)]
-pub(super) fn unrepresentable_return_panic(kobako: &Kobako, value: beni::Value) -> Panic {
-    sandbox_panic(
-        "Kobako::SandboxError",
-        format!(
-            "return value of type {} is not a supported sandbox value type",
-            value.classname(kobako.mrb())
-        ),
-    )
-}
-
 /// Serialize `result_val` as the invocation's ok Outcome — or the
 /// matching Panic when the value has no wire representation or the
 /// envelope encode fails. The shared tail of the eval and run entry
@@ -86,16 +76,16 @@ pub(super) fn unrepresentable_return_panic(kobako: &Kobako, value: beni::Value) 
 #[cfg(mruby_linked)]
 pub(super) fn write_value_outcome<G: crate::MrbGuest>(kobako: &Kobako, result_val: beni::Value) {
     use crate::codec::{CodecError, PayloadCodec};
+    use crate::refusal::Position;
     use kobako_core::abi::{write_outcome, write_panic};
     use kobako_transport::envelope::Outcome;
 
     match G::Codec::encode_value(kobako, result_val) {
         Ok(payload) => write_outcome(Outcome::Ok(payload).encode()),
-        Err(CodecError::Unrepresentable { .. }) => {
-            write_panic(unrepresentable_return_panic(kobako, result_val))
-        }
-        Err(CodecError::Interpreter(err)) => write_panic(transport_panic(err.message())),
-        Err(CodecError::Malformed) => write_panic(transport_panic("result envelope encode failed")),
+        Err(err) => write_panic(panic_for(&crate::refusal::at(
+            Position::InvocationValue,
+            err,
+        ))),
     }
 }
 

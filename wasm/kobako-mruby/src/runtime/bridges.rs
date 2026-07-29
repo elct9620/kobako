@@ -123,6 +123,8 @@ fn forward_to_dispatch(
     sym_err_msg: &core::ffi::CStr,
     envelope_err_msg: &core::ffi::CStr,
 ) -> Value {
+    use crate::refusal::Position;
+
     use crate::dispatch::{dispatch, DispatchError};
 
     let (method_sym, rest, kwargs_hash, block) =
@@ -146,7 +148,7 @@ fn forward_to_dispatch(
     let payload = match codec_slot::get().encode_call_arguments(&kobako, rest, kwargs_hash) {
         Ok(payload) => payload,
         // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-        Err(err) => unsafe { raise_codec_error(&kobako, err, "argument", envelope_err_msg) },
+        Err(err) => unsafe { raise_refusal(&kobako, Position::CallArguments, err) },
     };
 
     // The block parks for the call's duration inside `dispatch`, so every
@@ -158,9 +160,7 @@ fn forward_to_dispatch(
         Ok(body) => match codec_slot::get().decode_reply_value(&kobako, &body) {
             Ok(value) => value,
             // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-            Err(err) => unsafe {
-                raise_codec_error(&kobako, err, "return value", envelope_err_msg)
-            },
+            Err(err) => unsafe { raise_refusal(&kobako, Position::ReplyValue, err) },
         },
         // The fault arm is the normal path for a Service raising. The
         // envelope typed it, so there is nothing left to decode and no
@@ -174,46 +174,33 @@ fn forward_to_dispatch(
     }
 }
 
-/// Raise the guest exception a codec refusal surfaces as at a dispatch
-/// call site. `label` names the slot the value came from so the wording
-/// matches the return and yield rejections; `malformed` is the caller's
-/// wire-fault message, used when the bytes themselves were unreadable.
+/// Raise, in the guest frame that provoked it, the failure a codec
+/// refusal at `position` attributes to. The attribution itself is
+/// `crate::refusal`'s; this is only its delivery into a running script.
 ///
-/// The class follows what the refusal says happened, not where it
-/// happened: a value the schema cannot carry is the script handing over
-/// the wrong type, which is a `TypeError` — the same class the yield's
-/// return value already raises for that same fact. Everything else means
-/// the exchange itself did not complete, which is a transport fault.
+/// A core class is fetched by name; anything else is kobako's own
+/// namespaced constant, which no name lookup reaches, so it comes from
+/// the class `Kobako` already holds.
 ///
 /// # Safety
 ///
 /// As `Kobako::raise_transport_error`.
-unsafe fn raise_codec_error(
+unsafe fn raise_refusal(
     kobako: &super::Kobako,
+    position: crate::refusal::Position,
     err: CodecError,
-    label: &str,
-    malformed: &core::ffi::CStr,
 ) -> ! {
-    let message = match err {
-        CodecError::Unrepresentable { type_name } => {
-            let msg = std::ffi::CString::new(format!(
-                "{label} of type {type_name} is not a supported sandbox value type"
-            ))
-            .unwrap_or_default();
-            let type_error = kobako
-                .mrb()
-                .exc_get(c"TypeError")
-                .expect("TypeError is an mruby core class");
-            // SAFETY: bridge frame — caller upholds the unwind contract.
-            unsafe { type_error.raise(kobako.mrb(), &msg) }
-        }
-        CodecError::Interpreter(err) => err.message(),
+    let refusal = crate::refusal::at(position, err);
+    let msg = std::ffi::CString::new(refusal.message).unwrap_or_default();
+    let core_class = std::ffi::CString::new(refusal.class)
+        .ok()
+        .and_then(|name| kobako.mrb().exc_get(&*name).ok());
+    match core_class {
         // SAFETY: bridge frame — caller upholds the unwind contract.
-        CodecError::Malformed => unsafe { kobako.raise_transport_error(malformed) },
-    };
-    let msg = std::ffi::CString::new(message).unwrap_or_default();
-    // SAFETY: as above.
-    unsafe { kobako.raise_transport_error(&msg) }
+        Some(class) => unsafe { class.raise(kobako.mrb(), &msg) },
+        // SAFETY: as above.
+        None => unsafe { kobako.raise_transport_error(&msg) },
+    }
 }
 
 /// `Kobako::Proxy#method_missing(name, *args)` C bridge — the single

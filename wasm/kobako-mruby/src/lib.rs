@@ -30,6 +30,7 @@ mod dispatch;
 mod flows;
 #[cfg(feature = "msgpack")]
 mod msgpack;
+mod refusal;
 mod runtime;
 
 pub use codec::{Arguments, CodecError, PayloadCodec};

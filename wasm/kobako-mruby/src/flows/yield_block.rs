@@ -72,11 +72,8 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     let args = match G::Codec::decode_yield_arguments(&kobako, req) {
         Ok(args) => args,
         Err(err) => {
-            return write_error_response(
-                "Kobako::Transport::Error",
-                codec_failure_message(err, "block argument"),
-                Vec::new(),
-            )
+            let refusal = crate::refusal::at(crate::refusal::Position::YieldArguments, err);
+            return write_error_response(refusal.class, refusal.message, Vec::new());
         }
     };
 
@@ -144,46 +141,23 @@ fn classify_protected_error<G: crate::MrbGuest>(
     }
 }
 
-/// Phrase a codec refusal for the guest-visible error arm. `label`
-/// names the slot the value came from, keeping each arm's wording.
-#[cfg(mruby_linked)]
-fn codec_failure_message(err: crate::codec::CodecError, label: &str) -> String {
-    use crate::codec::CodecError;
-    match err {
-        CodecError::Unrepresentable { type_name } => {
-            format!("{label} of type {type_name} is not a supported sandbox value type")
-        }
-        CodecError::Interpreter(err) => err.message(),
-        CodecError::Malformed => format!("failed to read the {label}"),
-    }
-}
-
-/// Encode a value-carrying Yield Reply (the ok or break arm). A value
-/// with no representation in this guest's schema surfaces as an error arm
-/// carrying a TypeError — the host Yielder reifies it at the Service's
-/// yield site — rather than being coerced to a String.
+/// Encode a value-carrying Yield Reply (the ok or break arm). A value the
+/// schema cannot write surfaces as an error arm the host Yielder reifies
+/// at the Service's yield site, rather than being coerced to a String.
 #[cfg(mruby_linked)]
 fn encode_value_response<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     value: beni::Value,
     arm: fn(Vec<u8>) -> YieldReply,
-    type_label: &str,
+    position: crate::refusal::Position,
 ) -> Vec<u8> {
-    use crate::codec::{CodecError, PayloadCodec};
+    use crate::codec::PayloadCodec;
     match G::Codec::encode_value(kobako, value) {
         Ok(payload) => arm(payload).encode(),
-        // An unrepresentable value is the guest's own type error; bytes the
-        // schema could not write are a transport fault.
-        Err(err @ CodecError::Unrepresentable { .. }) => encode_error_bytes(
-            "TypeError",
-            &codec_failure_message(err, type_label),
-            Vec::new(),
-        ),
-        Err(err) => encode_error_bytes(
-            "Kobako::Transport::Error",
-            &codec_failure_message(err, type_label),
-            Vec::new(),
-        ),
+        Err(err) => {
+            let refusal = crate::refusal::at(position, err);
+            encode_error_bytes(refusal.class, &refusal.message, Vec::new())
+        }
     }
 }
 
@@ -192,7 +166,8 @@ fn encode_break_response<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     value: beni::Value,
 ) -> Vec<u8> {
-    encode_value_response::<G>(kobako, value, YieldReply::Break, "break value")
+    use crate::refusal::Position;
+    encode_value_response::<G>(kobako, value, YieldReply::Break, Position::BreakValue)
 }
 
 #[cfg(mruby_linked)]
@@ -200,7 +175,8 @@ fn encode_ok_response<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     value: beni::Value,
 ) -> Vec<u8> {
-    encode_value_response::<G>(kobako, value, YieldReply::Ok, "block return value")
+    use crate::refusal::Position;
+    encode_value_response::<G>(kobako, value, YieldReply::Ok, Position::BlockReturnValue)
 }
 
 #[cfg(mruby_linked)]

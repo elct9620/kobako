@@ -89,10 +89,9 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     };
     let arguments = match G::Codec::decode_run_arguments(&kobako, &run.payload) {
         Ok(arguments) => arguments,
-        Err(_) => {
-            return write_panic(boot::transport_panic(
-                "failed to decode the invocation arguments",
-            ));
+        Err(err) => {
+            let refusal = crate::refusal::at(crate::refusal::Position::RunArguments, err);
+            return write_panic(boot::panic_for(&refusal));
         }
     };
 
