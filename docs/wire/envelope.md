@@ -121,10 +121,10 @@ The per-invocation final result, written to OUTCOME_BUFFER by the invocation exp
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `tag` | `u8` | `0x01` — a Result follows; `0x02` — a Panic follows. No other value is legal. |
+| `tag` | `u8` | `0x01` ok — the invocation's value follows; `0x02` — a Panic follows. No other value is legal. |
 | `body` | remainder | `tag=0x01`: the invocation's value, encoded by the payload codec. `tag=0x02`: a Panic. |
 
-A Result is the value alone — the `tag` already discriminates the variant, so no further framing is added.
+The ok body is the value alone — the `tag` already discriminates the variant, so no further framing is added.
 
 A zero-length OUTCOME_BUFFER or any other tag is a wire violation; the host raises `Kobako::TrapError`.
 

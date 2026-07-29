@@ -18,8 +18,8 @@ If no trap occurred, the Host Gem frames the outcome bytes produced by `__kobako
 | Outcome arm | State | Raised class |
 |-------------|-------|--------------|
 | — | The bytes are not an Outcome the envelope can frame, an absent outcome included | `Kobako::TrapError` — wire violation fallback (a *wire violation* is any guest binary output that does not conform to the wire codec; → [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Type Mapping) |
-| Result | The value decodes | Return value (no error raised) |
-| Result | The payload codec cannot read the value | `Kobako::SandboxError` |
+| ok | The value decodes | Return value (no error raised) |
+| ok | The payload codec cannot read the value | `Kobako::SandboxError` |
 | Panic | `origin == "service"` | `Kobako::ServiceError` |
 | Panic | any other `origin` | `Kobako::SandboxError` |
 
@@ -53,9 +53,9 @@ Raised when the guest execution environment ran to completion but the overall ex
 |---|---------|--------------------------|
 | E-04 | Guest mruby script raises an uncaught exception (e.g., `RuntimeError`, `NoMethodError`) that reaches the top level of the invocation export (`__kobako_eval` or `__kobako_run`) — including a raise inside a guest callback a capability gem invokes (B-51) | B-02, B-03 — script execution; B-51 — capability-gem callback raise |
 | E-05 | The guest fails to compile the source supplied to `#eval` before any execution begins | B-02 — fresh invocation |
-| E-06 | The invocation's return value has no wire representation — the `#eval` last expression or the `#run` entrypoint's `#call` return is a raw mruby `Object` with no MessagePack encoding, nests beyond the maximum encodable depth (a reference cycle necessarily does; → [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Structural Nesting Depth), or is a `Symbol` whose name is not UTF-8 (→ [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Text and Bytes); the Result arm is present but its value fails to decode | B-06, B-31 — return value semantics |
+| E-06 | The invocation's return value has no wire representation — the `#eval` last expression or the `#run` entrypoint's `#call` return is a raw mruby `Object` with no MessagePack encoding, nests beyond the maximum encodable depth (a reference cycle necessarily does; → [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Structural Nesting Depth), or is a `Symbol` whose name is not UTF-8 (→ [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Text and Bytes); the ok arm is present but its value fails to decode | B-06, B-31 — return value semantics |
 | E-07 | Handle issuance for the returned object fails because the per-invocation Handle counter has reached `0x7fff_ffff` (2³¹ − 1); raised as the `Kobako::HandleExhaustedError` subclass | B-21 — Handle counter exhaustion |
-| E-09 | The Outcome's Result arm carries a value the payload codec cannot read | Step 2 attribution; B-06 fallback |
+| E-09 | The Outcome's ok arm carries a value the payload codec cannot read | Step 2 attribution; B-06 fallback |
 | E-55 | Guest passes a dispatch argument, kwargs value, or keyword name with no wire representation — a value outside the 11-entry wire type set, a collection nesting beyond the maximum encodable depth (a reference cycle necessarily does; → [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Structural Nesting Depth), or a name that is not UTF-8 — a `Symbol` value's, or a keyword's (→ [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Text and Bytes). The guest rejects it at the dispatch call site rather than coercing it to an `Object#to_s` string, uniform with the return-value (E-06) and yield-block (E-22) rejections | B-12 — dispatch argument conversion |
 | E-21 | Guest block uses `return val` while its enclosing method is still on the guest call stack (non-lambda, non-orphan Proc); the unwind crosses the host yield boundary, which is unrepresentable on the wire | B-24 — yield round-trip |
 | E-22 | Guest block returns a value that has no MessagePack wire representation per [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Type Mapping, that nests beyond the maximum encodable depth (a reference cycle necessarily does; § Structural Nesting Depth), or that is a `Symbol` whose name is not UTF-8 (§ Text and Bytes) | B-24 — yield round-trip |
