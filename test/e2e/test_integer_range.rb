@@ -49,4 +49,22 @@ class TestE2EIntegerRange < Minitest::Test
       sandbox.run(:Echo, OVER_I32)
     end
   end
+
+  # The third inbound direction, and the only one whose refusal takes
+  # three hops: the block never runs, so the guest answers the Yield Reply
+  # with its error arm, the host re-raises that at the Service's own yield
+  # site, and the Service raising is what the script finally sees.
+  def test_yield_argument_above_i32_range_is_refused_at_the_yield_site
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Probe::Feed", ->(&blk) { blk.call(OVER_I32) })
+
+    err = assert_raises(Kobako::ServiceError) do
+      sandbox.eval("Probe::Feed.call { |x| x }")
+    end
+
+    assert_match(/Transport::Error.*32-bit Integer range/, err.message,
+                 "a yield argument above the guest's 32-bit range through Sandbox#eval must " \
+                 "reach the script naming both the hop that refused and the range it " \
+                 "exceeded, since the block never runs to report anything else")
+  end
 end

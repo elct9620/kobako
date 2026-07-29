@@ -59,6 +59,24 @@ class TestE2EYieldUnwind < Minitest::Test
                  "must surface as a LocalJumpError at the yield site")
   end
 
+  # The `break` value crosses the wire like any other, so a value with no
+  # representation is refused there too — the sibling of the block-return
+  # rejection (E-22), on the one arm that returns to the guest rather than
+  # to host code.
+  def test_break_value_with_no_wire_representation_is_refused
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
+
+    err = assert_raises(Kobako::ServiceError) do
+      sandbox.eval("Probe::Each.call([1, 2]) { |x| break Object.new }")
+    end
+
+    assert_match(/TypeError: break value of type Object/, err.message,
+                 "a `break` value with no wire representation through Sandbox#eval must be " \
+                 "refused as a type error naming the break slot — the block-return rejection " \
+                 "raises the same class, so only the slot tells the two arms apart")
+  end
+
   # B-28: nested dispatch frames each carry their own Yielder. An
   # inner +break+ terminates only the inner Service; the outer block
   # resumes normally. The guest's BLOCK_STACK pushes / pops in strict
