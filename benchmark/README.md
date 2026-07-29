@@ -363,7 +363,7 @@ YJIT is not turned on by the suite. Use `RUBY_YJIT_ENABLE=1 bundle exec rake ben
 
 ## Result files
 
-Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`:
+Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`. The probes of one round share that file, and a round that merges into a file an earlier one left behind re-stamps `env` — so the machine state a file reports always belongs to the round its newest suites were captured in, rather than to whichever round created the file:
 
 ```json
 {

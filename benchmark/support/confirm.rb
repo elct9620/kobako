@@ -86,7 +86,7 @@ module Kobako
       def run_arm(wasm)
         Dir.mktmpdir("kobako-confirm") do |dir|
           out, status = Open3.capture2(
-            { Guest::ENV_KEY => wasm, Runner::RESULTS_DIR_ENV => dir },
+            { Guest::ENV_KEY => wasm, Results::RESULTS_DIR_ENV => dir },
             "bundle", "exec", "ruby", SCRIPT
           )
           raise "bench:confirm arm failed:\n#{out}" unless status.success?

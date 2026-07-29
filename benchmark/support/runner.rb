@@ -1,12 +1,8 @@
 # frozen_string_literal: true
 
-require "fileutils"
-require "json"
-require "time"
-
-require_relative "env"
 require_relative "one_shot"
 require_relative "paths"
+require_relative "results"
 require_relative "smoke"
 require_relative "stats"
 require_relative "usage_sampler"
@@ -43,22 +39,22 @@ module Kobako
     # subtraction.
     class Runner
       include OneShot
+      include Results
       include Smoke
-
-      # +bench:confirm+ points each arm's output at a throwaway directory so
-      # the paired runs never collide with a real benchmark/results file.
-      RESULTS_DIR_ENV = "KOBAKO_BENCH_RESULTS_DIR"
 
       attr_reader :suite, :results
 
       # +suite+ identifies the benchmark group (matches the filename
       # under benchmark/, minus the .rb extension). +time+ and +warmup+
       # are CPU-time budgets in seconds; the measurement phase ends as
-      # soon as cumulative CPU time exceeds +time+.
-      def initialize(suite, time: 3, warmup: 1)
+      # soon as cumulative CPU time exceeds +time+. +lock+ is an internal
+      # seam naming the run-in-progress marker that bounds a round; tests
+      # point it at a tmp path rather than the repository's own.
+      def initialize(suite, time: 3, warmup: 1, lock: Paths::LOCK)
         @suite = suite
         @time = time
         @warmup = warmup
+        @lock = lock
         @results = []
         @smoke = ENV.fetch(Smoke::ENV_NAME, nil) == "1"
       end
@@ -102,24 +98,6 @@ module Kobako
         return if smoke?
 
         @results.last.merge!(UsageSampler.sample(&block))
-      end
-
-      # Persist the collected results to
-      # +benchmark/results/<date>-<sha>.json+. Returns the absolute path.
-      # Existing files for the same +(date, sha)+ pair are merged so
-      # multiple +Runner+ instances within one invocation share a single
-      # output file. A smoke pass writes nothing: its rows carry no
-      # measurement, and merging them would replace a real capture's
-      # suite under the same +(date, sha)+ name.
-      def write!
-        return "#{@suite}: smoked, not measured — no results written" if smoke?
-
-        FileUtils.mkdir_p(results_dir)
-        path = result_path
-        payload = load_payload(path)
-        payload["suites"][@suite] = @results.map { |r| r.transform_keys(&:to_s) }
-        File.write(path, JSON.pretty_generate(payload))
-        path
       end
 
       private
@@ -195,24 +173,6 @@ module Kobako
         return format("%.2fk i/s", ips / 1_000.0) if ips < 1_000_000
 
         format("%.2fM i/s", ips / 1_000_000.0)
-      end
-
-      def result_path
-        env = Env.snapshot
-        date = Time.now.utc.strftime("%Y-%m-%d")
-        File.join(results_dir, "#{date}-#{env[:git_sha]}.json")
-      end
-
-      # The KOBAKO_BENCH_RESULTS_DIR override when set, else the committed
-      # +benchmark/results+ directory.
-      def results_dir
-        ENV.fetch(RESULTS_DIR_ENV, nil) || Paths::RESULTS_DIR
-      end
-
-      def load_payload(path)
-        return JSON.parse(File.read(path)) if File.exist?(path)
-
-        { "env" => Env.snapshot.transform_keys(&:to_s), "suites" => {} }
       end
     end
   end

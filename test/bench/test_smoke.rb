@@ -12,6 +12,7 @@ require_relative "../../benchmark/support/runner"
 # benchmarks into a single unmeasured iteration.
 class KobakoBenchSmokeTest < Minitest::Test
   Runner = Kobako::Bench::Runner
+  Results = Kobako::Bench::Results
   Smoke = Kobako::Bench::Smoke
 
   def test_a_case_under_smoke_runs_its_body_exactly_once
@@ -65,11 +66,11 @@ class KobakoBenchSmokeTest < Minitest::Test
   # Drive one smoked case through the whole write path with the results
   # directory pointed at +dir+, restoring the override afterwards.
   def smoked_write_into(dir)
-    prior = ENV.fetch(Runner::RESULTS_DIR_ENV, nil)
-    ENV[Runner::RESULTS_DIR_ENV] = dir
+    prior = ENV.fetch(Results::RESULTS_DIR_ENV, nil)
+    ENV[Results::RESULTS_DIR_ENV] = dir
     smoking { Runner.new("t").tap { |runner| runner.case("a") { nil } }.write! }
   ensure
-    ENV[Runner::RESULTS_DIR_ENV] = prior
+    ENV[Results::RESULTS_DIR_ENV] = prior
   end
 
   # Run the block with the smoke flag set, restoring the prior value so
