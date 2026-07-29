@@ -13,7 +13,12 @@ use std::fmt;
 /// kinds a frontend surfaces distinctly: the wall-clock cap (`Timeout`),
 /// the linear-memory cap (`MemoryLimit`), and every other engine fault
 /// (`Other`).
+///
+/// Non-exhaustive: a frontend matches this to reach its own error classes,
+/// and a later kind must not break that match. `Other` is where an
+/// unrecognised one belongs.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Trap {
     Timeout(String),
     MemoryLimit(String),
@@ -26,7 +31,11 @@ pub enum Trap {
 /// could not be constructed), and `Intact` (the runtime is live but a
 /// host-side pre-call step failed, so no discard-and-recreate recovery is
 /// owed).
+///
+/// Non-exhaustive, as `Trap`: a frontend maps each state onto its own
+/// class, and a later state must not break that match.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SetupError {
     ModuleNotBuilt(String),
     Dead(String),
@@ -42,6 +51,7 @@ pub enum SetupError {
 /// Named for where it comes from — the `Err` of `Runtime::invoke` — so a
 /// host that also has its own `Error` in scope can hold both.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum InvokeError {
     Trap(Trap),
     Setup(SetupError),

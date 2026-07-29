@@ -104,6 +104,9 @@ impl From<kobako_runtime::error::InvokeError> for Error {
         match err {
             kobako_runtime::error::InvokeError::Trap(trap) => trap.into(),
             kobako_runtime::error::InvokeError::Setup(setup) => Error::Setup(setup),
+            // A channel this frontend does not know is still a run that
+            // never started, which the taxonomy attributes to the engine.
+            other => Error::Trap(other.to_string()),
         }
     }
 }
@@ -113,7 +116,9 @@ impl From<kobako_runtime::error::Trap> for Error {
         match trap {
             kobako_runtime::error::Trap::Timeout(msg) => Error::Timeout(msg),
             kobako_runtime::error::Trap::MemoryLimit(msg) => Error::MemoryLimit(msg),
-            kobako_runtime::error::Trap::Other(msg) => Error::Trap(msg),
+            // A cap with no variant of its own here is still an engine
+            // fault, so it takes the base arm rather than another cap's.
+            other => Error::Trap(other.to_string()),
         }
     }
 }

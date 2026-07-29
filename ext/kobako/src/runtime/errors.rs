@@ -64,7 +64,9 @@ pub(super) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
     match trap {
         Trap::Timeout(msg) => error_in(ruby, &TIMEOUT_ERROR, msg),
         Trap::MemoryLimit(msg) => error_in(ruby, &MEMORY_LIMIT_ERROR, msg),
-        Trap::Other(msg) => trap_err(ruby, msg),
+        // A cap with no named subclass here is still an engine fault, so it
+        // takes the base class rather than borrowing another cap's name.
+        other => trap_err(ruby, other.to_string()),
     }
 }
 
@@ -78,6 +80,9 @@ pub(super) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {
         // attributes to the sandbox / wire layer, not the engine — no
         // discard-and-recreate recovery is owed, so never a TrapError.
         SetupError::Intact(msg) => error_in(ruby, &SANDBOX_ERROR, msg),
+        // An unrecognised state is one this frontend cannot promise is
+        // recoverable, so it takes the same class as `Dead`.
+        other => error_in(ruby, &SETUP_ERROR, other.to_string()),
     }
 }
 
@@ -88,5 +93,8 @@ pub(super) fn to_magnus(ruby: &Ruby, err: InvokeError) -> MagnusError {
     match err {
         InvokeError::Trap(trap) => trap_to_magnus(ruby, trap),
         InvokeError::Setup(err) => setup_to_magnus(ruby, err),
+        // A channel this frontend does not know is still a run that never
+        // started, which the taxonomy attributes to the engine.
+        other => trap_err(ruby, other.to_string()),
     }
 }

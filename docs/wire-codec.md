@@ -30,8 +30,9 @@ The obligations are positions to fill, not an encoding to use. A codec that fill
 
 | Obligation | Why the contract needs it |
 |------------|---------------------------|
-| Call and Run payloads express positional and keyword arguments distinguishably | The host dispatches through `public_send`, where the two are not interchangeable |
 | A Yield Reply ok or break body and an Outcome result body each carry one value | These are single-value positions; a codec needs no framing beyond its own value encoding |
+| A Call payload expresses positional and keyword arguments distinguishably | The host dispatches through `public_send`, where the two are not interchangeable — and the guest hands the codec the two already separated, so folding them together loses the keywords silently |
+| A Run payload and a Yield Call carry their arguments alone | Neither position has keywords: a `#run` payload's ride as a trailing Hash the entrypoint reads positionally, and a Yield Call's arguments are a plain list |
 
 A Reply's fault body is not among them. Every byte of a Fault is kobako's — a closed category and a message — so it rides the envelope (→ [`wire/envelope.md`](wire/envelope.md) § Fault) and a replacement codec neither encodes nor reads one. A guest that speaks another schema still reads a refusal, and reads it without a codec at all.
 

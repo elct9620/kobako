@@ -105,11 +105,11 @@ A zero-length Yield Reply is a wire violation.
 
 The guest's report that something it was running raised. A block failure and an invocation failure share this layout, and the host re-raises from these fields without consulting the payload codec.
 
-It is distinct from a Fault (§ Reply), which travels the other way and carries a closed category instead of a class name — and, being host-to-guest, no backtrace.
+It is distinct from a Fault (§ Reply), which travels the other way and carries a closed category instead of an error's own name — and, being host-to-guest, no backtrace.
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `class` | `bytes` | Exception class name as UTF-8 (`"LocalJumpError"`, `"RuntimeError"`). |
+| `name` | `bytes` | The error's name as UTF-8 (`"LocalJumpError"`, `"RuntimeError"`) — a class name on a guest whose language has them. |
 | `message` | `bytes` | Human-readable description as UTF-8. |
 | `backtrace` | `list<bytes>` | mruby backtrace, one UTF-8 line per element. An empty list is legal. |
 
@@ -135,7 +135,7 @@ The Error Record plus the fields attribution and correction need.
 | Field | Type | Meaning |
 |-------|------|---------|
 | `origin` | `bytes` | `"sandbox"` (mruby script error or boot fault) or `"service"` (unrescued Service failure) as UTF-8. An unrecognized value attributes as `"sandbox"`. |
-| `class` | `bytes` | Exception class name as UTF-8. |
+| `name` | `bytes` | The error's name as UTF-8. |
 | `message` | `bytes` | Exception message as UTF-8. |
 | `backtrace` | `list<bytes>` | mruby backtrace, one UTF-8 line per element. |
 | `available` | `list<bytes>` | The names the invocation could have used in place of the one it named, as UTF-8 — the top-level constants a `#run` entrypoint failed to resolve against. An empty list is legal and means the failure offers no correction. |

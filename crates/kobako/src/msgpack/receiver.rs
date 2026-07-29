@@ -13,11 +13,11 @@ use crate::yielder::Yielder;
 /// A Receiver that speaks a value tree: positional and keyword arguments
 /// as wire `Value`s, answering with one.
 ///
-/// The shape is a class of codec's, not one codec's — any schema that can
-/// carry the whole `Value` set fills it, and the bundled MessagePack one
-/// is the instance in this build. A schema that cannot carry some of the
-/// set (JSON has no byte string and no ext) does not belong here; it
-/// implements `Receiver` directly and owns its own bytes.
+/// The value tree is this schema's, not a neutral one — four of its
+/// variants come straight from MessagePack's type mapping. A schema shaped
+/// the same way can reuse it; one that is not (JSON has no byte string and
+/// no ext) does not belong here, and its host implements `Receiver`
+/// directly and owns its own bytes.
 ///
 /// `into_receiver` is how one reaches the byte-level seam every binding
 /// site takes.

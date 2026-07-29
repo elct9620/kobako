@@ -98,7 +98,7 @@ msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following r
 | `args` elements and `kwargs` values | str or bin (context-determined) | both are legal |
 | Reply ok body, Yield Reply ok / break body, Outcome result body | str or bin (context-determined) | both are legal |
 
-The core envelope's own text fields — `target`, `method`, `entrypoint`, `origin`, `class`, `message`, backtrace lines, snippet names — are length-prefixed UTF-8 byte strings at that layer and never reach this codec (→ [`envelope.md`](envelope.md)).
+The core envelope's own text fields — `target`, `method`, `entrypoint`, `origin`, `name`, `message`, backtrace lines, snippet names — are length-prefixed UTF-8 byte strings at that layer and never reach this codec (→ [`envelope.md`](envelope.md)).
 
 Symbols travel as ext 0x00. A Symbol encoded on one side and decoded on the other arrives as a Symbol with the same UTF-8 name; symbol identity across the wire is established by name equality, not by interned-id sharing. A `str` or `bin` value carrying the bytes of a symbol name is **not** wire-equivalent to that Symbol; the two are distinguishable on the wire and must remain distinguishable end-to-end.
 

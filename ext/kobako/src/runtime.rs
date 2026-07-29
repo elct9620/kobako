@@ -440,7 +440,9 @@ impl Snapshot {
         match &self.completion {
             Completion::Trap(Trap::Timeout(_)) => Some(ruby.to_symbol("timeout")),
             Completion::Trap(Trap::MemoryLimit(_)) => Some(ruby.to_symbol("memory_limit")),
-            Completion::Trap(Trap::Other(_)) => Some(ruby.to_symbol("trap")),
+            // A cap this frontend has no named subclass for is still a
+            // trap; the base class is what the taxonomy owes it.
+            Completion::Trap(_) => Some(ruby.to_symbol("trap")),
             Completion::Outcome(_) => None,
         }
     }
@@ -448,9 +450,7 @@ impl Snapshot {
     /// The trap's message, or `nil` on a completed run.
     fn trap_message(&self) -> Option<String> {
         match &self.completion {
-            Completion::Trap(Trap::Timeout(msg) | Trap::MemoryLimit(msg) | Trap::Other(msg)) => {
-                Some(msg.clone())
-            }
+            Completion::Trap(trap) => Some(trap.to_string()),
             Completion::Outcome(_) => None,
         }
     }

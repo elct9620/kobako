@@ -13,21 +13,39 @@ Which of these interfaces you will meet at all depends on where you build
 from; [`architecture.md`](architecture.md) is that map, and reading it first
 saves implementing a seam your starting point already fixed.
 
-Public names declared here are graded commitments, not guidance (N-9): a name
-listed as stable does not change without an ABI version increment, and a
-listed obligation is what an implementation is held to.
+Public names declared here are graded commitments, not guidance (N-9). A grade
+says what kobako owes you, and it is set by what you do with the name:
+
+| Grade | What you do with it | What kobako promises |
+|---|---|---|
+| **stable** | write the name in your own signatures | it does not change name or shape without a version increment of the crate that owns it |
+| **append-only** | match it or implement it, and it is a set — an enum's variants, a trait's methods | the set only gains members; existing ones do not move. Enums carry `#[non_exhaustive]`, new trait methods carry a default |
+| **replaceable** | write your own in place of kobako's | the obligations below are the whole of what your implementation owes; kobako swapping its own implementation is not a break |
+
+Source compatibility is the owning crate's semantic version; wire
+compatibility is the ABI version. They are separate — a rename moves no byte,
+and a wire change need not touch a name. The one group both govern is the
+fixed tier, where the shape of the name *is* the wire.
 
 ## What is replaceable
 
-| Point | Interface | Endpoint |
-|---|---|---|
-| Payload codec | `MrbGuest::Codec: PayloadCodec` | guest |
-| Payload codec | the byte-level payload surface, `msgpack` feature off | Rust host SDK |
-| Capability set | `MrbGuest::init_gems` | guest |
-| Invocation flow | a `Guest` method implemented rather than forwarded | guest |
-| The whole guest | `impl kobako_core::Guest` + `export_guest!` | guest |
-| Wasm engine | `impl Runtime`, handed to `Sandbox::with_runtime` | Rust host SDK |
-| Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | a host frontend of your own |
+| Point | Interface | Endpoint | Grade |
+|---|---|---|---|
+| Payload codec | `MrbGuest::Codec: PayloadCodec` | guest | replaceable · methods append-only |
+| Payload codec | the byte-level payload surface, `msgpack` feature off | Rust host SDK | stable |
+| Capability set | `MrbGuest::init_gems` | guest | replaceable |
+| Invocation flow | a `Guest` method implemented rather than forwarded | guest | replaceable · methods append-only |
+| The whole guest | `impl kobako_core::Guest` + `export_guest!` | guest | replaceable · methods append-only |
+| Wasm engine | `impl Runtime`, handed to `Sandbox::with_runtime` | Rust host SDK | replaceable |
+| Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | a host frontend of your own | replaceable |
+
+The types those seams carry, by grade:
+
+| Grade | Names |
+|---|---|
+| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, Arguments, dispatch}` · `kobako_runtime::{Profile, Snapshot, Capture, Completion, Usage, Entry, Frames}` · `kobako::{Sandbox, Options, Execution, Context, Handles, RunPayload}` |
+| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::CodecError` · `kobako_runtime::{Trap, SetupError, InvokeError}` · `kobako::{Error, Failure, YieldError}` |
+| **stable, and governed by the ABI version too** | `kobako_transport::abi::*` · `kobako_transport::envelope::*` · `kobako::FaultKind` |
 
 Two things stay fixed. The **core envelope** and the **ABI surface** are the
 same for every assembly — that is what makes the parts interchangeable at all
@@ -65,8 +83,16 @@ must provide):
 
 | Position | What the codec must express |
 |---|---|
-| Call and Run payload | positional and keyword arguments, distinguishably |
 | Yield Reply ok / break body, Outcome result body | one value |
+| Call payload | positional and keyword arguments, distinguishably |
+| Run payload, Yield Call | the arguments alone; neither carries keywords |
+
+Only the Call payload owes the distinction, and it owes it because that is
+where keywords exist: the guest hands the codec a separated rest slice and
+keyword Hash, so a codec that folds them together makes `KV.get(key, limit: 9)`
+lose `limit:` with nothing raising. A `#run` payload's keywords ride as a
+trailing Hash the entrypoint reads positionally, and a Yield Call's arguments
+are a plain list — a codec serving only those two never faces the question.
 
 A Handle representation is optional. Without one, Handles ride only the
 envelope's `target` field — a guest still reaches a stateful receiver and only
@@ -91,11 +117,13 @@ A Rust host names its choice by what it builds against. Every payload position
 is bytes by default, and the `msgpack` feature adds the bundled codec's
 spelling of each in a `msgpack` module — `ValueReceiver` and its
 `into_receiver`, `RunPayload::values`, `Yielder::call_values`,
-`Execution::value`, and `resolve_as` for reaching a bound object back through
-the seam `into_receiver` puts in front of it. A host with its own schema turns
-the feature off and implements the byte-level surface. A verb belongs to no
-spelling: `run` takes whichever payload it is handed, so the feature governs
-what a host is offered, never what it can reach.
+`Execution::value`, `resolve_as` for reaching a bound object back through the
+seam `into_receiver` puts in front of it, and the `Value` they all speak. Every
+one of them lives in that module rather than at the crate root, which is what
+makes turning the feature off remove a spelling rather than leave a hole. A
+host with its own schema turns it off and implements the byte-level surface. A
+verb belongs to no spelling: `run` takes whichever payload it is handed, so the
+feature governs what a host is offered, never what it can reach.
 
 A type implementing two schemas' receiver traits has two `into_receiver` in
 scope, and a call is ambiguous until one is named
@@ -176,6 +204,12 @@ engine's own caps are configured where the engine is built, and the SDK checks
 the posture the engine declares against the floor the host asked for, refusing
 construction below it rather than trusting the declaration. `Sandbox::new` is
 the same path with the bundled wasmtime engine built for you.
+
+**Building without one.** As with the codec, the engine's replaceability is a
+property of the dependency graph. `kobako`'s `wasmtime` feature is on by
+default and carries `Sandbox::new`; with it off the crate reaches no engine at
+all, and `with_runtime` is the only way in. kobako builds it that way on every
+release and checks that no engine appears in the resulting graph.
 
 The Ruby frontend takes no such seam. `Kobako::Runtime` is pinned to the
 wasmtime driver, so engine choice there means choosing a different frontend.
