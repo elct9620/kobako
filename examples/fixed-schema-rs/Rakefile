@@ -1,0 +1,86 @@
+# frozen_string_literal: true
+
+# Build chain for this example's Guest Binary.
+# ============================================
+#
+# Three stages, the same three any kobako guest takes:
+#
+#   A+B  beni vendors the wasi-sdk + mruby toolchains and builds
+#        `libmruby.a` against `build_config/wasi.rb`   (`rake beni:build`)
+#   C    cargo cross-compiles the shell cdylib against that archive
+#   bake `kobako-baker` pre-initialises the booted interpreter into the
+#        artifact, so an invocation never pays boot
+#
+# The bake is optional and skipped when the tool is absent: a guest that
+# was not baked boots lazily on its first entry, which costs time but
+# changes no behaviour.
+
+require "fileutils"
+
+require "beni/tasks"
+
+# Stages A+B. `vendor_dir` follows beni's own default — `BENI_VENDOR_DIR`
+# when set, otherwise `vendor/` here — so an existing toolchain tree can
+# be reused instead of fetched again.
+Beni::Tasks.new do
+  build_config "build_config/wasi.rb"
+
+  target :wasi do
+    toolchain "wasi-sdk"
+  end
+end
+
+ROOT = __dir__
+VENDOR_DIR = ENV["BENI_VENDOR_DIR"] || File.join(ROOT, "vendor")
+WASI_SDK_DIR = ENV["WASI_SDK_PATH"] || File.join(VENDOR_DIR, "wasi-sdk")
+MRUBY_LIB_DIR = File.join(VENDOR_DIR, "mruby", "build", "wasi", "lib")
+LIBMRUBY = File.join(MRUBY_LIB_DIR, "libmruby.a")
+
+WASM_TARGET = "wasm32-wasip1"
+GUEST_MANIFEST = File.join(ROOT, "guest", "shell", "Cargo.toml")
+LINKED_WASM = File.join(ROOT, "guest", "target", WASM_TARGET, "release", "kv_guest.wasm")
+GUEST_WASM = File.join(ROOT, "guest.wasm")
+
+# The bake tool, by `cargo install kobako-baker` or an explicit path.
+BAKER = ENV["KOBAKO_BAKER"] || "kobako-baker"
+
+desc "Cross-compile the guest shell and bake the Guest Binary (guest.wasm)"
+task build: ["beni:build"] do
+  raise "expected #{LIBMRUBY}; run `rake beni:build` first" unless File.exist?(LIBMRUBY)
+
+  # The linker is deliberately left at cargo's default for this target,
+  # rust-lld, which links a cdylib with `--no-entry` and no PIC
+  # requirement. Driving wasm-ld through the wasi-sdk clang instead would
+  # demand PIC relocations that neither libmruby.a nor the Rust
+  # wasm32-wasip1 prebuilts carry. The CC / AR pair is exported for any
+  # build script that compiles C, not for the Rust link step.
+  env = {
+    "CC_#{WASM_TARGET}" => File.join(WASI_SDK_DIR, "bin", "clang"),
+    "AR_#{WASM_TARGET}" => File.join(WASI_SDK_DIR, "bin", "llvm-ar"),
+    "WASI_SDK_PATH" => WASI_SDK_DIR,
+    # Where `beni-sys` looks for the archive to link.
+    "MRUBY_LIB_DIR" => MRUBY_LIB_DIR
+  }
+  args = ["cargo", "build", "--manifest-path", GUEST_MANIFEST, "--release", "--target", WASM_TARGET]
+  raise "cargo build failed" unless system(env, *args)
+
+  bake(LINKED_WASM, GUEST_WASM)
+  puts "Guest Binary ready at #{GUEST_WASM} (#{File.size(GUEST_WASM)} bytes)"
+end
+
+desc "Remove the Guest Binary and the cargo target directories"
+task :clean do
+  FileUtils.rm_f(GUEST_WASM)
+  FileUtils.rm_rf([File.join(ROOT, "guest", "target"), File.join(ROOT, "host", "target")])
+end
+
+# Bake +input+ into +output+, or copy it through when the tool is absent.
+def bake(input, output)
+  return if system(BAKER, input, output)
+
+  puts "kobako-baker not run (install it with `cargo install kobako-baker`); " \
+       "shipping the unbaked module, which boots on its first invocation instead"
+  FileUtils.cp(input, output)
+end
+
+task default: :build

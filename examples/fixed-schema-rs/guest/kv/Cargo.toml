@@ -1,0 +1,38 @@
+# kv — the capability gem carrying this example's fixed schema.
+#
+# A gem, not a codec, because a fixed schema has to be chosen before the
+# arguments are read and a `PayloadCodec` is handed arguments alone. The
+# methods here are real Ruby methods, so each body knows which message it
+# is encoding before it looks at anything.
+#
+# Unlike a capability gem that only adds guest-local behaviour, this one
+# reaches the wire — and that costs it exactly one tier, `kobako-mruby`,
+# whose `dispatch` rounds a Call through the host and parks any block for
+# its duration. That tier carries no payload codec — the transport routes
+# a message it never reads — so a gem puts its own bytes on the wire
+# without linking a schema it did not choose.
+
+[package]
+name = "kv"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+
+[dependencies]
+# The typed mruby wrapper — the `Gem` trait and the class / value seams
+# the KV surface is defined through.
+beni = "0.10.0"
+
+# The mruby harness, for `dispatch` and the `Target` / `DispatchError` its
+# signature names. Named without features, so the bundled codec stays out:
+# reaching the wire does not mean inheriting a schema.
+kobako-mruby = "0.13"
+
+# The schema's encoder. Hand-annotated structs rather than a `.proto`
+# plus `prost-build`, so building this example needs no `protoc` — the
+# wire bytes are the same either way.
+prost = { version = "0.14", default-features = false, features = [
+    "derive",
+    "std",
+] }

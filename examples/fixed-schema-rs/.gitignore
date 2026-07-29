@@ -1,0 +1,4 @@
+# Build outputs. The Guest Binary is produced by `rake build`; the
+# toolchain tree is vendored by beni and can always be re-fetched.
+/guest.wasm
+/vendor/

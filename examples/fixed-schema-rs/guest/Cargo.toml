@@ -1,0 +1,21 @@
+# The guest half of the example — everything compiled for wasm32-wasip1.
+#
+# A workspace of its own, separate from `host/`, because the two halves
+# target different machines: nothing here may enter the host's graph, and
+# the wasm engine the host links must never enter this one.
+#
+#   * `shell` — the cdylib that becomes `guest.wasm`. It names the
+#     payload schema and the gem set, and emits the ABI exports.
+#   * `kv`    — the capability gem carrying the fixed schema.
+
+[workspace]
+members = ["kv", "shell"]
+resolver = "2"
+
+[profile.release]
+# Size hygiene for the artifact a host ships alongside its binary.
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

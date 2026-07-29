@@ -1,0 +1,33 @@
+# kv-host — the host half: a Sandbox whose one Service speaks protobuf.
+#
+# Its own workspace, separate from `guest/`, because the two halves
+# target different machines — the wasm engine linked here must never
+# reach the wasm32 graph next door.
+
+[package]
+name = "kv-host"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+
+[workspace]
+
+[dependencies]
+# The host SDK without its bundled codec. Every payload position has a
+# byte-level entry, so a host whose Receivers speak their own schema
+# builds with no payload codec in its graph at all — the same property
+# the guest half has, reached from the other side.
+#
+# The engine is a separate default this has to ask back for: `wasmtime`
+# carries `Sandbox::new`, and dropping every default would leave this
+# host with no way to load a Guest Binary.
+kobako = { version = "0.13", default-features = false, features = ["wasmtime"] }
+
+# The schema's encoder. The messages below are a second, independent
+# definition of what the guest gem declares: the two halves agree by the
+# bytes on the wire, not by sharing a type.
+prost = { version = "0.14", default-features = false, features = [
+    "derive",
+    "std",
+] }

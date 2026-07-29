@@ -1,0 +1,37 @@
+# kv-guest — the leaf shell that becomes `guest.wasm`.
+#
+# The shell is where a guest's choices are named: which payload schema it
+# speaks (`MrbGuest::Codec`) and which gems its scripts see
+# (`MrbGuest::init_gems`). Everything beneath it is composed, not
+# modified — this crate takes the same path the Guest Binary kobako ships
+# takes, and the harness gives it no privileges the shipped one lacks.
+
+[package]
+name = "kv-guest"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+
+[lib]
+# cdylib-only: the exports this crate emits must have exactly one
+# definition in the artifact, which no crate depending on it could keep
+# true.
+crate-type = ["cdylib"]
+
+[dependencies]
+# The guest ABI contract — `export_guest!` resolves against it.
+kobako-core = "0.13"
+
+# The mruby harness. Named without features: the bundled MessagePack
+# codec is behind one, and this shell speaks its own schema instead, so
+# nothing in this build reaches a payload codec it did not write.
+kobako-mruby = "0.13"
+
+# The capability gem this guest grants its scripts, and the only place
+# the fixed schema lives.
+kv = { path = "../kv" }
+
+# The typed mruby wrapper. Semver-compatible with what `kobako-mruby`
+# links — one artifact carries one interpreter, so the two must agree.
+beni = "0.10.0"

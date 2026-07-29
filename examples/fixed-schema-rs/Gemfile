@@ -1,0 +1,12 @@
+# frozen_string_literal: true
+
+source "https://rubygems.org"
+
+gem "rake", "~> 13.0"
+
+# Stages A+B of the guest build: vendors the wasi-sdk + mruby toolchains
+# and drives mruby's own rake against `build_config/wasi.rb`, producing
+# the `libmruby.a` the guest shell links. The Rust side of the same
+# project pins a semver-compatible `beni` crate — the wrapper and the
+# gem release together, and the guest links one interpreter.
+gem "beni", "~> 0.10.0"

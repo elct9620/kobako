@@ -1,0 +1,21 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    beni (0.10.0)
+      rake (~> 13.0)
+    rake (13.4.2)
+
+PLATFORMS
+  arm64-darwin-24
+  ruby
+
+DEPENDENCIES
+  beni (~> 0.10.0)
+  rake (~> 13.0)
+
+CHECKSUMS
+  beni (0.10.0) sha256=b48b42133c31ed1bd68cc1bb8bb009ddfc32c838e38a4c66b84042be4e337c49
+  rake (13.4.2) sha256=cb825b2bd5f1f8e91ca37bddb4b9aaf345551b4731da62949be002fa89283701
+
+BUNDLED WITH
+  4.0.14
