@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use crate::dispatch::DispatchHandler;
-use crate::error::Error;
+use crate::error::InvokeError;
 use crate::profile::Profile;
 use crate::snapshot::Snapshot;
 
@@ -47,7 +47,7 @@ pub trait Runtime {
         entry: Entry<'_>,
         frames: Frames<'_>,
         handler: Option<Arc<dyn DispatchHandler>>,
-    ) -> Result<Snapshot, Error>;
+    ) -> Result<Snapshot, InvokeError>;
 
     /// The isolation profile this runtime provides. Deliberately
     /// without a default: every engine states its posture explicitly,

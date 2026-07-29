@@ -97,13 +97,13 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-impl From<kobako_runtime::error::Error> for Error {
+impl From<kobako_runtime::error::InvokeError> for Error {
     /// Fold the contract's pre-call channel: a pre-call trap keeps its
     /// cap attribution, a setup fault stays `Setup`.
-    fn from(err: kobako_runtime::error::Error) -> Self {
+    fn from(err: kobako_runtime::error::InvokeError) -> Self {
         match err {
-            kobako_runtime::error::Error::Trap(trap) => trap.into(),
-            kobako_runtime::error::Error::Setup(setup) => Error::Setup(setup),
+            kobako_runtime::error::InvokeError::Trap(trap) => trap.into(),
+            kobako_runtime::error::InvokeError::Setup(setup) => Error::Setup(setup),
         }
     }
 }
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn contract_error_setup_stays_setup() {
-        let err = kobako_runtime::error::Error::Setup(SetupError::Intact("pre-call".into()));
+        let err = kobako_runtime::error::InvokeError::Setup(SetupError::Intact("pre-call".into()));
         assert!(matches!(Error::from(err), Error::Setup(_)));
     }
 

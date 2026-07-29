@@ -39,7 +39,7 @@ impl Runtime for Canned {
         _entry: Entry<'_>,
         frames: Frames<'_>,
         _handler: Option<Arc<dyn DispatchHandler>>,
-    ) -> Result<Snapshot, kobako_runtime::error::Error> {
+    ) -> Result<Snapshot, kobako_runtime::error::InvokeError> {
         self.preambles
             .lock()
             .unwrap()

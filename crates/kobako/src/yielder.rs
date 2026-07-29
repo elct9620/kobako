@@ -90,7 +90,7 @@ impl<'y> Yielder<'y> {
         }
         let bytes = self
             .channel
-            .yield_block(args)
+            .yield_to_block(args)
             .map_err(|trap| YieldError::Aborted(format!("yield re-entry trapped: {trap:?}")))?;
         let reply = YieldReply::decode(&bytes)
             .map_err(|err| YieldError::Aborted(format!("malformed Yield Reply: {err}")))?;
@@ -141,7 +141,7 @@ mod tests {
     }
 
     impl RawYielder for Scripted {
-        fn yield_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap> {
+        fn yield_to_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap> {
             self.sent.push(args.to_vec());
             self.responses.pop_front().expect("script exhausted")
         }

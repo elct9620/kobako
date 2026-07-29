@@ -11,7 +11,7 @@
 use magnus::value::Lazy;
 use magnus::{prelude::*, Error as MagnusError, ExceptionClass, RModule, Ruby};
 
-use kobako_runtime::error::{Error, SetupError, Trap};
+use kobako_runtime::error::{InvokeError, SetupError, Trap};
 
 /// Resolve `Kobako::<name>` as an `ExceptionClass` — the shared body of
 /// every error-class `Lazy` below, which differ only in the constant
@@ -84,9 +84,9 @@ pub(super) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {
 /// Map either run-path channel onto its Ruby exception. The single
 /// translation point the run-path entry methods funnel their `Result`
 /// through.
-pub(super) fn to_magnus(ruby: &Ruby, err: Error) -> MagnusError {
+pub(super) fn to_magnus(ruby: &Ruby, err: InvokeError) -> MagnusError {
     match err {
-        Error::Trap(trap) => trap_to_magnus(ruby, trap),
-        Error::Setup(err) => setup_to_magnus(ruby, err),
+        InvokeError::Trap(trap) => trap_to_magnus(ruby, trap),
+        InvokeError::Setup(err) => setup_to_magnus(ruby, err),
     }
 }

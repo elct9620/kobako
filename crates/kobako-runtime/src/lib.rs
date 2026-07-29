@@ -17,3 +17,13 @@ pub mod profile;
 pub mod runtime;
 pub mod snapshot;
 pub mod yielder;
+
+// Every name an engine implementation writes into its own signatures, at
+// the crate root: the module path repeats the crate name and adds nothing
+// a reader of `kobako_runtime::Runtime` was missing.
+pub use dispatch::DispatchHandler;
+pub use error::{InvokeError, SetupError, Trap};
+pub use profile::Profile;
+pub use runtime::{Entry, Frames, Runtime};
+pub use snapshot::{Capture, Completion, Snapshot, Usage};
+pub use yielder::Yielder;

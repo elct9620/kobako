@@ -13,7 +13,7 @@ use crate::config::Config;
 use crate::exports::Exports;
 use crate::invocation::Invocation;
 use crate::{ambient, capture, guest_mem};
-use kobako_runtime::error::{Error, SetupError, Trap};
+use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
 use kobako_transport::abi::FRAME_LEN_SIZE;
 
@@ -37,7 +37,7 @@ pub(crate) fn write_envelope(
     store: &mut WtStore<Invocation>,
     exports: &Exports,
     envelope: &[u8],
-) -> Result<(i32, i32), Error> {
+) -> Result<(i32, i32), InvokeError> {
     let len_i32 = guest_mem::checked_payload_len(envelope.len())
         .map_err(|msg| Trap::Other(msg.to_string()))?;
 

@@ -21,7 +21,7 @@ use crate::exports::Exports;
 use crate::invocation::Invocation;
 use crate::{capture, frames, instance_pre, trap};
 use kobako_runtime::dispatch::DispatchHandler;
-use kobako_runtime::error::{Error, SetupError, Trap};
+use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
@@ -232,7 +232,7 @@ impl ContractRuntime for Driver {
         entry: Entry<'_>,
         frames: Frames<'_>,
         handler: Option<Arc<dyn DispatchHandler>>,
-    ) -> Result<Snapshot, Error> {
+    ) -> Result<Snapshot, InvokeError> {
         let mut store = self.new_store()?;
         if let Some(handler) = handler {
             store.data_mut().bind_on_dispatch(handler);

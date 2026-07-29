@@ -38,21 +38,33 @@ pub enum SetupError {
 /// the run mechanics can propagate both with `?`; a frontend destructures
 /// it back into the two channels. Faults after the guest export starts
 /// ride in `Completion::Trap` instead, so captures and usage survive them.
+///
+/// Named for where it comes from — the `Err` of `Runtime::invoke` — so a
+/// host that also has its own `Error` in scope can hold both.
 #[derive(Debug)]
-pub enum Error {
+pub enum InvokeError {
     Trap(Trap),
     Setup(SetupError),
 }
 
-impl From<Trap> for Error {
+impl From<Trap> for InvokeError {
     fn from(trap: Trap) -> Self {
-        Error::Trap(trap)
+        InvokeError::Trap(trap)
     }
 }
 
-impl From<SetupError> for Error {
+impl From<SetupError> for InvokeError {
     fn from(err: SetupError) -> Self {
-        Error::Setup(err)
+        InvokeError::Setup(err)
+    }
+}
+
+impl fmt::Display for InvokeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InvokeError::Trap(trap) => trap.fmt(f),
+            InvokeError::Setup(err) => err.fmt(f),
+        }
     }
 }
 
@@ -70,3 +82,10 @@ impl fmt::Display for SetupError {
         f.write_str(msg)
     }
 }
+
+// Both channels sit on the seam a third-party engine implements against,
+// where a caller wants to lift them into `Box<dyn Error>` or `anyhow` with
+// `?`. `Trap` carries no source of its own, so neither reports one.
+impl std::error::Error for SetupError {}
+
+impl std::error::Error for InvokeError {}

@@ -32,7 +32,7 @@ impl<'a, 'c> CallerYielder<'a, 'c> {
 }
 
 impl Yielder for CallerYielder<'_, '_> {
-    fn yield_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap> {
+    fn yield_to_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap> {
         drive_yield(self.caller, args).map_err(|msg| Trap::Other(msg.to_string()))
     }
 }

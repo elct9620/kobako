@@ -111,7 +111,7 @@ impl GuestYielder {
         // frame aliases it. The borrow ends with this method.
         let yielder: &mut dyn Yielder = unsafe { ptr.as_mut() };
         let resp = yielder
-            .yield_block(&bytes)
+            .yield_to_block(&bytes)
             .map_err(|t| super::errors::trap_to_magnus(&ruby, t))?;
         match YieldReply::decode(&resp) {
             Ok(YieldReply::Ok(body)) => {
