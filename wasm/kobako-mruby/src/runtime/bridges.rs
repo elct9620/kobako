@@ -143,7 +143,7 @@ fn forward_to_dispatch(
     // An argument (or kwargs value) with no representation in this guest's
     // schema is rejected at the dispatch call site rather than coerced to
     // an Object#to_s string, uniform with the return / yield rejection.
-    let payload = match codec_slot::get().encode_arguments(&kobako, rest, kwargs_hash) {
+    let payload = match codec_slot::get().encode_call_arguments(&kobako, rest, kwargs_hash) {
         Ok(payload) => payload,
         // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
         Err(err) => unsafe { raise_codec_error(&kobako, err, "argument", envelope_err_msg) },
@@ -155,7 +155,7 @@ fn forward_to_dispatch(
     match dispatch(target, &method_name, block, &payload) {
         // A dispatch return value the guest cannot represent raises in the
         // calling guest code (docs/wire/payload-msgpack.md § Integer Range).
-        Ok(body) => match codec_slot::get().decode_value(&kobako, &body) {
+        Ok(body) => match codec_slot::get().decode_reply_value(&kobako, &body) {
             Ok(value) => value,
             // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
             Err(err) => unsafe {
@@ -179,6 +179,12 @@ fn forward_to_dispatch(
 /// matches the return and yield rejections; `malformed` is the caller's
 /// wire-fault message, used when the bytes themselves were unreadable.
 ///
+/// The class follows what the refusal says happened, not where it
+/// happened: a value the schema cannot carry is the script handing over
+/// the wrong type, which is a `TypeError` — the same class the yield's
+/// return value already raises for that same fact. Everything else means
+/// the exchange itself did not complete, which is a transport fault.
+///
 /// # Safety
 ///
 /// As `Kobako::raise_transport_error`.
@@ -190,9 +196,18 @@ unsafe fn raise_codec_error(
 ) -> ! {
     let message = match err {
         CodecError::Unrepresentable { type_name } => {
-            format!("{label} of type {type_name} is not a supported sandbox value type")
+            let msg = std::ffi::CString::new(format!(
+                "{label} of type {type_name} is not a supported sandbox value type"
+            ))
+            .unwrap_or_default();
+            let type_error = kobako
+                .mrb()
+                .exc_get(c"TypeError")
+                .expect("TypeError is an mruby core class");
+            // SAFETY: bridge frame — caller upholds the unwind contract.
+            unsafe { type_error.raise(kobako.mrb(), &msg) }
         }
-        CodecError::Guest(err) => err.message(),
+        CodecError::Interpreter(err) => err.message(),
         // SAFETY: bridge frame — caller upholds the unwind contract.
         CodecError::Malformed => unsafe { kobako.raise_transport_error(malformed) },
     };

@@ -23,7 +23,7 @@ use crate::runtime::Kobako;
 pub struct MsgpackCodec;
 
 impl PayloadCodec for MsgpackCodec {
-    fn encode_arguments(
+    fn encode_call_arguments(
         kobako: &Kobako,
         rest: &[Value],
         kwargs: beni::Hash,
@@ -34,7 +34,7 @@ impl PayloadCodec for MsgpackCodec {
             .map_err(|_| CodecError::Malformed)
     }
 
-    fn decode_arguments(kobako: &Kobako, bytes: &[u8]) -> Result<Arguments, CodecError> {
+    fn decode_run_arguments(kobako: &Kobako, bytes: &[u8]) -> Result<Arguments, CodecError> {
         use kobako_codec::msgpack::codec::Decode;
         let arguments = payload::Arguments::decode(bytes).map_err(|_| CodecError::Malformed)?;
         let args = arguments
@@ -52,7 +52,10 @@ impl PayloadCodec for MsgpackCodec {
                 .into_iter()
                 .map(|(name, value)| (CodecValue::Sym(name), value))
                 .collect();
-            Some(kobako.to_mrb_value(CodecValue::Map(pairs))?)
+            let hash = kobako.to_mrb_value(CodecValue::Map(pairs))?;
+            // SAFETY: `to_mrb_value` builds a `CodecValue::Map` through
+            // `mrb_hash_new`, so the value is Hash-tagged by construction.
+            Some(unsafe { beni::Hash::from_value_unchecked(hash) })
         };
         Ok(Arguments { args, kwargs })
     }
@@ -64,14 +67,14 @@ impl PayloadCodec for MsgpackCodec {
         Encoder::encode(&encoded).map_err(|_| CodecError::Malformed)
     }
 
-    fn decode_value(kobako: &Kobako, bytes: &[u8]) -> Result<Value, CodecError> {
+    fn decode_reply_value(kobako: &Kobako, bytes: &[u8]) -> Result<Value, CodecError> {
         let value = Decoder::new(bytes)
             .read_only_value()
             .map_err(|_| CodecError::Malformed)?;
         Ok(kobako.to_mrb_value(value)?)
     }
 
-    fn decode_values(kobako: &Kobako, bytes: &[u8]) -> Result<Vec<Value>, CodecError> {
+    fn decode_yield_arguments(kobako: &Kobako, bytes: &[u8]) -> Result<Vec<Value>, CodecError> {
         let CodecValue::Array(items) = Decoder::new(bytes)
             .read_only_value()
             .map_err(|_| CodecError::Malformed)?

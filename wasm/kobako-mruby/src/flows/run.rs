@@ -87,7 +87,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
             ));
         }
     };
-    let arguments = match G::Codec::decode_arguments(&kobako, &run.payload) {
+    let arguments = match G::Codec::decode_run_arguments(&kobako, &run.payload) {
         Ok(arguments) => arguments,
         Err(_) => {
             return write_panic(boot::transport_panic(
@@ -168,7 +168,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // Range).
     let mut argv = arguments.args;
     if let Some(kwargs) = arguments.kwargs {
-        argv.push(kwargs);
+        argv.push(kwargs.as_value());
     }
 
     let result_val = match target_val.funcall_argv(mrb, call_sym, &argv) {

@@ -15,32 +15,36 @@ use beni::Value;
 use crate::codec::{CodecError, PayloadCodec};
 use crate::runtime::Kobako;
 
-type EncodeArgumentsFn = fn(&Kobako, &[Value], beni::Hash) -> Result<Vec<u8>, CodecError>;
-type DecodeValueFn = fn(&Kobako, &[u8]) -> Result<Value, CodecError>;
+type EncodeCallArgumentsFn = fn(&Kobako, &[Value], beni::Hash) -> Result<Vec<u8>, CodecError>;
+type DecodeReplyValueFn = fn(&Kobako, &[u8]) -> Result<Value, CodecError>;
 
 /// The two codec operations a guest→host dispatch needs, as plain
 /// function pointers. A Guest Binary links exactly one `MrbGuest`, so the
 /// slot can never come to disagree with `G::Codec` — the write happens
 /// before any guest code runs and the value never changes.
 pub(crate) struct CodecSlot {
-    encode_arguments: EncodeArgumentsFn,
-    decode_value: DecodeValueFn,
+    encode_call_arguments: EncodeCallArgumentsFn,
+    decode_reply_value: DecodeReplyValueFn,
 }
 
 impl CodecSlot {
     /// Encode a dispatch Call's arguments.
-    pub(crate) fn encode_arguments(
+    pub(crate) fn encode_call_arguments(
         &self,
         kobako: &Kobako,
         rest: &[Value],
         kwargs: beni::Hash,
     ) -> Result<Vec<u8>, CodecError> {
-        (self.encode_arguments)(kobako, rest, kwargs)
+        (self.encode_call_arguments)(kobako, rest, kwargs)
     }
 
     /// Read a Reply's ok body.
-    pub(crate) fn decode_value(&self, kobako: &Kobako, bytes: &[u8]) -> Result<Value, CodecError> {
-        (self.decode_value)(kobako, bytes)
+    pub(crate) fn decode_reply_value(
+        &self,
+        kobako: &Kobako,
+        bytes: &[u8],
+    ) -> Result<Value, CodecError> {
+        (self.decode_reply_value)(kobako, bytes)
     }
 }
 
@@ -51,8 +55,8 @@ static SLOT: OnceLock<CodecSlot> = OnceLock::new();
 /// has.
 pub(crate) fn install<C: PayloadCodec>() {
     let _ = SLOT.set(CodecSlot {
-        encode_arguments: C::encode_arguments,
-        decode_value: C::decode_value,
+        encode_call_arguments: C::encode_call_arguments,
+        decode_reply_value: C::decode_reply_value,
     });
 }
 

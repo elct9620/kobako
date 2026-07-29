@@ -117,11 +117,15 @@ class TestE2EYieldUnwind < Minitest::Test
   # it on the stack, and the outer Service's next yield would find the
   # stranded block instead of its own. Encoding first is what keeps the
   # park strictly inside the call that survives to make it.
+  #
+  # The refusal is a +TypeError+: the argument has no wire representation,
+  # which is the script handing over the wrong type rather than the
+  # exchange failing.
   B28_REFUSED_INNER_SCRIPT = <<~RUBY
     Probe::Outer.call([1, 2]) do |a|
       begin
         Probe::Inner.call(Object.new) { |b| b }
-      rescue Kobako::Transport::Error
+      rescue TypeError
         a * 10
       end
     end

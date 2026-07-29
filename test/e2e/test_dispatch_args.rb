@@ -60,6 +60,11 @@ class TestE2EDispatchArgs < Minitest::Test
   # surface if the old coercion path were live; the raise happens in the guest
   # bridge before dispatch, so the Service never runs. Uniform with the
   # return-path rejection (E-06) pinned in test_outcome_values.rb.
+  #
+  # The guest class is pinned alongside the host class because the two do not
+  # move together: every sandbox-origin failure maps to +Kobako::SandboxError+
+  # whatever raised it, so only +klass+ can say the script was told it handed
+  # over the wrong type rather than that the wire broke.
   UNREPRESENTABLE_DISPATCH_CALLS = {
     "positional argument" => "Sym::Echo.call(RpcProbe.new)",
     "kwargs value" => "Sym::Echo.call(data: RpcProbe.new)"
@@ -67,14 +72,24 @@ class TestE2EDispatchArgs < Minitest::Test
 
   def test_rpc_unrepresentable_arg_rejected_not_coerced
     UNREPRESENTABLE_DISPATCH_CALLS.each do |position, call|
-      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-      sandbox.bind("Sym::Echo", ->(*args, **kwargs) { args.first || kwargs })
-      script = "class RpcProbe; def to_s; '<sentinel>'; end; end\n#{call}"
-      err = assert_raises(Kobako::SandboxError) { sandbox.eval(script) }
+      err = dispatch_unrepresentable(call)
       assert_match(/not a supported sandbox value type/, err.message,
                    "E-55: an unrepresentable #{position} must be rejected at the guest " \
                    "call site as Kobako::SandboxError, never coerced to an Object#to_s String")
+      assert_equal "TypeError", err.klass,
+                   "E-55: an unrepresentable #{position} must reach the script as TypeError, " \
+                   "the same class the yield position raises for the same refusal, rather " \
+                   "than reporting a transport fault for a value the script chose"
     end
+  end
+
+  # Run +call+ against a bound Service with an unrepresentable RpcProbe in it
+  # and hand back the failure it raised.
+  def dispatch_unrepresentable(call)
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Sym::Echo", ->(*args, **kwargs) { args.first || kwargs })
+    script = "class RpcProbe; def to_s; '<sentinel>'; end; end\n#{call}"
+    assert_raises(Kobako::SandboxError) { sandbox.eval(script) }
   end
 
   # docs/wire/payload-msgpack.md § Ext Types → ext 0x00: a Symbol transport argument

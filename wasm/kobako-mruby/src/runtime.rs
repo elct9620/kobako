@@ -95,6 +95,21 @@ impl std::error::Error for InstallError {}
 ///     C-bridge body. Stays `unsafe`: the returned token keeps a raw
 ///     pointer the caller must keep live past the borrow.
 ///
+/// ## Two seams, one token
+///
+/// The public methods serve the two things a third party replaces, and
+/// which group a method belongs to says who it is for:
+///
+///   * **The payload codec seam** (`PayloadCodec`) — `mrb`,
+///     `mint_handle`, `extract_handle_id`, `narrow_int`. A codec walking
+///     its own value tree needs all four: VM access, the Handle spelling,
+///     and the integer-range guard.
+///   * **The invocation flow seam** (`MrbGuest::run` and friends) —
+///     `init`, `resolve_raw`, `install_bindings`, `top_level_constants`,
+///     `extract_backtrace`, `set_handle_id`, `raise_transport_error`.
+///     These look internal to the bundled flows, and are exactly what
+///     someone writing their own flow reaches for.
+///
 /// ## Placeholder mode
 ///
 /// The type and its methods compile on every target; without a

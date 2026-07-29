@@ -69,7 +69,7 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     // the guest cannot represent — an integer outside the 32-bit range —
     // fails the round-trip rather than reaching the block with a saturated
     // value (docs/wire/payload-msgpack.md § Integer Range).
-    let args = match G::Codec::decode_values(&kobako, req) {
+    let args = match G::Codec::decode_yield_arguments(&kobako, req) {
         Ok(args) => args,
         Err(err) => {
             return write_error_response(
@@ -153,7 +153,7 @@ fn codec_failure_message(err: crate::codec::CodecError, label: &str) -> String {
         CodecError::Unrepresentable { type_name } => {
             format!("{label} of type {type_name} is not a supported sandbox value type")
         }
-        CodecError::Guest(err) => err.message(),
+        CodecError::Interpreter(err) => err.message(),
         CodecError::Malformed => format!("failed to read the {label}"),
     }
 }

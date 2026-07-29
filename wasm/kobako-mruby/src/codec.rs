@@ -11,18 +11,24 @@
 //! parameterise on, so the codec is the only place that knows both
 //! sides.
 //!
+//! Each method names the envelope position it serves rather than the guest
+//! concept behind it, because a replacement codec is written against the
+//! byte-level contract those positions are defined in. The two that pair up
+//! — `encode_call_arguments` and `decode_reply_value` — are the two halves
+//! of one dispatch, and a codec that serves either owes the other.
+//!
 //! [payload codec]: ../../../docs/wire/payload-msgpack.md
-
-use beni::Value;
 
 use crate::runtime::{IntegerOutOfRange, Kobako};
 
 /// Why a codec could not carry a value across.
 ///
 /// The kinds are distinct because each call site phrases them into its
-/// own guest-visible failure: a yield raises `TypeError`, an outcome
-/// writes a `Kobako::SandboxError` Panic, and a dispatch argument raises
-/// `Kobako::Transport::Error` — all from the same refusal.
+/// own guest-visible failure, and the class follows what the refusal says
+/// happened: a value with no representation raises `TypeError` wherever
+/// the script handed it over, while bytes that could not be read are a
+/// `Kobako::Transport::Error` — or, where no guest frame is running to
+/// receive one, a `Kobako::SandboxError` Panic.
 ///
 /// Non-exhaustive so a later kind does not break the codecs that match
 /// on it; every variant here stays constructible by one.
@@ -38,12 +44,12 @@ pub enum CodecError {
     /// this by forwarding a refusal it did not make — the only place that
     /// conversion happens is inside a codec, so it travels on the codec's
     /// paths while naming whose refusal it is.
-    Guest(IntegerOutOfRange),
+    Interpreter(IntegerOutOfRange),
 }
 
 impl CodecError {
     /// Name the mruby class this schema has no representation for.
-    pub fn unrepresentable(kobako: &Kobako, value: Value) -> Self {
+    pub fn unrepresentable(kobako: &Kobako, value: beni::Value) -> Self {
         CodecError::Unrepresentable {
             type_name: value.classname(kobako.mrb()),
         }
@@ -55,20 +61,38 @@ impl From<IntegerOutOfRange> for CodecError {
     /// codec builds its guest values through `Kobako`, so every codec
     /// meets this one.
     fn from(err: IntegerOutOfRange) -> Self {
-        CodecError::Guest(err)
+        CodecError::Interpreter(err)
     }
 }
 
-/// A Call or Run payload as the interpreter sees it.
+impl std::fmt::Display for CodecError {
+    /// The refusal without the position it happened at. Each call site
+    /// still phrases its own guest-visible wording; this is what a codec
+    /// author sees when the refusal reaches their own error reporting.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CodecError::Unrepresentable { type_name } => {
+                write!(f, "{type_name} has no representation in this schema")
+            }
+            CodecError::Malformed => f.write_str("bytes this schema cannot read"),
+            CodecError::Interpreter(err) => f.write_str(&err.message()),
+        }
+    }
+}
+
+impl std::error::Error for CodecError {}
+
+/// A Run payload as the interpreter sees it.
 ///
-/// Positional and keyword arguments stay apart because the host dispatches
-/// through `public_send`, where the two are not interchangeable — the one
-/// shape obligation the wire contract puts on every codec.
+/// Positional and keyword arguments stay apart because the entrypoint is
+/// called through `mrb_funcall_argv`, where the keyword Hash rides as the
+/// trailing positional — so it has to arrive already separated to be
+/// appended last, and typed as a Hash so nothing else can take that slot.
 pub struct Arguments {
-    pub args: Vec<Value>,
+    pub args: Vec<beni::Value>,
     /// The keyword Hash, or `None` when the call passed no keywords — so
     /// an entrypoint taking only positionals never sees an empty Hash tail.
-    pub kwargs: Option<Value>,
+    pub kwargs: Option<beni::Hash>,
 }
 
 /// One schema for everything a core envelope hands through.
@@ -77,25 +101,29 @@ pub struct Arguments {
 /// choice of encoding, not a value with state, and the flows reach it
 /// through `G::Codec` with no instance to thread.
 pub trait PayloadCodec {
-    /// Encode a dispatch Call's arguments — the positional `rest` slice
-    /// and the keyword Hash `mrb_get_args` separated out.
-    fn encode_arguments(
+    /// Write the Call payload of a guest→host dispatch — the positional
+    /// `rest` slice and the keyword Hash `mrb_get_args` separated out.
+    fn encode_call_arguments(
         kobako: &Kobako,
-        rest: &[Value],
+        rest: &[beni::Value],
         kwargs: beni::Hash,
     ) -> Result<Vec<u8>, CodecError>;
 
-    /// Read a Call or Run payload back into interpreter values.
-    fn decode_arguments(kobako: &Kobako, bytes: &[u8]) -> Result<Arguments, CodecError>;
+    /// Read the ok body of the Reply that dispatch came back with.
+    fn decode_reply_value(kobako: &Kobako, bytes: &[u8]) -> Result<beni::Value, CodecError>;
 
-    /// Encode one value — a dispatch return, an invocation outcome, or a
-    /// block's result.
-    fn encode_value(kobako: &Kobako, value: Value) -> Result<Vec<u8>, CodecError>;
+    /// Write a value for the two positions that carry one: the Outcome's
+    /// Result arm and a Yield Reply's ok / break body.
+    fn encode_value(kobako: &Kobako, value: beni::Value) -> Result<Vec<u8>, CodecError>;
 
-    /// Read one value back — a Reply's ok body.
-    fn decode_value(kobako: &Kobako, bytes: &[u8]) -> Result<Value, CodecError>;
+    /// Read the Run payload — the arguments an invocation's entrypoint is
+    /// called with.
+    fn decode_run_arguments(kobako: &Kobako, bytes: &[u8]) -> Result<Arguments, CodecError>;
 
-    /// Read a Yield Call's arguments, which are a list rather than the
-    /// args-and-kwargs pair a Call carries.
-    fn decode_values(kobako: &Kobako, bytes: &[u8]) -> Result<Vec<Value>, CodecError>;
+    /// Read a Yield Call's arguments, which are a plain list rather than
+    /// the args-and-kwargs pair a Call carries.
+    fn decode_yield_arguments(
+        kobako: &Kobako,
+        bytes: &[u8],
+    ) -> Result<Vec<beni::Value>, CodecError>;
 }
