@@ -45,7 +45,7 @@ impl Runtime for Canned {
             .unwrap()
             .push(frames.preamble.to_vec());
         Ok(Snapshot {
-            completion: Completion::Outcome(Outcome::Result(self.payload.clone()).encode()),
+            completion: Completion::Outcome(Outcome::Ok(self.payload.clone()).encode()),
             stdout: Capture::default(),
             stderr: Capture::default(),
             usage: Usage::default(),

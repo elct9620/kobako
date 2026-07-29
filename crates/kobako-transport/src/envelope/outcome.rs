@@ -2,12 +2,12 @@
 //!
 //! Every Panic field is typed here, so a host attributes a failed
 //! invocation and reports the correction for it without decoding a payload
-//! byte. Only the Result arm carries codec-encoded bytes.
+//! byte. Only the ok arm carries codec-encoded bytes.
 
 use super::bytes::{Reader, Writer};
 use super::{DecodeError, ErrorRecord};
 
-const TAG_RESULT: u8 = 0x01;
+const TAG_OK: u8 = 0x01;
 const TAG_PANIC: u8 = 0x02;
 
 /// Who a failed invocation attributes to.
@@ -49,7 +49,7 @@ impl Origin {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     /// The invocation completed; the bytes are its value, codec-encoded.
-    Result(Vec<u8>),
+    Ok(Vec<u8>),
     /// The invocation terminated with an uncaught exception.
     Panic(Panic),
 }
@@ -68,7 +68,7 @@ impl Outcome {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
         match reader.u8()? {
-            TAG_RESULT => Ok(Outcome::Result(reader.remaining().to_vec())),
+            TAG_OK => Ok(Outcome::Ok(reader.remaining().to_vec())),
             TAG_PANIC => {
                 let origin = Origin::from_name(reader.text()?);
                 let error = ErrorRecord::read(&mut reader)?;
@@ -81,7 +81,7 @@ impl Outcome {
                 }))
             }
             _ => Err(DecodeError::new(
-                "Outcome tag must be 0x01 (result) or 0x02 (panic)",
+                "Outcome tag must be 0x01 (ok) or 0x02 (panic)",
             )),
         }
     }
@@ -89,8 +89,8 @@ impl Outcome {
     pub fn encode(&self) -> Vec<u8> {
         let mut writer = Writer::new();
         match self {
-            Outcome::Result(value) => {
-                writer.u8(TAG_RESULT).remainder(value);
+            Outcome::Ok(value) => {
+                writer.u8(TAG_OK).remainder(value);
             }
             Outcome::Panic(panic) => {
                 writer.u8(TAG_PANIC).bytes(panic.origin.name().as_bytes());
@@ -119,13 +119,13 @@ mod tests {
     }
 
     #[test]
-    fn a_result_round_trips() {
-        let outcome = Outcome::Result(vec![0x2a]);
+    fn an_ok_outcome_round_trips() {
+        let outcome = Outcome::Ok(vec![0x2a]);
         let encoded = outcome.encode();
         assert_eq!(
             Outcome::decode(&encoded),
             Ok(outcome),
-            "a Result Outcome must survive a host encode and decode unchanged"
+            "an ok Outcome must survive a host encode and decode unchanged"
         );
     }
 
@@ -208,11 +208,11 @@ mod tests {
     }
 
     #[test]
-    fn golden_layout_pins_the_result_tag() {
+    fn golden_layout_pins_the_ok_tag() {
         assert_eq!(
-            Outcome::Result(vec![0x2a]).encode(),
+            Outcome::Ok(vec![0x2a]).encode(),
             vec![0x01, 0x2a],
-            "a Result must encode as tag byte 0x01 followed by the value alone"
+            "an ok Outcome must encode as tag byte 0x01 followed by the value alone"
         );
     }
 
@@ -255,7 +255,7 @@ mod tests {
     fn an_unknown_outcome_tag_is_refused() {
         assert!(
             Outcome::decode(&[0x03, 0x00]).is_err(),
-            "an Outcome tag that is neither result nor panic must be rejected as a wire violation"
+            "an Outcome tag that is neither ok nor panic must be rejected as a wire violation"
         );
     }
 }

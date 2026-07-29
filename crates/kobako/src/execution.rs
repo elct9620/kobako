@@ -67,9 +67,9 @@ impl Execution {
     }
 
     /// The guest-level outcome as the wire carried it: `Ok` is the
-    /// Result arm's payload bytes, `Err` the taxonomy attribution of a
-    /// guest failure or trap. The captures and `usage` stay readable on
-    /// either arm.
+    /// payload bytes the envelope's ok arm carried, `Err` the taxonomy
+    /// attribution of a guest failure or trap. The captures and `usage`
+    /// stay readable on either arm.
     ///
     /// Bytes because the payload's schema is the host's own — attributing
     /// an invocation is the envelope's job and reads no payload byte, so
@@ -134,7 +134,7 @@ impl fmt::Debug for Execution {
     }
 }
 
-/// Classify one OUTCOME_BUFFER by its envelope alone: the Result arm's
+/// Classify one OUTCOME_BUFFER by its envelope alone: the ok arm's
 /// payload bytes, or the `Error` its failure attributes to. Reads no
 /// payload byte, so attribution works for a host whose Receivers speak
 /// a schema this crate does not know.
@@ -145,7 +145,7 @@ impl fmt::Debug for Execution {
 /// reading the same bytes reach the same variant.
 pub(crate) fn classify(bytes: &[u8]) -> Result<Vec<u8>, Error> {
     match Outcome::decode(bytes) {
-        Ok(Outcome::Result(payload)) => Ok(payload),
+        Ok(Outcome::Ok(payload)) => Ok(payload),
         Ok(Outcome::Panic(panic)) => Err(classify_panic(panic)),
         // Framing the outcome is the one thing the host does before
         // attribution, so a message it cannot frame — an empty buffer
@@ -253,11 +253,11 @@ mod classify_tests {
     }
 
     #[test]
-    fn the_result_arm_yields_the_payload_bytes_it_carried() {
+    fn the_ok_arm_yields_the_payload_bytes_it_carried() {
         assert_eq!(
-            classify(&Outcome::Result(vec![0x2a]).encode()).unwrap(),
+            classify(&Outcome::Ok(vec![0x2a]).encode()).unwrap(),
             vec![0x2a],
-            "a Result arm through classify must hand back its payload bytes untouched, \
+            "an ok arm through classify must hand back its payload bytes untouched, \
              since attribution reads no payload byte"
         );
     }

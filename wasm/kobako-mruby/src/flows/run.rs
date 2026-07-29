@@ -26,8 +26,8 @@
 //!    by concatenating the decoded args Array and (when non-empty)
 //!    appending the kwargs Hash as the trailing element — the same
 //!    layout `Method#call` uses internally. Serialize the return
-//!    value as a Result envelope or convert the pending mruby
-//!    exception into a Panic envelope.
+//!    value as an ok Outcome or convert the pending mruby
+//!    exception into a Panic Outcome.
 
 /// Invocation entry behind the `__kobako_run` export — see module
 /// docs. `G` supplies the shell-chosen gem set via

@@ -113,7 +113,7 @@ pub trait PayloadCodec {
     fn decode_reply_value(kobako: &Kobako, bytes: &[u8]) -> Result<beni::Value, CodecError>;
 
     /// Write a value for the two positions that carry one: the Outcome's
-    /// Result arm and a Yield Reply's ok / break body.
+    /// ok arm and a Yield Reply's ok / break body.
     fn encode_value(kobako: &Kobako, value: beni::Value) -> Result<Vec<u8>, CodecError>;
 
     /// Read the Run payload — the arguments an invocation's entrypoint is

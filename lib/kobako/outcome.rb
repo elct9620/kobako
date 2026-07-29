@@ -28,14 +28,14 @@ module Kobako
     module_function
 
     # Settle one invocation. +kind+ names the arm, +payload+ is the
-    # codec-encoded value the +:result+ arm carries, and +panic+ carries
+    # codec-encoded value the +:ok+ arm carries, and +panic+ carries
     # the Panic's fields +[origin, class, message, backtrace, available]+ —
     # present on the panic arm and absent on every other, which is what
     # tells the failure that has a record to attribute from apart from the
     # two that do not. +entrypoint+ is the name this invocation asked for,
     # which the host knows and the wire therefore never carries.
     def reify(kind, payload, panic, entrypoint: nil)
-      return decode_value(payload) if kind == :result
+      return decode_value(payload) if kind == :ok
 
       raise panic ? panic_error(panic, entrypoint) : trap_error(kind)
     end
@@ -74,7 +74,7 @@ module Kobako
       )
     end
 
-    # The Result arm's value — the one position a payload codec still
+    # The ok arm's value — the one position a payload codec still
     # owns on this path. A decode fault means the framing was fine but the
     # carried value is unrepresentable.
     def decode_value(payload)

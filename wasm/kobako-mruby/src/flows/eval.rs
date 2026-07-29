@@ -8,8 +8,8 @@
 //! 2. Evaluate the user script under a `(eval)` ccontext so its IREP
 //!    carries `debug_info` (needed for a populated
 //!    `Exception#backtrace`).
-//! 3. Serialize the last-expression value as a Result envelope, or
-//!    convert the pending mruby exception into a Panic envelope, and
+//! 3. Serialize the last-expression value as an ok Outcome, or
+//!    convert the pending mruby exception into a Panic Outcome, and
 //!    write the bytes into the kobako-core outcome buffer.
 //!
 //! `__kobako_eval` never traps or calls `exit` — the host reads the

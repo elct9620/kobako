@@ -46,7 +46,7 @@ impl Execution {
     }
 }
 
-/// Read the Result arm's payload back. Attribution already framed the
+/// Read the ok arm's payload back. Attribution already framed the
 /// outcome, so a fault here is the schema's: the bytes carry a value this
 /// codec cannot read, which is a sandbox-origin wire violation with the
 /// codec detail preserved for operator triage.
@@ -75,25 +75,25 @@ mod tests {
     use crate::execution::classify;
 
     #[test]
-    fn the_result_arm_yields_payload_bytes_the_codec_reads_back() {
-        let bytes = Outcome::Result(Encoder::encode(&Value::Int(42)).unwrap()).encode();
+    fn the_ok_arm_yields_payload_bytes_the_codec_reads_back() {
+        let bytes = Outcome::Ok(Encoder::encode(&Value::Int(42)).unwrap()).encode();
 
         assert_eq!(
             decode_value(&classify(&bytes).unwrap()).unwrap(),
             Value::Int(42),
-            "a Result arm carrying an encodable value must read back through the codec unchanged"
+            "an ok arm carrying an encodable value must read back through the codec unchanged"
         );
     }
 
     #[test]
     fn a_malformed_value_body_is_a_wire_violation_sandbox_error() {
-        // The Result arm followed by a truncated msgpack str header.
+        // The ok arm followed by a truncated msgpack str header.
         let result =
-            classify(&Outcome::Result(vec![0xd9]).encode()).and_then(|body| decode_value(&body));
+            classify(&Outcome::Ok(vec![0xd9]).encode()).and_then(|body| decode_value(&body));
 
         assert!(
             matches!(result, Err(Error::Sandbox(f)) if f.name == WIRE_ERROR_CLASS),
-            "a Result arm the codec cannot read must attribute to the wire-level error class"
+            "an ok arm the codec cannot read must attribute to the wire-level error class"
         );
     }
 }

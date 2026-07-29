@@ -390,7 +390,7 @@ impl Sandbox {
 
 /// Cook a raw `Snapshot` into the invocation's `Execution`: captures and
 /// usage carry over verbatim, and the completion becomes the guest-level
-/// `outcome` — the Result arm's payload bytes, or the taxonomy `Error` a
+/// `outcome` — the ok arm's payload bytes, or the taxonomy `Error` a
 /// trap or guest failure attributes to. The `handles` table rides along
 /// so the result's Handles resolve on the Execution, which is also where
 /// the payload meets a schema.

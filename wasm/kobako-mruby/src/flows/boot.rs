@@ -79,7 +79,7 @@ pub(super) fn unrepresentable_return_panic(kobako: &Kobako, value: beni::Value) 
     )
 }
 
-/// Serialize `result_val` as the invocation's Result envelope — or the
+/// Serialize `result_val` as the invocation's ok Outcome — or the
 /// matching Panic when the value has no wire representation or the
 /// envelope encode fails. The shared tail of the eval and run entry
 /// bodies, so the outcome attribution cannot drift between them.
@@ -90,7 +90,7 @@ pub(super) fn write_value_outcome<G: crate::MrbGuest>(kobako: &Kobako, result_va
     use kobako_transport::envelope::Outcome;
 
     match G::Codec::encode_value(kobako, result_val) {
-        Ok(payload) => write_outcome(Outcome::Result(payload).encode()),
+        Ok(payload) => write_outcome(Outcome::Ok(payload).encode()),
         Err(CodecError::Unrepresentable { .. }) => {
             write_panic(unrepresentable_return_panic(kobako, result_val))
         }

@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Attribution coverage for the branches that don't need a live Sandbox:
-# the two arms that carry no record, an unreadable Result payload, and
+# the two arms that carry no record, an unreadable ok payload, and
 # the Panic class-to-Ruby-class mapping (including the +BytecodeError+
 # and +UndefinedEntrypointError+ subclass selections). Attribution lives
 # on +Kobako::Outcome+ as a stateless module of pure functions, so the
@@ -37,9 +37,9 @@ class TestOutcomeDecoding < Minitest::Test
                  "an unframeable outcome must tell the caller to discard the Sandbox")
   end
 
-  def test_a_result_payload_the_codec_cannot_read_raises_sandbox_error
+  def test_an_ok_payload_the_codec_cannot_read_raises_sandbox_error
     err = assert_raises(Kobako::Transport::Error) do
-      Kobako::Outcome.reify(:result, "\xc1\xc1\xc1".b, nil)
+      Kobako::Outcome.reify(:ok, "\xc1\xc1\xc1".b, nil)
     end
 
     refute_kind_of Kobako::TrapError, err
@@ -50,9 +50,9 @@ class TestOutcomeDecoding < Minitest::Test
     assert_equal "sandbox", err.origin
   end
 
-  def test_a_result_payload_returns_the_carried_value
-    assert_equal 42, Kobako::Outcome.reify(:result, Kobako::Codec::Encoder.encode(42), nil),
-                 "a Result arm through #reify must return the value the guest produced"
+  def test_an_ok_payload_returns_the_carried_value
+    assert_equal 42, Kobako::Outcome.reify(:ok, Kobako::Codec::Encoder.encode(42), nil),
+                 "an ok arm through #reify must return the value the guest produced"
   end
 
   def test_a_service_origin_panic_raises_service_error

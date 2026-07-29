@@ -391,10 +391,10 @@ impl From<RuntimeSnapshot> for Snapshot {
 
 impl Snapshot {
     /// One completed run's outcome, already split off the core envelope:
-    /// `[kind, payload, panic]`. `kind` names the arm — `:result`,
+    /// `[kind, payload, panic]`. `kind` names the arm — `:ok`,
     /// `:panic`, `:absent` (nothing written), or `:malformed` (bytes the
     /// envelope cannot frame). `payload` is the invocation's
-    /// codec-encoded value, carried only by `:result`; every other arm
+    /// codec-encoded value, carried only by `:ok`; every other arm
     /// answers empty. `panic` carries the Panic's own fields on `:panic`
     /// and is `nil` otherwise, so the Ruby side maps a failure onto its
     /// error taxonomy without decoding a payload byte.
@@ -408,9 +408,7 @@ impl Snapshot {
             return (ruby.to_symbol("absent"), empty(), None);
         };
         match Outcome::decode(bytes) {
-            Ok(Outcome::Result(value)) => {
-                (ruby.to_symbol("result"), ruby.str_from_slice(&value), None)
-            }
+            Ok(Outcome::Ok(value)) => (ruby.to_symbol("ok"), ruby.str_from_slice(&value), None),
             Ok(Outcome::Panic(panic)) => (
                 ruby.to_symbol("panic"),
                 empty(),

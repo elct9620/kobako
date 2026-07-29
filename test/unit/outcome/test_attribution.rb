@@ -8,7 +8,7 @@
 # Cross-references:
 #   - docs/behavior/errors.md § Error Scenarios — the Step 2 arm table, where
 #     a Panic origin other than "service" maps to SandboxError
-#   - docs/behavior/errors.md E-09 — a Result payload the codec cannot read
+#   - docs/behavior/errors.md E-09 — an ok payload the codec cannot read
 
 require "test_helper"
 
@@ -45,14 +45,14 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
     assert_equal "box-side error", err.message
   end
 
-  # --- Result arm with an empty payload raises Transport::Error (E-09) ---
+  # --- ok arm with an empty payload raises Transport::Error (E-09) ---
   #
   # An empty payload is not a valid msgpack value, so the codec raises
   # and the host wraps it as a Transport::Error whose user-facing message
   # stays in caller vocabulary; the inner codec diagnostic reaches an
   # operator through Ruby's own +#detailed_message+ channel.
-  def test_result_arm_with_an_empty_payload_raises_sandbox_error
-    err = assert_raises(Kobako::Transport::Error) { Kobako::Outcome.reify(:result, "".b, nil) }
+  def test_ok_arm_with_an_empty_payload_raises_sandbox_error
+    err = assert_raises(Kobako::Transport::Error) { Kobako::Outcome.reify(:ok, "".b, nil) }
 
     refute_kind_of Kobako::TrapError, err
     assert_kind_of Kobako::SandboxError, err

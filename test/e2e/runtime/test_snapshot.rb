@@ -42,10 +42,10 @@ class TestRuntimeSnapshot < Minitest::Test
   # The ext splits the outcome off the core envelope, so what reaches Ruby
   # is the arm plus the fields that arm carries — pin the shape for the
   # arm every successful run takes.
-  def test_snapshot_splits_a_successful_outcome_into_its_result_arm
+  def test_snapshot_splits_a_successful_outcome_into_its_ok_arm
     kind, payload, panic = drive_eval("42").outcome
 
-    assert_equal :result, kind
+    assert_equal :ok, kind
     assert_kind_of String, payload
     assert_nil panic,
                "an arm carrying no attribution record must answer nil rather than an empty tuple"
