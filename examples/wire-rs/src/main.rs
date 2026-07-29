@@ -3,24 +3,30 @@
 //! The `kobako` SDK crate wraps all of this behind `Sandbox`; here the
 //! wire is exposed on purpose. This is the seam the SDK is built on, and
 //! the reference a non-Rust frontend author follows to drive the same
-//! SPEC wire in another language. Three published crates are the whole
-//! toolkit:
+//! SPEC wire in another language. Four published crates are the whole
+//! toolkit, and the split between the last two is the point:
 //!
 //!   * `kobako-wasmtime` gives the `Driver` that runs a prebuilt Guest
 //!     Binary on a fresh instance per invocation;
 //!   * `kobako-runtime` is the engine-neutral contract the driver
 //!     implements — `Runtime`, `Snapshot`, the dispatch traits;
-//!   * `kobako-codec` owns the SPEC wire the host side speaks — the
-//!     stdin frames going in and the `Outcome` bytes coming back.
+//!   * `kobako-transport` owns the core envelope — the frames, the Call
+//!     and its Reply, the Outcome — every kobako assembly shares;
+//!   * `kobako-codec` owns only what rides *inside* an envelope, the
+//!     payload, under the schema this host happens to speak.
 //!
 //! The host drives one `#eval`-equivalent invocation. Frame 1 registers
 //! a `MyService::KV` constant the guest reaches like any other, and a
-//! hand-written `DispatchHandler` answers every call the guest makes
-//! against it: decode the `Request`, route it to an in-process store,
-//! encode a `Response`. The handler honours the one hard rule of the
-//! dispatch contract — it never fails, folding every error into a
-//! `Response::Err` fault the guest re-raises as a rescuable exception
-//! rather than a wasm trap.
+//! hand-written `DispatchHandler` answers every Call the guest makes
+//! against it: read the routing fields the runtime already decoded,
+//! route to an in-process store, answer with a `Reply`. The handler
+//! honours the one hard rule of the dispatch contract — it never fails,
+//! folding every error into the Reply's fault arm, which the guest
+//! re-raises as a rescuable exception rather than a wasm trap.
+//!
+//! A Fault is typed on the envelope rather than encoded in the payload,
+//! so refusing a call reaches no codec at all — the half of this example
+//! a host speaking another schema would keep unchanged.
 
 use std::collections::HashMap;
 use std::env;
@@ -29,15 +35,14 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use kobako_codec::codec::{Decode, Encode, Encoder, Value};
-use kobako_codec::outcome::{Outcome, Panic};
-use kobako_codec::transport::{Request, Response, Target};
-use kobako_runtime::dispatch::DispatchHandler;
-use kobako_runtime::error::{Error, SetupError, Trap};
-use kobako_runtime::profile::Profile;
-use kobako_runtime::runtime::{Entry, Frames, Runtime};
-use kobako_runtime::snapshot::{Capture, Completion, Snapshot};
-use kobako_runtime::yielder::Yielder;
+use kobako_codec::msgpack::{Arguments, Decode, Decoder, Encoder, Value};
+use kobako_runtime::{
+    Capture, Completion, DispatchHandler, Entry, Frames, InvokeError, Profile, Runtime, SetupError,
+    Snapshot, Trap, Yielder,
+};
+use kobako_transport::envelope::{
+    Bindings, Call, Fault, FaultKind, Outcome, Panic, Reply, Snippets, Target,
+};
 use kobako_wasmtime::{Config, Driver};
 
 /// Demo source when none is given on the command line: a round-trip
@@ -70,11 +75,12 @@ fn main() -> ExitCode {
     // full ambient-denial posture — frozen clocks and entropy.
     let config = Config {
         timeout: Some(Duration::from_secs(5)),
-        stdout_limit_bytes: Some(64 * 1024),
-        stderr_limit_bytes: Some(64 * 1024),
+        memory_limit: Some(64 * 1024 * 1024),
+        stdout_limit: Some(64 * 1024),
+        stderr_limit: Some(64 * 1024),
         profile: Profile::Hermetic,
     };
-    let driver = match Driver::new(&wasm_path, Some(64 * 1024 * 1024), config) {
+    let driver = match Driver::new(&wasm_path, config) {
         Ok(driver) => driver,
         Err(setup) => {
             report_setup_error(&setup);
@@ -82,14 +88,19 @@ fn main() -> ExitCode {
         }
     };
 
-    // Frame 1 carries the registration preamble: a flat array of the
-    // bound constant paths (`["MyService::KV"]`). The guest installs a
-    // proxy constant for each path, so guest code reaches the store as
-    // plain `MyService::KV` calls. Frame 3 (preloaded snippets) is
-    // mandatory-presence too: this host preloads nothing, an empty
-    // msgpack array rather than an absent frame.
-    let preamble = kv_preamble();
-    let snippets = empty_frame();
+    // Frame 1 carries the registration preamble: the bound constant
+    // paths. The guest installs a proxy constant for each, so guest code
+    // reaches the store as plain `MyService::KV` calls. Frame 3
+    // (preloaded snippets) is mandatory-presence too: this host preloads
+    // nothing, an empty list rather than an absent frame.
+    //
+    // Both frames are envelope types, so neither reaches a payload
+    // codec — a host on another schema writes these two lines unchanged.
+    let preamble = Bindings {
+        paths: vec!["MyService::KV".to_string()],
+    }
+    .encode();
+    let snippets = Snippets::default().encode();
     let handler = Arc::new(KvHandler::default());
     let snapshot = driver.invoke(
         Entry::Eval {
@@ -104,12 +115,18 @@ fn main() -> ExitCode {
 
     let exit = match snapshot {
         Ok(snapshot) => report_snapshot(&snapshot),
-        Err(Error::Setup(setup)) => {
+        Err(InvokeError::Setup(setup)) => {
             report_setup_error(&setup);
             ExitCode::FAILURE
         }
-        Err(Error::Trap(trap)) => {
+        Err(InvokeError::Trap(trap)) => {
             report_trap(&trap);
+            ExitCode::FAILURE
+        }
+        // The channel set is open, so a later way to fail before the
+        // guest starts still reports rather than failing to compile.
+        Err(other) => {
+            eprintln!("invocation never started: {other}");
             ExitCode::FAILURE
         }
     };
@@ -120,24 +137,6 @@ fn main() -> ExitCode {
         println!("host store: {key:?} => {}", render(&value));
     }
     exit
-}
-
-/// The Frame 1 preamble registering `MyService::KV`, encoded by hand: a
-/// flat array of the bound constant paths, one `Str` per path.
-fn kv_preamble() -> Vec<u8> {
-    let mut enc = Encoder::new();
-    enc.write_value(&Value::Array(vec![Value::Str("MyService::KV".into())]))
-        .expect("a str-array preamble always encodes");
-    enc.into_bytes()
-}
-
-/// The empty msgpack array a mandatory-presence stdin frame carries when
-/// a host registers nothing.
-fn empty_frame() -> Vec<u8> {
-    let mut enc = Encoder::new();
-    enc.write_value(&Value::Array(Vec::new()))
-        .expect("an empty msgpack array always encodes");
-    enc.into_bytes()
 }
 
 /// An in-process key-value store exposed to the guest as `MyService::KV`
@@ -157,36 +156,54 @@ impl KvHandler {
         entries
     }
 
-    /// Route one decoded `Request` to the store, mirroring the fault
-    /// taxonomy the Ruby dispatcher uses: `undefined` for an unknown
-    /// target or method, `argument` for a call shape the method does not
-    /// take.
-    fn handle(&self, request: &Request) -> Response {
-        let Target::Path(path) = &request.target else {
-            return fault("undefined", "this host allocates no Capability Handles");
+    /// Route one Call to the store, mirroring the fault taxonomy the Ruby
+    /// dispatcher uses: `Undefined` for an unknown target or method,
+    /// `Argument` for a call shape the method does not take.
+    ///
+    /// The routing fields arrive already decoded — reading the target and
+    /// method costs no codec, which is why the payload is not touched
+    /// until a method has been chosen.
+    fn handle(&self, call: &Call<'_>) -> Reply {
+        let Target::Path(path) = call.target else {
+            return fault(
+                FaultKind::Undefined,
+                "this host allocates no Capability Handles",
+            );
         };
         if path != "MyService::KV" {
-            return fault("undefined", &format!("unknown constant {path}"));
+            return fault(FaultKind::Undefined, format!("unknown constant {path}"));
         }
-        if !request.kwargs.is_empty() {
-            return fault("argument", "KV methods accept no keyword arguments");
+        let arguments = match Arguments::decode(call.payload) {
+            Ok(arguments) => arguments,
+            Err(err) => {
+                return fault(
+                    FaultKind::Runtime,
+                    format!("Sandbox received a malformed payload: {err}"),
+                )
+            }
+        };
+        if !arguments.kwargs.is_empty() {
+            return fault(
+                FaultKind::Argument,
+                "KV methods accept no keyword arguments",
+            );
         }
-        match (request.method.as_str(), request.args.as_slice()) {
+        match (call.method, arguments.args.as_slice()) {
             ("get", [Value::Str(key)]) => {
                 let value = self.lock_store().get(key).cloned().unwrap_or(Value::Nil);
-                Response::Ok(value)
+                ok(&value)
             }
             ("set", [Value::Str(key), value]) => {
                 self.lock_store().insert(key.clone(), value.clone());
-                Response::Ok(value.clone())
+                ok(value)
             }
             ("get" | "set", _) => fault(
-                "argument",
+                FaultKind::Argument,
                 "get takes one String key; set takes a String key and a value",
             ),
             (method, _) => fault(
-                "undefined",
-                &format!("method :{method} is not a Service method"),
+                FaultKind::Undefined,
+                format!("method :{method} is not a Service method"),
             ),
         }
     }
@@ -203,38 +220,31 @@ impl KvHandler {
 
 impl DispatchHandler for KvHandler {
     /// `None` is reserved for "the handler itself failed"; this handler
-    /// reifies every failure as a `Response::Err` instead, so the guest
-    /// always receives an envelope.
-    fn dispatch(&self, request: &[u8], _yielder: &mut dyn Yielder) -> Option<Vec<u8>> {
-        let response = match Request::decode(request) {
-            Ok(request) => self.handle(&request),
-            Err(err) => fault(
-                "runtime",
-                &format!("Sandbox received a malformed request: {err}"),
-            ),
-        };
-        let bytes = response.encode().unwrap_or_else(|err| {
-            // A value the wire cannot carry back (e.g. nested past the
-            // depth cap) folds like every other failure; the flat fault
-            // map itself always encodes.
-            fault("runtime", &format!("response not encodable: {err}"))
-                .encode()
-                .expect("a flat fault map always encodes")
-        });
-        Some(bytes)
+    /// reifies every failure as a fault Reply instead, so the guest always
+    /// receives an answer.
+    ///
+    /// The envelope is already decoded on the way in and encoded on the
+    /// way out, so there is no longer a malformed-Call arm here — a Call
+    /// the runtime could not read never reaches a handler.
+    fn dispatch(&self, call: Call<'_>, _yielder: &mut dyn Yielder) -> Option<Reply> {
+        Some(self.handle(&call))
     }
 }
 
-/// A `Response::Err` carrying the ext 0x02 fault payload — a msgpack map
-/// of `type` (which proxy-side error the guest raises) and `message`.
-fn fault(kind: &str, message: &str) -> Response {
-    let mut enc = Encoder::new();
-    enc.write_value(&Value::Map(vec![
-        (Value::Str("type".into()), Value::Str(kind.into())),
-        (Value::Str("message".into()), Value::Str(message.into())),
-    ]))
-    .expect("a str/str fault map always encodes");
-    Response::Err(enc.into_bytes())
+/// A successful Reply carrying one value under this host's payload
+/// schema. A value the wire cannot carry back — nested past the depth cap
+/// — folds into a fault like every other failure.
+fn ok(value: &Value) -> Reply {
+    match Encoder::encode(value) {
+        Ok(bytes) => Reply::Ok(bytes),
+        Err(err) => fault(FaultKind::Runtime, format!("value not encodable: {err}")),
+    }
+}
+
+/// A refusal. Typed on the envelope, so the category and the message are
+/// the whole of it and no payload codec is involved.
+fn fault(kind: FaultKind, message: impl Into<String>) -> Reply {
+    Reply::Fault(Fault::new(kind, message))
 }
 
 /// Print every observable of a completed invocation — captures, usage,
@@ -250,11 +260,19 @@ fn report_snapshot(snapshot: &Snapshot) -> ExitCode {
     );
 
     match &snapshot.completion {
+        // The envelope frames the arm; only the ok arm's body is this
+        // host's schema to read.
         Completion::Outcome(bytes) => match Outcome::decode(bytes) {
-            Ok(Outcome::Value(value)) => {
-                println!("=> {}", render(&value));
-                ExitCode::SUCCESS
-            }
+            Ok(Outcome::Ok(body)) => match Decoder::new(&body).read_only_value() {
+                Ok(value) => {
+                    println!("=> {}", render(&value));
+                    ExitCode::SUCCESS
+                }
+                Err(err) => {
+                    eprintln!("outcome body this schema cannot read: {err}");
+                    ExitCode::FAILURE
+                }
+            },
             Ok(Outcome::Panic(panic)) => {
                 report_panic(&panic);
                 ExitCode::FAILURE
@@ -290,9 +308,11 @@ fn report_capture(name: &str, capture: &Capture) {
 fn report_panic(panic: &Panic) {
     eprintln!(
         "guest panic [{}] {}: {}",
-        panic.origin, panic.class, panic.message
+        panic.origin.name(),
+        panic.error.name,
+        panic.error.message
     );
-    for line in &panic.backtrace {
+    for line in &panic.error.backtrace {
         eprintln!("  {line}");
     }
 }
@@ -301,10 +321,13 @@ fn report_panic(panic: &Panic) {
 /// linear-memory cap, or any other wasm trap. Captures and usage above
 /// survive it.
 fn report_trap(trap: &Trap) {
+    // The kind set is open: a cap this frontend has no wording for is
+    // still an engine fault, so it takes the base arm rather than
+    // another cap's.
     let kind = match trap {
         Trap::Timeout(_) => "timeout",
         Trap::MemoryLimit(_) => "memory limit",
-        Trap::Other(_) => "trap",
+        _ => "trap",
     };
     eprintln!("guest {kind}: {trap}");
 }
@@ -313,12 +336,14 @@ fn report_trap(trap: &Trap) {
 /// unusable (`ModuleNotBuilt` / `Dead`) or a host-side pre-call step
 /// failed with the runtime still live (`Intact`).
 fn report_setup_error(setup: &SetupError) {
-    let (kind, msg) = match setup {
-        SetupError::ModuleNotBuilt(msg) => ("guest artifact not built", msg),
-        SetupError::Dead(msg) => ("runtime dead", msg),
-        SetupError::Intact(msg) => ("setup failed", msg),
+    // Open for the same reason `Trap` is; an unrecognised state is still
+    // a setup failure.
+    let kind = match setup {
+        SetupError::ModuleNotBuilt(_) => "guest artifact not built",
+        SetupError::Dead(_) => "runtime dead",
+        _ => "setup failed",
     };
-    eprintln!("{kind}: {msg}");
+    eprintln!("{kind}: {setup}");
 }
 
 /// Render a decoded wire `Value` in Ruby `#inspect` style, so the
@@ -345,6 +370,5 @@ fn render(value: &Value) -> String {
         }
         Value::Sym(name) => format!(":{name}"),
         Value::Handle(id) => format!("#<Kobako::Handle {id}>"),
-        Value::ErrEnv(bytes) => format!("<{} fault envelope bytes>", bytes.len()),
     }
 }

@@ -20,6 +20,14 @@ publish = false
 [workspace]
 
 [dependencies]
-kobako-codec = "0.12"
-kobako-runtime = "0.12"
-kobako-wasmtime = "0.12"
+# The core envelope both sides share — the frames, the Call and its
+# Reply, the Outcome. Named directly because a host assembled by hand
+# speaks it directly; the SDK is what hides this tier behind a Sandbox.
+kobako-transport = "0.13"
+
+# The payload schema, and only that. Separate from the envelope above so
+# a host on another schema replaces this line alone.
+kobako-codec = "0.13"
+
+kobako-runtime = "0.13"
+kobako-wasmtime = "0.13"

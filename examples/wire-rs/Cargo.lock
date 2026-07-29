@@ -855,26 +855,36 @@ dependencies = [
 
 [[package]]
 name = "kobako-codec"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86df18c19177d50979f1934f3e0ae253dad1d3e33ff4dd5ce4c73d231e468f7b"
+checksum = "5576cc2f74733d351e3008b64441c5005228f665ead2a0a0188d95a331baa187"
 dependencies = [
  "rmp",
 ]
 
 [[package]]
 name = "kobako-runtime"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c68a57403e7e66b237a334d629c0f98821e03502dbd645646f7d909155bf254"
+checksum = "11e1137377e263667be96b9803f55d5eb0507cbc0c6b12b1869128a47c51e0c6"
+dependencies = [
+ "kobako-transport",
+]
+
+[[package]]
+name = "kobako-transport"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7178fe40372f96bf32b4585a3c93fed059e0cb4f99c66ddd9ec2d82e6a6562c"
 
 [[package]]
 name = "kobako-wasmtime"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "555f19331bdb3193730f7e26fc285d5e1a1f747047ed803db2518eb62855cd01"
+checksum = "3b3ea5e1d03b3408bd4f83d99fcd28800aa410e81830a48c4efd7173c2c6aed3"
 dependencies = [
  "kobako-runtime",
+ "kobako-transport",
  "libc",
  "sha2 0.11.0",
  "wasmtime",
@@ -887,6 +897,7 @@ version = "0.0.0"
 dependencies = [
  "kobako-codec",
  "kobako-runtime",
+ "kobako-transport",
  "kobako-wasmtime",
 ]
 
