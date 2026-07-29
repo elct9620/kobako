@@ -77,7 +77,7 @@ The host embeds the sandbox and owns the SPEC wire codec. Choose by your host la
 | Rust SDK | `kobako` (crates.io) | `kobako = "0.12"` | A Rust host — the same behavior contract behind an idiomatic Rust API |
 | Low-level crates | `kobako-wasmtime` + `kobako-runtime` + `kobako-transport` + `kobako-codec` | Cargo deps | A custom host, or driving the wire directly in another language |
 
-The Rust crates are documented on [crates.io](https://crates.io/crates/kobako); the Ruby gem is this README. Two runnable Rust hosts show the choice: [`plugin-rs`](examples/plugin-rs) builds on the SDK, and [`wire-rs`](examples/wire-rs) assembles a host by hand on the low-level crates.
+The Rust crates are documented on [crates.io](https://crates.io/crates/kobako); the Ruby gem is this README. Three runnable Rust hosts show the choice: [`plugin-rs`](examples/plugin-rs) builds on the SDK, [`wire-rs`](examples/wire-rs) assembles a host by hand on the low-level crates, and [`fixed-schema-rs`](examples/fixed-schema-rs) replaces what both of those keep — the payload schema — with a guest and a host that agree on protobuf.
 
 ### Pre-built Guest Binaries
 

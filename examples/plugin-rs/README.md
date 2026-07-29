@@ -59,6 +59,6 @@ The caps the host hard-codes are the same knobs the Ruby gem exposes as `Kobako:
 | `stderr_limit`  | 64 KiB       | Captured-stderr cap.                           |
 | `profile`       | `Hermetic`   | Ambient-denial posture: frozen clocks and entropy. |
 
-The host objects here implement `ValueReceiver`, the overlay the SDK's bundled MessagePack schema puts on its byte-level `Receiver` seam — so a dispatch arrives as decoded values rather than payload bytes. A host speaking its own schema implements `Receiver` directly and owns its own bytes instead.
+The host objects here implement `ValueReceiver`, the overlay the SDK's bundled MessagePack schema puts on its byte-level `Receiver` seam — so a dispatch arrives as decoded values rather than payload bytes. A host speaking its own schema implements `Receiver` directly and owns its own bytes instead; [`fixed-schema-rs`](../fixed-schema-rs) is that case.
 
 This example is a standalone cargo workspace depending on the crates.io release, so it builds and runs from this directory alone — the Guest Binary is the only artifact it needs. It requires Rust 1.86, inherited from the SDK.
