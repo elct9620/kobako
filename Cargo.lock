@@ -929,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "kobako"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "kobako-runtime",
  "kobako-transport",
@@ -940,18 +940,18 @@ dependencies = [
 
 [[package]]
 name = "kobako-runtime"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "kobako-transport",
 ]
 
 [[package]]
 name = "kobako-transport"
-version = "0.12.0"
+version = "0.13.0"
 
 [[package]]
 name = "kobako-wasmtime"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "kobako-runtime",
  "kobako-transport",

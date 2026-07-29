@@ -30,7 +30,7 @@ no mruby toolchain is needed to build an embedder.
 
 ```toml
 [dependencies]
-kobako = "0.12.0" # x-release-please-version
+kobako = "0.13.0" # x-release-please-version
 ```
 
 ```rust
