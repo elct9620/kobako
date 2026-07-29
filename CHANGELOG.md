@@ -1,5 +1,112 @@
 # Changelog
 
+## [0.21.0](https://github.com/elct9620/kobako/compare/v0.20.0...v0.21.0) (2026-07-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **spec:** speak one word for the arm every envelope answers success on
+* **transport:** let every envelope spell its success arm the same way
+* **spec:** separate what a name promises from what the wire promises
+* **sdk:** keep the root to what every build of this crate has
+* **sdk:** make the wasm engine something a host can actually take out
+* **mruby:** name each codec method after the position it serves
+* **wasmtime:** put every cap in one struct, named the way the field is read
+* **runtime:** give the engine contract names an implementer can write
+* **transport:** name the core envelope's types after what they carry
+* **guest:** make a parked block and its wire bit one statement
+* **sdk:** reach a result's host object without a schema
+* **guest:** let the shell ask for the codec instead of inheriting it
+* **customization:** the harness carries no codec until a shell asks
+* **sdk:** make the payload codec an optional dependency
+* **wire:** carry a Reply's fault arm on the envelope
+* **wire:** move the Reply's fault arm onto the envelope
+* **transport:** split the invocation module along the line its doc draws
+* **wire:** route every tier through the one envelope
+* **gem:** follow Ruby's own convention for what an error is called
+* **guest:** name the payload seam for what it is — a codec
+* **wire:** keep a Fault to what its author can bound
+* **wire:** give the fault concept one name on both sides of the boundary
+* **guest:** let the shell name the schema its guest speaks
+* **guest:** route a dispatch through kobako-core without reading its payload
+* **outcome:** raise an unresolved entrypoint as its own error carrying the names it could have been
+* **outcome:** keep a Panic's attribution when its diagnostics are unreadable
+* **wire:** carry the Outcome over the core envelope
+* **wire:** carry the Yield Reply over the core envelope
+* **wire:** carry the Run envelope over the core envelope
+* **wire:** carry the invocation frames over the core envelope
+* **codec:** make the MessagePack adapter an optional feature
+* **wire:** carry dispatch over the core envelope with an opaque payload
+
+### Features
+
+* **bench:** measure the host's per-invocation cost against a null guest ([c60abdf](https://github.com/elct9620/kobako/commit/c60abdfc98a38b03a4a598913df9a1120ed6302b))
+* **bench:** move the two host-side benchmarks into the gated set ([31a6f7e](https://github.com/elct9620/kobako/commit/31a6f7ebb40c038b39c38ee2441216a412be48d0))
+* **codec:** make the MessagePack adapter an optional feature ([effff27](https://github.com/elct9620/kobako/commit/effff278fd220a4d3c8d4e857828d610fe01f48e))
+* **guest:** let the shell name the schema its guest speaks ([5ad2e0d](https://github.com/elct9620/kobako/commit/5ad2e0db4c645ab56153a81d1623e37e8cd8f5c6))
+* **guest:** open the block seam to a capability gem ([c6d6e49](https://github.com/elct9620/kobako/commit/c6d6e49013bd0f850dd4f2c17273103f166294c2))
+* **outcome:** keep a Panic's attribution when its diagnostics are unreadable ([8accd40](https://github.com/elct9620/kobako/commit/8accd404c9d9155f19fa0458d7e0650b5d587eb1))
+* **outcome:** raise an unresolved entrypoint as its own error carrying the names it could have been ([05b4125](https://github.com/elct9620/kobako/commit/05b41257ca8d4bcb90d6759c6cc7b20582af0661))
+* **sdk:** let a host bring its own wasm engine ([70c2475](https://github.com/elct9620/kobako/commit/70c24759ef4cd5785bd1418a6f8d199620f59e2b))
+* **sdk:** make the payload codec an optional dependency ([0c7da71](https://github.com/elct9620/kobako/commit/0c7da71bfc0b138a316c9612b23b2944684d652e))
+* **sdk:** make the wasm engine something a host can actually take out ([c9f8de6](https://github.com/elct9620/kobako/commit/c9f8de662e6dcd31c8444d9424b1a87ca144f1a6))
+* **sdk:** reach a result's host object without a schema ([a0a2c56](https://github.com/elct9620/kobako/commit/a0a2c56ca5efe8daded876cdcfb8cf0ec8dd4e77))
+* **spec:** anchor what a guest does at a position its codec does not serve ([3a084ea](https://github.com/elct9620/kobako/commit/3a084ea3c60c193038b6dd06d191b14d2ccde4f1))
+* **tasks:** gate signatures against declarations the code dropped ([8b1b834](https://github.com/elct9620/kobako/commit/8b1b834664a51ed6330ba77e9cc3fb7cc4490faf))
+* **tasks:** gate the benchmark probes on still running ([31c3455](https://github.com/elct9620/kobako/commit/31c345534c36f49670075fbfdecff645314d6d24))
+* **wire:** carry a Reply's fault arm on the envelope ([0bce850](https://github.com/elct9620/kobako/commit/0bce850b3416696e92ae6ee12c353c4c21c8e583))
+* **wire:** carry dispatch over the core envelope with an opaque payload ([556104b](https://github.com/elct9620/kobako/commit/556104bf86fdf481b5368b70af83eb0add4b2708))
+* **wire:** carry the invocation frames over the core envelope ([b6f266a](https://github.com/elct9620/kobako/commit/b6f266a310ff723a1868cff745763d91c0603a5e))
+* **wire:** carry the Outcome over the core envelope ([3fa338e](https://github.com/elct9620/kobako/commit/3fa338e4e03b16c4f25f903f1d45f672ab1d015d))
+* **wire:** carry the Run envelope over the core envelope ([d7c46ab](https://github.com/elct9620/kobako/commit/d7c46ab64e382f5226c780b39c8bb66ee12213ac))
+* **wire:** carry the Yield Reply over the core envelope ([0db7261](https://github.com/elct9620/kobako/commit/0db726189adbc369e32b569cd191861dbba17302))
+
+
+### Bug Fixes
+
+* **bench:** bound and surface the band the archive widens ([cc2ddd2](https://github.com/elct9620/kobako/commit/cc2ddd213d8f9382c9b7ff20581abd2b171fe486))
+* **bench:** let probe discovery reach any depth ([2a164ca](https://github.com/elct9620/kobako/commit/2a164cab782a51e9d15b522f8a2c340b5f234b9a))
+* **bench:** name only the rows the archive actually sets the bar for ([68e167f](https://github.com/elct9620/kobako/commit/68e167f56c801ad4b9caf7f290824d28f216aec9))
+* **bench:** sample the cold-start row's guest budget instead of observing it once ([95bdadd](https://github.com/elct9620/kobako/commit/95bdadde1f81fb169293c89cbccd460fb0c6e502))
+* **bench:** widen the gate's noise band by what the archive shows ([183407c](https://github.com/elct9620/kobako/commit/183407cfc3854c1179f7c5b7da338d2295526bfc))
+* **build:** rebuild the guest when the fixed tier changes ([037cc2e](https://github.com/elct9620/kobako/commit/037cc2e9451fbf34bd2138abfbc8b9b59fd613cc))
+* **ext:** name the Panic attribution tuple and drop two lint carries ([ab24625](https://github.com/elct9620/kobako/commit/ab24625233c3559c9b3c737182d6614a4e03926b))
+* **guest:** make a parked block and its wire bit one statement ([dba5625](https://github.com/elct9620/kobako/commit/dba5625c541c9b54caa89f5937419ec416ec05a8))
+* **guest:** read a String's bytes instead of rendering it ([de8c238](https://github.com/elct9620/kobako/commit/de8c238e900830f72d374f83d8c8e5b63cef4384))
+* **guest:** refuse text the capability gems cannot read as text ([539045a](https://github.com/elct9620/kobako/commit/539045a80192cc28c23a4bcbebc311c55eb138fb))
+* **payload:** stop claiming a zero-copy decode the args position cannot have ([c56cb9c](https://github.com/elct9620/kobako/commit/c56cb9c30dc727d9ad0510e3f1572c1ab53463d9))
+* **release:** drop the version from a dev-dependency nothing rewrites ([524e536](https://github.com/elct9620/kobako/commit/524e5365448fedb101571a11de546dddebbfbcb6))
+* **sig:** declare the dispatch seam the shape the ext actually calls ([f0de465](https://github.com/elct9620/kobako/commit/f0de46500eda366d3edd7869edcc39d843f4b687))
+* **sig:** drop the Pool method the signature outlived ([35a5b4f](https://github.com/elct9620/kobako/commit/35a5b4ff3e834b157d695819272c2b445f0bb5bf))
+* **tasks:** let a retired anchor hold the ceiling it was assigned ([a9cd51d](https://github.com/elct9620/kobako/commit/a9cd51d2bd454698833024c89c3693b0d73ef505))
+* **wire:** keep the ABI at 3, which no release has shipped ([2b301b7](https://github.com/elct9620/kobako/commit/2b301b777384c0edf79426805cfb1cc08688aa95))
+
+
+### Documentation
+
+* **customization:** the harness carries no codec until a shell asks ([a9bf10c](https://github.com/elct9620/kobako/commit/a9bf10c20f27f52183932dd149768626d70f31bf))
+* **spec:** separate what a name promises from what the wire promises ([545bfbd](https://github.com/elct9620/kobako/commit/545bfbd59834bab6d564850d9adafa892cbae005))
+* **spec:** speak one word for the arm every envelope answers success on ([f4ef5f5](https://github.com/elct9620/kobako/commit/f4ef5f5c096cb2c5b0153f7a28f7feaf15a405d0))
+* **wire:** move the Reply's fault arm onto the envelope ([3a56e89](https://github.com/elct9620/kobako/commit/3a56e892caea5b2024baeeeff0bcb8b0169e9b16))
+
+
+### Code Refactoring
+
+* **gem:** follow Ruby's own convention for what an error is called ([b1ce1fe](https://github.com/elct9620/kobako/commit/b1ce1fe994e5123a950ba9b9f64810387822bb46))
+* **guest:** let the shell ask for the codec instead of inheriting it ([abc24d3](https://github.com/elct9620/kobako/commit/abc24d3321c614f36f8c01c932169083796a0915))
+* **guest:** name the payload seam for what it is — a codec ([b5d90e2](https://github.com/elct9620/kobako/commit/b5d90e26cdea1e0048cb44e48c6543a6bad4a592))
+* **guest:** route a dispatch through kobako-core without reading its payload ([62c5791](https://github.com/elct9620/kobako/commit/62c5791eb88b9021b3d60c8a3dd45d5907011214))
+* **mruby:** name each codec method after the position it serves ([e2d4b53](https://github.com/elct9620/kobako/commit/e2d4b53dd2d165d4f6312c8e87a5dd936d2f7a2f))
+* **runtime:** give the engine contract names an implementer can write ([0a41491](https://github.com/elct9620/kobako/commit/0a41491360cf17def8245c0758679e92572b990f))
+* **sdk:** keep the root to what every build of this crate has ([7f93096](https://github.com/elct9620/kobako/commit/7f93096d4371e7e7f70f3b31301fad3a3198184a))
+* **transport:** let every envelope spell its success arm the same way ([df595e0](https://github.com/elct9620/kobako/commit/df595e08097af9e3e0a0c5ed52a4a6f854eb21dc))
+* **transport:** name the core envelope's types after what they carry ([b44de65](https://github.com/elct9620/kobako/commit/b44de6502953826c567d4ef8a594561479f50c1d))
+* **transport:** split the invocation module along the line its doc draws ([4d3a2d3](https://github.com/elct9620/kobako/commit/4d3a2d3060167d71a807e203688186740fd1485b))
+* **wasmtime:** put every cap in one struct, named the way the field is read ([3f57860](https://github.com/elct9620/kobako/commit/3f578608b044d1ade0ae35231266cf3c9e517c02))
+* **wire:** give the fault concept one name on both sides of the boundary ([564798a](https://github.com/elct9620/kobako/commit/564798a9662f547f665530a75d99c73051a79d86))
+* **wire:** keep a Fault to what its author can bound ([141209d](https://github.com/elct9620/kobako/commit/141209df0f5525853462fddcfaf3584ea530038b))
+* **wire:** route every tier through the one envelope ([c5cd33a](https://github.com/elct9620/kobako/commit/c5cd33a5346f49857fa6e1f45c9cf9b9bea0ff77))
+
 ## [0.20.0](https://github.com/elct9620/kobako/compare/v0.19.0...v0.20.0) (2026-07-24)
 
 

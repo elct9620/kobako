@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/elct9620/kobako/compare/kobako-json-v0.12.0...kobako-json-v0.13.0) (2026-07-29)
+
+
+### Bug Fixes
+
+* **guest:** refuse text the capability gems cannot read as text ([539045a](https://github.com/elct9620/kobako/commit/539045a80192cc28c23a4bcbebc311c55eb138fb))
+
 ## [0.12.0](https://github.com/elct9620/kobako/compare/kobako-json-v0.11.0...kobako-json-v0.12.0) (2026-07-24)
 
 
