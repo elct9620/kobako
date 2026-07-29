@@ -164,6 +164,14 @@ E-01 E-23 B-18 E-13 B-43 E-44
   oracles — E-26's guest-entry refusal of an unrepresentable integer
   is one both frontends observe identically, so it needs no differential
   scenario.
+- **Reachable only through a codec kobako does not ship** — E-56: a
+  payload position the guest's own codec does not serve. Nothing about
+  the refusal is frontend-specific, so it is comparable in principle,
+  but every codec kobako ships serves every position and no assembly
+  built from this repository presents one that does not. Its attribution
+  is pinned a tier below both frontends, in `wasm/kobako-mruby`'s refusal
+  table (`rake wasm:test`). A refusing codec shipping here moves it into
+  the manifest.
 - **Hard-to-trigger wire corners** — comparable in principle but with
   no deterministic trigger through the real guest (B-21, E-02, E-03,
   E-07..E-10, E-31): revisit if a legitimate trigger
