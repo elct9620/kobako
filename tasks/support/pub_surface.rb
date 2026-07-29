@@ -41,6 +41,9 @@ module KobakoPubSurface
     "crates/kobako" => {
       "YieldError" => "SDK third-party API — the yield-arm error embedders match on; " \
                       "the in-repo parity runner never names it",
+      "ProviderFn" => "SDK third-party API — the factory type Provider::PerInvocation " \
+                      "carries; in-repo callers build one by inference, so the name " \
+                      "itself only matters to someone declaring a helper that takes it",
       "Context" => "SDK third-party API — the type an eval_with / run_with override " \
                    "closure receives; the parity runner binds through an inferred " \
                    "closure parameter, so the name never appears"
