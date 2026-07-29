@@ -226,8 +226,9 @@ Each of these carries the failed run's Execution on `#execution`, so a rescue re
 | `Kobako::MemoryLimitError`      | `TrapError`    | Per-invocation `memory_limit` exhausted              |
 | `Kobako::HandleExhaustedError` | `SandboxError` | Handle counter reached its 2³¹ − 1 cap               |
 | `Kobako::BytecodeError`         | `SandboxError` | `#preload(binary:)` failed RITE validation at replay |
+| `Kobako::UndefinedEntrypointError` | `SandboxError` | `#run` named a constant no snippet defined; carries `#name` and `#available` |
 
-`SandboxError` and `ServiceError` carry structured `origin` / `klass` / `backtrace_lines` / `details` fields when the guest produced a panic envelope.
+`SandboxError` and `ServiceError` carry structured `origin` / `klass` / `backtrace_lines` fields when the guest produced a panic envelope.
 
 ### Resource Limits
 
@@ -398,6 +399,8 @@ sandbox.run(:Greeter, name: "world").value # => "hello, world"
 ```
 
 An entrypoint's `kwargs` arrive as a trailing positional Hash — mruby's C-side call path carries no keyword arguments — so declare a Hash parameter and unpack it yourself.
+
+A target no snippet defined raises `Kobako::UndefinedEntrypointError`, whose `#available` lists the top-level constants the snippets did contribute — so the name is corrected from the error rather than by reading the guest source.
 
 ```
    per-invocation replay (every #eval / #run, snippets in insertion order):
