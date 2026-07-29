@@ -18,7 +18,7 @@ The Call envelope carries `target` and `method`, and that pair *is* the schema k
 
 | Piece | What it demonstrates |
 |---|---|
-| `guest/shell` | Naming the two things a guest shell owns — the payload schema and the gem set — then emitting the ABI exports. Its codec fills the one position no call site owns: the value an invocation ends on. |
+| `guest/shell` | Naming the two things a guest shell owns — the payload schema and the gem set — then emitting the ABI exports. Its codec serves the three positions no call site owns, and only one of those carries a schema of its own: the value an invocation ends on. The other two hand off to the gem, and the two that serve the dynamic proxy it leaves unwritten. |
 | `guest/kv` | A capability gem that reaches the wire. Real methods encode their own requests; `MyService::Session` is a Handle a script can call methods on but cannot construct; `each_key` takes a block, which the gem holds across its own dispatch so the host can yield into it. |
 | `host` | `Receiver` implemented directly, so the payload bytes and the schema are the host's own. `Handles::alloc` issues an id, `Handles::resolve` turns one back into the object, and a detached table makes the whole thing unit-testable without a guest. |
 | `host/src/entry.rs` | Entering at a preloaded `App.call(body, env)` instead of with a script, and the two ways a capability arrives: `env` rides *in the request* as a Handle this invocation's table just issued, while `MyService::KV` is filled at its declared path for the invocation. A handler should be handed anything request-scoped — a name that outlives the request is a name the next request could reach. |
