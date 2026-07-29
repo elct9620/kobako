@@ -9,6 +9,7 @@
 //! observables — lives on that returned `Execution`, not on the reused
 //! Sandbox, so nothing an invocation produces outlives it on `self`.
 
+#[cfg(feature = "wasmtime")]
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -18,6 +19,7 @@ use kobako_runtime::runtime::{Entry, Frames, Runtime};
 pub use kobako_runtime::snapshot::Usage;
 use kobako_runtime::snapshot::{Completion, Snapshot};
 use kobako_transport::envelope::Run;
+#[cfg(feature = "wasmtime")]
 use kobako_wasmtime::{Config, Driver};
 
 use crate::catalog::Catalog;
@@ -125,6 +127,10 @@ impl Sandbox {
     /// engine. Fails with `Error::Setup` when the artifact is absent or
     /// unusable, or when the engine's declared posture falls below the
     /// requested floor.
+    ///
+    /// Behind the default `wasmtime` feature — a host that brings its own
+    /// engine turns it off and reaches `with_runtime` instead.
+    #[cfg(feature = "wasmtime")]
     pub fn new(wasm_path: impl AsRef<Path>, options: Options) -> Result<Self, Error> {
         let config = Config {
             timeout: options.timeout,

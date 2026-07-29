@@ -12,6 +12,10 @@
 //! Driven through the real guest binary; a missing binary is a hard failure
 //! under CI and a silent skip locally, mirroring the Ruby E2E helper.
 
+// Driven through the bundled engine: these cases load a real Guest Binary,
+// so they stand only in a build that carries one.
+#![cfg(feature = "wasmtime")]
+
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 

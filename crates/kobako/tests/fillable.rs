@@ -9,7 +9,7 @@
 //! The Services here are written against the bundled schema's overlay,
 //! which is what makes each case readable, so the file stands with that
 //! overlay. The byte-level path they share is walked in `byte_surface.rs`.
-#![cfg(feature = "msgpack")]
+#![cfg(all(feature = "msgpack", feature = "wasmtime"))]
 
 use std::path::Path;
 use std::sync::Arc;

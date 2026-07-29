@@ -35,7 +35,10 @@ kobako-codec = { path = "../kobako-codec", version = "0.12.0", optional = true }
 kobako-runtime = { path = "../kobako-runtime", version = "0.12.0" }
 
 # Default engine: the wasmtime driver implementing the contract.
-kobako-wasmtime = { path = "../kobako-wasmtime", version = "0.12.0" }
+# Optional, because `Sandbox::with_runtime` takes any `Runtime`: a host
+# bringing its own engine builds without this one, and the claim that the
+# engine is replaceable becomes a fact about the dependency graph.
+kobako-wasmtime = { path = "../kobako-wasmtime", version = "0.12.0", optional = true }
 
 # Unconditional here, and only here: the bundled guest speaks MessagePack
 # whatever this crate is built with, so a test that drives it needs to
@@ -57,5 +60,10 @@ kobako-codec = { path = "../kobako-codec" }
 # gets without asking. Off, the SDK keeps only its byte-level surface and
 # resolves to no payload codec, which is what makes "the codec is
 # replaceable" a property of the dependency graph rather than a claim.
-default = ["msgpack"]
+default = ["msgpack", "wasmtime"]
 msgpack = ["dep:kobako-codec"]
+# On by default so `Sandbox::new` — the path that loads a Guest Binary and
+# needs no engine decision — is what a caller gets without asking. Off, the
+# SDK keeps `Sandbox::with_runtime` and resolves to no engine, which is the
+# same standard the codec is held to.
+wasmtime = ["dep:kobako-wasmtime"]

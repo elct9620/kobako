@@ -73,7 +73,11 @@ CODEC_CRATES = %w[kobako-codec rmp rmp-serde msgpack].freeze
 # nothing, yet must still reach no schema when built codec-free. It is
 # the frontend an embedder names directly, so unlike the tiers above it
 # defaults to a codec and the claim is probed with that deselected.
-CODEC_DESELECTED = "--no-default-features"
+#
+# The engine stays selected here: this probe is about the schema, and
+# +--all-targets+ has to keep working, which the integration tests need a
+# Guest Binary loader for. The engine's own claim is +gate:engine:optional+.
+CODEC_DESELECTED = "--no-default-features --features wasmtime"
 CODEC_ABSENT_TIERS = { "kobako" => File.expand_path("../../crates", __dir__) }.freeze
 
 # Report why +crate+'s codec-free build still reaches a payload codec, or
