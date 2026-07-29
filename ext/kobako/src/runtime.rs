@@ -164,7 +164,7 @@ impl Runtime {
     ///
     /// `timeout_seconds` is the wall-clock cap in seconds
     /// (`None` disables); `memory_limit` is the linear-memory cap in
-    /// bytes (`None` disables); `stdout_limit_bytes` / `stderr_limit_bytes`
+    /// bytes (`None` disables); `stdout_limit` / `stderr_limit`
     /// are the per-channel output caps (`None`
     /// disables); `profile` is the isolation rung the driver builds
     /// (`:permissive` / `:hermetic`); `gvl` is the scheduling mode
@@ -177,8 +177,8 @@ impl Runtime {
         path: String,
         timeout_seconds: Option<f64>,
         memory_limit: Option<usize>,
-        stdout_limit_bytes: Option<usize>,
-        stderr_limit_bytes: Option<usize>,
+        stdout_limit: Option<usize>,
+        stderr_limit: Option<usize>,
         profile: Symbol,
         gvl: Symbol,
     ) -> Result<Self, MagnusError> {
@@ -227,11 +227,11 @@ impl Runtime {
 
         let driver = Driver::new(
             Path::new(&path),
-            memory_limit,
             Config {
                 timeout,
-                stdout_limit_bytes,
-                stderr_limit_bytes,
+                memory_limit,
+                stdout_limit,
+                stderr_limit,
                 profile,
             },
         )

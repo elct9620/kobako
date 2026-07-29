@@ -35,13 +35,7 @@ pub struct Driver {
     // invocation instantiates a fresh instance from it and discards the
     // whole Store afterwards — the per-invocation instance discipline.
     instance_pre: WtInstancePre<Invocation>,
-    // Per-invocation linear-memory cap,
-    // threaded into each fresh `Invocation`; lives apart from `Config`
-    // because the wasmtime `ResourceLimiter` callback consumes it from
-    // inside the wasm engine.
-    memory_limit: Option<usize>,
-    // Wall-clock + per-channel capture caps forwarded from the Sandbox;
-    // see `Config`.
+    // Every cap forwarded from the Sandbox; see `Config`.
     config: Config,
 }
 
@@ -51,15 +45,10 @@ impl Driver {
     /// the artifact's ABI version. Every failure is a `SetupError` for
     /// the frontend to attribute — Engine and Module never leave the
     /// driver.
-    pub fn new(
-        path: &Path,
-        memory_limit: Option<usize>,
-        config: Config,
-    ) -> Result<Self, SetupError> {
+    pub fn new(path: &Path, config: Config) -> Result<Self, SetupError> {
         let instance_pre = instance_pre::cached_instance_pre(path)?;
         let driver = Self {
             instance_pre,
-            memory_limit,
             config,
         };
         driver.probe_abi_version()?;
@@ -107,7 +96,7 @@ impl Driver {
     /// Build the per-invocation Store: a fresh `Invocation` wired with
     /// the memory limiter and the epoch-deadline callback.
     fn new_store(&self) -> Result<WtStore<Invocation>, SetupError> {
-        let mut store = WtStore::new(shared_engine()?, Invocation::new(self.memory_limit));
+        let mut store = WtStore::new(shared_engine()?, Invocation::new(self.config.memory_limit));
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
         store.epoch_deadline_callback(trap::epoch_deadline_callback);
         Ok(store)
@@ -196,9 +185,9 @@ impl Driver {
             memory_peak: data.memory_peak(),
         };
         let (stdout_bytes, stdout_truncated) =
-            capture::clip_capture(data.stdout_bytes(), self.config.stdout_limit_bytes);
+            capture::clip_capture(data.stdout_bytes(), self.config.stdout_limit);
         let (stderr_bytes, stderr_truncated) =
-            capture::clip_capture(data.stderr_bytes(), self.config.stderr_limit_bytes);
+            capture::clip_capture(data.stderr_bytes(), self.config.stderr_limit);
         Snapshot {
             completion,
             stdout: Capture {

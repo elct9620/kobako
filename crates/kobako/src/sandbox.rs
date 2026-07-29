@@ -38,6 +38,11 @@ type Resolved = Vec<(String, Arc<dyn Receiver>)>;
 
 /// Per-Sandbox caps and posture, the counterpart of the Ruby
 /// `SandboxOptions` value object. `None` means "no cap".
+///
+/// Field-for-field the same shape as the wasmtime driver's `Config`, and
+/// deliberately not that type: naming an engine's type here would make the
+/// engine unremovable, and the SDK holds itself to an engine a host can
+/// take out.
 #[derive(Clone)]
 pub struct Options {
     /// Wall-clock cap for one invocation.
@@ -123,12 +128,12 @@ impl Sandbox {
     pub fn new(wasm_path: impl AsRef<Path>, options: Options) -> Result<Self, Error> {
         let config = Config {
             timeout: options.timeout,
-            stdout_limit_bytes: options.stdout_limit,
-            stderr_limit_bytes: options.stderr_limit,
+            memory_limit: options.memory_limit,
+            stdout_limit: options.stdout_limit,
+            stderr_limit: options.stderr_limit,
             profile: options.profile,
         };
-        let driver =
-            Driver::new(wasm_path.as_ref(), options.memory_limit, config).map_err(Error::Setup)?;
+        let driver = Driver::new(wasm_path.as_ref(), config).map_err(Error::Setup)?;
         Sandbox::with_runtime(driver, options.profile)
     }
 

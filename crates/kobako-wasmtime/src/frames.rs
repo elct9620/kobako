@@ -93,8 +93,8 @@ pub(crate) fn install_wasi_frames(
     }
 
     let stdin_pipe = MemoryInputPipe::new(stdin_content);
-    let stdout_pipe = MemoryOutputPipe::new(capture::pipe_capacity(config.stdout_limit_bytes));
-    let stderr_pipe = MemoryOutputPipe::new(capture::pipe_capacity(config.stderr_limit_bytes));
+    let stdout_pipe = MemoryOutputPipe::new(capture::pipe_capacity(config.stdout_limit));
+    let stderr_pipe = MemoryOutputPipe::new(capture::pipe_capacity(config.stderr_limit));
 
     let mut builder = WasiCtxBuilder::new();
     builder.stdin(stdin_pipe);
@@ -214,8 +214,9 @@ mod tests {
         let engine = shared_engine().expect("shared engine must be constructible");
         let config = Config {
             timeout: None,
-            stdout_limit_bytes: None,
-            stderr_limit_bytes: None,
+            memory_limit: None,
+            stdout_limit: None,
+            stderr_limit: None,
             profile,
         };
         let mut store = WtStore::new(engine, Invocation::new(None));
