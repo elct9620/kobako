@@ -75,8 +75,9 @@ E-56
 E-56 needs a codec that refuses at a position, and every codec kobako
 ships fills all of them — so no Ruby surface reaches it. Its seven
 positions are pinned in `wasm/kobako-mruby/src/refusal.rs`, which the
-host build of the guest crates runs (`rake wasm:test`). Shipping a
-refusing codec would move it out of this block.
+host build of the guest crates runs (`rake wasm:test`). A citing test
+under `test/` is what makes this entry stale — the gate reads citations,
+so a refusing codec drops it only once one is reachable from Ruby.
 
 ## Frontend witness asymmetries
 
