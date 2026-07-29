@@ -7,20 +7,22 @@
 //! error.
 
 use super::bytes::{Reader, Writer};
-use super::Error;
+use super::DecodeError;
 
-/// Exception class, message, and backtrace as the guest saw them.
+/// The error's name, message, and backtrace as the guest saw them. `name`
+/// rather than `class` because a guest need not be object-oriented to have
+/// named the error it is reporting.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ErrorRecord {
-    pub class: String,
+    pub name: String,
     pub message: String,
     pub backtrace: Vec<String>,
 }
 
 impl ErrorRecord {
-    pub(crate) fn read(reader: &mut Reader<'_>) -> Result<Self, Error> {
+    pub(crate) fn read(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
         Ok(ErrorRecord {
-            class: reader.text()?.to_owned(),
+            name: reader.text()?.to_owned(),
             message: reader.text()?.to_owned(),
             backtrace: reader.text_list()?,
         })
@@ -28,7 +30,7 @@ impl ErrorRecord {
 
     pub(crate) fn write(&self, writer: &mut Writer) {
         writer
-            .bytes(self.class.as_bytes())
+            .bytes(self.name.as_bytes())
             .bytes(self.message.as_bytes())
             .list(&self.backtrace);
     }
@@ -40,7 +42,7 @@ mod tests {
 
     fn sample() -> ErrorRecord {
         ErrorRecord {
-            class: "RuntimeError".into(),
+            name: "RuntimeError".into(),
             message: "boom".into(),
             backtrace: vec!["(eval):1".into()],
         }
@@ -77,9 +79,9 @@ mod tests {
     }
 
     #[test]
-    fn golden_layout_is_class_then_message_then_backtrace() {
+    fn golden_layout_is_name_then_message_then_backtrace() {
         let record = ErrorRecord {
-            class: "E".into(),
+            name: "E".into(),
             message: "m".into(),
             backtrace: vec!["b".into()],
         };
@@ -88,7 +90,7 @@ mod tests {
         assert_eq!(
             w.into_bytes(),
             vec![
-                0, 0, 0, 1, b'E', // class
+                0, 0, 0, 1, b'E', // name
                 0, 0, 0, 1, b'm', // message
                 0, 0, 0, 1, // backtrace count
                 0, 0, 0, 1, b'b',

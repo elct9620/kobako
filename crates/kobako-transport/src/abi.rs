@@ -45,13 +45,13 @@ const _: () = assert!(MAX_FRAME_LEN > MAX_DISPATCH_PAYLOAD);
 ///  └──────────┴────────────┘
 /// ```
 #[inline]
-pub fn pack_u64(ptr: u32, len: u32) -> u64 {
+pub fn pack_ptr_len(ptr: u32, len: u32) -> u64 {
     ((ptr as u64) << 32) | (len as u64)
 }
 
 /// Read a packed u64 back into `(ptr, len)`.
 #[inline]
-pub fn unpack_u64(packed: u64) -> (u32, u32) {
+pub fn unpack_ptr_len(packed: u64) -> (u32, u32) {
     ((packed >> 32) as u32, packed as u32)
 }
 
@@ -61,7 +61,7 @@ mod tests {
 
     #[test]
     fn the_layout_is_high_ptr_low_len() {
-        let packed = pack_u64(0xAABB_CCDD, 0x1122_3344);
+        let packed = pack_ptr_len(0xAABB_CCDD, 0x1122_3344);
         assert_eq!(
             packed, 0xAABB_CCDD_1122_3344,
             "the packed u64 must carry ptr in the high half and len in the low half"
@@ -80,7 +80,7 @@ mod tests {
             (u32::MAX, u32::MAX),
         ] {
             assert_eq!(
-                unpack_u64(pack_u64(ptr, len)),
+                unpack_ptr_len(pack_ptr_len(ptr, len)),
                 (ptr, len),
                 "a ({ptr:#x}, {len:#x}) pair must survive the pack the ABI returns"
             );

@@ -14,7 +14,7 @@ use wasmtime::{Caller, Extern, Memory};
 use crate::invocation::Invocation;
 use kobako_runtime::error::Trap;
 use kobako_runtime::yielder::Yielder;
-use kobako_transport::abi::{unpack_u64, MAX_DISPATCH_PAYLOAD};
+use kobako_transport::abi::{unpack_ptr_len, MAX_DISPATCH_PAYLOAD};
 
 /// The wasmtime-backed `Yielder` (`kobako_runtime::yielder`): a
 /// frame-scoped wrapper over the dispatch `Caller` that drives a block-yield
@@ -152,7 +152,7 @@ pub(crate) fn guest_buffer_range(
 /// The `(ptr, len)` a buffer-returning ABI export answered with, widened
 /// to the `usize` the linear-memory ranges here are computed in.
 pub(crate) fn unpack_outcome_packed(packed: u64) -> (usize, usize) {
-    let (ptr, len) = unpack_u64(packed);
+    let (ptr, len) = unpack_ptr_len(packed);
     (ptr as usize, len as usize)
 }
 

@@ -581,7 +581,7 @@ mod tests {
     fn propagated_block_failure_folds_into_a_runtime_fault() {
         let req = block_request("yield_each", vec![Value::Int(1)]);
         let mut channel = Scripted::new(vec![YieldReply::Error(ErrorRecord {
-            class: "LocalJumpError".into(),
+            name: "LocalJumpError".into(),
             message: "crossed".into(),
             backtrace: Vec::new(),
         })]);

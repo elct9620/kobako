@@ -123,7 +123,7 @@ impl GuestYielder {
             Ok(YieldReply::Error(record)) => Ok((
                 ruby.to_symbol(ARM_ERROR),
                 ruby.str_new(&record.message),
-                Some(record.class),
+                Some(record.name),
             )),
             Err(err) => Err(super::errors::trap_err(&ruby, err.to_string())),
         }

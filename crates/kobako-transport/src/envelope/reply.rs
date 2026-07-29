@@ -5,7 +5,7 @@
 //! the payload carries.
 
 use super::bytes::{Reader, Writer};
-use super::{Error, ErrorRecord, Fault};
+use super::{DecodeError, ErrorRecord, Fault};
 
 const TAG_OK: u8 = 0;
 const TAG_FAULT: u8 = 1;
@@ -27,7 +27,7 @@ pub enum Reply {
 }
 
 impl Reply {
-    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
+    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
         let tag = reader.u8()?;
         match tag {
@@ -37,7 +37,7 @@ impl Reply {
                 reader.finish()?;
                 Ok(Reply::Fault(fault))
             }
-            _ => Err(Error("Reply tag must be 0 (ok) or 1 (fault)")),
+            _ => Err(DecodeError::new("Reply tag must be 0 (ok) or 1 (fault)")),
         }
     }
 
@@ -71,7 +71,7 @@ pub enum YieldReply {
 }
 
 impl YieldReply {
-    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
+    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
         let tag = reader.u8()?;
         match tag {
@@ -82,8 +82,8 @@ impl YieldReply {
                 reader.finish()?;
                 Ok(YieldReply::Error(record))
             }
-            YIELD_RESERVED => Err(Error("Yield Reply tag 0x03 is reserved")),
-            _ => Err(Error("Yield Reply tag is not recognised")),
+            YIELD_RESERVED => Err(DecodeError::new("Yield Reply tag 0x03 is reserved")),
+            _ => Err(DecodeError::new("Yield Reply tag is not recognised")),
         }
     }
 
@@ -159,7 +159,7 @@ mod tests {
             YieldReply::Ok(vec![0xa4]),
             YieldReply::Break(vec![0xa4]),
             YieldReply::Error(ErrorRecord {
-                class: "LocalJumpError".into(),
+                name: "LocalJumpError".into(),
                 message: "no block".into(),
                 backtrace: vec!["(eval):1".into()],
             }),
@@ -222,14 +222,14 @@ mod tests {
         );
         assert_eq!(
             YieldReply::Error(ErrorRecord {
-                class: "E".into(),
+                name: "E".into(),
                 message: "m".into(),
                 backtrace: Vec::new(),
             })
             .encode(),
             vec![
                 0x04, // tag: error
-                0, 0, 0, 1, b'E', // class
+                0, 0, 0, 1, b'E', // name
                 0, 0, 0, 1, b'm', // message
                 0, 0, 0, 0, // backtrace count
             ],

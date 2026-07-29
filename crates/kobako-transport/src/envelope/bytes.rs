@@ -5,9 +5,9 @@
 //! a view into the caller's buffer and reaches a frontend without a second
 //! allocation.
 
-use super::Error;
+use super::DecodeError;
 
-const MALFORMED: Error = Error("core envelope ended before its declared length");
+const MALFORMED: DecodeError = DecodeError::new("core envelope ended before its declared length");
 
 /// Cursor over one message. Every read either advances past a complete
 /// field or fails, so a truncated message can never be mistaken for a
@@ -22,13 +22,13 @@ impl<'a> Reader<'a> {
         Reader { bytes, pos: 0 }
     }
 
-    pub(crate) fn u8(&mut self) -> Result<u8, Error> {
+    pub(crate) fn u8(&mut self) -> Result<u8, DecodeError> {
         let byte = *self.bytes.get(self.pos).ok_or(MALFORMED)?;
         self.pos += 1;
         Ok(byte)
     }
 
-    pub(crate) fn u32(&mut self) -> Result<u32, Error> {
+    pub(crate) fn u32(&mut self) -> Result<u32, DecodeError> {
         let end = self.pos.checked_add(4).ok_or(MALFORMED)?;
         let slice = self.bytes.get(self.pos..end).ok_or(MALFORMED)?;
         self.pos = end;
@@ -37,7 +37,7 @@ impl<'a> Reader<'a> {
     }
 
     /// A `u32` length followed by that many bytes.
-    pub(crate) fn bytes(&mut self) -> Result<&'a [u8], Error> {
+    pub(crate) fn bytes(&mut self) -> Result<&'a [u8], DecodeError> {
         let len = self.u32()? as usize;
         let end = self.pos.checked_add(len).ok_or(MALFORMED)?;
         let slice = self.bytes.get(self.pos..end).ok_or(MALFORMED)?;
@@ -48,18 +48,18 @@ impl<'a> Reader<'a> {
     /// A byte string carrying UTF-8. Every text field in the envelope is
     /// validated at decode so a frontend receives `&str` without repeating
     /// the check.
-    pub(crate) fn text(&mut self) -> Result<&'a str, Error> {
+    pub(crate) fn text(&mut self) -> Result<&'a str, DecodeError> {
         core::str::from_utf8(self.bytes()?)
-            .map_err(|_| Error("core envelope text field is not valid UTF-8"))
+            .map_err(|_| DecodeError::new("core envelope text field is not valid UTF-8"))
     }
 
     /// A `u32` count followed by that many byte strings, each carrying
     /// UTF-8. Every list the envelope defines is a list of names, so this
     /// is the only list shape a reader needs.
     ///
-    /// The elements are copied rather than borrowed: a preamble's paths and
+    /// The elements are copied rather than borrowed: a binding's path and
     /// a panic's `available` names outlive the frame buffer they arrive in.
-    pub(crate) fn text_list(&mut self) -> Result<Vec<String>, Error> {
+    pub(crate) fn text_list(&mut self) -> Result<Vec<String>, DecodeError> {
         let count = self.u32()? as usize;
         // A count larger than the bytes left cannot be satisfied; refusing
         // it here bounds the allocation below by the message size.
@@ -82,11 +82,13 @@ impl<'a> Reader<'a> {
 
     /// Refuse anything left over. Used by envelopes whose last field is
     /// self-delimiting, where trailing bytes signal a framing desync.
-    pub(crate) fn finish(self) -> Result<(), Error> {
+    pub(crate) fn finish(self) -> Result<(), DecodeError> {
         if self.pos == self.bytes.len() {
             Ok(())
         } else {
-            Err(Error("core envelope carries bytes past its last field"))
+            Err(DecodeError::new(
+                "core envelope carries bytes past its last field",
+            ))
         }
     }
 }

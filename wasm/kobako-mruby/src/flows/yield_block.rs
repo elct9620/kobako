@@ -28,7 +28,7 @@
 //!    bytes in, return the packed `(ptr<<32)|len`.
 
 #[cfg(mruby_linked)]
-use kobako_core::abi::pack_u64;
+use kobako_core::abi::pack_ptr_len;
 #[cfg(mruby_linked)]
 use kobako_transport::envelope::{ErrorRecord, YieldReply};
 
@@ -215,7 +215,7 @@ fn encode_error_response_from_exception(
 #[cfg(mruby_linked)]
 fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec<u8> {
     YieldReply::Error(ErrorRecord {
-        class: class.into(),
+        name: class.into(),
         message: message.into(),
         backtrace,
     })
@@ -250,5 +250,5 @@ fn write_yield_buffer(bytes: &[u8]) -> u64 {
     unsafe {
         core::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, bytes.len());
     }
-    pack_u64(ptr, len_u32)
+    pack_ptr_len(ptr, len_u32)
 }

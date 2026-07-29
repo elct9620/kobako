@@ -41,7 +41,7 @@ use kobako_runtime::error::Trap;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot as RuntimeSnapshot, Usage};
-use kobako_transport::envelope::{Outcome, Preamble, Run, Snippet, Snippets};
+use kobako_transport::envelope::{Bindings, Outcome, Run, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
 /// A Panic's fields as they cross to Ruby: origin, class, message,
@@ -65,7 +65,7 @@ fn rstring_to_vec(s: RString) -> Vec<u8> {
 /// The core envelope's byte layout lives on this side of the boundary,
 /// so the registry stays a registry and never holds a wire image.
 fn frame_preamble(paths: RArray) -> Result<Vec<u8>, MagnusError> {
-    Ok(Preamble {
+    Ok(Bindings {
         paths: paths.to_vec()?,
     }
     .encode())
@@ -415,8 +415,8 @@ impl Snapshot {
                 ruby.to_symbol("panic"),
                 empty(),
                 Some((
-                    panic.origin,
-                    panic.error.class,
+                    panic.origin.name().to_owned(),
+                    panic.error.name,
                     panic.error.message,
                     panic.error.backtrace,
                     panic.available,

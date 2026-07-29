@@ -6,7 +6,7 @@
 //! the Frame 1 preamble's proxy classes and replay any preloaded Frame 3
 //! snippets before running the entry-specific body. When any of those
 //! steps fails, the failure surfaces as a Panic with
-//! `origin = "sandbox"` and `class = "Kobako::BootError"` — this module
+//! `origin = sandbox` and `name = "Kobako::BootError"` — this module
 //! centralises both the orchestration and the Panic-construction
 //! shapes the entry flows share (`boot_panic`, `transport_panic`).
 //!
@@ -22,12 +22,12 @@ use crate::runtime::{InstallError, Kobako};
 use beni::Ccontext;
 #[cfg(mruby_linked)]
 use beni::Mrb;
-use kobako_transport::envelope::{ErrorRecord, Panic, ORIGIN_SANDBOX, ORIGIN_SERVICE};
 #[cfg(mruby_linked)]
-use kobako_transport::envelope::{Preamble, Snippet, Snippets};
+use kobako_transport::envelope::{Bindings, Snippet, Snippets};
+use kobako_transport::envelope::{ErrorRecord, Origin, Panic};
 
 /// Build a Panic envelope carrying the kobako boot defaults
-/// (`origin = "sandbox"`, `class = "Kobako::BootError"`, empty
+/// (`origin = sandbox`, `name = "Kobako::BootError"`, empty
 /// backtrace, no correction to offer). The exclusive constructor for the
 /// `Kobako::BootError` panic shape — every boot-time failure should
 /// pass through here so the host-visible attribution stays uniform.
@@ -36,7 +36,7 @@ pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
 }
 
 /// Build a Panic envelope for a wire-layer failure at the invocation
-/// boundary (`origin = "sandbox"`, `class = "Kobako::Transport::Error"`,
+/// boundary (`origin = sandbox`, `name = "Kobako::Transport::Error"`,
 /// empty backtrace, no correction to offer). The exclusive constructor for the
 /// `Kobako::Transport::Error` panic shape — the sibling of `boot_panic`
 /// for decode / encode faults on the invocation channel's envelopes, so
@@ -51,9 +51,9 @@ pub(super) fn transport_panic(message: impl Into<String>) -> Panic {
 #[cfg(any(mruby_linked, test))]
 fn sandbox_panic(class: &str, message: impl Into<String>) -> Panic {
     Panic {
-        origin: ORIGIN_SANDBOX.into(),
+        origin: Origin::Sandbox,
         error: ErrorRecord {
-            class: class.into(),
+            name: class.into(),
             message: message.into(),
             backtrace: Vec::new(),
         },
@@ -64,7 +64,7 @@ fn sandbox_panic(class: &str, message: impl Into<String>) -> Panic {
 /// Build the Panic envelope for a return value that has no wire
 /// representation. Both `__kobako_eval`
 /// and `__kobako_run` reach this when `Kobako::try_codec_value` returns
-/// `None`. `origin = "sandbox"` maps host-side to `Kobako::SandboxError`,
+/// `None`. A sandbox origin maps host-side to `Kobako::SandboxError`,
 /// attributing the unrepresentable-value case to the guest code;
 /// the value's class name rides the message so the developer can see
 /// which type failed without an implicit `inspect`.
@@ -99,16 +99,15 @@ pub(super) fn write_value_outcome<G: crate::MrbGuest>(kobako: &Kobako, result_va
     }
 }
 
-/// Decide which Panic `origin` field a given mruby exception class
-/// should produce. Mirrors the host-side attribution rules —
-/// a `Kobako::ServiceError` raised from a Service capability lands on
-/// `"service"`; everything else lands on `"sandbox"`. Pure string
-/// inspection — host-buildable for unit tests.
-pub(super) fn origin_for_class(class_name: &str) -> &'static str {
+/// Attribute a Panic from the mruby exception class that produced it.
+/// Mirrors the host-side rules — a `Kobako::ServiceError` raised from a
+/// Service capability attributes to the Service; everything else to the
+/// sandbox. Pure string inspection — host-buildable for unit tests.
+pub(super) fn origin_for_class(class_name: &str) -> Origin {
     if class_name.contains("ServiceError") {
-        ORIGIN_SERVICE
+        Origin::Service
     } else {
-        ORIGIN_SANDBOX
+        Origin::Sandbox
     }
 }
 
@@ -118,8 +117,8 @@ pub(super) fn origin_for_class(class_name: &str) -> &'static str {
 pub(super) fn read_preamble() -> Result<Vec<String>, Panic> {
     let bytes = kobako_core::frames::read_frame()
         .ok_or_else(|| boot_panic("failed to read the Sandbox setup data"))?;
-    Preamble::decode(&bytes)
-        .map(|preamble| preamble.paths)
+    Bindings::decode(&bytes)
+        .map(|bindings| bindings.paths)
         .map_err(|_| boot_panic("failed to decode the Sandbox setup data"))
 }
 
@@ -236,14 +235,14 @@ pub(super) fn replay_snippets(kobako: &Kobako, snippets: &[Snippet]) -> Result<(
 /// fields.
 #[cfg(mruby_linked)]
 fn reshape_replay_panic(panic: Panic, load: BytecodeLoad) -> Panic {
-    let class = match load {
+    let name = match load {
         BytecodeLoad::StructuralFailure => "Kobako::BytecodeError".into(),
-        BytecodeLoad::Loaded => panic.error.class,
+        BytecodeLoad::Loaded => panic.error.name,
     };
     Panic {
-        origin: "sandbox".into(),
+        origin: Origin::Sandbox,
         error: ErrorRecord {
-            class,
+            name,
             ..panic.error
         },
         ..panic
@@ -360,9 +359,9 @@ pub(super) fn exception_fields(
 fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
     let (class, message, backtrace) = exception_fields(kobako, exc_val);
     Panic {
-        origin: origin_for_class(&class).into(),
+        origin: origin_for_class(&class),
         error: ErrorRecord {
-            class,
+            name: class,
             message,
             backtrace,
         },
@@ -388,8 +387,8 @@ mod tests {
     #[test]
     fn boot_panic_carries_kobako_boot_defaults() {
         let p = boot_panic("failed to read preamble frame");
-        assert_eq!(p.origin, "sandbox");
-        assert_eq!(p.error.class, "Kobako::BootError");
+        assert_eq!(p.origin, Origin::Sandbox);
+        assert_eq!(p.error.name, "Kobako::BootError");
         assert_eq!(p.error.message, "failed to read preamble frame");
         assert!(p.error.backtrace.is_empty());
         assert!(p.available.is_empty());
@@ -398,8 +397,8 @@ mod tests {
     #[test]
     fn transport_panic_carries_kobako_transport_defaults() {
         let p = transport_panic("failed to decode the invocation request");
-        assert_eq!(p.origin, "sandbox");
-        assert_eq!(p.error.class, "Kobako::Transport::Error");
+        assert_eq!(p.origin, Origin::Sandbox);
+        assert_eq!(p.error.name, "Kobako::Transport::Error");
         assert_eq!(p.error.message, "failed to decode the invocation request");
         assert!(p.error.backtrace.is_empty());
         assert!(p.available.is_empty());
@@ -407,13 +406,16 @@ mod tests {
 
     #[test]
     fn origin_for_class_routes_service_errors_to_service() {
-        assert_eq!(origin_for_class("Kobako::ServiceError"), "service");
+        assert_eq!(origin_for_class("Kobako::ServiceError"), Origin::Service);
     }
 
     #[test]
     fn origin_for_class_defaults_to_sandbox() {
-        assert_eq!(origin_for_class("RuntimeError"), "sandbox");
-        assert_eq!(origin_for_class("Kobako::Transport::Error"), "sandbox");
-        assert_eq!(origin_for_class("NoMethodError"), "sandbox");
+        assert_eq!(origin_for_class("RuntimeError"), Origin::Sandbox);
+        assert_eq!(
+            origin_for_class("Kobako::Transport::Error"),
+            Origin::Sandbox
+        );
+        assert_eq!(origin_for_class("NoMethodError"), Origin::Sandbox);
     }
 }

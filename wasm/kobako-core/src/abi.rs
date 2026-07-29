@@ -10,7 +10,7 @@
 
 mod outcome_buffer;
 
-pub use kobako_transport::abi::{pack_u64, unpack_u64, ABI_VERSION};
+pub use kobako_transport::abi::{pack_ptr_len, unpack_ptr_len, ABI_VERSION};
 pub use outcome_buffer::{alloc, take_outcome, write_outcome, write_panic};
 
 // ---------------------------------------------------------------------------

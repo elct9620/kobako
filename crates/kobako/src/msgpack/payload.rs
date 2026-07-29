@@ -62,7 +62,7 @@ fn wrap(handles: &Handles<'_>, arg: RunArg) -> Result<Value, Error> {
         RunArg::Value(value) => Ok(value),
         RunArg::Object(object) => handles.alloc(object).map(Value::Handle).map_err(|fault| {
             Error::Sandbox(Box::new(Failure {
-                class: "Kobako::HandleExhaustedError".into(),
+                name: "Kobako::HandleExhaustedError".into(),
                 message: fault.message,
                 backtrace: Vec::new(),
                 available: Vec::new(),

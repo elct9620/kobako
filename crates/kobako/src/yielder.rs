@@ -32,7 +32,7 @@ pub enum YieldError {
     /// The block body raised, or its value could not ride the wire.
     /// The receiver observes it at the yield site and may recover or
     /// propagate.
-    Failure { class: String, message: String },
+    Failure { name: String, message: String },
     /// The re-entry itself failed — the guest trapped mid-block or
     /// answered with malformed Yield Reply bytes.
     Aborted(String),
@@ -42,7 +42,7 @@ impl fmt::Display for YieldError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             YieldError::Break => f.write_str("guest block break crossed the receiver"),
-            YieldError::Failure { class, message } => write!(f, "{class}: {message}"),
+            YieldError::Failure { name, message } => write!(f, "{name}: {message}"),
             YieldError::Aborted(message) => f.write_str(message),
         }
     }
@@ -101,7 +101,7 @@ impl<'y> Yielder<'y> {
                 Err(YieldError::Break)
             }
             YieldReply::Error(record) => Err(YieldError::Failure {
-                class: record.class,
+                name: record.name,
                 message: record.message,
             }),
         }
@@ -178,9 +178,9 @@ mod tests {
     }
 
     #[test]
-    fn the_error_arm_surfaces_the_records_class_and_message() {
+    fn the_error_arm_surfaces_the_records_name_and_message() {
         let record = YieldReply::Error(ErrorRecord {
-            class: "LocalJumpError".into(),
+            name: "LocalJumpError".into(),
             message: "boom".into(),
             backtrace: vec!["(eval):1".into()],
         });
@@ -190,10 +190,10 @@ mod tests {
         assert_eq!(
             block.call_payload(&[]),
             Err(YieldError::Failure {
-                class: "LocalJumpError".into(),
+                name: "LocalJumpError".into(),
                 message: "boom".into(),
             }),
-            "a block that raised must reach the receiver as its own class and message"
+            "a block that raised must reach the receiver as its own error name and message"
         );
     }
 
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn every_yield_error_folds_to_a_runtime_fault() {
         let failure = YieldError::Failure {
-            class: "LocalJumpError".into(),
+            name: "LocalJumpError".into(),
             message: "crossed".into(),
         };
         let fault = Fault::from(failure);

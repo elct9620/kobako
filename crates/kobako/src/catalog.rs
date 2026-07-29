@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use kobako_transport::envelope::Preamble;
+use kobako_transport::envelope::Bindings;
 
 use crate::receiver::Receiver;
 use crate::snippet::Snippets;
@@ -47,7 +47,7 @@ impl Catalog {
     /// Encode the Frame 1 registration preamble: a flat list of bind
     /// paths (`["MyService::KV", "File"]`) in bind order.
     pub(crate) fn preamble(&self) -> Vec<u8> {
-        Preamble {
+        Bindings {
             paths: self.bindings.iter().map(|(path, _)| path.clone()).collect(),
         }
         .encode()
@@ -87,8 +87,8 @@ mod tests {
         catalog.bind("MyService::KV", Arc::new(Probe));
         catalog.bind("File", Arc::new(Probe));
         assert_eq!(
-            Preamble::decode(&catalog.preamble()),
-            Ok(Preamble {
+            Bindings::decode(&catalog.preamble()),
+            Ok(Bindings {
                 paths: vec!["MyService::KV".into(), "File".into()]
             }),
             "a bound catalog must send every path on Frame 1 in bind order"
@@ -98,8 +98,8 @@ mod tests {
     #[test]
     fn an_empty_catalog_sends_a_present_empty_preamble() {
         assert_eq!(
-            Preamble::decode(&Catalog::default().preamble()),
-            Ok(Preamble::default()),
+            Bindings::decode(&Catalog::default().preamble()),
+            Ok(Bindings::default()),
             "a catalog with no bindings must send a present, empty Frame 1"
         );
     }

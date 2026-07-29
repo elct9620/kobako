@@ -7,7 +7,7 @@
 //! frame, so its length reaches the guest as an export argument.
 
 use super::bytes::{Reader, Writer};
-use super::Error;
+use super::DecodeError;
 
 /// One `#run` invocation: which top-level constant, and its arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,7 +17,7 @@ pub struct Run {
 }
 
 impl Run {
-    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
+    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
         let entrypoint = reader.text()?.to_owned();
         Ok(Run {

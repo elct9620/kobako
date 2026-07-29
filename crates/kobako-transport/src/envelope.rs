@@ -8,7 +8,7 @@
 //!
 //! A decoded envelope borrows the buffer it came from, so a payload reaches
 //! its reader as a view rather than a copy. The two fields a reader keeps
-//! past that buffer's life — a preamble's paths and a snippet's body, read
+//! past that buffer's life — a binding's path and a snippet's body, read
 //! from a frame at boot and consumed later — are copied at decode.
 //!
 //! This layer has one implementation, so its `golden_layout_*` tests are
@@ -30,24 +30,38 @@ pub mod run;
 pub use call::{Call, Target};
 pub use error_record::ErrorRecord;
 pub use fault::{Fault, FaultKind};
-pub use invocation_frames::{Preamble, Snippet, Snippets};
-pub use outcome::{Outcome, Panic, ORIGIN_SANDBOX, ORIGIN_SERVICE};
+pub use invocation_frames::{Bindings, Snippet, Snippets};
+pub use outcome::{Origin, Outcome, Panic};
 pub use reply::{Reply, YieldReply};
 pub use run::Run;
 
 use std::fmt;
 
-/// A message that does not conform to the core envelope layout. The reason
-/// is a fixed string because every case is a wire violation the receiving
-/// side rejects rather than a condition a caller recovers from by
-/// inspecting it.
+/// A message that does not conform to the core envelope layout. Only
+/// decoding produces one — every `encode` is infallible — so the name says
+/// which direction it comes from.
+///
+/// The reason is a fixed string because every case is a wire violation the
+/// receiving side rejects rather than a condition a caller recovers from by
+/// inspecting it; it stays behind `message` so a later reason can carry more
+/// than a literal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Error(pub &'static str);
+pub struct DecodeError(&'static str);
 
-impl fmt::Display for Error {
+impl DecodeError {
+    pub const fn new(reason: &'static str) -> Self {
+        DecodeError(reason)
+    }
+
+    pub fn message(&self) -> &str {
+        self.0
+    }
+}
+
+impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for DecodeError {}

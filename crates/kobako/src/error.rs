@@ -14,7 +14,7 @@ use std::fmt;
 
 pub use kobako_runtime::error::SetupError;
 
-/// One record of a failed invocation: the exception class, message and
+/// One record of a failed invocation: the error name, message and
 /// backtrace the wire carried, the names the invocation could have used in
 /// place of the one it named, and — when the host itself detected the
 /// violation — the codec detail behind it.
@@ -28,7 +28,7 @@ pub use kobako_runtime::error::SetupError;
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Failure {
-    pub class: String,
+    pub name: String,
     pub message: String,
     pub backtrace: Vec<String>,
     /// Empty unless the failure offers a correction — the top-level
@@ -42,7 +42,7 @@ pub struct Failure {
 
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.class, self.message)
+        write!(f, "{}: {}", self.name, self.message)
     }
 }
 

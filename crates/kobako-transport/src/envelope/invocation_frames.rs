@@ -8,7 +8,7 @@
 //! the guest from the channel's own prefix rather than from the envelope.
 
 use super::bytes::{Reader, Writer};
-use super::Error;
+use super::DecodeError;
 
 const SNIPPET_SOURCE: u8 = 0;
 const SNIPPET_BYTECODE: u8 = 1;
@@ -16,16 +16,16 @@ const SNIPPET_BYTECODE: u8 = 1;
 /// Frame 1 — the bound constant paths the guest installs proxies from.
 /// Always present; an empty list means no Service is bound.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Preamble {
+pub struct Bindings {
     pub paths: Vec<String>,
 }
 
-impl Preamble {
-    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
+impl Bindings {
+    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
         let paths = reader.text_list()?;
         reader.finish()?;
-        Ok(Preamble { paths })
+        Ok(Bindings { paths })
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -52,13 +52,15 @@ pub struct Snippets {
 }
 
 impl Snippets {
-    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
+    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
         let count = reader.u32()? as usize;
         // Each entry costs at least a kind byte, so a count past the bytes
         // left cannot be satisfied; refusing it bounds the allocation.
         if count > reader.remaining().len() {
-            return Err(Error("Frame 3 declares more entries than the frame holds"));
+            return Err(DecodeError::new(
+                "Frame 3 declares more entries than the frame holds",
+            ));
         }
         let mut entries = Vec::with_capacity(count);
         for _ in 0..count {
@@ -70,7 +72,7 @@ impl Snippets {
                 SNIPPET_BYTECODE => Snippet::Bytecode {
                     body: reader.bytes()?.to_vec(),
                 },
-                _ => return Err(Error("Frame 3 snippet kind must be 0 or 1")),
+                _ => return Err(DecodeError::new("Frame 3 snippet kind must be 0 or 1")),
             });
         }
         reader.finish()?;
@@ -102,24 +104,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_empty_preamble_round_trips() {
-        let encoded = Preamble::default().encode();
+    fn empty_bindings_round_trip() {
+        let encoded = Bindings::default().encode();
         assert_eq!(
-            Preamble::decode(&encoded),
-            Ok(Preamble::default()),
+            Bindings::decode(&encoded),
+            Ok(Bindings::default()),
             "a Sandbox with no bindings must send a present, empty Frame 1"
         );
     }
 
     #[test]
-    fn a_preamble_round_trips_every_path() {
-        let preamble = Preamble {
+    fn bindings_round_trip_every_path() {
+        let bindings = Bindings {
             paths: vec!["MyService::KV".into(), "File".into()],
         };
-        let encoded = preamble.encode();
+        let encoded = bindings.encode();
         assert_eq!(
-            Preamble::decode(&encoded),
-            Ok(preamble),
+            Bindings::decode(&encoded),
+            Ok(bindings),
             "Frame 1 must carry every bound path in order"
         );
     }
@@ -156,12 +158,12 @@ mod tests {
     }
 
     #[test]
-    fn golden_layout_pins_the_preamble_as_a_counted_list() {
-        let preamble = Preamble {
+    fn golden_layout_pins_the_bindings_as_a_counted_list() {
+        let bindings = Bindings {
             paths: vec!["A".into()],
         };
         assert_eq!(
-            preamble.encode(),
+            bindings.encode(),
             vec![
                 0, 0, 0, 1, // path count
                 0, 0, 0, 1, b'A',
@@ -220,10 +222,10 @@ mod tests {
 
     #[test]
     fn trailing_bytes_after_a_frame_are_refused() {
-        let mut encoded = Preamble::default().encode();
+        let mut encoded = Bindings::default().encode();
         encoded.push(0);
         assert!(
-            Preamble::decode(&encoded).is_err(),
+            Bindings::decode(&encoded).is_err(),
             "bytes past Frame 1's last field must fail loudly as a framing desync"
         );
     }

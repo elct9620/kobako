@@ -37,7 +37,7 @@ impl Execution {
         match value {
             Value::Handle(id) => self.resolve(*id).map(|_| ()).ok_or_else(|| {
                 Error::Sandbox(Box::new(Failure {
-                    class: "Kobako::SandboxError".into(),
+                    name: "Kobako::SandboxError".into(),
                     message: format!("unknown Handle id: {id}"),
                     backtrace: Vec::new(),
                     available: Vec::new(),
@@ -66,7 +66,7 @@ fn decode_value(body: &[u8]) -> Result<Value, Error> {
 
 fn wire_violation(message: &str, detail: &kobako_codec::msgpack::codec::Error) -> Error {
     Error::Sandbox(Box::new(Failure {
-        class: WIRE_ERROR_CLASS.into(),
+        name: WIRE_ERROR_CLASS.into(),
         message: message.into(),
         backtrace: Vec::new(),
         available: Vec::new(),
@@ -100,7 +100,7 @@ mod tests {
             classify(&Outcome::Result(vec![0xd9]).encode()).and_then(|body| decode_value(&body));
 
         assert!(
-            matches!(result, Err(Error::Sandbox(f)) if f.class == WIRE_ERROR_CLASS),
+            matches!(result, Err(Error::Sandbox(f)) if f.name == WIRE_ERROR_CLASS),
             "a Result arm the codec cannot read must attribute to the wire-level error class"
         );
     }

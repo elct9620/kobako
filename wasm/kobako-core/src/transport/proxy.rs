@@ -20,7 +20,7 @@
 #[cfg(target_arch = "wasm32")]
 use crate::abi::__kobako_dispatch;
 #[cfg(target_arch = "wasm32")]
-use crate::abi::unpack_u64;
+use crate::abi::unpack_ptr_len;
 use kobako_transport::envelope::{self, Call, Reply, Target};
 
 /// Why a dispatch came back without a value.
@@ -39,11 +39,11 @@ pub enum DispatchError {
     /// The exchange failed before a Reply could be framed: malformed
     /// bytes, an answer that is not a Reply envelope, or the host
     /// signalling `len == 0`.
-    Envelope(envelope::Error),
+    Envelope(envelope::DecodeError),
 }
 
-impl From<envelope::Error> for DispatchError {
-    fn from(err: envelope::Error) -> Self {
+impl From<envelope::DecodeError> for DispatchError {
+    fn from(err: envelope::DecodeError) -> Self {
         DispatchError::Envelope(err)
     }
 }
@@ -127,10 +127,10 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     let req_ptr = req_bytes.as_ptr() as u32;
     let req_len = req_bytes.len() as u32;
     let packed = unsafe { __kobako_dispatch(req_ptr, req_len) };
-    let (ptr, len) = unpack_u64(packed);
+    let (ptr, len) = unpack_ptr_len(packed);
     if len == 0 {
         // Wire violation per docs/wire-codec.md § ABI Signatures.
-        return Err(DispatchError::Envelope(envelope::Error(
+        return Err(DispatchError::Envelope(envelope::DecodeError::new(
             "the host returned an empty response",
         )));
     }
@@ -144,7 +144,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
 fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     LOOPBACK.with(|cell| match cell.borrow().as_ref() {
         Some(hook) => Ok(hook(req_bytes)),
-        None => Err(DispatchError::Envelope(envelope::Error(
+        None => Err(DispatchError::Envelope(envelope::DecodeError::new(
             "no loopback hook installed; install one with set_loopback() \
              when calling dispatch on the host target",
         ))),
@@ -267,7 +267,8 @@ mod tests {
         clear_loopback();
         let out = dispatch(Target::Path("G::M"), "x", false, &[]);
         match out {
-            Err(DispatchError::Envelope(envelope::Error(msg))) => {
+            Err(DispatchError::Envelope(err)) => {
+                let msg = err.message();
                 assert!(msg.contains("loopback"), "unexpected message: {msg}");
             }
             other => panic!("expected a wire fault naming the missing loopback, got {other:?}"),

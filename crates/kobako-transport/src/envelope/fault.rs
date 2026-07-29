@@ -10,7 +10,7 @@
 //! untrusted code, so it structurally has none.
 
 use super::bytes::{Reader, Writer};
-use super::Error;
+use super::DecodeError;
 
 const KIND_RUNTIME: u8 = 0;
 const KIND_ARGUMENT: u8 = 1;
@@ -42,12 +42,12 @@ impl FaultKind {
         }
     }
 
-    fn from_tag(tag: u8) -> Result<Self, Error> {
+    fn from_tag(tag: u8) -> Result<Self, DecodeError> {
         match tag {
             KIND_RUNTIME => Ok(FaultKind::Runtime),
             KIND_ARGUMENT => Ok(FaultKind::Argument),
             KIND_UNDEFINED => Ok(FaultKind::Undefined),
-            _ => Err(Error(
+            _ => Err(DecodeError::new(
                 "Fault kind must be 0 (runtime), 1 (argument), or 2 (undefined)",
             )),
         }
@@ -90,7 +90,7 @@ impl Fault {
         }
     }
 
-    pub(crate) fn read(reader: &mut Reader<'_>) -> Result<Self, Error> {
+    pub(crate) fn read(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
         let kind = FaultKind::from_tag(reader.u8()?)?;
         let message = reader.text()?.to_owned();
         Ok(Fault { kind, message })

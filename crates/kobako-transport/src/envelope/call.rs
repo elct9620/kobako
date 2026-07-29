@@ -5,7 +5,7 @@
 //! as a view rather than a copy.
 
 use super::bytes::{Reader, Writer};
-use super::Error;
+use super::DecodeError;
 
 /// Whether `target` names a bound constant or a capability Handle. The tag
 /// is explicit so a side reads the routing fields without interpreting any
@@ -34,21 +34,23 @@ pub struct Call<'a> {
 }
 
 impl<'a> Call<'a> {
-    pub fn decode(bytes: &'a [u8]) -> Result<Self, Error> {
+    pub fn decode(bytes: &'a [u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
         let target = match reader.u8()? {
             KIND_PATH => Target::Path(reader.text()?),
             KIND_HANDLE => Target::Handle(reader.u32()?),
-            _ => return Err(Error("Call kind must be 0 (path) or 1 (handle)")),
+            _ => return Err(DecodeError::new("Call kind must be 0 (path) or 1 (handle)")),
         };
         if let Target::Handle(0) = target {
-            return Err(Error("Call target Handle id 0 is the invalid sentinel"));
+            return Err(DecodeError::new(
+                "Call target Handle id 0 is the invalid sentinel",
+            ));
         }
         let method = reader.text()?;
         let block_given = match reader.u8()? {
             0 => false,
             1 => true,
-            _ => return Err(Error("Call block_given must be 0 or 1")),
+            _ => return Err(DecodeError::new("Call block_given must be 0 or 1")),
         };
         Ok(Call {
             target,

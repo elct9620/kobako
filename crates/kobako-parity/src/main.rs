@@ -599,7 +599,9 @@ fn write_failure(observable: &mut Map<String, Json>, error: &Error) {
     let (status, failure) = classify(error);
     observable.insert("status".into(), json!(status));
     if let Some(failure) = failure {
-        observable.insert("class".into(), json!(failure.class));
+        // The observable key stays `class`: it is the cross-frontend
+        // comparison key the Ruby executor writes from `error.klass`.
+        observable.insert("class".into(), json!(failure.name));
         observable.insert("message".into(), json!(failure.message));
     }
 }

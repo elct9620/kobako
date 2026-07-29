@@ -42,7 +42,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
     use crate::codec::PayloadCodec;
     use kobako_core::abi::write_panic;
-    use kobako_transport::envelope::{ErrorRecord, Panic, Run};
+    use kobako_transport::envelope::{ErrorRecord, Origin, Panic, Run};
 
     let preamble = match boot::read_preamble() {
         Ok(p) => p,
@@ -118,9 +118,9 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
             .filter(|name| !baseline_set.contains(name))
             .collect();
         return write_panic(Panic {
-            origin: "sandbox".into(),
+            origin: Origin::Sandbox,
             error: ErrorRecord {
-                class: "Kobako::UndefinedEntrypointError".into(),
+                name: "Kobako::UndefinedEntrypointError".into(),
                 message: format!("undefined entrypoint: {}", run.entrypoint),
                 backtrace: Vec::new(),
             },
@@ -140,9 +140,9 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     let call_sym = mrb.intern_cstr(c"call");
     if !target_val.respond_to(mrb, call_sym) {
         return write_panic(Panic {
-            origin: "sandbox".into(),
+            origin: Origin::Sandbox,
             error: ErrorRecord {
-                class: "Kobako::SandboxError".into(),
+                name: "Kobako::SandboxError".into(),
                 message: format!("entrypoint {} does not respond to :call", run.entrypoint),
                 backtrace: Vec::new(),
             },

@@ -8,7 +8,7 @@
 //! `Execution` accessor that asks for one. The wire-violation attribution string is the SPEC-pinned
 //! wire-level error class name, not a Ruby leakage.
 
-use kobako_transport::envelope::{Outcome, Panic};
+use kobako_transport::envelope::{Origin, Outcome, Panic};
 
 use crate::error::{Error, Failure};
 
@@ -39,9 +39,9 @@ pub(crate) fn classify(bytes: &[u8]) -> Result<Vec<u8>, Error> {
 /// `Sandbox`. Every field is typed at the envelope, so classifying a
 /// Panic reads no payload byte and cannot fail.
 fn classify_panic(panic: Panic) -> Error {
-    let from_service = panic.from_service();
+    let from_service = panic.origin == Origin::Service;
     let failure = Box::new(Failure {
-        class: panic.error.class,
+        name: panic.error.name,
         message: panic.error.message,
         backtrace: panic.error.backtrace,
         available: panic.available,
@@ -49,7 +49,7 @@ fn classify_panic(panic: Panic) -> Error {
     });
     if from_service {
         Error::Service(failure)
-    } else if failure.class == "Kobako::BytecodeError" {
+    } else if failure.name == "Kobako::BytecodeError" {
         Error::Bytecode(failure)
     } else {
         Error::Sandbox(failure)
@@ -62,11 +62,11 @@ mod tests {
 
     use super::*;
 
-    fn panic_bytes(origin: &str, class: &str) -> Vec<u8> {
+    fn panic_bytes(origin: Origin, name: &str) -> Vec<u8> {
         Outcome::Panic(Panic {
-            origin: origin.into(),
+            origin,
             error: ErrorRecord {
-                class: class.into(),
+                name: name.into(),
                 message: "boom".into(),
                 backtrace: Vec::new(),
             },
@@ -87,20 +87,20 @@ mod tests {
 
     #[test]
     fn service_origin_panic_becomes_service_error() {
-        let result = classify(&panic_bytes("service", "Kobako::ServiceError"));
+        let result = classify(&panic_bytes(Origin::Service, "Kobako::ServiceError"));
         assert!(matches!(result, Err(Error::Service(f)) if f.message == "boom"));
     }
 
     #[test]
     fn bytecode_class_panic_becomes_bytecode_error() {
-        let result = classify(&panic_bytes("sandbox", "Kobako::BytecodeError"));
+        let result = classify(&panic_bytes(Origin::Sandbox, "Kobako::BytecodeError"));
         assert!(matches!(result, Err(Error::Bytecode(_))));
     }
 
     #[test]
     fn sandbox_origin_panic_becomes_sandbox_error() {
-        let result = classify(&panic_bytes("sandbox", "RuntimeError"));
-        assert!(matches!(result, Err(Error::Sandbox(f)) if f.class == "RuntimeError"));
+        let result = classify(&panic_bytes(Origin::Sandbox, "RuntimeError"));
+        assert!(matches!(result, Err(Error::Sandbox(f)) if f.name == "RuntimeError"));
     }
 
     #[test]
@@ -129,9 +129,9 @@ mod tests {
     #[test]
     fn an_unresolved_entrypoint_carries_the_names_it_could_have_been() {
         let bytes = Outcome::Panic(Panic {
-            origin: "sandbox".into(),
+            origin: Origin::Sandbox,
             error: ErrorRecord {
-                class: "Kobako::UndefinedEntrypointError".into(),
+                name: "Kobako::UndefinedEntrypointError".into(),
                 message: "undefined entrypoint: Wrker".into(),
                 backtrace: Vec::new(),
             },

@@ -100,7 +100,7 @@ pub fn take_outcome() -> u64 {
         }
         let ptr = bytes.as_ptr() as u32;
         let len = bytes.len() as u32;
-        super::pack_u64(ptr, len)
+        super::pack_ptr_len(ptr, len)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
