@@ -40,11 +40,13 @@ class TestE2EByteFidelity < Minitest::Test
   end
 
   def test_outcome_non_utf8_symbol_is_refused
-    assert_raises(Kobako::SandboxError,
-                  "E-06: a Symbol whose name is not UTF-8 through #eval must be refused, " \
-                  "not interned under a name the guest never wrote") do
+    err = assert_raises(Kobako::SandboxError) do
       Kobako::Sandbox.new(wasm_path: REAL_WASM).eval('"s\xFFy".to_sym')
     end
+
+    assert_match(/return value of type Symbol is not a supported/, err.message,
+                 "E-06: a Symbol whose name is not UTF-8 through #eval must be refused as an " \
+                 "unrepresentable return value, not interned under a name the guest never wrote")
   end
 
   def test_dispatch_argument_non_utf8_string_reaches_the_service_intact
@@ -61,11 +63,13 @@ class TestE2EByteFidelity < Minitest::Test
   def test_dispatch_argument_non_utf8_symbol_is_refused
     sandbox = probe_sandbox
 
-    assert_raises(Kobako::SandboxError,
-                  "E-55: a Symbol whose name is not UTF-8 through a dispatch argument must be " \
-                  "refused at the guest call site, not renamed") do
-      sandbox.eval('Probe::Sink.call("s\xFFy".to_sym)')
-    end
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval('Probe::Sink.call("s\xFFy".to_sym)') }
+
+    assert_equal "TypeError", err.klass,
+                 "E-55: a Symbol whose name is not UTF-8 through a dispatch argument must be " \
+                 "refused as the script's own type error at the call site, not renamed"
+    assert_match(/argument of type Symbol/, err.message,
+                 "the refusal must name the argument slot it stopped at")
   end
 
   # A keyword name rides as a Symbol whatever the guest wrote it as, so a
@@ -74,11 +78,25 @@ class TestE2EByteFidelity < Minitest::Test
   def test_dispatch_non_utf8_keyword_name_is_refused
     sandbox = probe_sandbox
 
-    assert_raises(Kobako::SandboxError,
-                  "E-55: a keyword name whose bytes are not UTF-8 through a dispatch must be " \
-                  "refused at the guest call site, not renamed") do
-      sandbox.eval('Probe::Sink.call(**{"k\xFFy" => 1})')
-    end
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval('Probe::Sink.call(**{"k\xFFy" => 1})') }
+
+    assert_equal "TypeError", err.klass,
+                 "E-55: a keyword name whose bytes are not UTF-8 through a dispatch must be " \
+                 "refused as the script's own type error at the call site, not renamed"
+  end
+
+  # The rule is the bytes, not the shape a guest wrote the name in — a
+  # UTF-8 String key rides as a Symbol and is not what the refusal above
+  # is reacting to.
+  def test_dispatch_utf8_keyword_name_written_as_a_string_is_accepted
+    seen = nil
+    sandbox = probe_sandbox { |value| seen = value }
+
+    sandbox.eval('Probe::Sink.call(nil, **{"okay" => 1})')
+
+    assert_equal({ okay: 1 }, seen,
+                 "a keyword name a guest wrote as a UTF-8 String must reach the Service as a " \
+                 "Symbol key, so the refusal beside it is about the bytes and nothing else")
   end
 
   private

@@ -29,10 +29,11 @@ class TestRegexpStringMutation < Minitest::Test
   end
 
   def test_aset_raises_when_regexp_does_not_match
-    assert_raises(Kobako::SandboxError,
-                  "String#[]= on a non-matching Regexp surfaces an error") do
-      eval_regexp('s = "abc"; s[/\d/] = "x"')
-    end
+    err = assert_raises(Kobako::SandboxError) { eval_regexp('s = "abc"; s[/\d/] = "x"') }
+
+    assert_equal "IndexError", err.klass,
+                 "String#[]= on a non-matching Regexp must surface the same IndexError Ruby " \
+                 "raises, since every guest raise reaches the host as one SandboxError"
   end
 
   def test_slice_bang_removes_regexp_match

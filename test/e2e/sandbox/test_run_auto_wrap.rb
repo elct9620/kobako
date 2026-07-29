@@ -40,9 +40,13 @@ class TestSandboxRunAutoWrap < Minitest::Test
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "App = ->(h) { h.size }", name: :App)
 
-    assert_raises(Kobako::SandboxError) do
+    err = assert_raises(Kobako::SandboxError) do
       sandbox.run(:App, { StringIO.new("k") => "v" })
     end
+
+    assert_match(/key that cannot cross the sandbox boundary \(StringIO\)/, err.message,
+                 "a Hash key #run cannot auto-wrap must name the key's type — the sibling " \
+                 "depth refusal raises the same class, so only the wording tells them apart")
   end
 
   # A cyclic argument nests without bound and cannot faithfully cross. The
@@ -55,6 +59,10 @@ class TestSandboxRunAutoWrap < Minitest::Test
     cyclic = []
     cyclic << cyclic
 
-    assert_raises(Kobako::SandboxError) { sandbox.run(:App, cyclic) }
+    err = assert_raises(Kobako::SandboxError) { sandbox.run(:App, cyclic) }
+
+    assert_match(/nests deeper than 128 levels/, err.message,
+                 "E-54: a cyclic #run argument must be refused for its depth, so the refusal " \
+                 "is not mistaken for the sibling unwrappable-key one")
   end
 end
