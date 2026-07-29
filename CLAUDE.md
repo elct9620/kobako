@@ -153,8 +153,9 @@ Contract        crates/kobako-runtime — trait Runtime · DispatchHandler · Yi
       │           · Profile(declared isolation ladder) · Snapshot{Completion,
       │           Capture, Usage} · Trap · SetupError  (engine-free, frontend-free)
 Fixed tier      crates/kobako-transport — envelope{Call, Reply, YieldReply, Outcome,
-                  Panic, ErrorRecord, Run, Preamble, Snippets} · abi{ABI_VERSION,
-                  pack_u64, frame prefix, size cap}  (depends on nothing)
+                  Panic, Origin, ErrorRecord, Run, Bindings, Snippets} ·
+                  abi{ABI_VERSION, pack_ptr_len, frame prefix, size cap}
+                  (depends on nothing)
 ```
 
 Inside `kobako-wasmtime`, sibling modules reference each other as `crate::dispatch` / `crate::trap` (not `super::`).
@@ -178,7 +179,7 @@ kobako-io / kobako-regexp / kobako-json
       │           beni::Gem impls over wasi-libc write(2) / fancy-regex / serde_json
 kobako-core     guest ABI contract (publishable rlib, mruby-free) — Guest trait +
       │           export_guest!, ABI machinery (outcome buffer, frames),
-      │           transport::proxy driving __kobako_dispatch. Depends on the
+      │           proxy driving __kobako_dispatch. Depends on the
       │           fixed tier alone, so it reaches no payload codec at all
 kobako-transport  the fixed tier (publishable rlib in crates/, mruby- and
                   engine-free, dependency-free) — the core envelope and the

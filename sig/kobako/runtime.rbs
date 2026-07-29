@@ -6,8 +6,8 @@ module Kobako
       String path,
       (Float | Integer)? timeout_seconds,
       Integer? memory_limit,
-      Integer? stdout_limit_bytes,
-      Integer? stderr_limit_bytes,
+      Integer? stdout_limit,
+      Integer? stderr_limit,
       Symbol profile,
       Symbol gvl
     ) -> Runtime

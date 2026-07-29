@@ -92,7 +92,8 @@ where keywords exist: the guest hands the codec a separated rest slice and
 keyword Hash, so a codec that folds them together makes `KV.get(key, limit: 9)`
 lose `limit:` with nothing raising. A `#run` payload's keywords ride as a
 trailing Hash the entrypoint reads positionally, and a Yield Call's arguments
-are a plain list — a codec serving only those two never faces the question.
+are a plain list — neither position can lose a keyword, because neither carries
+one.
 
 A Handle representation is optional. Without one, Handles ride only the
 envelope's `target` field — a guest still reaches a stateful receiver and only
