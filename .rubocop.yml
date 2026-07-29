@@ -2,6 +2,16 @@ AllCops:
   TargetRubyVersion: 3.3
   NewCops: enable
   SuggestExtensions: false
+  # Every cargo workspace's build artifacts. RuboCop's file discovery runs
+  # before its result cache, so an unexcluded target/ tree is a fixed cost
+  # paid on every run that grows with build output rather than with source.
+  # `merge` keeps RuboCop's own defaults (vendor/, tmp/, .git/), which a
+  # bare Exclude would replace.
+  inherit_mode:
+    merge:
+      - Exclude
+  Exclude:
+    - "**/target/**/*"
 
 
 Style/StringLiterals:
