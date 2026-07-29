@@ -56,8 +56,9 @@ const CASES: &[Case] = &[
         expect: Expect::Ends(b"NotImplementedError"),
     },
     Case {
-        claim: "that refusal is a missing capability rather than a runtime \
-                error, so a bare rescue does not swallow it",
+        claim: "a position this schema does not serve refuses as a missing \
+                capability rather than a runtime error, so a bare rescue does \
+                not swallow it",
         source: "begin; MyService::KV.frobnicate; rescue => e; \"swallowed\"; end",
         filled: true,
         expect: Expect::Fails("NotImplementedError"),
