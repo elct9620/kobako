@@ -94,7 +94,9 @@ impl Position {
         }
     }
 
-    /// What this position says when the bytes themselves were the problem.
+    /// What this position says when the message itself was the problem —
+    /// worded by the direction it was travelling, since a decode position
+    /// failed to read and an encode position failed to write.
     fn unreadable_message(self) -> &'static str {
         match self {
             Position::CallArguments | Position::ReplyValue => {
@@ -102,9 +104,9 @@ impl Position {
             }
             Position::RunArguments => "failed to decode the invocation arguments",
             Position::YieldArguments => "failed to read the block argument",
-            Position::BlockReturnValue => "failed to read the block return value",
-            Position::BreakValue => "failed to read the break value",
-            Position::InvocationValue => "result envelope encode failed",
+            Position::BlockReturnValue => "failed to write the block return value",
+            Position::BreakValue => "failed to write the break value",
+            Position::InvocationValue => "failed to write the invocation value",
         }
     }
 
@@ -231,12 +233,13 @@ mod tests {
         }
     }
 
-    // Bytes that could not be read say nothing about a value, so each
-    // position answers with what it was trying to read. The two dispatch
-    // positions share one wording — both halves of the same exchange fail
-    // at the same guest call site, so a script cannot act on which half.
+    // A message that could not be carried says nothing about a value, so
+    // each position answers with what it was carrying and which way. The
+    // two dispatch positions share one wording — both halves of the same
+    // exchange fail at the same guest call site, so a script cannot act
+    // on which half.
     #[test]
-    fn unreadable_bytes_name_the_exchange_that_could_not_read_them() {
+    fn a_message_that_could_not_be_carried_names_its_position_and_direction() {
         let dispatch = "transport envelope error (proxy dispatch)";
         for (position, expected) in [
             (Position::CallArguments, dispatch),
@@ -251,16 +254,19 @@ mod tests {
             ),
             (
                 Position::BlockReturnValue,
-                "failed to read the block return value",
+                "failed to write the block return value",
             ),
-            (Position::BreakValue, "failed to read the break value"),
-            (Position::InvocationValue, "result envelope encode failed"),
+            (Position::BreakValue, "failed to write the break value"),
+            (
+                Position::InvocationValue,
+                "failed to write the invocation value",
+            ),
         ] {
             assert_eq!(
                 at(position, CodecError::Malformed).message,
                 expected,
-                "unreadable bytes at {position:?} must name the exchange that could not \
-                 read them"
+                "a message that could not be carried at {position:?} must name what it was \
+                 carrying and which way it was going"
             );
         }
     }
