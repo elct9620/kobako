@@ -370,12 +370,13 @@ Errors split across the invocation-outcome classes, the construction-time `Setup
 | `Kobako::SetupError` | E-40, E-41, E-42, E-49 — E-40 raised as the `Kobako::ModuleNotBuiltError` subclass |
 | `Kobako::PoolTimeoutError` | E-46 |
 | Setup-time `TypeError` / `ArgumentError` | E-16, E-24, E-25, E-29, E-30, E-33, E-34, E-35, E-39, E-45, E-47, E-51, E-52, E-53 |
+| Position-determined | E-56 — a payload position the guest's own codec does not serve raises the class its position names: `NotImplementedError` in a running guest frame, `Kobako::Transport::Error` at a dispatch's answer, `Kobako::SandboxError` where the host reads it |
 
 ---
 
 ## Refinement
 
-`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/` (the grouping table in `### Behavior` maps each anchor range to its file) per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-66 / E-55; subsequent anchors take the next integer above it. B-66, E-08, and E-14 are retired anchors — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md), and the `B-52` JSON capability into per-behavior `JS-xx` anchors in [`docs/json.md`](docs/json.md); each of `RX-xx` and `JS-xx` is an append-only sequence local to its file.
+`B-xx` and `E-xx` anchors referenced throughout this layer are defined in detail in the per-aspect files under `docs/behavior/` (the grouping table in `### Behavior` maps each anchor range to its file) per Naming Principle N-8; the `rake anchors` gate enforces that every anchor is defined once, contiguous to the ceiling, and resolvable. The current ceiling is B-66 / E-56; subsequent anchors take the next integer above it. B-66, E-08, and E-14 are retired anchors — permanently reserved and never reassigned (N-8). The `B-41` regexp capability is expanded into per-behavior `RX-xx` anchors in [`docs/regexp.md`](docs/regexp.md), and the `B-52` JSON capability into per-behavior `JS-xx` anchors in [`docs/json.md`](docs/json.md); each of `RX-xx` and `JS-xx` is an append-only sequence local to its file.
 
 ### Terminology
 

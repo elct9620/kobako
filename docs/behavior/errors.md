@@ -187,3 +187,23 @@ These error scenarios are specific to the `#install` setup verb (B-55..B-57). Ea
 | E-53 | An Extension is malformed for `#install`: its `source` is absent or not a String, or its `backend` is present but does not expose `path`, `object`, and `provider` | host pre-flight | `ArgumentError` |
 
 E-53 covers the Extension-shape checks `#preload` / `#bind` do not: `source` is mandatory (the install/bind boundary — a host object with no guest idiom is bound with `#bind`, not installed), and a present `backend` must expose `path` / `object` / `provider` (duck-typed, like the Extension itself). A malformed `name` reuses E-34 and a malformed `backend.path` reuses E-16, since `#install` routes them through `#preload` and `#bind` respectively. A `provider:` callable that raises during per-invocation resolution is not an install-time shape error — its exception propagates unchanged, specified in B-56.
+
+---
+
+### Unserved payload positions
+
+A payload codec fills the positions it serves and refuses at the rest (→ [`docs/wire-codec.md`](../wire-codec.md) § What a replacement codec must provide). Carrying one value is the floor, so a guest always completes an invocation; every other position is a capability its codec may not offer.
+
+| # | Trigger | Behavior cross-reference |
+|---|---------|--------------------------|
+| E-56 | A guest reaches a payload position its own codec does not serve. The refusal is distinguishable from an unreadable message: nothing was wrong with the bytes or the value, the capability is absent | B-12 — dispatch argument conversion; B-24 — yield round-trip; B-31 — `#run` argument decoding |
+
+The class follows the position, because the position fixes who is listening:
+
+| Position | Raised class | Why |
+|----------|--------------|-----|
+| Dispatch argument, yield argument, block return value, block `break` value | `NotImplementedError` | A guest frame is running, and the script reached for a capability this sandbox does not have. Under `ScriptError` rather than `StandardError`, so a bare `rescue` does not swallow it |
+| Dispatch return value | `Kobako::Transport::Error` | A codec that wrote the Call owes its answer; refusing here leaves the exchange half-served rather than a feature unoffered |
+| `#run` arguments, invocation value | `Kobako::SandboxError` | No guest frame is left to raise into, so the absence reaches the host as the invocation failing |
+
+The floor is required but unenforceable: a codec still returns this refusal from the value position if it chooses, so the invocation value and both block-value positions answer it rather than treating it as unreachable.

@@ -145,6 +145,11 @@ pub(crate) fn at(position: Position, err: CodecError) -> Refusal {
     }
 }
 
+/// Attribution coverage for every position × kind, host-buildable so it
+/// runs without a linked mruby. The `Unsupported` cases are E-56's only
+/// witness — no codec kobako ships refuses at a position, so no Ruby
+/// surface reaches that behavior (docs/anchor-coverage.md § Pending
+/// anchors).
 #[cfg(test)]
 mod tests {
     use super::*;
