@@ -34,7 +34,7 @@ anyhow = "1"
 # lineage whose engine accepts the Guest Binary's exception-handling
 # (setjmp/longjmp) instructions.
 wasmtime-wizer = { version = "46", features = ["wasmtime"] }
-wasmtime = "46"
+wasmtime = "47"
 # wasmtime-wizer's entry points are async-colored; the bake is fully
 # synchronous, so a minimal executor drives them to completion.
 pollster = "1.0"
