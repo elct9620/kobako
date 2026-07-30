@@ -437,19 +437,9 @@ The anchor moves only via `rake bench:bless[run.json]` — re-blessing is the de
 
 **Metric per row:** sandbox-driven rows gate on `wall_time`; pure host rows (`3a-host-decode-*` / `3a-host-encode-*`) gate on median `ips`; the guest-return rows' host wrapper (`1/ips − wall_time`) is GC/allocator-bound on the largest payloads and is characterization, not a gate signal. One-shot / cold-path rows carry no dispersion and are skipped. The characterization suites are informational and not part of the gate.
 
-**What the +10 % floor actually buys, per row.** The floor is a lower bound on the bar, not the bar: a row whose own dispersion or archived move exceeds it gates on that instead. On `#9` the bar is well above the floor on most rows, so the coverage it adds is against step changes rather than drift:
+**The floor is a lower bound on the bar, not the bar.** A row whose own dispersion or archived move exceeds +10 % gates on that instead, and the archive half moves with every run added to it — so the bar per row is not a figure this document can hold. `rake bench:gate` names every row the archive widens on each run, clean pass included; that report is the current answer.
 
-| Row | Own dispersion | Archive | Effective bar |
-|-----|----------------|---------|---------------|
-| `9b-run-dispatch-empty` | 21.4 % | 17.8 % | **21.4 %** |
-| `9c-run-dispatch-positional` | 18.5 % | 21.7 % | 21.7 % |
-| `9d-run-dispatch-kwargs` | 15.5 % | 16.8 % | 16.8 % |
-| `9e-run-replay-0-snippets` | 24.0 % | 26.7 % | **26.7 %** |
-| `9e-run-replay-8-snippets` | 13.4 % | 14.4 % | 14.4 % |
-| `9e-run-replay-64-snippets` | 5.1 % | 10.1 % | **10.1 %** |
-| `9f-run-dispatch-autowrap` | 15.4 % | 27.8 % | 27.8 % |
-
-`9e-run-replay-64-snippets` is the row worth watching: it is the only one near the floor, and it is the slope end of the replay axis — the cost that does not amortize and therefore grows fastest with what a Host App preloads. The narrow single-dispatch rows are wide because a ~50 µs guest budget carries several percent of within-run spread; tightening them is a measurement change, not a gate change.
+Read it before trusting a green pass on `#9` in particular: its single-dispatch rows carry several percent of within-run spread on a ~50 µs guest budget, which puts their bar well above the floor and makes the coverage they add one against step changes rather than drift. The replay sweep's high waypoint is the row that sits nearest the floor, and it is also the one whose cost does not amortize — it grows with whatever a Host App preloads. Narrowing the others is a measurement change, not a gate change.
 
 The gate is **stage 1** — a smoke detector against the anchor. A flag is a reason to arbitrate, not yet a verdict; see the next section for stage 2.
 
@@ -463,7 +453,7 @@ Membership is deliberate, so these four sit here until a release looks at them r
 | R2 | `catalog_handles` `5b-alloc-1000-at-size-*` | Same shape as R1, four rows of it. |
 | R3 | `codec`'s 46 rows | 46 of the 77 rows the gate actually compares. The 20 `3c-*` rows are one per wire type and largely re-detect each other, so the suite's weight in the gate is not its share of the risk. |
 | R4 | `guest_setup` (#13) | The inverse of R1: it meters real-guest costs and a regression on either setup axis is visible and unblocking. Its two axes are diagnostic rather than risk — no Host App sweeps statement counts or binds the same registry three ways — so it earns its place by explaining a `#9` or `#2` flag, not by blocking on its own. `#9` took this promotion; whether `#13` should follow is the open question. |
-| R5 | `9a-100x-*`, and the `9b`–`9f` bars above | Registration left the gate when `#9` entered it, and the anchor still carries the three rows under their old label and metric — the next re-bless records the new shape. It should also decide whether the wide single-dispatch bars are acceptable or the rows need a tighter measurement to be worth gating. |
+| R5 | `9a-100x-*`, and `#9`'s single-dispatch rows | Registration left the gate when `#9` entered it, and the anchor still carries the three rows under their old label and metric — the next re-bless records the new shape. It should also read the gate's widening report and decide whether those rows' bars are acceptable or the rows need a tighter measurement to be worth gating. |
 
 ## Noise model and interpretation
 
