@@ -200,8 +200,9 @@ impl Kobako {
     /// preamble: define a class at the path and `extend Kobako::Proxy`
     /// onto it, so a class-level call dispatches to the host. A
     /// multi-segment path nests the leaf class under a module per prefix
-    /// segment — idempotent, so paths sharing a prefix share one module —
-    /// while a single-segment path binds the class at top level. The host
+    /// segment — resolved once per namespace, so paths sharing one share
+    /// its module — while a single-segment path binds the class at top
+    /// level. The host
     /// guarantees no path is a prefix of another, so a segment is never
     /// both a module and a leaf.
     pub fn install_bindings(&self, paths: &[String]) -> Result<(), InstallError> {
