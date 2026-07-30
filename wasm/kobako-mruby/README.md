@@ -35,8 +35,8 @@ and emits the wasm exports:
 crate-type = ["cdylib"]
 
 [dependencies]
-kobako-mruby = { version = "0.13.0", features = ["msgpack"] } # x-release-please-version
-kobako-core = "0.13.0" # x-release-please-version
+kobako-mruby = { version = "0.13.1", features = ["msgpack"] } # x-release-please-version
+kobako-core = "0.13.1" # x-release-please-version
 beni = "0.10"
 ```
 

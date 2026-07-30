@@ -858,7 +858,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "kobako"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "kobako-runtime",
  "kobako-transport",
@@ -869,18 +869,18 @@ dependencies = [
 
 [[package]]
 name = "kobako-runtime"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "kobako-transport",
 ]
 
 [[package]]
 name = "kobako-transport"
-version = "0.13.0"
+version = "0.13.1"
 
 [[package]]
 name = "kobako-wasmtime"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "kobako-runtime",
  "kobako-transport",
