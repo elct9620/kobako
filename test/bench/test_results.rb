@@ -28,39 +28,47 @@ class KobakoBenchResultsTest < Minitest::Test
     FileUtils.remove_entry(@dir)
   end
 
+  # Keeping the older stamp would describe this round's measurements by
+  # the machine state of the round before it.
   def test_a_write_from_a_later_round_restamps_the_file
     seed_prior_round
     lock_at(Time.now)
 
     refute_equal PRIOR_SHA, env_of(write_suite("second"))["git_sha"],
-                 "a suite written under a round marker newer than the recorded stamp must re-stamp env — " \
-                 "keeping it would describe this round's measurements by the previous round's machine state"
+                 "a file stamped by an earlier round, written through Runner#write! under a newer " \
+                 "round marker, must carry a re-stamped env"
   end
 
+  # The complement: within one round every probe has to report the same
+  # capture, not the machine state of whichever finished last.
   def test_a_write_within_the_same_round_keeps_that_round_s_stamp
     seed_prior_round
     lock_at(Time.utc(2019))
 
     assert_equal PRIOR_SHA, env_of(write_suite("second"))["git_sha"],
-                 "a suite written under the round marker its file was already stamped in must keep that stamp, " \
-                 "so one round's probes report one capture rather than the last one to finish"
+                 "a file written through Runner#write! under the round marker it was already stamped " \
+                 "in must keep that stamp"
   end
 
+  # A probe driven directly holds no lock and is a round of its own, so
+  # inheriting a stamp would attribute it to a round it never belonged to.
   def test_a_probe_driven_without_a_round_marker_restamps_the_file
     seed_prior_round
 
     refute_equal PRIOR_SHA, env_of(write_suite("second"))["git_sha"],
-                 "a probe run with no round marker must re-stamp env — a direct run is a capture of its own, " \
-                 "and inheriting a stamp would attribute it to a round it never belonged to"
+                 "a file written through Runner#write! with no round marker present must carry a " \
+                 "re-stamped env"
   end
 
+  # The stamp answers which round a capture is from, not which suites the
+  # file may keep.
   def test_a_later_round_keeps_the_suites_already_in_the_file
     seed_prior_round
     lock_at(Time.now)
 
     assert_equal %w[first second], JSON.parse(File.read(write_suite("second")))["suites"].keys.sort,
-                 "re-stamping must not drop the suites already merged into the file — the stamp answers " \
-                 "which round a capture is from, not which suites it may keep"
+                 "a re-stamping write through Runner#write! must keep every suite already merged " \
+                 "into the file"
   end
 
   private
