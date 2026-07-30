@@ -13,7 +13,10 @@
 //! that decides a correction.
 //!
 //! The `UnsafeCell` licence and the cross-invocation isolation argument
-//! are `super::mrb_slot`'s, unchanged.
+//! are `super::mrb_slot`'s, unchanged. The slot type is deliberately not
+//! shared with it: one generic slot would carry a single blanket `Sync`
+//! claim over any `T`, while `MrbSlot`'s rests on the `Mrb` it holds
+//! being `!Send + !Sync` to begin with.
 
 use crate::runtime::Kobako;
 
