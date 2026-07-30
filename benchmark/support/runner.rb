@@ -19,9 +19,9 @@ module Kobako
     #     Ruby objects per iteration) skews a mean, not a median.
     #   - {#one_shot} and its {#one_shot_median} variant record the CPU
     #     seconds a single execution spends. Reached for when a loop
-    #     would measure the wrong thing (a cold path only ever observed
-    #     once) or would measure something the gate does not hold —
-    #     see {OneShot}.
+    #     cannot observe the cost at all (a cold path happens once per
+    #     process) or when the figure is not one the gate holds — see
+    #     {OneShot}.
     #
     # Both modes are CPU-time based — +Process::CLOCK_PROCESS_CPUTIME_ID+
     # rather than +CLOCK_MONOTONIC+ — so scheduler / background-load noise

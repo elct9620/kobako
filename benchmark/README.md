@@ -24,7 +24,7 @@ The suite perceives drift against a fixed reference point — the committed anch
 |-------------------|----------------------------------------|---------------------------------------------------------------------|
 | `ips`             | iterated micro-benches                  | median `ips`, `ips_mean`, `ips_sd` per cycle                        |
 | `case_with_usage` | sandbox-driven `ips` cases              | adds median `wall_time` + `memory_peak` from `Execution#usage` (B-35) |
-| `one_shot`        | figures the gate does not hold          | CPU seconds — a single run (`rounds: 1`) or the median across `rounds` (warm `1c`, `5b`, `9a` windows) |
+| `one_shot`        | cold paths, and costs outside the gate  | CPU seconds — a single run (`rounds: 1`) or the median across `rounds` (warm `1c`, `5b`, `9a` windows) |
 | wall-clock helper | multi-thread suite                      | wall seconds — CPU time would hide scheduler overhead               |
 
 `ips` is the **median** of per-cycle samples (a GC-inflated cycle skews a mean but not a median); the arithmetic mean rides along as `ips_mean` for the capacity reading, mirroring Google Benchmark / Criterion. For sandbox-driven cases, `case_with_usage` runs a dedicated post-measurement sampling loop (`UsageSampler`, CPU-budget-bounded) that reads the `Execution#usage` each invocation returns, so `wall_time` is the median of that distribution rather than a single point sample.

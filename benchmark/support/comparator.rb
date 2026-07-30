@@ -28,12 +28,11 @@ module Kobako
     # (sandbox-driven) gate on +wall_time+ — the machine-load-insensitive
     # guest budget, where a slowdown shows as a larger value; pure host
     # rows gate on the median +ips+, where a slowdown shows as a smaller
-    # value. A +seconds+ row is outside the gate even inside a gated
-    # suite: recording one is how a probe declares the figure is not a
-    # release commitment — a cold path whose cost is the filesystem
-    # cache's (cold_start 1a), or a cost paid once per Sandbox rather
-    # than once per invocation (preload_dispatch 9a, per SPEC.md's
-    # Regression benchmarks section).
+    # value. A +seconds+ row carries neither and is outside the gate even
+    # inside a gated suite: recording one is how a probe declares the
+    # figure is not a release commitment ({OneShot} owns what that
+    # covers; SPEC.md's Regression benchmarks section pins which figures
+    # are commitments).
     module Comparator
       FLOOR_PCT = 10.0
       SIGMA = 2.0
