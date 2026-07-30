@@ -48,7 +48,7 @@ namespace :bench do
   desc "Run memory characterization benchmark (#8; not in release gate)."
   task(:memory) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/memory.rb" } }
 
-  desc "Run #preload + #run dispatch characterization (#9; not in release gate)."
+  desc "Run the #preload + #run dispatch benchmark on its own (#9; bench:release runs it too)."
   task(:preload_dispatch) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/preload_dispatch.rb" } }
 
   desc "Run the dispatch-glue isolation benchmark on its own (#10; bench:release runs it too)."

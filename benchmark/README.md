@@ -1,6 +1,6 @@
 # Benchmarks
 
-Kobako maintains a regression benchmark suite covering the eight performance dimensions [SPEC.md](../SPEC.md) names as release regression gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip, dispatch glue, host per-invocation cost) plus five characterization suites (multi-thread, `gvl:` scheduling, per-Sandbox RSS, `#preload` + `#run` dispatch, guest-side setup scaling) and the regexp variant profile.
+Kobako maintains a regression benchmark suite covering the nine performance dimensions [SPEC.md](../SPEC.md) names as release regression gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip, `#preload` + `#run` dispatch, dispatch glue, host per-invocation cost) plus four characterization suites (multi-thread, `gvl:` scheduling, per-Sandbox RSS, guest-side setup scaling) and the regexp variant profile.
 
 The suite perceives drift against a fixed reference point — the committed anchor `benchmark/baseline.json` — rather than certifying a portable performance standard. Absolute numbers are meaningful only on hardware comparable to the machine that produced them; per-release runs are archived under `benchmark/results/`. A cumulative +10 % regression past the anchor on any gated benchmark blocks release until a maintainer reviews or re-blesses.
 
@@ -53,7 +53,7 @@ bundle exec ruby benchmark/support/format_baseline.rb [path/to/results.json]
 | `rss_kb`                                 | `MB`             | `rss_kb / 1024`                     |
 | `ops_per_sec` (concurrent)               | `ops/s`          | direct, with `k` suffix above 10 000 |
 
-For "N-ops-in-one-invocation" cases (e.g. `2d-1000-calls-in-one-eval`) the per-op cost is `total / N`. For "delta between waypoints" rows (e.g. `9a-1` → `9a-64`) subtract waypoints and divide by the count delta. Sandbox-driven `ips` rows also carry `wall_time` and `memory_peak`; subtract `wall_time` from `1 / ips` for the per-`#eval` host wrapper cost. Prose tables round to three significant figures, so treat sub-µs deltas as rounding noise and consult the JSON for the precise value.
+For "N-ops-in-one-invocation" cases (e.g. `2d-1000-calls-in-one-eval`) and batched one-shot rows (e.g. `9a-100x-…`, `5b-alloc-1000-…`) the per-op cost is `total / N`, where the label carries the `N`. For "delta between waypoints" rows (e.g. `9e-run-replay-0-snippets` → `9e-run-replay-64-snippets`) subtract waypoints and divide by the count delta; a batched row needs both readings — divide by the batch, then take the waypoint delta. Sandbox-driven `ips` rows also carry `wall_time` and `memory_peak`; subtract `wall_time` from `1 / ips` for the per-`#eval` host wrapper cost. Prose tables round to three significant figures, so treat sub-µs deltas as rounding noise and consult the JSON for the precise value.
 
 ## Latest baseline
 
@@ -232,15 +232,15 @@ The complement of `#12`: the two per-invocation setup costs that grow with somet
 
 Both were unmetered before — `#4` holds its script fixed and `#12` drives the null guest — so neither had an anchor to compare a change against. No figures here yet: this suite postdates the anchor round, and every figure in [Latest baseline](#latest-baseline) comes from that one capture. Its rows land in the next one.
 
-### Setup-once dispatch (characterization only)
+### Setup-once dispatch
 
 #### `#preload` + `#run` dispatch ([`preload_dispatch.rb`](preload_dispatch.rb))
 
 `#preload(code:)` registers snippets that replay against the canonical boot state on every invocation; `#run(:Target)` dispatches into a preloaded entrypoint. The rows isolate each verb's contribution via waypoint deltas.
 
 ```
-   9a sweep:  Sandbox.new + 1 / 8 / 64 #preload     ─▶ delta / Δsnippets ≈ 2.2 µs per snippet preload
-   9e sweep:  warm #run with 0 / 8 / 64 snippets    ─▶ delta / Δsnippets ≈ 7.5 µs per snippet replay
+   9a sweep:  100x (Sandbox.new + 1 / 8 / 64 #preload)  ─▶ ÷100, then delta / Δsnippets
+   9e sweep:  warm #run with 0 / 8 / 64 snippets        ─▶ delta / Δsnippets ≈ 7.5 µs per snippet replay
 ```
 
 | Scenario                                                            | Latency  | `wall_time` (guest) |
@@ -257,6 +257,8 @@ Both were unmetered before — `#4` holds its script fixed and `#12` drives the 
 | Warm `#run(:Noop)` with 64 helper snippets preloaded                | 565 µs   | 501 µs              |
 
 `9a` rows carry no `wall_time` — the timer wraps `Sandbox.new + #preload` and neither calls the guest export. A `deep_wrap` / `Catalog::Handles#alloc` super-linear regression would show as `9f` rising above `9c`.
+
+The `9a` figures above are the last ones captured as throughput. Registration is paid once per Sandbox rather than once per invocation, so it is characterized rather than gated, and it now records CPU seconds for a batch of 100 registrations under a label that names the batch — a single `Sandbox.new` plus one `#preload` is ~3 µs against a 1 µs clock granularity, which no median over single observations recovers. The `9b`–`9f` rows are the gated half and are unchanged.
 
 ### Operational characterization (not gated)
 
@@ -366,7 +368,7 @@ bundle exec rake bench:full              # adds the 16 MiB codec payload sweep
 bundle exec rake bench:concurrent        # multi-Thread characterization (#7)
 bundle exec rake bench:gvl_scheduling    # gvl: hold-vs-release wall-clock scaling
 bundle exec rake bench:memory            # per-Sandbox RSS characterization (#8)
-bundle exec rake bench:preload_dispatch  # #preload + #run characterization (#9)
+bundle exec rake bench:preload_dispatch  # #preload + #run dispatch on its own (#9; bench runs it too)
 bundle exec rake bench:dispatch_glue     # dispatch-glue isolation characterization (#10)
 bundle exec rake bench:host_invocation   # host per-invocation cost against the null guest (#12)
 bundle exec rake bench:guest_setup       # guest-side compile + binding scaling characterization (#13)
@@ -435,6 +437,20 @@ The anchor moves only via `rake bench:bless[run.json]` — re-blessing is the de
 
 **Metric per row:** sandbox-driven rows gate on `wall_time`; pure host rows (`3a-host-decode-*` / `3a-host-encode-*`) gate on median `ips`; the guest-return rows' host wrapper (`1/ips − wall_time`) is GC/allocator-bound on the largest payloads and is characterization, not a gate signal. One-shot / cold-path rows carry no dispersion and are skipped. The characterization suites are informational and not part of the gate.
 
+**What the +10 % floor actually buys, per row.** The floor is a lower bound on the bar, not the bar: a row whose own dispersion or archived move exceeds it gates on that instead. On `#9` the bar is well above the floor on most rows, so the coverage it adds is against step changes rather than drift:
+
+| Row | Own dispersion | Archive | Effective bar |
+|-----|----------------|---------|---------------|
+| `9b-run-dispatch-empty` | 21.4 % | 17.8 % | **21.4 %** |
+| `9c-run-dispatch-positional` | 18.5 % | 21.7 % | 21.7 % |
+| `9d-run-dispatch-kwargs` | 15.5 % | 16.8 % | 16.8 % |
+| `9e-run-replay-0-snippets` | 24.0 % | 26.7 % | **26.7 %** |
+| `9e-run-replay-8-snippets` | 13.4 % | 14.4 % | 14.4 % |
+| `9e-run-replay-64-snippets` | 5.1 % | 10.1 % | **10.1 %** |
+| `9f-run-dispatch-autowrap` | 15.4 % | 27.8 % | 27.8 % |
+
+`9e-run-replay-64-snippets` is the row worth watching: it is the only one near the floor, and it is the slope end of the replay axis — the cost that does not amortize and therefore grows fastest with what a Host App preloads. The narrow single-dispatch rows are wide because a ~50 µs guest budget carries several percent of within-run spread; tightening them is a measurement change, not a gate change.
+
 The gate is **stage 1** — a smoke detector against the anchor. A flag is a reason to arbitrate, not yet a verdict; see the next section for stage 2.
 
 ### What the next re-bless should decide
@@ -446,7 +462,8 @@ Membership is deliberate, so these four sit here until a release looks at them r
 | R1 | `cold_start` `1c-sandbox-new-cold` / `-warm` | They sit in a gated suite but carry only `seconds`, which the comparator skips — so they read as gated and are not. Either accept that in writing beside the rows, or give them a metric the gate can use. |
 | R2 | `catalog_handles` `5b-alloc-1000-at-size-*` | Same shape as R1, four rows of it. |
 | R3 | `codec`'s 46 rows | 46 of the 77 rows the gate actually compares. The 20 `3c-*` rows are one per wire type and largely re-detect each other, so the suite's weight in the gate is not its share of the risk. |
-| R4 | `preload_dispatch` (#9), `guest_setup` (#13) | The inverse of R1: both meter real-guest costs and the anchor already carries their numbers, but neither is gated, so a regression on the `#run` path or either setup axis is visible and unblocking. Promoting one is a SPEC edit to the Regression benchmarks table. |
+| R4 | `guest_setup` (#13) | The inverse of R1: it meters real-guest costs and a regression on either setup axis is visible and unblocking. Its two axes are diagnostic rather than risk — no Host App sweeps statement counts or binds the same registry three ways — so it earns its place by explaining a `#9` or `#2` flag, not by blocking on its own. `#9` took this promotion; whether `#13` should follow is the open question. |
+| R5 | `9a-100x-*`, and the `9b`–`9f` bars above | Registration left the gate when `#9` entered it, and the anchor still carries the three rows under their old label and metric — the next re-bless records the new shape. It should also decide whether the wide single-dispatch bars are acceptable or the rows need a tighter measurement to be worth gating. |
 
 ## Noise model and interpretation
 
