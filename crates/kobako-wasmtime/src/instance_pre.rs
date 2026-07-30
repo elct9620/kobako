@@ -5,8 +5,9 @@
 //! compiled Module are identical for every `Kobako::Runtime` on the
 //! same Guest Binary — both host closures read all their state from
 //! the `Invocation` inside the calling Store, never from the Runtime.
-//! Caching the resolved `InstancePre` per path leaves only the
-//! `instantiate` call itself on the `Driver::new` hot path.
+//! Caching the resolved `InstancePre` per path — together with the ABI
+//! version check it guards (`crate::abi`) — takes both off the
+//! `Driver::new` hot path.
 //!
 //! Concurrency: see `crate::cache` — under Ruby's GVL the Mutex serves
 //! `Sync` bounds rather than real contention.
@@ -20,16 +21,17 @@ use wasmtime_wasi::p1;
 
 use crate::cache::{cached_module, shared_engine};
 use crate::invocation::Invocation;
-use crate::{dispatch, trap};
+use crate::{abi, dispatch, trap};
 use kobako_runtime::error::SetupError;
 
 static INSTANCE_PRE_CACHE: OnceLock<Mutex<HashMap<PathBuf, InstancePre<Invocation>>>> =
     OnceLock::new();
 
 /// Look up `path` in the per-path `InstancePre` cache, wiring the
-/// Linker and resolving the Module's imports on a miss. Compilation
-/// faults surface through `cached_module`; import-resolution faults
-/// return a runtime-dead `SetupError` (boundary → `Kobako::SetupError`).
+/// Linker, resolving the Module's imports, and verifying the artifact's
+/// ABI version on a miss. Compilation faults surface through
+/// `cached_module`; import-resolution and ABI faults return a
+/// runtime-dead `SetupError` (boundary → `Kobako::SetupError`).
 pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>, SetupError> {
     let cache = INSTANCE_PRE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
@@ -47,6 +49,9 @@ pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>
     let pre = linker
         .instantiate_pre(&module)
         .map_err(trap::instantiate_err)?;
+    // Verify before the insert, so a rejected artifact is never
+    // remembered as a usable template.
+    abi::verify(&pre)?;
     cache
         .lock()
         .expect("instance_pre cache mutex poisoned")

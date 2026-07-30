@@ -89,13 +89,22 @@ class TestSandbox < Minitest::Test
     assert_match(/does not export __kobako_abi_version/, err.message)
   end
 
+  # Repeated because the check is amortised per Guest Binary path: the
+  # host verifies the version before the pre-linked template enters its
+  # cache, so a rejected artifact is never remembered as usable and the
+  # second construction fails exactly like the first. Dropping the
+  # repetition would leave that "not remembered" guarantee unwitnessed.
   def test_construction_rejects_guest_with_mismatched_abi_version
     skip "minimal_abi_mismatch.wat fixture missing" unless File.exist?(MISMATCH_ABI_FIXTURE_PATH)
 
-    err = assert_raises(Kobako::SetupError) do
-      Kobako::Sandbox.new(wasm_path: MISMATCH_ABI_FIXTURE_PATH)
+    2.times do
+      err = assert_raises(Kobako::SetupError) do
+        Kobako::Sandbox.new(wasm_path: MISMATCH_ABI_FIXTURE_PATH)
+      end
+      assert_match(/reports ABI version 9999/, err.message,
+                   "an ABI-mismatched Guest Binary through Kobako::Sandbox.new must raise " \
+                   "Kobako::SetupError naming the reported version on every construction")
     end
-    assert_match(/reports ABI version 9999/, err.message)
   end
 
   def test_eval_rejects_non_string_code

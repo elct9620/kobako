@@ -86,12 +86,13 @@ fn other_trap_message(err: &wasmtime::Error) -> String {
 }
 
 /// Classify an instantiation error as a runtime-dead `SetupError`.
-/// Instantiation runs during `from_path` construction, before any
+/// Instantiation runs while the per-path template is built, before any
 /// invocation — every such failure is a construction setup fault, not a
-/// per-invocation cap outcome. The memory cap is dormant during
-/// instantiation (see `Invocation::arm_memory_cap` /
-/// `Invocation::disarm_memory_cap`) and the epoch deadline is not yet
-/// armed, so the `trap_from` trap-class split does not apply here.
+/// per-invocation cap outcome. Neither cap can fire there: the memory
+/// cap is dormant until an invocation arms it
+/// (`Invocation::arm_memory_cap`) and the probe Store names an epoch
+/// deadline it cannot reach, so the `trap_from` trap-class split does
+/// not apply here.
 pub(crate) fn instantiate_err(err: wasmtime::Error) -> SetupError {
     SetupError::Dead(format!("instantiate: {err}"))
 }

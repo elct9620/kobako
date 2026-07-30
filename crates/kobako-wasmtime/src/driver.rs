@@ -26,14 +26,13 @@ use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
 
-use kobako_transport::abi::ABI_VERSION;
-
 /// The wasmtime execution unit behind one sandbox runtime.
 pub struct Driver {
-    // Pre-linked instantiation template (import wiring + type checks
-    // done once in `instance_pre::cached_instance_pre`). Every
-    // invocation instantiates a fresh instance from it and discards the
-    // whole Store afterwards — the per-invocation instance discipline.
+    // Pre-linked instantiation template (import wiring, type checks,
+    // and the ABI version check done once in
+    // `instance_pre::cached_instance_pre`). Every invocation
+    // instantiates a fresh instance from it and discards the whole
+    // Store afterwards — the per-invocation instance discipline.
     instance_pre: WtInstancePre<Invocation>,
     // Every cap forwarded from the Sandbox; see `Config`.
     config: Config,
@@ -41,56 +40,15 @@ pub struct Driver {
 
 impl Driver {
     /// Construct a Driver from a wasm file path, using the process-wide
-    /// shared Engine and per-path Module / InstancePre caches, and verify
-    /// the artifact's ABI version. Every failure is a `SetupError` for
-    /// the frontend to attribute — Engine and Module never leave the
-    /// driver.
+    /// shared Engine and per-path Module / InstancePre caches. The
+    /// artifact's ABI version is verified with the cached template
+    /// (`crate::abi`). Every failure is a `SetupError` for the frontend
+    /// to attribute — Engine and Module never leave the driver.
     pub fn new(path: &Path, config: Config) -> Result<Self, SetupError> {
-        let instance_pre = instance_pre::cached_instance_pre(path)?;
-        let driver = Self {
-            instance_pre,
+        Ok(Self {
+            instance_pre: instance_pre::cached_instance_pre(path)?,
             config,
-        };
-        driver.probe_abi_version()?;
-        Ok(driver)
-    }
-
-    /// Instantiate a throwaway probe instance at construction and require
-    /// the guest's `__kobako_abi_version` export to equal `ABI_VERSION`.
-    /// An absent export or a non-equal value is a deterministic artifact
-    /// fault. The probe Store drops here; invocation instances are
-    /// created per invoke. The frameless WASI context keeps a third-party
-    /// guest whose start section touches WASI on the `SetupError` path
-    /// instead of panicking in `Invocation::wasi_mut`.
-    fn probe_abi_version(&self) -> Result<(), SetupError> {
-        let mut store = self.new_store()?;
-        frames::install_wasi_frames(&mut store, &self.config, &[])
-            .map_err(|t| SetupError::Dead(t.to_string()))?;
-        let instance = self
-            .instance_pre
-            .instantiate(store.as_context_mut())
-            .map_err(trap::instantiate_err)?;
-        let probe = instance
-            .get_typed_func::<(), u32>(store.as_context_mut(), "__kobako_abi_version")
-            .map_err(|_| {
-                SetupError::Dead(format!(
-                    "the Guest Binary does not export __kobako_abi_version; \
-                     rebuild it against ABI version {ABI_VERSION}"
-                ))
-            })?;
-        let reported = probe.call(store.as_context_mut(), ()).map_err(|e| {
-            SetupError::Dead(format!(
-                "failed to read the Guest Binary's ABI version: {e}"
-            ))
-        })?;
-        if reported != ABI_VERSION {
-            return Err(SetupError::Dead(format!(
-                "the Guest Binary reports ABI version {reported}, but this host \
-                 implements ABI version {ABI_VERSION}; rebuild the Guest Binary \
-                 against the host's version"
-            )));
-        }
-        Ok(())
+        })
     }
 
     /// Build the per-invocation Store: a fresh `Invocation` wired with

@@ -19,6 +19,8 @@
 //!   `_take_outcome` / `_alloc` / `memory` handles.
 //! * `instance_pre` — host-import Linker wiring + per-path
 //!   `InstancePre` cache.
+//! * `abi` — the Guest Binary's declared ABI version check, verified
+//!   with the cached `InstancePre` it guards.
 //! * `invocation` — Invocation (per-Store context), the
 //!   `MemoryLimiter` memory cap, and the trap marker types
 //!   (`TimeoutTrap` / `MemoryLimitTrap`).
@@ -30,6 +32,7 @@
 //! * `ambient` — frozen WASI clocks + constant RNG (ambient denial).
 //! * `trap` — wasmtime-error → neutral `Trap` classification.
 
+mod abi;
 mod ambient;
 mod cache;
 mod capture;
