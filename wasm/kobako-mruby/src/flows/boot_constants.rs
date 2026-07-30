@@ -34,8 +34,8 @@ impl BootConstantSlot {
     ///
     /// # Safety contract
     ///
-    /// No outstanding borrow from `Self::get` may be live. Boot-shaped use
-    /// — install once, before any entry body reads — satisfies this.
+    /// No outstanding borrow from `Self::as_ref` may be live. Boot-shaped
+    /// use — install once, before any entry body reads — satisfies this.
     fn install(&self, names: Vec<String>) {
         // SAFETY: see type doc — single-threaded wasm execution, and the
         // install happens during boot before any read can borrow.
@@ -43,7 +43,7 @@ impl BootConstantSlot {
     }
 
     /// Borrow the boot-state snapshot if one is installed.
-    fn get(&self) -> Option<&[String]> {
+    fn as_ref(&self) -> Option<&[String]> {
         // SAFETY: see type doc.
         unsafe { (*self.0.get()).as_deref() }
     }
@@ -72,7 +72,7 @@ pub(super) fn snippet_constants(kobako: &Kobako, bind_paths: &[String]) -> Vec<S
     use std::collections::HashSet;
 
     let boot = BOOT_CONSTANTS
-        .get()
+        .as_ref()
         .expect("boot constants recorded by boot_vm alongside the VM");
     let mut installed: HashSet<&str> = boot.iter().map(String::as_str).collect();
     installed.extend(bind_paths.iter().filter_map(|path| path.split("::").next()));
