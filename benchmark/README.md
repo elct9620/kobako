@@ -433,9 +433,20 @@ The within-run half alone produced a standing false alarm: `3a-host-encode-64KiB
 
 The anchor moves only via `rake bench:bless[run.json]` — re-blessing is the deliberate act of accepting a new performance level and must record the accepted shift in [What changed vs previous baseline](#what-changed-vs-previous-baseline) in the same commit. A gated case present in a run but missing from the anchor fails the gate until a re-bless records it.
 
-**Metric per row:** sandbox-driven rows gate on `wall_time`; pure host rows (`3a-host-decode-*` / `3a-host-encode-*`) gate on median `ips`; the guest-return rows' host wrapper (`1/ips − wall_time`) is GC/allocator-bound on the largest payloads and is characterization, not a gate signal. One-shot / cold-path rows carry no dispersion and are skipped. The three characterization suites (#7 / #8 / #9) are informational and not part of the gate.
+**Metric per row:** sandbox-driven rows gate on `wall_time`; pure host rows (`3a-host-decode-*` / `3a-host-encode-*`) gate on median `ips`; the guest-return rows' host wrapper (`1/ips − wall_time`) is GC/allocator-bound on the largest payloads and is characterization, not a gate signal. One-shot / cold-path rows carry no dispersion and are skipped. The characterization suites are informational and not part of the gate.
 
 The gate is **stage 1** — a smoke detector against the anchor. A flag is a reason to arbitrate, not yet a verdict; see the next section for stage 2.
+
+### What the next re-bless should decide
+
+Membership is deliberate, so these four sit here until a release looks at them rather than being changed incidentally — each would move the anchor's shape, which is the one thing a dev round must not do.
+
+| # | Rows | The question |
+|---|------|--------------|
+| R1 | `cold_start` `1c-sandbox-new-cold` / `-warm` | They sit in a gated suite but carry only `seconds`, which the comparator skips — so they read as gated and are not. Either accept that in writing beside the rows, or give them a metric the gate can use. |
+| R2 | `catalog_handles` `5b-alloc-1000-at-size-*` | Same shape as R1, four rows of it. |
+| R3 | `codec`'s 46 rows | 46 of the 77 rows the gate actually compares. The 20 `3c-*` rows are one per wire type and largely re-detect each other, so the suite's weight in the gate is not its share of the risk. |
+| R4 | `preload_dispatch` (#9), `guest_setup` (#13) | The inverse of R1: both meter real-guest costs and the anchor already carries their numbers, but neither is gated, so a regression on the `#run` path or either setup axis is visible and unblocking. Promoting one is a SPEC edit to the Regression benchmarks table. |
 
 ## Noise model and interpretation
 
