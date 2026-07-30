@@ -19,14 +19,17 @@ use kobako_runtime::error::SetupError;
 use kobako_runtime::profile::Profile;
 use kobako_transport::abi::ABI_VERSION;
 
-/// Caps for the throwaway probe instance. The probe runs no guest
-/// invocation, so every cap is off and the strongest isolation rung is
-/// taken — reading an artifact's version grants no ambient authority.
+/// Caps for the throwaway probe instance. Instantiation runs the
+/// artifact's start section, so the capture pipes are sized to keep
+/// nothing — the probe reads neither — and the strongest isolation rung
+/// is taken, since reading an artifact's version grants no ambient
+/// authority. The timeout and memory caps stay off because both arm per
+/// invocation and there is none here.
 const PROBE_CONFIG: Config = Config {
     timeout: None,
     memory_limit: None,
-    stdout_limit: None,
-    stderr_limit: None,
+    stdout_limit: Some(0),
+    stderr_limit: Some(0),
     profile: Profile::Hermetic,
 };
 
