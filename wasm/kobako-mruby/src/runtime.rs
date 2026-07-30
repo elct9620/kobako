@@ -202,9 +202,8 @@ impl Kobako {
     /// multi-segment path nests the leaf class under a module per prefix
     /// segment — resolved once per namespace, so paths sharing one share
     /// its module — while a single-segment path binds the class at top
-    /// level. The host
-    /// guarantees no path is a prefix of another, so a segment is never
-    /// both a module and a leaf.
+    /// level. The host guarantees no path is a prefix of another, so a
+    /// segment is never both a module and a leaf.
     pub fn install_bindings(&self, paths: &[String]) -> Result<(), InstallError> {
         use beni::Module;
 
