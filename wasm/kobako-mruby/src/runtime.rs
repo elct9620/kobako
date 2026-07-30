@@ -242,19 +242,19 @@ impl Kobako {
         Ok(())
     }
 
-    /// Extend `Kobako::Proxy` onto `class` — the mruby `extend`, so the
-    /// module's forwarding seam lands as the class's singleton methods and
-    /// a class-level call on the bound constant dispatches to the host.
+    /// Extend `Kobako::Proxy` onto `class`, so the module's forwarding
+    /// seam lands as the class's singleton methods and a class-level call
+    /// on the bound constant dispatches to the host.
     fn extend_proxy(&self, mrb: &Mrb, class: beni::RClass) -> Result<(), InstallError> {
-        // SAFETY: `class` is a live handle from `define_class` on this VM;
-        // `proxy_module` shares its representation with `RClass`, so
-        // reifying it through `RClass::to_value` yields the module value
-        // `extend` mixes in.
+        use beni::Module;
+
+        // SAFETY: `class` is a live handle from `define_class` on this VM,
+        // so reifying it names the object whose singleton class receives
+        // the mixin.
         let class_val = unsafe { class.to_value(mrb) };
-        let proxy_val = unsafe { beni::RClass::from_raw(self.proxy_module.as_raw()).to_value(mrb) };
         class_val
-            .funcall(mrb, c"extend", &[proxy_val])
-            .map(|_| ())
+            .singleton_class(mrb)
+            .and_then(|singleton| singleton.include_module(mrb, self.proxy_module))
             .map_err(|e| InstallError::Rejected(e.message(mrb)))
     }
 
