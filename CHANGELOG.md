@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.21.1](https://github.com/elct9620/kobako/compare/v0.21.0...v0.21.1) (2026-07-30)
+
+
+### Bug Fixes
+
+* **bench:** let a re-run stamp its own capture, not the round before it ([3a9793e](https://github.com/elct9620/kobako/commit/3a9793e16c21162ae89c61c4e709cd602fc7ab9f))
+* **bench:** move the anchor onto the round the envelope's new tier produced ([ddcfcc1](https://github.com/elct9620/kobako/commit/ddcfcc162b786868807afdf80a284db5b40dc3cd))
+
+
+### Performance Improvements
+
+* **host:** ask an artifact its ABI version once, not once per Sandbox ([693b94f](https://github.com/elct9620/kobako/commit/693b94f878e56815fe3faeae94e5c4d0cd9c8bb6))
+* **mruby:** record the boot constant set once, not on every #run ([a7f6bb9](https://github.com/elct9620/kobako/commit/a7f6bb91d20e29aa5cd91c5568274c367a04c8f7))
+* **mruby:** resolve a bind path's namespace once per namespace ([55cd1f3](https://github.com/elct9620/kobako/commit/55cd1f30313b70993aae8c973361ef636ce5d454))
+
 ## [0.21.0](https://github.com/elct9620/kobako/compare/v0.20.0...v0.21.0) (2026-07-29)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.13.0...kobako-sdk-v0.13.1) (2026-07-30)
+
+
+### Miscellaneous Chores
+
+* **kobako-sdk:** Synchronize kobako crates versions
+
 ## [0.13.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.12.0...kobako-sdk-v0.13.0) (2026-07-29)
 
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.13.1](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.13.0...kobako-mruby-v0.13.1) (2026-07-30)
+
+
+### Performance Improvements
+
+* **mruby:** mix the proxy seam in where the Handle side already does ([2aa1c45](https://github.com/elct9620/kobako/commit/2aa1c45ec48ee8f66612dbbf8fb4ce49357c251e))
+* **mruby:** record the boot constant set once, not on every #run ([a7f6bb9](https://github.com/elct9620/kobako/commit/a7f6bb91d20e29aa5cd91c5568274c367a04c8f7))
+* **mruby:** resolve a bind path's namespace once per namespace ([55cd1f3](https://github.com/elct9620/kobako/commit/55cd1f30313b70993aae8c973361ef636ce5d454))
+
 ## [0.13.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.12.0...kobako-mruby-v0.13.0) (2026-07-29)
 
 
