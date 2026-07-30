@@ -30,6 +30,13 @@ updates:
       semver-major-days: 7
       semver-minor-days: 5
     groups:
+      # wasmtime, wasmtime-wasi, and wasmtime-wizer share one release
+      # train and only compile when they name the same major, so they
+      # move as a single PR — including majors, which rust-deps below
+      # deliberately leaves for individual review.
+      wasmtime-deps:
+        patterns:
+          - "wasmtime*"
       rust-deps:
         update-types:
           - minor
