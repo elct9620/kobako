@@ -20,9 +20,7 @@
 #        so registration is non-trivial. The 1 / 8 / 64 waypoints
 #        characterize linearity — a regression that adds per-snippet
 #        O(N) work would show as super-linear growth in the delta
-#        between waypoints. The Sandbox.new term is constant across
-#        waypoints; subtract a Sandbox.new baseline (cold_start 1a)
-#        to isolate per-snippet cost.
+#        between waypoints, whose constant Sandbox.new term cancels.
 #
 #        Recorded as CPU seconds for a batch rather than as
 #        throughput: registration is paid once per Sandbox while every
@@ -168,9 +166,10 @@ Kobako::Sandbox.new(wasm_path: guest).eval("nil")
 # 9a — preload registration cost. Each round times a batch of
 # registrations via index lookups into the pre-computed +HELPER_CODES+ /
 # +HELPER_NAMES+ arrays, so no string or Symbol construction lands inside
-# the timer. The label names the batch, so the per-registration figure is
-# the recorded value divided by it — the reading catalog_handles 5b also
-# asks for.
+# the timer. The label names the batch: dividing by it gives one
+# +Sandbox.new+ plus its +n+ registrations, and the delta between two
+# waypoints over their +n+ delta then leaves the per-registration cost
+# alone.
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
 PRELOAD_BATCH = 100
 PRELOAD_ROUNDS = 5
