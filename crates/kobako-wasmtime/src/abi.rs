@@ -4,10 +4,6 @@
 //! module and not to the sandbox asking for it. The check therefore runs
 //! alongside the `InstancePre` it guards (`crate::instance_pre`) and is
 //! amortised with it, rather than once per `Driver::new`.
-//!
-//! Verification runs *before* the template enters that cache, so a
-//! rejected artifact leaves nothing behind: the next construction
-//! re-links and fails identically.
 
 use wasmtime::{AsContextMut, InstancePre, Store as WtStore};
 
@@ -37,17 +33,13 @@ const PROBE_CONFIG: Config = Config {
 /// guest's `__kobako_abi_version` export to equal `ABI_VERSION`. An
 /// absent export or a non-equal value is a deterministic artifact
 /// fault, so every failure is a `SetupError` for the frontend to
-/// attribute. The probe Store drops here; invocation instances are
-/// created per invoke. The frameless WASI context keeps a third-party
-/// guest whose start section touches WASI on the `SetupError` path
-/// instead of panicking in `Invocation::wasi_mut`.
+/// attribute. The frameless WASI context keeps a third-party guest
+/// whose start section touches WASI on the `SetupError` path instead of
+/// panicking in `Invocation::wasi_mut`.
 pub(crate) fn verify(pre: &InstancePre<Invocation>) -> Result<(), SetupError> {
     let mut store = WtStore::new(shared_engine()?, Invocation::new(None));
     // Epoch interruption is on engine-wide and a fresh Store's deadline
     // has already elapsed, so the probe must name one it cannot reach.
-    // No `ResourceLimiter` is installed: the memory cap is dormant
-    // until an invocation arms it (`Invocation::arm_memory_cap`), which
-    // never happens here.
     store.set_epoch_deadline(trap::NO_TIMEOUT_EPOCH_DELTA);
     frames::install_wasi_frames(&mut store, &PROBE_CONFIG, &[])
         .map_err(|t| SetupError::Dead(t.to_string()))?;
