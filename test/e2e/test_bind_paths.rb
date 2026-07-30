@@ -32,4 +32,20 @@ class TestE2EBindPaths < Minitest::Test
     assert_equal "@paris", result,
                  "a 3-segment bind path must nest the leaf under MyService::Nested (B-08)"
   end
+
+  # B-08: paths gathered under one namespace share that namespace's module,
+  # so the second leaf lands beside the first rather than under a module of
+  # its own. Both are called, since a shared namespace is only proven by
+  # each leaf still dispatching to its own Service.
+  def test_paths_sharing_a_namespace_bind_side_by_side
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Shop::Cart", -> { "cart" })
+    sandbox.bind("Shop::Orders", -> { "orders" })
+
+    result = sandbox.eval("[Shop::Cart.call, Shop::Orders.call]").value
+
+    assert_equal %w[cart orders], result,
+                 "two bind paths under one namespace must each materialize as a distinct guest " \
+                 "proxy under the shared module (B-08)"
+  end
 end

@@ -209,37 +209,60 @@ impl Kobako {
 
         let mrb = self.mrb();
         let object_class = mrb.object_class();
+        // Namespaces this call has already registered. Paths gathered under
+        // one namespace are the ordinary registry shape, so resolving each
+        // prefix once is what keeps a nested binding close to the price of
+        // a top-level one.
+        let mut namespaces: Vec<(&str, beni::RModule)> = Vec::new();
         for path in paths {
-            let Some((prefix, leaf)) = path.rsplit_once("::") else {
-                let name =
-                    std::ffi::CString::new(path.as_str()).map_err(|_| InstallError::NulInName)?;
-                let class = mrb
-                    .define_class(name.as_c_str(), object_class)
-                    .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
-                self.extend_proxy(mrb, class)?;
-                continue;
+            let class = match path.rsplit_once("::") {
+                None => {
+                    let name = std::ffi::CString::new(path.as_str())
+                        .map_err(|_| InstallError::NulInName)?;
+                    mrb.define_class(name.as_c_str(), object_class)
+                        .map_err(|e| InstallError::Rejected(e.message(mrb)))?
+                }
+                Some((prefix, leaf)) => {
+                    let module = match namespaces.iter().find(|(seen, _)| *seen == prefix) {
+                        Some(&(_, module)) => module,
+                        None => {
+                            let module = self.define_namespace(mrb, prefix)?;
+                            namespaces.push((prefix, module));
+                            module
+                        }
+                    };
+                    let leaf_cstr =
+                        std::ffi::CString::new(leaf).map_err(|_| InstallError::NulInName)?;
+                    module
+                        .define_class(mrb, leaf_cstr.as_c_str(), object_class)
+                        .map_err(|e| InstallError::Rejected(e.message(mrb)))?
+                }
             };
-
-            let mut segments = prefix.split("::");
-            let first = segments.next().expect("split yields at least one segment");
-            let first_cstr = std::ffi::CString::new(first).map_err(|_| InstallError::NulInName)?;
-            let mut module = mrb
-                .define_module(first_cstr.as_c_str())
-                .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
-            for segment in segments {
-                let segment_cstr =
-                    std::ffi::CString::new(segment).map_err(|_| InstallError::NulInName)?;
-                module = module
-                    .define_module(mrb, segment_cstr.as_c_str())
-                    .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
-            }
-            let leaf_cstr = std::ffi::CString::new(leaf).map_err(|_| InstallError::NulInName)?;
-            let class = module
-                .define_class(mrb, leaf_cstr.as_c_str(), object_class)
-                .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
             self.extend_proxy(mrb, class)?;
         }
         Ok(())
+    }
+
+    /// Register every segment of a bind path's `prefix` as a nested module
+    /// and return the innermost one, the namespace its leaf class binds
+    /// under.
+    fn define_namespace(&self, mrb: &Mrb, prefix: &str) -> Result<beni::RModule, InstallError> {
+        use beni::Module;
+
+        let mut segments = prefix.split("::");
+        let first = segments.next().expect("split yields at least one segment");
+        let first_cstr = std::ffi::CString::new(first).map_err(|_| InstallError::NulInName)?;
+        let mut module = mrb
+            .define_module(first_cstr.as_c_str())
+            .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
+        for segment in segments {
+            let segment_cstr =
+                std::ffi::CString::new(segment).map_err(|_| InstallError::NulInName)?;
+            module = module
+                .define_module(mrb, segment_cstr.as_c_str())
+                .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
+        }
+        Ok(module)
     }
 
     /// Extend `Kobako::Proxy` onto `class`, so the module's forwarding
