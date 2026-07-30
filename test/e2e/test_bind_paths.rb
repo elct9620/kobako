@@ -48,4 +48,22 @@ class TestE2EBindPaths < Minitest::Test
                  "two bind paths under one namespace must each materialize as a distinct guest " \
                  "proxy under the shared module (B-08)"
   end
+
+  # B-08: a namespace is the whole prefix, not the root segment. The two
+  # shapes a single-segment prefix cannot tell apart are both here — leaves
+  # sharing a two-segment namespace, and sibling namespaces meeting only at
+  # their root — and each leaf is reached by its full path, so a leaf that
+  # nested under the wrong module raises NameError instead of answering.
+  def test_namespaces_are_keyed_by_the_whole_prefix
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Shop::Eu::Cart", -> { "eu-cart" })
+    sandbox.bind("Shop::Eu::Orders", -> { "eu-orders" })
+    sandbox.bind("Shop::Us::Cart", -> { "us-cart" })
+
+    result = sandbox.eval("[Shop::Eu::Cart.call, Shop::Eu::Orders.call, Shop::Us::Cart.call]").value
+
+    assert_equal %w[eu-cart eu-orders us-cart], result,
+                 "bind paths that share a two-segment namespace and ones that share only their root " \
+                 "must each materialize under the namespace their own prefix spells (B-08)"
+  end
 end
