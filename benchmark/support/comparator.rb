@@ -28,9 +28,12 @@ module Kobako
     # (sandbox-driven) gate on +wall_time+ — the machine-load-insensitive
     # guest budget, where a slowdown shows as a larger value; pure host
     # rows gate on the median +ips+, where a slowdown shows as a smaller
-    # value. +one_shot+ / +seconds+ rows carry no dispersion and are
-    # cold-path (filesystem-cache-sensitive by documentation), so they
-    # are skipped.
+    # value. A +seconds+ row is outside the gate even inside a gated
+    # suite: recording one is how a probe declares the figure is not a
+    # release commitment — a cold path whose cost is the filesystem
+    # cache's (cold_start 1a), or a cost paid once per Sandbox rather
+    # than once per invocation (preload_dispatch 9a, per SPEC.md's
+    # Regression benchmarks section).
     module Comparator
       FLOOR_PCT = 10.0
       SIGMA = 2.0
@@ -83,8 +86,8 @@ module Kobako
 
       # Gated cases present in +current+ but absent from +baseline+, as an
       # Array of MissingCase. A case is gated when it carries a gate metric
-      # (+wall_time+ or +ips+); cold-path rows (+seconds+ only) are not
-      # gated, so their absence is not a failure. {Gate} calls this both
+      # (+wall_time+ or +ips+); +seconds+-only rows are not gated, so
+      # their absence is not a failure. {Gate} calls this both
       # directions: run-vs-anchor (a new case to block on) and
       # anchor-vs-run (a dropped case to NOTE).
       def gated_absences(current, baseline, suites: release_suites)
@@ -183,7 +186,8 @@ module Kobako
       end
 
       # +wall_time+ when present (sandbox-driven), else +ips+, else nil
-      # (one_shot / seconds rows have no dispersion to gate on).
+      # — a +seconds+ row carries no gate metric, which is what puts it
+      # outside the gate (see the module doc).
       def gate_metric(row)
         return :wall_time if row.key?("wall_time")
 

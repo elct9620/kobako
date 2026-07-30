@@ -24,7 +24,7 @@ The suite perceives drift against a fixed reference point — the committed anch
 |-------------------|----------------------------------------|---------------------------------------------------------------------|
 | `ips`             | iterated micro-benches                  | median `ips`, `ips_mean`, `ips_sd` per cycle                        |
 | `case_with_usage` | sandbox-driven `ips` cases              | adds median `wall_time` + `memory_peak` from `Execution#usage` (B-35) |
-| `one_shot`        | cold paths (first `Sandbox.new`)        | CPU seconds — a single run (`rounds: 1`) or the median across `rounds` (warm `1c`, `5b` windows) |
+| `one_shot`        | figures the gate does not hold          | CPU seconds — a single run (`rounds: 1`) or the median across `rounds` (warm `1c`, `5b`, `9a` windows) |
 | wall-clock helper | multi-thread suite                      | wall seconds — CPU time would hide scheduler overhead               |
 
 `ips` is the **median** of per-cycle samples (a GC-inflated cycle skews a mean but not a median); the arithmetic mean rides along as `ips_mean` for the capacity reading, mirroring Google Benchmark / Criterion. For sandbox-driven cases, `case_with_usage` runs a dedicated post-measurement sampling loop (`UsageSampler`, CPU-budget-bounded) that reads the `Execution#usage` each invocation returns, so `wall_time` is the median of that distribution rather than a single point sample.
@@ -435,7 +435,7 @@ The within-run half alone produced a standing false alarm: `3a-host-encode-64KiB
 
 The anchor moves only via `rake bench:bless[run.json]` — re-blessing is the deliberate act of accepting a new performance level and must record the accepted shift in [What changed vs previous baseline](#what-changed-vs-previous-baseline) in the same commit. A gated case present in a run but missing from the anchor fails the gate until a re-bless records it.
 
-**Metric per row:** sandbox-driven rows gate on `wall_time`; pure host rows (`3a-host-decode-*` / `3a-host-encode-*`) gate on median `ips`; the guest-return rows' host wrapper (`1/ips − wall_time`) is GC/allocator-bound on the largest payloads and is characterization, not a gate signal. One-shot / cold-path rows carry no dispersion and are skipped. The characterization suites are informational and not part of the gate.
+**Metric per row:** sandbox-driven rows gate on `wall_time`; pure host rows (`3a-host-decode-*` / `3a-host-encode-*`) gate on median `ips`; the guest-return rows' host wrapper (`1/ips − wall_time`) is GC/allocator-bound on the largest payloads and is characterization, not a gate signal. A `seconds` row is skipped even inside a gated suite — recording one is how a probe declares the figure is not a release commitment, whether because it is a cold path (`1a`) or because it is paid once per Sandbox rather than once per invocation (`9a`). The characterization suites are informational and not part of the gate.
 
 **The floor is a lower bound on the bar, not the bar.** A row whose own dispersion or archived move exceeds +10 % gates on that instead, and the archive half moves with every run added to it — so the bar per row is not a figure this document can hold. `rake bench:gate` names every row the archive widens on each run, clean pass included; that report is the current answer.
 

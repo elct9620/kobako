@@ -17,10 +17,11 @@ module Kobako
     #     deviation. The median, not the mean, is the central value: a
     #     single GC-inflated cycle (large-payload cases allocate fresh
     #     Ruby objects per iteration) skews a mean, not a median.
-    #   - {#one_shot} runs the block exactly once and records the CPU
-    #     seconds spent. Used for cold-path timings (first +Sandbox.new+
-    #     in a process pays for Engine + Module init) where iterating
-    #     would only ever observe the warm path.
+    #   - {#one_shot} and its {#one_shot_median} variant record the CPU
+    #     seconds a single execution spends. Reached for when a loop
+    #     would measure the wrong thing (a cold path only ever observed
+    #     once) or would measure something the gate does not hold —
+    #     see {OneShot}.
     #
     # Both modes are CPU-time based — +Process::CLOCK_PROCESS_CPUTIME_ID+
     # rather than +CLOCK_MONOTONIC+ — so scheduler / background-load noise

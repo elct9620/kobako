@@ -4,10 +4,13 @@ require_relative "stats"
 
 module Kobako
   module Bench
-    # One-shot (cold-path) measurement surface of {Runner}, mixed in so
-    # the calibrated-loop machinery and the single-execution recorders
-    # live in separate files. Relies on the including class for
-    # +cpu_time+ and +@results+.
+    # Single-execution measurement surface of {Runner}, mixed in so the
+    # calibrated-loop machinery and the single-execution recorders live
+    # in separate files. Recording here is also how a probe declares the
+    # figure is not a release commitment: the +seconds+ row it emits
+    # carries no gate metric, so {Comparator} leaves it out even in a
+    # gated suite. Relies on the including class for +cpu_time+ and
+    # +@results+.
     module OneShot
       # Record a one-shot CPU-time measurement. +label+ identifies the
       # observation; the block is executed exactly once and the CPU
