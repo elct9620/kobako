@@ -1,6 +1,6 @@
 # Benchmarks
 
-Kobako maintains a regression benchmark suite covering the eight performance dimensions [SPEC.md](../SPEC.md) names as release regression gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip, dispatch glue, host per-invocation cost) plus four characterization suites (multi-thread, `gvl:` scheduling, per-Sandbox RSS, `#preload` + `#run` dispatch) and the regexp variant profile.
+Kobako maintains a regression benchmark suite covering the eight performance dimensions [SPEC.md](../SPEC.md) names as release regression gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip, dispatch glue, host per-invocation cost) plus five characterization suites (multi-thread, `gvl:` scheduling, per-Sandbox RSS, `#preload` + `#run` dispatch, guest-side setup scaling) and the regexp variant profile.
 
 The suite perceives drift against a fixed reference point — the committed anchor `benchmark/baseline.json` — rather than certifying a portable performance standard. Absolute numbers are meaningful only on hardware comparable to the machine that produced them; per-release runs are archived under `benchmark/results/`. A cumulative +10 % regression past the anchor on any gated benchmark blocks release until a maintainer reviews or re-blesses.
 
@@ -226,6 +226,12 @@ Driven against `test/fixtures/minimal_null_guest.wat`, a guest that satisfies th
 
 Read `12a` against `2a-empty-call` (85.3 µs total): roughly a quarter of a minimal round-trip is host-side work outside the guest export. `12d` is the **host** half of what a registry costs each invocation, and it is nearly free — the guest half, materializing each binding into the `mrb_state`, is out of frame by construction, which is the point: the two were previously only measurable together, and only their sum was known.
 
+#### Guest-side setup scaling ([`guest_setup.rb`](guest_setup.rb))
+
+The complement of `#12`: the two per-invocation setup costs that grow with something a Host App controls, measured against the real Guest Binary. `13a` sweeps statement count to expose mruby's compile cost as source grows — a statement guarded by `if false` costs the same as one that runs, so the axis is statement count, not source length or work done. `13b` fixes the binding count and varies the path shape, which is the guest half `12d` leaves out of frame: a top-level name pays for the leaf alone, a shared namespace amortises one prefix resolution across the group, and a per-path namespace pays for its own.
+
+Both were unmetered before — `#4` holds its script fixed and `#12` drives the null guest — so neither had an anchor to compare a change against. No figures here yet: this suite postdates the anchor round, and every figure in [Latest baseline](#latest-baseline) comes from that one capture. Its rows land in the next one.
+
 ### Setup-once dispatch (characterization only)
 
 #### `#preload` + `#run` dispatch ([`preload_dispatch.rb`](preload_dispatch.rb))
@@ -363,8 +369,9 @@ bundle exec rake bench:memory            # per-Sandbox RSS characterization (#8)
 bundle exec rake bench:preload_dispatch  # #preload + #run characterization (#9)
 bundle exec rake bench:dispatch_glue     # dispatch-glue isolation characterization (#10)
 bundle exec rake bench:host_invocation   # host per-invocation cost against the null guest (#12)
+bundle exec rake bench:guest_setup       # guest-side compile + binding scaling characterization (#13)
 bundle exec rake bench:regexp            # regexp characterization on the +regexp-unicode variant (#11)
-bundle exec rake bench:all               # whole-round sweep: bench:full + every characterization (#7-#12 and gvl)
+bundle exec rake bench:all               # whole-round sweep: bench:full + every characterization (#7-#13 and gvl)
 ```
 
 Each rake task shells out to `bundle exec ruby benchmark/<file>.rb`; invoke a single script directly for fast iteration. `bundle exec rake bench` runs in 5-8 min on a current-gen laptop (codec dominates with 46 cases × 3 s warmup + 3 s measurement); each characterization task adds 30 s to 1 min.
@@ -456,12 +463,13 @@ bundle exec rake "bench:confirm[path/to/a.wasm]" # an explicit Guest Binary
 
 ## What the suite does not measure
 
-Every probe measures the Ruby frontend — through `Kobako::Sandbox`, or directly against its codec — so that is what these numbers characterize. Four dimensions sit outside it, recorded here so silence is not read as coverage.
+Every probe measures the Ruby frontend — through `Kobako::Sandbox`, or directly against its codec — so that is what these numbers characterize. Five dimensions sit outside it, recorded here so silence is not read as coverage.
 
 | Not covered | Why the suite cannot answer it | Standing |
 |---|---|---|
 | The Rust host SDK's path | no probe reaches `crates/kobako`, so neither a Rust host over the mruby guest nor one over a Rust guest has an arm | out until the SDK's performance is a release commitment; today only its behavior is, pinned by the parity harness |
 | The mruby VM's own call cost | no case is a guest-local call, so `2a`–`2f` read against each other and never against a floor | out — detection is on the delta between cases, and an absolute floor moves no gate |
+| Guest-side setup scaling, on the gate | `#13` measures the compile and binding axes, but characterization only, so a regression on either is visible and unblocking | in the suite, out of the gate — promoting it is a SPEC edit to the Regression benchmarks table, deliberate rather than incidental |
 | A String in and a String out | `2b` carries an Integer and `3c` encodes a String without dispatching one, so the shape most Service calls take has no arm | the one gap inside the gated suite's own subject — a round-trip arm would sit beside `2b` and gate the same way |
 | Shipped artifact size | no probe reads a `.wasm`'s bytes, and the five variants ship as release assets unmeasured | a threshold rather than a distribution, so it belongs to `rake gate` rather than to a benchmark |
 

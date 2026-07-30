@@ -24,17 +24,23 @@ module Kobako
     # gated set, where the second pass would overwrite the first's rows.
     SWEEP_TASKS = %w[
       concurrent
+      guest_setup
       gvl_scheduling
       memory
       preload_dispatch
       regexp
     ].freeze
 
-    # Every probe +gate:bench:smoke+ drives: the gated roster plus the
-    # characterization that also runs against the default Guest Binary
-    # in seconds. Derived from RELEASE_BENCHES so promoting a benchmark
-    # into the gate never costs it the cheaper wiring check.
-    SMOKE_BENCHES = (RELEASE_BENCHES + [Paths.probe("preload_dispatch")]).uniq.freeze
+    # The characterization probes cheap enough to smoke: each drives the
+    # default Guest Binary and finishes in seconds, so the reason to leave
+    # one out of the wiring check does not apply.
+    SMOKE_CHARACTERIZATION = %w[preload_dispatch guest_setup].freeze
+
+    # Every probe +gate:bench:smoke+ drives. Derived from RELEASE_BENCHES
+    # so promoting a benchmark into the gate never costs it the cheaper
+    # wiring check.
+    SMOKE_BENCHES = (RELEASE_BENCHES + SMOKE_CHARACTERIZATION.map { |name| Paths.probe(name) })
+                    .uniq.freeze
 
     # Probes the smoke gate leaves out, each with the reason the gate
     # prints. A probe belongs here when smoking it would cost minutes or
