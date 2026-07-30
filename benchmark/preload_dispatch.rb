@@ -24,20 +24,15 @@
 #        waypoints; subtract a Sandbox.new baseline (cold_start 1a)
 #        to isolate per-snippet cost.
 #
-#        Recorded as CPU seconds for a batch, not as throughput,
-#        because registration is paid once per Sandbox while every
-#        other case here is paid once per invocation — and only the
-#        per-invocation half is a release commitment. `seconds` rows
-#        carry no gate metric, which is how this suite already marks
-#        the same distinction on cold-path rows elsewhere. The trade
-#        is precision: a batch median reads a few percent noisier
-#        than the calibrated loop it replaces, which a waypoint
-#        delta absorbs and a gate would not have.
-#
-#        The batch is what makes the row readable at all: one
-#        `Sandbox.new` + one `#preload` is ~3 µs against a
-#        1 µs CPU-clock granularity, so a single observation would
-#        carry 25-50 % quantization error.
+#        Recorded as CPU seconds for a batch rather than as
+#        throughput: registration is paid once per Sandbox while every
+#        other case here is paid once per invocation, and only the
+#        per-invocation half is a release commitment — the same
+#        distinction this suite family marks on its cold-path rows.
+#        The batch is not a detail to simplify away. One `Sandbox.new`
+#        plus one `#preload` is ~3 µs against a 1 µs CPU-clock
+#        granularity, so a median over single observations carries
+#        25-50 % quantization error and does not converge.
 #
 #   9b — Run dispatch baseline. Warm Sandbox with one preloaded
 #        snippet defining `Noop`; `sandbox.run(:Noop)` cost in
@@ -172,12 +167,10 @@ Kobako::Sandbox.new(wasm_path: guest).eval("nil")
 
 # 9a — preload registration cost. Each round times a batch of
 # registrations via index lookups into the pre-computed +HELPER_CODES+ /
-# +HELPER_NAMES+ arrays — no string or Symbol construction inside the
-# timer — and the row records the median batch across rounds. The label
-# names the batch, so the per-registration figure is the recorded value
-# divided by it, the same reading catalog_handles 5b asks for.
-# The Sandbox.new term is constant across the three waypoints; subtract
-# cold_start 1a (Sandbox.new alone) to recover the per-snippet cost.
+# +HELPER_NAMES+ arrays, so no string or Symbol construction lands inside
+# the timer. The label names the batch, so the per-registration figure is
+# the recorded value divided by it — the reading catalog_handles 5b also
+# asks for.
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
 PRELOAD_BATCH = 100
 PRELOAD_ROUNDS = 5
