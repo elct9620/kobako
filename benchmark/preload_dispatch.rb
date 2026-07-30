@@ -176,16 +176,12 @@ PRELOAD_BATCH = 100
 PRELOAD_ROUNDS = 5
 
 [1, 8, 64].each do |n|
-  samples = Array.new(PRELOAD_ROUNDS) do
-    runner.time_once do
-      PRELOAD_BATCH.times do
-        sandbox = Kobako::Sandbox.new(wasm_path: guest, memory_limit: nil)
-        n.times { |i| sandbox.preload(code: HELPER_CODES[i], name: HELPER_NAMES[i]) }
-      end
+  runner.one_shot_median("9a-#{PRELOAD_BATCH}x-sandbox-new+preload-#{n}-source", rounds: PRELOAD_ROUNDS) do
+    PRELOAD_BATCH.times do
+      sandbox = Kobako::Sandbox.new(wasm_path: guest, memory_limit: nil)
+      n.times { |i| sandbox.preload(code: HELPER_CODES[i], name: HELPER_NAMES[i]) }
     end
   end
-  runner.record_one_shot("9a-#{PRELOAD_BATCH}x-sandbox-new+preload-#{n}-source",
-                         Kobako::Bench::Stats.median(samples), rounds: PRELOAD_ROUNDS)
 end
 
 # Shared dispatch sandbox for 9b / 9c / 9d. One warm-up #run seals
