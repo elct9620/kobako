@@ -91,6 +91,26 @@ class TestSandboxRun < Minitest::Test
     refute_includes err.available, :Kobako
   end
 
+  # E-27 (bound-Service filtering): a Service the preamble materialises is
+  # not a name the caller could have dispatched, so the namespace each bind
+  # path roots at is subtracted too — at every path depth, and whether or
+  # not a snippet touched it. The witness a registry needs: the two
+  # baseline cases above bind nothing, so neither can tell the boot-state
+  # subtraction apart from one that also covers the preamble.
+  def test_e27_available_excludes_bound_service_namespaces
+    sandbox = Kobako::Sandbox.new
+    sandbox.bind("Ledger", -> { 1 })
+    sandbox.bind("Shop::Cart", -> { 2 })
+    sandbox.bind("Deep::Nested::Svc", -> { 3 })
+    sandbox.preload(code: "Worker = ->(*_a) { 1 }", name: :Worker)
+
+    err = assert_raises(Kobako::UndefinedEntrypointError) { sandbox.run(:Missing) }
+
+    assert_equal [:Worker], err.available,
+                 "a Sandbox carrying bound Services through #run must offer only the " \
+                 "snippet-contributed constants as the unresolved entrypoint's correction"
+  end
+
   # E-28: entrypoint constant is defined but does not respond to #call.
   def test_e28_entrypoint_without_call_raises_sandbox_error
     sandbox = Kobako::Sandbox.new

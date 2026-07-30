@@ -63,13 +63,6 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         return write_panic(panic);
     }
 
-    // Baseline snapshot of top-level constants taken after kobako
-    // install + preamble materialisation but before snippet replay.
-    // Subtracting it from a post-replay snapshot yields exactly the
-    // constants the preloaded snippets contributed, which an unresolved
-    // entrypoint offers as its correction.
-    let baseline_constants = kobako.top_level_constants();
-
     if let Err(panic) = boot::replay_snippets(&kobako, &snippets) {
         return write_panic(panic);
     }
@@ -106,16 +99,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     let object_value = unsafe { mrb.object_class().to_value(mrb) };
 
     if !object_value.const_defined(mrb, target_sym) {
-        // Subtracting the pre-replay baseline from the current top-level
-        // set leaves exactly the constants the preloaded snippets
-        // contributed — the names this entrypoint could have been.
-        use std::collections::HashSet;
-        let baseline_set: HashSet<&String> = baseline_constants.iter().collect();
-        let available: Vec<String> = kobako
-            .top_level_constants()
-            .into_iter()
-            .filter(|name| !baseline_set.contains(name))
-            .collect();
+        let available = super::boot_constants::snippet_constants(&kobako, &preamble);
         return write_panic(Panic {
             origin: Origin::Sandbox,
             error: ErrorRecord {

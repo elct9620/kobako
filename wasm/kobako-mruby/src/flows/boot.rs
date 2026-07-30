@@ -133,14 +133,20 @@ pub(super) fn boot_vm<G: crate::MrbGuest>() -> Result<(), Panic> {
     let mrb = super::mrb_slot::MRB
         .as_ref()
         .expect("MRB just installed above");
-    if let Err(e) = Kobako::init::<G>(mrb) {
-        let panic = boot_panic(format!(
-            "Sandbox boot registration failed: {}",
-            e.message(mrb)
-        ));
-        super::mrb_slot::MRB.clear();
-        return Err(panic);
-    }
+    let kobako = match Kobako::init::<G>(mrb) {
+        Ok(kobako) => kobako,
+        Err(e) => {
+            let panic = boot_panic(format!(
+                "Sandbox boot registration failed: {}",
+                e.message(mrb)
+            ));
+            super::mrb_slot::MRB.clear();
+            return Err(panic);
+        }
+    };
+    // Recorded on the success path only: an unresolved entrypoint's
+    // correction is measured against this, and the bake reaches here.
+    super::boot_constants::record(&kobako);
     Ok(())
 }
 

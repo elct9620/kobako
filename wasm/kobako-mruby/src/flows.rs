@@ -24,9 +24,14 @@
 //! * `mrb_slot` — module-level static carrying the live VM across the
 //!   dispatch re-entry boundary (the block stack lives beside its
 //!   bridge writers in `crate::runtime::block_stack`).
+//! * `boot_constants` — the boot state's top-level constant names and the
+//!   subtraction they exist for, so an unresolved entrypoint can name the
+//!   snippet-contributed ones without the successful path paying for it.
 
 #[cfg(any(mruby_linked, test))]
 mod boot;
+#[cfg(mruby_linked)]
+mod boot_constants;
 #[cfg(mruby_linked)]
 mod eval;
 #[cfg(mruby_linked)]
