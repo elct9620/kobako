@@ -6,8 +6,9 @@
 #
 # Three depths, each a superset of the one above it: +bench+ runs the
 # gated set at CI-friendly payload sizes, +bench:full+ adds the 16 MiB
-# codec sweep, and +bench:all+ adds every characterization. Each suite
-# also has a task of its own for iterating on one probe.
+# codec sweep, and +bench:all+ adds every characterization. A suite
+# gets a task of its own once iterating on that probe alone is worth
+# the seam; the rest are reached by running their script directly.
 #
 # Which suites are gated and which are characterization is the roster's
 # to say (benchmark/support/roster.rb), against SPEC.md's Regression

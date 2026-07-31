@@ -20,16 +20,13 @@ module Kobako
     ].map { |name| Paths.probe(name) }.freeze
 
     # The measurement-method version of each suite, stamped into every
-    # results file. A bump says this suite's figures are no longer
-    # comparable with the ones already archived — a case reordered, a
-    # measurement window rescoped, a batch introduced — so the gate reads
-    # only same-version history when it estimates a row's between-run
-    # movement, rather than mixing two methods into one estimate. A suite
-    # absent here is at version 1, and a bump is absorbed by the re-bless
-    # that records it.
+    # results file. A bump declares this suite's figures no longer
+    # comparable with the ones already archived; a suite absent here is
+    # at version 1. Each entry names what moved, since that is the one
+    # thing the number itself cannot say.
     METHOD_VERSIONS = {
-      # v2: the cases run 3c, 3b, guest, then 3a ascending, so the large
-      # payloads no longer stir the heap under the rows measured after them.
+      # v2: cases reordered so the large payloads no longer stir the heap
+      # under the rows measured after them.
       "codec" => 2
     }.freeze
 

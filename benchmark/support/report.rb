@@ -112,10 +112,10 @@ module Kobako
           "#{STATUS_LABEL.fetch(row.status)} |"
       end
 
-      # New gated cases (in head, not base), dropped ones (in base, not
-      # head), and suites head measured by a different method than base —
-      # each a way the comparison covers less than the table implies, so a
-      # reviewer sees it beside the deltas rather than after trusting them.
+      # New gated cases, dropped ones, and suites head measured by a
+      # different method than base — each a way the comparison covers less
+      # than the table implies, reported beside the deltas rather than
+      # after a reviewer has trusted them.
       def absence_notes(current, baseline, suites)
         notes = [
           note_line("New cases (no base to compare)", Comparator.gated_absences(current, baseline, suites: suites)),
@@ -125,9 +125,8 @@ module Kobako
         notes.empty? ? nil : notes.join("\n\n")
       end
 
-      # The suites whose measurement method moved between the two payloads.
-      # Their rows compare a figure against one the other revision did not
-      # measure the same way, so the delta is not a performance reading.
+      # The suites whose measurement method moved between the two
+      # payloads, whose deltas are therefore not performance readings.
       def method_line(current, baseline, suites)
         changed = suites.reject do |suite|
           (current.dig("methods", suite) || 1) == (baseline.dig("methods", suite) || 1)

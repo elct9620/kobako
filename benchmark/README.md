@@ -105,7 +105,7 @@ One guest→host Service call wrapped in one `#eval`. Each row bundles `#eval` s
 
 #### Wire codec — host side ([`codec.rb`](codec.rb))
 
-`Kobako::Codec` encode / decode directly from Ruby — no wasm boundary. Characterizes the host codec on its own; the per-wire-type table fixes one entry per SPEC.md Type Mapping row.
+`Kobako::Codec` encode / decode directly from Ruby — no wasm boundary. Characterizes the host codec on its own; the per-wire-type table fixes one entry per value-carrying row of [`docs/wire/payload-msgpack.md`](../docs/wire/payload-msgpack.md) § Type Mapping.
 
 | Payload                                  | Encode  | Decode  |
 |------------------------------------------|---------|---------|
@@ -378,15 +378,16 @@ bundle exec rake bench:full              # adds the 16 MiB codec payload sweep
 bundle exec rake bench:concurrent        # multi-Thread characterization (#7)
 bundle exec rake bench:gvl_scheduling    # gvl: hold-vs-release wall-clock scaling
 bundle exec rake bench:memory            # per-Sandbox RSS characterization (#8)
-bundle exec rake bench:preload_dispatch  # #preload + #run dispatch on its own (#9; bench runs it too)
-bundle exec rake bench:dispatch_glue     # dispatch-glue isolation characterization (#10)
-bundle exec rake bench:host_invocation   # host per-invocation cost against the null guest (#12)
+bundle exec rake bench:preload_dispatch  # #preload + #run dispatch on its own (gated #9; bench runs it too)
+bundle exec rake bench:dispatch_glue     # dispatch-glue isolation on its own (gated #10; bench runs it too)
+bundle exec rake bench:host_invocation   # host per-invocation cost against the null guest (gated #12; bench runs it too)
 bundle exec rake bench:guest_setup       # guest-side compile + binding scaling characterization (#13)
 bundle exec rake bench:regexp            # regexp characterization on the +regexp-unicode variant (#11)
-bundle exec rake bench:all               # whole-round sweep: bench:full + every characterization (#7-#13 and gvl)
+bundle exec rake bench:all               # whole-round sweep: bench:full + every characterization
+bundle exec rake "bench:report[head.json,base.json]"  # Markdown head-vs-base summary (what CI posts on a PR)
 ```
 
-Each rake task shells out to `bundle exec ruby benchmark/<file>.rb`; invoke a single script directly for fast iteration. `bundle exec rake bench` runs in 5-8 min on a current-gen laptop (codec dominates with 46 cases × 3 s warmup + 3 s measurement); each characterization task adds 30 s to 1 min.
+Which suites are gated and which are characterization is `benchmark/support/roster.rb`'s to say; `rake -T bench` is the full task catalog. Each rake task shells out to `bundle exec ruby benchmark/<file>.rb`; invoke a single script directly for fast iteration. `bundle exec rake bench` runs in 5-8 min on a current-gen laptop — codec dominates, holding more cases than the rest of the gated set together — and each characterization task adds 30 s to 1 min.
 
 YJIT is not turned on by the suite. Use `RUBY_YJIT_ENABLE=1 bundle exec rake bench` or `--yjit` to capture a YJIT baseline — the resulting JSON records `yjit_enabled: true` so it is unambiguously distinct.
 
@@ -433,7 +434,7 @@ A run says which release it belongs to through its `git_sha`, and which measurem
 
 ## Release gate
 
-`rake bench:gate[current,baseline]` compares a run against the committed anchor `benchmark/baseline.json` and exits non-zero on either a gated case regressed past the anchor or a gated case the anchor does not yet cover. The comparison logic lives in `benchmark/support/gate.rb` (behind the `Kobako::Bench` facade); its unit tests ride the test suite (`rake test:bench`).
+`rake bench:gate[current,baseline]` compares a run against the committed anchor `benchmark/baseline.json` and exits non-zero on either a gated case regressed past the anchor or a gated case the anchor does not yet cover. The judgment itself lives in `benchmark/support/comparator.rb`; `gate.rb` resolves the pair, prints, and aborts. Both ride the test suite (`rake test:bench`).
 
 A case is flagged only when its regression past the anchor clears **both** a +10 % floor (cumulative against the anchor, not the previous run) **and** a noise band. The band can only widen the bar on high-variance rows, never narrow it below the floor.
 
@@ -498,7 +499,7 @@ bundle exec rake "bench:confirm[path/to/a.wasm]" # an explicit Guest Binary
 
 ## What the suite does not measure
 
-Every probe measures the Ruby frontend — through `Kobako::Sandbox`, or directly against its codec — so that is what these numbers characterize. Five dimensions sit outside it, recorded here so silence is not read as coverage.
+Every probe measures the Ruby frontend — through `Kobako::Sandbox`, or directly against a host-side collaborator of it such as `Kobako::Codec`, `Transport::Dispatcher`, or `Catalog::Handles` — so that is what these numbers characterize. Five dimensions sit outside it, recorded here so silence is not read as coverage.
 
 | Not covered | Why the suite cannot answer it | Standing |
 |---|---|---|

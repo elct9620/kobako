@@ -9,18 +9,16 @@
 #        1 MiB). 16 MiB is gated under `BENCH_FULL=1` per the
 #        smoke/full split (SPEC: payload upper bound is 16 MiB).
 #   3b — fixed payload, varying nesting depth (1 / 4 / 16 / 64).
-#   3c — per-wire-type micro-bench for every benchable entry in the
-#        SPEC.md Type Mapping table (10 wire types; the table's generic
-#        ext row has no value of its own to round-trip).
+#   3c — per-wire-type micro-bench, one case per entry of
+#        docs/wire/payload-msgpack.md § Type Mapping that carries a
+#        value; the table's generic ext row has none to round-trip.
 #
-# The cases run 3c, then 3b, then 3a ascending, then the guest side —
-# an order that leaves every host row measured upstream of a payload
-# large enough to stir the heap for it. A row downstream of one reports
-# the allocator state it inherited rather than its own cost, and the
-# guest rows go last because their gate metric is the in-wasm budget,
-# which that state does not reach. The order is part of this suite's
-# measurement method (support/roster.rb), so changing it retires the
-# history captured under the old one.
+# Case order is load-bearing: a row measured downstream of a payload
+# large enough to stir the heap reports the allocator state it
+# inherited rather than its own cost. Hence 3c, 3b, 3a ascending, then
+# the guest rows, whose gate metric is the in-wasm budget that state
+# does not reach. The order is part of this suite's measurement method
+# (support/roster.rb).
 #
 # Host side is measured directly against
 # Kobako::Codec::Encoder / Decoder. Guest side is measured by
@@ -38,9 +36,8 @@ require "runner"
 
 runner = Kobako::Bench::Runner.new("codec")
 
-# 3c — per-wire-type micro-bench (SPEC.md Type Mapping, 10 benchable
-# entries). Handle (ext 0x01) round-trips through the Factory just like
-# the primitives.
+# 3c — per-wire-type micro-bench. Handle (ext 0x01) round-trips through
+# the Factory just like the primitives.
 wire_types = {
   "nil" => nil,
   "bool" => true,
@@ -89,9 +86,8 @@ end
 # 3a / 3b — guest side: Sandbox#eval returning a constructed value.
 # Absolute ips includes the constant per-invocation overhead (see
 # #1 1b); per-size and per-depth ratios are the regression signal.
-# Last, because these rows gate on wall_time — the in-wasm budget, which
-# the host allocator state the large payloads leave behind does not
-# reach. Their ips is characterization, and pays for that position.
+# Last because these rows gate on wall_time, which the host allocator
+# state upstream of them does not reach.
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
 sandbox = Kobako::Sandbox.new(wasm_path: Kobako::Bench::Guest.path, memory_limit: nil)
 sandbox.eval("nil") # warm

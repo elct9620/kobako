@@ -33,14 +33,12 @@ module Kobako
         judge(run, anchor, Comparator.release_suites - note_remethoded(run, anchor))
       end
 
-      # Judge +run+ against +anchor+ over +judged+ — the suites the anchor
-      # still measures the same way — and abort on anything blocking. A
-      # suite the run remethoded is left out of the comparison rather than
-      # flagged: its delta is the distance between two different
-      # measurements, so calling it a regression would be a false positive
-      # by construction. Coverage is judged over every suite regardless,
-      # since a gated case the anchor lacks is missing whatever method
-      # produced it.
+      # Judge +run+ against +anchor+ over +judged+ and abort on anything
+      # blocking. A remethoded suite is left out rather than flagged: its
+      # delta is the distance between two different measurements, so a
+      # regression there would be a false positive by construction.
+      # Coverage still spans every suite — a case the anchor lacks is
+      # missing whatever method produced it.
       def judge(run, anchor, judged)
         history = History.dispersion(methods: run.fetch("methods", {}))
         enforce(Comparator.compare(run, anchor, suites: judged, history: history),
@@ -138,10 +136,9 @@ module Kobako
       end
 
       # NOTE: and return the gated suites the run measured by a different
-      # method than the anchor did — {judge} leaves them out of the
-      # comparison. Non-blocking, because a method change is a deliberate
-      # act the re-bless absorbs, and blocking would fail the release on a
-      # delta that is not a performance reading.
+      # method than the anchor did. Non-blocking: a method change is a
+      # deliberate act the re-bless absorbs, and blocking would fail the
+      # release on a delta that is not a performance reading.
       def note_remethoded(run, anchor)
         changed = Comparator.release_suites.reject do |suite|
           (run.dig("methods", suite) || 1) == (anchor.dig("methods", suite) || 1)

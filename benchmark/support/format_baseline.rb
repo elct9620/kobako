@@ -2,9 +2,10 @@
 
 # Formats a benchmark/results/<date>-<sha>.json baseline as a flat
 # table of derived, human-readable values. README.md's per-suite
-# tables are populated from this script's output so future baseline
-# refreshes do not require hand-arithmetic on the raw ips / seconds
-# numbers — every conversion below has exactly one definition.
+# tables are populated from this script's output, so every unit
+# conversion has exactly one definition. A batched row is the one thing
+# it leaves to the reader: the label carries the divisor, because
+# recovering it from the label here would be guesswork about naming.
 #
 # Conversions:
 #
@@ -136,7 +137,7 @@ module Kobako
         return format_ips(entry) if entry["ips"]
         return format_memory(entry) if entry.key?("rss_kb")
         return format_concurrent(entry) if entry["mode"] == "concurrent"
-        return [Units.seconds_to_ms(entry["seconds"]), "one_shot"] if entry["mode"] == "one_shot"
+        return format_one_shot(entry) if entry["mode"] == "one_shot"
 
         ["", entry.to_json]
       end
@@ -158,12 +159,22 @@ module Kobako
         [value, meta_parts.join(" | ")]
       end
 
+      # A one-shot row's value is whatever its block ran, which for a
+      # batched row is the batch — the label carries the divisor, so the
+      # rounds count is what the meta column can add.
+      def format_one_shot(entry)
+        rounds = entry["rounds"].to_i
+        [Units.seconds_to_ms(entry["seconds"]), rounds > 1 ? "one_shot, median of #{rounds}" : "one_shot"]
+      end
+
       # Render the +wall_time+ / +memory_peak+ usage pair that
       # {Runner#case_with_usage} and the memory suite's +record+
-      # helper fold into ips and memory rows.
+      # helper fold into ips and memory rows. The sample count rides
+      # along because it is half of the band the gate builds on it.
       def format_usage(entry)
         wall = Units.format_seconds(entry["wall_time"])
         wall += " #{Units.sd_pct(entry["wall_time"], entry["wall_time_sd"])}" if entry["wall_time_sd"]
+        wall += ", n=#{entry["wall_time_samples"]}" if entry["wall_time_samples"]
         "wall=#{wall} mem=#{Units.memory_peak(entry["memory_peak"])}"
       end
 

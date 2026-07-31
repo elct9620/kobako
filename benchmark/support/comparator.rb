@@ -19,10 +19,9 @@ module Kobako
     # Two dispersions feed that band and the wider governs: the standard
     # error of the median one run recorded, and the caller-supplied
     # between-run estimate ({History}), which is the transient a row shows
-    # between processes. The first cannot see the second — a large-payload
-    # codec row moves between runs by several times its own within-run
-    # spread — so on those rows the within-run half alone produces a
-    # standing false alarm.
+    # between processes. The first cannot see the second, so on the rows
+    # where they diverge the within-run half alone produces a standing
+    # false alarm.
     #
     # Metric per row follows the gate policy: rows carrying +wall_time+
     # (sandbox-driven) gate on +wall_time+ — the machine-load-insensitive
@@ -36,12 +35,10 @@ module Kobako
     module Comparator
       FLOOR_PCT = 10.0
       SIGMA = 2.0
-      # A median's standard error is this multiple of the sample
-      # deviation over the root of the sample count. The band guards a
-      # recorded median, not a single observation, so the deviation the
-      # row carries has to be scaled to it — un-scaled it reads as the
-      # spread of one sample and sets bars several times the movement it
-      # is meant to tolerate.
+      # A median's standard error, as a multiple of the sample deviation
+      # over the root of the sample count. The band guards a median, so
+      # the deviation a row carries is scaled to it rather than read as
+      # the spread of one observation.
       MEDIAN_SE = 1.2533
       # Ceiling on the archive-derived half of the band. The archive is a
       # committed input that grows by ordinary means, so without a ceiling a
@@ -152,10 +149,9 @@ module Kobako
         SIGMA * Math.sqrt((median_se(row, metric)**2) + (median_se(base, metric)**2)) * 100
       end
 
-      # Relative standard error of the median +row+ records under +metric+:
-      # the deviation it carries, scaled to the count of samples that
-      # median was taken over. A row recording one observation keeps the
-      # deviation whole, which is what it is worth there.
+      # Relative standard error of the median +row+ records under +metric+.
+      # A row recording one observation keeps its deviation whole, which
+      # is what a deviation is worth there.
       def median_se(row, metric)
         central, deviation, samples = central_sd(row, metric)
         return 0.0 if central.zero?
@@ -212,10 +208,9 @@ module Kobako
         :ips if row["ips"]
       end
 
-      # The row's central value, its recorded deviation, and the number of
-      # samples that central value was reduced from. A capture predating
-      # the sample count reads as one sample, which is the reading that
-      # leaves its band exactly where it was.
+      # The row's central value, its deviation, and the samples that
+      # central value was reduced from. A capture predating the count
+      # reads as one sample, so an old anchor keeps the band it had.
       def central_sd(row, metric)
         if metric == :wall_time
           return [row["wall_time"].to_f, row["wall_time_sd"].to_f, samples(row["wall_time_samples"])]

@@ -8,23 +8,14 @@ require_relative "stats"
 module Kobako
   module Bench
     # Between-run dispersion per case, read from the archived runs under
-    # benchmark/results/. The Comparator's other half is derived from what
-    # one process observed, which cannot see the allocator and
-    # frequency-scaling transients that move a row between processes. The large-payload codec rows measure 15-25%
-    # between runs against an 8-9% within-run band, and flagged twice in a
-    # row on a codec whose hot path had not changed.
+    # benchmark/results/. Exists because the Comparator's other half sees
+    # one process only, and cannot price the transients that move a row
+    # between them.
     #
-    # The estimate is the MEDIAN relative move between consecutive runs,
-    # not the spread of the levels: the archive spans months of accepted
+    # The estimate is the MEDIAN relative move between consecutive runs
+    # rather than the spread of the levels: the archive spans accepted
     # optimisations, and a level-based estimate would read each of those
-    # steps as noise and widen the band on exactly the rows that measure
-    # cleanly. A step is one outlier among the moves, so the median holds
-    # at the quiet level around it.
-    #
-    # The estimate only ever widens the bar — {Comparator} takes the wider
-    # of the two bands and the +10% floor stands underneath both, which is
-    # what keeps a quiet archive's near-zero estimate from tightening the
-    # gate rather than loosening it.
+    # steps as noise.
     module History
       # Runs to look back over, so a row's estimate tracks its current
       # character rather than the whole archive's.
@@ -34,19 +25,14 @@ module Kobako
 
       module_function
 
-      # Median relative between-run move per +[suite, label, metric]+,
-      # over the most recent {WINDOW} archived runs. Rows appearing in
-      # fewer than {MIN_MOVES}+1 of them are absent, leaving the gate on
-      # the within-run band alone. +methods+ is the measurement-method
-      # version per suite the caller is estimating for: once a suite has
-      # accumulated enough runs under it, only those runs are read, since
-      # a move across two methods measures the change of method rather
-      # than the machine. Until then the estimate over every method
-      # stands, because how far a row moves between processes is a
-      # property of the machine that survives a reordering — dropping it
-      # the moment a version is bumped would leave the noisiest rows on
-      # the bare floor, which is the standing false alarm this estimate
-      # exists to prevent.
+      # Median relative between-run move per +[suite, label, metric]+.
+      # +methods+ names the measurement-method version the caller is
+      # estimating for: same-version runs govern once a suite has enough
+      # of them, since a move across two methods measures the method. The
+      # estimate over every version stands until then, because a row's
+      # between-process movement outlives a change in how it is measured
+      # — and stranding the noisiest rows on the floor is the alarm this
+      # estimate exists to prevent.
       def dispersion(glob = Paths::RESULTS_GLOB, methods: {})
         runs = recent_runs(glob)
         estimate(series(runs, {})).merge(estimate(series(runs, methods)))

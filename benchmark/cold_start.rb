@@ -12,10 +12,9 @@
 #        README.md claims this amortisation; 1c is the regression
 #        guard for that claim. The warm rounds aggregate to a median
 #        because a single sub-millisecond round is hostage to
-#        machine transients (see the README noise section). Recording
-#        seconds is what keeps the pair out of the gate; what the pair
-#        is worth is the ratio between its halves, which tolerates a
-#        resolution a per-invocation commitment would not.
+#        machine transients. Recording seconds keeps the pair out of
+#        the gate: its worth is the ratio between its halves, which
+#        tolerates a resolution a per-invocation commitment would not.
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 $LOAD_PATH.unshift File.expand_path("support", __dir__)
