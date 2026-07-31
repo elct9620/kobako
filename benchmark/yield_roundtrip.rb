@@ -2,7 +2,7 @@
 
 # SPEC.md "Regression benchmarks" #6 — Yield round-trip latency.
 # Detects regressions on the host-initiated re-entry path that #2
-# (guest-initiated Request/Response) does not exercise: the YieldResponse
+# (guest-initiated Call/Reply) does not exercise: the Yield Reply
 # codec, the `__kobako_yield_to_block` dispatch, and the guest-side
 # BLOCK_STACK push/pop.
 #

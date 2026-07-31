@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Characterization benchmark #10 (not in SPEC.md release gate) —
+# SPEC.md "Regression benchmarks" #10 —
 # isolates the GVL-held host glue of a single guest->host dispatch: the
 # work the +Runtime#on_dispatch+ Proc performs on the Ruby side (decode
 # payload -> resolve target -> invoke Service -> encode the reply body).

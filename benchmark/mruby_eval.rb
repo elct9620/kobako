@@ -6,14 +6,15 @@
 # computation whose only host cost is the constant Sandbox#eval
 # per-invocation overhead.
 #
-#   4a — integer arithmetic loop (sum of first 100k integers)
+#   4a — integer arithmetic loop (100k XOR accumulations; a sum
+#        overflows the guest's MRB_INT32, see ARITH_SCRIPT below)
 #   4b — string concatenation (1000 appends to a String)
 #   4c — exception raise/rescue 100 times (exercises the
 #        setjmp/longjmp path enforced by SPEC's invariant on
 #        mruby exception unwind)
 #   4e — stdout puts loop, well below stdout_limit (exercises the
-#        full guest IO path: mrblib IO#write → kobako_io_fwrite C
-#        bridge → WASI pipe → host capture buffer; baseline cost
+#        full guest IO path: kobako-io's Rust IO#write → wasi-libc
+#        write(2) → WASI pipe → host capture buffer; baseline cost
 #        per buffered write)
 #   4f — stdout cap saturation (2048 puts of 1023 bytes ≈ 2 MiB
 #        against the 1 MiB default stdout_limit; the first ~1024

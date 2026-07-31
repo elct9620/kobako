@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-# Characterization benchmark #12 — the host's per-invocation cost, read
-# as a total against a guest that does no work.
+# SPEC.md "Regression benchmarks" #12 — the host's per-invocation cost,
+# read as a total against a guest that does no work.
 #
 # Every other sandbox-driven suite reports a total that bundles host and
 # guest, and gates on `wall_time` — the guest export alone. That leaves

@@ -1,10 +1,11 @@
 # frozen_string_literal: true
 
-# Characterization benchmark (not in SPEC.md release gate) — covers
-# the Sandbox#preload + Sandbox#run path that did not exist when the
-# original SPEC #1..#5 gated suite was written. The other benchmarks all measure
+# SPEC.md "Regression benchmarks" #9 — entrypoint dispatch latency for
+# the setup-once / dispatch-many path. The other benchmarks all measure
 # inside Sandbox#eval; this file isolates the cost dimensions the
-# two new verbs add.
+# #preload + #run verbs add. Only the per-invocation rows are a release
+# commitment. 9a records registration as CPU seconds — the way a probe
+# declares that a figure paid once per Sandbox sits outside the gate.
 #
 # Positioning: #preload and #run are independent features. They are
 # NOT a "faster #eval"; the joint flow (#preload(code:, name:) +
@@ -79,10 +80,6 @@ require "guest"
 require "runner"
 
 runner = Kobako::Bench::Runner.new("preload_dispatch")
-
-# The injected Guest Binary path, resolved once outside every measured
-# block so the KOBAKO_BENCH_WASM lookup never lands in the timer.
-Kobako::Bench::Guest.path
 
 NOOP_SNIPPET_CODE = <<~RUBY
   module Noop
