@@ -71,6 +71,45 @@ class KobakoBenchResultsTest < Minitest::Test
                  "into the file"
   end
 
+  # A capture says which measurement method produced it, so a later
+  # reader can tell the runs that are comparable from the ones that are
+  # only adjacent.
+  def test_a_write_stamps_the_suite_s_measurement_method
+    methods = JSON.parse(File.read(write_suite("codec")))["methods"]
+
+    assert_equal Kobako::Bench::METHOD_VERSIONS.fetch("codec"), methods["codec"],
+                 "a suite carrying a method version through Runner#write! must record it beside " \
+                 "its rows"
+  end
+
+  # A version keyed to a name no suite answers to is a bump that never
+  # happens — the archive it was meant to retire stays in the estimate.
+  def test_every_declared_method_version_names_a_suite_that_exists
+    known = Kobako::Bench::RELEASE_BENCHES.map { |path| File.basename(path, ".rb") } +
+            Kobako::Bench::SWEEP_TASKS
+
+    assert_empty Kobako::Bench::METHOD_VERSIONS.keys - known,
+                 "every key in METHOD_VERSIONS must name a suite the roster runs, or the bump it " \
+                 "records is silently a no-op"
+  end
+
+  def test_a_merged_write_keeps_the_method_of_a_suite_already_in_the_file
+    seed_prior_round
+    lock_at(Time.now)
+
+    assert_equal %w[codec first], JSON.parse(File.read(write_suite("codec")))["methods"].keys.sort,
+                 "a re-stamping write through Runner#write! must keep the method of every suite " \
+                 "already merged into the file, the way it keeps their rows"
+  end
+
+  def test_a_suite_that_has_never_changed_method_records_the_first_version
+    methods = JSON.parse(File.read(write_suite("never-remethoded")))["methods"]
+
+    assert_equal 1, methods["never-remethoded"],
+                 "a suite absent from METHOD_VERSIONS through Runner#write! must record version 1, " \
+                 "so every capture carries a complete map rather than a partial one"
+  end
+
   private
 
   # Write one suite, then age its stamp so a later write has something

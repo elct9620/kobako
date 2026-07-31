@@ -62,12 +62,12 @@ module Kobako
         metric = Comparator.gate_metric(row)
         return nil unless metric
 
-        head_c, head_sd = Comparator.central_sd(row, metric)
-        base_c, base_sd = Comparator.central_sd(base, metric)
+        head_c = Comparator.central(row, metric)
+        base_c = Comparator.central(base, metric)
         return nil if head_c.zero? || base_c.zero?
 
         delta = Comparator.regression_pct(metric, base_c, head_c)
-        band = Comparator.band_for(head_c, head_sd, base_c, base_sd, history[[suite, label, metric]])
+        band = Comparator.band_for(row, base, metric, history[[suite, label, metric]])
         Row.new(suite, label, metric, base_c, head_c, delta, band, status_for(delta, band))
       end
 
@@ -112,14 +112,30 @@ module Kobako
           "#{STATUS_LABEL.fetch(row.status)} |"
       end
 
-      # New gated cases (in head, not base) and dropped ones (in base, not
-      # head) are reported as notes so a reviewer sees the roster shifted.
+      # New gated cases (in head, not base), dropped ones (in base, not
+      # head), and suites head measured by a different method than base —
+      # each a way the comparison covers less than the table implies, so a
+      # reviewer sees it beside the deltas rather than after trusting them.
       def absence_notes(current, baseline, suites)
         notes = [
           note_line("New cases (no base to compare)", Comparator.gated_absences(current, baseline, suites: suites)),
-          note_line("Dropped cases (gone from head)", Comparator.gated_absences(baseline, current, suites: suites))
+          note_line("Dropped cases (gone from head)", Comparator.gated_absences(baseline, current, suites: suites)),
+          method_line(current, baseline, suites)
         ].compact
         notes.empty? ? nil : notes.join("\n\n")
+      end
+
+      # The suites whose measurement method moved between the two payloads.
+      # Their rows compare a figure against one the other revision did not
+      # measure the same way, so the delta is not a performance reading.
+      def method_line(current, baseline, suites)
+        changed = suites.reject do |suite|
+          (current.dig("methods", suite) || 1) == (baseline.dig("methods", suite) || 1)
+        end
+        return nil if changed.empty?
+
+        "**Measured differently than base** (deltas are not performance readings): " \
+          "#{changed.map { |suite| "`#{suite}`" }.join(", ")}"
       end
 
       def note_line(title, cases)

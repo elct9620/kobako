@@ -9,8 +9,18 @@
 #        1 MiB). 16 MiB is gated under `BENCH_FULL=1` per the
 #        smoke/full split (SPEC: payload upper bound is 16 MiB).
 #   3b — fixed payload, varying nesting depth (1 / 4 / 16 / 64).
-#   3c — per-wire-type micro-bench for every entry in the SPEC.md
-#        Type Mapping table (11 wire types).
+#   3c — per-wire-type micro-bench for every benchable entry in the
+#        SPEC.md Type Mapping table (10 wire types; the table's generic
+#        ext row has no value of its own to round-trip).
+#
+# The cases run 3c, then 3b, then 3a ascending, then the guest side —
+# an order that leaves every host row measured upstream of a payload
+# large enough to stir the heap for it. A row downstream of one reports
+# the allocator state it inherited rather than its own cost, and the
+# guest rows go last because their gate metric is the in-wasm budget,
+# which that state does not reach. The order is part of this suite's
+# measurement method (support/roster.rb), so changing it retires the
+# history captured under the old one.
 #
 # Host side is measured directly against
 # Kobako::Codec::Encoder / Decoder. Guest side is measured by
@@ -28,34 +38,9 @@ require "runner"
 
 runner = Kobako::Bench::Runner.new("codec")
 
-# 3a — host encode/decode, varying size at depth=1
-size_bytes = { "64B" => 64, "1KiB" => 1024, "64KiB" => 64 * 1024, "1MiB" => 1024 * 1024 }
-size_bytes["16MiB"] = 16 * 1024 * 1024 if ENV["BENCH_FULL"] == "1"
-
-size_bytes.each do |label, bytes|
-  payload = "x" * bytes
-  encoded = Kobako::Codec::Encoder.encode(payload)
-  runner.case("3a-host-encode-#{label}") { Kobako::Codec::Encoder.encode(payload) }
-  runner.case("3a-host-decode-#{label}") { Kobako::Codec::Decoder.decode(encoded) }
-end
-
-# 3b — host encode/decode, varying nesting depth at fixed 1 KiB leaf
-def nest(value, depth)
-  depth.times { value = [value] }
-  value
-end
-
-[1, 4, 16, 64].each do |depth|
-  leaf = "x" * 1024
-  payload = nest(leaf, depth)
-  encoded = Kobako::Codec::Encoder.encode(payload)
-  runner.case("3b-host-encode-depth-#{depth}") { Kobako::Codec::Encoder.encode(payload) }
-  runner.case("3b-host-decode-depth-#{depth}") { Kobako::Codec::Decoder.decode(encoded) }
-end
-
-# 3c — per-wire-type micro-bench (SPEC.md Type Mapping, 11 entries).
-# Handle (ext 0x01) round-trips through the Factory just like the
-# primitives.
+# 3c — per-wire-type micro-bench (SPEC.md Type Mapping, 10 benchable
+# entries). Handle (ext 0x01) round-trips through the Factory just like
+# the primitives.
 wire_types = {
   "nil" => nil,
   "bool" => true,
@@ -75,9 +60,38 @@ wire_types.each do |name, value|
   runner.case("3c-host-decode-#{name}") { Kobako::Codec::Decoder.decode(encoded) }
 end
 
+# 3b — host encode/decode, varying nesting depth at fixed 1 KiB leaf
+def nest(value, depth)
+  depth.times { value = [value] }
+  value
+end
+
+[1, 4, 16, 64].each do |depth|
+  leaf = "x" * 1024
+  payload = nest(leaf, depth)
+  encoded = Kobako::Codec::Encoder.encode(payload)
+  runner.case("3b-host-encode-depth-#{depth}") { Kobako::Codec::Encoder.encode(payload) }
+  runner.case("3b-host-decode-depth-#{depth}") { Kobako::Codec::Decoder.decode(encoded) }
+end
+
+# 3a — host encode/decode, varying size at depth=1. Ascending within
+# itself, and after the micro rows it would otherwise contaminate.
+size_bytes = { "64B" => 64, "1KiB" => 1024, "64KiB" => 64 * 1024, "1MiB" => 1024 * 1024 }
+size_bytes["16MiB"] = 16 * 1024 * 1024 if ENV["BENCH_FULL"] == "1"
+
+size_bytes.each do |label, bytes|
+  payload = "x" * bytes
+  encoded = Kobako::Codec::Encoder.encode(payload)
+  runner.case("3a-host-encode-#{label}") { Kobako::Codec::Encoder.encode(payload) }
+  runner.case("3a-host-decode-#{label}") { Kobako::Codec::Decoder.decode(encoded) }
+end
+
 # 3a / 3b — guest side: Sandbox#eval returning a constructed value.
 # Absolute ips includes the constant per-invocation overhead (see
 # #1 1b); per-size and per-depth ratios are the regression signal.
+# Last, because these rows gate on wall_time — the in-wasm budget, which
+# the host allocator state the large payloads leave behind does not
+# reach. Their ips is characterization, and pays for that position.
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
 sandbox = Kobako::Sandbox.new(wasm_path: Kobako::Bench::Guest.path, memory_limit: nil)
 sandbox.eval("nil") # warm

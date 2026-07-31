@@ -53,6 +53,20 @@ class KobakoBenchReportTest < Minitest::Test
     assert_includes markdown, "head `head123` vs base `base456`", "the report must name the two compared revisions"
   end
 
+  # A same-runner A/B still compares two revisions, and a probe edit
+  # between them can rescope what a row measures — the delta then reads as
+  # a speed-up nobody wrote.
+  def test_a_suite_head_measured_differently_than_base_is_named_beside_the_deltas
+    current = payload([ips_row("h", 1200.0, 5.0)]).merge("methods" => { "demo" => 2 })
+    baseline = payload([ips_row("h", 1000.0, 5.0)])
+
+    markdown = Report.render(current, baseline, suites: ["demo"])
+
+    assert_includes markdown, "**Measured differently than base**",
+                    "a suite whose method version moved between the two payloads through " \
+                    "Report.render must be named, so its delta is not read as a performance move"
+  end
+
   private
 
   def ips_row(label, ips, deviation)

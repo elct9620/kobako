@@ -10,19 +10,19 @@ module Kobako
     # run/anchor file handling and the abort/exit shell around these.
     #
     # The floor (+FLOOR_PCT+) is the conservative backstop SPEC.md names;
-    # the noise band (+SIGMA+ combined standard deviations) can only WIDEN
+    # the noise band (+SIGMA+ combined standard errors) can only WIDEN
     # the bar on high-variance rows, never narrow it below the floor. So
     # the gate never flags more than a bare +10% rule would — it only
     # suppresses flags on demonstrably noisy rows (the 512 KiB guest-return
     # host wrapper being the motivating false positive).
     #
-    # Two dispersions feed that band and the wider governs: the recorded
-    # deviation, which is the spread across cycles inside one process, and
-    # the caller-supplied between-run estimate ({History}), which is the
-    # transient a row shows between processes. The first cannot see the
-    # second — the large-payload codec rows read 8-9% within a run and
-    # 15-25% between them — so on those rows the within-run deviation
-    # alone produces a standing false alarm.
+    # Two dispersions feed that band and the wider governs: the standard
+    # error of the median one run recorded, and the caller-supplied
+    # between-run estimate ({History}), which is the transient a row shows
+    # between processes. The first cannot see the second — a large-payload
+    # codec row moves between runs by several times its own within-run
+    # spread — so on those rows the within-run half alone produces a
+    # standing false alarm.
     #
     # Metric per row follows the gate policy: rows carrying +wall_time+
     # (sandbox-driven) gate on +wall_time+ — the machine-load-insensitive
@@ -36,6 +36,13 @@ module Kobako
     module Comparator
       FLOOR_PCT = 10.0
       SIGMA = 2.0
+      # A median's standard error is this multiple of the sample
+      # deviation over the root of the sample count. The band guards a
+      # recorded median, not a single observation, so the deviation the
+      # row carries has to be scaled to it — un-scaled it reads as the
+      # spread of one sample and sets bars several times the movement it
+      # is meant to tolerate.
+      MEDIAN_SE = 1.2533
       # Ceiling on the archive-derived half of the band. The archive is a
       # committed input that grows by ordinary means, so without a ceiling a
       # row's bar rises with whatever was archived — and the anchor's own
@@ -119,30 +126,42 @@ module Kobako
         metric = gate_metric(row)
         return nil unless metric
 
-        cur_c, cur_sd = central_sd(row, metric)
-        base_c, base_sd = central_sd(base, metric)
+        cur_c = central(row, metric)
+        base_c = central(base, metric)
         return nil if cur_c.zero? || base_c.zero?
 
         delta = regression_pct(metric, base_c, cur_c)
-        band = band_for(cur_c, cur_sd, base_c, base_sd, history[[suite, label, metric]])
+        band = band_for(row, base, metric, history[[suite, label, metric]])
         return nil unless delta > FLOOR_PCT && delta > band
 
         Finding.new(suite, label, metric, base_c, cur_c, delta, band)
       end
 
       # The band a regression must clear on top of the floor: the wider
-      # of what one run's cycles showed and what the archive shows the row
-      # doing between runs. {Report} reads it through here too, so the
-      # summary a human arbitrates from cannot disagree with the verdict.
-      def band_for(cur_c, cur_sd, base_c, base_sd, move)
-        [noise_band(cur_c, cur_sd, base_c, base_sd), between_run_band(move)].max
+      # of what one run's own sampling showed and what the archive shows
+      # the row doing between runs. {Report} reads it through here too, so
+      # the summary a human arbitrates from cannot disagree with the verdict.
+      def band_for(row, base, metric, move)
+        [noise_band(row, base, metric), between_run_band(move)].max
       end
 
-      # SIGMA combined relative standard deviations, as a percentage —
-      # the half-width of the band a regression must clear on top of the
-      # floor. Errors propagate in quadrature across the two runs.
-      def noise_band(cur_c, cur_sd, base_c, base_sd)
-        SIGMA * Math.sqrt((cv(cur_c, cur_sd)**2) + (cv(base_c, base_sd)**2)) * 100
+      # SIGMA combined relative standard errors, as a percentage — the
+      # half-width of the band a regression must clear on top of the floor.
+      # Errors propagate in quadrature across the two runs.
+      def noise_band(row, base, metric)
+        SIGMA * Math.sqrt((median_se(row, metric)**2) + (median_se(base, metric)**2)) * 100
+      end
+
+      # Relative standard error of the median +row+ records under +metric+:
+      # the deviation it carries, scaled to the count of samples that
+      # median was taken over. A row recording one observation keeps the
+      # deviation whole, which is what it is worth there.
+      def median_se(row, metric)
+        central, deviation, samples = central_sd(row, metric)
+        return 0.0 if central.zero?
+
+        scale = samples > 1 ? MEDIAN_SE / Math.sqrt(samples) : 1.0
+        deviation * scale / central
       end
 
       # SIGMA times the row's typical between-run move, as a percentage,
@@ -178,7 +197,7 @@ module Kobako
 
         move = history[[suite, label, metric]]
         archive = between_run_band(move)
-        recorded = noise_band(*central_sd(row, metric), *central_sd(base, metric))
+        recorded = noise_band(row, base, metric)
         return nil unless archive > recorded && archive > FLOOR_PCT
 
         Widening.new(suite, label, metric, recorded, archive, archive >= MAX_ARCHIVE_BAND_PCT)
@@ -193,10 +212,27 @@ module Kobako
         :ips if row["ips"]
       end
 
+      # The row's central value, its recorded deviation, and the number of
+      # samples that central value was reduced from. A capture predating
+      # the sample count reads as one sample, which is the reading that
+      # leaves its band exactly where it was.
       def central_sd(row, metric)
-        return [row["wall_time"].to_f, row["wall_time_sd"].to_f] if metric == :wall_time
+        if metric == :wall_time
+          return [row["wall_time"].to_f, row["wall_time_sd"].to_f, samples(row["wall_time_samples"])]
+        end
 
-        [row["ips"].to_f, row["ips_sd"].to_f]
+        [row["ips"].to_f, row["ips_sd"].to_f, samples(row["cycles"])]
+      end
+
+      # +row+'s central value alone, for the callers that only compare
+      # levels.
+      def central(row, metric)
+        central_sd(row, metric).first
+      end
+
+      def samples(recorded)
+        count = recorded.to_i
+        count.positive? ? count : 1
       end
 
       # Regression as a positive percentage: +ips+ slows when it drops,
@@ -204,10 +240,6 @@ module Kobako
       # value, which the floor check rejects.
       def regression_pct(metric, base, cur)
         metric == :wall_time ? (cur - base) / base * 100 : (base - cur) / base * 100
-      end
-
-      def cv(central, deviation)
-        central.zero? ? 0.0 : deviation / central
       end
     end
   end

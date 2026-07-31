@@ -30,10 +30,22 @@ module Kobako
         run = load_payload(current)
         anchor = load_payload(baseline)
         puts "gate: #{File.basename(current)} vs anchor #{File.basename(baseline)}"
-        history = History.dispersion
-        enforce(Comparator.compare(run, anchor, history: history),
+        judge(run, anchor, Comparator.release_suites - note_remethoded(run, anchor))
+      end
+
+      # Judge +run+ against +anchor+ over +judged+ — the suites the anchor
+      # still measures the same way — and abort on anything blocking. A
+      # suite the run remethoded is left out of the comparison rather than
+      # flagged: its delta is the distance between two different
+      # measurements, so calling it a regression would be a false positive
+      # by construction. Coverage is judged over every suite regardless,
+      # since a gated case the anchor lacks is missing whatever method
+      # produced it.
+      def judge(run, anchor, judged)
+        history = History.dispersion(methods: run.fetch("methods", {}))
+        enforce(Comparator.compare(run, anchor, suites: judged, history: history),
                 Comparator.gated_absences(run, anchor), Comparator.gated_absences(anchor, run),
-                Comparator.archive_widened(run, anchor, history: history))
+                Comparator.archive_widened(run, anchor, suites: judged, history: history))
       end
 
       # Re-bless the anchor baseline from +run+ (a results JSON path),
@@ -123,6 +135,23 @@ module Kobako
              "#{widest.suite}/#{widest.label} ±#{format("%.1f", widest.archive_pct)}% " \
              "(own run recorded ±#{format("%.1f", widest.recorded_pct)}%)" \
              "#{"; #{capped} at the #{Comparator::MAX_ARCHIVE_BAND_PCT}% ceiling" unless capped.zero?}"
+      end
+
+      # NOTE: and return the gated suites the run measured by a different
+      # method than the anchor did — {judge} leaves them out of the
+      # comparison. Non-blocking, because a method change is a deliberate
+      # act the re-bless absorbs, and blocking would fail the release on a
+      # delta that is not a performance reading.
+      def note_remethoded(run, anchor)
+        changed = Comparator.release_suites.reject do |suite|
+          (run.dig("methods", suite) || 1) == (anchor.dig("methods", suite) || 1)
+        end
+        return changed if changed.empty?
+
+        puts "  NOTE  measured by a different method than the anchor: #{changed.join(", ")} — " \
+             "left out of the comparison, since the delta would be the distance between two " \
+             "different measurements; the re-bless is what puts them back under judgment"
+        changed
       end
 
       # NOTE: each gated case the anchor carries that the run no longer

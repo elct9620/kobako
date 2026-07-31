@@ -60,6 +60,29 @@ class KobakoBenchHistoryTest < Minitest::Test
                  "key for whichever metric it chose to gate that row on"
   end
 
+  def test_an_archive_of_an_older_method_still_estimates_until_the_new_one_accumulates
+    moves = Dir.mktmpdir do |dir|
+      6.times { |i| write_run(dir, i, { "label" => "r", "ips" => 100.0 + (i * 10) }, method: 1) }
+      History.dispersion(File.join(dir, "*.json"), methods: { "s" => 2 })
+    end
+
+    refute_nil moves[%w[s r].push(:ips)],
+               "a suite whose method has just moved through History.dispersion must keep the older " \
+               "method's estimate, so its noisiest rows are not stranded on the floor meanwhile"
+  end
+
+  def test_the_estimate_spans_only_the_runs_sharing_the_current_method
+    moves = Dir.mktmpdir do |dir|
+      3.times { |i| write_run(dir, i, { "label" => "r", "ips" => 1000.0 }, method: 1) }
+      4.times { |i| write_run(dir, i + 3, { "label" => "r", "ips" => 100.0 + (i * 10) }, method: 2) }
+      History.dispersion(File.join(dir, "*.json"), methods: { "s" => 2 })
+    end
+
+    assert_in_delta 0.0909, moves[%w[s r].push(:ips)], 0.001,
+                    "a suite whose method moved mid-archive through History.dispersion must be " \
+                    "estimated from the new method's runs alone, with no step across the boundary"
+  end
+
   private
 
   # Estimate over one synthetic ips series, one archived run per value.
@@ -70,11 +93,13 @@ class KobakoBenchHistoryTest < Minitest::Test
     end
   end
 
-  # One archived run carrying +row+ in suite "s". The captured_at stamp
-  # orders the series; the filename deliberately does not.
-  def write_run(dir, index, row)
+  # One archived run carrying +row+ in suite "s", captured under
+  # measurement method +method+. The captured_at stamp orders the series;
+  # the filename deliberately does not.
+  def write_run(dir, index, row, method: nil)
     payload = { "env" => { "captured_at" => format("2026-01-%02dT00:00:00Z", index + 1) },
                 "suites" => { "s" => [row] } }
+    payload["methods"] = { "s" => method } if method
     File.write(File.join(dir, "run-#{9 - index}.json"), JSON.generate(payload))
   end
 end

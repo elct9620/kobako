@@ -331,7 +331,7 @@ Regexp is an opt-in capability gem, excluded from the gated default binary, so t
 
 ## What changed vs previous baseline
 
-Diff against the immediately previous baseline only; pre-history lives in `benchmark/results/<date>-<sha>.json` and release-tagged `benchmark/<semver>` annotated tags.
+Diff against the immediately previous baseline only; pre-history lives in `benchmark/results/<date>-<sha>.json`.
 
 **Previous baseline:** `1eee1c8`, 2026-07-17 (the polish round that landed the parked host-side optimizations against an unchanged guest binary: the codec Factory decomposition and the Handle-walk skip). **This baseline:** `324f4457`, 2026-07-29 — the round that gave the core envelope a fixed tier of its own (`crates/kobako-transport`, one implementation both peers compose against), moved the Reply's fault arm off the payload and onto that envelope, and left the driver framing the envelope natively so Ruby receives a Call already routed.
 
@@ -400,9 +400,11 @@ Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`. T
   "suites": {
     "cold_start":          [ { "label": "1a-sandbox-new", "ips": 8013.0, "ips_mean": 7956.4, "ips_sd": 112, "iterations": 18432, "cycles": 3 } ],
     "transport_roundtrip": [ { "label": "2a-empty-call",  "ips": 7365.3, "ips_mean": 7357.6, "ips_sd": 15,  "iterations": 24576, "cycles": 3,
-                               "wall_time": 0.0001273, "wall_time_sd": 0.0000191, "memory_peak": 0 } ],
+                               "wall_time": 0.0001273, "wall_time_sd": 0.0000191, "wall_time_samples": 47,
+                               "memory_peak": 0 } ],
     ...
-  }
+  },
+  "methods": { "cold_start": 1, "transport_roundtrip": 1, "codec": 2 }
 }
 ```
 
@@ -414,9 +416,10 @@ Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`. T
 | `iterations` / `cycles`                              | Total iterations measured and number of samples collected within the time budget.             |
 | `seconds` / `rounds`                                 | `one_shot` CPU seconds (the median across `rounds` when > 1); wall seconds on the multi-thread suite. |
 | `env.load_avg` / `env.power_source` / `env.cpu_probe_spread_pct` | Machine state at capture: 1-minute load, AC vs battery, and the spread between two back-to-back runs of a fixed pure-CPU probe — the session's own noise floor. |
-| `wall_time` / `wall_time_sd` / `memory_peak`         | Sandbox-driven rows only (B-35). Median of `Execution#usage` samples; `memory_peak` is `memory.grow` delta past the per-invocation baseline. A gated row is always sampled: a single observation leaves the noise band nothing to read, so the `+10 %` floor would be its only bar. |
+| `wall_time` / `wall_time_sd` / `wall_time_samples` / `memory_peak` | Sandbox-driven rows only (B-35). Median of `Execution#usage` samples, the deviation across them, and how many there were; `memory_peak` is `memory.grow` delta past the per-invocation baseline. A gated row is always sampled: a single observation leaves the noise band nothing to read, so the `+10 %` floor would be its only bar. |
+| `methods`                                            | The measurement-method version each captured suite ran under — the key that says which archived runs a figure may be compared against. |
 
-Release baselines are additionally marked with `benchmark/<semver>` annotated git tags.
+A run says which release it belongs to through its `git_sha`, and which measurements it may be compared against through its `methods` map — the archive needs no second index.
 
 ## Release gate
 
@@ -428,14 +431,18 @@ The band is the wider of two dispersions, because they see different noise:
 
 | Dispersion | Source | Sees |
 |------------|--------|------|
-| Within-run | `ips_sd` / `wall_time_sd` — spread across cycles inside one process | GC and per-cycle jitter |
+| Within-run | Standard error of the median the row records — its `ips_sd` / `wall_time_sd` scaled to the `cycles` / `wall_time_samples` that median came from | GC and per-cycle jitter |
 | Between-run | Median relative move between consecutive archived runs, over the last 10 (`benchmark/support/history.rb`) | Allocator state and frequency scaling across processes |
 
-The within-run half alone produced a standing false alarm: `3a-host-encode-64KiB` reads ±9 % within a run but moves ~11 % between them, and flagged twice on a codec whose hot path had not changed. The between-run estimate is the median *move*, not the spread of the levels — the archive spans months of accepted optimizations, and a level-based estimate would read each of those steps as noise and widen the band on exactly the rows that measure cleanly. A row appearing in too few archived runs carries no estimate and gates on the within-run half alone.
+The within-run half guards a median, so it scales the recorded deviation to the sample count behind it. Read whole, that deviation is the spread of a *single* observation, and the widest row in the anchor gated past ±100 % on it — nothing short of doubling the guest budget would have flagged. The scaling is not a transition anyone waits out: `cycles` has always been recorded, so every `ips` row narrows against the current anchor immediately, while a `wall_time` row narrows on its run's half now and on the anchor's at the next re-bless.
+
+The within-run half alone produced a standing false alarm: `3a-host-encode-64KiB`'s between-run move runs several times its within-run spread, and it flagged twice on a codec whose hot path had not changed. The between-run estimate is the median *move*, not the spread of the levels — the archive spans months of accepted optimizations, and a level-based estimate would read each of those steps as noise and widen the band on exactly the rows that measure cleanly. A row appearing in too few archived runs carries no estimate and gates on the within-run half alone.
+
+**Measurement method.** Each run stamps the method version of every suite it captured (`methods` in the results JSON; `METHOD_VERSIONS` in `benchmark/support/roster.rb` owns the table and the reason each entry moved). A bump says a probe change rescoped what its rows measure, and it buys two things: the gate leaves that suite out of the anchor comparison entirely — its delta is the distance between two different measurements, not a performance reading — and the between-run estimate narrows to same-version runs as soon as enough of them exist. Until then the estimate over every method stands, because how far a row moves between processes survives a reordering, and dropping it at the bump would strand the noisiest rows on the floor. The gate NOTEs every gated suite whose version differs from the anchor's, and the re-bless that absorbs it is what puts those rows back under judgment.
 
 The anchor moves only via `rake bench:bless[run.json]` — re-blessing is the deliberate act of accepting a new performance level and must record the accepted shift in [What changed vs previous baseline](#what-changed-vs-previous-baseline) in the same commit. A gated case present in a run but missing from the anchor fails the gate until a re-bless records it.
 
-**Metric per row:** sandbox-driven rows gate on `wall_time`; pure host rows (`3a-host-decode-*` / `3a-host-encode-*`) gate on median `ips`; the guest-return rows' host wrapper (`1/ips − wall_time`) is GC/allocator-bound on the largest payloads and is characterization, not a gate signal. A `seconds` row is skipped even inside a gated suite — recording one is how a probe declares the figure is not a release commitment, whether because it is a cold path (`1a`) or because it is paid once per Sandbox rather than once per invocation (`9a`). The characterization suites are informational and not part of the gate.
+**Metric per row:** sandbox-driven rows gate on `wall_time`; pure host rows (`3a-host-decode-*` / `3a-host-encode-*`) gate on median `ips`; the guest-return rows' host wrapper (`1/ips − wall_time`) is GC/allocator-bound on the largest payloads and is characterization, not a gate signal. A `seconds` row is skipped even inside a gated suite — recording one is how a probe declares the figure is not a release commitment, whether because it is a cold path (`1c`) or because it is paid once per Sandbox rather than once per invocation (`9a`). The characterization suites are informational and not part of the gate.
 
 **The floor is a lower bound on the bar, not the bar.** A row whose own dispersion or archived move exceeds +10 % gates on that instead, and the archive half moves with every run added to it — so the bar per row is not a figure this document can hold. `rake bench:gate` names every row the archive widens on each run, clean pass included; that report is the current answer.
 

@@ -8,10 +8,9 @@ require_relative "stats"
 module Kobako
   module Bench
     # Between-run dispersion per case, read from the archived runs under
-    # benchmark/results/. The Comparator builds its band from +ips_sd+ /
-    # +wall_time_sd+ — the spread across cycles inside one process — which
-    # cannot see the allocator and frequency-scaling transients that move
-    # a row between processes. The large-payload codec rows measure 15-25%
+    # benchmark/results/. The Comparator's other half is derived from what
+    # one process observed, which cannot see the allocator and
+    # frequency-scaling transients that move a row between processes. The large-payload codec rows measure 15-25%
     # between runs against an 8-9% within-run band, and flagged twice in a
     # row on a codec whose hot path had not changed.
     #
@@ -38,9 +37,25 @@ module Kobako
       # Median relative between-run move per +[suite, label, metric]+,
       # over the most recent {WINDOW} archived runs. Rows appearing in
       # fewer than {MIN_MOVES}+1 of them are absent, leaving the gate on
-      # the within-run band alone.
-      def dispersion(glob = Paths::RESULTS_GLOB)
-        series(recent_runs(glob)).filter_map do |key, values|
+      # the within-run band alone. +methods+ is the measurement-method
+      # version per suite the caller is estimating for: once a suite has
+      # accumulated enough runs under it, only those runs are read, since
+      # a move across two methods measures the change of method rather
+      # than the machine. Until then the estimate over every method
+      # stands, because how far a row moves between processes is a
+      # property of the machine that survives a reordering — dropping it
+      # the moment a version is bumped would leave the noisiest rows on
+      # the bare floor, which is the standing false alarm this estimate
+      # exists to prevent.
+      def dispersion(glob = Paths::RESULTS_GLOB, methods: {})
+        runs = recent_runs(glob)
+        estimate(series(runs, {})).merge(estimate(series(runs, methods)))
+      end
+
+      # Median move per key, for the rows showing enough consecutive moves
+      # to have one.
+      def estimate(series)
+        series.filter_map do |key, values|
           moves = relative_moves(values)
           [key, Stats.median(moves)] if moves.size >= MIN_MOVES
         end.to_h
@@ -59,12 +74,22 @@ module Kobako
       # metric they were read under. A row carrying both metrics lands
       # under each, so the caller finds the key for whichever metric it
       # gates that row on without sharing this module's notion of which.
-      def series(runs)
+      def series(runs, methods = {})
         runs.each_with_object(Hash.new { |h, k| h[k] = [] }) do |run, acc|
           run.fetch("suites", {}).each do |suite, rows|
+            next unless same_method?(run, suite, methods)
+
             rows.each { |row| collect_metrics(acc, suite, row) }
           end
         end
+      end
+
+      # True when +run+ captured +suite+ under the method version the
+      # caller is estimating for. A payload predating the stamp reads as
+      # version 1 on both sides, which is what every suite was before one
+      # of them moved.
+      def same_method?(run, suite, methods)
+        (run.dig("methods", suite) || 1) == methods.fetch(suite, 1)
       end
 
       # Append +row+'s value under each metric it carries.

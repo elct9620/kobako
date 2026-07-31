@@ -27,11 +27,6 @@ class KobakoBenchComparatorTest < Minitest::Test
     assert_operator Comparator.regression_pct(:ips, 1000.0, 1100.0), :<, 0
   end
 
-  def test_noise_band_combines_both_runs_coefficients_of_variation_in_quadrature
-    # cv 2% on each run → 2 × √(0.02² + 0.02²) × 100 ≈ 5.657%.
-    assert_in_delta 5.657, Comparator.noise_band(100.0, 2.0, 100.0, 2.0), 0.01
-  end
-
   def test_flags_a_wall_time_regression_that_clears_the_floor_and_a_tight_band
     findings = compare_demo(wall_row("r", 0.00012, 1.0e-7), wall_row("r", 0.0001, 1.0e-7))
 

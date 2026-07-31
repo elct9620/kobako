@@ -23,16 +23,26 @@ module Kobako
 
       # Drive the block until the budget elapses (within the sample
       # bounds) and return the median usage as a result-row fragment.
-      # +wall_time_sd+ rides along so the release gate can build a noise
-      # band on +wall_time+ — the gate-correct metric for sandbox-driven
-      # rows. Each block call returns its own +Execution+ to read usage from.
-      def sample
+      # +wall_time_sd+ and +wall_time_samples+ ride along so the release
+      # gate can build a noise band on +wall_time+ — the gate-correct
+      # metric for sandbox-driven rows. The count is half of that band: a
+      # deviation says how far one invocation strays, and only the count
+      # says how far the median of them can. Each block call returns its
+      # own +Execution+ to read usage from.
+      def sample(&block)
+        samples = drive(&block)
+        walls = samples.map(&:wall_time)
+        { wall_time: Stats.median(walls), wall_time_sd: Stats.stdev(walls), wall_time_samples: walls.size,
+          memory_peak: Stats.median(samples.map(&:memory_peak)).round }
+      end
+
+      # Drive the block until the CPU budget elapses, clamped to the
+      # sample bounds, and return the usages collected.
+      def drive
         samples = []
         deadline = cpu_now + BUDGET
         samples << yield.usage until samples.size >= MAX_SAMPLES || (samples.size >= MIN_SAMPLES && cpu_now >= deadline)
-        walls = samples.map(&:wall_time)
-        { wall_time: Stats.median(walls), wall_time_sd: Stats.stdev(walls),
-          memory_peak: Stats.median(samples.map(&:memory_peak)).round }
+        samples
       end
 
       def cpu_now

@@ -39,8 +39,9 @@ module Kobako
     # judges on, so the summary a human arbitrates from and the verdict
     # cannot disagree about what counts as noise.
     def report(current, baseline)
-      Report.render(JSON.parse(File.read(current)), JSON.parse(File.read(baseline)),
-                    history: History.dispersion)
+      head = JSON.parse(File.read(current))
+      Report.render(head, JSON.parse(File.read(baseline)),
+                    history: History.dispersion(methods: head.fetch("methods", {})))
     end
   end
 end

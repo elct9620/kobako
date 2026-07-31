@@ -6,6 +6,7 @@ require "time"
 
 require_relative "env"
 require_relative "paths"
+require_relative "roster"
 
 module Kobako
   module Bench
@@ -21,7 +22,10 @@ module Kobako
       RESULTS_DIR_ENV = "KOBAKO_BENCH_RESULTS_DIR"
 
       # Persist the collected results to
-      # +benchmark/results/<date>-<sha>.json+. Returns the absolute path.
+      # +benchmark/results/<date>-<sha>.json+, stamping the suite's
+      # measurement-method version alongside its rows so a later reader
+      # can tell which captures are comparable with which
+      # (+METHOD_VERSIONS+). Returns the absolute path.
       # Existing files for the same +(date, sha)+ pair are merged so
       # multiple +Runner+ instances within one round share a single output
       # file; a merge from a later round re-stamps +env+, so the machine
@@ -36,6 +40,7 @@ module Kobako
         path = result_path
         payload = load_payload(path)
         payload["suites"][@suite] = @results.map { |r| r.transform_keys(&:to_s) }
+        payload["methods"][@suite] = METHOD_VERSIONS.fetch(@suite, 1)
         File.write(path, JSON.pretty_generate(payload))
         path
       end
@@ -59,11 +64,12 @@ module Kobako
 
         payload = JSON.parse(File.read(path))
         payload["env"] = Env.snapshot.transform_keys(&:to_s) if stale_env?(payload)
+        payload["methods"] ||= {}
         payload
       end
 
       def fresh_payload
-        { "env" => Env.snapshot.transform_keys(&:to_s), "suites" => {} }
+        { "env" => Env.snapshot.transform_keys(&:to_s), "suites" => {}, "methods" => {} }
       end
 
       # True when +payload+'s capture stamp predates the round now running,
