@@ -69,7 +69,7 @@ module Kobako
       def yield(*args)
         raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless @active
 
-        arm, body, klass = @yield_to_guest.call(Kobako::Codec::Encoder.encode(args))
+        arm, body, klass = @yield_to_guest.call(encode_args(args))
         raise remember(BlockError.new(body, klass: klass)) if arm == :error
 
         value, carried_handle = decode_body(body)
@@ -93,8 +93,18 @@ module Kobako
 
       private
 
-      # Hold onto the BlockError being raised so #raised? can recognise it
-      # if it comes back unrescued, and return it so the raise site reads
+      # Encode what the Service is yielding. A value outside the wire type
+      # set fails here, before the guest is re-entered, and is restated so
+      # the Service reads a refusal of its own argument rather than a codec
+      # class it never named.
+      def encode_args(args)
+        Kobako::Codec::Encoder.encode(args)
+      rescue Kobako::Codec::Error => e
+        raise YieldValueError, "Service yielded a value the block cannot receive: #{e.message}"
+      end
+
+      # Hold onto the BlockError being raised so #fault_text can recognise
+      # it if it comes back unrescued, and return it so the raise site reads
       # as one statement. Only the newest is kept: a Service that rescued
       # an earlier one and yielded again has already handled it.
       def remember(error)

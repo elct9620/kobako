@@ -19,6 +19,8 @@ module Kobako
 
       private
 
+      def encode_args: (Array[untyped] args) -> String
+
       def remember: (Kobako::BlockError error) -> Kobako::BlockError
 
       def decode_body: (String body) -> [untyped, bool]

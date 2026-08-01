@@ -45,10 +45,15 @@ module Kobako
       # each is raised as and ordered most specific first. A class absent
       # here is the Service's own exception, which answers under +runtime+
       # wearing the +<class>: <message>+ shape that says so.
+      #
+      # +Kobako::Codec::Error+ is the floor rather than a path of its own:
+      # a codec fault reaching the boundary unnamed is the exchange failing,
+      # and must not be dressed as something a Service raised.
       OWN_FAULTS = {
         HandleExhaustedError => "internal",
         UndefinedTargetError => "undefined",
         ArgumentError => "argument",
+        YieldValueError => "runtime",
         Kobako::Codec::Error => "internal",
         Kobako::SandboxError => "runtime"
       }.freeze

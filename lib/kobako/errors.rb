@@ -148,6 +148,13 @@ module Kobako
     include Diagnosable
   end
 
+  # Raised at a Service method's +yield+ site when a yield argument has no
+  # wire representation, so the round-trip never left the host and the
+  # block never ran. As BlockError, a Service rescues it at that site and
+  # may go on, so it never reaches the Host App as an invocation outcome;
+  # unrescued, the dispatch answers as that Service having failed.
+  class YieldValueError < Error; end
+
   # HandleExhaustedError is the canonical SandboxError subclass for the
   # id-cap-hit path. Raised when the per-invocation Handle ID counter in
   # Catalog::Handles reaches +0x7fff_ffff+ (2³¹ − 1) and further

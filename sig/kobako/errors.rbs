@@ -57,6 +57,9 @@ module Kobako
     include Diagnosable
   end
 
+  class YieldValueError < Error
+  end
+
   class HandleExhaustedError < SandboxError
   end
 
