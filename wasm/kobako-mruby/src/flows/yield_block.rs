@@ -61,6 +61,11 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     // current invocation, satisfying `resolve_raw`'s precondition; the
     // active VM behind `mrb` outlives the returned token.
     let kobako = unsafe { Kobako::resolve_raw(mrb) };
+    // Re-entering a block means the Service continued past whatever the
+    // last one raised, which is what rescuing it means. Cleared before the
+    // arguments are read so a refusal there — which holds no exception of
+    // its own — cannot be answered with the spent one.
+    crate::runtime::raised_block::RAISED_BLOCK.clear(mrb);
     let Some(block) = BLOCK_STACK.last().and_then(Proc::from_value) else {
         return write_error_response("LocalJumpError", "no block given (yield)", Vec::new());
     };

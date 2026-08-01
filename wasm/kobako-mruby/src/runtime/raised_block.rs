@@ -7,13 +7,18 @@
 //! than a reconstruction of it, which is what the same two frames would
 //! do with no Sandbox between them.
 //!
-//! What is held is the block it belongs to as well as the exception, and
-//! only a dispatch carrying that same block may take it. A Service that
-//! rescues its block's failure and yields again lets guest code run — and
-//! that code may dispatch — so a slot claimable by whoever asks first
-//! would hand one block's exception to another block's failure.
-//! `crate::runtime::bridges` asks on every answer, whatever the arm, so a
-//! rescued failure leaves nothing behind for its own later answer either.
+//! The wait ends the moment the guest runs again for any other reason:
+//! `crate::runtime::bridges` takes on every dispatch answer, whatever the
+//! arm, and `crate::flows::yield_block` clears on every re-entry, since a
+//! Service reaching a second yield continued past the first failure —
+//! which is what rescuing it means. Left behind past either point, a spent
+//! exception would be handed to a later failure that has none of its own,
+//! such as a refused block value (E-21, E-22).
+//!
+//! The block is held alongside the exception and only its own dispatch may
+//! take it. With both rules above in force nothing reaches the slot out of
+//! turn, so the check is a floor: a mismatch degrades to the ordinary
+//! fault path rather than continuing the wrong exception.
 //!
 //! ## Cross-Sandbox isolation
 //!
@@ -43,17 +48,23 @@ impl RaisedBlock {
 
     /// Record `exception` as what `block` raised, rooting it against GC:
     /// the mruby frame that raised has already unwound by the time the
-    /// host sees the failure, so nothing else keeps it alive. Any earlier
-    /// one is released — its block either rescued it and moved on, or
-    /// never came back to claim it.
+    /// host sees the failure, so nothing else keeps it alive.
     #[cfg(mruby_linked)]
     pub(crate) fn set(&self, mrb: &beni::Mrb, block: Value, exception: Value) {
+        self.clear(mrb);
         // SAFETY: see type doc.
-        let held = unsafe { (*self.0.get()).replace(Held { block, exception }) };
-        unroot(mrb, held);
+        unsafe { *self.0.get() = Some(Held { block, exception }) };
         // SAFETY: `exception` is live on this VM; the paired unregister
-        // runs in `take_for` or in the next `set`.
+        // runs in `take_for` or in the next `clear`.
         unsafe { beni::sys::mrb_gc_register(mrb.as_ptr(), exception.as_raw()) };
+    }
+
+    /// Release whatever is held, dropping its GC root.
+    #[cfg(mruby_linked)]
+    pub(crate) fn clear(&self, mrb: &beni::Mrb) {
+        // SAFETY: see type doc.
+        let held = unsafe { (*self.0.get()).take() };
+        unroot(mrb, held);
     }
 
     /// Take the exception held for `block`, releasing the GC root, or
