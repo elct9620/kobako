@@ -37,8 +37,8 @@ module Kobako
       class UndefinedTargetError < StandardError; end
 
       # The codec fault of a request that never became a call, restated in
-      # the vocabulary the guest can act on. Raised where the direction is
-      # known, since the same codec classes answer for an unwritable reply.
+      # the vocabulary the guest can act on while staying inside the codec
+      # taxonomy the fault boundary sorts on.
       class UnreadableRequestError < Kobako::Codec::Error; end
 
       # The category kobako's own refusals answer under, keyed by the class
@@ -221,17 +221,10 @@ module Kobako
       # +UnsupportedTypeError+; the rescue routes it through the
       # Catalog::Handles via #wrap_as_handle and re-encodes with the
       # Capability Handle in place. The happy path encodes exactly once.
-      #
-      # Any other codec fault here is the answer failing to encode, not the
-      # request failing to decode, so it is restated before the boundary
-      # sees it — the two are otherwise the same class and would report
-      # under the same wording.
       def encode_ok(value, handler)
         Kobako::Codec::Encoder.encode(value)
       rescue Kobako::Codec::UnsupportedTypeError
         encode_ok(wrap_as_handle(value, handler), handler)
-      rescue Kobako::Codec::Error => e
-        raise Kobako::SandboxError, "Sandbox could not write the Service's answer: #{e.message}"
       end
 
       # Allocate +value+ in the Sandbox's Catalog::Handles and return a +Handle+
