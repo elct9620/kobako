@@ -36,6 +36,31 @@ class TestErrorClassHierarchy < Minitest::Test
     assert Kobako::UndefinedEntrypointError < Kobako::Error
   end
 
+  # docs/behavior/errors.md § Dispatch failure attribution: a dispatch
+  # failure's category picks one of these, and the whole point of putting
+  # them under ServiceError is that gaining the distinction costs a Host
+  # App nothing — one rescue still catches every Service failure.
+  def test_every_dispatch_failure_class_chains_under_service_error
+    [Kobako::NoServiceError, Kobako::ServiceArgumentError].each do |subclass|
+      assert_operator subclass, :<, Kobako::ServiceError,
+                      "#{subclass} through a single rescue Kobako::ServiceError must still be " \
+                      "caught, so narrowing a dispatch failure never widens what a caller writes"
+    end
+  end
+
+  # BlockError is raised at a Service's yield site, inside a dispatch the
+  # host is still answering, so it never reaches the Host App as an
+  # invocation outcome and must stay outside the three that do.
+  def test_block_error_is_not_an_invocation_outcome
+    assert_operator Kobako::BlockError, :<, Kobako::Error
+
+    [Kobako::TrapError, Kobako::SandboxError, Kobako::ServiceError].each do |outcome|
+      refute_operator Kobako::BlockError, :<, outcome,
+                      "BlockError through a rescue of #{outcome} must not be caught — a guest " \
+                      "block failing is not one of the invocation's four outcomes"
+    end
+  end
+
   # SPEC E-19 / E-20: TimeoutError and MemoryLimitError are the two named
   # TrapError subclasses for the configured per-run caps from B-01.
   def test_timeout_error_chains_under_trap_error

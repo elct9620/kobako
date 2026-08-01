@@ -122,21 +122,28 @@ class TestE2EJourneys < Minitest::Test
   # SPEC.md L208-220: The three-class taxonomy lets the developer route
   # each failure class through existing error-handling infrastructure.
 
-  def test_j05_developer_distinguishes_three_error_classes
-    sandbox_a = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox_b = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox_b.bind("Svc::Call", ->(_) { raise "service exploded" })
+  # The guest sources a Host App has to route apart, and the class each
+  # must arrive as. The script fault is the sandbox layer; the other three
+  # are the dispatch failures — a call that reached no Service at all, one
+  # whose arguments did not fit, and one the Service answered by raising.
+  FAILURES_TO_ROUTE = {
+    'raise "script-level fault"' => Kobako::SandboxError,
+    "Svc::Call.no_such_method" => Kobako::NoServiceError,
+    "Svc::Call.call(1, 2, 3)" => Kobako::ServiceArgumentError,
+    'Svc::Call.call("x")' => Kobako::ServiceError
+  }.freeze
 
-    # SPEC.md L215: SandboxError — script-level fault.
-    assert_raises(Kobako::SandboxError) do
-      sandbox_a.eval('raise "script-level fault"')
-    end
+  def test_j05_developer_routes_each_failure_by_its_own_class
+    FAILURES_TO_ROUTE.each do |source, expected|
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+      sandbox.bind("Svc::Call", ->(one) { raise "service exploded: #{one}" })
 
-    # SPEC.md L216: ServiceError — capability-level fault.
-    err = assert_raises(Kobako::ServiceError) do
-      sandbox_b.eval('Svc::Call.call("x")')
+      err = assert_raises(expected) { sandbox.eval(source) }
+
+      assert_instance_of expected, err,
+                         "#{source} through #eval must reach the Host App as #{expected}, so a " \
+                         "rescue routes it without reading the message"
     end
-    assert_equal "service", err.origin, "J-05: a capability fault through #eval must carry service origin"
   end
 
   # ── J-06 — Host App exposes a block-yielding Service ──
