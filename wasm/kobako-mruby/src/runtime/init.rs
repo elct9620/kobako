@@ -104,7 +104,14 @@ impl Gem for KobakoBridge {
         // (public API); Error lives under Transport since it is a
         // transport-layer fault.
         let runtime_error_class = mrb.class_get(c"RuntimeError")?;
-        kobako_mod.define_class(mrb, c"ServiceError", runtime_error_class)?;
+        let service_error_class =
+            kobako_mod.define_class(mrb, c"ServiceError", runtime_error_class)?;
+        // A Fault's category picks one of these, so guest code branches on
+        // why a Service call failed with `rescue` instead of by reading the
+        // message. Both stay under `ServiceError` so rescuing the base
+        // still catches every Service failure.
+        kobako_mod.define_class(mrb, c"NoServiceError", service_error_class)?;
+        kobako_mod.define_class(mrb, c"ServiceArgumentError", service_error_class)?;
         transport_mod.define_class(mrb, c"Error", runtime_error_class)?;
         // `Kobako::BytecodeError` is registered here so guest code can
         // raise it by name; like every handle this gem registers, call

@@ -63,4 +63,36 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
     refute_equal err.message, err.detailed_message(highlight: false),
                  "an unreadable Result through reify must carry its codec diagnostic on #detailed_message"
   end
+
+  # --- The class name narrows within the branch the origin chose ---
+  #
+  # A Panic carries both an origin and the class the guest raised. The
+  # origin decides the layer; the name may only pick a subclass inside it,
+  # so what a guest calls its exception cannot move the failure to a layer
+  # the attribution did not put it in.
+  NARROWED = {
+    ["service", "Kobako::NoServiceError"] => Kobako::NoServiceError,
+    ["service", "Kobako::ServiceArgumentError"] => Kobako::ServiceArgumentError,
+    ["sandbox", "Kobako::Transport::Error"] => Kobako::Transport::Error,
+    ["sandbox", "Kobako::BytecodeError"] => Kobako::BytecodeError
+  }.freeze
+
+  def test_a_guest_written_class_name_narrows_within_its_origins_branch
+    NARROWED.each do |(origin, klass), expected|
+      err = assert_raises(expected) { reify_panic(origin: origin, klass: klass, message: "m") }
+
+      assert_instance_of expected, err,
+                         "a #{origin}-origin Panic naming #{klass} must settle as that class"
+    end
+  end
+
+  def test_a_class_name_outside_its_origins_branch_is_ignored
+    err = assert_raises(Kobako::ServiceError) do
+      reify_panic(origin: "service", klass: "Kobako::BytecodeError", message: "m")
+    end
+
+    assert_instance_of Kobako::ServiceError, err,
+                       "a service-origin Panic naming a sandbox-layer class must settle as the " \
+                       "base ServiceError rather than crossing into the sandbox branch"
+  end
 end

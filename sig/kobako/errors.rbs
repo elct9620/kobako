@@ -47,6 +47,12 @@ module Kobako
     include CarriesExecution
   end
 
+  class NoServiceError < ServiceError
+  end
+
+  class ServiceArgumentError < ServiceError
+  end
+
   class HandleExhaustedError < SandboxError
   end
 

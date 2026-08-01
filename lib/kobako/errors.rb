@@ -116,11 +116,26 @@ module Kobako
 
   # Service layer. Raised when a Service capability call inside a mruby
   # script reported an application-level failure that the script did not
-  # rescue.
+  # rescue. The base class covers a Service that ran and raised; the two
+  # subclasses below cover the calls that never reached one, so a Host App
+  # routes them apart with +rescue+ instead of by reading the message.
   class ServiceError < Error
     include Diagnosable
     include CarriesExecution
   end
+
+  # The ServiceError subclass raised when the call reached no Service
+  # method: the bound path holds nothing, the Capability Handle is not
+  # live in this invocation, or the method is absent or outside the guest
+  # surface. The causes stay indistinguishable — an opaque target must
+  # disclose nothing about which methods it defines — so what a Host App
+  # learns is that this call will not succeed by being retried.
+  class NoServiceError < ServiceError; end
+
+  # The ServiceError subclass raised when the call reached the Service
+  # method but its arguments did not fit — an unknown keyword, or an
+  # arity mismatch.
+  class ServiceArgumentError < ServiceError; end
 
   # HandleExhaustedError is the canonical SandboxError subclass for the
   # id-cap-hit path. Raised when the per-invocation Handle ID counter in

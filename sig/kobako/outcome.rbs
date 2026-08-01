@@ -2,7 +2,7 @@ module Kobako
   module Outcome
     ORIGIN_SANDBOX: String
     ORIGIN_SERVICE: String
-    SUBCLASSES: Hash[String, singleton(SandboxError)]
+    SUBCLASSES: Hash[String, (singleton(SandboxError) | singleton(ServiceError))]
 
     type panic_fields = [String, String, String, Array[String], Array[String]]
 

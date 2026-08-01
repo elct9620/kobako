@@ -89,12 +89,22 @@ pub(super) fn write_value_outcome<G: crate::MrbGuest>(kobako: &Kobako, result_va
     }
 }
 
+/// The classes a dispatch raises when a Service call fails — the names
+/// `Kobako::class_for` picks from. Named rather than matched by shape:
+/// a guest is free to define its own `ServiceError`, and what it calls
+/// its exceptions must not decide what the host attributes them to.
+const SERVICE_ERROR_CLASSES: [&str; 3] = [
+    "Kobako::ServiceError",
+    "Kobako::NoServiceError",
+    "Kobako::ServiceArgumentError",
+];
+
 /// Attribute a Panic from the mruby exception class that produced it.
-/// Mirrors the host-side rules — a `Kobako::ServiceError` raised from a
-/// Service capability attributes to the Service; everything else to the
-/// sandbox. Pure string inspection — host-buildable for unit tests.
+/// Mirrors the host-side rules — an exception a Service capability
+/// raised attributes to the Service; everything else to the sandbox.
+/// Pure string inspection — host-buildable for unit tests.
 pub(super) fn origin_for_class(class_name: &str) -> Origin {
-    if class_name.contains("ServiceError") {
+    if SERVICE_ERROR_CLASSES.contains(&class_name) {
         Origin::Service
     } else {
         Origin::Sandbox
@@ -398,8 +408,15 @@ mod tests {
     }
 
     #[test]
-    fn origin_for_class_routes_service_errors_to_service() {
-        assert_eq!(origin_for_class("Kobako::ServiceError"), Origin::Service);
+    fn origin_for_class_routes_every_service_error_to_service() {
+        for class in SERVICE_ERROR_CLASSES {
+            assert_eq!(
+                origin_for_class(class),
+                Origin::Service,
+                "{class} is raised by a failed Service call, so a Panic naming it must \
+                 attribute to the Service"
+            );
+        }
     }
 
     #[test]
@@ -410,5 +427,15 @@ mod tests {
             Origin::Sandbox
         );
         assert_eq!(origin_for_class("NoMethodError"), Origin::Sandbox);
+    }
+
+    #[test]
+    fn a_guests_own_error_named_like_kobakos_does_not_claim_service_origin() {
+        assert_eq!(
+            origin_for_class("MyApp::ServiceError"),
+            Origin::Sandbox,
+            "a class the guest defined must not reach Service attribution by resembling \
+             the name of one kobako raises"
+        );
     }
 }

@@ -17,12 +17,16 @@ module Kobako
     ORIGIN_SANDBOX = "sandbox"
     ORIGIN_SERVICE = "service"
 
-    # The guest-written class names that select a +SandboxError+ subclass.
-    # A name absent here settles as plain +SandboxError+, so the guest
-    # widens the taxonomy only by naming a class the host already defines.
+    # The guest-written class names that narrow the class a Panic settles
+    # as. A name absent here settles as the base class its origin already
+    # chose, so the guest widens the taxonomy only by naming a class the
+    # host already defines.
     SUBCLASSES = {
       "Kobako::BytecodeError" => BytecodeError,
-      "Kobako::UndefinedEntrypointError" => UndefinedEntrypointError
+      "Kobako::UndefinedEntrypointError" => UndefinedEntrypointError,
+      "Kobako::Transport::Error" => Kobako::Transport::Error,
+      "Kobako::NoServiceError" => NoServiceError,
+      "Kobako::ServiceArgumentError" => ServiceArgumentError
     }.freeze
 
     module_function
@@ -52,13 +56,17 @@ module Kobako
       UndefinedEntrypointError.new(message, name: entrypoint, available: available.map(&:to_sym), **attribution)
     end
 
-    # +origin == "service"+ selects ServiceError; a sandbox-origin failure
-    # naming one of the guest-written subclass names selects that subclass
-    # so callers can rescue that path specifically.
+    # +origin+ picks the branch, and the guest-written class name may
+    # narrow within it so callers can rescue one path specifically. A name
+    # naming a class outside the branch its origin chose is ignored rather
+    # than honoured: what a guest calls its exception must not move the
+    # failure to a layer the attribution did not put it in.
     def error_class(origin, klass)
-      return ServiceError if origin == ORIGIN_SERVICE
+      base = origin == ORIGIN_SERVICE ? ServiceError : SandboxError
+      selected = SUBCLASSES.fetch(klass, base)
+      return base unless selected <= base
 
-      SUBCLASSES.fetch(klass, SandboxError)
+      selected
     end
 
     # An arm the host cannot settle: the guest wrote nothing, or wrote

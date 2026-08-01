@@ -295,12 +295,8 @@ impl Kobako {
         unsafe { self.transport_error_class.raise(self.mrb(), msg) };
     }
 
-    /// Raise `Kobako::ServiceError` for `ex`. Diverges — `mrb_raise`
-    /// does not return.
-    ///
-    /// SPEC.md § Error Classes (governing) + docs/wire-contract.md
-    /// § Fault pin every fault-arm `type` value to the
-    /// single guest-side `Kobako::ServiceError` class.
+    /// Raise, at the guest call site, the exception this Fault's category
+    /// names. Diverges — `mrb_raise` does not return.
     ///
     /// # Safety
     ///
@@ -311,7 +307,33 @@ impl Kobako {
     ) -> ! {
         let msg = std::ffi::CString::new(fault.message.as_str()).unwrap_or_default();
         // SAFETY: bridge frame — caller upholds the unwind contract.
-        unsafe { self.service_error_class.raise(self.mrb(), &msg) };
+        unsafe { self.class_for(fault.kind).raise(self.mrb(), &msg) };
+    }
+
+    /// The class a Fault category raises under, so guest code branches
+    /// with `rescue` rather than by reading the message. `Internal` is not
+    /// a Service failure — the exchange produced no Service outcome to
+    /// report, which is what `Kobako::Transport::Error` already means.
+    ///
+    /// Only the two base classes are cached on this token; a narrowed one
+    /// is resolved here, on the failure path, so a dispatch that succeeds
+    /// pays nothing for it. A category this build predates, or a class an
+    /// alternative shell did not register, falls back to the base — the
+    /// same posture the wire takes when it meets a category it predates.
+    fn class_for(&self, kind: kobako_transport::envelope::FaultKind) -> beni::RClass {
+        use beni::Module;
+        use kobako_transport::envelope::FaultKind;
+
+        let narrowed = match kind {
+            FaultKind::Internal => return self.transport_error_class,
+            FaultKind::Undefined => c"NoServiceError",
+            FaultKind::Argument => c"ServiceArgumentError",
+            _ => return self.service_error_class,
+        };
+        self.mrb()
+            .define_module(c"Kobako")
+            .and_then(|kobako_mod| kobako_mod.class_get(self.mrb(), narrowed))
+            .unwrap_or(self.service_error_class)
     }
 
     // ----------------------------------------------------------------
