@@ -69,7 +69,46 @@ class TestE2EYieldBlockFailure < Minitest::Test
                  "invocation must answer normally rather than re-raising it"
   end
 
+  # A Service that rescues its block's failure and yields again lets guest
+  # code run in between — and that code may dispatch. The failure held for
+  # the outer block must not answer the inner one, whose block refused a
+  # value and so has nothing of its own to continue.
+  STOLEN_PROBE = <<~RUBY
+    Probe::Twice.call do |n|
+      if n == 1
+        raise 'the rescued one'
+      else
+        begin
+          Probe::Once.call { Object.new }
+        rescue => e
+          e.message
+        end
+      end
+    end
+  RUBY
+
+  def test_b24_a_held_block_failure_answers_only_its_own_block
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Probe::Twice", ->(&blk) { swallow_first(blk) })
+    sandbox.bind("Probe::Once", ->(&blk) { blk.call(1) })
+
+    seen = sandbox.eval(STOLEN_PROBE).value
+
+    assert_match(/not a supported sandbox value type/, seen,
+                 "a nested block that refused a value must hear about that refusal, not " \
+                 "inherit the exception an outer block raised and its Service rescued")
+  end
+
   private
+
+  def swallow_first(blk)
+    begin
+      blk.call(1)
+    rescue StandardError
+      nil
+    end
+    blk.call(2)
+  end
 
   # A Service that yields and lets whatever the block raises through.
   def yielding_sandbox

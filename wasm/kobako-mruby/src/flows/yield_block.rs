@@ -185,10 +185,13 @@ fn encode_error_response_from_exception(
     exc: beni::Value,
 ) -> Vec<u8> {
     let (class, message, backtrace) = super::boot::exception_fields(kobako, exc);
-    // Held for the rest of the round-trip: the Service may rescue this,
-    // and if it does not, the frame that raised it re-raises this very
-    // object rather than a class and message rebuilt from the wire.
-    crate::runtime::raised_block::RAISED_BLOCK.set(kobako.mrb(), exc);
+    // Held for the rest of the round-trip against the block that raised
+    // it: the Service may rescue this, and if it does not, that block's
+    // own dispatch re-raises this very object rather than a class and
+    // message rebuilt from the wire.
+    if let Some(block) = crate::runtime::block_stack::BLOCK_STACK.last() {
+        crate::runtime::raised_block::RAISED_BLOCK.set(kobako.mrb(), block, exc);
+    }
     encode_error_bytes(&class, &message, backtrace)
 }
 

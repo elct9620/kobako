@@ -156,9 +156,10 @@ fn forward_to_dispatch(
     // raise above this line — an unreadable symbol, a denied name, an
     // argument this schema cannot carry — long-jumps past no guard.
     let answer = dispatch(target, &method_name, block, &payload);
-    // Taken on every arm: a block failure the Service rescued is spent,
-    // and leaving it held would let a later answer re-raise it.
-    let raised = super::raised_block::RAISED_BLOCK.take(kobako.mrb());
+    // Asked on every arm, and only for this call's own block: a failure
+    // the Service rescued is spent, and one still held for another block
+    // belongs to the dispatch that parked it.
+    let raised = super::raised_block::RAISED_BLOCK.take_for(kobako.mrb(), block);
     match answer {
         // A dispatch return value the guest cannot represent raises in the
         // calling guest code (docs/wire/payload-msgpack.md § Integer Range).
