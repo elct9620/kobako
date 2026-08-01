@@ -83,6 +83,27 @@ class TestParityYield < Parity::Case
     )
   end
 
+  # SPEC.md B-24 / E-04: a block that raises reaches the Service's yield
+  # site and, left unrescued there, continues in the guest frame that
+  # raised it. Both frontends decide independently which failure came
+  # back from a yield — Ruby by the identity of what it raised, the SDK by
+  # the +YieldError+ variant — so what the guest ends up rescuing, and
+  # what the Host App sees when it does not, is where they could diverge.
+  BLOCK_RAISE_INVOCATIONS = [
+    { verb: "eval", source: "MyService::KV.each(1) { |_x| raise 'from the block' }" },
+    { verb: "eval",
+      source: "begin; MyService::KV.each(1) { |_x| raise 'from the block' }; " \
+              "rescue => e; e.class.to_s + ': ' + e.message; end" }
+  ].freeze
+
+  def test_unrescued_block_raise
+    assert_parity Parity::Scenario.new(
+      name: "yield-block-raise", anchors: %w[B-24 E-04],
+      services: YIELD_SERVICE,
+      invocations: BLOCK_RAISE_INVOCATIONS
+    )
+  end
+
   # SPEC.md E-23: the SDK's +Yielder+ borrows its dispatch frame, so a
   # Service stashing it for a later dispatch is a compile error on the
   # Rust side — no scenario can express the escape there. The Ruby
