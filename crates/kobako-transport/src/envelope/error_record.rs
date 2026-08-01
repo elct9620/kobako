@@ -3,8 +3,7 @@
 //! A block failure and an invocation failure carry the same three fields,
 //! so the host re-raises from either without consulting a payload codec.
 //! Distinct from a Fault, which travels the other way and is categorized
-//! by one of three reserved type names the guest maps to a proxy-side
-//! error.
+//! by a reserved category name the guest maps to a proxy-side error.
 
 use super::bytes::{Reader, Writer};
 use super::DecodeError;

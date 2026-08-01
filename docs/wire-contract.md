@@ -76,7 +76,7 @@ A Fault describes a Service-layer failure. It is the whole of a Reply's fault va
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `type` | closed enumeration | One of the three reserved failure categories (see table below). |
+| `type` | enumeration | Which failure the Fault reports, from the reserved categories below. A receiver reads one it predates as `"undefined"`. |
 | `message` | string | Human-readable description of the failure. |
 
 The category is closed, so the envelope carries it as a tag: a value outside the three is unrepresentable rather than merely unrecognised, and no endpoint has to decide what an unknown category means.
