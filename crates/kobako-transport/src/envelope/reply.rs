@@ -32,11 +32,9 @@ impl Reply {
         let tag = reader.u8()?;
         match tag {
             TAG_OK => Ok(Reply::Ok(reader.remaining().to_vec())),
-            TAG_FAULT => {
-                let fault = Fault::read(&mut reader)?;
-                reader.finish()?;
-                Ok(Reply::Fault(fault))
-            }
+            // No `finish` here: a Fault owns everything after the tag,
+            // including the fields a later contract version appends.
+            TAG_FAULT => Ok(Reply::Fault(Fault::read(&mut reader)?)),
             _ => Err(DecodeError::new("Reply tag must be 0 (ok) or 1 (fault)")),
         }
     }

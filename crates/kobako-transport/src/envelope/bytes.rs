@@ -80,6 +80,13 @@ impl<'a> Reader<'a> {
         &self.bytes[self.pos..]
     }
 
+    /// Consume whatever is left without reading it. The extension seam:
+    /// a field a later contract version appends is invisible to a reader
+    /// built before it, and must not read as a framing desync.
+    pub(crate) fn skip_unknown_fields(&mut self) {
+        self.pos = self.bytes.len();
+    }
+
     /// Refuse anything left over. Used by envelopes whose last field is
     /// self-delimiting, where trailing bytes signal a framing desync.
     pub(crate) fn finish(self) -> Result<(), DecodeError> {

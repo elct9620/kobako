@@ -73,14 +73,16 @@ Success-versus-fault is decided at this layer, not inside the payload: a guest l
 
 ### Fault
 
-The host refusing or failing a Call. Every byte of it is kobako's — a closed category plus a message — so it rides the envelope and a guest reads it with no payload codec at all.
+The host refusing or failing a Call. Every byte of it is kobako's — a category plus a message — so it rides the envelope and a guest reads it with no payload codec at all.
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `kind` | `u8` | The failure category: `0` — runtime, `1` — argument, `2` — undefined. No other value is legal. |
+| `kind` | `u8` | The failure category: `0` — runtime, `1` — argument, `2` — undefined. A value this reader predates reads as `2`. |
 | `message` | `bytes` | Human-readable description as UTF-8. |
 
-The category is a tag rather than a name because the set is closed: an unknown category is unrepresentable rather than merely unrecognised. The three values keep their meanings from the dispatch contract (→ [`../wire-contract.md`](../wire-contract.md) § Fault) — `undefined` must stay indistinguishable across its three causes, so a host that refuses a name reveals nothing about which of them applied.
+The category is a tag rather than a name so both sides spell it the same way without agreeing on text. The values keep their meanings from the dispatch contract (→ [`../wire-contract.md`](../wire-contract.md) § Fault) — `undefined` must stay indistinguishable across its causes, so a host that refuses a name reveals nothing about which of them applied, which is also why an unrecognised category lands there rather than claiming the Service ran.
+
+A Fault is the last thing a Reply carries, so bytes past the fields a reader knows are a later version of them and are skipped. Both rules make an addition to this shape survivable by a peer built before it; a change to what an existing field or value *means* is not, and increments the ABI version instead (→ [`../wire-codec.md`](../wire-codec.md) § ABI Version).
 
 A Fault carries no backtrace. It crosses from host to guest, and what a host backtrace names — file paths, object graphs, the shape of code the guest cannot see — is not content the boundary can bound. That is the one structural difference from an Error Record, which travels the other way, and it is why the two stay separate types rather than one with a field that must always be empty.
 
@@ -105,7 +107,7 @@ A zero-length Yield Reply is a wire violation.
 
 The guest's report that something it was running raised. A block failure and an invocation failure share this layout, and the host re-raises from these fields without consulting the payload codec.
 
-It is distinct from a Fault (§ Reply), which travels the other way and carries a closed category instead of an error's own name — and, being host-to-guest, no backtrace.
+It is distinct from a Fault (§ Reply), which travels the other way and carries a category instead of an error's own name — and, being host-to-guest, no backtrace.
 
 | Field | Type | Meaning |
 |-------|------|---------|

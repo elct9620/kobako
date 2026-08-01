@@ -9,7 +9,7 @@ This document is the anchor for the binary encoding of the Wire Contract (→ `S
 
 The governing summary of this codec lives in `SPEC.md` § Wire Codec; the abstract shape both layers encode is in [`wire-contract.md`](wire-contract.md).
 
-ABI function names, packed return conventions, and the byte values stated in either layer document are fixed for the life of an ABI version and may only change together with an ABI version increment (→ § ABI Version).
+ABI function names, packed return conventions, and the byte values stated in either layer document are fixed for the life of an ABI version and may only change together with an ABI version increment (→ § ABI Version). A field or a closed-set value the contract *adds* is not such a change: a reader degrades what it predates rather than failing (→ [`wire-contract.md`](wire-contract.md) § Fault), so the two sides stay usable across the addition.
 
 ---
 
@@ -79,7 +79,7 @@ The ABI version is a single u32 owned by the SPEC corpus, independent of every p
 
 `__kobako_abi_version` is a pure constant function: it takes no input, performs no I/O, touches no invocation state, and is callable before any invocation entry point runs. The Host Gem calls it at Sandbox construction and compares the returned value against the version it implements by equality; because the answer is a property of the artifact, one call may serve every Sandbox built from that artifact in a process. An absent export or a non-equal value fails construction with `Kobako::SetupError` (B-40, E-42).
 
-Any change to the Wire Contract, either layer document, or the ABI surface (function set, names, signatures) increments the version. There is no compatibility range and no negotiation: a host implements exactly one ABI version and loads only Guest Binaries reporting that version. Swapping the payload codec is not such a change — the codec is a choice the two endpoints share, outside the versioned surface.
+The version tracks what the two sides must already agree on before either can read the other's bytes: the ABI surface (function set, names, signatures), the packed return conventions, and any redefinition of an existing field or byte value. A host implements exactly one ABI version and loads only Guest Binaries reporting that version, so an increment is what a change no reader can survive costs. Two kinds of change are outside it: an *additive* contract change, which the receiver degrades rather than fails (→ [`wire-contract.md`](wire-contract.md) § Fault), and swapping the payload codec, which is a choice the two endpoints share.
 
 Version `3` carries the two-layer wire: a fixed-layout core envelope with an opaque payload, and MessagePack as the default codec. It draws the line between the two by whose data a field is: a Reply's fault arm is kobako's own, so it rides the envelope, where a guest reads a refusal with no codec at all. It also carries the per-invocation instance discipline ([`behavior/runtime.md`](behavior/runtime.md) B-49): the host drives every invocation entry on a fresh instance of the module and discards it after draining the outcome, so the Guest Binary may leave its interpreter state dirty at exit and may arrive with the canonical boot state pre-initialized in its data segments.
 

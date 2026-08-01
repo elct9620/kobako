@@ -91,7 +91,7 @@ The three reserved `type` values are:
 | `"argument"` | A Service method's argument binding failed — an unknown keyword, or an arity mismatch (E-15) |
 | `"undefined"` | The `target` string path matches no registered Service, the `target` Handle ID is not live in this invocation's Catalog::Handles, or the method resolves to no reachable Service method on the target — absent, or ambient reflection/eval surface. The three cases share one type so an opaque target discloses nothing about which methods it defines |
 
-These three names are stable and reserved across kobako releases. Adding a new `type` value requires a kobako gem release that updates both host and guest codec implementations simultaneously; existing type semantics are never modified in place.
+These names are stable and reserved across kobako releases, and existing type semantics are never modified in place. The set is open: a receiver that meets a `type` it predates reads it as `"undefined"` — the value that attributes nothing a newer one might contradict — and a Fault field it predates is skipped, so a peer built against an earlier contract still delivers the refusal rather than failing the exchange.
 
 ---
 

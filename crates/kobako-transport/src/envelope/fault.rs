@@ -16,14 +16,17 @@ const KIND_RUNTIME: u8 = 0;
 const KIND_ARGUMENT: u8 = 1;
 const KIND_UNDEFINED: u8 = 2;
 
-/// Which of the three failures a Fault reports.
+/// Which failure a Fault reports.
 ///
-/// A tag rather than a name because the set is closed: a category outside
-/// these three is unrepresentable, so no endpoint decides what an unknown
-/// one means. `Undefined` stays indistinguishable across its causes — an
-/// unbound path, an unknown method, a rejected name — so a guest probing
-/// the surface learns nothing from which refusal it got.
+/// The set grows, so a reader that meets a category it does not know
+/// degrades rather than failing the exchange. `Undefined` stays
+/// indistinguishable across its causes — an unbound path, an unknown
+/// method, a rejected name — so a guest probing the surface learns
+/// nothing from which refusal it got, which is also what makes it the
+/// landing place for a category this reader predates: it attributes
+/// nothing to the Service that a newer category might contradict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FaultKind {
     /// A Ruby exception raised inside the Service method.
     Runtime,
@@ -42,14 +45,13 @@ impl FaultKind {
         }
     }
 
-    fn from_tag(tag: u8) -> Result<Self, DecodeError> {
+    /// Read a category from its tag, degrading one this reader predates
+    /// to the category that claims the least about what failed.
+    fn from_tag(tag: u8) -> Self {
         match tag {
-            KIND_RUNTIME => Ok(FaultKind::Runtime),
-            KIND_ARGUMENT => Ok(FaultKind::Argument),
-            KIND_UNDEFINED => Ok(FaultKind::Undefined),
-            _ => Err(DecodeError::new(
-                "Fault kind must be 0 (runtime), 1 (argument), or 2 (undefined)",
-            )),
+            KIND_RUNTIME => FaultKind::Runtime,
+            KIND_ARGUMENT => FaultKind::Argument,
+            _ => FaultKind::Undefined,
         }
     }
 
@@ -91,8 +93,12 @@ impl Fault {
     }
 
     pub(crate) fn read(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
-        let kind = FaultKind::from_tag(reader.u8()?)?;
+        let kind = FaultKind::from_tag(reader.u8()?);
         let message = reader.text()?.to_owned();
+        // A Fault gains fields as the contract does, and it is the last
+        // thing a Reply carries, so whatever follows the fields this
+        // reader knows belongs to a later version of them.
+        reader.skip_unknown_fields();
         Ok(Fault { kind, message })
     }
 
@@ -126,12 +132,29 @@ mod tests {
     }
 
     #[test]
-    fn a_kind_outside_the_closed_set_is_refused() {
-        let encoded = vec![3, 0, 0, 0, 0];
+    fn a_kind_the_reader_does_not_know_degrades_to_undefined() {
+        let encoded = vec![0xfe, 0, 0, 0, 1, b'x'];
         let mut r = Reader::new(&encoded);
-        assert!(
-            Fault::read(&mut r).is_err(),
-            "a Fault kind byte outside the three the contract fixes must be refused, not carried"
+        assert_eq!(
+            Fault::read(&mut r),
+            Ok(Fault::new(FaultKind::Undefined, "x")),
+            "a Fault category added after this reader was built must deliver its message \
+             under the category that claims the least, not fail the exchange"
+        );
+    }
+
+    #[test]
+    fn a_field_the_reader_does_not_know_is_skipped() {
+        let mut w = Writer::new();
+        Fault::new(FaultKind::Undefined, "no such method").write(&mut w);
+        w.bytes(b"a field a later contract version appended");
+        let encoded = w.into_bytes();
+        let mut r = Reader::new(&encoded);
+        assert_eq!(
+            Fault::read(&mut r),
+            Ok(Fault::new(FaultKind::Undefined, "no such method")),
+            "a Fault field added after this reader was built must be skipped, so the \
+             fields it does know still arrive"
         );
     }
 
