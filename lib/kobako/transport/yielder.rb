@@ -70,7 +70,7 @@ module Kobako
         raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless @active
 
         arm, body, klass = @yield_to_guest.call(Kobako::Codec::Encoder.encode(args))
-        raise remember(BlockError.new(body, origin: "guest", klass: klass)) if arm == :error
+        raise remember(BlockError.new(body, klass: klass)) if arm == :error
 
         value, carried_handle = decode_body(body)
         throw @break_tag, value if arm == :break

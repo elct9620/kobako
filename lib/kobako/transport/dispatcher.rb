@@ -134,7 +134,7 @@ module Kobako
       # The guest's own block failing is not the Service's to report at
       # all, so the Yielder that raised it is asked first — it recognises
       # its own by identity and words the failure the guest's way.
-      def caught_fault(error, yielder = nil)
+      def caught_fault(error, yielder)
         block_failure = yielder&.fault_text(error)
         return fault("block", block_failure) if block_failure
 

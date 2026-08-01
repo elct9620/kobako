@@ -22,7 +22,7 @@ module Kobako
 
       def self?.decode_arguments: (String payload) -> [Kobako::Payload::Arguments, bool]
 
-      def self?.caught_fault: (StandardError error, ?Kobako::Transport::Yielder? yielder) -> [String, String]
+      def self?.caught_fault: (StandardError error, Kobako::Transport::Yielder? yielder) -> [String, String]
 
       def self?.invoke: (untyped target, String method, Array[untyped] args, Hash[Symbol, untyped] kwargs, ?Kobako::Transport::Yielder? yielder) -> untyped
 
