@@ -29,6 +29,35 @@ Attribution reads the core envelope alone, and the codec takes no part in it: ev
 
 ---
 
+## Dispatch failure attribution
+
+A guest→host dispatch that does not return a value answers on the Reply's fault arm (→ [`docs/wire-contract.md`](../wire-contract.md) § Fault). The category the Fault carries decides what the guest raises, and — when the guest leaves it unrescued — what the Host App rescues. One table fixes both, so neither side has to re-derive which failure belongs to whom.
+
+The **whose failure** column is what the category is chosen by. It answers who has to change something for the same call to succeed, which is the question a Host App triaging a failure and a guest deciding whether to retry are both asking.
+
+| Trigger | Whose failure | Fault category | Guest raises | Host App rescues | Anchor |
+|---|---|---|---|---|---|
+| The `target` path holds no Service, or holds an unresolved fillable | Undisclosed — the three `undefined` causes stay indistinguishable, so an opaque target reveals nothing about what it defines | `undefined` | `Kobako::NoServiceError` | `Kobako::NoServiceError` | E-12, B-62 |
+| The `target` Handle id is not live in this invocation | Undisclosed, as above | `undefined` | `Kobako::NoServiceError` | `Kobako::NoServiceError` | E-13, B-65 |
+| The method is absent, resolves to ambient reflection surface, or the target's own predicate denies it | Undisclosed, as above | `undefined` | `Kobako::NoServiceError` | `Kobako::NoServiceError` | E-43, E-48 |
+| The arguments do not fit the Service method | The guest's call site — or the Service's own body, which this category does not tell apart | `argument` | `Kobako::ServiceArgumentError` | `Kobako::ServiceArgumentError` | E-15 |
+| The Service method raised | The bound object, or what it calls | `runtime` | `Kobako::ServiceError` | `Kobako::ServiceError` | E-11 |
+| The Service method returned a reflective gadget the host refuses to mint a Handle for | The Host App's Service | `runtime` | `Kobako::ServiceError` | `Kobako::ServiceError` | E-44 |
+| A Yielder was invoked after its dispatch frame returned | The Host App's Service | `runtime` | `Kobako::ServiceError` | `Kobako::ServiceError` | E-23 |
+| The request is one the host's codec cannot read | Whoever wrote the guest's payload codec — the Service never ran | `internal` | `Kobako::Transport::Error` | `Kobako::Transport::Error` | E-10 |
+| The Handle table is exhausted, so the answer cannot be issued one | Neither side's — a per-invocation resource ran out | `internal` | `Kobako::Transport::Error` | `Kobako::Transport::Error` | E-07 |
+| The guest's own block raised and the Service did not rescue it | The guest's block | `block` | the exception the block raised, continued | `Kobako::SandboxError` carrying that class on `klass` | E-04, B-24 |
+| The guest's own block produced a value it cannot represent | The guest's block | `block` | `Kobako::ServiceError` naming the refused class in its message — the block raised nothing, so there is no exception to continue | `Kobako::ServiceError` | E-21, E-22 |
+
+Four rules hold the table together:
+
+- **The category never claims more than the host knows.** `undefined` is deliberately one category for three causes; `internal` says a Service outcome does not exist rather than that a Service failed; `block` says the failure came back from where it was sent.
+- **A guest-side subclass narrows, never crosses.** `NoServiceError` and `ServiceArgumentError` are `Kobako::ServiceError` subclasses on both sides, so one `rescue Kobako::ServiceError` still catches every Service failure. A Panic's class name may only select a subclass of the class its `origin` already chose (Step 2 above), so what a guest calls its exception cannot move the failure to another layer.
+- **A raised exception's class travels in the message; a refusal's does not.** An exception a Service raises crosses as `<class>: <message>` (B-12) — the shape a Host App is told to keep secrets out of — and so does a guest block's, because the guest may have no object left to continue. A refusal kobako itself produced answers under its own wording, so a host-side internal class is never presented as something a Service raised.
+- **`argument` is the one category named by the exception rather than by who failed.** It reports the `ArgumentError` the dispatch boundary caught, which a Service raising one from inside its own body produces as readily as a genuine binding mismatch.
+
+---
+
 ### `Kobako::TrapError` and its subclasses
 
 Raised when the Wasm execution engine crashes, when the wire layer detects a structural violation that signals a corrupted guest execution environment, or when a configured per-invocation cap is exceeded. The base class `Kobako::TrapError` covers engine and wire-violation traps; the named subclasses `Kobako::TimeoutError` and `Kobako::MemoryLimitError` cover the configured-cap cases. After any TrapError (base class or subclass), the Sandbox is considered unrecoverable; Host Apps should discard and recreate it before the next invocation.
@@ -51,36 +80,38 @@ Raised when the guest execution environment ran to completion but the overall ex
 
 | # | Trigger | Behavior cross-reference |
 |---|---------|--------------------------|
-| E-04 | Guest mruby script raises an uncaught exception (e.g., `RuntimeError`, `NoMethodError`) that reaches the top level of the invocation export (`__kobako_eval` or `__kobako_run`) — including a raise inside a guest callback a capability gem invokes (B-51) | B-02, B-03 — script execution; B-51 — capability-gem callback raise |
+| E-04 | Guest mruby script raises an uncaught exception (e.g., `RuntimeError`, `NoMethodError`) that reaches the top level of the invocation export (`__kobako_eval` or `__kobako_run`) — including a raise inside a guest callback a capability gem invokes (B-51), and a raise inside a block the guest supplied to a Service that did not rescue it, which continues in the guest frame that raised it (B-24) | B-02, B-03 — script execution; B-51 — capability-gem callback raise; B-24 — yield round-trip |
 | E-05 | The guest fails to compile the source supplied to `#eval` before any execution begins | B-02 — fresh invocation |
 | E-06 | The invocation's return value has no wire representation — the `#eval` last expression or the `#run` entrypoint's `#call` return is a raw mruby `Object` with no MessagePack encoding, nests beyond the maximum encodable depth (a reference cycle necessarily does; → [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Structural Nesting Depth), or is a `Symbol` whose name is not UTF-8 (→ [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Text and Bytes); the ok arm is present but its value fails to decode | B-06, B-31 — return value semantics |
-| E-07 | Handle issuance for the returned object fails because the per-invocation Handle counter has reached `0x7fff_ffff` (2³¹ − 1); raised as the `Kobako::HandleExhaustedError` subclass | B-21 — Handle counter exhaustion |
+| E-07 | Handle issuance for the returned object fails because the per-invocation Handle counter has reached `0x7fff_ffff` (2³¹ − 1). On the `#run` auto-wrap path (B-34) the host raises `Kobako::HandleExhaustedError` directly; on the dispatch path the exhaustion answers `type="internal"` and reaches an unrescuing guest as `Kobako::Transport::Error` — the answer never existed, so no Service outcome is being reported | B-21 — Handle counter exhaustion |
 | E-09 | The Outcome's ok arm carries a value the payload codec cannot read | Step 2 attribution; B-06 fallback |
+| E-10 | The Call payload is one the host's codec cannot read — a kwargs key that is not a Symbol, nesting past the codec's depth bound, or a Capability Handle frame outside the shape [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Ext Types → ext 0x01 admits. This is the **malformed-payload channel**: the host answers `type="internal"` on the fault arm rather than trapping, so a payload no schema can read reaches the guest as an ordinary transport failure it may rescue. Unrescued it raises `Kobako::Transport::Error`, a `SandboxError` subclass — the request never became a call, so nothing about a Service failed. The bundled guest emits none of these; the channel exists for a guest whose payload codec kobako does not define | B-12 — Transport dispatch |
 | E-55 | Guest passes a dispatch argument, kwargs value, or keyword name with no wire representation — a value outside the 11-entry wire type set, a collection nesting beyond the maximum encodable depth (a reference cycle necessarily does; → [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Structural Nesting Depth), or a name that is not UTF-8 — a `Symbol` value's, or a keyword's (→ [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Text and Bytes). The guest rejects it at the dispatch call site rather than coercing it to an `Object#to_s` string, uniform with the return-value (E-06) and yield-block (E-22) rejections | B-12 — dispatch argument conversion |
-| E-21 | Guest block uses `return val` while its enclosing method is still on the guest call stack (non-lambda, non-orphan Proc); the unwind crosses the host yield boundary, which is unrepresentable on the wire | B-24 — yield round-trip |
-| E-22 | Guest block returns a value that has no MessagePack wire representation per [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Type Mapping, that nests beyond the maximum encodable depth (a reference cycle necessarily does; § Structural Nesting Depth), or that is a `Symbol` whose name is not UTF-8 (§ Text and Bytes) | B-24 — yield round-trip |
-| E-23 | Host Service method invokes its Yielder after the originating dispatch frame has returned (e.g., the Service stored the block via `&block` and called it from a later dispatch or post-dispatch host code) | B-23 — Yielder scope |
 
 ---
 
-### `Kobako::ServiceError`
+### `Kobako::ServiceError` and its subclasses
 
 Raised when the guest execution environment ran to completion, the mruby script itself did not crash, but a Service capability call reported an application-level failure. The error originates in host Service code or in the capability routing layer, not in mruby script logic or the Wasm engine.
 
-`ServiceError` is raised when a panic envelope with `origin == "service"` reaches the host — meaning the mruby script executed a Service dispatch that failed and the failure was not rescued within the script.
+`ServiceError` is raised when a panic envelope with `origin == "service"` reaches the host — meaning the mruby script executed a Service dispatch that failed and the failure was not rescued within the script. The base class covers a Service that ran and raised; `Kobako::NoServiceError` and `Kobako::ServiceArgumentError` cover the calls that never reached one, so a Host App routes them apart with `rescue` rather than by reading the message. § Dispatch failure attribution above is the whole mapping in one table.
 
-| # | Trigger | Behavior cross-reference |
-|---|---------|--------------------------|
-| E-11 | A bound Service method raises a Ruby exception during dispatch; the exception propagates through the dispatch Reply's fault body (`tag=1`) as fault `type="runtime"`, and the mruby script does not rescue it | B-12 — Transport dispatch |
-| E-12 | The dispatch `target` path (e.g., `"MyService::KV"`) does not match any registered Service; fault `type="undefined"` returned; mruby script does not rescue it | B-08, B-12 — undefined target |
-| E-10 | The Call payload is one the host's codec cannot read — a kwargs key that is not a Symbol, nesting past the codec's depth bound, or a Capability Handle frame outside the shape [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Ext Types → ext 0x01 admits. This is the **malformed-payload channel**: the host answers `type="runtime"` on the fault arm rather than trapping, so a payload no schema can read reaches the guest as an ordinary transport failure it may rescue. The bundled guest emits none of these — the channel exists for a guest whose payload codec kobako does not define | B-12 — Transport dispatch |
-| E-13 | The dispatch `target` is a Handle ID that does not exist in the current invocation (stale Handle from a prior invocation presented as target in a new invocation); fault `type="undefined"` | B-18 — stale Handle cross-invocation |
-| E-15 | Service method receives arguments that fail the host-side parameter binding (e.g., unknown keyword); fault `type="argument"` returned; mruby guest does not rescue it. Passing keyword arguments to a method whose signature accepts no keyword arguments is treated as a parameter binding failure (`type="argument"`, E-15), not a Ruby runtime exception (E-11). | B-12 — Transport dispatch |
-| E-43 | The dispatch method resolves, on the target, to Ruby's ambient reflection / eval surface — owner in a core meta module (`BasicObject` / `Kernel` / `Object` / `Module` / `Class`) or a callable gadget type (`Proc` / `Method` / `UnboundMethod` / `Binding`) outside the callable allowlist; fault `type="undefined"` returned; mruby script does not rescue it | B-42 — reflection rejection |
-| E-44 | A bound Service method returns a `Binding`, `Method`, or `UnboundMethod` — directly, or extracted by the guest from a returned container Handle; the host refuses to mint a Capability Handle and the dispatch reports `type="runtime"`; the mruby script does not rescue it | B-43 — reflective gadget not wire-representable |
-| E-48 | The dispatch method name is rejected by the target's own narrowing predicate — the bound object defines `respond_to_guest?` and it answers falsy for the name (B-50); fault `type="undefined"` returned; mruby script does not rescue it | B-50 — guest-surface narrowing |
+| # | Trigger | Raised class | Behavior cross-reference |
+|---|---------|--------------|--------------------------|
+| E-11 | A bound Service method raises a Ruby exception during dispatch; the exception propagates through the dispatch Reply's fault body (`tag=1`) as fault `type="runtime"`, and the mruby script does not rescue it | `Kobako::ServiceError` | B-12 — Transport dispatch |
+| E-12 | The dispatch `target` path (e.g., `"MyService::KV"`) does not match any registered Service; fault `type="undefined"` returned; mruby script does not rescue it | `Kobako::NoServiceError` | B-08, B-12 — undefined target |
+| E-13 | The dispatch `target` is a Handle ID that does not exist in the current invocation (stale Handle from a prior invocation presented as target in a new invocation); fault `type="undefined"` | `Kobako::NoServiceError` | B-18 — stale Handle cross-invocation |
+| E-15 | Service method receives arguments that fail the host-side parameter binding (e.g., unknown keyword); fault `type="argument"` returned; mruby guest does not rescue it. Passing keyword arguments to a method whose signature accepts no keyword arguments is treated as a parameter binding failure (`type="argument"`, E-15), not a Ruby runtime exception (E-11). | `Kobako::ServiceArgumentError` | B-12 — Transport dispatch |
+| E-43 | The dispatch method resolves, on the target, to Ruby's ambient reflection / eval surface — owner in a core meta module (`BasicObject` / `Kernel` / `Object` / `Module` / `Class`) or a callable gadget type (`Proc` / `Method` / `UnboundMethod` / `Binding`) outside the callable allowlist; fault `type="undefined"` returned; mruby script does not rescue it | `Kobako::NoServiceError` | B-42 — reflection rejection |
+| E-44 | A bound Service method returns a `Binding`, `Method`, or `UnboundMethod` — directly, or extracted by the guest from a returned container Handle; the host refuses to mint a Capability Handle and the dispatch reports `type="runtime"`; the mruby script does not rescue it | `Kobako::ServiceError` | B-43 — reflective gadget not wire-representable |
+| E-48 | The dispatch method name is rejected by the target's own narrowing predicate — the bound object defines `respond_to_guest?` and it answers falsy for the name (B-50); fault `type="undefined"` returned; mruby script does not rescue it | `Kobako::NoServiceError` | B-50 — guest-surface narrowing |
+| E-21 | Guest block uses `return val` while its enclosing method is still on the guest call stack (non-lambda, non-orphan Proc); the unwind crosses the host yield boundary, which is unrepresentable on the wire. The block raised nothing, so the guest has no exception to continue and the fault names the class in its message | `Kobako::ServiceError` | B-24 — yield round-trip |
+| E-22 | Guest block returns a value that has no MessagePack wire representation per [`docs/wire/payload-msgpack.md`](../wire/payload-msgpack.md) § Type Mapping, that nests beyond the maximum encodable depth (a reference cycle necessarily does; § Structural Nesting Depth), or that is a `Symbol` whose name is not UTF-8 (§ Text and Bytes). As E-21, the block refused a value rather than raising | `Kobako::ServiceError` | B-24 — yield round-trip |
+| E-23 | Host Service method invokes its Yielder after the originating dispatch frame has returned (e.g., the Service stored the block via `&block` and called it from a later dispatch or post-dispatch host code) | `Kobako::ServiceError` | B-23 — Yielder scope |
 
-A guest presenting an arbitrary integer as a Call `target` reaches the host, where the invocation's `Catalog::Handles` membership answers it with `type="undefined"` (E-13, B-65) — the `ServiceError` path when the script leaves it unrescued.
+A guest presenting an arbitrary integer as a Call `target` reaches the host, where the invocation's `Catalog::Handles` membership answers it with `type="undefined"` (E-13, B-65) — the `Kobako::NoServiceError` path when the script leaves it unrescued.
+
+The `Kobako::ServiceArgumentError` boundary is the exception class the host caught, not which side supplied the mismatch: an `ArgumentError` a Service method raises from inside its own body is reported as an argument failure alongside a genuine binding mismatch. Telling the two apart would mean deciding, at the dispatch boundary, whether the method body ran — which the exception itself does not say.
 
 When the guest wraps a Service call in `begin/rescue`, the dispatch failure is handled within the guest; no `ServiceError` reaches the host and the invocation returns normally. `Kobako::ServiceError` is raised to the Host App only when a Service failure is unrescued at the top level of the guest execution context.
 
