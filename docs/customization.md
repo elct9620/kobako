@@ -112,7 +112,7 @@ envelope's `target` field — a guest still reaches a stateful receiver and only
 forgoes passing Handles as arguments.
 
 A Reply's fault body is not a codec position. A Fault is kobako's own data — a
-closed category and a message — so it rides the envelope, and a replacement
+category and a message — so it rides the envelope, and a replacement
 schema neither encodes nor reads one. A guest speaking another schema still
 reads a refusal, and reads it with no codec at all.
 

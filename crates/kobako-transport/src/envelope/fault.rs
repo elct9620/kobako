@@ -1,6 +1,6 @@
 //! The host refusing or failing a Call.
 //!
-//! Every byte of a Fault is kobako's — a closed category and a message —
+//! Every byte of a Fault is kobako's — a category and a message —
 //! so it rides the envelope and a guest reads a refusal with no payload
 //! codec at all.
 //!
@@ -214,7 +214,7 @@ mod tests {
         assert_eq!(
             FaultKind::from_name("other"),
             None,
-            "a name outside the closed set must not resolve to a kind"
+            "a name this build predates must not resolve to a kind"
         );
     }
 }

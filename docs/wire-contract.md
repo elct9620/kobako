@@ -72,14 +72,14 @@ Byte-level encoding of the Capability Handle (ext type number, binary layout) is
 
 ## Fault
 
-A Fault describes a Service-layer failure. It is the whole of a Reply's fault variant and rides the core envelope, not the payload: every byte of one is kobako's, so a guest reads a refusal with no payload codec at all and a replacement codec owes it nothing. It carries two fields:
+A Fault is the host refusing or failing a Call — the Service reporting a failure of its own, or the exchange around it not producing one. It is the whole of a Reply's fault variant and rides the core envelope, not the payload: every byte of one is kobako's, so a guest reads a refusal with no payload codec at all and a replacement codec owes it nothing. It carries two fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|
 | `type` | enumeration | Which failure the Fault reports, from the reserved categories below. A receiver reads one it predates as `"undefined"`. |
 | `message` | string | Human-readable description of the failure. |
 
-The category is closed, so the envelope carries it as a tag: a value outside the three is unrepresentable rather than merely unrecognised, and no endpoint has to decide what an unknown category means.
+The envelope carries the category as a tag rather than a name, so both sides spell it the same way without agreeing on text.
 
 A Fault travels host→guest, and its author controls only the message. Host-side structure — a backtrace, a path, an object graph — would cross the trust boundary as content no author can bound, so a Fault carries none. The reverse direction is not symmetric: a Panic and a Yield Reply's error arm both carry a backtrace, and those flow untrusted→trusted.
 

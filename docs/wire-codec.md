@@ -36,7 +36,7 @@ The obligations are positions to fill, not an encoding to use. One position is u
 
 A Call payload and the Reply value it is answered with are two halves of one exchange, so a codec that serves either owes the other. Nothing enforces the pairing; a codec that writes a Call it cannot read the answer to leaves the exchange half-served at the Reply.
 
-A Reply's fault body is not among them. Every byte of a Fault is kobako's — a closed category and a message — so it rides the envelope (→ [`wire/envelope.md`](wire/envelope.md) § Fault) and a replacement codec neither encodes nor reads one. A guest that speaks another schema still reads a refusal, and reads it without a codec at all.
+A Reply's fault body is not among them. Every byte of a Fault is kobako's — a category and a message — so it rides the envelope (→ [`wire/envelope.md`](wire/envelope.md) § Fault) and a replacement codec neither encodes nor reads one. A guest that speaks another schema still reads a refusal, and reads it without a codec at all.
 
 A codec without a Handle representation is legal. Handles then ride only the envelope's `target` field, so a guest still reaches a stateful receiver and only forgoes passing Handles as arguments or receiving them as values.
 

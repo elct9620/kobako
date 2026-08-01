@@ -140,4 +140,4 @@ ext 0x01 may appear in any payload position, at any nesting depth, in both direc
 
 **A Handle in the `target` position is a core-envelope field, not an ext value** (→ [`envelope.md`](envelope.md) § Call): the envelope's `kind` byte carries the discrimination and the ID rides as a bare `u32`. A codec that carries no Handle representation at all still reaches a Handle target — which is the common case for a stateful receiver — and only forgoes passing Handles as arguments.
 
-A Fault has no ext code here. Every byte of one is kobako's — a closed category and a message — so it rides the envelope's own fault arm (→ [`envelope.md`](envelope.md) § Fault), where a guest reads it with no codec at all and a replacement codec owes it nothing.
+A Fault has no ext code here. Every byte of one is kobako's — a category and a message — so it rides the envelope's own fault arm (→ [`envelope.md`](envelope.md) § Fault), where a guest reads it with no codec at all and a replacement codec owes it nothing.
