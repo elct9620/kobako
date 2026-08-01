@@ -79,19 +79,6 @@ class TestE2EYield < Minitest::Test
                  "on to the outer Service's yield site"
   end
 
-  def test_b24_block_raise_surfaces_to_service_yield_site
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.bind("Probe::Boom", ->(&blk) { blk.call })
-
-    err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval('Probe::Boom.call { raise "from guest block" }')
-    end
-
-    assert_match(/from guest block/, err.message,
-                 "B-24 Notes: an exception raised inside the guest block " \
-                 "propagates back to the Service method's yield site")
-  end
-
   def test_e22_block_returns_unrepresentable_value_raises_at_yield_site
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })

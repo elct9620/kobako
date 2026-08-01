@@ -53,6 +53,10 @@ module Kobako
   class ServiceArgumentError < ServiceError
   end
 
+  class BlockError < Error
+    include Diagnosable
+  end
+
   class HandleExhaustedError < SandboxError
   end
 

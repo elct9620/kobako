@@ -579,7 +579,7 @@ mod tests {
     }
 
     #[test]
-    fn propagated_block_failure_folds_into_a_runtime_fault() {
+    fn propagated_block_failure_folds_into_a_block_fault() {
         let req = block_request("yield_each", vec![Value::Int(1)]);
         let mut channel = Scripted::new(vec![YieldReply::Error(ErrorRecord {
             name: "LocalJumpError".into(),
@@ -588,8 +588,9 @@ mod tests {
         })]);
         assert_eq!(
             fault_type(&roundtrip_with(&req, &mut channel)),
-            "runtime",
-            "a propagated block failure must fold into the runtime fault envelope"
+            "block",
+            "a propagated block failure must fold into the block fault envelope, so the guest \
+             continues its own exception rather than hearing that a Service failed"
         );
     }
 }

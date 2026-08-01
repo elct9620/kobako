@@ -5,8 +5,11 @@ module Kobako
       @break_tag: Symbol
       @handler: Kobako::Codec::_HandleTable
       @active: bool
+      @raised: Kobako::BlockError?
 
       def initialize: (Kobako::Transport::_GuestYielder yield_to_guest, Symbol break_tag, Kobako::Codec::_HandleTable handler) -> void
+
+      def fault_text: (Exception error) -> String?
 
       def yield: (*untyped args) -> untyped
 
@@ -15,6 +18,8 @@ module Kobako
       def invalidate!: () -> void
 
       private
+
+      def remember: (Kobako::BlockError error) -> Kobako::BlockError
 
       def decode_body: (String body) -> [untyped, bool]
 

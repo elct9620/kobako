@@ -20,8 +20,8 @@ module Kobako
     #   * ok    — return the decoded value to +yield+'s caller
     #   * break — +throw break_tag, value+ so the Dispatcher's +catch+
     #     frame unwinds the Service method
-    #   * error — raise the guest's class and message at the Service's
-    #     yield site
+    #   * error — raise a BlockError at the Service's yield site,
+    #     carrying the guest's class on +#klass+
     #
     # The Dispatcher calls #invalidate! from its +ensure+ block once
     # dispatch completes; any later call to a stashed Yielder then raises
@@ -40,6 +40,23 @@ module Kobako
         @break_tag = break_tag
         @handler = handler
         @active = true
+        @raised = nil
+      end
+
+      # The text the guest's own block failure crosses back as, or +nil+
+      # when +error+ is not the BlockError this Yielder raised. Identity
+      # rather than class: a Service that rescued the block's failure and
+      # raised its own has reported something else, and the guest must
+      # hear about that instead.
+      #
+      # The class travels with the message because not every block failure
+      # is an exception the guest holds — a block value the guest refused
+      # has a class to raise under and no object to continue.
+      def fault_text(error)
+        raised = @raised
+        return if raised.nil? || !error.equal?(raised)
+
+        "#{raised.klass}: #{raised.message}"
       end
 
       # Re-enter the guest with +args+ and reify the Yield Reply into
@@ -53,7 +70,7 @@ module Kobako
         raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless @active
 
         arm, body, klass = @yield_to_guest.call(Kobako::Codec::Encoder.encode(args))
-        raise "#{klass}: #{body}" if arm == :error
+        raise remember(BlockError.new(body, origin: "guest", klass: klass)) if arm == :error
 
         value, carried_handle = decode_body(body)
         throw @break_tag, value if arm == :break
@@ -75,6 +92,14 @@ module Kobako
       end
 
       private
+
+      # Hold onto the BlockError being raised so #raised? can recognise it
+      # if it comes back unrescued, and return it so the raise site reads
+      # as one statement. Only the newest is kept: a Service that rescued
+      # an earlier one and yielded again has already handled it.
+      def remember(error)
+        @raised = error
+      end
 
       # Decode a value-carrying arm's payload, answering the value and
       # whether the decode carried a Capability Handle. The tracking

@@ -36,6 +36,24 @@ module Kobako
       # not part of the public Kobako error taxonomy.
       class UndefinedTargetError < StandardError; end
 
+      # The codec fault of a request that never became a call, restated in
+      # the vocabulary the guest can act on. Raised where the direction is
+      # known, since the same codec classes answer for an unwritable reply.
+      class UnreadableRequestError < Kobako::Codec::Error; end
+
+      # The category kobako's own refusals answer under, keyed by the class
+      # each is raised as and ordered most specific first. A class absent
+      # here is the Service's own exception, which answers under +runtime+
+      # wearing the +<class>: <message>+ shape that says so.
+      OWN_FAULTS = {
+        HandleExhaustedError => "internal",
+        UndefinedTargetError => "undefined",
+        ArgumentError => "argument",
+        Kobako::Codec::Error => "internal",
+        Kobako::SandboxError => "runtime"
+      }.freeze
+      private_constant :OWN_FAULTS
+
       # Answer a single routed Call with +[ok, bytes]+, which the native
       # side puts on the Reply's ok or fault arm. Invoked from the
       # per-invocation dispatch Proc that
@@ -61,7 +79,7 @@ module Kobako
       # stays uncaught and traps the invocation rather than being masked as a
       # rescuable fault.
       rescue StandardError => e
-        [false, *caught_fault(e)] # : [bool, String, String?]
+        [false, *caught_fault(e, yielder)] # : [bool, String, String?]
       ensure
         yielder&.invalidate!
       end
@@ -70,10 +88,21 @@ module Kobako
       # the +catch+ frame a guest +break+ unwinds to. Split from #dispatch
       # so the reply-shaping and the failure boundary stay one glance wide.
       def run(call, resolver, handler, yielder)
-        arguments, carried_handle = Kobako::Codec.track_handles { Payload::Arguments.decode(call.payload) }
+        arguments, carried_handle = decode_arguments(call.payload)
         receiver = resolve_target(call.target, resolver, handler)
         args, kwargs = resolve_call_args(arguments, handler, carried_handle)
         catch(BREAK_THROW) { invoke(receiver, call.method_name, args, kwargs, yielder) }
+      end
+
+      # Decode the Call's payload into its arguments, reporting whether any
+      # Capability Handle crossed. A codec fault here is a request that
+      # never became a call, restated so it cannot read as an unwritable
+      # reply — the same restatement #encode_ok makes in the other
+      # direction.
+      def decode_arguments(payload)
+        Kobako::Codec.track_handles { Payload::Arguments.decode(payload) }
+      rescue Kobako::Codec::Error => e
+        raise UnreadableRequestError, "Sandbox could not read the request: #{e.message}"
       end
 
       # Resolve positional and keyword arguments off the decoded payload in
@@ -101,16 +130,18 @@ module Kobako
       # secrets out of, so wearing it says the Service raised. kobako's own
       # refusals answer under their own wording instead of borrowing that
       # shape.
-      def caught_fault(error)
-        case error
-        when Kobako::Codec::Error   then fault("internal",
-                                               "Sandbox could not read the request: #{error.message}")
-        when HandleExhaustedError   then fault("internal", error.message)
-        when UndefinedTargetError   then fault("undefined", error.message)
-        when ArgumentError          then fault("argument", error.message)
-        when Kobako::SandboxError   then fault("runtime", error.message)
-        else                             fault("runtime", "#{error.class}: #{error.message}")
-        end
+      #
+      # The guest's own block failing is not the Service's to report at
+      # all, so the Yielder that raised it is asked first — it recognises
+      # its own by identity and words the failure the guest's way.
+      def caught_fault(error, yielder = nil)
+        block_failure = yielder&.fault_text(error)
+        return fault("block", block_failure) if block_failure
+
+        own = OWN_FAULTS.find { |klass, _| error.is_a?(klass) }
+        return fault(own.last, error.message) if own
+
+        fault("runtime", "#{error.class}: #{error.message}")
       end
 
       # Dispatch +method+ on +target+. +kwargs+ is already Symbol-keyed

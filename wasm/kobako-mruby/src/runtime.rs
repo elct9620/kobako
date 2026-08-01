@@ -43,6 +43,7 @@ pub(crate) mod block_stack;
 pub(crate) mod bridges;
 pub(crate) mod codec_slot;
 mod init;
+pub(crate) mod raised_block;
 mod values;
 
 pub use values::IntegerOutOfRange;
@@ -293,6 +294,32 @@ impl Kobako {
     pub unsafe fn raise_transport_error(&self, msg: &core::ffi::CStr) -> ! {
         // SAFETY: bridge frame — caller upholds the unwind contract.
         unsafe { self.transport_error_class.raise(self.mrb(), msg) };
+    }
+
+    /// Re-raise `exc` — an exception this invocation already raised, held
+    /// across a host round-trip — so it continues from where it was
+    /// raised instead of being rebuilt from a class name and a message.
+    /// Diverges — `mrb_exc_raise` does not return.
+    ///
+    /// # Safety
+    ///
+    /// As `Kobako::raise_transport_error`, and `exc` must be a live
+    /// exception value on this VM.
+    #[cfg(mruby_linked)]
+    pub(crate) unsafe fn reraise(&self, exc: beni::Value) -> ! {
+        // SAFETY: bridge frame — caller upholds the unwind contract and
+        // the liveness of `exc`; `mrb_exc_raise` never returns.
+        unsafe {
+            beni::sys::mrb_exc_raise(self.mrb, exc.as_raw());
+            core::hint::unreachable_unchecked()
+        }
+    }
+
+    /// Placeholder mode: no VM ever raised the exception this would
+    /// continue, so reaching here is a build error made visible late.
+    #[cfg(not(mruby_linked))]
+    pub(crate) unsafe fn reraise(&self, _exc: beni::Value) -> ! {
+        panic!("kobako-mruby was built without a linked libmruby.a")
     }
 
     /// Raise, at the guest call site, the exception this Fault's category

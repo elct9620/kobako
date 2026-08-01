@@ -51,12 +51,18 @@ impl fmt::Display for YieldError {
 impl std::error::Error for YieldError {}
 
 impl From<YieldError> for Fault {
-    /// Every variant folds to a `runtime` fault: a propagated block
-    /// failure is a Service-layer failure to the guest, and a
-    /// propagated `Break` never reaches the guest at all — the
+    /// A propagated `Failure` is the guest's own block failing, so it
+    /// answers on the `block` category — the guest continues the
+    /// exception it raised rather than hearing that a Service failed.
+    /// The other variants are the exchange itself going wrong: a
+    /// propagated `Break` never reaches the guest at all, since the
     /// dispatch answers with the break value first.
     fn from(err: YieldError) -> Self {
-        Fault::new(FaultKind::Runtime, err.to_string())
+        let kind = match err {
+            YieldError::Failure { .. } => FaultKind::Block,
+            _ => FaultKind::Internal,
+        };
+        Fault::new(kind, err.to_string())
     }
 }
 
@@ -220,18 +226,29 @@ mod tests {
     }
 
     #[test]
-    fn every_yield_error_folds_to_a_runtime_fault() {
+    fn a_yield_error_folds_to_the_category_that_names_whose_failure_it_is() {
         let failure = YieldError::Failure {
             name: "LocalJumpError".into(),
             message: "crossed".into(),
         };
         let fault = Fault::from(failure);
-        assert_eq!(fault.kind, FaultKind::Runtime);
-        assert_eq!(fault.message, "LocalJumpError: crossed");
-        assert_eq!(Fault::from(YieldError::Break).kind, FaultKind::Runtime);
         assert_eq!(
-            Fault::from(YieldError::Aborted("gone".into())).kind,
-            FaultKind::Runtime
+            fault.kind,
+            FaultKind::Block,
+            "a propagated block failure is the guest's own, so it must not answer under a \
+             category that says a Service failed"
         );
+        assert_eq!(
+            fault.message, "LocalJumpError: crossed",
+            "the class travels with the message for a guest holding no exception to continue"
+        );
+        for exchange_failure in [YieldError::Break, YieldError::Aborted("gone".into())] {
+            assert_eq!(
+                Fault::from(exchange_failure).kind,
+                FaultKind::Internal,
+                "a yield that never delivered a block outcome is the exchange failing, not a \
+                 Service and not the block"
+            );
+        }
     }
 }

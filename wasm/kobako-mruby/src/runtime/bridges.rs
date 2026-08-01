@@ -126,6 +126,7 @@ fn forward_to_dispatch(
     use crate::refusal::Position;
 
     use crate::dispatch::{dispatch, DispatchError};
+    use kobako_transport::envelope::FaultKind;
 
     let (method_sym, rest, kwargs_hash, block) =
         kobako.mrb().get_args::<beni::format::NRestKwBlock>();
@@ -154,7 +155,11 @@ fn forward_to_dispatch(
     // The block parks for the call's duration inside `dispatch`, so every
     // raise above this line — an unreadable symbol, a denied name, an
     // argument this schema cannot carry — long-jumps past no guard.
-    match dispatch(target, &method_name, block, &payload) {
+    let answer = dispatch(target, &method_name, block, &payload);
+    // Taken on every arm: a block failure the Service rescued is spent,
+    // and leaving it held would let a later answer re-raise it.
+    let raised = super::raised_block::RAISED_BLOCK.take(kobako.mrb());
+    match answer {
         // A dispatch return value the guest cannot represent raises in the
         // calling guest code (docs/wire/payload-msgpack.md § Integer Range).
         Ok(body) => match codec_slot::get().decode_reply_value(&kobako, &body) {
@@ -165,8 +170,19 @@ fn forward_to_dispatch(
         // The fault arm is the normal path for a Service raising. The
         // envelope typed it, so there is nothing left to decode and no
         // codec to consult.
-        // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-        Err(DispatchError::Fault(fault)) => unsafe { kobako.raise_service_error(&fault) },
+        Err(DispatchError::Fault(fault)) => match (fault.kind, raised) {
+            // The Service did not rescue what this frame's own block
+            // raised, so the exception continues from where it was
+            // raised — the same thing it would do with no host in
+            // between. A `block` fault with nothing held is a peer
+            // reporting a failure this frame did not produce, which has
+            // no exception to continue and takes the ordinary path.
+            // SAFETY: bridge frame — mruby unwinds through `mrb_exc_raise`;
+            // `exc` was held live by the GC root the take just released.
+            (FaultKind::Block, Some(exc)) => unsafe { kobako.reraise(exc) },
+            // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
+            _ => unsafe { kobako.raise_service_error(&fault) },
+        },
         // Anything that is not the Service's own fault means the exchange
         // did not complete, which reaches the guest as a wire fault.
         // SAFETY: as above.

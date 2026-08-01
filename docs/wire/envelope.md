@@ -77,7 +77,7 @@ The host refusing or failing a Call. Every byte of it is kobako's — a category
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `kind` | `u8` | The failure category: `0` — runtime, `1` — argument, `2` — undefined, `3` — internal. A value this reader predates reads as `2`. |
+| `kind` | `u8` | The failure category: `0` — runtime, `1` — argument, `2` — undefined, `3` — internal, `4` — block. A value this reader predates reads as `2`. |
 | `message` | `bytes` | Human-readable description as UTF-8. |
 
 The category is a tag rather than a name so both sides spell it the same way without agreeing on text. The values keep their meanings from the dispatch contract (→ [`../wire-contract.md`](../wire-contract.md) § Fault) — `undefined` must stay indistinguishable across its causes, so a host that refuses a name reveals nothing about which of them applied, which is also why an unrecognised category lands there rather than claiming the Service ran.

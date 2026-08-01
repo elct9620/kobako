@@ -16,6 +16,7 @@ const KIND_RUNTIME: u8 = 0;
 const KIND_ARGUMENT: u8 = 1;
 const KIND_UNDEFINED: u8 = 2;
 const KIND_INTERNAL: u8 = 3;
+const KIND_BLOCK: u8 = 4;
 
 /// Which failure a Fault reports.
 ///
@@ -41,6 +42,12 @@ pub enum FaultKind {
     /// retrying the same call against a working host would behave
     /// differently, which is not true of a Service that raised.
     Internal,
+    /// The caller's own block raised while the Service was yielding to
+    /// it, and the Service did not rescue it. The failure is the
+    /// caller's, so it carries no host detail: the caller still holds
+    /// the exception it raised and re-raises that, which is what the
+    /// same code would do without a Sandbox between the two frames.
+    Block,
 }
 
 impl FaultKind {
@@ -50,6 +57,7 @@ impl FaultKind {
             FaultKind::Argument => KIND_ARGUMENT,
             FaultKind::Undefined => KIND_UNDEFINED,
             FaultKind::Internal => KIND_INTERNAL,
+            FaultKind::Block => KIND_BLOCK,
         }
     }
 
@@ -60,6 +68,7 @@ impl FaultKind {
             KIND_RUNTIME => FaultKind::Runtime,
             KIND_ARGUMENT => FaultKind::Argument,
             KIND_INTERNAL => FaultKind::Internal,
+            KIND_BLOCK => FaultKind::Block,
             _ => FaultKind::Undefined,
         }
     }
@@ -71,6 +80,7 @@ impl FaultKind {
             FaultKind::Argument => "argument",
             FaultKind::Undefined => "undefined",
             FaultKind::Internal => "internal",
+            FaultKind::Block => "block",
         }
     }
 
@@ -82,6 +92,7 @@ impl FaultKind {
             "argument" => Some(FaultKind::Argument),
             "undefined" => Some(FaultKind::Undefined),
             "internal" => Some(FaultKind::Internal),
+            "block" => Some(FaultKind::Block),
             _ => None,
         }
     }
@@ -129,6 +140,7 @@ mod tests {
             FaultKind::Argument,
             FaultKind::Undefined,
             FaultKind::Internal,
+            FaultKind::Block,
         ] {
             let fault = Fault::new(kind, "boom");
             let mut w = Writer::new();
@@ -191,6 +203,7 @@ mod tests {
             FaultKind::Argument,
             FaultKind::Undefined,
             FaultKind::Internal,
+            FaultKind::Block,
         ] {
             assert_eq!(
                 FaultKind::from_name(kind.name()),

@@ -137,6 +137,17 @@ module Kobako
   # arity mismatch.
   class ServiceArgumentError < ServiceError; end
 
+  # Raised at a Service method's +yield+ site when the guest block it
+  # yielded to raised. A Service rescues it the way it would rescue a
+  # block's exception without a Sandbox between the two frames; leaving it
+  # unrescued returns it to the guest, which re-raises the exception it
+  # raised in the first place. It therefore never reaches the Host App as
+  # an invocation outcome and carries no Execution. +klass+ names the
+  # guest-side class, which has no host counterpart to rebuild.
+  class BlockError < Error
+    include Diagnosable
+  end
+
   # HandleExhaustedError is the canonical SandboxError subclass for the
   # id-cap-hit path. Raised when the per-invocation Handle ID counter in
   # Catalog::Handles reaches +0x7fff_ffff+ (2³¹ − 1) and further
