@@ -243,10 +243,10 @@ A Host App developer is adding error handling to an existing kobako integration.
 1. The developer wraps `Sandbox#eval` or `Sandbox#run` in a rescue block that catches `Kobako::TrapError`, `Kobako::SandboxError`, and `Kobako::ServiceError` as separate branches.
 2. For `TrapError`, the developer logs the failure and recreates the Sandbox before the next invocation.
 3. For `SandboxError`, the developer records the error as a code-level fault (wrong guest code, not broken infrastructure) and surfaces it to the code's author.
-4. For `ServiceError`, the developer treats it as a capability-level fault (the guest called a Service correctly but the Service reported an error) and applies the same retry or alerting policy as any other service failure in the Host App.
+4. For `ServiceError`, the developer treats it as a capability-level fault (a Service call failed) and applies the same retry or alerting policy as any other service failure in the Host App. Where retrying is the policy, the developer narrows to the `Kobako::NoServiceError` and `Kobako::ServiceArgumentError` branches first — those are the calls that never reached a Service method, so a retry cannot change the outcome.
 
 **Outcome**
-The developer can route each failure class through the Host App's existing error-handling infrastructure without inspecting error messages. The three-class taxonomy gives the developer a reliable signal for triage: infrastructure fault (TrapError), authored-code fault (SandboxError), or downstream-service fault (ServiceError). This attribution is guaranteed by kobako regardless of whether the failure originated in an `#eval` source or a `#run` entrypoint.
+The developer can route each failure class through the Host App's existing error-handling infrastructure without inspecting error messages. The three-class taxonomy gives the developer a reliable signal for triage: infrastructure fault (TrapError), authored-code fault (SandboxError), or downstream-service fault (ServiceError); the named `ServiceError` subclasses narrow that last one further without widening what a caller writes, since one `rescue Kobako::ServiceError` still catches every Service failure. This attribution is guaranteed by kobako regardless of whether the failure originated in an `#eval` source or a `#run` entrypoint.
 
 ---
 

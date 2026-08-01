@@ -9,7 +9,9 @@ require "test_helper"
 # +__kobako_yield_to_block+, returning the block result (tag 0x01), a
 # +break+ value (tag 0x02), or an error (tag 0x04) to the Service's yield
 # site. The break / return unwind discrimination lives in
-# test_yield_unwind.rb.
+# test_yield_unwind.rb, and the error arm across its three shapes in
+# test_yield_block_failure.rb, test_yield_block_spent.rb, and
+# test_yield_value_refusal.rb.
 class TestE2EYield < Minitest::Test
   include E2eGuestHelper
 

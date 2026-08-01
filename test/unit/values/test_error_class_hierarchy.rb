@@ -48,16 +48,22 @@ class TestErrorClassHierarchy < Minitest::Test
     end
   end
 
-  # BlockError is raised at a Service's yield site, inside a dispatch the
-  # host is still answering, so it never reaches the Host App as an
-  # invocation outcome and must stay outside the three that do.
-  def test_block_error_is_not_an_invocation_outcome
-    assert_operator Kobako::BlockError, :<, Kobako::Error
+  # Both yield-site classes are raised inside a dispatch the host is still
+  # answering, where the Service may rescue and go on, so neither reaches
+  # the Host App as an invocation outcome and both stay outside the three
+  # that do. BlockError carries what the block sent back, YieldValueError
+  # what the Service could not send (E-57).
+  YIELD_SITE_CLASSES = [Kobako::BlockError, Kobako::YieldValueError].freeze
+  INVOCATION_OUTCOMES = [Kobako::TrapError, Kobako::SandboxError, Kobako::ServiceError].freeze
 
-    [Kobako::TrapError, Kobako::SandboxError, Kobako::ServiceError].each do |outcome|
-      refute_operator Kobako::BlockError, :<, outcome,
-                      "BlockError through a rescue of #{outcome} must not be caught — a guest " \
-                      "block failing is not one of the invocation's four outcomes"
+  def test_a_yield_site_failure_is_not_an_invocation_outcome
+    YIELD_SITE_CLASSES.product(INVOCATION_OUTCOMES).each do |yield_site, outcome|
+      assert_operator yield_site, :<, Kobako::Error
+
+      refute_operator yield_site, :<, outcome,
+                      "#{yield_site} through a rescue of #{outcome} must not be caught — a " \
+                      "failure the Service can rescue at its yield site is not one of the " \
+                      "invocation's outcomes"
     end
   end
 
