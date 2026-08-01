@@ -15,6 +15,7 @@ use super::DecodeError;
 const KIND_RUNTIME: u8 = 0;
 const KIND_ARGUMENT: u8 = 1;
 const KIND_UNDEFINED: u8 = 2;
+const KIND_INTERNAL: u8 = 3;
 
 /// Which failure a Fault reports.
 ///
@@ -34,6 +35,12 @@ pub enum FaultKind {
     Argument,
     /// No such member or method.
     Undefined,
+    /// The exchange itself failed, so no Service outcome exists to
+    /// report — the request was unreadable, or the host ran out of the
+    /// resources the exchange needs. Separate from `Runtime` because
+    /// retrying the same call against a working host would behave
+    /// differently, which is not true of a Service that raised.
+    Internal,
 }
 
 impl FaultKind {
@@ -42,6 +49,7 @@ impl FaultKind {
             FaultKind::Runtime => KIND_RUNTIME,
             FaultKind::Argument => KIND_ARGUMENT,
             FaultKind::Undefined => KIND_UNDEFINED,
+            FaultKind::Internal => KIND_INTERNAL,
         }
     }
 
@@ -51,6 +59,7 @@ impl FaultKind {
         match tag {
             KIND_RUNTIME => FaultKind::Runtime,
             KIND_ARGUMENT => FaultKind::Argument,
+            KIND_INTERNAL => FaultKind::Internal,
             _ => FaultKind::Undefined,
         }
     }
@@ -61,16 +70,18 @@ impl FaultKind {
             FaultKind::Runtime => "runtime",
             FaultKind::Argument => "argument",
             FaultKind::Undefined => "undefined",
+            FaultKind::Internal => "internal",
         }
     }
 
-    /// Read a category from the name a frontend uses, or `None` when the
-    /// name is outside the closed set.
+    /// Read a category from the name a frontend uses, or `None` when this
+    /// build predates the name.
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "runtime" => Some(FaultKind::Runtime),
             "argument" => Some(FaultKind::Argument),
             "undefined" => Some(FaultKind::Undefined),
+            "internal" => Some(FaultKind::Internal),
             _ => None,
         }
     }
@@ -117,6 +128,7 @@ mod tests {
             FaultKind::Runtime,
             FaultKind::Argument,
             FaultKind::Undefined,
+            FaultKind::Internal,
         ] {
             let fault = Fault::new(kind, "boom");
             let mut w = Writer::new();
@@ -178,6 +190,7 @@ mod tests {
             FaultKind::Runtime,
             FaultKind::Argument,
             FaultKind::Undefined,
+            FaultKind::Internal,
         ] {
             assert_eq!(
                 FaultKind::from_name(kind.name()),

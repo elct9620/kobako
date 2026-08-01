@@ -91,8 +91,8 @@ impl<V: ValueReceiver> Receiver for IntoReceiver<V> {
     ) -> Result<Vec<u8>, Fault> {
         let arguments = Arguments::decode(payload).map_err(|err| {
             Fault::new(
-                FaultKind::Runtime,
-                format!("Sandbox received a malformed request: {err}"),
+                FaultKind::Internal,
+                format!("Sandbox could not read the request: {err}"),
             )
         })?;
         let value = self
@@ -157,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn a_payload_this_schema_cannot_read_folds_into_a_runtime_fault() {
+    fn a_payload_this_schema_cannot_read_folds_into_an_internal_fault() {
         let table = Detached::new();
 
         // A truncated msgpack str header — framed as a payload, unreadable
@@ -167,9 +167,9 @@ mod tests {
             .call("echo", &[0xd9], None, &table.as_handles());
 
         assert!(
-            matches!(refusal, Err(fault) if fault.kind == FaultKind::Runtime),
-            "a payload this schema cannot read must refuse as a runtime fault rather than \
-             reach the receiver"
+            matches!(refusal, Err(fault) if fault.kind == FaultKind::Internal),
+            "a payload this schema cannot read must refuse as an internal fault — the \
+             receiver never ran, so nothing about it failed"
         );
     }
 

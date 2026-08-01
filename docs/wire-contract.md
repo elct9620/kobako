@@ -83,13 +83,14 @@ The category is closed, so the envelope carries it as a tag: a value outside the
 
 A Fault travels host→guest, and its author controls only the message. Host-side structure — a backtrace, a path, an object graph — would cross the trust boundary as content no author can bound, so a Fault carries none. The reverse direction is not symmetric: a Panic and a Yield Reply's error arm both carry a backtrace, and those flow untrusted→trusted.
 
-The three reserved `type` values are:
+The reserved `type` values are:
 
 | `type` value | Failure it represents |
 |---|---|
 | `"runtime"` | A general Ruby exception raised inside a Service method during dispatch |
 | `"argument"` | A Service method's argument binding failed — an unknown keyword, or an arity mismatch (E-15) |
 | `"undefined"` | The `target` string path matches no registered Service, the `target` Handle ID is not live in this invocation's Catalog::Handles, or the method resolves to no reachable Service method on the target — absent, or ambient reflection/eval surface. The three cases share one type so an opaque target discloses nothing about which methods it defines |
+| `"internal"` | The exchange failed with no Service outcome to report: the request was unreadable (E-10), or the host could not issue the Handle the answer needs (E-07). Separate from `"runtime"` because retrying the same call against a working host would behave differently, which is not true of a Service that raised |
 
 These names are stable and reserved across kobako releases, and existing type semantics are never modified in place. The set is open: a receiver that meets a `type` it predates reads it as `"undefined"` — the value that attributes nothing a newer one might contradict — and a Fault field it predates is skipped, so a peer built against an earlier contract still delivers the refusal rather than failing the exchange.
 

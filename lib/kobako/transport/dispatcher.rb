@@ -95,13 +95,21 @@ module Kobako
       # is the +StandardError+ caught by #dispatch's rescue; the category
       # tells the guest which kind of failure it was so it can raise the
       # matching proxy-side error.
+      #
+      # The class prefix marks a Service's own exception and nothing else:
+      # it is the +<class>: <message>+ shape a Host App is told to keep
+      # secrets out of, so wearing it says the Service raised. kobako's own
+      # refusals answer under their own wording instead of borrowing that
+      # shape.
       def caught_fault(error)
         case error
-        when Kobako::Codec::Error then fault("runtime",
-                                             "Sandbox received a malformed request: #{error.message}")
-        when UndefinedTargetError then fault("undefined", error.message)
-        when ArgumentError        then fault("argument", error.message)
-        else                           fault("runtime", "#{error.class}: #{error.message}")
+        when Kobako::Codec::Error   then fault("internal",
+                                               "Sandbox could not read the request: #{error.message}")
+        when HandleExhaustedError   then fault("internal", error.message)
+        when UndefinedTargetError   then fault("undefined", error.message)
+        when ArgumentError          then fault("argument", error.message)
+        when Kobako::SandboxError   then fault("runtime", error.message)
+        else                             fault("runtime", "#{error.class}: #{error.message}")
         end
       end
 
@@ -182,10 +190,17 @@ module Kobako
       # +UnsupportedTypeError+; the rescue routes it through the
       # Catalog::Handles via #wrap_as_handle and re-encodes with the
       # Capability Handle in place. The happy path encodes exactly once.
+      #
+      # Any other codec fault here is the answer failing to encode, not the
+      # request failing to decode, so it is restated before the boundary
+      # sees it — the two are otherwise the same class and would report
+      # under the same wording.
       def encode_ok(value, handler)
         Kobako::Codec::Encoder.encode(value)
       rescue Kobako::Codec::UnsupportedTypeError
         encode_ok(wrap_as_handle(value, handler), handler)
+      rescue Kobako::Codec::Error => e
+        raise Kobako::SandboxError, "Sandbox could not write the Service's answer: #{e.message}"
       end
 
       # Allocate +value+ in the Sandbox's Catalog::Handles and return a +Handle+

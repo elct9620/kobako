@@ -19,7 +19,8 @@ class TestTransportDispatchViolations < Minitest::Test
   # invariant; because that invariant is checked inside the block
   # Arguments.decode yields to, Codec::Decoder.decode rescues the
   # ArgumentError and re-raises it as a wire-decode InvalidTypeError, so the
-  # dispatcher reports type="runtime". The payload MUST carry both
+  # dispatcher reports type="internal" — the request never became a call,
+  # so no Service outcome exists to report. The payload MUST carry both
   # elements: a 1-element array would trip the shape guard first and never
   # reach the kwargs-key check — the second message assertion witnesses
   # that the kwargs-key path, not the shape guard, produced this error.
@@ -41,8 +42,10 @@ class TestTransportDispatchViolations < Minitest::Test
       answer = reify(dispatch(payload_call(Kobako::Codec::Encoder.encode([[], kwargs]))))
 
       assert_predicate answer, :error?
-      assert_equal "runtime", answer.payload.type
-      assert_match(/Sandbox received a malformed request/, answer.payload.message)
+      assert_equal "internal", answer.payload.type,
+                   "#{shape} through the Call payload must refuse as an internal fault — the " \
+                   "Service never ran, so nothing about it failed"
+      assert_match(/Sandbox could not read the request/, answer.payload.message)
       assert_match(/kwargs keys must be Symbol/, answer.payload.message,
                    "#{shape} must be rejected by the kwargs-key invariant, not the arity guard")
     end
@@ -71,12 +74,12 @@ class TestTransportDispatchViolations < Minitest::Test
 
   # E-10: a Call nested beyond the codec's depth bound
   # (docs/wire/payload-msgpack.md § Structural Nesting Depth) must come back
-  # on the fault arm with type="runtime" — the same containment as any other
+  # on the fault arm with type="internal" — the same containment as any other
   # malformed payload, never a host crash or a wasm trap. The dispatcher
   # rescues only StandardError; this holds because the codec maps the nesting
   # overflow into the Kobako::Codec::Error taxonomy before it can become a
   # Ruby SystemStackError that would escape the rescue.
-  def test_over_deep_call_is_contained_as_runtime_error
+  def test_over_deep_call_is_contained_as_an_internal_fault
     # 1000 nested single-element arrays terminated by nil — a misbehaving
     # guest emitting a payload far past the ecosystem nesting bound.
     over_deep_payload = "\x92#{"\x91" * 1000}\xC0\x80".b
@@ -84,8 +87,10 @@ class TestTransportDispatchViolations < Minitest::Test
     answer = reify(dispatch(payload_call(over_deep_payload)))
 
     assert_predicate answer, :error?
-    assert_equal "runtime", answer.payload.type
-    assert_match(/Sandbox received a malformed request/, answer.payload.message)
+    assert_equal "internal", answer.payload.type,
+                 "a payload past the nesting bound through the Call payload must refuse as " \
+                 "an internal fault — the Service never ran, so nothing about it failed"
+    assert_match(/Sandbox could not read the request/, answer.payload.message)
   end
 
   # ---------- Catalog::Handles exhaustion (SPEC B-21 / E-07) ----------
@@ -99,20 +104,17 @@ class TestTransportDispatchViolations < Minitest::Test
   # @handler.alloc, and the cap raise surfaces via the dispatcher's
   # rescue chain on the fault arm the guest observes.
   def test_handler_exhaustion_during_wrap_return_takes_the_fault_arm
-    # Test seam: Catalog::Handles.new(next_id:) lets us pin the counter
-    # at MAX_ID + 1 without 2^31 allocations. SPEC documents this seam
-    # at Catalog::Handles "Build a fresh, empty Handler" — the parameter
-    # is explicitly intended for cap-exhaustion testing.
-    exhausted = Kobako::Catalog::Handles.new(next_id: Kobako::Handle::MAX_ID + 1)
-    registry = Kobako::Catalog::Services.new
-    registry.bind("Factory::Make", object_factory)
-    call = build_call("Factory::Make", "make", [], {})
-
-    answer = reify(dispatch(call, server: registry, handler: exhausted))
+    answer = reify(dispatch(build_call("Factory::Make", "make", [], {}),
+                            server: factory_registry, handler: exhausted_handles))
 
     assert_predicate answer, :error?
-    assert_equal "runtime", answer.payload.type
-    assert_match(/Kobako::HandleExhaustedError/, answer.payload.message)
+    assert_equal "internal", answer.payload.type,
+                 "a Service answer the exhausted table cannot issue a Handle for must refuse " \
+                 "as an internal fault — the Service ran and succeeded"
+    assert_match(/Out of handle allocations/, answer.payload.message)
+    refute_match(/Kobako::/, answer.payload.message,
+                 "kobako's own refusal must not wear the <class>: <message> shape a Service " \
+                 "exception crosses in, which would read as the Service having raised it")
   end
 
   def test_handler_exhaustion_propagates_as_sandbox_error_class
@@ -156,5 +158,16 @@ class TestTransportDispatchViolations < Minitest::Test
   # non-wire-representable return value that drives B-21 exhaustion.
   def object_factory
     Class.new { def make = Object.new }.new
+  end
+
+  def factory_registry
+    Kobako::Catalog::Services.new.tap { |registry| registry.bind("Factory::Make", object_factory) }
+  end
+
+  # Test seam: Catalog::Handles.new(next_id:) pins the counter at
+  # MAX_ID + 1 without 2^31 allocations. Catalog::Handles documents the
+  # parameter as intended for cap-exhaustion testing.
+  def exhausted_handles
+    Kobako::Catalog::Handles.new(next_id: Kobako::Handle::MAX_ID + 1)
   end
 end

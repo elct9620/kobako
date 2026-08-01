@@ -75,7 +75,7 @@ impl<'a> Handles<'a> {
             .lock()
             .expect("the Handle table mutex is never poisoned")
             .alloc(object)
-            .map_err(|message| Fault::new(FaultKind::Runtime, message))
+            .map_err(|message| Fault::new(FaultKind::Internal, message))
     }
 
     /// Resolve a Handle id to the live host object it stands for; `None`

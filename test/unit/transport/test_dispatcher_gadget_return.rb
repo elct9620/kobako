@@ -28,15 +28,7 @@ class TestDispatchGadgetReturn < Minitest::Test
   end
 
   def test_reflective_gadget_return_is_refused_not_wrapped
-    %w[a_method a_binding an_unbound].each do |meth|
-      resp = dispatch(meth)
-      assert_equal false, resp.ok?,
-                   "a Service returning ##{meth} must not mint a callable Handle onto host reflection"
-      assert_equal "runtime", resp.payload.type,
-                   "##{meth} gadget return must surface as the runtime fault (E-44)"
-      assert_equal 0, @handler.size,
-                   "##{meth} must allocate no Handle entry"
-    end
+    %w[a_method a_binding an_unbound].each { |meth| assert_gadget_refused(meth) }
   end
 
   def test_proc_return_is_still_wrapped_as_handle
@@ -46,5 +38,21 @@ class TestDispatchGadgetReturn < Minitest::Test
     assert_equal true, resp.ok?,
                  "a returned Proc must still cross as a Capability Handle"
     assert_instance_of Kobako::Handle, resp.payload
+  end
+
+  private
+
+  def assert_gadget_refused(meth)
+    resp = dispatch(meth)
+
+    assert_equal false, resp.ok?,
+                 "a Service returning ##{meth} must not mint a callable Handle onto host reflection"
+    assert_equal "runtime", resp.payload.type,
+                 "##{meth} gadget return must surface as the runtime fault (E-44)"
+    refute_match(/Kobako::/, resp.payload.message,
+                 "the refusal of ##{meth} is kobako's own, so it must not wear the " \
+                 "<class>: <message> shape a Service exception crosses in")
+    assert_equal 0, @handler.size,
+                 "##{meth} must allocate no Handle entry"
   end
 end

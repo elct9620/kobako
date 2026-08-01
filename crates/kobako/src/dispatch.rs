@@ -502,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn a_malformed_payload_folds_into_a_runtime_fault() {
+    fn a_malformed_payload_folds_into_an_internal_fault() {
         // The envelope is well-formed; only its payload is garbage — the
         // arm the codec owns, so the handler answers with a fault
         // rather than letting the failure reach the driver.
@@ -517,8 +517,9 @@ mod tests {
             .expect("this handler never returns None");
         assert_eq!(
             fault_type(&answer(reply)),
-            "runtime",
-            "an undecodable payload must fold into the runtime fault arm"
+            "internal",
+            "an undecodable payload must fold into the internal fault arm — the Service \
+             never ran, so nothing about it failed"
         );
     }
 
