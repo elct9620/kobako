@@ -7,12 +7,10 @@
 
 require_relative "../support/spec/glossary"
 
-GLOSSARY_DATA = "docs/spec/_data/glossary.yml"
-
 namespace :spec do
   desc "Render every generated spec page from docs/spec/_data/."
   task :generate do
-    File.write(KobakoSpec::Glossary::OUTPUT, KobakoSpec::Glossary.render(KobakoSpec::Glossary.load(GLOSSARY_DATA)))
+    File.write(KobakoSpec::Glossary::OUTPUT, KobakoSpec::Glossary.render(KobakoSpec::Glossary.load))
     puts "spec:generate: #{KobakoSpec::Glossary::OUTPUT}"
   end
 end

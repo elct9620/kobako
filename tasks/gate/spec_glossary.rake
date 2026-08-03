@@ -21,7 +21,7 @@ namespace :gate do
   namespace :spec do
     desc "Check the glossary declares each concept once and rejects only unused names."
     task :glossary do
-      entries = KobakoSpec::Glossary.load("docs/spec/_data/glossary.yml")
+      entries = KobakoSpec::Glossary.load
       sources = GLOSSARY_CORPUS.to_h { |path| [path, File.read(path)] }
       violations = KobakoSpec::Glossary.violations(entries, sources)
 

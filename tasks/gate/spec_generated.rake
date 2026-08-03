@@ -18,7 +18,7 @@ namespace :gate do
     desc "Check every generated spec page matches its docs/spec/_data/ source."
     task :generated do
       page = KobakoSpec::Glossary::OUTPUT
-      rendered = KobakoSpec::Glossary.render(KobakoSpec::Glossary.load("docs/spec/_data/glossary.yml"))
+      rendered = KobakoSpec::Glossary.render(KobakoSpec::Glossary.load)
       stale = File.exist?(page) && File.read(page) == rendered ? [] : ["#{page}: differs from its data file"]
 
       puts KobakoReport.gate(name: "gate:spec:generated",

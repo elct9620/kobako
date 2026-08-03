@@ -4,7 +4,7 @@ require "yaml"
 
 module KobakoSpec
   # Reader and renderer behind +rake spec:generate+ and +rake gate:spec:glossary+:
-  # the ubiquitous language declared in +docs/spec/_data/glossary.yml+.
+  # the ubiquitous language every other specification is written in.
   #
   # The glossary is the layer every other spec is written in, so it names
   # concepts and nothing below them — no Ruby or Rust spelling, no anchor. That
@@ -18,6 +18,9 @@ module KobakoSpec
   # check that keeps it true. The rendered glossary is excluded from that count:
   # the page that declares a rejection is not a use of it.
   module Glossary
+    # Where the concepts are declared.
+    SOURCE = "docs/spec/_data/glossary.yml"
+
     # The rendered page, excluded from the banned-word scan.
     OUTPUT = "docs/spec/glossary.md"
 
@@ -37,8 +40,8 @@ module KobakoSpec
     module_function
 
     # The declared entries, in file order — the order the page renders in.
-    def load(path)
-      YAML.safe_load_file(path)
+    def load
+      YAML.safe_load_file(SOURCE)
     end
 
     # +entries+ as the glossary page: the terms, then the names they reject.
