@@ -83,4 +83,69 @@ class TestCodecContainers < Minitest::Test
                    "an over-deep wire value must surface as a catchable wire violation, " \
                    "not a host SystemStackError the dispatcher's rescue StandardError would miss"
   end
+
+  # The encode-side twin of the guard above. The msgpack gem bounds its
+  # unpacker's recursion but not its packer's, so a value that nests
+  # without bound leaves the packer as a Ruby SystemStackError — outside
+  # the StandardError family every caller of this codec rescues. The
+  # dispatch answer and the yield argument are both encoded here, so an
+  # unmapped overflow escapes the dispatcher's boundary and traps the
+  # invocation instead of reporting the Service's own value.
+  #
+  # It must not answer as UnsupportedTypeError either: that is the one
+  # codec fault the dispatch answer path rescues into Handle allocation,
+  # so an over-deep value routed there would be minted as an opaque Handle
+  # rather than refused — the opposite of what the #run argument path does
+  # with the same value (E-54).
+  def test_cyclic_array_encodes_as_a_catchable_wire_violation
+    cyclic = []
+    cyclic << cyclic
+
+    error = assert_raises(InvalidTypeError) { Encoder.encode(cyclic) }
+
+    assert_kind_of StandardError, error,
+                   "a self-referential Array through Encoder.encode must surface as a catchable " \
+                   "wire violation, not a host SystemStackError the dispatcher's rescue " \
+                   "StandardError would miss"
+  end
+
+  # The Hash half of the same shape is out of this codec's reach. msgpack
+  # walks a Hash through `rb_hash_foreach`, whose C frames carry no Ruby
+  # stack guard, so a cycle exhausts the machine stack and the interpreter
+  # dies before any rescue here can run — with or without kobako in the
+  # picture. Only refusing the value before the packer is handed it would
+  # reach this case.
+  def test_cyclic_hash_is_out_of_reach_of_a_host_side_mapping
+    skip "a cyclic Hash kills the interpreter inside msgpack's rb_hash_foreach walk, so no " \
+         "assertion about Encoder.encode can be made from inside this process"
+  end
+
+  # An acyclic tree deep enough to exhaust the packer refuses the same way
+  # and is equally unwitnessable: a structure that deep outlives the example
+  # and overflows the collector's own walk, taking the runner down during a
+  # later test.
+
+  # Characterization of the one asymmetry left in this codec. The msgpack
+  # gem bounds its unpacker at the wire bound but offers no limit to set on
+  # its packer, so this host writes a value its own reader refuses — and the
+  # guest, whose encoder does carry the bound, refuses it too. Nothing
+  # crosses that should not; the reporting side simply moves. Giving the
+  # encoder the bound would change this test deliberately.
+  def test_the_encoder_writes_past_the_bound_its_own_decoder_enforces
+    past_bound = (1..(Kobako::Codec::MAX_NESTING_DEPTH + 1)).reduce([]) { |inner, _| [inner] }
+
+    bytes = Encoder.encode(past_bound)
+
+    assert_raises(InvalidTypeError) { Decoder.decode(bytes) }
+  end
+
+  def test_the_bound_the_decoder_enforces_is_the_wire_bound
+    at_bound = (1..Kobako::Codec::MAX_NESTING_DEPTH).reduce([]) { |inner, _| [inner] }
+
+    _, decoded = roundtrip(at_bound)
+
+    assert_equal at_bound, decoded,
+                 "a value nesting exactly to the wire bound must round-trip through this host's " \
+                 "codec, so the depth this host refuses at is the documented one"
+  end
 end

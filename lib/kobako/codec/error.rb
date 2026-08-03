@@ -18,7 +18,8 @@ module Kobako
     class TruncatedInputError < Error; end
 
     # The type byte at the current position is not in the 11-entry kobako
-    # type mapping (e.g. an unknown ext code, or a reserved msgpack tag).
+    # type mapping (e.g. an unknown ext code, or a reserved msgpack tag) —
+    # or, on encode, a value nesting past what the packer can walk.
     class InvalidTypeError < Error; end
 
     # A msgpack +str+ payload was not valid UTF-8, or an ext 0x00 Symbol

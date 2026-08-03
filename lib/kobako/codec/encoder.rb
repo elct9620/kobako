@@ -30,10 +30,18 @@ module Kobako
       # rescue below maps the two violations the guard does not reach onto the
       # same error: an integer outside i64..u64 (+RangeError+) and any
       # packer-internal +NoMethodError+.
+      #
+      # A value that nests without bound — a reference cycle necessarily
+      # does — exhausts the packer's own recursion instead, which Ruby
+      # reports outside +StandardError+. Mapping it keeps an unwritable
+      # value a wire violation the dispatch boundary can answer, rather than
+      # one that escapes every caller's rescue and traps the invocation.
       def self.encode(value)
         FACTORY.dump(value)
       rescue ::RangeError, ::NoMethodError => e
         raise UnsupportedTypeError, e.message
+      rescue ::SystemStackError
+        raise InvalidTypeError, "value nests deeper than this host can write (a reference cycle necessarily does)"
       end
     end
   end
