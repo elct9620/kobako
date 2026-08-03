@@ -10,6 +10,7 @@ require "test_helper"
 # test_dispatcher.rb.
 class TestTransportDispatchViolations < Minitest::Test
   include DispatcherHelpers
+  include StackQuarantine
 
   # E-10, on the ext 0x00 rule (docs/wire/payload-msgpack.md § Ext
   # Types → ext 0x00): kwargs map keys MUST be ext
@@ -91,6 +92,41 @@ class TestTransportDispatchViolations < Minitest::Test
                  "a payload past the nesting bound through the Call payload must refuse as " \
                  "an internal fault — the Service never ran, so nothing about it failed"
     assert_match(/Sandbox could not read the request/, answer.payload.message)
+  end
+
+  # ---------- Over-deep answer (the outbound twin) ----------
+
+  # The same codec fault in the other direction is not the same failure.
+  # Inbound, the request never became a call, so no Service outcome exists to
+  # report (`internal`). Outbound, a Service ran and handed over a value the
+  # host cannot write — it is the Service that has to change what it returns
+  # for the same call to succeed, which is the question the fault category
+  # answers (docs/behavior/errors.md § Dispatch failure attribution). It is
+  # the position E-44 already occupies one step further along the same path,
+  # where an unwrappable gadget is refused at the mint.
+  #
+  # Each case runs on a stack of its own: the refusal costs the thread that
+  # takes it (see StackQuarantine).
+  def test_an_answer_the_host_cannot_write_is_the_services_own_failure
+    @registry.bind("Cyclic::Answer", ->(_) { [].tap { |a| a << a } })
+
+    answer = in_a_spendable_stack { reify(dispatch(build_call("Cyclic::Answer", "call", ["x"], {}))) }
+
+    assert_predicate answer, :error?
+    assert_equal "runtime", answer.payload.type,
+                 "a Service answer the host cannot write must refuse as the Service's own " \
+                 "failure — it ran, and only it can change what it returns"
+    assert_match(/could not write the Service's answer/, answer.payload.message)
+  end
+
+  def test_an_unwritable_answer_answers_in_kobakos_own_wording
+    @registry.bind("Cyclic::Answer", ->(_) { [].tap { |a| a << a } })
+
+    answer = in_a_spendable_stack { reify(dispatch(build_call("Cyclic::Answer", "call", ["x"], {}))) }
+
+    refute_match(/Kobako::/, answer.payload.message,
+                 "kobako's own refusal must not wear the <class>: <message> shape a Service " \
+                 "exception crosses in, which would read as the Service having raised it")
   end
 
   # ---------- Catalog::Handles exhaustion (SPEC B-21 / E-07) ----------

@@ -9,6 +9,7 @@ require "test_helper"
 # lives in test_yield_block_failure.rb.
 class TestE2EYieldValueRefusal < Minitest::Test
   include E2eGuestHelper
+  include StackQuarantine
 
   YIELD_ONCE = "Probe::Yields.call { |x| x }"
 
@@ -62,6 +63,19 @@ class TestE2EYieldValueRefusal < Minitest::Test
                  "shape a Service exception crosses in")
   end
 
+  # The site refuses two unlike values: one the wire has no type for, and one
+  # it cannot reach the end of. Both are the Service's own outbound value, so
+  # both answer here rather than travelling any further. This one runs on a
+  # stack of its own — refusing it costs the thread that takes it (see
+  # StackQuarantine).
+  def test_e57_a_yield_argument_that_nests_without_bound_refuses_at_the_same_site
+    seen = in_a_spendable_stack { cyclic_yield_sandbox.eval(YIELD_ONCE).value }
+
+    assert_equal :recovered, seen,
+                 "a yield argument nesting without bound must reach the Service at its own " \
+                 "yield site, the way a value outside the wire type set does"
+  end
+
   private
 
   # A Service yielding a value with no wire representation, rescuing the
@@ -81,6 +95,18 @@ class TestE2EYieldValueRefusal < Minitest::Test
   def propagating_sandbox
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Yields", ->(&blk) { blk.call(Object.new) })
+    sandbox
+  end
+
+  # The same Service again, yielding a value the wire has a type for but no
+  # end to.
+  def cyclic_yield_sandbox
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Probe::Yields", lambda do |&blk|
+      blk.call([].tap { |a| a << a })
+    rescue Kobako::YieldValueError
+      :recovered
+    end)
     sandbox
   end
 end

@@ -36,6 +36,12 @@ module Kobako
       # reports outside +StandardError+. Mapping it keeps an unwritable
       # value a wire violation the dispatch boundary can answer, rather than
       # one that escapes every caller's rescue and traps the invocation.
+      #
+      # The refusal is spent once per thread: a thread that has absorbed one
+      # such overflow aborts on the next instead of raising, and a Hash cycle
+      # never reaches Ruby at all — the packer walks a Hash through C frames
+      # that carry no stack guard. Bounding the walk before the packer is
+      # handed the value is what would make the refusal repeatable.
       def self.encode(value)
         FACTORY.dump(value)
       rescue ::RangeError, ::NoMethodError => e

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../codec"
+require_relative "../errors"
 require_relative "../payload"
 require_relative "call"
 require_relative "reflection"
@@ -226,10 +227,18 @@ module Kobako
       # +UnsupportedTypeError+; the rescue routes it through the
       # Catalog::Handles via #wrap_as_handle and re-encodes with the
       # Capability Handle in place. The happy path encodes exactly once.
+      #
+      # Any other codec fault is the answer failing to encode rather than the
+      # request failing to decode, and a Service is the only side that can
+      # change what it returns — so it is named here, where the direction is
+      # known, instead of falling to the boundary's codec floor and reporting
+      # as an exchange that produced no Service outcome.
       def encode_ok(value, handler)
         Kobako::Codec::Encoder.encode(value)
       rescue Kobako::Codec::UnsupportedTypeError
         encode_ok(wrap_as_handle(value, handler), handler)
+      rescue Kobako::Codec::Error => e
+        raise Kobako::SandboxError, "Sandbox could not write the Service's answer: #{e.message}"
       end
 
       # Allocate +value+ in the Sandbox's Catalog::Handles and return a +Handle+
