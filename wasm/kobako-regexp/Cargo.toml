@@ -26,7 +26,7 @@ beni = "0.10.0"
 # Pure-Rust regexp engine — the `regex` crate plus the backtracking
 # layer (backreferences, look-around) Ruby patterns reach for. `std`
 # only by default; `unicode` is opt-in.
-fancy-regex = { version = "0.18", default-features = false, features = ["std"] }
+fancy-regex = { version = "0.19", default-features = false, features = ["std"] }
 
 # Bounded LRU for the per-invocation compiled-pattern cache (docs/regexp.md
 # RX-08). Its default hashbrown backend keeps the hot-path lookup fast; the
