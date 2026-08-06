@@ -10,7 +10,7 @@
 
 [package]
 name = "kobako"
-version = "0.13.1"
+version = "0.14.0"
 edition = "2021"
 # Recovering a concrete host object from `Sandbox::resolve` upcasts
 # `Arc<dyn Receiver>` to `Arc<dyn Any>`, which needs trait-upcasting.
@@ -24,21 +24,21 @@ categories = ["wasm", "virtualization"]
 
 [dependencies]
 # Fixed tier: the core envelope every message rides in.
-kobako-transport = { path = "../kobako-transport", version = "0.13.1" }
+kobako-transport = { path = "../kobako-transport", version = "0.14.0" }
 
 # Payload codec: the default schema this SDK's `ValueReceiver` speaks.
 # Optional, because every payload position has a byte-level entry: a host
 # whose Receivers speak another schema builds without a codec at all.
-kobako-codec = { path = "../kobako-codec", version = "0.13.1", optional = true }
+kobako-codec = { path = "../kobako-codec", version = "0.14.0", optional = true }
 
 # Engine-neutral contract the Sandbox drives an engine through.
-kobako-runtime = { path = "../kobako-runtime", version = "0.13.1" }
+kobako-runtime = { path = "../kobako-runtime", version = "0.14.0" }
 
 # Default engine: the wasmtime driver implementing the contract.
 # Optional, because `Sandbox::with_runtime` takes any `Runtime`: a host
 # bringing its own engine builds without this one, and the claim that the
 # engine is replaceable becomes a fact about the dependency graph.
-kobako-wasmtime = { path = "../kobako-wasmtime", version = "0.13.1", optional = true }
+kobako-wasmtime = { path = "../kobako-wasmtime", version = "0.14.0", optional = true }
 
 # Unconditional here, and only here: the bundled guest speaks MessagePack
 # whatever this crate is built with, so a test that drives it needs to

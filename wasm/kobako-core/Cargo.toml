@@ -13,7 +13,7 @@
 
 [package]
 name = "kobako-core"
-version = "0.13.1"
+version = "0.14.0"
 edition = "2021"
 description = "Contract crate for kobako Guest Binaries — the Guest ABI exports and dispatch proxy over the kobako wire."
 license = "Apache-2.0"
@@ -27,4 +27,4 @@ categories = ["wasm"]
 # needs the envelope and the ABI's values; it needs no payload codec, so
 # a guest that speaks another schema reaches MessagePack through neither
 # this crate nor its graph.
-kobako-transport = { version = "0.13.1", path = "../../crates/kobako-transport" }
+kobako-transport = { version = "0.14.0", path = "../../crates/kobako-transport" }

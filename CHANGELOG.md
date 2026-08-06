@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.22.0](https://github.com/elct9620/kobako/compare/v0.21.1...v0.22.0) (2026-08-06)
+
+
+### Features
+
+* **spec:** give the ubiquitous language a place N-6 can be checked from ([ab44dba](https://github.com/elct9620/kobako/commit/ab44dba0b08e558a5b96b95b3c4d1c70bf6bc7ad))
+* **transport:** give a failed Service call a class that says why ([b39f176](https://github.com/elct9620/kobako/commit/b39f1761e9922b7ac761571393f9a6f4478ae522))
+* **transport:** let a guest block's exception continue as itself ([c8b1de7](https://github.com/elct9620/kobako/commit/c8b1de7154336fab8fa20c0d7a5b3baaad11d551))
+* **transport:** separate a failed exchange from a failed Service ([fb92515](https://github.com/elct9620/kobako/commit/fb92515fc76ffebbb8491b525d53b1725cf97dd0))
+
+
+### Bug Fixes
+
+* **codec:** keep a value the packer cannot walk inside the codec taxonomy ([ac99d58](https://github.com/elct9620/kobako/commit/ac99d58f0c9a274b230d645d7c37aba88516eab2))
+* **regexp:** stop raising where MRI answers no match ([d229974](https://github.com/elct9620/kobako/commit/d2299740a2a0206c88e7c397cdb72dc730c4c1cf))
+* **transport:** answer a held block failure only to the block that raised ([24dfd6e](https://github.com/elct9620/kobako/commit/24dfd6ec999e0ba1587b9c69da6d2b29563fc875))
+* **transport:** report a yield the host cannot write as the Service's ([19459f8](https://github.com/elct9620/kobako/commit/19459f87555190043127290441bf6b95bcad93d6))
+* **transport:** report an answer the host cannot write as the Service's ([bff4cdc](https://github.com/elct9620/kobako/commit/bff4cdccc076859d7da43f5dedb9a283ffed94ee))
+* **transport:** spend a block's failure when its Service yields again ([3042a72](https://github.com/elct9620/kobako/commit/3042a72b9e3bb0d6a1d5cb5734d7eaee6a669e85))
+* **wire:** let a Fault reader survive what it predates ([eeabfb7](https://github.com/elct9620/kobako/commit/eeabfb7aa4de3d08852ca1b41517b924d72a7312))
+
 ## [0.21.1](https://github.com/elct9620/kobako/compare/v0.21.0...v0.21.1) (2026-07-30)
 
 

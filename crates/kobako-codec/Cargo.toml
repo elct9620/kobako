@@ -14,7 +14,7 @@
 
 [package]
 name = "kobako-codec"
-version = "0.13.1"
+version = "0.14.0"
 edition = "2021"
 description = "Payload codecs for the kobako wire — the replaceable half that rides inside a core envelope, MessagePack by default."
 license = "Apache-2.0"
