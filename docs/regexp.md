@@ -237,3 +237,26 @@ reports no match for every pattern while a pattern source matches at every
 position. Unlike a payload `String`, which has a second wire family to ride
 (→ [`wire/payload-msgpack.md`](wire/payload-msgpack.md) § Text and Bytes),
 there is no non-UTF-8 regular expression to run.
+
+### RX-10 — Matching is bounded, and reaching the bound raises
+
+A match runs under a backtracking ceiling. A pattern that reaches it fails with
+`RegexpError` at the call that ran the match, exactly as an uncompilable pattern
+fails at the call that built it; uncaught, either reaches the host as
+`Kobako::SandboxError` (E-04). A pattern carrying no backreference and no
+look-around runs on the linear engine, never backtracks, and never meets the
+ceiling.
+
+The ceiling is not the only bound — the `timeout` cap (B-01 / E-19) interrupts a
+running match as well. What differs is what the guest is left holding: the
+ceiling raises an exception guest code can rescue and carry on from, while the
+cap ends the whole invocation with a trap it cannot.
+
+This is the one place the surface knowingly answers differently from MRI, and it
+is the exception B-41 reserves. A quantified group wrapping an alternation or a
+look-around can reach the ceiling where MRI returns an answer instead, because
+MRI's engine prunes a search this one explores. The ceiling is not raised to
+cover that class: a higher one charges every genuinely unbounded match a
+proportionally longer run before it fails, and those are the matches it exists
+for. Where MRI reaches an answer, this surface reaches the same answer or none
+at all — never a different one.
