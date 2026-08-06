@@ -21,7 +21,7 @@ to wasi-libc `write(2)`, so any guest shell can compose it.
 
 ```toml
 [dependencies]
-kobako-io = "0.13.1" # x-release-please-version
+kobako-io = "0.14.0" # x-release-please-version
 beni = "0.10"
 ```
 

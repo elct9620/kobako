@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.13.1...kobako-mruby-v0.14.0) (2026-08-06)
+
+
+### Features
+
+* **transport:** give a failed Service call a class that says why ([b39f176](https://github.com/elct9620/kobako/commit/b39f1761e9922b7ac761571393f9a6f4478ae522))
+* **transport:** let a guest block's exception continue as itself ([c8b1de7](https://github.com/elct9620/kobako/commit/c8b1de7154336fab8fa20c0d7a5b3baaad11d551))
+
+
+### Bug Fixes
+
+* **transport:** answer a held block failure only to the block that raised ([24dfd6e](https://github.com/elct9620/kobako/commit/24dfd6ec999e0ba1587b9c69da6d2b29563fc875))
+* **transport:** spend a block's failure when its Service yields again ([3042a72](https://github.com/elct9620/kobako/commit/3042a72b9e3bb0d6a1d5cb5734d7eaee6a669e85))
+
 ## [0.13.1](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.13.0...kobako-mruby-v0.13.1) (2026-07-30)
 
 

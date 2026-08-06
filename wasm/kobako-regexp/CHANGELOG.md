@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.13.1...kobako-regexp-v0.14.0) (2026-08-06)
+
+
+### Bug Fixes
+
+* **regexp:** stop raising where MRI answers no match ([d229974](https://github.com/elct9620/kobako/commit/d2299740a2a0206c88e7c397cdb72dc730c4c1cf))
+
 ## [0.13.1](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.13.0...kobako-regexp-v0.13.1) (2026-07-30)
 
 

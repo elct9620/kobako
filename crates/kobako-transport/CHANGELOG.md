@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.0](https://github.com/elct9620/kobako/compare/kobako-transport-v0.13.1...kobako-transport-v0.14.0) (2026-08-06)
+
+
+### Features
+
+* **transport:** let a guest block's exception continue as itself ([c8b1de7](https://github.com/elct9620/kobako/commit/c8b1de7154336fab8fa20c0d7a5b3baaad11d551))
+* **transport:** separate a failed exchange from a failed Service ([fb92515](https://github.com/elct9620/kobako/commit/fb92515fc76ffebbb8491b525d53b1725cf97dd0))
+
+
+### Bug Fixes
+
+* **wire:** let a Fault reader survive what it predates ([eeabfb7](https://github.com/elct9620/kobako/commit/eeabfb7aa4de3d08852ca1b41517b924d72a7312))
+
 ## [0.13.1](https://github.com/elct9620/kobako/compare/kobako-transport-v0.13.0...kobako-transport-v0.13.1) (2026-07-30)
 
 
