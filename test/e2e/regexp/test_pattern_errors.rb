@@ -2,10 +2,11 @@
 
 require "test_helper"
 
-# How a pattern that cannot compile or cannot be matched cheaply surfaces
-# (SPEC.md B-41; docs/regexp.md RX-01). The guest raises RegexpError, which
-# reaches an uncatching host as SandboxError; the backtracking ceiling behind
-# the match-time half bounds compute without overriding an answer MRI reaches.
+# How a pattern that cannot compile, or a match MRI itself cannot answer,
+# surfaces (SPEC.md B-41; docs/regexp.md RX-01). The guest raises RegexpError,
+# which reaches an uncatching host as SandboxError. The backtracking ceiling
+# behind the match-time half is scoped to what MRI cannot answer either: where
+# MRI reaches an answer, the guest must reach the same one.
 class TestRegexpPatternErrors < Minitest::Test
   include RegexpGuestHelper
 
@@ -26,23 +27,24 @@ class TestRegexpPatternErrors < Minitest::Test
                "a nested-quantifier backreference through Regexp#match must answer nil, as MRI does"
   end
 
-  # A match the engine cannot bound reaches the backtracking ceiling; left
+  # The witness leaves MRI running for over three minutes without an answer,
+  # so reaching the ceiling costs nothing MRI could have delivered. Left
   # uncaught, that guest RegexpError surfaces to the host as SandboxError just
   # as a compile-time one does.
   def test_unbounded_match_raises_sandbox_error
     assert_raises(Kobako::SandboxError,
-                  "a match past the backtracking ceiling surfaces a guest RegexpError as SandboxError") do
-      eval_regexp('/(a|aa)+\1$/.match("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!")')
+                  "a match MRI cannot answer either surfaces a guest RegexpError as SandboxError") do
+      eval_regexp('/(a|aa|aaa)+\1$/.match("a" * 40 + "!")')
     end
   end
 
   # The RegexpError diagnostic quotes the pattern; quoting the subject instead
   # would mislabel user data as the invalid expression.
   def test_match_time_engine_error_names_the_pattern
-    message = eval_regexp('begin; /(a|aa)+\1$/.match("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"); "matched"; ' \
+    message = eval_regexp('begin; /(a|aa|aaa)+\1$/.match("a" * 40 + "!"); "matched"; ' \
                           "rescue RegexpError => e; e.message; end")
 
-    assert_includes message, "(a|aa)+",
+    assert_includes message, "(a|aa|aaa)+",
                     "a match-time engine error through Regexp#match must name the pattern source"
     refute_includes message, "aaaaaaaa",
                     "a match-time engine error through Regexp#match must not embed the subject"
