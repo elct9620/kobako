@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 # Shared setup for the focused Regexp / MatchData / String coverage classes
-# under test/regexp/ (SPEC.md B-41). The kobako-regexp gem is opt-in, so its
-# surface lives only in the variant Guest Binaries — these scenarios drive
+# under test/e2e/regexp/ (SPEC.md B-41). The kobako-regexp gem is opt-in, so
+# its surface lives only in the variant Guest Binaries — these scenarios drive
 # the unicode variant (the full curated surface) and assert kobako-regexp's
 # specified contract directly: byte-based offsets, the curated method
 # surface, and the MRI-aligned option / global semantics.

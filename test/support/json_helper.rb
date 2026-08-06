@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Shared setup for the JSON capability coverage under test/json/ (SPEC.md
+# Shared setup for the JSON capability coverage under test/e2e/json/ (SPEC.md
 # B-52 / B-53, docs/json.md JS-01..09). kobako-json is opt-in, so its
 # surface lives only in the json variant Guest Binary — these scenarios
 # drive data/kobako+json.wasm and assert the JS-xx contract directly.

@@ -3,7 +3,7 @@
 The behavior contract for the guest `Regexp` / `MatchData` capability,
 expanding the [B-41](../SPEC.md) capability anchor. Behaviors carry `RX-xx`
 anchors that are append-only and live only in this file; each maps to a test
-in `test/regexp/`.
+in `test/e2e/regexp/`.
 
 ## Intent
 

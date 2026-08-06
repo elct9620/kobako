@@ -2,7 +2,7 @@
 
 The behavior contract for the guest `JSON` capability, expanding the
 [B-52](../SPEC.md) capability anchor. Behaviors carry `JS-xx` anchors that are
-append-only and live only in this file; each maps to a test in `test/json/`.
+append-only and live only in this file; each maps to a test in `test/e2e/json/`.
 
 ## Intent
 
