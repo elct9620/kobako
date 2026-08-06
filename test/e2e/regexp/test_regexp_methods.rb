@@ -3,8 +3,8 @@
 require "test_helper"
 
 # Regexp instance- and class-method contract (SPEC.md B-41). Offsets are
-# byte-based; #options reports MRI's option bits; an invalid pattern and a
-# runaway backtracking pattern both surface as a guest RegexpError.
+# byte-based and #options reports MRI's option bits; how a pattern that cannot
+# compile or match cheaply surfaces is covered in test_pattern_errors.rb.
 class TestRegexpMethods < Minitest::Test
   include RegexpGuestHelper
 
@@ -82,36 +82,6 @@ class TestRegexpMethods < Minitest::Test
                  "Regexp#options combines MRI's IGNORECASE|MULTILINE bits (5)"
   end
 
-  # An unbalanced pattern fails to compile; the guest RegexpError surfaces to
-  # the host as SandboxError.
-  def test_invalid_pattern_raises_sandbox_error
-    assert_raises(Kobako::SandboxError,
-                  "an invalid pattern surfaces a guest RegexpError as SandboxError") do
-      eval_regexp('Regexp.new("(")')
-    end
-  end
-
-  # A backreference pattern that blows past the engine's backtracking limit
-  # raises rather than running unbounded.
-  def test_catastrophic_backtracking_raises_rather_than_hanging
-    assert_raises(Kobako::SandboxError,
-                  "a fancy pattern past the backtrack limit raises, not hangs") do
-      eval_regexp('/(a+)+\1$/.match("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!")')
-    end
-  end
-
-  # The RegexpError diagnostic quotes the pattern; quoting the subject instead
-  # would mislabel user data as the invalid expression.
-  def test_match_time_engine_error_names_the_pattern
-    message = eval_regexp('begin; /(a+)+\1$/.match("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"); "matched"; ' \
-                          "rescue RegexpError => e; e.message; end")
-
-    assert_includes message, "(a+)+",
-                    "a match-time engine error through Regexp#match must name the pattern source"
-    refute_includes message, "aaaaaaaa",
-                    "a match-time engine error through Regexp#match must not embed the subject"
-  end
-
   # #named_captures maps each capture name to the list of group numbers that
   # carry it (name => [index]); #names is its key list.
   def test_named_captures_maps_names_to_group_numbers
@@ -133,12 +103,5 @@ class TestRegexpMethods < Minitest::Test
   def test_names_is_empty_without_named_groups
     assert_equal [], eval_regexp("/(.)(.)/.names"),
                  "Regexp#names is empty when no group is named"
-  end
-
-  # The gem provides RegexpError as a StandardError subclass, so guest code
-  # can rescue a bad pattern with a bare rescue or rescue StandardError.
-  def test_regexp_error_is_a_standard_error
-    assert_equal true, eval_regexp("RegexpError.ancestors.include?(StandardError)"),
-                 "RegexpError is a StandardError subclass guest code can rescue"
   end
 end
