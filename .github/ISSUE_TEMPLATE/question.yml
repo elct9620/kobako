@@ -1,0 +1,27 @@
+name: Question
+description: Ask how to do something, or tell us where the docs left you stuck
+labels: ["type: question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If something behaves differently from what the docs say, open a bug report
+        instead. Anything else is welcome here.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: What you are trying to do
+      description: The task you are working on, and where you got stuck.
+    validations:
+      required: true
+
+  - type: textarea
+    id: looked
+    attributes:
+      label: Where you looked
+      description: |
+        Which docs or examples you read before asking. "None" is a fine answer — it
+        tells us the answer was hard to find.
+    validations:
+      required: true

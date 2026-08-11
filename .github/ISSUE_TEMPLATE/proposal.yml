@@ -1,0 +1,46 @@
+name: Proposal
+description: Propose a new capability or a change to existing behaviour
+labels: ["type: proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tell us the problem and how you want to use kobako. Contracts, naming and
+        implementation are decided after a proposal is accepted, so you do not need
+        to know the spec to open one.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues, including closed ones, and this has not been proposed.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: |
+        Who is blocked, in what situation, and how do you work around it today?
+        Say so explicitly if there is no workaround.
+    validations:
+      required: true
+
+  - type: textarea
+    id: usage
+    attributes:
+      label: How you want to use it
+      description: |
+        Show the host code and the guest script you would like to write. A sketch is
+        enough — it does not have to work today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you already tried
+      description: What you attempted with the current release, and why it fell short.
+    validations:
+      required: false

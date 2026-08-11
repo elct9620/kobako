@@ -1,0 +1,103 @@
+name: Bug report
+description: Report behaviour that differs from what kobako documents
+labels: ["type: bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A sandbox escape or other isolation failure is a security issue — report it
+        privately through the [security advisory](https://github.com/elct9620/kobako/security/advisories/new)
+        flow, not here.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and this has not been reported.
+          required: true
+        - label: I am on the latest 0.x release — fixes only land there.
+          required: true
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: What went wrong
+      options:
+        - A guest script behaved unexpectedly
+        - A host API returned or raised something unexpected
+        - The process crashed or hung
+        - Install or build failed
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frontend
+    attributes:
+      label: Frontend
+      options:
+        - Ruby gem
+        - Rust SDK
+    validations:
+      required: true
+
+  - type: dropdown
+    id: guest
+    attributes:
+      label: Guest binary
+      description: Release assets carry a version suffix; pick the matching name here.
+      options:
+        - kobako.wasm (default)
+        - kobako+regexp.wasm
+        - kobako+regexp-unicode.wasm
+        - kobako+json.wasm
+        - kobako+full.wasm
+        - Something I built myself
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: |
+        The smallest host code and guest script that show the problem. Both halves are
+        needed — the boundary between them is where most bugs live. For an install or
+        build failure, paste the command and its output instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Error output
+      description: The full message or backtrace, if there was one.
+    validations:
+      required: false
+
+  - type: textarea
+    id: version
+    attributes:
+      label: Version
+      description: |
+        Paste the output of `ruby -rkobako -e 'puts Kobako::VERSION, RUBY_DESCRIPTION'`.
+        For the Rust SDK, give the kobako version from `Cargo.lock` and the output of `rustc -V`.
+      render: shell
+    validations:
+      required: true
