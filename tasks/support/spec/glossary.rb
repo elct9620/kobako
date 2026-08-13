@@ -72,7 +72,7 @@ module KobakoSpec
     def duplicates(entries)
       entries.map { |entry| entry["term"] }
              .tally.select { |_, count| count > 1 }
-                   .map { |term, count| "#{term}: declared #{count} times" }
+             .map { |term, count| "#{term}: declared #{count} times" }
     end
     private_class_method :duplicates
 

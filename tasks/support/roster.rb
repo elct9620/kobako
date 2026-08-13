@@ -35,7 +35,7 @@ module KobakoRoster
   # — how an instrument names its scan roots without a private tier list.
   def tier_paths(kinds, categories: CATEGORIES)
     categories.values.select { |category| kinds.include?(category[:kind]) }
-                     .flat_map { |category| category[:paths] }
+              .flat_map { |category| category[:paths] }
   end
 
   # The repo's publishable modules — the gem, then one entry per Cargo

@@ -19,7 +19,7 @@ namespace :stats do
     roots = KobakoRoster.tier_paths(%i[code tooling])
     churn = KobakoHotspots.churn(`git log #{tag}..HEAD --name-only --pretty=format:`, roots: roots)
     sizes = churn.keys.select { |path| File.exist?(path) }
-                      .to_h { |path| [path, KobakoHotspots.impl_lines(path, File.read(path))] }
+                 .to_h { |path| [path, KobakoHotspots.impl_lines(path, File.read(path))] }
     ruby_sources = FileList[roots.map { |root| "#{root}/**/*.{rb,rake}" }].to_h { |path| [path, File.read(path)] }
 
     rows = KobakoHotspots.rows(churn: churn, sizes: sizes, fan_in: KobakoHotspots.fan_in(ruby_sources))

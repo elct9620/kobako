@@ -114,7 +114,7 @@ module KobakoAnchorCoverage
   def defined_anchors(def_sources)
     def_sources.flat_map do |prefix, files|
       files.values.flat_map { |text| KobakoAnchors.definitions(text, prefix) }
-                  .map { |number| name(prefix, number) }
+           .map { |number| name(prefix, number) }
     end
   end
 
