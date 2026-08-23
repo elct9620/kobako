@@ -1,120 +1,83 @@
 # frozen_string_literal: true
 
-require "yaml"
+require "json"
 
 module KobakoSpec
-  # Reader and renderer behind +rake spec:generate+ and +rake gate:spec:glossary+:
-  # the ubiquitous language every other specification is written in.
+  # Reader behind +rake gate:spec:glossary+: the structural checks sumi does
+  # not make about the vocabulary it reads.
   #
-  # The glossary is the layer every other spec is written in, so it names
-  # concepts and nothing below them — no Ruby or Rust spelling, no anchor. That
-  # keeps what is checkable here purely structural: a concept cannot be told
-  # from a common technical term by any lexical rule, so "is this word missing
-  # from the glossary" stays a human reading rather than a gate.
+  # sumi owns the two things it can do from the source alone — writing the
+  # glossary page, and reporting each line where a rejected name is used. What
+  # it never asks is whether the declaration makes sense on its own terms, and
+  # the two ways it can fail both flag legitimate prose rather than the drift a
+  # rejection exists to catch: a name answering to two concepts, and a
+  # rejection naming a word that is itself one of our terms.
   #
-  # What a gate can settle is the negative space. A rejected name is only
-  # enforceable when the corpus never uses it in another sense, which makes the
-  # zero-occurrence count both the admission test for a +not+ entry and the
-  # check that keeps it true. The rendered glossary is excluded from that count:
-  # the page that declares a rejection is not a use of it.
+  # Both are asked per vocabulary rather than across the file, because one
+  # concept legitimately carries different definitions in different subdomains
+  # — that separation is the reason a subdomain exists.
   module Glossary
-    # Where the concepts are declared.
-    SOURCE = "docs/spec/_data/glossary.yml"
-
-    # The rendered page, excluded from the banned-word scan.
-    OUTPUT = "docs/spec/glossary.md"
-
-    # The prose the renderer wraps the tables in. The page states what a
-    # reader may do with it, since it carries no anchors to follow.
-    PREAMBLE = [
-      "kobako's ubiquitous language: one concept, one name. Every other " \
-      "specification is written in these words.",
-      "",
-      "Concepts only. How a concept is spelled in Ruby or Rust belongs to the " \
-      "interface spec, and what it does to the behavior spec — both are " \
-      "written in this vocabulary rather than referenced from it.",
-      "",
-      "Generated from `_data/glossary.yml` by `rake spec:generate`; edit that file."
-    ].freeze
+    # Where the vocabularies are declared. sumi reads this same file.
+    SOURCE = ".spec/glossary.json"
 
     module_function
 
-    # The declared entries, in file order — the order the page renders in.
+    # The declared vocabularies, in file order — Global first, then each
+    # subdomain, which is the order a later term overrides an earlier one in.
     def load
-      YAML.safe_load_file(SOURCE)
+      JSON.parse(File.read(SOURCE)).fetch("glossary")
     end
 
-    # +entries+ as the glossary page: the terms, then the names they reject.
-    # The rejection table is omitted when nothing is rejected yet, so an empty
-    # section never reads as a complete one.
-    def render(entries)
-      sections = ["# Glossary", "", *PREAMBLE, "", *terms_table(entries)]
-      rejected = rejections(entries)
-      sections += ["", "## Rejected names", "", *rejected_table(rejected)] unless rejected.empty?
-      "#{sections.join("\n")}\n"
+    # Every way +vocabularies+ can be wrong on its own terms, as reader-facing
+    # lines.
+    def violations(vocabularies)
+      vocabularies.flat_map { |vocabulary| duplicates(vocabulary) + self_rejections(vocabulary) }
     end
 
-    # Every way +entries+ can be wrong on its own terms, as reader-facing
-    # lines. +sources+ is the corpus as +{path => text}+.
-    def violations(entries, sources)
-      duplicates(entries) + self_rejections(entries) + live_rejections(entries, sources)
+    # +[term, word, reason]+ for each rejected name, in declaration order.
+    def rejections(vocabularies)
+      vocabularies.flat_map { |vocabulary| rejected_in(vocabulary) }
     end
 
-    # +[term, word, why]+ for each rejected name, in entry order.
-    def rejections(entries)
-      entries.flat_map do |entry|
-        (entry["not"] || []).map { |rejection| [entry["term"], rejection["word"], rejection["why"]] }
+    # Every declared term, in declaration order.
+    def terms(vocabularies)
+      vocabularies.flat_map { |vocabulary| vocabulary.fetch("terms").map { |declared| declared["term"] } }
+    end
+
+    # +[term, word, reason]+ for one vocabulary's rejected names.
+    def rejected_in(vocabulary)
+      vocabulary.fetch("terms").flat_map do |declared|
+        (declared["not"] || []).map { |rejection| [declared["term"], rejection["term"], rejection["reason"]] }
       end
     end
+    private_class_method :rejected_in
 
-    # Terms declared more than once (N-6: a concept has exactly one name, so
-    # a name answers to exactly one concept).
-    def duplicates(entries)
-      entries.map { |entry| entry["term"] }
-             .tally.select { |_, count| count > 1 }
-             .map { |term, count| "#{term}: declared #{count} times" }
+    # How a vocabulary names itself in a finding. Global carries no name, so
+    # the one it is given here is the one the reader already calls it.
+    def label(vocabulary)
+      vocabulary["name"] || "Global"
+    end
+    private_class_method :label
+
+    # Terms declared more than once within one vocabulary: a name answering to
+    # two concepts is what the one-concept-one-name rule forbids.
+    def duplicates(vocabulary)
+      vocabulary.fetch("terms")
+                .map { |declared| declared["term"] }
+                .tally.select { |_, count| count > 1 }
+                .map { |term, count| "#{label(vocabulary)}: #{term} declared #{count} times" }
     end
     private_class_method :duplicates
 
-    # Rejected names that are themselves declared terms. Both words being ours
-    # means the reader tells them apart from the definitions; scanning for one
-    # would flag every legitimate use of the other.
-    def self_rejections(entries)
-      terms = entries.map { |entry| entry["term"] }
-      rejections(entries).filter_map do |term, word, _|
-        "#{term}: rejects #{word.inspect}, which is a declared term" if terms.include?(word)
+    # Rejected names that are themselves declared in the same vocabulary. Both
+    # words being ours means the reader tells them apart from the definitions;
+    # scanning for one would flag every legitimate use of the other.
+    def self_rejections(vocabulary)
+      declared = vocabulary.fetch("terms").map { |term| term["term"] }
+      rejected_in(vocabulary).filter_map do |term, word, _|
+        "#{label(vocabulary)}: #{term} rejects #{word.inspect}, which is a declared term" if declared.include?(word)
       end
     end
     private_class_method :self_rejections
-
-    # Rejected names the corpus still uses. A word in use cannot be rejected —
-    # the scan cannot tell a misuse from the sense the corpus already relies on.
-    def live_rejections(entries, sources)
-      rejections(entries).flat_map do |term, word, _|
-        occurrences(word, sources).map { |path| "#{term}: rejects #{word.inspect}, still used in #{path}" }
-      end
-    end
-    private_class_method :live_rejections
-
-    # The corpus paths using +word+ as a whole word, case-sensitively.
-    def occurrences(word, sources)
-      pattern = /(?<![A-Za-z0-9_])#{Regexp.escape(word)}(?![A-Za-z0-9_])/
-      sources.reject { |path, _| path == OUTPUT }
-             .select { |_, text| text.match?(pattern) }
-             .keys
-    end
-    private_class_method :occurrences
-
-    def terms_table(entries)
-      rows = entries.map { |entry| "| **#{entry["term"]}** | #{entry["definition"].strip} |" }
-      ["| Term | Definition |", "|------|------------|", *rows]
-    end
-    private_class_method :terms_table
-
-    def rejected_table(rejected)
-      rows = rejected.map { |term, word, why| "| #{term} | `#{word}` | #{why.strip} |" }
-      ["| Term | Not | Why |", "|------|-----|-----|", *rows]
-    end
-    private_class_method :rejected_table
   end
 end

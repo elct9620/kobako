@@ -1,33 +1,32 @@
 # frozen_string_literal: true
 
-# Glossary consistency gate: the ubiquitous language holds together on its own
-# terms. A concept has exactly one name (N-6), and a name it rejects is one the
-# corpus never uses — a rejection of a word still in use, or of a word that is
-# itself one of our terms, would flag legitimate prose rather than the drift it
-# was written to catch. Reader unit coverage rides test/tasks/test_spec_glossary.rb.
+# Glossary consistency gate: the vocabulary holds together on its own terms.
+# Reader unit coverage rides test/tasks/test_spec_glossary.rb.
+#
+# sumi reads the same file and answers the questions that need the corpus —
+# rendering the page, and reporting each line a rejected name is used on. What
+# is left here is what can be settled from the declaration alone, and neither
+# of those two mistakes is one sumi would report: it would faithfully scan for
+# a word that is itself one of our terms, and flag every legitimate use of it.
 #
 # Whether a word the corpus uses is a concept missing from the glossary is not
-# asked here: `Fault` belongs and `Symbol` does not, and no lexical rule
+# asked by either: `Fault` belongs and `Symbol` does not, and no lexical rule
 # separates them. That gap is filled by reading, not by blocking a release.
 
 require_relative "../support/spec/glossary"
 require_relative "../support/report"
 
-# The spec corpus N-6 governs — the same reach `gate:anchors` reads, minus the
-# tests and benchmarks, which consume the vocabulary rather than define it.
-GLOSSARY_CORPUS = FileList["SPEC.md", "docs/**/*.md"]
-
 namespace :gate do
   namespace :spec do
-    desc "Check the glossary declares each concept once and rejects only unused names."
+    desc "Check each vocabulary declares a concept once and rejects no name of its own."
     task :glossary do
-      entries = KobakoSpec::Glossary.load
-      sources = GLOSSARY_CORPUS.to_h { |path| [path, File.read(path)] }
-      violations = KobakoSpec::Glossary.violations(entries, sources)
+      vocabularies = KobakoSpec::Glossary.load
+      violations = KobakoSpec::Glossary.violations(vocabularies)
 
       puts KobakoReport.gate(name: "gate:spec:glossary",
-                             ok_summary: "#{entries.size} concept(s), " \
-                                         "#{KobakoSpec::Glossary.rejections(entries).size} rejected name(s)",
+                             ok_summary: "#{KobakoSpec::Glossary.terms(vocabularies).size} concept(s), " \
+                                         "#{KobakoSpec::Glossary.rejections(vocabularies).size} rejected name(s) " \
+                                         "across #{vocabularies.size} vocabular#{vocabularies.size == 1 ? "y" : "ies"}",
                              violations: violations, noun: "inconsistency")
     end
   end
