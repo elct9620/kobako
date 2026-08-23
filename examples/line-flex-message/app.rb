@@ -96,15 +96,15 @@ module LineFlex
     end
   MRUBY
 
-  # Host adapter over a line-message-builder node. The gem's box children
+  # Host wrapper over a line-message-builder node. The gem's box children
   # (`text`, `box`, `button`, ...) return the mutated `contents` Array rather
   # than the child they create, because ordinary usage nests inside a
   # construction-time block. Across the wasm boundary the guest holds that
-  # block, so the adapter hands back the freshly created child node for the
+  # block, so `Buildable` hands back the freshly created child node for the
   # guest to descend into; a non-node result passes straight through.
   #
   # Forwarding is gated on the node *defining* the method (`method_defined?`,
-  # not `respond_to?`) so the adapter answers `respond_to?` honestly: a real
+  # not `respond_to?`) so `Buildable` answers `respond_to?` honestly: a real
   # builder method forwards, anything else is refused. line-message-builder's
   # own nodes answer `respond_to?` to everything through their context
   # delegation, so without the gate the DSL vocabulary would not be bounded by

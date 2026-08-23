@@ -29,7 +29,7 @@ Build     (guest)  the wrapper each container descends through: instance_eval
                    end` reads naturally while every verb resolves on the host.
 Buildable (host)   adapts a line-message-builder node so a caller without a
                    block can descend: the gem's box children return the mutated
-                   `contents` Array, so the adapter hands back the new child.
+                   `contents` Array, so `Buildable` hands back the new child.
 ```
 
 The backend is bound at the guest constant `Studio`; `Flex.with` mints a fresh
