@@ -31,7 +31,8 @@ Gem::Specification.new do |spec|
   #   * source-tree tooling: bin/ tasks/ build_config/ .github/ .powerloop/
   #     .claude/ Rakefile .rubocop.yml Steepfile rbs_collection.yaml
   #     rbs_collection.lock.yaml — `gem install` uses extconf.rb, not rake
-  #   * non-runtime content: test/ wasm/ docs/ benchmark/ examples/ SPEC.md CLAUDE.md
+  #   * non-runtime content: test/ wasm/ docs/ benchmark/ examples/ SPEC.md
+  #     CLAUDE.md .spec/ .sumi.json
   #   * placeholder: data/.keep — superseded by the appended data/kobako.wasm
   #
   # `sig/` is intentionally **kept** so downstream gems can consume kobako's
@@ -55,8 +56,8 @@ Gem::Specification.new do |spec|
         (f.start_with?("crates/") && !f.start_with?(*ext_crates)) ||
         f.start_with?(*%w[bin/ Gemfile Gemfile.lock .gitignore test/ .github/ .rubocop.yml
                           tasks/ build_config/ wasm/ docs/ benchmark/ examples/ .powerloop/
-                          SPEC.md .claude/ CLAUDE.md Rakefile Steepfile rbs_collection.yaml
-                          rbs_collection.lock.yaml sig/_external/ data/.keep])
+                          SPEC.md .spec/ .sumi.json .claude/ CLAUDE.md Rakefile Steepfile
+                          rbs_collection.yaml rbs_collection.lock.yaml sig/_external/ data/.keep])
     end
   end
   # Bypass-path guard: `gem build kobako.gemspec` direct invocation would
