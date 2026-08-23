@@ -18,6 +18,11 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-edit-steep.sh",
             "statusMessage": "Steep type check (whole project)"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-edit-sumi-render.sh",
+            "statusMessage": "sumi render on the edited specification"
           }
         ]
       }
@@ -35,6 +40,12 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-rustdoc.sh",
             "statusMessage": "cargo doc -D warnings (all workspaces, private items)"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-sumi-verify.sh",
+            "timeout": 120,
+            "statusMessage": "sumi verify (the source against the vocabulary)"
           },
           {
             "type": "command",
