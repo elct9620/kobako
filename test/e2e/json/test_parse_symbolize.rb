@@ -9,6 +9,7 @@ class TestJsonParseSymbolize < Minitest::Test
 
   # JS-02: symbolize_names: true makes every object key a Symbol; values
   # are unaffected.
+  # @behavior JS-013
   def test_js02_symbolize_names_makes_keys_symbols
     result = eval_json('JSON.parse(%q({"a":1,"b":{"c":2}}), symbolize_names: true)')
 
@@ -17,6 +18,7 @@ class TestJsonParseSymbolize < Minitest::Test
   end
 
   # JS-02: the default (option absent or false) keeps String keys.
+  # @behavior JS-014 JS-015
   def test_js02_default_keeps_string_keys
     assert_equal({ "a" => 1 }, eval_json('JSON.parse(%q({"a":1}))'),
                  "JSON.parse without symbolize_names through the json guest must keep String keys")
@@ -26,6 +28,7 @@ class TestJsonParseSymbolize < Minitest::Test
 
   # JS-02: only the symbolize_names: keyword is honored; a String-keyed
   # options Hash does not symbolize, so the keys stay String.
+  # @behavior JS-016
   def test_js02_string_keyed_option_does_not_symbolize
     assert_equal({ "a" => 1 }, eval_json('JSON.parse(%q({"a":1}), {"symbolize_names" => true})'),
                  "JSON.parse with a String-keyed symbolize_names option must be ignored, keeping String keys")
@@ -33,6 +36,7 @@ class TestJsonParseSymbolize < Minitest::Test
 
   # JS-02: only keys change — string values stay String even when keys are
   # symbolized.
+  # @behavior JS-017
   def test_js02_values_are_unaffected_by_symbolize
     result = eval_json('JSON.parse(%q({"k":"v"}), symbolize_names: true)')
 

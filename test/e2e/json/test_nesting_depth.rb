@@ -10,6 +10,7 @@ class TestJsonNestingDepth < Minitest::Test
 
   # JS-09: parse accepts a structure at the bound and rejects one nested a
   # level past it.
+  # @behavior JS-037 JS-038
   def test_js09_parse_accepts_the_bound_and_rejects_beyond
     assert_equal "Array", eval_json('JSON.parse("[" * 127 + "]" * 127).class.to_s'),
                  "JSON.parse of 127 nested arrays through the json guest must succeed at the depth bound"
@@ -18,6 +19,7 @@ class TestJsonNestingDepth < Minitest::Test
 
   # JS-09: generate rejects at the same depth parse does, so the two paths
   # agree. 127 nested levels generate; the 128th raises.
+  # @behavior JS-039 JS-040
   def test_js09_generate_rejects_at_the_same_depth_as_parse
     ok = eval_json("a = []; 126.times { a = [a] }; JSON.generate(a).start_with?(\"[\")")
     assert_equal true, ok,

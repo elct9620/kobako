@@ -11,6 +11,7 @@ class TestJsonParseInteger < Minitest::Test
   include JsonGuestHelper
 
   # JS-03: a value within the guest's 32-bit Integer width stays Integer.
+  # @behavior JS-006 JS-007
   def test_js03_in_range_integer_stays_integer
     assert_equal "Integer", eval_json('JSON.parse("2147483647").class.to_s'),
                  "JSON.parse of the largest 32-bit value through the json guest must yield an Integer"
@@ -20,6 +21,7 @@ class TestJsonParseInteger < Minitest::Test
 
   # JS-03: a magnitude past the 32-bit width but exact in an f64 widens to
   # Float — covering millisecond timestamps and ordinary 53-bit ids.
+  # @behavior JS-008 JS-009
   def test_js03_exact_float_range_widens_to_float
     assert_equal "Float", eval_json('JSON.parse("2147483648").class.to_s'),
                  "JSON.parse of 2**31 through the json guest must widen to Float (beyond the 32-bit Integer width)"
@@ -29,12 +31,14 @@ class TestJsonParseInteger < Minitest::Test
 
   # JS-03: a magnitude beyond exact Float range raises rather than lose
   # precision — including an integer larger than any 64-bit width.
+  # @behavior JS-010
   def test_js03_inexact_magnitude_raises_parser_error
     assert_guest_raises "JSON::ParserError", 'JSON.parse("9007199254740993")'
     assert_guest_raises "JSON::ParserError", 'JSON.parse("100000000000000000000")'
   end
 
   # JS-03: a JSON real maps to Float regardless of magnitude.
+  # @behavior JS-011 JS-012
   def test_js03_real_maps_to_float
     assert_equal 1.5, eval_json('JSON.parse("1.5")'),
                  "JSON.parse of a JSON real through the json guest must yield a Float"

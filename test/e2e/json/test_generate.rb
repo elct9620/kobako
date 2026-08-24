@@ -9,6 +9,7 @@ class TestJsonGenerate < Minitest::Test
 
   # JS-06: generate emits compact, well-formed JSON for native values, with
   # nil rendering as null.
+  # @behavior JS-018
   def test_js06_generate_emits_compact_json_for_native_values
     result = eval_json('JSON.generate({"a" => 1, "b" => [true, false, nil], "c" => 1.5})')
 
@@ -19,6 +20,7 @@ class TestJsonGenerate < Minitest::Test
   # JS-06: control characters are escaped — a newline and tab render as
   # their two-character JSON escapes. The input is built from char codes so
   # the assertion does not depend on source-level escaping.
+  # @behavior JS-019
   def test_js06_generate_escapes_control_characters
     assert_equal '"\n\t"', eval_json("JSON.generate(10.chr + 9.chr)"),
                  "JSON.generate through the json guest must escape control characters as their JSON escapes"
@@ -26,6 +28,7 @@ class TestJsonGenerate < Minitest::Test
 
   # JS-06: escaping is correct enough that any String round-trips — a quote,
   # backslash, and newline survive generate then parse unchanged.
+  # @behavior JS-020
   def test_js06_generate_escaping_round_trips
     result = eval_json("s = 34.chr + 92.chr + 10.chr + 9.chr; JSON.parse(JSON.generate(s)) == s")
 
@@ -35,12 +38,14 @@ class TestJsonGenerate < Minitest::Test
 
   # JS-06: a Symbol value renders as its name, and a Symbol key renders as
   # its string form — round-tripping back to String keys on parse.
+  # @behavior JS-021
   def test_js06_symbol_value_and_key_render_as_name
     assert_equal '{"k":"v"}', eval_json("JSON.generate({ k: :v })"),
                  "JSON.generate of Symbol key and value through the json guest must render each as its name"
   end
 
   # JS-06: a JSON-native scalar key renders as its string form, as in CRuby.
+  # @behavior JS-022
   def test_js06_scalar_key_renders_as_string
     assert_equal '{"1":"a"}', eval_json('JSON.generate({ 1 => "a" })'),
                  "JSON.generate of an Integer key through the json guest must render the key as its string form"
@@ -48,6 +53,7 @@ class TestJsonGenerate < Minitest::Test
 
   # JS-06: a NaN or infinite Float raises GeneratorError, as CRuby does
   # without allow_nan.
+  # @behavior JS-025
   def test_js06_nan_and_infinity_raise_generator_error
     assert_guest_raises "JSON::GeneratorError", "JSON.generate(0.0 / 0.0)"
     assert_guest_raises "JSON::GeneratorError", "JSON.generate(1.0 / 0.0)"
@@ -55,12 +61,14 @@ class TestJsonGenerate < Minitest::Test
 
   # JS-06: an Array or Hash key is not a usable JSON key and raises rather
   # than stringify.
+  # @behavior JS-024
   def test_js06_non_scalar_key_raises_generator_error
     assert_guest_raises "JSON::GeneratorError", "JSON.generate({ [1] => 2 })"
   end
 
   # JS-06: a Float key renders as its string form, like the other
   # JSON-native scalar keys.
+  # @behavior JS-023
   def test_js06_float_key_renders_as_string
     assert_equal '{"1.5":2}', eval_json("JSON.generate({ 1.5 => 2 })"),
                  "JSON.generate of a Float key through the json guest must render the key as its string form"
@@ -68,6 +76,7 @@ class TestJsonGenerate < Minitest::Test
 
   # JS-06: a String carries JSON text, so a non-UTF-8 byte sequence is
   # refused rather than lossily transcoded.
+  # @behavior JS-026
   def test_js06_non_utf8_string_raises_generator_error
     assert_guest_raises "JSON::GeneratorError", "JSON.generate(255.chr)"
   end
@@ -75,6 +84,7 @@ class TestJsonGenerate < Minitest::Test
   # JS-06: a Symbol reaches JSON as its name, which is JSON text too, so
   # the same rule holds it — a name read through a render would answer the
   # empty string and emit `""` for a symbol the guest never wrote.
+  # @behavior JS-027
   def test_js06_non_utf8_symbol_name_raises_generator_error
     assert_guest_raises "JSON::GeneratorError", "JSON.generate(255.chr.to_sym)"
     assert_guest_raises "JSON::GeneratorError", "JSON.generate({ 255.chr.to_sym => 1 })"
@@ -82,6 +92,7 @@ class TestJsonGenerate < Minitest::Test
 
   # JS-06: a value is classified by its native type, not its class identity,
   # so a subclass of a JSON-native type serializes as that native kind.
+  # @behavior JS-028 JS-029 JS-030
   def test_js06_native_subclass_serializes_as_native_kind
     assert_equal "[1,2]",
                  eval_json("class A < Array; end; a = A.new; a.push(1); a.push(2); JSON.generate(a)"),
