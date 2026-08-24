@@ -14,6 +14,7 @@ require "test_helper"
 # scenario pins here is the profile seam: the option flows through both
 # frontends and neither diverges in accepting or enforcing it.
 class TestParityHermetic < Parity::Case
+  # @behavior RT-027
   # SPEC.md B-45: an explicitly requested hermetic posture is honored
   # identically, and an eval under it observes the same result.
   def test_hermetic_profile_is_honored_identically
@@ -24,6 +25,7 @@ class TestParityHermetic < Parity::Case
     )
   end
 
+  # @behavior RT-028
   # SPEC.md B-54: switching to the permissive posture floor-checks and
   # resolves the same way on both frontends — success or refusal, they
   # must agree.

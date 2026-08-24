@@ -10,6 +10,7 @@ require "test_helper"
 class TestE2EThreading < Minitest::Test
   include E2eGuestHelper
 
+  # @behavior RT-001
   def test_b22_distinct_sandboxes_on_distinct_threads_execute_independently
     results = Array.new(2)
     2.times.map do |i|

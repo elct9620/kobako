@@ -17,6 +17,7 @@ require "test_helper"
 class TestE2EGvlScheduling < Minitest::Test
   include E2eGuestHelper
 
+  # @behavior RT-022
   def test_release_runs_a_plain_eval_identically_to_hold
     values = Kobako::SandboxOptions::GVL_MODES.map do |mode|
       Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode).eval("2 ** 10").value
@@ -27,6 +28,7 @@ class TestE2EGvlScheduling < Minitest::Test
                  ":hold and :release (B-64)"
   end
 
+  # @behavior RT-023
   def test_release_preserves_a_guest_to_host_dispatch_result
     values = Kobako::SandboxOptions::GVL_MODES.map do |mode|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode)
@@ -39,6 +41,7 @@ class TestE2EGvlScheduling < Minitest::Test
                  "release re-acquires the GVL for the callback (B-64)"
   end
 
+  # @behavior RT-024
   def test_release_preserves_a_nested_dispatch_result
     values = Kobako::SandboxOptions::GVL_MODES.map do |mode|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode)
@@ -52,6 +55,7 @@ class TestE2EGvlScheduling < Minitest::Test
                  "the released GVL is re-acquired once and held across the nested frames (B-64)"
   end
 
+  # @behavior RT-025
   def test_release_preserves_the_stdout_capture
     captures = Kobako::SandboxOptions::GVL_MODES.map do |mode|
       execution = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode).eval("$stdout.write('hi from guest')")
@@ -63,6 +67,7 @@ class TestE2EGvlScheduling < Minitest::Test
                  "release changes scheduling only (B-64)"
   end
 
+  # @behavior RT-026
   # The journey the feature exists for: a Host App runs guest code on
   # distinct :release Sandboxes across distinct Threads and every thread
   # returns its own correct result, so releasing the GVL keeps each

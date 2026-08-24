@@ -72,11 +72,13 @@ class TestSandboxOptions < Minitest::Test
     end
   end
 
+  # @behavior RT-009
   def test_absent_profile_takes_the_hermetic_default
     assert_equal :hermetic, Kobako::SandboxOptions.new.profile,
                  "an absent profile through SandboxOptions.new must default to the strictest floor, :hermetic"
   end
 
+  # @behavior RT-010
   def test_ladder_profiles_pass_through
     Kobako::SandboxOptions::PROFILES.each do |profile|
       assert_equal profile, Kobako::SandboxOptions.new(profile: profile).profile,
@@ -84,6 +86,7 @@ class TestSandboxOptions < Minitest::Test
     end
   end
 
+  # @behavior RT-011
   def test_rejects_profile_outside_the_ladder
     # nil included deliberately: the no-floor request is an explicit
     # :permissive, so profile has no nil-disable form (B-54 / E-39).
@@ -94,11 +97,13 @@ class TestSandboxOptions < Minitest::Test
     end
   end
 
+  # @behavior RT-018
   def test_absent_gvl_takes_the_hold_default
     assert_equal :hold, Kobako::SandboxOptions.new.gvl,
                  "an absent gvl through SandboxOptions.new must default to :hold, the GVL-holding mode (B-64)"
   end
 
+  # @behavior RT-019
   def test_gvl_modes_pass_through
     Kobako::SandboxOptions::GVL_MODES.each do |mode|
       assert_equal mode, Kobako::SandboxOptions.new(gvl: mode).gvl,
@@ -106,6 +111,7 @@ class TestSandboxOptions < Minitest::Test
     end
   end
 
+  # @behavior RT-020
   def test_rejects_gvl_outside_the_mode_set
     # nil included deliberately: gvl is requested as an explicit mode, so
     # it has no nil-disable form — anything off GVL_MODES is rejected (B-64).
@@ -116,6 +122,7 @@ class TestSandboxOptions < Minitest::Test
     end
   end
 
+  # @behavior RT-012
   # The floor check's failing branch (E-49) is witnessed here, on the
   # ladder owner, with a plain declared value — the bundled runtime
   # always builds the requested rung, so no real runtime can hand
@@ -129,6 +136,7 @@ class TestSandboxOptions < Minitest::Test
     assert_match(/hermetic/, err.message)
   end
 
+  # @behavior RT-013
   # B-54's fail-closed clause: a declaration the gem cannot place on the
   # ladder ranks below every floor. Witnessed against the :permissive
   # floor because that is the rung an off-ladder declaration could most
@@ -141,6 +149,7 @@ class TestSandboxOptions < Minitest::Test
     assert_match(/isolated/, err.message)
   end
 
+  # @behavior RT-014
   # B-54's passing branch: a declaration at the floor constructs, and a
   # runtime that can only build a stronger posture satisfies a weaker
   # request by declaring what it built. The contract is "returns

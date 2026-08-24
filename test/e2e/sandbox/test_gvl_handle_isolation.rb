@@ -40,6 +40,7 @@ class TestE2EGvlHandleIsolation < Minitest::Test
     def initialize(owner) = (@owner = owner)
   end
 
+  # @behavior RT-004
   # A Handle the guest returns as the result is restored to the minting
   # Thread's own host Token, never another Thread's (distinct-Sandbox shape).
   def test_release_restores_each_thread_own_minted_handles
@@ -56,6 +57,7 @@ class TestE2EGvlHandleIsolation < Minitest::Test
       end
   end
 
+  # @behavior RT-005
   # A Handle the guest passes back as a dispatch argument resolves against
   # the minting Thread's own table, never another Thread's (distinct shape).
   def test_release_resolves_each_thread_own_handle_arguments
@@ -72,6 +74,7 @@ class TestE2EGvlHandleIsolation < Minitest::Test
       end
   end
 
+  # @behavior RT-002
   # Threads sharing ONE :release Sandbox, each #eval supplying its own
   # identity through the per-invocation ctx.bind override, must each resolve
   # only their own Tokens (shared-Sandbox shape, B-22 / B-63).
@@ -89,6 +92,7 @@ class TestE2EGvlHandleIsolation < Minitest::Test
       end
   end
 
+  # @behavior RT-003
   # The same isolation over #run: a preloaded entrypoint mints Handles while
   # each Thread's per-run ctx.bind supplies the identity (shared-Sandbox, #run).
   def test_release_shared_sandbox_isolates_per_run_identity

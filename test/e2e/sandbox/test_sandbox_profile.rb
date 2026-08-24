@@ -18,6 +18,7 @@ class TestSandboxProfile < Minitest::Test
     require_fixture!(FIXTURE_PATH)
   end
 
+  # @behavior RT-015
   # The bundled runtime builds whichever rung is requested, so
   # construction succeeds at both and the reader reports the request.
   def test_profile_defaults_to_hermetic_and_constructs_at_every_ladder_rung

@@ -1,0 +1,248 @@
+{
+  "name": "Runtime",
+  "description": "What the host checks before a guest runs, which posture it builds, and how invocations share a process.",
+  "include": [
+    "test/unit/values/test_sandbox_options.rb",
+    "test/e2e/test_threading.rb",
+    "test/e2e/sandbox/test_sandbox.rb",
+    "test/e2e/sandbox/test_sandbox_profile.rb",
+    "test/e2e/sandbox/test_gvl_scheduling.rb",
+    "test/e2e/sandbox/test_gvl_handle_isolation.rb",
+    "test/e2e/runtime/test_runtime.rb",
+    "test/parity/test_hermetic.rb"
+  ],
+  "scenarios": [
+    {
+      "id": "RT-001",
+      "title": "Threads holding their own Sandboxes hold their own guest state",
+      "given": ["two Threads, each with its own Sandbox", "one of them having set a guest global"],
+      "when": "the other Thread reads that global",
+      "then": "it reads nothing the first Thread set"
+    },
+    {
+      "id": "RT-002",
+      "title": "Threads sharing one Sandbox still evaluate on their own identity",
+      "given": ["several Threads evaluating on one shared Sandbox, each supplying its own identity for its invocation"],
+      "when": "each Thread's guest code resolves the identity it was given",
+      "then": "each resolves only its own"
+    },
+    {
+      "id": "RT-003",
+      "title": "The entrypoint verb shares a Sandbox the same way",
+      "given": ["several Threads running an entrypoint on one shared Sandbox, each supplying its own identity for its invocation"],
+      "when": "each Thread's entrypoint resolves the identity it was given",
+      "then": "each resolves only its own"
+    },
+    {
+      "id": "RT-004",
+      "title": "Releasing the lock does not pool the Handles",
+      "given": ["several Threads invoking their own Sandboxes constructed with `gvl: :release`"],
+      "when": "each Thread restores the Handles its own invocation minted",
+      "then": "each restores only its own"
+    },
+    {
+      "id": "RT-005",
+      "title": "Releasing the lock does not cross the Handle arguments either",
+      "given": ["several Threads invoking their own Sandboxes constructed with `gvl: :release`"],
+      "when": "each Thread passes its own Handles back as dispatch arguments",
+      "then": "each resolves only its own"
+    },
+    {
+      "id": "RT-006",
+      "title": "A guest that cannot state its ABI version does not run",
+      "given": ["a Guest Binary exporting no ABI version"],
+      "when": "a Sandbox is constructed over it",
+      "then": "`Kobako::SetupError` is raised"
+    },
+    {
+      "id": "RT-007",
+      "title": "A guest stating another ABI version does not run",
+      "given": ["a Guest Binary reporting an ABI version the Host Gem does not implement"],
+      "when": "a Sandbox is constructed over it",
+      "then": "`Kobako::SetupError` is raised"
+    },
+    {
+      "id": "RT-008",
+      "title": "A refused artifact is never remembered as usable",
+      "given": ["a Guest Binary already refused once for its ABI version"],
+      "when": "a Sandbox is constructed over the same path again",
+      "then": "`Kobako::SetupError` is raised again"
+    },
+    {
+      "id": "RT-009",
+      "title": "The strongest posture is the one nobody has to ask for",
+      "given": ["Sandbox options carrying no `profile:`"],
+      "when": "the options are read",
+      "then": "the profile is `:hermetic`"
+    },
+    {
+      "id": "RT-010",
+      "title": "Both rungs of the ladder may be requested",
+      "given": ["Sandbox options carrying each ladder rung in turn"],
+      "when": "the options are read",
+      "then": "each reports the rung it was given"
+    },
+    {
+      "id": "RT-011",
+      "title": "A posture off the ladder is not a posture",
+      "given": ["Sandbox options carrying a `profile:` value the ladder does not name"],
+      "when": "the options are built",
+      "then": "`ArgumentError` is raised"
+    },
+    {
+      "id": "RT-012",
+      "title": "A runtime that built less than was asked for does not run",
+      "given": ["options requesting a rung", "a runtime declaring a rung below it"],
+      "when": "the request is enforced as a floor",
+      "then": "the declaration is refused"
+    },
+    {
+      "id": "RT-013",
+      "title": "A posture nobody can place ranks below every request",
+      "given": ["options requesting any rung", "a runtime declaring a posture the ladder does not name"],
+      "when": "the request is enforced as a floor",
+      "then": "the declaration is refused"
+    },
+    {
+      "id": "RT-014",
+      "title": "A stronger posture satisfies a weaker request",
+      "given": ["options requesting a rung", "a runtime declaring that rung or a stronger one"],
+      "when": "the request is enforced as a floor",
+      "then": "the declaration is accepted"
+    },
+    {
+      "id": "RT-015",
+      "title": "The bundled runtime builds whichever rung is asked for",
+      "given": ["the bundled Guest Binary"],
+      "when": "a Sandbox is constructed at each ladder rung in turn",
+      "then": "each construction reports the rung it requested"
+    },
+    {
+      "id": "RT-016",
+      "title": "The request reaches the runtime and comes back",
+      "given": ["the bundled Guest Binary"],
+      "when": "a runtime is built from that path at each ladder rung in turn",
+      "then": "each runtime declares the rung it was built for"
+    },
+    {
+      "id": "RT-017",
+      "title": "The runtime refuses an unnameable posture on its own",
+      "given": ["the bundled Guest Binary"],
+      "when": "a runtime is built from that path with a `profile:` the ladder does not name",
+      "then": "`ArgumentError` is raised"
+    },
+    {
+      "id": "RT-018",
+      "title": "Holding the lock is what happens when nobody chooses",
+      "given": ["Sandbox options carrying no `gvl:`"],
+      "when": "the options are read",
+      "then": "the mode is `:hold`"
+    },
+    {
+      "id": "RT-019",
+      "title": "Both scheduling modes may be requested",
+      "given": ["Sandbox options carrying each scheduling mode in turn"],
+      "when": "the options are read",
+      "then": "each reports the mode it was given"
+    },
+    {
+      "id": "RT-020",
+      "title": "A mode outside the set is not a mode",
+      "given": ["Sandbox options carrying a `gvl:` value the mode set does not name"],
+      "when": "the options are built",
+      "then": "`ArgumentError` is raised"
+    },
+    {
+      "id": "RT-021",
+      "title": "The runtime refuses an unknown mode on its own",
+      "given": ["the bundled Guest Binary"],
+      "when": "a runtime is built from that path with a `gvl:` the mode set does not name",
+      "then": "`ArgumentError` is raised"
+    },
+    {
+      "id": "RT-022",
+      "title": "Releasing the lock changes no value",
+      "given": ["one Sandbox under each scheduling mode"],
+      "when": "each evaluates the same guest source",
+      "then": "both answer the same value"
+    },
+    {
+      "id": "RT-023",
+      "title": "Releasing the lock changes no dispatch result",
+      "given": ["one Sandbox under each scheduling mode, each with the same Service bound"],
+      "when": "each evaluates guest source that dispatches to that Service",
+      "then": "both answer the same value"
+    },
+    {
+      "id": "RT-024",
+      "title": "The lock is reacquired deep enough for a nested dispatch",
+      "given": ["one Sandbox under each scheduling mode, each with the same yielding Service bound"],
+      "when": "each evaluates guest source whose dispatch dispatches again",
+      "then": "both answer the same value"
+    },
+    {
+      "id": "RT-025",
+      "title": "Releasing the lock changes no capture",
+      "given": ["one Sandbox under each scheduling mode"],
+      "when": "each evaluates guest source that writes to standard output",
+      "then": "both carry the same captured bytes"
+    },
+    {
+      "id": "RT-026",
+      "title": "Released Sandboxes on distinct Threads each answer their own",
+      "given": ["several Threads, each with its own Sandbox constructed with `gvl: :release`"],
+      "when": "every Thread evaluates guest source computing from its own input",
+      "then": "each Thread receives the result of its own input"
+    },
+    {
+      "id": "RT-027",
+      "title": "A requested posture is honored the same way by either frontend",
+      "given": ["a scenario requesting the hermetic posture explicitly"],
+      "when": "both frontends run it",
+      "then": "they observe the same result"
+    },
+    {
+      "id": "RT-028",
+      "title": "A posture switch resolves the same way on either frontend",
+      "given": ["a scenario switching to the permissive posture"],
+      "when": "both frontends run it",
+      "then": "they resolve it the same way"
+    }
+  ],
+  "notes": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": ["Why these scenarios"]
+    },
+    {
+      "type": "paragraph",
+      "text": [
+        "The runtime is what stands between a request and a guest that runs. Three",
+        "checks happen before any guest does: the artifact states an ABI version the",
+        "host implements, the requested isolation posture is one the ladder names, and",
+        "the posture actually built is not weaker than the one accepted."
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": [
+        "The scheduling scenarios pair off deliberately. Releasing the lock is a",
+        "scheduling change and nothing else, so each witness runs one scenario under",
+        "both modes and compares — a value, a dispatch, a nested dispatch, a capture.",
+        "The host-parallel run is the one that shows what the mode is for."
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": [
+        "The ambient denial the hermetic posture rests on has no scenario of its own:",
+        "the default Guest Binary exposes no time or entropy surface for guest code to",
+        "read, which is the posture itself, so there is nothing to observe from inside.",
+        "What the determinism buys is witnessed where it shows — two invocations",
+        "beginning from the same interpreter state — and what is checked here is the",
+        "seam the request travels along."
+      ]
+    }
+  ]
+}

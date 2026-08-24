@@ -88,6 +88,7 @@ class TestRuntime < Minitest::Test
     assert_match(/timeout must be > 0/, err.message)
   end
 
+  # @behavior RT-016
   # docs/behavior/security.md B-54: the runtime builds the requested
   # isolation rung and declares the posture it built, so the request
   # round-trips through construction to the +#profile+ reader on both
@@ -101,6 +102,7 @@ class TestRuntime < Minitest::Test
                  "a :permissive request through from_path must construct a runtime declaring :permissive"
   end
 
+  # @behavior RT-017
   # docs/behavior/errors.md E-39 mirror for +profile+: an off-ladder rung
   # must fail closed as +ArgumentError+ rather than fall back to any
   # grant. +SandboxOptions+ validates the Sandbox path; this exercises
@@ -112,6 +114,7 @@ class TestRuntime < Minitest::Test
     assert_match(/profile must be :permissive or :hermetic/, err.message)
   end
 
+  # @behavior RT-021
   # B-64 mirror of the profile guard: an unrecognized gvl mode fails closed
   # as +ArgumentError+ on a direct +from_path+ call. +SandboxOptions+
   # validates the Sandbox path; this exercises the ext's defence-in-depth.

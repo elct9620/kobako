@@ -74,6 +74,7 @@ class TestSandbox < Minitest::Test
     assert_match(/Sandbox#eval failed/, err.message)
   end
 
+  # @behavior RT-006
   # docs/behavior/runtime.md B-40 / E-42: construction probes the guest's
   # __kobako_abi_version export and accepts only the host's own ABI
   # version. minimal.wasm predates the export (absent branch);
@@ -89,6 +90,7 @@ class TestSandbox < Minitest::Test
     assert_match(/does not export __kobako_abi_version/, err.message)
   end
 
+  # @behavior RT-007 RT-008
   # Repeated because the check is amortised per Guest Binary path: the
   # host verifies the version before the pre-linked template enters its
   # cache, so a rejected artifact is never remembered as usable and the
