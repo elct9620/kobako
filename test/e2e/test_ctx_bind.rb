@@ -14,6 +14,7 @@ class TestE2ECtxBind < Minitest::Test
     def get(_key) = @value
   end
 
+  # @behavior SV-024
   # B-63: a fillable declared with bind(path) is filled by the block for this
   # invocation, so the guest dispatch reaches the supplied object.
   def test_ctx_bind_fills_a_fillable_for_the_invocation
@@ -26,6 +27,7 @@ class TestE2ECtxBind < Minitest::Test
                  "ctx.bind must fill a fillable so the guest dispatch reaches the supplied object (B-63)"
   end
 
+  # @behavior SV-025
   # B-63: the override block works on #run too — a preloaded entrypoint whose
   # guest dispatch reaches the object ctx.bind fills for that one invocation.
   def test_ctx_bind_fills_a_fillable_on_the_run_path
@@ -39,6 +41,7 @@ class TestE2ECtxBind < Minitest::Test
                  "ctx.bind on the #run path must fill a fillable so the entrypoint reaches the object (B-63)"
   end
 
+  # @behavior SV-026 SV-027
   # B-63: an override lasts only its own invocation — the next eval with no
   # block sees the static base binding again.
   def test_ctx_bind_shadows_a_static_binding_for_one_invocation_only
@@ -54,6 +57,7 @@ class TestE2ECtxBind < Minitest::Test
                  "the override lasts only its own invocation; the next eval sees the base binding (B-63)"
   end
 
+  # @behavior SV-028
   # B-62 / B-63: a fillable the block does not fill still fails closed.
   def test_an_unfilled_fillable_without_an_override_still_fails_closed
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -65,6 +69,7 @@ class TestE2ECtxBind < Minitest::Test
     end
   end
 
+  # @behavior SV-029
   # B-63: the Context is spent once the block returns, so a captured ctx used
   # afterward raises rather than mutating a completed invocation.
   def test_a_ctx_captured_from_the_block_is_spent_afterward
@@ -81,6 +86,7 @@ class TestE2ECtxBind < Minitest::Test
     end
   end
 
+  # @behavior SV-023
   # B-63: ctx.bind on a path that was never declared raises inside the block,
   # keeping the Frame 1 key set fixed; the guest never runs.
   def test_ctx_bind_on_an_undeclared_path_raises_inside_the_block

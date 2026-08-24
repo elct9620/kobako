@@ -26,6 +26,7 @@ module Kobako
 
     # ---------- B-08: bind resolves; returns self for chaining ----------
 
+    # @behavior SV-001 SV-002
     def test_bind_resolves_a_multi_segment_path_and_chains
       logger = Object.new
       def logger.info(msg) = "logged:#{msg}"
@@ -35,12 +36,14 @@ module Kobako
       assert_same logger, @services.lookup("Logger::Info")
     end
 
+    # @behavior SV-003
     def test_bind_resolves_a_single_segment_top_level_path
       fs = Object.new
       @services.bind("File", fs)
       assert_same fs, @services.lookup("File")
     end
 
+    # @behavior SV-004
     def test_bind_accepts_symbol_and_string_paths
       @services.bind(:"Logger::Info", :sym)
       @services.bind("Auth::Token", :str)
@@ -59,6 +62,7 @@ module Kobako
 
     # ---------- B-08: bind accepts class / instance / module uniformly ----------
 
+    # @behavior SV-005
     def test_bind_accepts_class_instance_and_module
       klass, instance, mod = b08_class_instance_module_triple
       @services.bind("Mixed::K", klass).bind("Mixed::I", instance).bind("Mixed::M", mod)
@@ -82,6 +86,7 @@ module Kobako
 
     # ---------- B-09: multiple Services coexist; siblings share a prefix ----------
 
+    # @behavior SV-010
     def test_multiple_services_resolve_independently
       @services.bind("Auth::Token", "tk")
       @services.bind("Logger::Info", "lg")
@@ -90,6 +95,7 @@ module Kobako
       assert_equal "lg", @services.lookup("Logger::Info")
     end
 
+    # @behavior SV-011
     def test_sibling_paths_under_a_shared_prefix_coexist
       @services.bind("KV::Get", :get)
       @services.bind("KV::Set", :set)
@@ -99,12 +105,14 @@ module Kobako
 
     # ---------- B-11: duplicate / prefix collision raises ----------
 
+    # @behavior SV-012 SV-015
     def test_bind_rejects_an_exact_duplicate_path
       @services.bind("KV::Get", :first)
       assert_raises(ArgumentError) { @services.bind("KV::Get", :second) }
       assert_equal :first, @services.lookup("KV::Get"), "the existing binding must be preserved"
     end
 
+    # @behavior SV-013 SV-015
     def test_bind_rejects_a_path_that_extends_an_existing_leaf
       @services.bind("KV", :leaf)
       assert_raises(ArgumentError) { @services.bind("KV::Get", :under) }
@@ -112,6 +120,7 @@ module Kobako
                    "a rejected prefix-extending bind must leave the existing leaf binding intact (B-11)"
     end
 
+    # @behavior SV-014 SV-015
     def test_bind_rejects_a_path_that_is_a_prefix_of_an_existing_binding
       @services.bind("KV::Get", :under)
       assert_raises(ArgumentError) { @services.bind("KV", :leaf) }

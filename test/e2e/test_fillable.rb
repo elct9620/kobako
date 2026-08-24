@@ -11,6 +11,7 @@ require "test_helper"
 class TestE2EFillable < Minitest::Test
   include E2eGuestHelper
 
+  # @behavior SV-017
   # B-62: reaching the ServiceError proves both halves — the fillable
   # constant exists in the guest (a never-declared constant would raise a
   # guest NameError → SandboxError instead), and the host refused the
@@ -26,6 +27,7 @@ class TestE2EFillable < Minitest::Test
     end
   end
 
+  # @behavior SV-018
   # B-62: bind(path) is sugar for bind(path, Kobako::Unresolved) — the
   # explicit sentinel behaves identically.
   def test_binding_the_unresolved_sentinel_explicitly_matches_the_fillable_sugar
@@ -38,6 +40,7 @@ class TestE2EFillable < Minitest::Test
     end
   end
 
+  # @behavior SV-019
   # B-62: an unfilled fillable is observably distinct from a name that was
   # never declared — the fillable's constant exists (dispatch reaches the host
   # → ServiceError), whereas an undeclared name raises a guest NameError that
@@ -53,6 +56,7 @@ class TestE2EFillable < Minitest::Test
     end
   end
 
+  # @behavior SV-020
   # B-62: the guest may rescue the capability failure, exactly as it can any
   # Service dispatch fault — leaving it unrescued is what surfaces the host
   # ServiceError, so a rescued call returns normally.

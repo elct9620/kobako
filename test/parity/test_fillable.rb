@@ -7,6 +7,7 @@ require "test_helper"
 # closed while unfilled, and observe the override fill or shadow a binding for
 # a single invocation identically.
 class TestParityFillable < Parity::Case
+  # @behavior SV-017
   # B-62: a fillable declared with no object materializes the guest constant,
   # but a dispatch to it fails closed as a Service failure on both frontends.
   def test_unfilled_fillable_dispatch_fails_closed
@@ -17,6 +18,7 @@ class TestParityFillable < Parity::Case
     )
   end
 
+  # @behavior SV-024
   # B-63: the per-eval override fills the fillable, so both frontends dispatch
   # to the supplied object and observe the same value.
   def test_ctx_bind_override_fills_a_fillable
@@ -27,6 +29,7 @@ class TestParityFillable < Parity::Case
     )
   end
 
+  # @behavior SV-026 SV-027
   # B-63: an override shadows a static binding for its own invocation only;
   # the next unadorned eval sees the base binding again, identically on both
   # frontends.
@@ -38,6 +41,7 @@ class TestParityFillable < Parity::Case
     )
   end
 
+  # @behavior SV-025
   # B-63: the override block works on #run too — a preloaded entrypoint whose
   # guest dispatch reaches the object ctx.bind fills, identically on both
   # frontends.

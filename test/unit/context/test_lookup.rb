@@ -52,6 +52,7 @@ module Kobako
       end
     end
 
+    # @behavior SV-016
     # B-62: a fillable declared with bind(path) is backed by the shared
     # Kobako::Unresolved sentinel; lookup reports it as unresolvable (KeyError)
     # so the dispatch fails closed as an undefined target rather than
@@ -66,6 +67,7 @@ module Kobako
       end
     end
 
+    # @behavior SV-021
     # B-63: a ctx.bind override shadows the base binding in lookup priority.
     def test_lookup_prefers_a_ctx_bind_override_over_the_base_binding
       base = Object.new
@@ -78,6 +80,7 @@ module Kobako
                   "a ctx.bind override must shadow the base binding in lookup priority (B-63)"
     end
 
+    # @behavior SV-022
     # B-63: ctx.bind fills a fillable, so lookup returns the override instead of
     # reporting the Unresolved sentinel as unresolvable.
     def test_ctx_bind_fills_a_fillable_so_lookup_returns_the_override
@@ -90,6 +93,7 @@ module Kobako
                   "ctx.bind must fill a fillable so lookup returns the override, not KeyError (B-63)"
     end
 
+    # @behavior SV-023
     # B-63: ctx.bind on an undeclared path raises, so a per-eval override can
     # never grow the Frame 1 key set sealed at the first invocation (B-33).
     def test_ctx_bind_rejects_an_undeclared_path

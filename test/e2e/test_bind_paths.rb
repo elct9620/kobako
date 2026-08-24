@@ -9,6 +9,7 @@ require "test_helper"
 class TestE2EBindPaths < Minitest::Test
   include E2eGuestHelper
 
+  # @behavior SV-006
   # B-08: a single-segment path installs the Service at a top-level
   # constant, so the guest reaches it with no enclosing namespace module.
   def test_single_segment_path_binds_a_top_level_service
@@ -21,6 +22,7 @@ class TestE2EBindPaths < Minitest::Test
                  "a single-segment bind path must materialize as a top-level guest proxy (B-08)"
   end
 
+  # @behavior SV-007
   # B-08: a three-segment path nests the leaf under a module per prefix
   # segment, exercising the intermediate module walk.
   def test_deeply_nested_path_binds_under_a_module_chain
@@ -33,6 +35,7 @@ class TestE2EBindPaths < Minitest::Test
                  "a 3-segment bind path must nest the leaf under MyService::Nested (B-08)"
   end
 
+  # @behavior SV-008
   # B-08: paths gathered under one namespace share that namespace's module,
   # so the second leaf lands beside the first rather than under a module of
   # its own. Both are called, since a shared namespace is only proven by
@@ -49,6 +52,7 @@ class TestE2EBindPaths < Minitest::Test
                  "proxy under the shared module (B-08)"
   end
 
+  # @behavior SV-009
   # B-08: a namespace is the whole prefix, not the root segment. The two
   # shapes a single-segment prefix cannot tell apart are both here — leaves
   # sharing a two-segment namespace, and sibling namespaces meeting only at
