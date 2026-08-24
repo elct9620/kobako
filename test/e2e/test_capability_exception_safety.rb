@@ -24,6 +24,7 @@ class TestE2ECapabilityExceptionSafety < Minitest::Test
     $stdout.puts(Boom.new)
   RUBY
 
+  # @behavior MR-003 MR-004
   # `$stdout.puts` coerces its argument via `to_s`; a raising `to_s` is a
   # guest application error, attributed as Kobako::SandboxError per E-04.
   def test_puts_attributes_a_raising_to_s_as_sandbox_error_not_trap
@@ -47,6 +48,7 @@ class TestE2ECapabilityExceptionSafety < Minitest::Test
     p Boom.new
   RUBY
 
+  # @behavior MR-005 MR-006
   # `p` coerces its argument via `inspect` — the second funcall coercion
   # path on the write surface, attributed identically per E-04.
   def test_p_attributes_a_raising_inspect_as_sandbox_error_not_trap
@@ -61,6 +63,7 @@ class TestE2ECapabilityExceptionSafety < Minitest::Test
                     "Kobako::SandboxError carrying the guest exception message, not a TrapError"
   end
 
+  # @behavior MR-007
   # The Sandbox stays usable after a coercion-raised guest error: a
   # SandboxError retires the guest instance normally (unlike a TrapError),
   # so a fresh invocation on the same Sandbox runs cleanly.

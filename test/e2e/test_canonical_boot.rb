@@ -16,6 +16,7 @@ class TestE2ECanonicalBoot < Minitest::Test
     @sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
   end
 
+  # @behavior MR-001
   # B-49 + B-45: with an identical starting state and no ambient
   # entropy, the first allocation of each invocation lands on the same
   # heap slot — the object_id sequence replays exactly.
@@ -38,6 +39,7 @@ class TestE2ECanonicalBoot < Minitest::Test
     assert_nil second, "a repeated #eval must not surface the prior invocation's guest global (B-03/B-49)"
   end
 
+  # @behavior MR-002
   # B-49: constants defined by one invocation's source do not exist at
   # the next invocation's entry — class definitions are invocation-local
   # unless preloaded (B-32).
