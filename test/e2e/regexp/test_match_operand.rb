@@ -10,51 +10,61 @@ require "test_helper"
 class TestRegexpMatchOperand < Minitest::Test
   include RegexpGuestHelper
 
+  # @behavior RX-020
   def test_match_predicate_raises_type_error_on_integer_subject
     assert_equal "TypeError", guard_error("/2/.match?(123)", "TypeError"),
                  "a non-String/Symbol subject through Regexp#match? must raise TypeError"
   end
 
+  # @behavior RX-021
   def test_match_raises_type_error_on_integer_subject
     assert_equal "TypeError", guard_error("/2/.match(123)", "TypeError"),
                  "a non-String/Symbol subject through Regexp#match must raise TypeError"
   end
 
+  # @behavior RX-022
   def test_match_operator_raises_type_error_on_integer_subject
     assert_equal "TypeError", guard_error("/2/ =~ 123", "TypeError"),
                  "a non-String/Symbol subject through Regexp#=~ must raise TypeError"
   end
 
+  # @behavior RX-023
   def test_case_equality_is_false_on_integer_subject
     assert_equal false, eval_regexp("/2/ === 123"),
                  "a non-String/Symbol subject through Regexp#=== must rescue to false, not stringify"
   end
 
+  # @behavior RX-024
   def test_match_is_nil_on_nil_subject
     assert_nil eval_regexp("/a?/.match(nil)"),
                "a nil subject through Regexp#match must be no match (nil), not an empty-string match"
   end
 
+  # @behavior RX-025
   def test_match_predicate_is_false_on_nil_subject
     assert_equal false, eval_regexp("/a?/.match?(nil)"),
                  "a nil subject through Regexp#match? must be no match (false)"
   end
 
+  # @behavior RX-026
   def test_case_equality_accepts_symbol_subject
     assert_equal true, eval_regexp("/sy/ === :sym"),
                  "a Symbol subject through Regexp#=== must coerce to its name and match"
   end
 
+  # @behavior RX-027
   def test_match_accepts_regexp_pattern
     assert_equal %w[x9 x 9], eval_regexp('"wx9z".match(/([a-z])(\d)/).to_a'),
                  "a Regexp pattern through String#match must match and return its MatchData"
   end
 
+  # @behavior RX-028
   def test_string_match_raises_type_error_on_string_pattern
     assert_equal "TypeError", guard_error('"axc".match?(".")', "TypeError"),
                  "a String pattern through String#match? must raise TypeError (not coerced, mirroring C)"
   end
 
+  # @behavior RX-029
   def test_string_match_raises_type_error_on_integer_pattern
     assert_equal "TypeError", guard_error('"s".match?(123)', "TypeError"),
                  "a non-Regexp pattern through String#match? must raise TypeError"

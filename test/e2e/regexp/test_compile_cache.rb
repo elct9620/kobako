@@ -33,6 +33,7 @@ class TestRegexpCompileCache < Minitest::Test
 
   # Memoization shares the engine, never the object: each literal evaluation
   # still allocates its own Regexp, as in mruby and the original C engine.
+  # @behavior RX-056
   def test_repeated_literal_yields_distinct_objects
     assert_equal false,
                  eval_regexp("/a(b)c/.equal?(/a(b)c/)"),
@@ -41,6 +42,7 @@ class TestRegexpCompileCache < Minitest::Test
 
   # The cache key carries the option bits, so an identical source compiled with
   # a different flag must not borrow the first engine.
+  # @behavior RX-057
   def test_same_source_different_options_do_not_collide
     assert_equal [true, false],
                  eval_regexp('[/a/i.match?("A"), /a/.match?("A")]'),
@@ -48,6 +50,7 @@ class TestRegexpCompileCache < Minitest::Test
   end
 
   # Eviction past the bounded capacity changes throughput, never correctness.
+  # @behavior RX-058
   def test_matches_correctly_past_cache_capacity
     assert_equal true,
                  eval_regexp(CAPACITY_STRESS),
@@ -55,6 +58,7 @@ class TestRegexpCompileCache < Minitest::Test
   end
 
   # The memoized hot-loop literal reports the same count as an unmemoized one.
+  # @behavior RX-059
   def test_hot_loop_literal_matches_correctly
     assert_equal 1000,
                  eval_regexp(HOT_LOOP),

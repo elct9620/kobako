@@ -20,6 +20,7 @@ class TestRegexpUnicodeGate < Minitest::Test
   # A case-insensitive pattern must raise RegexpError on the no-unicode
   # variant rather than silently matching case-sensitively. The pattern is
   # used (mruby elides a discarded bare literal) so its compilation runs.
+  # @behavior RX-093
   def test_case_insensitive_pattern_is_rejected_without_unicode
     result = eval_no_unicode(
       "begin; /foo/i.match('x'); 'no-error'; rescue RegexpError; 'RegexpError'; rescue => e; e.class.to_s; end"
@@ -31,6 +32,7 @@ class TestRegexpUnicodeGate < Minitest::Test
 
   # ASCII shorthand classes are rewritten to explicit ranges either way, so
   # plain matching stays available without the unicode feature.
+  # @behavior RX-094
   def test_ascii_matching_works_without_unicode
     result = eval_no_unicode('/\d+/.match("abc123")[0]')
 

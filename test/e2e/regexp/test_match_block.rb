@@ -8,16 +8,19 @@ require "test_helper"
 class TestRegexpMatchBlock < Minitest::Test
   include RegexpGuestHelper
 
+  # @behavior RX-048
   def test_regexp_match_yields_matchdata_to_block
     assert_equal "12", eval_regexp('/(\d+)/.match("a12"){|m| m[0] }'),
                  "Regexp#match yields the MatchData to the block and returns the block result"
   end
 
+  # @behavior RX-049
   def test_regexp_match_skips_block_on_miss
     assert_nil eval_regexp('/x/.match("abc"){|m| "called" }'),
                "Regexp#match returns nil without calling the block when nothing matches"
   end
 
+  # @behavior RX-050
   def test_string_match_yields_matchdata_to_block
     assert_equal "12", eval_regexp('"a12".match(/(\d+)/){|m| m[1] }'),
                  "String#match forwards a block through to Regexp#match"

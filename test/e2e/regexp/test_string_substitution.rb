@@ -10,46 +10,55 @@ require "test_helper"
 class TestRegexpStringSubstitution < Minitest::Test
   include RegexpGuestHelper
 
+  # @behavior RX-143
   def test_gsub_expands_numbered_backreferences
     assert_equal "1a2b", eval_regexp('"a1b2".gsub(/([a-z])(\d)/, \'\2\1\')'),
                  "String#gsub expands numbered backreferences in the replacement string"
   end
 
+  # @behavior RX-144
   def test_gsub_expands_named_backreference
     assert_equal "a[1]", eval_regexp('"a1".gsub(/(?<c>\d)/, \'[\k<c>]\')'),
                  "String#gsub expands a \\k<name> named backreference in the replacement"
   end
 
+  # @behavior RX-145
   def test_sub_expands_backreferences
     assert_equal "world hello", eval_regexp('"hello world".sub(/(\w+) (\w+)/, \'\2 \1\')'),
                  "String#sub expands backreferences in the replacement string"
   end
 
+  # @behavior RX-146
   def test_gsub_with_hash_replacement
     assert_equal "h311o", eval_regexp('"hello".gsub(/[el]/, { "e" => "3", "l" => "1" })'),
                  "String#gsub with a Hash replacement substitutes each whole match's mapped value"
   end
 
+  # @behavior RX-147
   def test_gsub_keeps_unrecognised_escape_literally
     assert_equal "\\z", eval_regexp('"a".gsub(/a/, \'\z\')'),
                  "String#gsub keeps an unrecognised \\x escape as its two literal characters"
   end
 
+  # @behavior RX-148
   def test_gsub_undefined_named_backreference_raises_index_error
     assert_equal "IndexError", guard_error('"a1".gsub(/\d/, \'\k<x>\')', "IndexError"),
                  "an undefined \\k<name> backreference raises IndexError"
   end
 
+  # @behavior RX-149
   def test_gsub_malformed_named_backreference_raises_regexp_error
     assert_equal "RegexpError", guard_error('"a1".gsub(/\d/, \'\k\')', "RegexpError"),
                  "a \\k not followed by <name> raises RegexpError"
   end
 
+  # @behavior RX-150
   def test_gsub_zero_backreference_inserts_whole_match
     assert_equal "[a]b", eval_regexp('"ab".gsub(/a/, \'[\0]\')'),
                  "the \\0 backreference inserts the whole match"
   end
 
+  # @behavior RX-151
   def test_gsub_replacement_argument_wins_over_block
     assert_equal "aX", eval_regexp('"a1".gsub(/\d/, "X"){ "Y" }'),
                  "a replacement argument takes precedence over a block, as MRI does"

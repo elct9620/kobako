@@ -7,71 +7,85 @@ require "test_helper"
 class TestRegexpStringMethods < Minitest::Test
   include RegexpGuestHelper
 
+  # @behavior RX-118
   def test_match_returns_matchdata
     assert_equal %w[123 123], eval_regexp('"abc123".match(/(\d+)/).to_a'),
                  "String#match returns a MatchData populated with the captures"
   end
 
+  # @behavior RX-119
   def test_gsub_replaces_every_occurrence
     assert_equal "heLLo", eval_regexp('"hello".gsub(/l/, "L")'),
                  "String#gsub replaces every match with the replacement"
   end
 
+  # @behavior RX-120
   def test_gsub_with_block_uses_block_result
     assert_equal "a2b4", eval_regexp('"a1b2".gsub(/\d/){|m| (m.to_i * 2).to_s }'),
                  "String#gsub with a block substitutes each block result"
   end
 
+  # @behavior RX-121
   def test_sub_replaces_first_occurrence
     assert_equal "heLlo", eval_regexp('"hello".sub(/l/, "L")'),
                  "String#sub replaces only the first match"
   end
 
+  # @behavior RX-122
   def test_scan_collects_flat_matches
     assert_equal %w[1 2 3], eval_regexp('"a1b2c3".scan(/\d/)'),
                  "String#scan collects each match when the pattern has no groups"
   end
 
+  # @behavior RX-123
   def test_scan_collects_group_tuples
     assert_equal [%w[a 1], %w[b 2]], eval_regexp('"a1b2".scan(/([a-z])(\d)/)'),
                  "String#scan collects per-match group arrays when the pattern has groups"
   end
 
+  # @behavior RX-124
   def test_split_on_pattern
     assert_equal %w[a b c], eval_regexp('"a,b,c".split(/,/)'),
                  "String#split divides the string on each match"
   end
 
+  # @behavior RX-125
   def test_split_includes_capturing_groups
     assert_equal %w[a 1 b 2], eval_regexp('"a1b2".split(/(\d)/)'),
                  "String#split on a Regexp with a group interleaves each captured substring"
   end
 
+  # @behavior RX-126
   def test_split_with_positive_limit_caps_fields
     assert_equal ["a", "b,c,d"], eval_regexp('"a,b,c,d".split(/,/, 2)'),
                  "String#split with a positive limit stops splitting and keeps the remainder as the last field"
   end
 
+  # @behavior RX-127
   def test_split_on_pattern_with_negative_limit_keeps_trailing_empties
     assert_equal ["a", "b", "", ""], eval_regexp('"a,b,,".split(/,/, -1)'),
                  "String#split on a Regexp with a -1 limit keeps trailing empty fields"
   end
 
+  # @behavior RX-128
   def test_index_returns_byte_offset
     assert_equal 2, eval_regexp('"hello".index(/l/)'),
                  "String#index returns the byte offset of the first match"
   end
 
+  # @behavior RX-129
   def test_index_with_regexp_starts_at_position
     assert_equal 3, eval_regexp('"hello".index(/l/, 3)'),
                  "String#index with a Regexp searches from the given position"
   end
 
+  # @behavior RX-130
   def test_index_with_regexp_and_negative_position
     assert_equal 3, eval_regexp('"hello".index(/l/, -2)'),
                  "String#index with a Regexp resolves a negative position from the end"
   end
 
+  # @behavior RX-131
   def test_index_with_regexp_returns_nil_when_unmatched_from_position
     assert_nil eval_regexp('"hello".index(/h/, 1)'),
                "String#index returns nil when the Regexp does not match from the position"
@@ -80,26 +94,31 @@ class TestRegexpStringMethods < Minitest::Test
   # docs/regexp.md RX-02 position handling through RX-06 #index. Byte
   # layout: x=0, 漢=1..3, 字=4..6 — a position on byte 2 sits inside 漢 and
   # snaps down to 1, matching Regexp#match.
+  # @behavior RX-132
   def test_index_with_position_inside_a_multibyte_char_snaps_down
     assert_equal 4, eval_regexp('"x漢字".index(/字/, 2)'),
                  "String#index with a position inside a multibyte char snaps down to the char boundary"
   end
 
+  # @behavior RX-133
   def test_slice_returns_matched_substring
     assert_equal "ll", eval_regexp('"hello"[/l+/]'),
                  "String#[] with a Regexp returns the matched substring"
   end
 
+  # @behavior RX-134
   def test_slice_with_group_index_returns_capture
     assert_equal "2", eval_regexp('"a12b"[/(\d)(\d)/, 2]'),
                  "String#[] with a Regexp and group index returns that capture"
   end
 
+  # @behavior RX-135
   def test_sub_with_block_uses_block_result
     assert_equal "a9b2", eval_regexp('"a1b2".sub(/\d/){|m| (m.to_i * 9).to_s }'),
                  "String#sub with a block substitutes the first match's block result"
   end
 
+  # @behavior RX-136
   def test_scan_with_block_yields_each_match
     assert_equal %w[1 2], eval_regexp('r = []; "a1b2".scan(/\d/){|m| r << m }; r'),
                  "String#scan with a block yields each match to the block"
@@ -110,6 +129,7 @@ class TestRegexpStringMethods < Minitest::Test
   # to it. These pin that delegation so a regression in the alias wiring
   # cannot pass unnoticed.
 
+  # @behavior RX-137
   def test_split_on_string_delegates_to_core
     assert_equal %w[a b c], eval_regexp('"a,b,c".split(",")'),
                  "String#split with a String argument delegates to the core method"

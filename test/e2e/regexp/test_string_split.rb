@@ -8,26 +8,31 @@ require "test_helper"
 class TestRegexpStringSplit < Minitest::Test
   include RegexpGuestHelper
 
+  # @behavior RX-138
   def test_omits_non_participating_group
     assert_equal %w[a x b], eval_regexp('"axb".split(/(x)(y)?/)'),
                  "String#split must omit a non-participating capture group, not emit nil"
   end
 
+  # @behavior RX-139
   def test_scan_keeps_non_participating_group_as_nil
     assert_equal [["x", nil]], eval_regexp('"axb".scan(/(x)(y)?/)'),
                  "String#scan must keep a non-participating group as nil (the split/scan contrast)"
   end
 
+  # @behavior RX-140
   def test_empty_pattern_splits_into_chars_without_leading_blank
     assert_equal %w[a b c], eval_regexp('"abc".split(//)'),
                  "a zero-width pattern through String#split must not emit a leading empty field"
   end
 
+  # @behavior RX-141
   def test_empty_pattern_respects_limit
     assert_equal %w[a bc], eval_regexp('"abc".split(//, 2)'),
                  "a zero-width split must count real splits toward a positive limit"
   end
 
+  # @behavior RX-142
   def test_keeps_legitimate_empty_field
     assert_equal ["a", "", "b"], eval_regexp('"a,,b".split(/,/)'),
                  "an empty field between two non-zero-width matches must be kept"

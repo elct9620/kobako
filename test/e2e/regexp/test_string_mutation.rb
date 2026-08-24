@@ -8,26 +8,31 @@ require "test_helper"
 class TestRegexpStringMutation < Minitest::Test
   include RegexpGuestHelper
 
+  # @behavior RX-152
   def test_aset_replaces_whole_match_in_place
     assert_equal "heLLo", eval_regexp('s = "hello"; s[/l+/] = "LL"; s'),
                  "String#[]= with a Regexp overwrites the whole matched region"
   end
 
+  # @behavior RX-153
   def test_aset_replaces_group_in_place
     assert_equal "a1Xb", eval_regexp('s = "a12b"; s[/(\d)(\d)/, 2] = "X"; s'),
                  "String#[]= with a Regexp and group index overwrites that group"
   end
 
+  # @behavior RX-154
   def test_aset_with_string_key_delegates_to_core
     assert_equal "hELLo", eval_regexp('s = "hello"; s["ell"] = "ELL"; s'),
                  "String#[]= with a String argument delegates to the core method"
   end
 
+  # @behavior RX-155
   def test_aset_with_integer_args_delegates_to_core
     assert_equal "HEllo", eval_regexp('s = "hello"; s[0, 2] = "HE"; s'),
                  "String#[]= with Integer arguments delegates to the core method"
   end
 
+  # @behavior RX-156
   def test_aset_raises_when_regexp_does_not_match
     err = assert_raises(Kobako::SandboxError) { eval_regexp('s = "abc"; s[/\d/] = "x"') }
 
@@ -36,31 +41,37 @@ class TestRegexpStringMutation < Minitest::Test
                  "raises, since every guest raise reaches the host as one SandboxError"
   end
 
+  # @behavior RX-157
   def test_slice_bang_removes_regexp_match
     assert_equal %w[ll heo], eval_regexp('s = "hello"; r = s.slice!(/l+/); [r, s]'),
                  "String#slice! with a Regexp returns and removes the matched substring"
   end
 
+  # @behavior RX-158
   def test_slice_bang_returns_nil_when_regexp_does_not_match
     assert_equal [nil, "abc"], eval_regexp('s = "abc"; r = s.slice!(/\d/); [r, s]'),
                  "String#slice! returns nil and leaves the string when the Regexp misses"
   end
 
+  # @behavior RX-159
   def test_slice_bang_restores_last_match_to_its_own_match
     assert_equal "ll", eval_regexp('s = "hello"; s.slice!(/l+/); $~[0]'),
                  "String#slice! restores $~ to its own match after the inner delete"
   end
 
+  # @behavior RX-160
   def test_slice_bang_with_integer_delegates_to_core
     assert_equal %w[h ello], eval_regexp('s = "hello"; r = s.slice!(0); [r, s]'),
                  "String#slice! with an Integer removes that character via the core path"
   end
 
+  # @behavior RX-161
   def test_slice_bang_with_integer_length_delegates_to_core
     assert_equal %w[el hlo], eval_regexp('s = "hello"; r = s.slice!(1, 2); [r, s]'),
                  "String#slice! with Integer start and length removes that range"
   end
 
+  # @behavior RX-162
   def test_slice_bang_with_string_delegates_to_core
     assert_equal %w[ll heo], eval_regexp('s = "hello"; r = s.slice!("ll"); [r, s]'),
                  "String#slice! with a String removes its first occurrence"

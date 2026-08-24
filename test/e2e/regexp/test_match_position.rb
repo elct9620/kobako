@@ -8,31 +8,37 @@ require "test_helper"
 class TestRegexpMatchPosition < Minitest::Test
   include RegexpGuestHelper
 
+  # @behavior RX-042
   def test_match_with_position_starts_search_at_offset
     assert_equal %w[2], eval_regexp('/\d/.match("a1b2c3", 3).to_a'),
                  "Regexp#match starts searching at the given byte position"
   end
 
+  # @behavior RX-043
   def test_match_returns_nil_when_position_past_end
     assert_equal "nil", eval_regexp('//.match("abc", 5) ? "matched" : "nil"'),
                  "Regexp#match returns nil when pos is past the end of the string"
   end
 
+  # @behavior RX-044
   def test_match_negative_position_counts_from_end
     assert_equal 2, eval_regexp('/a/.match("aba", -1).begin(0)'),
                  "Regexp#match resolves a negative pos from the end of the string"
   end
 
+  # @behavior RX-045
   def test_match_returns_nil_when_negative_position_before_start
     assert_nil eval_regexp('/a/.match("abc", -10)'),
                "Regexp#match returns nil when a negative pos falls before the start"
   end
 
+  # @behavior RX-046
   def test_match_at_end_position_allows_empty_match
     assert_equal 3, eval_regexp('//.match("abc", 3).begin(0)'),
                  "Regexp#match allows pos equal to the length, matching empty at the end"
   end
 
+  # @behavior RX-047
   def test_match_p_returns_false_when_position_past_end
     assert_equal false, eval_regexp('//.match?("abc", 5)'),
                  "Regexp#match? returns false when pos is past the end of the string"

@@ -10,6 +10,7 @@ require "test_helper"
 class TestRegexpSubstitutionErrors < Minitest::Test
   include RegexpGuestHelper
 
+  # @behavior RX-163
   def test_scan_propagates_block_exception
     assert_equal "boom",
                  eval_regexp('begin; "aa".scan(/a/){ raise "boom" }; "swallowed"; ' \
@@ -17,6 +18,7 @@ class TestRegexpSubstitutionErrors < Minitest::Test
                  "an exception raised in a scan block propagates to the caller"
   end
 
+  # @behavior RX-164
   def test_gsub_propagates_block_exception
     assert_equal "boom",
                  eval_regexp('begin; "aa".gsub(/a/){ raise "boom" }; "swallowed"; ' \
@@ -24,6 +26,7 @@ class TestRegexpSubstitutionErrors < Minitest::Test
                  "an exception raised in a gsub block propagates to the caller"
   end
 
+  # @behavior RX-165
   def test_gsub_without_block_or_replacement_delegates_to_to_enum
     # gsub now delegates to to_enum (rather than silently substituting ""); the
     # curated guest has no Fiber, so building the Enumerator fails loudly. A
@@ -33,6 +36,7 @@ class TestRegexpSubstitutionErrors < Minitest::Test
                  "gsub with neither a block nor a replacement delegates to to_enum (an Enumerator)")
   end
 
+  # @behavior RX-166
   def test_sub_without_block_or_replacement_raises_argument_error
     assert_equal "ArgumentError", guard_error('"aa".sub(/a/)', "ArgumentError"),
                  "sub with neither a block nor a replacement raises ArgumentError"

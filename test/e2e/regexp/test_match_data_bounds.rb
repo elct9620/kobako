@@ -10,26 +10,31 @@ require "test_helper"
 class TestRegexpMatchDataBounds < Minitest::Test
   include RegexpGuestHelper
 
+  # @behavior RX-113
   def test_begin_out_of_range_raises_index_error
     assert_equal "IndexError", guard_error('/(\d)/.match("a1").begin(5)', "IndexError"),
                  "MatchData#begin raises IndexError for an index past the group count"
   end
 
+  # @behavior RX-114
   def test_end_out_of_range_raises_index_error
     assert_equal "IndexError", guard_error('/(\d)/.match("a1").end(5)', "IndexError"),
                  "MatchData#end raises IndexError for an index past the group count"
   end
 
+  # @behavior RX-115
   def test_offset_out_of_range_raises_index_error
     assert_equal "IndexError", guard_error('/(\d)/.match("a1").offset(2)', "IndexError"),
                  "MatchData#offset raises IndexError for an index past the group count"
   end
 
+  # @behavior RX-116
   def test_begin_resolves_capture_name
     assert_equal 1, eval_regexp('/(?<y>\d)/.match("a1").begin(:y)'),
                  "MatchData#begin accepts a capture name and returns its byte offset"
   end
 
+  # @behavior RX-117
   def test_begin_of_non_participating_group_is_nil
     assert_nil eval_regexp('/(a)?(b)/.match("b").begin(1)'),
                "MatchData#begin is nil for a valid index whose group did not participate"

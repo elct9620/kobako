@@ -9,6 +9,7 @@ require "test_helper"
 class TestRegexpObjectCopy < Minitest::Test
   include RegexpGuestHelper
 
+  # @behavior RX-073
   def test_regexp_dup_copies_the_compiled_pattern
     assert_equal ["a(b)c", 1, "b"],
                  eval_regexp('d = /a(b)c/i.dup; [d.source, d.options, d.match("abc")[1]]'),
@@ -17,6 +18,7 @@ class TestRegexpObjectCopy < Minitest::Test
 
   # clone is a distinct mruby core method from dup; pin that it also routes
   # through initialize_copy so the deeper copy stays a working matcher.
+  # @behavior RX-074
   def test_regexp_clone_copies_the_compiled_pattern
     assert_equal ["a(b)c", 1, "b"],
                  eval_regexp('c = /a(b)c/i.clone; [c.source, c.options, c.match("abc")[1]]'),
@@ -27,6 +29,7 @@ class TestRegexpObjectCopy < Minitest::Test
   # plus the @regexp ivar; the named capture exercises every MatchState field,
   # so positional [1], named [:g], the subject slice, and #regexp must all
   # survive a dup.
+  # @behavior RX-075
   def test_matchdata_dup_copies_the_match_snapshot
     assert_equal ["b", "b", "x", "a(?<g>b)c"],
                  eval_regexp('d = /a(?<g>b)c/.match("xabcx").dup; [d[1], d[:g], d.pre_match, d.regexp.source]'),
