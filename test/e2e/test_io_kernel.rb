@@ -9,6 +9,7 @@ require "test_helper"
 class TestE2EIoKernel < Minitest::Test
   include E2eGuestHelper
 
+  # @behavior IO-023 IO-024
   # SPEC.md B-04: Kernel#putc routes through $stdout, Integer arg writes a
   # single byte (c & 0xff). Pins alignment with mruby-io's mrblib/kernel.rb
   # putc surface (vendor/mruby/mrbgems/mruby-io/mrblib/kernel.rb:95-98).
@@ -22,6 +23,7 @@ class TestE2EIoKernel < Minitest::Test
                  "Kernel#putc must not bleed into stderr"
   end
 
+  # @behavior IO-024 IO-025
   # SPEC.md B-04: Kernel#putc with an Integer masks with +& 0xff+ before
   # writing — mirrors mruby-io's +io_putc+ in
   # vendor/mruby/mrbgems/mruby-io/src/io.c:1103. The companion test
@@ -39,6 +41,7 @@ class TestE2EIoKernel < Minitest::Test
                  "Kernel#putc must not bleed into stderr"
   end
 
+  # @behavior IO-023 IO-026
   # SPEC.md B-04: Kernel#putc returns +nil+, not the argument — pinned
   # by mruby-io's mrblib/kernel.rb:95-98. The IO-level +IO#putc+
   # returns the original object; the Kernel delegator deliberately
@@ -55,6 +58,7 @@ class TestE2EIoKernel < Minitest::Test
                  "putc 65 must still land on stdout"
   end
 
+  # @behavior IO-027 IO-028
   # SPEC.md B-04: the Kernel delegators register private, matching the
   # mruby-io mrblib declaration (+module Kernel; private; def puts ...+).
   # mruby 4 enforces visibility at VM dispatch, so a public registration
@@ -73,6 +77,7 @@ class TestE2EIoKernel < Minitest::Test
                  "a private Kernel#puts must not leak output through an explicit receiver"
   end
 
+  # @behavior IO-024 IO-029
   # SPEC.md B-04: Kernel#putc with a String writes the first character.
   # Mruby is compiled without MRB_UTF8_STRING, so the first character is
   # the first byte — same behavior as mruby-io's non-UTF8 fallback path
@@ -87,6 +92,7 @@ class TestE2EIoKernel < Minitest::Test
                  "Kernel#putc must not bleed into stderr"
   end
 
+  # @behavior IO-030
   # SPEC.md B-04: Kernel#p writes inspect form to $stdout (not the raw to_s).
   # Pins the inspect-format invariant that distinguishes #p from #puts.
   def test_p_writes_inspect_form_to_stdout
@@ -97,6 +103,7 @@ class TestE2EIoKernel < Minitest::Test
                     "Kernel#p must write Hash inspect form to stdout (mruby 4.0 shorthand)"
   end
 
+  # @behavior IO-031
   # SPEC.md B-04: the IO write loops run in C frames, where mruby's GC
   # arena (100 slots) is not restored per instruction the way it is
   # under the VM; each iteration allocates at least a coerced String
@@ -123,6 +130,7 @@ class TestE2EIoKernel < Minitest::Test
     1
   RUBY
 
+  # @behavior IO-032
   # SPEC.md B-04: Kernel#puts flattens Array arguments element-wise, and
   # the recursion gate is is_a?(Array) — an Array *subclass* instance
   # must flatten too, not stringify wholesale through to_s.

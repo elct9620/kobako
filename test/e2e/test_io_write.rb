@@ -10,6 +10,7 @@ require "test_helper"
 class TestE2EIoWrite < Minitest::Test
   include E2eGuestHelper
 
+  # @behavior IO-001
   # Guest IO is scoped to the two captured descriptors; any other fd
   # raises ArgumentError at construction so the failure is loud rather
   # than a silent fwrite to a no-op stream.
@@ -24,6 +25,7 @@ class TestE2EIoWrite < Minitest::Test
                     "io_initialize must raise ArgumentError citing the fd constraint"
   end
 
+  # @behavior IO-002
   # Mirror of fd validation for the mode argument — only "w" is
   # supported because mruby-io's read-path is intentionally out of
   # scope (see the kobako-io IO surface, wasm/kobako-io/src/io.rs).
@@ -46,6 +48,7 @@ class TestE2EIoWrite < Minitest::Test
     io.write("escape")
   RUBY
 
+  # @behavior IO-003
   # The fd allowlist is enforced at the write syscall, not only at
   # construction: @__kobako_fd__ is a guest-mutable ivar, so a guest that
   # rebinds it to an arbitrary descriptor and then writes must be refused
@@ -62,6 +65,7 @@ class TestE2EIoWrite < Minitest::Test
                     "not forwarded to write(2)"
   end
 
+  # @behavior IO-004 IO-005
   # Pins the io_fileno C bridge through a real run: STDOUT was
   # constructed with fd 1 in install_raw, so STDOUT.fileno must round
   # trip back to 1. STDERR.fileno mirrors with 2.
@@ -80,6 +84,7 @@ class TestE2EIoWrite < Minitest::Test
      $stdout.sync, $stdout.flush.equal?($stdout), $stdout.closed?, $stdout.to_i]
   RUBY
 
+  # @behavior IO-006 IO-007 IO-008 IO-009 IO-010 IO-011 IO-012 IO-013 IO-014
   # SPEC.md B-04: the mruby-io-compatible supplementary IO surface —
   # `<<` chaining, tty? / sync / sync= / flush / closed? introspection,
   # and the to_i alias — stays drop-in compatible so scripts written
@@ -106,6 +111,7 @@ class TestE2EIoWrite < Minitest::Test
   # `wrapper.h` macro expansion or the `RString` header layout would
   # surface as a mismatched byte assertion below.
 
+  # @behavior IO-015
   # Strings short enough to fit inside RStringEmbed.ary go through
   # the embed branch of RSTRING_PTR / RSTRING_LEN. 11 bytes sits at
   # the inline boundary (`RSTRING_EMBED_LEN_MAX` on wasm32) — a
@@ -118,6 +124,7 @@ class TestE2EIoWrite < Minitest::Test
                  "short string passed to `print` must reach stdout intact"
   end
 
+  # @behavior IO-016
   # Strings beyond the embed cap live in as_.heap.{ptr,len}; the
   # same wrappers must follow the heap-pointer branch. 100 bytes
   # is well clear of the boundary so any embed-only regression
@@ -131,6 +138,7 @@ class TestE2EIoWrite < Minitest::Test
                  "long string passed to `print` must reach stdout intact"
   end
 
+  # @behavior IO-017
   # IO#write routes through `write(2)` with an explicit `ptr + len`,
   # not `mrb_str_to_cstr` (which would truncate at the first NUL
   # byte). Embedded NUL must reach the capture pipe intact.
@@ -141,6 +149,7 @@ class TestE2EIoWrite < Minitest::Test
                  "NUL bytes inside a `print` payload must reach stdout"
   end
 
+  # @behavior IO-018
   # `mrb_obj_as_string` on a value that is already a String returns
   # the receiver unchanged — no Object#to_s detour. The literal's
   # bytes reach `write(2)` verbatim.
@@ -151,6 +160,7 @@ class TestE2EIoWrite < Minitest::Test
                  "String argument to `print` must reach stdout verbatim"
   end
 
+  # @behavior IO-019
   # `mrb_obj_as_string` on a non-String calls Object#to_s. Integer
   # 42 round-trips as the canonical "42" decimal string; a skipped
   # coercion path would surface a raw boxed representation (or
@@ -172,6 +182,7 @@ class TestE2EIoWrite < Minitest::Test
   # stdout path proves `printf` writes the formatted bytes to the capture
   # channel.
 
+  # @behavior IO-020
   # Kernel#sprintf must apply width / precision specifiers and return the
   # formatted String through the outcome envelope.
   def test_sprintf_formats_value_through_eval
@@ -183,6 +194,7 @@ class TestE2EIoWrite < Minitest::Test
                  "sprintf through #eval must apply width/precision and return the formatted String"
   end
 
+  # @behavior IO-021
   # String#% must route through the same format engine, threading an Array
   # of arguments into positional specifiers.
   def test_string_percent_formats_array_through_eval
@@ -194,6 +206,7 @@ class TestE2EIoWrite < Minitest::Test
                  "String#% through #eval must interpolate the Array into positional specifiers"
   end
 
+  # @behavior IO-022
   # kobako-io's IO#printf delegates to sprintf, so a guest `printf`
   # call must write the formatted bytes to the stdout capture channel —
   # the latent NoMethodError this gem fixes surfaced exactly here.
