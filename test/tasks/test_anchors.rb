@@ -60,6 +60,15 @@ class KobakoAnchorsTest < Minitest::Test
                  "every family token must extract; a hyphenated number inside a word is not an anchor"
   end
 
+  # Sumi scenarios reuse the RX / JS series letters while numbering
+  # independently, so a claim read as a citation invents a dangling anchor.
+  def test_references_ignore_a_sumi_claim_line_but_keep_prose_around_it
+    text = "# @behavior RX-011 JS-012\n# B-19 governs the boundary.\n"
+
+    assert_equal [["B", 19]], Anchors.references(text),
+                 "a sumi claim through the reader must cite no anchor, while prose beside it still does"
+  end
+
   def test_clean_corpus_reports_no_violations
     violations = audit("B", { "lifecycle.md" => "## B-01 — x\n## B-02 — y\n" },
                        refs: { "lifecycle.md" => "B-01 leads to B-02" }, ceilings: { "B" => 2 })
