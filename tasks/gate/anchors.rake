@@ -20,13 +20,19 @@ require_relative "../support/report"
 # trees are not scanned. The tooling suites (+test/tasks/+, +test/bench/+)
 # are excluded: their anchor-shaped tokens are hand-built fixtures, not
 # references.
+#
+# +docs/spec/+ is excluded from both corpora: sumi writes it, and a rendered
+# scenario heading carries the same +## RX-010 — + shape this checker reads
+# as a definition. A behavior migrated to sumi keeps its old definition here
+# until the migration finishes, so a rendered page must stay invisible to
+# this gate on both counts.
 ANCHOR_ROOT = File.expand_path("../..", __dir__)
 ANCHOR_DEF_BEHAVIOR = FileList["docs/behavior/*.md"]
 ANCHOR_DEF_REGEXP = FileList["docs/regexp.md"]
 ANCHOR_DEF_JSON = FileList["docs/json.md"]
 ANCHOR_REF_GLOBS = FileList[
   "SPEC.md", "README.md", "docs/**/*.md", "test/**/*.rb", "benchmark/**/*.md"
-].exclude(%r{/(target|vendor|tmp)/}, %r{\Atest/(tasks|bench)/})
+].exclude(%r{/(target|vendor|tmp)/}, %r{\Atest/(tasks|bench)/}, %r{\Adocs/spec/})
 
 # The behavior-family definition corpus (+B+ / +E+ share the behavior
 # split; +RX+ / +JS+ are topic-doc-local) — one assembly audited by the
