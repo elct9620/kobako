@@ -19,6 +19,7 @@ class TestPoolContention < Minitest::Test
     holder.join
   end
 
+  # @behavior PL-011
   # B-47: a blocked checkout proceeds as soon as a holder checks in.
   def test_blocked_checkout_proceeds_on_checkin
     pool = Kobako::Pool.new(slots: 1, checkout_timeout: 5.0)
@@ -30,6 +31,7 @@ class TestPoolContention < Minitest::Test
     holder.join
   end
 
+  # @behavior PL-012
   # B-47: checkouts are independent — a nested #with draws a second slot.
   def test_nested_with_checks_out_a_distinct_sandbox
     pool = Kobako::Pool.new(slots: 2)

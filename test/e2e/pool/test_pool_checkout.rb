@@ -8,6 +8,7 @@ require "test_helper"
 class TestPoolCheckout < Minitest::Test
   include E2eGuestHelper
 
+  # @behavior PL-008
   # B-47
   def test_with_returns_block_value
     pool = Kobako::Pool.new(slots: 1)
@@ -15,6 +16,7 @@ class TestPoolCheckout < Minitest::Test
                  "the block's return value through Pool#with must be returned to the caller (B-47)"
   end
 
+  # @behavior PL-003 PL-004
   # B-46: a checkout prefers an idle Sandbox — the setup block runs once
   # per constructed Sandbox, not once per checkout.
   def test_sequential_checkouts_reuse_the_idle_sandbox
@@ -27,6 +29,7 @@ class TestPoolCheckout < Minitest::Test
     assert_equal 1, constructed.size, "the setup block must run exactly once per constructed Sandbox (B-46)"
   end
 
+  # @behavior PL-009
   # B-46 / B-47: the setup block's registrations persist across checkouts.
   def test_setup_block_registrations_visible_to_later_checkouts
     echo = Class.new do
@@ -38,6 +41,7 @@ class TestPoolCheckout < Minitest::Test
                  "setup-block Service bindings through a reused pooled Sandbox must stay active (B-47)"
   end
 
+  # @behavior PL-010
   # B-47: no guest-observable state crosses from one checkout holder to
   # the next. The B-49 canonical-boot e2e pins this on a directly
   # constructed Sandbox; this is the Pool-composition witness on the
@@ -51,6 +55,7 @@ class TestPoolCheckout < Minitest::Test
     end
   end
 
+  # @behavior PL-005
   # B-46: Sandbox keywords forward verbatim — the forwarded timeout cap
   # governs invocations on pooled Sandboxes.
   def test_sandbox_keywords_forward_to_pooled_sandboxes

@@ -1,0 +1,225 @@
+{
+  "name": "Pool",
+  "description": "How a Pool hands out warm Sandboxes, and what a checkout leaves behind.",
+  "include": [
+    "test/unit/pool/**/*.rb",
+    "test/e2e/pool/**/*.rb"
+  ],
+  "scenarios": [
+    {
+      "id": "PL-001",
+      "title": "Construction builds no Sandbox",
+      "given": [
+        "a setup block that counts the pooled Sandboxes it prepares"
+      ],
+      "when": "`Kobako::Pool.new(slots: 2)` runs",
+      "then": "the setup block has not run"
+    },
+    {
+      "id": "PL-002",
+      "title": "The checkout wait has a default bound",
+      "given": [
+        "a Pool constructed without `checkout_timeout:`"
+      ],
+      "when": "the default checkout wait bound is read",
+      "then": "the bound is 5.0 seconds"
+    },
+    {
+      "id": "PL-003",
+      "title": "An idle Sandbox is preferred over a new one",
+      "given": [
+        "a Pool with `slots: 2`",
+        "a completed checkout that left its Sandbox idle"
+      ],
+      "when": "`Pool#with` runs again",
+      "then": "the block receives the Sandbox the first checkout held"
+    },
+    {
+      "id": "PL-004",
+      "title": "Setup prepares a Sandbox, not a checkout",
+      "given": [
+        "a Pool with `slots: 2` and a setup block that records each Sandbox it prepares"
+      ],
+      "when": "two sequential checkouts complete",
+      "then": "the setup block has run once"
+    },
+    {
+      "id": "PL-005",
+      "title": "Sandbox keywords reach the Sandboxes the Pool builds",
+      "given": [
+        "a Pool constructed with `slots: 1` and `timeout: 0.05`"
+      ],
+      "when": "a checked-out Sandbox evaluates a non-terminating loop",
+      "then": "`Kobako::TimeoutError` is raised"
+    },
+    {
+      "id": "PL-006",
+      "title": "A setup failure surfaces where it was triggered",
+      "given": [
+        "a Pool whose setup block raises on its first run"
+      ],
+      "when": "the first `Pool#with` triggers that construction",
+      "then": "the setup block's own exception reaches the `#with` caller unchanged"
+    },
+    {
+      "id": "PL-007",
+      "title": "A failed construction does not consume its slot",
+      "given": [
+        "a Pool with `slots: 1`",
+        "a first checkout whose construction failed in the setup block"
+      ],
+      "when": "`Pool#with` runs again",
+      "then": "the checkout succeeds and the block's value comes back"
+    },
+    {
+      "id": "PL-008",
+      "title": "Checkout answers with what the caller computed",
+      "given": [
+        "a Pool with `slots: 1`"
+      ],
+      "when": "`Pool#with` runs with a block returning a value",
+      "then": "`#with` returns that value"
+    },
+    {
+      "id": "PL-009",
+      "title": "Setup registrations outlive the checkout that first used them",
+      "given": [
+        "a Pool whose setup block binds a Service on each Sandbox it prepares",
+        "a completed checkout that reached that Service"
+      ],
+      "when": "a later checkout evaluates guest code naming the same Service",
+      "then": "the Service returns its value to the guest"
+    },
+    {
+      "id": "PL-010",
+      "title": "Guest state does not travel between holders",
+      "given": [
+        "a Pool with `slots: 1`",
+        "a completed checkout that set a guest global variable"
+      ],
+      "when": "a later checkout reads that global",
+      "then": "it reads `nil`"
+    },
+    {
+      "id": "PL-011",
+      "title": "A full Pool makes the caller wait rather than refuse",
+      "given": [
+        "a Pool with `slots: 1` whose only Sandbox is held by another thread",
+        "a checkout blocked waiting for it"
+      ],
+      "when": "the holder checks its Sandbox back in",
+      "then": "the blocked checkout completes and returns its block's value"
+    },
+    {
+      "id": "PL-012",
+      "title": "A nested checkout is an ordinary second holder",
+      "given": [
+        "a Pool with `slots: 2`",
+        "a running `Pool#with` block on this thread"
+      ],
+      "when": "`Pool#with` runs again inside that block",
+      "then": "the inner block receives a different Sandbox than the outer one"
+    },
+    {
+      "id": "PL-013",
+      "title": "A trapped Sandbox is never handed out again",
+      "given": [
+        "a Pool with `slots: 1`",
+        "a checkout whose block raised `Kobako::TrapError`"
+      ],
+      "when": "`Pool#with` runs again",
+      "then": "the block receives a different Sandbox than the one the trap left"
+    },
+    {
+      "id": "PL-014",
+      "title": "The refilled slot is a working one",
+      "given": [
+        "a Pool with `slots: 1`",
+        "a checkout whose block raised `Kobako::TrapError`"
+      ],
+      "when": "the next checkout's Sandbox evaluates guest code",
+      "then": "the evaluation returns its value"
+    },
+    {
+      "id": "PL-015",
+      "title": "Refilling builds a Sandbox rather than reviving one",
+      "given": [
+        "a Pool with `slots: 1` and a setup block that records each Sandbox it prepares",
+        "a checkout whose block raised `Kobako::TrapError`"
+      ],
+      "when": "`Pool#with` runs again",
+      "then": "the setup block has run twice"
+    },
+    {
+      "id": "PL-016",
+      "title": "Only a trap costs the Pool its Sandbox",
+      "given": [
+        "a Pool with `slots: 1`",
+        "a checkout whose block raised `Kobako::SandboxError`"
+      ],
+      "when": "`Pool#with` runs again",
+      "then": "the block receives the Sandbox that error left"
+    },
+    {
+      "id": "PL-017",
+      "title": "A guest error costs no construction",
+      "given": [
+        "a Pool with `slots: 1` and a setup block that records each Sandbox it prepares",
+        "a checkout whose block raised `Kobako::SandboxError`"
+      ],
+      "when": "`Pool#with` runs again",
+      "then": "the setup block has run once"
+    },
+    {
+      "id": "PL-018",
+      "title": "Reachability is the whole of the lifecycle",
+      "given": [
+        "a Pool that has constructed one Sandbox",
+        "no remaining Host App reference to either"
+      ],
+      "when": "garbage collection runs",
+      "then": "the Pool and the Sandbox are both reclaimed"
+    },
+    {
+      "id": "PL-019",
+      "title": "A holder outlives the Pool it borrowed from",
+      "given": [
+        "a running `Pool#with` block that has dropped the last Pool reference and run a collection"
+      ],
+      "when": "the checked-out Sandbox evaluates guest code inside that block",
+      "then": "the evaluation returns its value"
+    }
+  ],
+  "notes": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": [
+        "Why these scenarios"
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": [
+        "A Pool is observable in three places: which Sandbox a checkout receives,",
+        "how many times the setup block has prepared one, and whether a slot survives",
+        "what its holder did with it. Each scenario settles one of those and stops."
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": [
+        "The checkout wait bound and the constructor's argument validation raise rather",
+        "than answer, so they belong to the error taxonomy and are specified there."
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": [
+        "That a pooled Sandbox satisfies every other behavior identically to a directly",
+        "constructed one is a claim about the whole corpus rather than a difference one",
+        "observation settles; the isolation scenarios above are its pool-side witnesses."
+      ]
+    }
+  ]
+}

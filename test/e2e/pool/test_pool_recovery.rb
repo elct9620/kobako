@@ -9,6 +9,7 @@ require "test_helper"
 class TestPoolRecovery < Minitest::Test
   include E2eGuestHelper
 
+  # @behavior PL-013 PL-014 PL-015
   # B-47: a TrapError discards the Sandbox at checkin; the slot refills
   # with a fresh construction + setup-block run on next demand.
   def test_trap_error_discards_and_refills_the_slot
@@ -23,6 +24,7 @@ class TestPoolRecovery < Minitest::Test
     assert_equal 2, constructed.size, "the discarded slot must refill via a fresh construction (B-47)"
   end
 
+  # @behavior PL-016 PL-017
   # B-47: only TrapError discards — a guest exception surfaces as
   # SandboxError and leaves the Sandbox healthy, so checkin must return
   # it to the pool. A regression widening the discard rescue (or losing
@@ -39,6 +41,7 @@ class TestPoolRecovery < Minitest::Test
     assert_equal 1, constructed.size, "a non-TrapError block exit must not trigger a fresh construction (B-47)"
   end
 
+  # @behavior PL-006 PL-007
   # B-46: a setup-block error surfaces at the triggering checkout and
   # releases the reserved slot capacity for a later retry.
   def test_setup_block_error_propagates_and_releases_capacity

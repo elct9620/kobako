@@ -34,6 +34,7 @@ class TestPoolConstruction < Minitest::Test
                        "checkout_timeout: nil through Pool.new must construct a Pool (E-47)"
   end
 
+  # @behavior PL-002
   # B-46: the default checkout wait bound is 5.0 seconds. Pinned on the
   # public constant — the keyword default consumes it, and a timed
   # behavioral witness would cost the suite a 5-second wait.
@@ -42,6 +43,7 @@ class TestPoolConstruction < Minitest::Test
                     "Pool.new without checkout_timeout: must bound the wait at 5.0 seconds (B-46)"
   end
 
+  # @behavior PL-001
   # B-46: Pool.new constructs no Sandbox — construction is checkout-driven.
   def test_construction_is_lazy
     setup_runs = 0

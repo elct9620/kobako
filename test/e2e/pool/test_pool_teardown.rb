@@ -16,6 +16,7 @@ class TestPoolTeardown < Minitest::Test
   # rather than a single GC pass.
   GC_PASSES = 10
 
+  # @behavior PL-018
   # B-48: the Pool has no teardown verb — once the Host App drops its
   # last reference, the pooled Sandboxes go with it. A regression
   # parking Sandboxes in any pool-external strong reference (a process
@@ -27,6 +28,7 @@ class TestPoolTeardown < Minitest::Test
            "an unreachable Pool and its pooled Sandboxes must be reclaimed by garbage collection (B-48)"
   end
 
+  # @behavior PL-019
   # B-48: a Sandbox held by an in-flight #with block remains valid until
   # the block exits, even after the holder drops its own Pool reference
   # mid-block.
