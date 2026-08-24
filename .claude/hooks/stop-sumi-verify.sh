@@ -5,8 +5,9 @@ set -euo pipefail
 
 root="${CLAUDE_PROJECT_DIR:?}"
 
-# Defer while a benchmark is measuring: the scan parses every Rust and Ruby
-# file in scope, and that spike would skew the numbers.
+# Defer while a benchmark is measuring, as the other Stop hooks do. The scan
+# is cheap enough not to disturb one, but a measuring run leaves the source
+# saying what it already said — so the answer after is the same answer.
 if "$root/.claude/hooks/bench-guard.sh"; then exit 0; fi
 
 # Nothing to check with when the tool is absent, which a fresh clone is.
