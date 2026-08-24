@@ -12,6 +12,7 @@ class TestParityInstall < Parity::Case
   PURE_AND_IO = "class File; extend Kobako::Proxy; def self.join(*p); p.join('/'); end; end"
   BACKED_ONLY = "class File; extend Kobako::Proxy; end"
 
+  # @behavior EX-005 EX-006
   # B-55: File.join runs in-guest with no round-trip; File.read dispatches
   # to the bound backend.
   def test_pure_method_is_local_and_io_dispatches_to_the_backend
@@ -22,6 +23,7 @@ class TestParityInstall < Parity::Case
     )
   end
 
+  # @behavior EX-021
   # B-56: a fixed provider binds one backend for the Sandbox's life, so a
   # counter keeps counting across invocations.
   def test_fixed_provider_persists_a_stateful_backend
@@ -31,6 +33,7 @@ class TestParityInstall < Parity::Case
     )
   end
 
+  # @behavior EX-022
   # B-56: a per-invocation provider resolves a fresh backend each
   # invocation, so the counter resets — the write cannot leak across
   # invocations.

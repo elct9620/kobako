@@ -73,6 +73,7 @@ module Kobako
 
     def setup = setup_registries
 
+    # @behavior EX-001 EX-002
     def test_install_registers_source_as_a_snippet_and_binds_the_backend_path
       fs = Object.new
       install(extension(name: :File, source: "class File; extend Kobako::Proxy; end",
@@ -84,6 +85,7 @@ module Kobako
                   "install must bind the backend at backend.path, independent of #name (B-55)"
     end
 
+    # @behavior EX-003
     def test_install_of_a_pure_guest_extension_binds_no_service
       install(extension(name: :Errno, source: "module Errno; end"))
 
@@ -92,10 +94,12 @@ module Kobako
                    "a pure-guest Extension (no backend) must bind no Service (B-55)"
     end
 
+    # @behavior EX-004
     def test_install_returns_self_for_chaining
       assert_same @extensions, install(extension(name: :A, source: "1"))
     end
 
+    # @behavior EX-023
     def test_seal_accepts_satisfied_dependencies
       install(extension(name: :Errno, source: "1"))
       install(extension(name: :File, source: "2", depends_on: [:Errno]))
@@ -113,6 +117,7 @@ module Kobako
                    "an unmet dependency assertion names the missing Extension (B-57 / E-52)")
     end
 
+    # @behavior EX-024
     def test_seal_matches_dependencies_across_symbol_and_string_forms
       install(extension(name: :Errno, source: "1"))
       install(extension(name: "File", source: "2", depends_on: ["Errno"]))
@@ -121,6 +126,7 @@ module Kobako
                   "a depends_on entry and a name match by Symbol, so their String/Symbol forms interchange (B-57)"
     end
 
+    # @behavior EX-025
     def test_seal_permits_dependency_cycles
       install(extension(name: :A, source: "1", depends_on: [:B]))
       install(extension(name: :B, source: "2", depends_on: [:A]))
@@ -129,6 +135,7 @@ module Kobako
                   "presence-only assertion permits dependency cycles (B-57)"
     end
 
+    # @behavior EX-026
     # The dependency assertion is a one-time gate at the first seal, not a
     # per-invocation check — begin_invocation! calls seal! on every
     # invocation and relies on it staying silent afterward. Drive the
@@ -177,6 +184,7 @@ module Kobako
 
     def setup = setup_registries
 
+    # @behavior EX-009 EX-010
     def test_fixed_backend_is_bound_at_install_and_stays_one_object
       fs = Object.new
       install(extension(name: :File, source: "1", backend: static_backend("File", fs)))
@@ -188,6 +196,7 @@ module Kobako
                   "a fixed provider stays the same object across invocations (B-56)"
     end
 
+    # @behavior EX-011 EX-012
     def test_provider_backend_resolves_a_fresh_object_each_invocation
       install(extension(name: :File, source: "1", backend: provider_backend("File", -> { Object.new })))
       assert_same Kobako::Unresolved, @services.lookup("File"),
@@ -199,6 +208,7 @@ module Kobako
                   "each invocation resolves a fresh backend object (B-56)"
     end
 
+    # @behavior EX-014 EX-015
     def test_fillable_backend_binds_the_unresolved_sentinel
       install(extension(name: :File, source: "1", backend: Kobako::Extension::Backend.new(path: "File")))
 
@@ -208,6 +218,7 @@ module Kobako
              "a fillable backend is never per-invocation resolved; it stays Unresolved until filled (B-56)"
     end
 
+    # @behavior EX-013
     def test_backend_rejects_object_and_provider_together
       err = assert_raises(ArgumentError) do
         Kobako::Extension::Backend.new(path: "File", object: Object.new, provider: -> { Object.new })
@@ -216,6 +227,7 @@ module Kobako
                    "declaring both object: and provider: is ambiguous and must raise (B-56)")
     end
 
+    # @behavior EX-016 EX-017
     def test_one_provider_shared_by_several_extensions_resolves_once_per_invocation
       sink = []
       shared = counting_provider(sink)
@@ -229,6 +241,7 @@ module Kobako
                   "a shared provider must back every path with the same object (B-56)"
     end
 
+    # @behavior EX-018
     def test_distinct_providers_resolve_to_distinct_objects
       install(extension(name: :File, source: "1", backend: provider_backend("File", -> { Object.new })))
       install(extension(name: :Dir, source: "2", backend: provider_backend("Dir", -> { Object.new })))
@@ -239,6 +252,7 @@ module Kobako
                   "distinct providers must resolve to distinct objects (B-56)"
     end
 
+    # @behavior EX-019 EX-020
     # B-56 provider failure: a raising provider is host code, so its own
     # exception propagates unwrapped; resolution being per-invocation, a
     # later resolve whose provider succeeds resolves the path normally.

@@ -16,6 +16,7 @@ class TestE2EInstall < Minitest::Test
   include E2eGuestHelper
   include ExtensionFixtures
 
+  # @behavior EX-005 EX-006
   # B-55: the pure method runs in-guest; the I/O method dispatches to the
   # bound backend.
   def test_pure_method_is_local_and_io_dispatches_to_the_backend
@@ -27,6 +28,7 @@ class TestE2EInstall < Minitest::Test
                  "a File I/O method must dispatch to the bound backend (B-55)"
   end
 
+  # @behavior EX-021
   # B-56 fixed: one backend object across invocations, so a write persists.
   def test_fixed_backend_persists_across_invocations
     sandbox = install_file(object: InMemoryFileSystem.new)
@@ -36,6 +38,7 @@ class TestE2EInstall < Minitest::Test
                  "a fixed backend is one object across invocations, so a write persists (B-56)"
   end
 
+  # @behavior EX-022
   # B-56 callable: a fresh backend each invocation, so a write cannot leak.
   def test_callable_backend_is_isolated_per_invocation
     sandbox = install_file(provider: -> { InMemoryFileSystem.new })
@@ -45,6 +48,7 @@ class TestE2EInstall < Minitest::Test
            "a callable backend is fresh each invocation, so a write cannot leak (B-56)"
   end
 
+  # @behavior EX-005
   # B-55: File.open eager-slurps once, then serves the buffer in-guest.
   def test_open_eager_slurps_then_serves_the_buffer_locally
     sandbox = install_file(object: InMemoryFileSystem.new)
@@ -53,6 +57,7 @@ class TestE2EInstall < Minitest::Test
                  "File.open serves the eager-slurped buffer in-guest (B-55)"
   end
 
+  # @behavior EX-019 EX-020
   # B-56: a callable provider that raises surfaces its own error class (not a
   # Kobako error) and leaves the guest unrun; resolution being per-invocation,
   # the next invocation whose provider succeeds runs normally.
@@ -88,6 +93,7 @@ class TestE2EInstall < Minitest::Test
                  "an unmet depends_on must raise at the first invocation, naming the missing Extension (E-52)")
   end
 
+  # @behavior EX-027
   # B-57: with depends_on satisfied, both Extensions' snippets replay before
   # the guest runs, so the dependent's method body resolves the depended-on
   # Extension's constant at call time. Installed dependent-first to witness
@@ -104,6 +110,7 @@ class TestE2EInstall < Minitest::Test
                  "Extension's constant at call time, independent of install order (B-57)"
   end
 
+  # @behavior EX-007 EX-008
   # B-55: with no backend bound, the pure method still runs and the I/O
   # method fails closed as an undefined target.
   def test_without_a_backend_pure_methods_run_and_io_fails_closed
