@@ -14,6 +14,7 @@
     "test/e2e/test_preload.rb",
     "test/e2e/test_io_streams.rb",
     "test/e2e/test_execution.rb",
+    "test/e2e/test_outcome_values.rb",
     "test/e2e/test_canonical_boot.rb",
     "test/parity/test_captures.rb",
     "test/parity/test_values.rb",
@@ -476,6 +477,76 @@
       "given": ["a scenario whose invocation completes"],
       "when": "both frontends run it and read the usage",
       "then": "both carry a usage record"
+    },
+    {
+      "id": "S-071",
+      "title": "A returned value keeps its zero bytes",
+      "given": ["a Sandbox"],
+      "when": "an evaluation returns a String carrying a zero byte",
+      "then": "the host receives every byte including the zero"
+    },
+    {
+      "id": "S-072",
+      "title": "A raised message keeps its zero bytes too",
+      "given": ["a Sandbox"],
+      "when": "an evaluation raises with a message carrying a zero byte",
+      "then": "the raised error carries that message whole"
+    },
+    {
+      "id": "S-073",
+      "title": "A value too deep or circular to encode fails cleanly",
+      "given": ["a Sandbox"],
+      "when": "an evaluation returns a value nested past the encoder's bound or referring to itself",
+      "then": "`Kobako::SandboxError` is raised rather than the invocation trapping"
+    },
+    {
+      "id": "S-074",
+      "title": "Nesting within the bound crosses whole",
+      "given": ["a Sandbox"],
+      "when": "an evaluation returns a value nested to the encoder's bound",
+      "then": "the host receives the structure unchanged"
+    },
+    {
+      "id": "S-075",
+      "title": "A Float crosses at full precision",
+      "given": ["a Sandbox"],
+      "when": "an evaluation returns a Float needing every bit of its payload",
+      "then": "the host receives the same Float"
+    },
+    {
+      "id": "S-076",
+      "title": "An Integer crosses as an Integer",
+      "given": ["a Sandbox"],
+      "when": "an evaluation returns an Integer",
+      "then": "the host receives that Integer"
+    },
+    {
+      "id": "S-077",
+      "title": "A guest Array arrives as an Array",
+      "given": ["a Sandbox"],
+      "when": "an evaluation returns an Array of mixed element types",
+      "then": "the host receives an Array with each element's type preserved"
+    },
+    {
+      "id": "S-078",
+      "title": "A guest Hash arrives as a Hash, keys distinguished",
+      "given": ["a Sandbox"],
+      "when": "an evaluation returns a Hash keyed by both Symbols and Strings",
+      "then": "the host receives a Hash keeping that distinction"
+    },
+    {
+      "id": "S-079",
+      "title": "An empty Array is an empty Array",
+      "given": ["a Sandbox"],
+      "when": "an evaluation returns an empty Array",
+      "then": "the host receives an empty Array"
+    },
+    {
+      "id": "S-080",
+      "title": "An empty Hash is an empty Hash",
+      "given": ["a Sandbox"],
+      "when": "an evaluation returns an empty Hash",
+      "then": "the host receives an empty Hash"
     },
     {
       "id": "S-064",

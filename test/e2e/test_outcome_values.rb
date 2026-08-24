@@ -20,6 +20,7 @@ class TestE2EOutcomeValues < Minitest::Test
   # and hard-trapped the whole eval. Reading by length keeps the NUL bytes
   # and the value crosses the boundary intact. The three shapes exercise the
   # distinct encoder branches that all funnel through the same string read.
+  # @behavior S-071
   def test_embedded_nul_round_trips_through_the_result_encoder
     {
       '"a\x00b"' => "a\x00b",
@@ -38,6 +39,7 @@ class TestE2EOutcomeValues < Minitest::Test
   # separate call site from the result path: a raised exception whose message
   # holds a NUL must surface as a clean, rescuable SandboxError rather than an
   # unrescuable hard trap.
+  # @behavior S-072
   def test_embedded_nul_in_raised_message_is_a_clean_sandbox_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -56,6 +58,7 @@ class TestE2EOutcomeValues < Minitest::Test
   # surface as a clean, rescuable SandboxError (E-06) rather than overflowing
   # the wasm stack into an unrescuable hard trap. A direct Array cycle, a Hash
   # self-cycle, and a structure far past the cap each exercise the guard.
+  # @behavior S-073
   def test_over_depth_or_cyclic_result_is_a_clean_sandbox_error
     ["a = []; a << a; a", "h = {}; h[:self] = h; h", "a = 0; 5000.times { a = [a] }; a"].each do |code|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -70,6 +73,7 @@ class TestE2EOutcomeValues < Minitest::Test
   # rejects only what would otherwise overflow, not ordinary nested data.
   # Unwrapping every level pins that all 100 levels and the innermost value
   # survive, so a silent truncation to a shallower array would still fail.
+  # @behavior S-074
   def test_nesting_within_the_cap_round_trips
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -93,6 +97,7 @@ class TestE2EOutcomeValues < Minitest::Test
   # `0.30000000000000004` and any narrower text formatting would lose
   # the trailing 4. Asserting bit equality via `==` is sufficient
   # because the codec encodes Float as msgpack `float 64`.
+  # @behavior S-075
   def test_outcome_float_precision_round_trips_full_f64
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     result = sandbox.eval("0.1 + 0.2").value
@@ -107,6 +112,7 @@ class TestE2EOutcomeValues < Minitest::Test
   # i32; use 2^28 ± 1 as a representative magnitude that exercises the
   # signed 32-bit return path of `kobako_fixnum_value` without leaving
   # the Fixnum-tagged range.
+  # @behavior S-076
   def test_outcome_integer_round_trips_via_direct_unbox
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     assert_equal 268_435_457, sandbox.eval("268_435_457").value
@@ -144,6 +150,7 @@ class TestE2EOutcomeValues < Minitest::Test
   # serialize as +Value::Array+ on the wire, not as the +inspect+
   # string. Mixed-element fidelity (Integer + String + Symbol) is part
   # of the contract.
+  # @behavior S-077
   def test_outcome_array_returns_native_array
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -158,6 +165,7 @@ class TestE2EOutcomeValues < Minitest::Test
   # arrive as a Ruby Hash. Symbol-vs-String key distinction is part of
   # the wire contract — SPEC.md Ext Types pins that
   # +"a"+ and +:a+ are not wire-equivalent.
+  # @behavior S-078
   def test_outcome_hash_returns_native_hash
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -172,6 +180,7 @@ class TestE2EOutcomeValues < Minitest::Test
   # wire encoding end-to-end — an empty Hash is +Value::Map(vec![])+,
   # never a +"{}"+ string sentinel — so any converter regression that
   # re-introduces a sentinel string surfaces immediately.
+  # @behavior S-079
   def test_outcome_empty_array_round_trips
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -179,6 +188,7 @@ class TestE2EOutcomeValues < Minitest::Test
                  "outcome path: empty Array must arrive as `[]`, not the inspect string"
   end
 
+  # @behavior S-080
   def test_outcome_empty_hash_round_trips
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 

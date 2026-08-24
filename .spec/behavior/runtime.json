@@ -9,6 +9,7 @@
     "test/e2e/sandbox/test_gvl_scheduling.rb",
     "test/e2e/sandbox/test_gvl_handle_isolation.rb",
     "test/e2e/runtime/test_runtime.rb",
+    "test/fuzz/test_dispatch_scheduling_fuzz.rb",
     "test/parity/test_hermetic.rb"
   ],
   "scenarios": [
@@ -193,6 +194,27 @@
       "given": ["several Threads, each with its own Sandbox constructed with `gvl: :release`"],
       "when": "every Thread evaluates guest source computing from its own input",
       "then": "each Thread receives the result of its own input"
+    },
+    {
+      "id": "RT-029",
+      "title": "Randomly generated dispatch programs answer the same under either mode",
+      "given": ["generated dispatch programs run on Sandboxes under each scheduling mode"],
+      "when": "each program runs under both",
+      "then": "the two modes answer identically"
+    },
+    {
+      "id": "RT-030",
+      "title": "Generated programs keep each Thread's references to itself",
+      "given": ["generated dispatch programs run concurrently on distinct released Sandboxes"],
+      "when": "each Thread resolves the references it minted",
+      "then": "each resolves only its own"
+    },
+    {
+      "id": "RT-031",
+      "title": "Generated programs keep each invocation's identity to itself on a shared Sandbox",
+      "given": ["generated dispatch programs run concurrently on one shared released Sandbox, each supplying its own identity"],
+      "when": "each Thread resolves the identity it was given",
+      "then": "each resolves only its own"
     },
     {
       "id": "RT-027",

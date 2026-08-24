@@ -222,6 +222,30 @@ The ambient denial the hermetic posture rests on has no scenario of its own: the
 | When | every Thread evaluates guest source computing from its own input |
 | Then | each Thread receives the result of its own input |
 
+## RT-029 — Randomly generated dispatch programs answer the same under either mode
+
+| Step | Statement |
+| --- | --- |
+| Given | generated dispatch programs run on Sandboxes under each scheduling mode |
+| When | each program runs under both |
+| Then | the two modes answer identically |
+
+## RT-030 — Generated programs keep each Thread's references to itself
+
+| Step | Statement |
+| --- | --- |
+| Given | generated dispatch programs run concurrently on distinct released Sandboxes |
+| When | each Thread resolves the references it minted |
+| Then | each resolves only its own |
+
+## RT-031 — Generated programs keep each invocation's identity to itself on a shared Sandbox
+
+| Step | Statement |
+| --- | --- |
+| Given | generated dispatch programs run concurrently on one shared released Sandbox, each supplying its own identity |
+| When | each Thread resolves the identity it was given |
+| Then | each resolves only its own |
+
 ## RT-027 — A requested posture is honored the same way by either frontend
 
 | Step | Statement |

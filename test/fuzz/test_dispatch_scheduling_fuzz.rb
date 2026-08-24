@@ -46,6 +46,7 @@ class TestDispatchSchedulingFuzz < Minitest::Test
 
   # A generated program run under :hold and under :release must decode to
   # the same owners: releasing the GVL changes scheduling only (B-64).
+  # @behavior RT-029
   def test_release_outcome_matches_hold
     hold = tagged_sandbox(:hold, 0)
     release = tagged_sandbox(:release, 0)
@@ -57,6 +58,7 @@ class TestDispatchSchedulingFuzz < Minitest::Test
   # Distinct :release Sandboxes minting Handles on distinct Threads must each
   # resolve only their own Tokens — a foreign owner is a cross-invocation
   # misdelivery (B-03).
+  # @behavior RT-030
   def test_release_isolates_handles_across_threads
     assert_isolation_across_batches("each :release Thread must resolve only its own Handles (B-03)") do |specs|
       run_batch(specs)
@@ -67,6 +69,7 @@ class TestDispatchSchedulingFuzz < Minitest::Test
   # tag through the per-invocation ctx.bind override, must each resolve only
   # their own Handles — a foreign owner is a cross-invocation misdelivery on the
   # shared-Sandbox shape (B-22 / B-03).
+  # @behavior RT-031
   def test_release_shared_sandbox_isolates_across_threads
     shared = shared_sandbox
     assert_isolation_across_batches("each :release Thread sharing one Sandbox must resolve only its own " \

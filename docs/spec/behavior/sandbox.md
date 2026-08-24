@@ -535,6 +535,86 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | both frontends run it and read the usage |
 | Then | both carry a usage record |
 
+## S-071 — A returned value keeps its zero bytes
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation returns a String carrying a zero byte |
+| Then | the host receives every byte including the zero |
+
+## S-072 — A raised message keeps its zero bytes too
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation raises with a message carrying a zero byte |
+| Then | the raised error carries that message whole |
+
+## S-073 — A value too deep or circular to encode fails cleanly
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation returns a value nested past the encoder's bound or referring to itself |
+| Then | `Kobako::SandboxError` is raised rather than the invocation trapping |
+
+## S-074 — Nesting within the bound crosses whole
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation returns a value nested to the encoder's bound |
+| Then | the host receives the structure unchanged |
+
+## S-075 — A Float crosses at full precision
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation returns a Float needing every bit of its payload |
+| Then | the host receives the same Float |
+
+## S-076 — An Integer crosses as an Integer
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation returns an Integer |
+| Then | the host receives that Integer |
+
+## S-077 — A guest Array arrives as an Array
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation returns an Array of mixed element types |
+| Then | the host receives an Array with each element's type preserved |
+
+## S-078 — A guest Hash arrives as a Hash, keys distinguished
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation returns a Hash keyed by both Symbols and Strings |
+| Then | the host receives a Hash keeping that distinction |
+
+## S-079 — An empty Array is an empty Array
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation returns an empty Array |
+| Then | the host receives an empty Array |
+
+## S-080 — An empty Hash is an empty Hash
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation returns an empty Hash |
+| Then | the host receives an empty Hash |
+
 ## S-064 — A run hands back one frozen object carrying everything it produced
 
 | Step | Statement |
