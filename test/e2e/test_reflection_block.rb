@@ -19,6 +19,7 @@ class TestE2EReflectionBlock < Minitest::Test
     sandbox
   end
 
+  # @behavior T-114
   def test_reflection_name_is_refused_by_the_guest_proxy
     # A gadget-invoker name reaches the bound-constant proxy's method_missing (it is
     # not a real method on the proxy) and is refused before any wire Call;
@@ -33,6 +34,7 @@ class TestE2EReflectionBlock < Minitest::Test
     end
   end
 
+  # @behavior T-115
   def test_callable_allowlist_forwards_through_the_guest
     # The denylist excludes the callable allowlist, so a bound lambda stays
     # invocable end to end (B-42 / B-44).

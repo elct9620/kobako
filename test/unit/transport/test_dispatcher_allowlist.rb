@@ -33,6 +33,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
     DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
   end
 
+  # @behavior T-116
   def test_meta_methods_are_rejected_not_dispatched
     %w[send __send__ public_send instance_eval instance_exec eval method tap
        instance_variable_get class].each do |meta|
@@ -42,6 +43,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
     end
   end
 
+  # @behavior T-117
   def test_gadget_reflection_methods_are_rejected
     # A Proc / Method bound as a Service exposes reflection on its own type:
     # Proc#binding -> Binding#eval was the reproduced host RCE, and
@@ -59,6 +61,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
     end
   end
 
+  # @behavior T-118
   def test_callable_allowlist_still_dispatches
     # A bound lambda / Method stays invocable, and the harmless describers
     # (#arity / #lambda?) remain reachable to aid guest-side debugging.
@@ -72,6 +75,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
     end
   end
 
+  # @behavior T-119
   def test_real_service_method_still_dispatches
     resp = dispatch("Cfg::Theme", "color", [])
     assert_equal true, resp.ok?,
@@ -79,6 +83,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
     assert_equal "blue", resp.payload
   end
 
+  # @behavior T-120
   def test_rejection_decides_on_owner_not_method_name
     # The guard is owner-based, not a static name list: a Service that defines
     # its own public method named `tap` (owned by the Service, not Kernel) stays
@@ -96,6 +101,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
                  "the Kernel-owned `tap` rejection must surface as the undefined Service-method fault (E-43)"
   end
 
+  # @behavior T-121
   def test_absent_method_on_a_valid_target_is_refused_as_undefined
     # A method the Service neither defines nor answers via respond_to? (no
     # method_missing): the floor finds no concrete public method and the

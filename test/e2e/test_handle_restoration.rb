@@ -22,6 +22,7 @@ class TestE2EHandleRestoration < Minitest::Test
   # then returns as the #eval result is restored on the host to the very
   # object Catalog::Handles holds — Source binds a fixed instance so the
   # test can pin identity, not just equality.
+  # @behavior T-054
   def test_b37_returned_handle_is_restored_to_the_original_host_object
     greeter = Greeter.new("Bob")
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -37,6 +38,7 @@ class TestE2EHandleRestoration < Minitest::Test
   # SPEC.md B-37: the restoration walks nested Array / Hash, so a Handle in
   # any leaf position resolves to its host object while the surrounding
   # structure is preserved.
+  # @behavior T-055
   def test_b37_returned_handle_is_restored_inside_nested_containers
     greeter = Greeter.new("Bob")
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -54,6 +56,7 @@ class TestE2EHandleRestoration < Minitest::Test
   # wire-representable, so the guest may legitimately build a Hash keyed by
   # one; the host must resolve that key to its object like any other leaf, or
   # host code would receive a raw Kobako::Handle where it expects the object.
+  # @behavior T-056
   def test_b37_returned_handle_is_restored_in_hash_key_position
     greeter = Greeter.new("Bob")
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -72,6 +75,7 @@ class TestE2EHandleRestoration < Minitest::Test
   # original host object back to the Service's yield expression, not a
   # Kobako::Handle token. Sink::Run captures its block's return value so the
   # test observes what the yield site received.
+  # @behavior T-057
   def test_b37_returned_handle_is_restored_on_the_yield_block_result
     greeter = Greeter.new("Bob")
     captured = nil
@@ -90,6 +94,7 @@ class TestE2EHandleRestoration < Minitest::Test
   # — the break value returns to the guest bound-constant call, not to host code — so
   # it rides back as a Handle the guest can still route through to the
   # original host object on a later call.
+  # @behavior T-058
   def test_b37_broken_handle_returns_to_guest_and_still_routes_to_host_object
     greeter = Greeter.new("Bob")
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)

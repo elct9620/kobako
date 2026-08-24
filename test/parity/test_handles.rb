@@ -27,6 +27,7 @@ class TestParityHandles < Parity::Case
     { verb: "eval", source: "h = Factory::Make.make; { list: [h] }" }
   ].freeze
 
+  # @behavior T-080
   def test_handle_lifecycle
     assert_parity Parity::Scenario.new(
       name: "handle-lifecycle", anchors: %w[B-14 B-16 B-17 B-37],
@@ -56,6 +57,7 @@ class TestParityHandles < Parity::Case
     { verb: "eval", source: "begin; Kobako::Handle.new(1); rescue => e; e.class.to_s; end" }
   ].freeze
 
+  # @behavior T-081
   def test_forged_handle
     assert_parity Parity::Scenario.new(
       name: "handle-forge-rejected", anchors: %w[B-20],
@@ -79,6 +81,7 @@ class TestParityHandles < Parity::Case
     { verb: "run", target: "KwEntry", kwargs: { tok: { t: "opaque", label: "kw-tok" } } }
   ].freeze
 
+  # @behavior T-082
   def test_run_auto_wrap
     assert_parity Parity::Scenario.new(
       name: "run-auto-wrap", anchors: %w[B-34],

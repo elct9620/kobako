@@ -17,6 +17,7 @@ class TestParityYield < Parity::Case
   # Service, each yield round-trips a value, repeated yields run the
   # block once per iteration, and a Service that never yields discards
   # the block silently.
+  # @behavior T-103
   def test_yield_round_trip
     assert_parity Parity::Scenario.new(
       name: "yield-round-trip", anchors: %w[B-23 B-24 B-29 B-30],
@@ -31,6 +32,7 @@ class TestParityYield < Parity::Case
   # SPEC.md B-25 / B-26 / B-27: `break val` terminates the Service with
   # +val+ as the call's value, `next val` / fallthrough feed the yield
   # site, and a lambda block's `break` behaves as a plain return.
+  # @behavior T-104
   def test_break_next_semantics
     assert_parity Parity::Scenario.new(
       name: "yield-break-next-lambda", anchors: %w[B-25 B-26 B-27],
@@ -52,6 +54,7 @@ class TestParityYield < Parity::Case
     end
   RUBY
 
+  # @behavior T-105
   def test_nested_dispatch
     assert_parity Parity::Scenario.new(
       name: "yield-nested-frames", anchors: %w[B-28],
@@ -75,6 +78,7 @@ class TestParityYield < Parity::Case
       source: "begin; MyService::KV.each(1) { |_x| Object.new }; rescue => e; e.class.to_s; end" }
   ].freeze
 
+  # @behavior T-106
   def test_yield_escapes
     assert_parity Parity::Scenario.new(
       name: "yield-escapes", anchors: %w[E-21 E-22],
@@ -96,6 +100,7 @@ class TestParityYield < Parity::Case
               "rescue => e; e.class.to_s + ': ' + e.message; end" }
   ].freeze
 
+  # @behavior T-107
   def test_unrescued_block_raise
     assert_parity Parity::Scenario.new(
       name: "yield-block-raise", anchors: %w[B-24 E-04],

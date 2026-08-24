@@ -16,6 +16,7 @@ class TestCodecDeepRestore < Minitest::Test
     @table = Kobako::Catalog::Handles.new
   end
 
+  # @behavior T-032
   def test_restore_passes_non_handle_values_through_unchanged
     value = { key: [1, :sym, "x"] }
 
@@ -24,6 +25,7 @@ class TestCodecDeepRestore < Minitest::Test
     assert_equal value, restored, "a value carrying no Handle must round-trip identically"
   end
 
+  # @behavior T-033
   def test_bare_handle_is_restored_to_its_bound_object
     object = Object.new
     handle = @table.alloc(object)
@@ -34,6 +36,7 @@ class TestCodecDeepRestore < Minitest::Test
                 "a returned Handle must resolve back to the host object the guest referenced"
   end
 
+  # @behavior T-034
   def test_array_restores_only_handle_elements
     object = Object.new
     handle = @table.alloc(object)
@@ -48,6 +51,7 @@ class TestCodecDeepRestore < Minitest::Test
   # deep_wrap walks Hash values only (keys arrive as Symbols on the wire),
   # but a decoded return Hash can carry a Handle in either position, so the
   # restore walk covers keys as well.
+  # @behavior T-035
   def test_hash_restores_both_keys_and_values
     key_object = Object.new
     val_object = Object.new
@@ -61,6 +65,7 @@ class TestCodecDeepRestore < Minitest::Test
     assert_equal "x", restored[:plain]
   end
 
+  # @behavior T-036
   def test_nested_container_is_restored_one_level_at_a_time
     object = Object.new
     handle = @table.alloc(object)
@@ -76,6 +81,7 @@ class TestCodecDeepRestore < Minitest::Test
   # invocation is live; an id with no live binding is the corrupted-runtime
   # fallback B-37 routes to Kobako::SandboxError. A fresh table stands in for
   # the next invocation's own, where the prior run's id has no binding.
+  # @behavior T-037
   def test_handle_with_no_live_binding_raises_sandbox_error
     handle = @table.alloc(Object.new)
     next_run = Kobako::Catalog::Handles.new

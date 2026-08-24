@@ -16,6 +16,7 @@ class TestSandboxRunAutoWrap < Minitest::Test
   # A StringIO arrives as a positional argument. The host wraps it as
   # a Handle; the guest receives a proxy at the same arg position and
   # +#read+ on the proxy round-trips to the host StringIO.
+  # @behavior T-066
   def test_positional_stringio_round_trips_via_handle_proxy
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Echo = ->(body) { body.read.upcase }", name: :Echo)
@@ -25,6 +26,7 @@ class TestSandboxRunAutoWrap < Minitest::Test
 
   # Same auto-wrap path through the kwargs branch — exercises the
   # symmetric deep_wrap walk over Hash values.
+  # @behavior T-067
   def test_kwargs_value_stringio_round_trips_via_handle_proxy
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "App = ->(opts) { opts[:body].read }", name: :App)
@@ -36,6 +38,7 @@ class TestSandboxRunAutoWrap < Minitest::Test
   # object may cross as a value (above) but not as a key. #run rejects such
   # a key with a public SandboxError rather than leaking the internal codec
   # UnsupportedTypeError that a raw encode would otherwise raise.
+  # @behavior T-068
   def test_non_representable_hash_key_argument_is_rejected_as_sandbox_error
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "App = ->(h) { h.size }", name: :App)
@@ -53,6 +56,7 @@ class TestSandboxRunAutoWrap < Minitest::Test
   # host refuses it while encoding the Run payload (E-54), so #run surfaces a
   # clean SandboxError before entering the guest rather than a host stack
   # overflow escaping the invocation.
+  # @behavior T-069
   def test_cyclic_argument_is_rejected_as_sandbox_error
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "App = ->(x) { x }", name: :App)

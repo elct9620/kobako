@@ -18,6 +18,7 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
     @sandbox.bind("Rpc::Sink", ->(*args, **kwargs) { @captured = { args: args, kwargs: kwargs } })
   end
 
+  # @behavior T-059
   def test_braceless_keyword_argument_arrives_as_a_keyword_at_the_service
     @sandbox.eval('Rpc::Sink.call("u", a: 1)')
 
@@ -27,6 +28,7 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
                  "B-58: a brace-less key: value must arrive at the Service as a keyword argument")
   end
 
+  # @behavior T-060
   def test_explicit_positional_hash_stays_a_positional_argument
     @sandbox.eval('Rpc::Sink.call("u", {a: 1})')
 
@@ -36,6 +38,7 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
                  "B-58: no brace-less keyword must reach the Service with empty kwargs, even with a trailing Hash")
   end
 
+  # @behavior T-061
   def test_positional_hash_and_braceless_keyword_stay_in_disjoint_buckets
     @sandbox.eval('Rpc::Sink.call("u", {a: 1}, b: 2)')
 
@@ -45,6 +48,7 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
                  "B-58: with both present, the brace-less keyword stays in kwargs and ignores the positional Hash")
   end
 
+  # @behavior T-062
   def test_double_splat_hash_arrives_as_keyword_arguments
     @sandbox.eval('opts = {a: 1}; Rpc::Sink.call("u", **opts)')
 
@@ -54,6 +58,7 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
                  "B-58: a ** double-splat of a Hash must arrive at the Service as keyword arguments")
   end
 
+  # @behavior T-063
   def test_empty_double_splat_produces_no_keyword_arguments
     @sandbox.eval('Rpc::Sink.call("u", **{})')
 
@@ -63,6 +68,7 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
                  "B-58: an empty ** double-splat must reach the Service with empty kwargs")
   end
 
+  # @behavior T-064
   def test_hash_valued_keyword_stays_a_keyword_with_its_hash_value
     @sandbox.eval('Rpc::Sink.call("u", data: {n: 1})')
 
@@ -72,6 +78,7 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
                  "B-58: a Hash-valued keyword must arrive as a keyword carrying its Hash value intact")
   end
 
+  # @behavior T-065
   def test_empty_positional_hash_stays_a_positional_argument
     @sandbox.eval('Rpc::Sink.call("u", {})')
 

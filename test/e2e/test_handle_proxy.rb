@@ -20,6 +20,7 @@ class TestE2EHandleProxy < Minitest::Test
 
   # SPEC.md B-17: Service A returns stateful object → guest uses Handle as
   # next transport target → chain works.
+  # @behavior T-006
   def test_handle_chain_b17_service_returns_handle_used_as_target
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
@@ -38,6 +39,7 @@ class TestE2EHandleProxy < Minitest::Test
   # method forwards to the host. KV::Lookup exercises the bound-constant
   # (class-level) registration; the Greeter Handle exercises the Handle
   # (instance-level) registration — one assertion pins both paths.
+  # @behavior T-108
   def test_b36_respond_to_probe_succeeds_on_bound_constant_and_handle
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("KV::Lookup", ->(key) { "value:#{key}" })
@@ -60,6 +62,7 @@ class TestE2EHandleProxy < Minitest::Test
   # forwarding, while the same method on the constant forwards to the bound
   # object. Construction is not the capability gate; the host's path
   # resolution is. Pairing both readouts in one eval pins the contrast.
+  # @behavior T-109
   def test_b38_bound_proxy_construction_yields_a_capability_inert_instance
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Models::User", Greeter.new("bound"))
@@ -81,6 +84,7 @@ class TestE2EHandleProxy < Minitest::Test
   # does not change the outcome — the raise fires ahead of any arity check
   # (the reason the bridge registers `mrb_args_any()`); `.allocate` covers
   # mruby's other construction entry.
+  # @behavior T-110
   def test_b39_handle_proxy_is_not_constructible
     ["Kobako::Handle.new(1)", "Kobako::Handle.allocate"].each do |code|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)

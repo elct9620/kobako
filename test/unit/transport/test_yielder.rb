@@ -35,6 +35,7 @@ class TestYielder < Minitest::Test
     Yielder.new(->(_args) { reply }, BREAK_TAG, @table)
   end
 
+  # @behavior T-100
   def test_ok_value_handle_is_restored_to_its_host_object
     result = yielder_answering(:ok).yield
 
@@ -42,6 +43,7 @@ class TestYielder < Minitest::Test
                 "B-37: a Handle in an ok payload reaches the Service yield site as its host object"
   end
 
+  # @behavior T-101
   def test_handle_free_ok_value_passes_through_unchanged
     result = yielder_answering(:ok, value: ["sum", { "count" => 42 }]).yield
 
@@ -49,6 +51,7 @@ class TestYielder < Minitest::Test
                  "a Handle-free ok payload reaches the Service yield site unchanged"
   end
 
+  # @behavior T-102
   def test_break_value_handle_passes_through_without_restoration
     thrown = catch(BREAK_TAG) { yielder_answering(:break).yield }
 

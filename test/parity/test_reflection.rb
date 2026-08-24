@@ -13,6 +13,7 @@ class TestParityReflection < Parity::Case
 
   # SPEC.md B-42 / E-43: `send` / `instance_eval` on a bound constant
   # resolve to the undefined fault, not to Kernel reflection.
+  # @behavior T-131
   def test_reflection_on_target_is_undefined
     assert_parity Parity::Scenario.new(
       name: "reflection-denied", anchors: %w[B-42 E-43],

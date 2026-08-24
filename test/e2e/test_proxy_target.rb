@@ -14,6 +14,7 @@ class TestE2EProxyTarget < Minitest::Test
   # A guest class that mixes in Kobako::Proxy is neither an exact
   # Kobako::Handle nor a class, so method_missing finds no target and refuses
   # before any wire Call; uncaught it surfaces as SandboxError (E-04).
+  # @behavior T-113
   def test_b59_foreign_proxy_holder_is_refused_in_guest
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("KV::Lookup", ->(key) { "value:#{key}" })

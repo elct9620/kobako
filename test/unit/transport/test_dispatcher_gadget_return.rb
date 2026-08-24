@@ -27,10 +27,12 @@ class TestDispatchGadgetReturn < Minitest::Test
     DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
   end
 
+  # @behavior T-122
   def test_reflective_gadget_return_is_refused_not_wrapped
     %w[a_method a_binding an_unbound].each { |meth| assert_gadget_refused(meth) }
   end
 
+  # @behavior T-123
   def test_proc_return_is_still_wrapped_as_handle
     # A Proc stays wrappable (its reflective #binding is blocked by B-42 on
     # the resulting Handle); only Binding / Method / UnboundMethod are refused.

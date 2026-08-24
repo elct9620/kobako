@@ -135,6 +135,7 @@ class TestE2EDslComposition < Minitest::Test
   # +instance_eval+ on a guest-local wrapper builds a nested structure whose
   # dialects live on the host. Proves guest-local instance_eval is outside the
   # reflection denial and that returned child Handles chain to arbitrary depth.
+  # @behavior T-072
   def test_implicit_self_idiom_builds_nested_structure_over_handles
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Builder", Builder.new)
@@ -147,6 +148,7 @@ class TestE2EDslComposition < Minitest::Test
 
   # Same composition through the explicit block-parameter form: the wrapper
   # yields the wrapped child rather than rebinding self.
+  # @behavior T-073
   def test_block_param_idiom_builds_nested_structure_over_handles
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Builder", Builder.new)
@@ -160,6 +162,7 @@ class TestE2EDslComposition < Minitest::Test
   # method the host dialect does not define, forwarded through the wrapper,
   # is refused host-side as an undefined target, surfacing as ServiceError.
   # The host dialect's own method set stays the DSL's vocabulary.
+  # @behavior T-074
   def test_dialect_vocabulary_is_bounded_by_the_host_method_set
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Builder", Builder.new)

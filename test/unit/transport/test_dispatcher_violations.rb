@@ -38,6 +38,7 @@ class TestTransportDispatchViolations < Minitest::Test
                                 block_given: false, payload: payload)
   end
 
+  # @behavior T-041
   def test_non_symbol_kwargs_key_is_wire_violation
     NON_SYMBOL_KWARGS.each do |shape, kwargs|
       answer = reify(dispatch(payload_call(Kobako::Codec::Encoder.encode([[], kwargs]))))
@@ -60,6 +61,7 @@ class TestTransportDispatchViolations < Minitest::Test
   # is what refuses it, not the wire shape. The guest sees a transport
   # error on the fault arm rather than a wasm trap, and the refused id
   # leaves the table untouched, which the size assertion witnesses.
+  # @behavior T-042
   def test_an_id_the_table_never_issued_is_refused_as_undefined
     answer = reify(dispatch(DispatcherHelpers.call_for(42, "call", ["x"])))
 
@@ -80,6 +82,7 @@ class TestTransportDispatchViolations < Minitest::Test
   # rescues only StandardError; this holds because the codec maps the nesting
   # overflow into the Kobako::Codec::Error taxonomy before it can become a
   # Ruby SystemStackError that would escape the rescue.
+  # @behavior T-043
   def test_over_deep_call_is_contained_as_an_internal_fault
     # 1000 nested single-element arrays terminated by nil — a misbehaving
     # guest emitting a payload far past the ecosystem nesting bound.
@@ -107,6 +110,7 @@ class TestTransportDispatchViolations < Minitest::Test
   #
   # Each case runs on a stack of its own: the refusal costs the thread that
   # takes it (see StackQuarantine).
+  # @behavior T-044
   def test_an_answer_the_host_cannot_write_is_the_services_own_failure
     @registry.bind("Cyclic::Answer", ->(_) { [].tap { |a| a << a } })
 
@@ -119,6 +123,7 @@ class TestTransportDispatchViolations < Minitest::Test
     assert_match(/could not write the Service's answer/, answer.payload.message)
   end
 
+  # @behavior T-045
   def test_an_unwritable_answer_answers_in_kobakos_own_wording
     @registry.bind("Cyclic::Answer", ->(_) { [].tap { |a| a << a } })
 
@@ -139,6 +144,7 @@ class TestTransportDispatchViolations < Minitest::Test
   # value, the codec raises UnsupportedTypeError, wrap_return falls through to
   # @handler.alloc, and the cap raise surfaces via the dispatcher's
   # rescue chain on the fault arm the guest observes.
+  # @behavior T-046
   def test_handler_exhaustion_during_wrap_return_takes_the_fault_arm
     answer = reify(dispatch(build_call("Factory::Make", "make", [], {}),
                             server: factory_registry, handler: exhausted_handles))
@@ -153,6 +159,7 @@ class TestTransportDispatchViolations < Minitest::Test
                  "exception crosses in, which would read as the Service having raised it")
   end
 
+  # @behavior T-047
   def test_handler_exhaustion_propagates_as_sandbox_error_class
     # Pin the class hierarchy: HandleExhaustedError < SandboxError
     # (per Kobako::errors). This matters because Sandbox-invocation-
@@ -178,6 +185,7 @@ class TestTransportDispatchViolations < Minitest::Test
   # host-process-level fault (here SecurityError, a non-StandardError) must
   # escape dispatch to trap the invocation rather than be masked as a
   # rescuable fault — the complement of the containment cases above.
+  # @behavior T-048
   def test_non_standard_error_from_a_service_escapes_the_rescue
     @registry.bind("Boom::Fatal", ->(_) { raise SecurityError, "host fault" })
     call = build_call("Boom::Fatal", "call", ["x"], {})

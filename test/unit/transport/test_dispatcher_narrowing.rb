@@ -80,6 +80,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
 
   # The undefined fault discloses nothing about which methods the object
   # defines — opacity must not leak its surface through a distinct error.
+  # @behavior T-124
   def test_opaque_object_rejects_every_method
     %w[token decrypt].each do |meth|
       resp = dispatch("Cfg::Cred", meth)
@@ -93,6 +94,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
   # The headline credential path: an opaque object handed back as a Capability
   # Handle (B-14) and reached by the guest as a Handle target (B-17) is narrowed
   # by the same chokepoint as a bound constant — the guest holds it but calls nothing.
+  # @behavior T-125
   def test_opaque_object_is_narrowed_through_a_handle_target
     id = @handler.alloc(Opaque.new).id
     resp = dispatch(Kobako::Handle.restore(id), "token")
@@ -102,6 +104,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
                  "the Handle-target rejection must surface as the undefined fault (E-48)"
   end
 
+  # @behavior T-126
   def test_allow_list_exposes_only_the_permitted_subset
     permitted = dispatch("Cfg::Report", "headers")
     assert_equal true, permitted.ok?,
@@ -116,6 +119,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
                  "the non-permitted method rejection must surface as the undefined fault (E-48)"
   end
 
+  # @behavior T-127
   def test_predicate_cannot_widen_past_the_reflection_floor
     rce = dispatch("Cfg::Wide", "send", [:eval, "1"])
     assert_equal false, rce.ok?,
@@ -134,6 +138,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
   # Service that cannot satisfy the name fails as a runtime fault (E-11), never
   # as the undefined narrowing fault — so a truthy predicate never disguises a
   # failed dispatch as a narrowing rejection.
+  # @behavior T-128
   def test_permitted_dynamic_name_runs_rather_than_being_narrowed
     handled = dispatch("Cfg::Dyn", "known")
     assert_equal true, handled.ok?,
@@ -148,6 +153,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
                  "the failed dynamic dispatch must surface as a runtime fault (E-11), not the undefined narrowing fault"
   end
 
+  # @behavior T-129
   def test_object_without_predicate_keeps_full_service_surface
     resp = dispatch("Cfg::Open", "hello")
     assert_equal true, resp.ok?,
@@ -155,6 +161,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
     assert_equal "hi", resp.payload
   end
 
+  # @behavior T-130
   def test_guest_cannot_invoke_the_private_predicate_itself
     resp = dispatch("Cfg::Report", "respond_to_guest?", [:headers])
     assert_equal false, resp.ok?,

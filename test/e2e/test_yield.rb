@@ -15,6 +15,7 @@ require "test_helper"
 class TestE2EYield < Minitest::Test
   include E2eGuestHelper
 
+  # @behavior T-083
   def test_b23_block_given_reaches_host_when_guest_supplies_block
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     observed = []
@@ -27,6 +28,7 @@ class TestE2EYield < Minitest::Test
                  "non-nil &block on the host Service method"
   end
 
+  # @behavior T-084
   def test_b23_no_block_means_block_given_false_on_host
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     observed = []
@@ -38,6 +40,7 @@ class TestE2EYield < Minitest::Test
                  "B-23: guest call without a block leaves &block nil"
   end
 
+  # @behavior T-085
   def test_b24_single_yield_returns_block_value_to_service
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
@@ -49,6 +52,7 @@ class TestE2EYield < Minitest::Test
                  "last-expression value as the +yield+ expression's value"
   end
 
+  # @behavior T-086
   def test_b29_multi_yield_runs_block_once_per_iteration
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::MapEach", ->(items, &blk) { items.map(&blk) })
@@ -60,6 +64,7 @@ class TestE2EYield < Minitest::Test
                  "the block runs once per iteration and the value flows back"
   end
 
+  # @behavior T-087
   def test_b28_block_body_dispatches_to_another_binding
     # The block body itself issues a second guest→host dispatch — to a
     # different binding that takes no block — while the first Service's
@@ -117,6 +122,7 @@ class TestE2EYield < Minitest::Test
                  "0x04 error, not unwind the Service method with a coerced String")
   end
 
+  # @behavior T-088
   def test_b30_service_with_block_that_never_yields_runs_clean
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Ignores", ->(*, &_blk) { :ok })

@@ -17,18 +17,21 @@ class TestCodecHandleWalk < Minitest::Test
 
   # ---------- representable? — scalar branch ----------
 
+  # @behavior T-019
   def test_recognises_scalar_wire_types
     [nil, true, false, 0, 1, -1, 1.5, "x", "x".b, :sym].each do |value|
       assert HandleWalk.representable?(value), "expected #{value.inspect} wire-representable"
     end
   end
 
+  # @behavior T-020
   def test_recognises_existing_handle_as_wire_representable
     handle = @table.alloc(:placeholder)
 
     assert HandleWalk.representable?(handle)
   end
 
+  # @behavior T-021
   def test_rejects_out_of_range_integers
     refute HandleWalk.representable?(2**64),
            "u64 overflow must be rejected so the codec's RangeError path stays consistent"
@@ -36,6 +39,7 @@ class TestCodecHandleWalk < Minitest::Test
            "below i64 minimum must be rejected"
   end
 
+  # @behavior T-022
   def test_rejects_non_wire_scalars
     refute HandleWalk.representable?(StringIO.new("x"))
     refute HandleWalk.representable?(Object.new)
@@ -43,11 +47,13 @@ class TestCodecHandleWalk < Minitest::Test
 
   # ---------- representable? — container branch ----------
 
+  # @behavior T-023
   def test_array_is_representable_iff_all_elements_are
     assert HandleWalk.representable?([1, :sym, [true, "x"]])
     refute HandleWalk.representable?([1, StringIO.new("x")])
   end
 
+  # @behavior T-024
   def test_hash_is_representable_iff_keys_and_values_are
     assert HandleWalk.representable?({ key: "value", nested: [1, 2] })
     refute HandleWalk.representable?({ key: StringIO.new("x") })
@@ -56,6 +62,7 @@ class TestCodecHandleWalk < Minitest::Test
 
   # ---------- deep_wrap — single-level walk ----------
 
+  # @behavior T-025
   def test_wire_representable_value_passes_through_unchanged
     value = { key: [1, :sym, "x"] }
 
@@ -65,6 +72,7 @@ class TestCodecHandleWalk < Minitest::Test
     assert_equal 0, @table.size, "no Handle should be allocated for wire-representable input"
   end
 
+  # @behavior T-026
   def test_non_wire_leaf_is_wrapped_via_handler
     body = StringIO.new("hello")
 
@@ -76,6 +84,7 @@ class TestCodecHandleWalk < Minitest::Test
                 "the allocated entry must point back at the original Ruby object"
   end
 
+  # @behavior T-027
   def test_array_with_mixed_leaves_only_wraps_non_wire_elements
     body = StringIO.new("payload")
 
@@ -87,6 +96,7 @@ class TestCodecHandleWalk < Minitest::Test
     assert_equal 1, @table.size
   end
 
+  # @behavior T-028
   def test_hash_values_are_walked_keys_pass_through
     env = Object.new
 
@@ -97,6 +107,7 @@ class TestCodecHandleWalk < Minitest::Test
     assert_equal 1, @table.size
   end
 
+  # @behavior T-029
   def test_non_representable_hash_key_is_rejected_as_sandbox_error
     err = assert_raises(Kobako::SandboxError) do
       HandleWalk.deep_wrap({ StringIO.new("k") => "v" }, @table)
@@ -108,6 +119,7 @@ class TestCodecHandleWalk < Minitest::Test
     assert_equal 0, @table.size, "a rejected key must allocate no Handle"
   end
 
+  # @behavior T-030
   def test_existing_handle_is_not_re_wrapped
     original = @table.alloc(:bound)
     pre_size = @table.size
@@ -118,6 +130,7 @@ class TestCodecHandleWalk < Minitest::Test
     assert_equal pre_size, @table.size, "no extra Handle should be allocated for an existing one"
   end
 
+  # @behavior T-031
   def test_nested_container_is_walked_one_level_at_a_time
     body = StringIO.new("nested")
 

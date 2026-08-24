@@ -15,6 +15,7 @@ class TestTransportDispatchHandles < Minitest::Test
   # SPEC B-14: a Service method whose return value falls outside the wire
   # type set (B-13) is automatically allocated a Catalog::Handles entry, and
   # the guest sees a Kobako::Handle on the Reply's ok arm.
+  # @behavior T-001
   def test_non_wire_return_value_is_wrapped_as_handle
     @registry.bind("Factory::Make", ->(name) { greeter(name) })
     call = build_call("Factory::Make", "call", ["Alice"], {})
@@ -27,6 +28,7 @@ class TestTransportDispatchHandles < Minitest::Test
     assert_equal "hi,Alice", bound.greet
   end
 
+  # @behavior T-002
   def test_primitive_return_value_is_not_wrapped
     @registry.bind("Logger::Echo", ->(arg) { arg })
     call = build_call("Logger::Echo", "call", ["plain"], {})
@@ -43,6 +45,7 @@ class TestTransportDispatchHandles < Minitest::Test
   # SPEC B-16: a Kobako::Handle arriving as an argument is resolved against
   # the Catalog::Handles before dispatch, and the bound Service method receives
   # the live Ruby object.
+  # @behavior T-003
   def test_handle_arg_is_resolved_to_bound_object_before_dispatch
     greeter = Class.new do
       def initialize(name) = (@name = name)
@@ -58,6 +61,7 @@ class TestTransportDispatchHandles < Minitest::Test
     assert_equal "wrapped:hello,Alice", answer.payload
   end
 
+  # @behavior T-004
   def test_handle_kwarg_is_resolved_to_bound_object_before_dispatch
     obj = Object.new
     def obj.greet = "kw_ok"
@@ -73,6 +77,7 @@ class TestTransportDispatchHandles < Minitest::Test
     assert_equal ["kw_ok"], capture
   end
 
+  # @behavior T-005
   def test_unknown_handle_arg_returns_undefined_exception
     call = build_call("Logger::Echo", "call", [Kobako::Handle.restore(999)], {})
     @registry.bind("Logger::Echo", ->(x) { x })
@@ -87,6 +92,7 @@ class TestTransportDispatchHandles < Minitest::Test
 
   # SPEC B-17: a Kobako::Handle target resolves to the bound object directly;
   # the Server is bypassed and dispatch goes straight to public_send.
+  # @behavior T-006
   def test_handle_target_is_dispatched_to_bound_object
     obj = Class.new do
       def find(id) = "row:#{id}"
@@ -99,6 +105,7 @@ class TestTransportDispatchHandles < Minitest::Test
     assert_equal "row:42", answer.payload
   end
 
+  # @behavior T-007
   def test_handle_target_returning_stateful_value_is_wrapped_as_new_handle
     # B-17 + B-14 chained: invoking a Handle target whose method returns
     # another non-primitive object yields a fresh Handle on the ok arm.
@@ -112,6 +119,7 @@ class TestTransportDispatchHandles < Minitest::Test
     assert_equal "leaf", @handler.fetch(answer.payload.id).kind
   end
 
+  # @behavior T-008
   def test_unknown_handle_target_returns_undefined_exception
     answer = dispatch_handle_target(7, "any")
 

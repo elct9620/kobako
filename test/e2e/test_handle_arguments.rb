@@ -39,6 +39,7 @@ class TestE2EHandleArguments < Minitest::Test
     recorder
   end
 
+  # @behavior T-049
   def test_b16_handle_as_positional_argument_resolves_to_host_object
     greeter = Greeter.new("Bob")
     recorder = record_handle_argument(greeter, "h = Source::Get.call; Sink::Take.take(h)")
@@ -48,6 +49,7 @@ class TestE2EHandleArguments < Minitest::Test
                 "as the original host object, never a Kobako::Handle"
   end
 
+  # @behavior T-050
   def test_b16_handle_as_keyword_argument_resolves_to_host_object
     greeter = Greeter.new("Bob")
     recorder = record_handle_argument(greeter, "h = Source::Get.call; Sink::Take.take(cred: h)")
@@ -57,6 +59,7 @@ class TestE2EHandleArguments < Minitest::Test
                 "as the original host object, never a Kobako::Handle"
   end
 
+  # @behavior T-051
   def test_b16_handle_as_mixed_positional_and_keyword_arguments_resolves_to_host_object
     greeter = Greeter.new("Bob")
     recorder = record_handle_argument(greeter, "h = Source::Get.call; Sink::Take.take(h, cred: h)")
@@ -67,6 +70,7 @@ class TestE2EHandleArguments < Minitest::Test
                 "B-16: in a mixed call the keyword Handle value must resolve to the host object"
   end
 
+  # @behavior T-052
   def test_b16_handle_nested_in_array_argument_resolves_to_host_object
     greeter = Greeter.new("Bob")
     recorder = record_handle_argument(greeter, "h = Source::Get.call; Sink::Take.take([h])")
@@ -76,6 +80,7 @@ class TestE2EHandleArguments < Minitest::Test
                 "as the original host object, symmetric with the nested return path (B-37)"
   end
 
+  # @behavior T-053
   def test_b16_handle_nested_in_hash_keyword_value_resolves_to_host_object
     greeter = Greeter.new("Bob")
     recorder = record_handle_argument(greeter, "h = Source::Get.call; Sink::Take.take(opts: { cred: h })")

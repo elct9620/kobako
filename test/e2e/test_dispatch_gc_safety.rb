@@ -41,6 +41,7 @@ class TestE2EDispatchGcSafety < Minitest::Test
   # Handle-proxy #run path (B-34 / B-17) is the densest dispatch
   # round-trip available, so it is the surest trigger for the sweep
   # path. Pre-fix this SIGSEGVs on the first invocation.
+  # @behavior T-070
   def test_handle_proxy_run_under_gc_stress_must_not_collect_dispatch_proc
     GC.stress = true
 
@@ -60,6 +61,7 @@ class TestE2EDispatchGcSafety < Minitest::Test
   # relocated-from slot. The break-in-block Service yield (B-25) exercises
   # the dispatch + yield round-trip; pre-fix this surfaces as a
   # Kobako::SandboxError ("transport dispatch Proc raised").
+  # @behavior T-071
   def test_break_in_block_under_gc_compaction_must_keep_dispatch_proc_pinned
     skip "GC.compact unavailable on this Ruby build" unless GC.respond_to?(:compact)
 

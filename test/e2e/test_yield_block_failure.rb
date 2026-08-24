@@ -17,6 +17,7 @@ class TestE2EYieldBlockFailure < Minitest::Test
   # may be rescued. Unrescued, it is still the guest's own failure — the
   # same exception object continuing in the frame that raised it — so it
   # attributes to the sandbox (E-04) rather than to the Service.
+  # @behavior T-094
   def test_b24_block_raise_surfaces_to_service_yield_site
     err = assert_raises(Kobako::SandboxError) do
       yielding_sandbox.eval('Probe::Boom.call { raise "from guest block" }')
@@ -41,6 +42,7 @@ class TestE2EYieldBlockFailure < Minitest::Test
     end
   RUBY
 
+  # @behavior T-095
   def test_b24_unrescued_block_raise_is_rescuable_in_the_guest_as_itself
     seen = yielding_sandbox.eval(IDENTITY_PROBE).value
 
@@ -49,6 +51,7 @@ class TestE2EYieldBlockFailure < Minitest::Test
                  "very object it raised, so a rescue reads the class and every field it set"
   end
 
+  # @behavior T-096
   def test_b24_a_service_that_rescues_the_blocks_raise_reports_its_own_failure
     err = assert_raises(Kobako::ServiceError) do
       substituting_sandbox.eval('Probe::Swallow.call { raise "from guest block" }')

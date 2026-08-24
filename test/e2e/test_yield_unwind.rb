@@ -13,6 +13,7 @@ require "test_helper"
 class TestE2EYieldUnwind < Minitest::Test
   include E2eGuestHelper
 
+  # @behavior T-089
   def test_b25_break_in_block_unwinds_service_to_break_value
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
@@ -24,6 +25,7 @@ class TestE2EYieldUnwind < Minitest::Test
                  "Service method with +val+ as its effective return value"
   end
 
+  # @behavior T-090
   def test_b27_lambda_break_returns_value_silently
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
@@ -63,6 +65,7 @@ class TestE2EYieldUnwind < Minitest::Test
   # representation is refused there too — the sibling of the block-return
   # rejection (E-22), on the one arm that returns to the guest rather than
   # to host code.
+  # @behavior T-091
   def test_break_value_with_no_wire_representation_is_refused
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
@@ -88,6 +91,7 @@ class TestE2EYieldUnwind < Minitest::Test
     end
   RUBY
 
+  # @behavior T-092
   def test_b28_nested_dispatch_frames_each_carry_their_own_block
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Outer", ->(items, &blk) { items.map(&blk) })
@@ -149,6 +153,7 @@ class TestE2EYieldUnwind < Minitest::Test
     end
   RUBY
 
+  # @behavior T-093
   def test_b28_a_refused_nested_call_leaves_the_outer_block_reachable
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Outer", ->(items, &blk) { items.map(&blk) })

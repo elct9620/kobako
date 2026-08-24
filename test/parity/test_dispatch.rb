@@ -13,6 +13,7 @@ class TestParityDispatch < Parity::Case
 
   # SPEC.md B-12: positional args reach the bound constant and its value
   # returns to the guest expression.
+  # @behavior T-075
   def test_dispatch_round_trip
     assert_parity Parity::Scenario.new(
       name: "dispatch-round-trip", anchors: %w[B-12],
@@ -23,6 +24,7 @@ class TestParityDispatch < Parity::Case
 
   # SPEC.md E-11: a bound constant that raises surfaces as a rescuable
   # service-origin exception, never a trap.
+  # @behavior T-076
   def test_bound_constant_failure_is_rescuable
     assert_parity Parity::Scenario.new(
       name: "dispatch-bound-constant-raise", anchors: %w[E-11],
@@ -36,6 +38,7 @@ class TestParityDispatch < Parity::Case
 
   # SPEC.md E-12: a method the bound constant does not expose resolves to the
   # undefined fault on both sides.
+  # @behavior T-077
   def test_unknown_method_is_undefined
     assert_parity Parity::Scenario.new(
       name: "dispatch-unknown-method", anchors: %w[E-12],
@@ -60,6 +63,7 @@ class TestParityDispatch < Parity::Case
     { verb: "eval", source: "MyService::KV.strict_echo(1)" }
   ].freeze
 
+  # @behavior T-078
   def test_argument_fault
     assert_parity Parity::Scenario.new(
       name: "dispatch-kwargs-binding-fault", anchors: %w[E-15],
@@ -85,6 +89,7 @@ class TestParityDispatch < Parity::Case
     { verb: "eval", source: "MyService::KV.respond_to_guest?(:visible)" }
   ].freeze
 
+  # @behavior T-079
   def test_respond_to_guest
     assert_parity Parity::Scenario.new(
       name: "dispatch-guest-surface-narrowing", anchors: %w[B-50 E-48],

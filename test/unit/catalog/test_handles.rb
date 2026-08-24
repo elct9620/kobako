@@ -21,6 +21,7 @@ module Kobako
 
     # ---------- Happy path: monotonic allocation, fetch returns identity ----------
 
+    # @behavior T-009
     def test_alloc_returns_monotonic_ids_starting_at_one
       table = Table.new
       a = Object.new
@@ -32,6 +33,7 @@ module Kobako
       assert_equal 3, table.alloc(c).id
     end
 
+    # @behavior T-010
     def test_fetch_returns_the_same_object_that_was_bound
       table = Table.new
       objects = [Object.new, Object.new, Object.new]
@@ -42,6 +44,7 @@ module Kobako
 
     # ---------- Unknown id: fetch raises ----------
 
+    # @behavior T-011
     def test_fetch_unknown_id_raises
       table = Table.new
       table.alloc(Object.new) # populates id 1; the binding itself is irrelevant
@@ -52,6 +55,7 @@ module Kobako
 
     # ---------- Cap exhaustion: alloc beyond Kobako::Handle::MAX_ID raises ----------
 
+    # @behavior T-012
     def test_alloc_at_max_id_succeeds_then_next_alloc_raises
       # Internal seam: next_id: lets us exercise the cap without 2³¹ allocations.
       # Test-only-visible; documented as internal.
@@ -67,6 +71,7 @@ module Kobako
       assert_kind_of Kobako::SandboxError, err
     end
 
+    # @behavior T-013
     def test_max_id_constant_is_wire_invariant
       # SPEC B-21 + Wire Contract: Handle ext 0x01 carries a 4-byte signed int;
       # 0x7fff_ffff is the maximum valid Handle ID.
@@ -76,6 +81,7 @@ module Kobako
 
     # ---------- Reflective gadget refusal (SPEC B-43) ----------
 
+    # @behavior T-014
     def test_alloc_refuses_reflective_gadgets
       # SPEC B-43: a Binding / Method / UnboundMethod must never be minted as a
       # Capability Handle — wrapping one would hand the guest a callable proxy
@@ -88,6 +94,7 @@ module Kobako
       assert_equal 0, table.size, "a refused gadget must leave no Handle entry"
     end
 
+    # @behavior T-015
     def test_alloc_still_wraps_a_proc
       # A Proc is excluded from the refusal (its reflective #binding is blocked
       # at dispatch, B-42); only Binding / Method / UnboundMethod are unwrappable.
@@ -97,6 +104,7 @@ module Kobako
 
     # ---------- Cross-run Handle invalidity (SPEC B-18) ----------
 
+    # @behavior T-016
     def test_a_prior_runs_handle_id_resolves_to_no_object_in_the_next_run
       # SPEC B-18: each invocation mints its own Catalog::Handles, so a Handle
       # issued in one run resolves in no other. The next run's fresh table
@@ -122,6 +130,7 @@ module Kobako
     # goes, so the boundary cannot rest on the guest being unable to name
     # one. These two pin what actually holds it: the table's lifetime.
 
+    # @behavior T-017
     def test_an_id_the_table_never_issued_resolves_to_no_object
       table = Table.new
       delivered = table.alloc(Object.new).id
@@ -134,6 +143,7 @@ module Kobako
       end
     end
 
+    # @behavior T-018
     def test_ids_minted_before_a_failed_wrap_leave_with_their_table
       # An argument walk that rejects a later leaf has already minted ids
       # for the leaves before it. Those ids stay confined to the table the
