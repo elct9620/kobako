@@ -28,6 +28,7 @@ class TestE2ECanonicalBoot < Minitest::Test
                  "the first Object.new.object_id through repeated #eval must replay identically (B-49)"
   end
 
+  # @behavior S-013
   # B-03 / B-49 on the #eval verb (the #run twin lives in
   # test_lifecycle.rb): a guest global set by one #eval is unset at the
   # next #eval's entry.

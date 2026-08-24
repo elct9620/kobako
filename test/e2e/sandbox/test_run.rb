@@ -12,6 +12,7 @@ class TestSandboxRun < Minitest::Test
 
   # B-31: a preloaded snippet defines a top-level constant responding to
   # #call; #run dispatches into it and returns the call's value.
+  # @behavior S-045
   def test_b31_runs_preloaded_entrypoint_with_no_args
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Worker = ->(*_args, **_kw) { 42 }", name: :Worker)
@@ -20,6 +21,7 @@ class TestSandboxRun < Minitest::Test
                  "a preloaded callable entrypoint through #run must return its call value"
   end
 
+  # @behavior S-046
   def test_b31_passes_positional_args_to_entrypoint
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Adder = ->(a, b) { a + b }", name: :Adder)
@@ -37,6 +39,7 @@ class TestSandboxRun < Minitest::Test
   # cannot be reached from the host C side — B-31 accepts the
   # positional-Hash convention instead of routing every #run through an
   # eval shim.
+  # @behavior S-047
   def test_b31_passes_keyword_args_as_trailing_positional_hash
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: 'Greeter = ->(opts) { "hello " + opts[:name] }', name: :Greeter)
@@ -45,6 +48,7 @@ class TestSandboxRun < Minitest::Test
                  "kwargs through #run must reach the entrypoint as a trailing positional Hash"
   end
 
+  # @behavior S-048
   def test_b31_normalizes_string_target_to_symbol
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Worker = ->(*_args, **_kw) { 7 }", name: :Worker)
@@ -53,6 +57,7 @@ class TestSandboxRun < Minitest::Test
                  "a String target through #run must dispatch like its Symbol form"
   end
 
+  # @behavior S-049
   def test_b31_preloaded_snippets_replay_before_dispatch
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "BASE = 10", name: :Alpha)

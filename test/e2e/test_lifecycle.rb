@@ -15,6 +15,7 @@ class TestE2ELifecycle < Minitest::Test
   # capability state between #run calls; Service objects bound at setup
   # time remain active across runs without re-registration.
 
+  # @behavior S-012
   def test_j02_setup_once_run_many_with_persistent_service_bindings
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Data::Fetch", ->(id) { "record:#{id}" })
@@ -33,6 +34,7 @@ class TestE2ELifecycle < Minitest::Test
   # reuses a single preloaded Sandbox across many requests. The Probe
   # returns the global it observed at entry and then sets it: a leak would
   # make the second invocation observe `true` instead of the fresh `nil`.
+  # @behavior S-014
   def test_j02_reused_sandbox_does_not_leak_guest_globals_between_runs
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.preload(code: "Probe = ->(*_a, **_k) { s = $leak; $leak = true; s }", name: :Probe)
@@ -48,6 +50,7 @@ class TestE2ELifecycle < Minitest::Test
   # SPEC.md L169 + B-04: developer reads the run's Execution#stdout for guest
   # puts/print output AND the script's return value comes through the outcome
   # envelope. Both channels are independently observable.
+  # @behavior S-023
   def test_j02_stdout_and_return_value_independently_observable
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -68,6 +71,7 @@ class TestE2ELifecycle < Minitest::Test
   # submission must not affect another submission. No submission can read
   # another submission's guest output.
 
+  # @behavior S-017
   def test_j03_fresh_sandbox_per_submission_isolates_failure
     crashing  = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     surviving = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -87,6 +91,7 @@ class TestE2ELifecycle < Minitest::Test
   # SPEC.md L193-204: Per-tenant Sandbox; each event triggers a Sandbox#eval
   # with a user expression; expression result drives downstream logic.
 
+  # @behavior S-040
   def test_j04_user_expression_evaluates_to_value_for_filter_logic
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Event::Amount", -> { 150 })
@@ -102,6 +107,7 @@ class TestE2ELifecycle < Minitest::Test
   # SPEC.md L243-254: setup-once / dispatch-many pattern using #preload +
   # #run. Per-invocation isolation (B-03) means no state leaks between
   # successive #run calls on the same Sandbox.
+  # @behavior S-053
   def test_j07_preload_worker_and_dispatch_many_requests
     sandbox = Kobako::Sandbox.new
     # B-31 (mruby C API limitation): kwargs land as a trailing positional
@@ -119,6 +125,7 @@ class TestE2ELifecycle < Minitest::Test
 
   # J-07 follow-up: #run and #eval interleave freely on the same Sandbox;
   # both verbs replay the snippet table from a fresh mrb_state.
+  # @behavior S-015
   def test_j07_eval_and_run_interleave_with_isolated_state
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Worker = ->(n) { n * n }", name: :Worker)
@@ -132,6 +139,7 @@ class TestE2ELifecycle < Minitest::Test
   # #value with its output captures and #usage — the caller reads the result
   # off that returned object, not off the reusable Sandbox, so the Sandbox
   # holds no per-invocation state a concurrent eval could observe.
+  # @behavior S-064
   def test_b61_eval_returns_a_frozen_execution_bundling_value_and_observables
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -149,6 +157,7 @@ class TestE2ELifecycle < Minitest::Test
   # B-61: a failed run raises an invocation-outcome error carrying that run's
   # frozen Execution on #execution, so a rescue reads the pre-failure captures
   # exactly as a successful caller reads the return value; #value is nil there.
+  # @behavior S-065
   def test_b61_failed_run_carries_its_execution_on_the_raised_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -164,6 +173,7 @@ class TestE2ELifecycle < Minitest::Test
   # B-05: a run whose guest writes to neither channel yields empty captures on
   # its Execution — an empty UTF-8 String with the truncation predicates false
   # — so a Host App reads a silent run without a nil guard.
+  # @behavior S-022
   def test_b05_silent_run_has_empty_captures
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 

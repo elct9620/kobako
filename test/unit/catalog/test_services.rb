@@ -154,6 +154,7 @@ module Kobako
       @services = Kobako::Catalog::Services.new
     end
 
+    # @behavior S-020
     def test_paths_lists_every_bound_path_in_bind_order
       @services.bind("MyService::KV", :kv).bind("MyService::Logger", :log)
       @services.bind("File", :fs)
@@ -162,11 +163,13 @@ module Kobako
                    "a bound registry through #paths must list every path in bind order"
     end
 
+    # @behavior S-021
     def test_paths_on_an_empty_registry_is_the_empty_list
       assert_empty @services.paths,
                    "a registry with no bindings through #paths must be empty, never absent"
     end
 
+    # @behavior S-019
     def test_paths_before_seal_reflects_new_bindings
       @services.bind("MyService::KV", :kv)
       first = @services.paths
@@ -177,6 +180,7 @@ module Kobako
                    "binding a Service on an unsealed registry must surface in the next #paths read (B-08)"
     end
 
+    # @behavior S-018
     # B-33 seals Service registration (B-08) at the first invocation.
     # Binding past the seal raises (E-45), so the declared path set is
     # stable by construction.

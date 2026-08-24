@@ -13,6 +13,7 @@ class TestE2EPreload < Minitest::Test
   # mrb_state before each invocation. The first snippet defines a top-
   # level constant; subsequent invocations on the same Sandbox observe
   # it because the snippet table re-runs on every #eval, not just once.
+  # @behavior S-052
   def test_b32_preloaded_snippet_is_visible_to_eval
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "ANSWER = 42", name: :Answers)
@@ -20,6 +21,7 @@ class TestE2EPreload < Minitest::Test
     assert_equal 42, sandbox.eval("ANSWER").value
   end
 
+  # @behavior S-053
   def test_b32_preloaded_snippets_replay_across_invocations
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "ANSWER = 42", name: :Answers)
@@ -28,6 +30,7 @@ class TestE2EPreload < Minitest::Test
     assert_equal 42, sandbox.eval("ANSWER").value
   end
 
+  # @behavior S-054
   def test_b32_preloaded_snippets_replay_in_insertion_order
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "BASE = 10", name: :Alpha)
@@ -77,6 +80,7 @@ class TestE2EPreload < Minitest::Test
   # section so the bytecode meets B-32's identity requirement.
   BYTECODE_FIXTURE_PATH = TestPaths.fixture("snippet_answers.mrb")
 
+  # @behavior S-055
   def test_b32_preloaded_binary_snippet_is_visible_to_eval
     sandbox = Kobako::Sandbox.new
     sandbox.preload(binary: File.binread(BYTECODE_FIXTURE_PATH))
@@ -86,6 +90,7 @@ class TestE2EPreload < Minitest::Test
                  "top-level constants to subsequent #eval calls"
   end
 
+  # @behavior S-056
   def test_b32_preloaded_binary_snippet_replays_across_invocations
     sandbox = Kobako::Sandbox.new
     sandbox.preload(binary: File.binread(BYTECODE_FIXTURE_PATH))
@@ -174,6 +179,7 @@ class TestE2EPreload < Minitest::Test
   # switch omitted.
   STRIPPED_BYTECODE_FIXTURE_PATH = TestPaths.fixture("snippet_no_debug.mrb")
 
+  # @behavior S-057
   def test_b32_stripped_bytecode_loads_and_contributes_top_level_effects
     sandbox = Kobako::Sandbox.new
     sandbox.preload(binary: File.binread(STRIPPED_BYTECODE_FIXTURE_PATH))

@@ -8,6 +8,7 @@ require "test_helper"
 class TestE2EExecution < Minitest::Test
   include E2eGuestHelper
 
+  # @behavior S-066
   # B-61: #failed? tells a successful run whose value was legitimately nil from
   # a failed run — both have a nil #value, so the object alone must stay
   # distinguishable without knowing whether it was returned or rescued.
@@ -25,6 +26,7 @@ class TestE2EExecution < Minitest::Test
                      "B-61: a failed run must report #failed? true though its #value matches the success"
   end
 
+  # @behavior S-067
   # B-61: #failed? is true on the trap path too, where #value is nil for the
   # same reason a nil-value success is — a timed-out run must stay tellable
   # from a run that simply returned nil.
@@ -37,6 +39,7 @@ class TestE2EExecution < Minitest::Test
                      "B-61: a trapped run's carried Execution must report #failed? true"
   end
 
+  # @behavior S-068
   # B-61: a pre-flight failure that enters no invocation — an input rejected
   # before the guest runs — raises with #execution left nil, since no run
   # produced observables to carry.

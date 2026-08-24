@@ -26,6 +26,7 @@ class TestE2EIoStreams < Minitest::Test
   # boundary, +#stdout+ carries no truncation sentinel, and
   # +#stdout_truncated?+ flips to +true+. The cap is enforced inside the
   # WASI pipe — +#run+ still returns the script's last expression.
+  # @behavior S-024
   def test_stdout_truncation_flag_when_output_exceeds_cap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stdout_limit: 5)
     execution = sandbox.eval(OVERFLOW_SCRIPT)
@@ -44,6 +45,7 @@ class TestE2EIoStreams < Minitest::Test
 
   # SPEC.md B-03: truncation predicates reset together with the capture
   # buffers at the start of the next +#run+.
+  # @behavior S-025
   def test_stdout_truncated_predicate_resets_between_runs
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stdout_limit: 5)
     first = sandbox.eval(OVERFLOW_SCRIPT)
@@ -61,6 +63,7 @@ class TestE2EIoStreams < Minitest::Test
   # counterpart of the truncation-predicate reset case above; the
   # trapped run's partial-output readability itself is pinned by the
   # B-04 cases in test_caps.rb.
+  # @behavior S-026
   def test_captures_reset_on_the_invocation_after_a_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
     assert_raises(Kobako::TimeoutError) do
@@ -81,6 +84,7 @@ class TestE2EIoStreams < Minitest::Test
   # The equality assertion rejects install-time noise (e.g. mruby's +mrb_warn+
   # for a NULL super class) leaking onto fd 2 — the guest's own +$stderr.puts+
   # output is the only thing the channel may carry on this run.
+  # @behavior S-028
   def test_stderr_puts_routes_to_stderr_channel
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     execution = sandbox.eval('$stderr.puts "diagnostic"; 1')
@@ -97,6 +101,7 @@ class TestE2EIoStreams < Minitest::Test
   # The equality assertion also rejects install-time noise (e.g. mruby's
   # +mrb_warn+ for a NULL super class) leaking onto fd 2 — the guest's own
   # +warn+ output is the only thing the channel may carry on this run.
+  # @behavior S-029
   def test_warn_routes_to_stderr_channel
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     execution = sandbox.eval('warn "caution"; 1')
@@ -112,6 +117,7 @@ class TestE2EIoStreams < Minitest::Test
   # reason Kernel delegators route through the assignable global instead
   # of hard-coded fd 1, and verifies that the kobako-io Kernel delegators
   # honor the late binding.
+  # @behavior S-030
   def test_redirecting_stdout_to_stderr_routes_subsequent_puts
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     execution = sandbox.eval('$stdout = $stderr; puts "redirected"; 1')
@@ -128,6 +134,7 @@ class TestE2EIoStreams < Minitest::Test
   # stdout channel. Pins this per-run-reset invariant explicitly
   # because the redirection test alone would not catch a regression
   # that made the reassignment persistent.
+  # @behavior S-031
   def test_stdout_assignment_does_not_persist_across_runs
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -144,6 +151,7 @@ class TestE2EIoStreams < Minitest::Test
   # Symmetric to test_stdout_truncation_flag_when_output_exceeds_cap.
   # Cap is enforced inside the WASI pipe on fd 2; #stderr never contains
   # truncation sentinels.
+  # @behavior S-032
   def test_stderr_truncation_flag_when_output_exceeds_cap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stderr_limit: 5)
     execution = sandbox.eval(OVERFLOW_STDERR_SCRIPT)
@@ -162,6 +170,7 @@ class TestE2EIoStreams < Minitest::Test
   # is reachable from the Sandbox once nil disables the bound. memory_limit
   # is also lifted so the 2 MiB the guest builds is not stopped by the
   # memory cap before it can reach the capture pipe.
+  # @behavior S-033
   def test_nil_stdout_limit_captures_output_past_the_default_cap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stdout_limit: nil, memory_limit: nil)
     # Written as four sub-MiB chunks: a single 2 MiB mruby String would trip
@@ -179,6 +188,7 @@ class TestE2EIoStreams < Minitest::Test
   end
 
   # SPEC.md B-04: stdout buffer is per-run; second #run does not see first run's output.
+  # @behavior S-027
   def test_stdout_is_per_run_b04
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 

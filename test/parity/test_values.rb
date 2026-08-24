@@ -9,6 +9,7 @@ require "test_helper"
 # Integer bit-fidelity) live in test/e2e/test_outcome_values.rb.
 class TestParityValues < Parity::Case
   # SPEC.md B-06: `#eval` last-expression values of every wire type.
+  # @behavior S-041
   def test_eval_wire_values_round_trip
     sources = [
       "nil", "true", "false", "42", "-7", "3.5", '"text"', ":sym",
@@ -31,6 +32,7 @@ class TestParityValues < Parity::Case
   # SPEC.md B-13: a Service returning wire-representable values —
   # constants flow host→guest, the guest hands them back as its
   # last expression.
+  # @behavior S-042
   def test_service_values_round_trip
     methods = SERVICE_CONSTANTS.each_with_index.to_h do |constant, index|
       ["value#{index}", { behavior: "value", value: constant }]
@@ -44,6 +46,7 @@ class TestParityValues < Parity::Case
 
   # SPEC.md B-12 / B-13: guest-built values survive the
   # guest→host→guest echo round-trip.
+  # @behavior S-043
   def test_echo_round_trip
     assert_parity Parity::Scenario.new(
       name: "echo-round-trip", anchors: %w[B-12 B-13],
@@ -56,6 +59,7 @@ class TestParityValues < Parity::Case
 
   # SPEC.md E-06: a return value with no wire representation is a
   # sandbox-origin fault on both sides.
+  # @behavior S-044
   def test_unrepresentable_return_value
     assert_parity Parity::Scenario.new(
       name: "unrepresentable-return", anchors: %w[E-06],

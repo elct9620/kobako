@@ -124,6 +124,7 @@ module Kobako
                    "a binary: snippet through #entries must carry the bytecode kind and no name"
     end
 
+    # @behavior S-054
     def test_entries_preserve_insertion_order_across_mixed_kinds
       @table.register(code: "A", name: :Alpha)
       @table.register(binary: "RITE\x00first")

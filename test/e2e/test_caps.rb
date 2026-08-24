@@ -53,6 +53,7 @@ class TestE2ECaps < Minitest::Test
   # high-water mark exceeds it — the watermark left by the first
   # invocation is folded into the second invocation's baseline rather
   # than being charged against its budget.
+  # @behavior S-008
   def test_memory_limit_resets_per_invocation
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
 
@@ -85,6 +86,7 @@ class TestE2ECaps < Minitest::Test
   # +test_memory_limit_resets_per_invocation+ and the reuse-after-guest-
   # raise path by +test_entrypoint_runtime_exception_surfaces_as_sandbox_error+;
   # this case closes the remaining gap — reuse after a host *trap*.
+  # @behavior S-010
   def test_sandbox_reusable_after_timeout_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
@@ -100,6 +102,7 @@ class TestE2ECaps < Minitest::Test
   # allocation, the same Sandbox must run a within-budget script normally —
   # the limiter re-anchors its baseline per invocation rather than staying
   # armed at the trapped run's watermark.
+  # @behavior S-011
   def test_sandbox_reusable_after_memory_limit_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
 
@@ -118,6 +121,7 @@ class TestE2ECaps < Minitest::Test
   # in the one run — the trap kills the instance mid-invocation, the one
   # moment the two capture pipes could plausibly diverge — and this case
   # asserts the stdout half; the stderr half is the case below.
+  # @behavior S-036
   def test_partial_stdout_readable_after_timeout_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
@@ -136,6 +140,7 @@ class TestE2ECaps < Minitest::Test
   # SPEC.md B-04 / E-19: the stderr half of the two-channel trap run
   # above — the guest writes both channels, then traps on the wall-clock
   # cap; the bytes on stderr must survive the rescue independently.
+  # @behavior S-037
   def test_partial_stderr_readable_after_timeout_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
@@ -153,6 +158,7 @@ class TestE2ECaps < Minitest::Test
   # fired reports +true+ after the rescue, alongside the clipped bytes.
   # The rescued overflow write mirrors +test_io_streams.rb+'s
   # OVERFLOW_SCRIPT (past-cap write behaviour is deliberately unpinned).
+  # @behavior S-038
   def test_truncation_predicate_survives_timeout_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2, stdout_limit: 5)
 
@@ -172,6 +178,7 @@ class TestE2ECaps < Minitest::Test
   # before the linear-memory cap trap stays readable after the rescue.
   # One channel suffices here; the two-channel divergence witness is the
   # timeout case above.
+  # @behavior S-039
   def test_partial_stdout_readable_after_memory_limit_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
 
@@ -191,6 +198,7 @@ class TestE2ECaps < Minitest::Test
   # proving nil reaches the limiter as unbounded rather than silently falling
   # back to the DEFAULT_MEMORY_LIMIT the value object supplies when unset. The
   # nil readback itself is pinned at the SandboxOptions tier.
+  # @behavior S-009
   def test_nil_caps_disable_enforcement_rather_than_fall_back_to_defaults
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: nil, memory_limit: nil)
 

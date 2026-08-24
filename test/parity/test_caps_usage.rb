@@ -11,6 +11,7 @@ class TestParityCapsUsage < Parity::Case
   # presence). Usage survival on the trap path is pinned by
   # test_errors.rb's timeout scenario — every assert_parity compares
   # usage presence, so a second trap run here would add no coverage.
+  # @behavior S-063
   def test_usage_present_after_success
     assert_parity Parity::Scenario.new(
       name: "usage-after-success", anchors: %w[B-01 B-35],

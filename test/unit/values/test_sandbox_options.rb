@@ -16,6 +16,7 @@ require "test_helper"
 class TestSandboxOptions < Minitest::Test
   # Pins the literal SPEC B-01 values (60 s / 1 MiB), not just the
   # DEFAULT_* constants, so a drift in either direction is caught here.
+  # @behavior S-004
   def test_absent_caps_take_their_spec_defaults
     options = Kobako::SandboxOptions.new
 
@@ -25,6 +26,7 @@ class TestSandboxOptions < Minitest::Test
     assert_equal 1 << 20, options.stderr_limit
   end
 
+  # @behavior S-005
   def test_explicit_nil_disables_each_cap
     options = Kobako::SandboxOptions.new(timeout: nil, memory_limit: nil,
                                          stdout_limit: nil, stderr_limit: nil)
@@ -35,6 +37,7 @@ class TestSandboxOptions < Minitest::Test
     assert_nil options.stderr_limit, "an explicit nil stderr_limit must leave stderr uncapped"
   end
 
+  # @behavior S-006
   def test_set_caps_pass_through_normalized
     options = Kobako::SandboxOptions.new(timeout: 1.5, memory_limit: 2 << 20,
                                          stdout_limit: 100, stderr_limit: 200)
@@ -45,6 +48,7 @@ class TestSandboxOptions < Minitest::Test
     assert_equal 200, options.stderr_limit
   end
 
+  # @behavior S-007
   def test_integer_timeout_is_coerced_to_float
     options = Kobako::SandboxOptions.new(timeout: 5)
 

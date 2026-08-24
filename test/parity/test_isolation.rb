@@ -6,6 +6,7 @@ require "test_helper"
 # B-49): both frontends must start every invocation from the canonical
 # boot state, leaving no trace of the previous one.
 class TestParityIsolation < Parity::Case
+  # @behavior S-016
   # SPEC.md B-02 / B-03 / B-49: globals, constants, and reopened core
   # classes from one invocation are invisible to the next.
   def test_successive_invocations_are_isolated

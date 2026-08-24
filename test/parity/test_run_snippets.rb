@@ -24,6 +24,7 @@ class TestParityRunSnippets < Parity::Case
   # SPEC.md B-31 / B-32: dispatch into a preloaded entrypoint; source
   # and bytecode snippets replay in insertion order on every
   # invocation, uniformly across the #run / #eval verbs.
+  # @behavior S-050
   def test_run_entrypoint
     assert_parity Parity::Scenario.new(
       name: "run-entrypoint", anchors: %w[B-31 B-32],

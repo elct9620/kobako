@@ -24,6 +24,7 @@ class TestSandboxUsage < Minitest::Test
   # `1 + 1` may or may not trigger `memory.grow`, and the meaningful
   # bound (`>= 200_000` for an allocating script) is pinned by
   # `test_allocating_eval_reports_memory_peak` below.
+  # @behavior S-058
   def test_eval_success_populates_wall_time
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -43,6 +44,7 @@ class TestSandboxUsage < Minitest::Test
 
   # B-35: `#run` shares the same usage path as `#eval`. Pin both verbs
   # so a regression that only wires one is caught.
+  # @behavior S-059
   def test_run_success_populates_wall_time
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.preload(code: "Entry = ->(*_args, **_kw) { 42 }", name: :Entry)
@@ -56,6 +58,7 @@ class TestSandboxUsage < Minitest::Test
   # B-35: each invocation's Execution carries its own usage. A script
   # that allocates ~200 KiB must report a `memory_peak` past the
   # no-allocation baseline through `memory_growing`.
+  # @behavior S-060
   def test_allocating_eval_reports_memory_peak
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -72,6 +75,7 @@ class TestSandboxUsage < Minitest::Test
   # off the carried Execution in the rescue branch must see a real
   # measurement so it can decide whether the script ran long because of
   # CPU work or host-side Service callback time.
+  # @behavior S-061
   def test_timeout_trap_path_still_populates_usage
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
@@ -88,6 +92,7 @@ class TestSandboxUsage < Minitest::Test
   # never exceeds `memory_limit`. Without this guarantee a Host App
   # reading the failure would see a budget violation in the
   # observability record itself.
+  # @behavior S-062
   def test_memory_limit_trap_caps_memory_peak_at_memory_limit
     memory_limit = 2 << 20 # 2 MiB
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: memory_limit)
@@ -106,6 +111,7 @@ class TestSandboxUsage < Minitest::Test
   # via the Panic envelope path (E-04). Its carried Execution still holds
   # the run's usage, so a Host App rescuing a runtime guest error can see
   # how much of the budget the failing invocation consumed.
+  # @behavior S-069
   def test_sandbox_error_path_still_populates_usage
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -121,6 +127,7 @@ class TestSandboxUsage < Minitest::Test
   # path — pinning all four outcome classes (success, TrapError,
   # SandboxError, ServiceError) proves usage rides the carried Execution
   # on every outcome the guest reached, not only the value-return one.
+  # @behavior S-070
   def test_service_error_path_still_populates_usage
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Log::Sink", ->(_msg) { raise "capability denied" })

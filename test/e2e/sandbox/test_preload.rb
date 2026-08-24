@@ -25,6 +25,7 @@ class TestSandboxPreload < Minitest::Test
   # Catalog::Snippets#register, which returns the registered
   # Symbol name (or nil for binary:). This is the only Sandbox-tier
   # contract over Table#register.
+  # @behavior S-051
   def test_preload_returns_self_for_chaining
     assert_same @sandbox, @sandbox.preload(code: "X = 1", name: :Helper)
     assert_same @sandbox, @sandbox.preload(binary: "RITE")

@@ -22,6 +22,7 @@ class TestSandbox < Minitest::Test
     require_fixture!(FIXTURE_PATH)
   end
 
+  # @behavior S-001
   def test_default_construction_exposes_wasm_path
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 
@@ -34,6 +35,7 @@ class TestSandbox < Minitest::Test
   # cap back — with the Integer timeout observed as its coerced Float —
   # proves the normalized values flow through, so the matrix is not
   # re-pinned behind the ext.
+  # @behavior S-002
   def test_caps_delegate_to_sandbox_options
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, timeout: 5, memory_limit: 2 << 20,
                                   stdout_limit: 100, stderr_limit: 200)
@@ -48,6 +50,7 @@ class TestSandbox < Minitest::Test
   # back on the Sandbox, same as the caps; its per-rule matrix (default,
   # rejection) is pinned ext-free in TestSandboxOptions, so one witness
   # reading a non-default mode back proves the delegation flows through.
+  # @behavior S-003
   def test_gvl_delegates_to_sandbox_options
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, gvl: :release)
 

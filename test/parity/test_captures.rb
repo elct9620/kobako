@@ -7,6 +7,7 @@ require "test_helper"
 # predicates after every invocation.
 class TestParityCaptures < Parity::Case
   # SPEC.md B-04: stdout and stderr arrive as separate byte streams.
+  # @behavior S-034
   def test_streams_are_captured_separately
     assert_parity Parity::Scenario.new(
       name: "capture-streams", anchors: %w[B-04],
@@ -18,6 +19,7 @@ class TestParityCaptures < Parity::Case
 
   # SPEC.md B-04: a configured cap clips the stream and flips the
   # truncation predicate — identically on both sides.
+  # @behavior S-035
   def test_truncation_at_the_cap
     assert_parity Parity::Scenario.new(
       name: "capture-truncation", anchors: %w[B-04],
