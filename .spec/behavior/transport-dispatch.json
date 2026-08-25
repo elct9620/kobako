@@ -10,6 +10,7 @@
     "test/unit/codec/test_deep_restore.rb",
     "test/e2e/test_handle_arguments.rb",
     "test/e2e/test_handle_restoration.rb",
+    "test/e2e/test_handle_proxy.rb",
     "test/e2e/test_dispatch_kwargs_partition.rb",
     "test/e2e/test_dispatch_gc_safety.rb",
     "test/e2e/test_dsl_composition.rb",
