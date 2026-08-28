@@ -7,10 +7,9 @@ reach. The first job is the gem's, the second is yours — this document draws t
 
 The guest runs in a Wasm cell with no access to host memory, files, sockets, or `ENV`,
 and its only path outward is a Service you injected. Ambient wall-clock time and host
-entropy are denied at the WASI layer too — the guest's `wasi:clocks` is frozen at the
-Unix epoch and `wasi:random` is a constant stream — so the no-ambient-authority guarantee
-holds even if a future guest gem reaches for libc time or randomness, not only because the
-mrbgem allowlist omits those gems. **The real authorization gate is your
+entropy are denied at the WASI layer — `wasi:clocks` is frozen at the Unix epoch and
+`wasi:random` is a constant stream — so the guarantee holds at the boundary, not just
+because the mrbgem allowlist omits the time / random gems. **The real authorization gate is your
 host-side allowlist:** guest code can name any `MyService::KV` path, but a forged
 name only ever resolves to something you bound.
 
@@ -30,7 +29,7 @@ These hold without any host effort — do not re-implement them.
 
 | Guarantee | Anchor |
 |-----------|--------|
-| Only a bound object's own Service methods are reachable; Ruby's ambient reflection / eval surface — the `send` family, `eval` / `instance_eval`, `binding`, `method`, `define_method`, `instance_variable_get`, and the `Proc` / `Method` / `Binding` gadget methods — is rejected host-side, leaving for a bound lambda only the callable allowlist (`call` / `[]` / `yield` / `arity` / `lambda?`). Reflective objects (`Binding` / `Method` / `UnboundMethod`) never cross as Handles. | B-12, B-42, B-43 |
+| Only a bound object's own Service methods are reachable; Ruby's ambient reflection / eval surface is rejected host-side, and reflective objects never cross as Handles — a bound lambda keeps only the callable allowlist (`call` / `[]` / `yield` / `arity` / `lambda?`). What counts as reflection is B-42 / B-43's to define. | B-12, B-42, B-43 |
 | The guest cannot construct a `Kobako::Handle` (B-39); a bound-constant proxy it constructs is capability-inert; neither can be dereferenced to a value — the host's `Catalog::Handles` membership and path resolution gate every dispatch. | B-20, B-38, B-39 |
 | Each invocation starts from the canonical boot state; Handles, stdout / stderr, and memory delta reset between calls. Monkeypatching and globals do not persist. | B-03, B-18, B-19, B-49 |
 | Services and state on different Sandbox instances are fully isolated. | B-09 |
@@ -141,15 +140,12 @@ sandbox.bind("Secret::Issue", -> { ApiCredential.new })
 > expose a safe subset instead, answer `true` only for those names:
 > `def respond_to_guest?(name) = name == :public_id`.
 
-> **Gotcha — a permissive backend has no vocabulary ceiling until you draw one.** The floor
-> lets an otherwise-unknown method name through when the bound object answers `respond_to?`
-> truthy for it — the escape hatch dynamic `method_missing` Services rely on. An object whose
-> `respond_to?` answers *everything* (a builder, a proxy, anything routing through
-> `method_missing`) therefore takes every name the floor does not independently reject
-> straight to its `method_missing`: the reflection / eval surface stays blocked, but the
-> object's own dynamic surface is wide open. Bind such an object behind a `respond_to_guest?`
-> that names the methods the guest may call, or wrap it so `respond_to?` answers honestly for
-> the methods it actually defines.
+> **Gotcha — a `method_missing` backend has no vocabulary ceiling until you draw one.** The
+> floor lets an unknown method name through when the bound object answers `respond_to?` truthy
+> for it — the escape hatch dynamic Services need. An object whose `respond_to?` answers
+> *everything* (a builder or proxy routing through `method_missing`) thus takes every
+> non-reflection name straight to `method_missing`. Bind it behind a `respond_to_guest?` that
+> names the callable methods, or make its `respond_to?` answer honestly.
 
 ### Untrusted input — validate at the boundary
 
