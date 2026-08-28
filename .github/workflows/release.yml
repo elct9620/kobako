@@ -47,15 +47,17 @@ jobs:
       - uses: oxidize-rb/actions/fetch-ci-data@e5f9a49a7812a078584072f6e3f657ad247c8771 # v1
         id: fetch
         with:
-          # arm-linux is 32-bit ARM; wasmtime's Cranelift backend does not
-          # ship a 32-bit ARM target, so this platform cannot link.
+          # arm-linux and arm-linux-musl are 32-bit ARM; wasmtime's Cranelift
+          # backend does not ship a 32-bit ARM target, and rb-sys-dock
+          # publishes no cross image for arm-linux-musl either, so neither
+          # platform can build.
           # aarch64-mingw-ucrt is not present in rb-sys-dock images yet.
           # x64-mingw32 is the legacy Windows MinGW ABI for Ruby <= 3.0;
           # rake-compiler-dock 1.12.0 has no rbconfig for Ruby 3.3/3.4/4.0
           # on this target. Modern Windows Ruby uses x64-mingw-ucrt instead,
           # and kobako requires Ruby >= 3.3.
           supported-ruby-platforms: |
-            exclude: [arm-linux, aarch64-mingw-ucrt, x64-mingw32]
+            exclude: [arm-linux, arm-linux-musl, aarch64-mingw-ucrt, x64-mingw32]
 
   build-wasm:
     name: Build kobako.wasm (platform-agnostic)
