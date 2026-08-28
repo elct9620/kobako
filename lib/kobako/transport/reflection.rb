@@ -47,23 +47,37 @@ module Kobako
       end
 
       # Guard against ambient reflection methods. A public method whose
-      # owner is a META_OWNERS or GADGET_OWNERS module is rejected, except
-      # CALLABLE_ALLOW on a gadget target (a bound lambda stays invocable).
-      # A name with no concrete public method is allowed only when the
-      # target opts into it via +respond_to?+ (dynamic +method_missing+
-      # Services), since the dangerous methods are all concretely defined
-      # and therefore never reach that branch.
+      # owner is a META_OWNERS or GADGET_OWNERS module — or a singleton
+      # class, the owner of every class-level method (+File.popen+ /
+      # +Kernel.system+, unreachable via any fixed core-module list) — is
+      # rejected, except CALLABLE_ALLOW on a gadget target (a bound lambda
+      # stays invocable). A name with no concrete public method is allowed
+      # only when the target opts into it via +respond_to?+ (dynamic
+      # +method_missing+ Services), since the dangerous methods are all
+      # concretely defined and therefore never reach that branch.
       def ambient_refusal(target, name)
         owner = target.public_method(name).owner
-        gadget = GADGET_OWNERS.include?(owner)
-        return nil unless META_OWNERS.include?(owner) || gadget
-        return nil if gadget && CALLABLE_ALLOW.include?(name)
+        return nil unless ambient_owner?(owner, target)
+        return nil if GADGET_OWNERS.include?(owner) && CALLABLE_ALLOW.include?(name)
 
         "method #{name.inspect} is not a Service method"
       rescue NameError
         return nil if target.respond_to?(name)
 
         "no public method #{name.inspect} on target"
+      end
+
+      # Whether +name+'s +owner+ is ambient surface rather than Service
+      # behaviour: a core meta module, a callable gadget type, or — when
+      # +target+ is itself a Class or Module bound as a Service — the
+      # singleton class that owns its class-level API (+File.popen+ /
+      # +Kernel.system+, unreachable via any fixed core-module list). A plain
+      # object's own singleton method (+def obj.x+) stays reachable, since
+      # +target+ is not a Module there.
+      def ambient_owner?(owner, target)
+        META_OWNERS.include?(owner) ||
+          GADGET_OWNERS.include?(owner) ||
+          (target.is_a?(Module) && owner.singleton_class?)
       end
 
       # Consult the target's opt-in narrowing predicate. A bound object may

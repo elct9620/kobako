@@ -201,3 +201,19 @@ Narrowing sits beneath the boundary, never above it: an object may close its sur
 | Given | a scenario calling a reflective name on a bound target |
 | When | both frontends run it |
 | Then | they refuse it the same way |
+
+## T-132 — A bare class used as a type tag is refused as an answer
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound Service whose method answers a bare class or module |
+| When | the guest calls it |
+| Then | the answer is refused rather than given a reference |
+
+## T-133 — A class bound directly cannot be reached through its class-level surface
+
+| Step | Statement |
+| --- | --- |
+| Given | a class or module bound directly as a Service |
+| When | guest code calls one of its class-level methods |
+| Then | the call is refused rather than forwarded |

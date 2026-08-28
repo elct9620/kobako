@@ -9,6 +9,8 @@ module Kobako
 
       def self?.ambient_refusal: (untyped target, Symbol name) -> String?
 
+      def self?.ambient_owner?: (Module owner, untyped target) -> bool
+
       def self?.narrowing_refusal: (untyped target, Symbol name) -> String?
     end
   end

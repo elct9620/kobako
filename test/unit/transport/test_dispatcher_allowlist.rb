@@ -22,7 +22,8 @@ class TestDispatchMethodAllowlist < Minitest::Test
   def setup
     @handler = Kobako::Catalog::Handles.new
     @services = Kobako::Catalog::Services.new
-    { Theme: Service.new, Fn: ->(x) { x * 2 }, Meth: "abc".method(:upcase), Own: Tappable.new }
+    { Theme: Service.new, Fn: ->(x) { x * 2 }, Meth: "abc".method(:upcase), Own: Tappable.new,
+      Klass: File, Mod: Kernel }
       .each { |name, service| @services.bind("Cfg::#{name}", service) }
     @services.seal!
     @yield = ->(_bytes) { raise "no block" }
@@ -99,6 +100,26 @@ class TestDispatchMethodAllowlist < Minitest::Test
                  "`tap` owned by Kernel must be rejected as ambient reflection surface"
     assert_equal "undefined", inherited.payload.type,
                  "the Kernel-owned `tap` rejection must surface as the undefined Service-method fault (E-43)"
+  end
+
+  # @behavior T-133
+  def test_class_level_methods_on_a_bound_class_are_rejected
+    # A Class / Module bound directly as a Service exposes its class-level
+    # API, each method owned by the receiver's singleton class — which no
+    # fixed core-module list can name. The floor treats a singleton-class
+    # owner as ambient surface when the target is itself a Module, so
+    # File.popen / File.read / File.new / Kernel.system / Kernel.exec are
+    # refused, and a forged Call is bound identically (B-42 is host-side).
+    { "Cfg::Klass" => %w[popen read new open],
+      "Cfg::Mod" => %w[system exec eval] }.each do |target, methods|
+      methods.each do |meth|
+        resp = dispatch(target, meth, [])
+        assert_equal false, resp.ok?,
+                     "#{target}.#{meth} (a class-level method) must be refused, not invoked on the host"
+        assert_equal "undefined", resp.payload.type,
+                     "#{target}.#{meth} rejection must surface as the undefined Service-method fault (E-43)"
+      end
+    end
   end
 
   # @behavior T-121

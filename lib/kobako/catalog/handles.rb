@@ -73,15 +73,18 @@ module Kobako
 
       private
 
-      # Refuse to mint a Capability Handle for a reflective gadget:
-      # a +Binding+ / +Method+ / +UnboundMethod+ would hand the guest a
-      # callable proxy onto host reflection (a returned +Binding+ reaches
-      # +Binding#eval+). Raising here keeps the rule at the single mint
-      # point, so it holds on both the Service-return and the +#run+
-      # host→guest auto-wrap paths.
+      # Refuse to mint a Capability Handle for an object whose reachable
+      # surface is not Service behaviour: a +Binding+ / +Method+ /
+      # +UnboundMethod+ hands the guest a callable proxy onto host
+      # reflection (a returned +Binding+ reaches +Binding#eval+); a +Class+
+      # or +Module+ hands over its class-level API (+File.popen+ / +read+,
+      # +Kernel.system+), which the owner-based dispatch floor cannot see
+      # because a singleton-class owner matches no core-module list. Raising
+      # here keeps the rule at the single mint point, so it holds on both the
+      # Service-return and the +#run+ host→guest auto-wrap paths.
       def reject_unwrappable!(object)
         case object
-        when Binding, Method, UnboundMethod
+        when Binding, Method, UnboundMethod, Module
           raise SandboxError, "a #{object.class} cannot cross as a Capability Handle"
         end
       end

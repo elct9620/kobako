@@ -6,6 +6,7 @@
     "test/e2e/test_handle_immutable.rb",
     "test/e2e/test_proxy_target.rb",
     "test/e2e/test_reflection_block.rb",
+    "test/e2e/test_class_escape.rb",
     "test/unit/transport/test_dispatcher_allowlist.rb",
     "test/unit/transport/test_dispatcher_gadget_return.rb",
     "test/unit/transport/test_dispatcher_narrowing.rb",
@@ -107,7 +108,15 @@
     { "id": "T-131", "title": "Both frontends refuse a reflective target the same way",
       "given": ["a scenario calling a reflective name on a bound target"],
       "when": "both frontends run it",
-      "then": "they refuse it the same way" }
+      "then": "they refuse it the same way" },
+    { "id": "T-132", "title": "A bare class used as a type tag is refused as an answer",
+      "given": ["a bound Service whose method answers a bare class or module"],
+      "when": "the guest calls it",
+      "then": "the answer is refused rather than given a reference" },
+    { "id": "T-133", "title": "A class bound directly cannot be reached through its class-level surface",
+      "given": ["a class or module bound directly as a Service"],
+      "when": "guest code calls one of its class-level methods",
+      "then": "the call is refused rather than forwarded" }
   ],
   "notes": [
     { "type": "heading", "level": 1, "text": ["Why these scenarios"] },
