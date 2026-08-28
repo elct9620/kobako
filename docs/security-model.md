@@ -83,8 +83,10 @@ end
 
 ### Least privilege — expose the smallest method surface
 
-`bind` exposes *every* public method of the object, not the one you had in mind; since
-private / protected are already unreachable, the only lever is the public surface itself.
+`bind` exposes *every* public method the object answers to — not the one you had in mind,
+and not only the ones defined in its class body: public methods it inherits or gains from an
+included module (`Comparable`, `Enumerable`, or a concern module of your own) are reachable
+too. Private / protected are already unreachable, so the public surface is the only lever.
 Bind a purpose-built object rather than a capable one whose other methods leak more than
 you intend.
 
