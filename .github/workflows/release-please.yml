@@ -16,6 +16,11 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      # Fallback for the root gem when it releases standalone: a componentless
+      # root package can surface as the path-prefixed `.` outputs instead of
+      # the unprefixed ones, so read both and let release-gem take either.
+      gem_release_created: ${{ steps.release.outputs['.--release_created'] }}
+      gem_tag_name: ${{ steps.release.outputs['.--tag_name'] }}
       core_release_created: ${{ steps.release.outputs['wasm/kobako-core--release_created'] }}
       mruby_release_created: ${{ steps.release.outputs['wasm/kobako-mruby--release_created'] }}
       io_release_created: ${{ steps.release.outputs['wasm/kobako-io--release_created'] }}
@@ -38,11 +43,11 @@ jobs:
   # tag; chain it explicitly as a reusable workflow instead.
   release-gem:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ needs.release-please.outputs.release_created || needs.release-please.outputs.gem_release_created }}
     uses: ./.github/workflows/release.yml
     secrets: inherit
     with:
-      tag: ${{ needs.release-please.outputs.tag_name }}
+      tag: ${{ needs.release-please.outputs.tag_name || needs.release-please.outputs.gem_tag_name }}
 
   # The crate release chains the same way, keyed on the per-path outputs
   # of the crate packages (the root gem keeps the unprefixed outputs).

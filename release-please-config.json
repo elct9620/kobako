@@ -5,7 +5,6 @@
   "last-release-sha": "98509af508988f708bf0d7a76a718bb0428a177e",
   "packages": {
     ".": {
-      "component": "kobako",
       "include-component-in-tag": false,
       "release-type": "ruby",
       "exclude-paths": ["wasm", "crates"]
