@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.23.0](https://github.com/elct9620/kobako/compare/v0.22.0...v0.23.0) (2026-08-28)
+
+
+### Features
+
+* **spec:** declare the boot state two invocations share, and what a callback raise costs ([d94fffc](https://github.com/elct9620/kobako/commit/d94fffc59a3142cb28e0025a0dc8c792f7282074))
+* **spec:** declare the dispatch boundary one observation at a time ([f11b280](https://github.com/elct9620/kobako/commit/f11b280ef503c20d5b75d7b1c4187d261f60ef27))
+* **spec:** declare the guest's pattern surface one observation at a time ([a477818](https://github.com/elct9620/kobako/commit/a477818f8fa505fdcd8ea1fd1051a74c0ba08155))
+* **spec:** declare the Pool's behavior where its tests can claim it ([5ec5e4b](https://github.com/elct9620/kobako/commit/5ec5e4b41f44db05520a251ff6979e71efd27866))
+* **spec:** declare the two descriptors a guest may write to, and how ([c15d09a](https://github.com/elct9620/kobako/commit/c15d09ab563947ab02bbe31129e88686fcff5c24))
+* **spec:** declare the value shapes and the generated concurrency programs ([a06ae5b](https://github.com/elct9620/kobako/commit/a06ae5b24b4615c22c2abaae08c7029218da08bd))
+* **spec:** declare what a Sandbox is built with and what each run leaves behind ([8cc6ac8](https://github.com/elct9620/kobako/commit/8cc6ac81713da7fc6ba6c89bc24da75406579aec))
+* **spec:** declare what installing an Extension composes and resolves ([3cce5a6](https://github.com/elct9620/kobako/commit/3cce5a6551ae8710df71d7520a689c13630ee111))
+* **spec:** declare what the guest's JSON surface reads, writes and refuses ([7e9e3b3](https://github.com/elct9620/kobako/commit/7e9e3b3897ae5f5dc7d6caadeb650302841aa0a6))
+* **spec:** declare what the host checks before a guest runs ([28d5d4b](https://github.com/elct9620/kobako/commit/28d5d4bac0efba2aced1b4449926bd868787bd75))
+* **spec:** declare where a host object becomes a name the guest can reach ([5d88647](https://github.com/elct9620/kobako/commit/5d88647aa922e3a7bb6915864aec700423060358))
+
+
+### Bug Fixes
+
+* **gate:** keep the rendered specifications out of the anchor corpus ([1a24c7f](https://github.com/elct9620/kobako/commit/1a24c7ff1367228998b2f21beca885ab7096a893))
+* **gate:** stop reading a sumi claim as an anchor citation ([b3c74d6](https://github.com/elct9620/kobako/commit/b3c74d6a296dfb7fa5e157ca9ba4678097bfab43))
+* **spec:** let the dispatch feature reach the test that witnesses it ([430394f](https://github.com/elct9620/kobako/commit/430394fa906bf79b8d86d28de7b03e32748516a1))
+* **transport:** keep a bound Class's class-level surface off the guest boundary ([dc00355](https://github.com/elct9620/kobako/commit/dc0035524f2a7b3eba3ec378f8f065c19a17660d))
+
 ## [0.22.0](https://github.com/elct9620/kobako/compare/v0.21.1...v0.22.0) (2026-08-06)
 
 
