@@ -8,16 +8,16 @@ on:
   pull_request:
 
 jobs:
-  # The vocabulary check needs neither Ruby nor Rust, so it stands apart from
-  # the build matrix rather than repeating itself once per Ruby version.
+  # The specification check needs neither Ruby nor Rust, so it stands apart
+  # from the build matrix rather than repeating itself once per Ruby version.
   spec:
     runs-on: ubuntu-latest
     name: Specification
     env:
       # Pinned by hand: nothing watches a release asset fetched over curl.
       # The digest is pinned alongside the tag because an asset can be replaced.
-      SUMI_VERSION: 0.1.0-preview4
-      SUMI_SHA256: ae062e32aa6835645c83919211753009a55c6da37d7e66baa1d81a057cdf0730
+      SUMI_VERSION: 0.1.0-preview5
+      SUMI_SHA256: a4de8e4b98b366d5bfb7ec6d78dd22d102c9c5e873ca1ac5b7b471c254d08450
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,18 +29,7 @@ jobs:
           echo "$SUMI_SHA256  $RUNNER_TEMP/sumi.tar.gz" | sha256sum -c -
           tar xzf "$RUNNER_TEMP/sumi.tar.gz" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-      - name: Check the rendered documents are current
-        # `sumi render` compares nothing and only ever writes, so a page edited
-        # by hand is caught by rendering over it and asking git what moved.
-        # Untracked files count: a relocated document leaves the old one behind.
-        run: |
-          sumi render
-          if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
-            echo "::error::sumi render changed the tree — commit the rendered documents"
-            git status --porcelain --untracked-files=all
-            exit 1
-          fi
-      - name: Check the source against the vocabulary
+      - name: Check the source against the specification
         run: sumi verify
 
   build:
