@@ -2,7 +2,16 @@
 
 Where a host object becomes a name the guest can reach, and who may change what stands behind that name.
 
-## Why these scenarios
+## Includes
+
+- `test/unit/catalog/test_services.rb`
+- `test/unit/context/test_lookup.rb`
+- `test/e2e/test_bind_paths.rb`
+- `test/e2e/test_fillable.rb`
+- `test/e2e/test_ctx_bind.rb`
+- `test/parity/test_fillable.rb`
+
+### Why these scenarios
 
 A binding is observable twice over: on the host, where a path resolves to an object, and in the guest, where the same path has become a constant to name. Both are witnessed, because a path that resolves correctly on the host and materializes under the wrong module reaches nobody.
 
@@ -12,7 +21,7 @@ A path declared without an object and a name never declared at all fail differen
 
 A malformed path segment and a bind after the seal both raise, so they belong to the error taxonomy and are specified there. The declared path set that every invocation ships belongs to the invocation, not to registration.
 
-## SV-001 — A bound path answers with what was bound to it
+## `SV-001` A bound path answers with what was bound to it
 
 | Step | Statement |
 | --- | --- |
@@ -20,7 +29,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | an object is bound at a multi-segment path |
 | Then | that path resolves to the object |
 
-## SV-002 — Binding chains
+## `SV-002` Binding chains
 
 | Step | Statement |
 | --- | --- |
@@ -28,7 +37,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | an object is bound at a path |
 | Then | the bind answers the registry it was called on |
 
-## SV-003 — A single segment is a whole path
+## `SV-003` A single segment is a whole path
 
 | Step | Statement |
 | --- | --- |
@@ -36,7 +45,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | an object is bound at a single-segment path |
 | Then | that path resolves to the object |
 
-## SV-004 — A path is what it spells, not what it is written as
+## `SV-004` A path is what it spells, not what it is written as
 
 | Step | Statement |
 | --- | --- |
@@ -44,7 +53,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | each is resolved by its String form |
 | Then | each answers the object bound under it |
 
-## SV-005 — A Service is whatever answers the call
+## `SV-005` A Service is whatever answers the call
 
 | Step | Statement |
 | --- | --- |
@@ -52,7 +61,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | a class, an instance and a module are each bound at their own path |
 | Then | all three paths resolve to the objects bound at them |
 
-## SV-006 — A single-segment path reaches the guest with no namespace
+## `SV-006` A single-segment path reaches the guest with no namespace
 
 | Step | Statement |
 | --- | --- |
@@ -60,7 +69,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | guest code names that path as a top-level constant and calls it |
 | Then | the Service's answer comes back |
 
-## SV-007 — Each prefix segment becomes a guest module
+## `SV-007` Each prefix segment becomes a guest module
 
 | Step | Statement |
 | --- | --- |
@@ -68,7 +77,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | guest code walks the module chain the prefix spells and calls the leaf |
 | Then | the Service's answer comes back |
 
-## SV-008 — Leaves under one namespace stand beside each other
+## `SV-008` Leaves under one namespace stand beside each other
 
 | Step | Statement |
 | --- | --- |
@@ -76,7 +85,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | guest code calls each leaf by its full path |
 | Then | each answers from its own Service |
 
-## SV-009 — A namespace is the whole prefix, not its first segment
+## `SV-009` A namespace is the whole prefix, not its first segment
 
 | Step | Statement |
 | --- | --- |
@@ -84,7 +93,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | guest code calls each leaf by its full path |
 | Then | each answers from its own Service |
 
-## SV-010 — Unrelated paths do not see each other
+## `SV-010` Unrelated paths do not see each other
 
 | Step | Statement |
 | --- | --- |
@@ -92,7 +101,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | each path is resolved |
 | Then | each answers its own object |
 
-## SV-011 — Siblings under one prefix do not collide
+## `SV-011` Siblings under one prefix do not collide
 
 | Step | Statement |
 | --- | --- |
@@ -100,7 +109,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | a second Service is bound under the same prefix at a different leaf |
 | Then | both paths resolve to their own objects |
 
-## SV-012 — A path is bound once
+## `SV-012` A path is bound once
 
 | Step | Statement |
 | --- | --- |
@@ -108,7 +117,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | the same path is bound again |
 | Then | `ArgumentError` is raised |
 
-## SV-013 — A name is a Service or a grouping, never both
+## `SV-013` A name is a Service or a grouping, never both
 
 | Step | Statement |
 | --- | --- |
@@ -116,7 +125,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | a path extending it is bound |
 | Then | `ArgumentError` is raised |
 
-## SV-014 — A grouping cannot become a Service either
+## `SV-014` A grouping cannot become a Service either
 
 | Step | Statement |
 | --- | --- |
@@ -124,7 +133,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | that path's prefix is bound |
 | Then | `ArgumentError` is raised |
 
-## SV-015 — A refused bind changes nothing
+## `SV-015` A refused bind changes nothing
 
 | Step | Statement |
 | --- | --- |
@@ -133,7 +142,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | the original path is resolved |
 | Then | it answers the object bound first |
 
-## SV-016 — An unfilled path is a path that resolves to nothing
+## `SV-016` An unfilled path is a path that resolves to nothing
 
 | Step | Statement |
 | --- | --- |
@@ -141,7 +150,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | that path is resolved |
 | Then | it reports as unresolvable |
 
-## SV-017 — A declared but unfilled path fails closed
+## `SV-017` A declared but unfilled path fails closed
 
 | Step | Statement |
 | --- | --- |
@@ -149,7 +158,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | guest code calls that path and leaves the failure unrescued |
 | Then | `Kobako::ServiceError` is raised |
 
-## SV-018 — The sentinel is the declaration, spelled out
+## `SV-018` The sentinel is the declaration, spelled out
 
 | Step | Statement |
 | --- | --- |
@@ -157,7 +166,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | guest code calls that path and leaves the failure unrescued |
 | Then | `Kobako::ServiceError` is raised |
 
-## SV-019 — A declared name and an unknown one are told apart
+## `SV-019` A declared name and an unknown one are told apart
 
 | Step | Statement |
 | --- | --- |
@@ -165,7 +174,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | guest code names a constant that was never declared |
 | Then | `Kobako::SandboxError` is raised |
 
-## SV-020 — The guest may carry on past an unfilled path
+## `SV-020` The guest may carry on past an unfilled path
 
 | Step | Statement |
 | --- | --- |
@@ -173,7 +182,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | guest code calls that path inside a rescue and returns a value |
 | Then | the invocation answers that value |
 
-## SV-021 — An override outranks the binding it shadows
+## `SV-021` An override outranks the binding it shadows
 
 | Step | Statement |
 | --- | --- |
@@ -182,7 +191,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | the path is resolved |
 | Then | it answers the override |
 
-## SV-022 — An override is how an unfilled path gets filled
+## `SV-022` An override is how an unfilled path gets filled
 
 | Step | Statement |
 | --- | --- |
@@ -191,7 +200,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | the path is resolved |
 | Then | it answers the override |
 
-## SV-023 — An override cannot introduce a name
+## `SV-023` An override cannot introduce a name
 
 | Step | Statement |
 | --- | --- |
@@ -199,7 +208,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | an override is bound at a path the registry never declared |
 | Then | `ArgumentError` is raised |
 
-## SV-024 — What the override fills is what the guest reaches
+## `SV-024` What the override fills is what the guest reaches
 
 | Step | Statement |
 | --- | --- |
@@ -207,7 +216,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | guest code calls that path during an invocation whose block filled it |
 | Then | the filled object's answer comes back |
 
-## SV-025 — The override block serves the entrypoint verb too
+## `SV-025` The override block serves the entrypoint verb too
 
 | Step | Statement |
 | --- | --- |
@@ -215,7 +224,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | the entrypoint runs during an invocation whose block filled that path |
 | Then | the filled object's answer comes back |
 
-## SV-026 — An override shadows a bound object as readily as an empty path
+## `SV-026` An override shadows a bound object as readily as an empty path
 
 | Step | Statement |
 | --- | --- |
@@ -223,7 +232,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | guest code calls that path during an invocation whose block bound another object there |
 | Then | the block's object answers |
 
-## SV-027 — An override is spent with its invocation
+## `SV-027` An override is spent with its invocation
 
 | Step | Statement |
 | --- | --- |
@@ -232,7 +241,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | a later invocation with no block calls that path |
 | Then | the bound object answers |
 
-## SV-028 — A block that fills nothing changes nothing
+## `SV-028` A block that fills nothing changes nothing
 
 | Step | Statement |
 | --- | --- |
@@ -240,7 +249,7 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | When | guest code calls that path during an invocation whose block left it unfilled |
 | Then | `Kobako::ServiceError` is raised |
 
-## SV-029 — A Context is spent when its block returns
+## `SV-029` A Context is spent when its block returns
 
 | Step | Statement |
 | --- | --- |

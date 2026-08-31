@@ -2,7 +2,25 @@
 
 How a guest call reaches a host object, what crosses in each direction, and how long a capability reference lasts.
 
-## Why these scenarios
+## Includes
+
+- `test/unit/transport/test_dispatcher_handles.rb`
+- `test/unit/transport/test_dispatcher_invalidity.rb`
+- `test/unit/transport/test_dispatcher_violations.rb`
+- `test/unit/catalog/test_handles.rb`
+- `test/unit/codec/test_handle_walk.rb`
+- `test/unit/codec/test_deep_restore.rb`
+- `test/e2e/test_handle_arguments.rb`
+- `test/e2e/test_handle_restoration.rb`
+- `test/e2e/test_handle_proxy.rb`
+- `test/e2e/test_dispatch_kwargs_partition.rb`
+- `test/e2e/test_dispatch_gc_safety.rb`
+- `test/e2e/test_dsl_composition.rb`
+- `test/e2e/sandbox/test_run_auto_wrap.rb`
+- `test/parity/test_dispatch.rb`
+- `test/parity/test_handles.rb`
+
+### Why these scenarios
 
 A guest call reaching a host object is the only route outward, so what it carries is witnessed in both directions and at three depths: the walk that decides what the wire can hold, the table that hands out references for what it cannot, and the dispatch that puts them back together.
 
@@ -12,7 +30,7 @@ The two argument kinds are separated by how the guest wrote the call and not by 
 
 Everything that answers on the fault arm rather than raising is here, since the dispatcher never raises; what a Host App finally rescues is the error taxonomy's to state.
 
-## T-001 — An answer the wire cannot carry becomes a reference to it
+## `T-001` An answer the wire cannot carry becomes a reference to it
 
 | Step | Statement |
 | --- | --- |
@@ -20,7 +38,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the guest calls it |
 | Then | the guest receives a capability reference rather than the object |
 
-## T-002 — An answer the wire can carry crosses as itself
+## `T-002` An answer the wire can carry crosses as itself
 
 | Step | Statement |
 | --- | --- |
@@ -28,7 +46,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the guest calls it |
 | Then | the guest receives that value, not a reference |
 
-## T-003 — A reference passed as a positional argument arrives as its object
+## `T-003` A reference passed as a positional argument arrives as its object
 
 | Step | Statement |
 | --- | --- |
@@ -36,7 +54,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | it passes the reference as a positional argument to a Service |
 | Then | the Service receives the host object |
 
-## T-004 — A reference passed as a keyword argument arrives as its object
+## `T-004` A reference passed as a keyword argument arrives as its object
 
 | Step | Statement |
 | --- | --- |
@@ -44,7 +62,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | it passes the reference as a keyword argument to a Service |
 | Then | the Service receives the host object |
 
-## T-005 — A reference the table never issued is refused as an argument
+## `T-005` A reference the table never issued is refused as an argument
 
 | Step | Statement |
 | --- | --- |
@@ -52,7 +70,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the guest passes that id as an argument |
 | Then | the dispatch answers as an undefined target |
 
-## T-006 — A reference used as the receiver dispatches to its object
+## `T-006` A reference used as the receiver dispatches to its object
 
 | Step | Statement |
 | --- | --- |
@@ -60,7 +78,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | it calls a method on that reference |
 | Then | the host object answers |
 
-## T-007 — An answer from a reference is referenced in turn
+## `T-007` An answer from a reference is referenced in turn
 
 | Step | Statement |
 | --- | --- |
@@ -68,7 +86,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | it calls that method |
 | Then | the guest receives a new capability reference |
 
-## T-008 — A reference the table never issued is refused as a receiver
+## `T-008` A reference the table never issued is refused as a receiver
 
 | Step | Statement |
 | --- | --- |
@@ -76,7 +94,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the guest calls a method on that id |
 | Then | the dispatch answers as an undefined target |
 
-## T-009 — References are numbered from one, upward
+## `T-009` References are numbered from one, upward
 
 | Step | Statement |
 | --- | --- |
@@ -84,7 +102,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | several references are allocated in turn |
 | Then | their ids run upward from one |
 
-## T-010 — A reference answers with the object it was made for
+## `T-010` A reference answers with the object it was made for
 
 | Step | Statement |
 | --- | --- |
@@ -92,7 +110,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | that id is fetched |
 | Then | it answers the object that was bound to it |
 
-## T-011 — Fetching an id nobody allocated raises
+## `T-011` Fetching an id nobody allocated raises
 
 | Step | Statement |
 | --- | --- |
@@ -100,7 +118,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | an id it never allocated is fetched |
 | Then | it raises |
 
-## T-012 — The table has a ceiling and stops there
+## `T-012` The table has a ceiling and stops there
 
 | Step | Statement |
 | --- | --- |
@@ -108,7 +126,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | one more allocation is attempted |
 | Then | it raises |
 
-## T-013 — The ceiling is a property of the wire, not of the table
+## `T-013` The ceiling is a property of the wire, not of the table
 
 | Step | Statement |
 | --- | --- |
@@ -116,7 +134,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | it is read |
 | Then | it is the value the wire format fixes |
 
-## T-014 — A reflective object is never given a reference
+## `T-014` A reflective object is never given a reference
 
 | Step | Statement |
 | --- | --- |
@@ -124,7 +142,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | a reflective gadget is offered for allocation |
 | Then | it is refused |
 
-## T-015 — A callable still gets one
+## `T-015` A callable still gets one
 
 | Step | Statement |
 | --- | --- |
@@ -132,7 +150,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | a callable is offered for allocation |
 | Then | it is allocated |
 
-## T-016 — A reference from an earlier invocation resolves to nothing
+## `T-016` A reference from an earlier invocation resolves to nothing
 
 | Step | Statement |
 | --- | --- |
@@ -140,7 +158,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the next invocation's table is asked for it |
 | Then | it resolves to no object |
 
-## T-017 — An id nobody was given resolves to nothing
+## `T-017` An id nobody was given resolves to nothing
 
 | Step | Statement |
 | --- | --- |
@@ -148,7 +166,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | an arbitrary integer is presented as a reference |
 | Then | it resolves to no object |
 
-## T-018 — References minted during a failed wrap leave with their table
+## `T-018` References minted during a failed wrap leave with their table
 
 | Step | Statement |
 | --- | --- |
@@ -156,7 +174,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the ids it had minted are presented afterward |
 | Then | they resolve to no object |
 
-## T-019 — The wire's own scalars are recognised as themselves
+## `T-019` The wire's own scalars are recognised as themselves
 
 | Step | Statement |
 | --- | --- |
@@ -164,7 +182,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk classifies it |
 | Then | it is recognised as wire-representable |
 
-## T-020 — A reference is wire-representable
+## `T-020` A reference is wire-representable
 
 | Step | Statement |
 | --- | --- |
@@ -172,7 +190,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk classifies it |
 | Then | it is recognised as wire-representable |
 
-## T-021 — An integer past the wire's width is not
+## `T-021` An integer past the wire's width is not
 
 | Step | Statement |
 | --- | --- |
@@ -180,7 +198,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk classifies it |
 | Then | it is refused |
 
-## T-022 — Nor is a scalar the wire has no shape for
+## `T-022` Nor is a scalar the wire has no shape for
 
 | Step | Statement |
 | --- | --- |
@@ -188,7 +206,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk classifies it |
 | Then | it is refused |
 
-## T-023 — An Array is representable exactly when its elements are
+## `T-023` An Array is representable exactly when its elements are
 
 | Step | Statement |
 | --- | --- |
@@ -196,7 +214,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk classifies each |
 | Then | only the first is representable |
 
-## T-024 — A Hash is representable exactly when its keys and values are
+## `T-024` A Hash is representable exactly when its keys and values are
 
 | Step | Statement |
 | --- | --- |
@@ -204,7 +222,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk classifies each |
 | Then | only the first is representable |
 
-## T-025 — A representable value is left alone
+## `T-025` A representable value is left alone
 
 | Step | Statement |
 | --- | --- |
@@ -212,7 +230,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk runs over it |
 | Then | it passes through unchanged |
 
-## T-026 — A leaf the wire cannot carry is handed to the wrapper
+## `T-026` A leaf the wire cannot carry is handed to the wrapper
 
 | Step | Statement |
 | --- | --- |
@@ -220,7 +238,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk runs over it |
 | Then | the wrapper is asked to reference it |
 
-## T-027 — A mixed Array only wraps what needs wrapping
+## `T-027` A mixed Array only wraps what needs wrapping
 
 | Step | Statement |
 | --- | --- |
@@ -228,7 +246,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk runs over it |
 | Then | only the non-representable elements are referenced |
 
-## T-028 — A Hash's values are walked and its keys are not
+## `T-028` A Hash's values are walked and its keys are not
 
 | Step | Statement |
 | --- | --- |
@@ -236,7 +254,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk runs over it |
 | Then | the values are referenced and the keys pass through |
 
-## T-029 — A key the wire cannot carry fails the invocation
+## `T-029` A key the wire cannot carry fails the invocation
 
 | Step | Statement |
 | --- | --- |
@@ -244,7 +262,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk runs over it |
 | Then | `Kobako::SandboxError` is raised |
 
-## T-030 — A reference is not referenced again
+## `T-030` A reference is not referenced again
 
 | Step | Statement |
 | --- | --- |
@@ -252,7 +270,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk runs over it |
 | Then | the reference passes through unchanged |
 
-## T-031 — Nesting is walked a level at a time
+## `T-031` Nesting is walked a level at a time
 
 | Step | Statement |
 | --- | --- |
@@ -260,7 +278,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk runs over it |
 | Then | each level is walked in turn |
 
-## T-032 — A value carrying no reference is restored as itself
+## `T-032` A value carrying no reference is restored as itself
 
 | Step | Statement |
 | --- | --- |
@@ -268,7 +286,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the restore runs over it |
 | Then | it passes through unchanged |
 
-## T-033 — A bare reference restores to its object
+## `T-033` A bare reference restores to its object
 
 | Step | Statement |
 | --- | --- |
@@ -276,7 +294,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the restore runs over it |
 | Then | it answers the bound object |
 
-## T-034 — An Array restores only its references
+## `T-034` An Array restores only its references
 
 | Step | Statement |
 | --- | --- |
@@ -284,7 +302,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the restore runs over it |
 | Then | only the references become objects |
 
-## T-035 — A Hash restores on both sides
+## `T-035` A Hash restores on both sides
 
 | Step | Statement |
 | --- | --- |
@@ -292,7 +310,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the restore runs over it |
 | Then | both sides become objects |
 
-## T-036 — Nesting is restored a level at a time
+## `T-036` Nesting is restored a level at a time
 
 | Step | Statement |
 | --- | --- |
@@ -300,7 +318,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the restore runs over it |
 | Then | each level is restored in turn |
 
-## T-037 — A reference with no live binding fails the invocation
+## `T-037` A reference with no live binding fails the invocation
 
 | Step | Statement |
 | --- | --- |
@@ -308,7 +326,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the restore runs over it |
 | Then | `Kobako::SandboxError` is raised |
 
-## T-038 — A reference does not survive its invocation
+## `T-038` A reference does not survive its invocation
 
 | Step | Statement |
 | --- | --- |
@@ -316,7 +334,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the next invocation presents it as a receiver |
 | Then | the dispatch answers as an undefined target |
 
-## T-039 — A reference does not travel between Sandboxes as a receiver
+## `T-039` A reference does not travel between Sandboxes as a receiver
 
 | Step | Statement |
 | --- | --- |
@@ -324,7 +342,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | another Sandbox presents it as a receiver |
 | Then | the dispatch answers as an undefined target |
 
-## T-040 — Nor as an argument
+## `T-040` Nor as an argument
 
 | Step | Statement |
 | --- | --- |
@@ -332,7 +350,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | another Sandbox passes it as an argument |
 | Then | the dispatch answers as an undefined target |
 
-## T-041 — A keyword name that is not a name is a wire violation
+## `T-041` A keyword name that is not a name is a wire violation
 
 | Step | Statement |
 | --- | --- |
@@ -340,7 +358,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the host reads it |
 | Then | it answers as a wire violation |
 
-## T-042 — An id the table never issued is refused at the dispatch
+## `T-042` An id the table never issued is refused at the dispatch
 
 | Step | Statement |
 | --- | --- |
@@ -348,7 +366,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the host reads it |
 | Then | it answers as an undefined target |
 
-## T-043 — A call nested past the depth bound is contained
+## `T-043` A call nested past the depth bound is contained
 
 | Step | Statement |
 | --- | --- |
@@ -356,7 +374,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the host reads it |
 | Then | it answers on the fault arm as an internal failure |
 
-## T-044 — An answer the host cannot write is the Service's failure, not the wire's
+## `T-044` An answer the host cannot write is the Service's failure, not the wire's
 
 | Step | Statement |
 | --- | --- |
@@ -364,7 +382,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the guest calls it |
 | Then | the failure is attributed to the Service |
 
-## T-045 — That failure is described in the host's own words
+## `T-045` That failure is described in the host's own words
 
 | Step | Statement |
 | --- | --- |
@@ -372,7 +390,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the guest reads the failure's message |
 | Then | it is worded by the Host Gem rather than by the codec |
 
-## T-046 — Running out of references while wrapping takes the fault arm
+## `T-046` Running out of references while wrapping takes the fault arm
 
 | Step | Statement |
 | --- | --- |
@@ -380,7 +398,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | a Service answers a value needing a new reference |
 | Then | the dispatch answers on the fault arm |
 
-## T-047 — That exhaustion surfaces as a Sandbox failure
+## `T-047` That exhaustion surfaces as a Sandbox failure
 
 | Step | Statement |
 | --- | --- |
@@ -388,7 +406,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the guest leaves the failure unrescued |
 | Then | `Kobako::SandboxError` is raised |
 
-## T-048 — A failure the host was not meant to catch is not caught
+## `T-048` A failure the host was not meant to catch is not caught
 
 | Step | Statement |
 | --- | --- |
@@ -396,7 +414,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the guest calls it |
 | Then | that failure escapes the dispatcher's rescue |
 
-## T-049 — A reference reaches the host as its object through a real invocation
+## `T-049` A reference reaches the host as its object through a real invocation
 
 | Step | Statement |
 | --- | --- |
@@ -404,7 +422,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code passes the reference back as a positional argument |
 | Then | the Service acts on the original host object |
 
-## T-050 — And as a keyword argument
+## `T-050` And as a keyword argument
 
 | Step | Statement |
 | --- | --- |
@@ -412,7 +430,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code passes the reference back as a keyword argument |
 | Then | the Service acts on the original host object |
 
-## T-051 — And in both positions at once
+## `T-051` And in both positions at once
 
 | Step | Statement |
 | --- | --- |
@@ -420,7 +438,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code passes references back positionally and by keyword together |
 | Then | the Service acts on the original host objects |
 
-## T-052 — And nested inside an Array argument
+## `T-052` And nested inside an Array argument
 
 | Step | Statement |
 | --- | --- |
@@ -428,7 +446,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code passes the reference back inside an Array |
 | Then | the Service acts on the original host object |
 
-## T-053 — And nested inside a keyword's Hash value
+## `T-053` And nested inside a keyword's Hash value
 
 | Step | Statement |
 | --- | --- |
@@ -436,7 +454,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code passes the reference back inside a keyword's Hash value |
 | Then | the Service acts on the original host object |
 
-## T-054 — A reference returned from the invocation becomes its object again
+## `T-054` A reference returned from the invocation becomes its object again
 
 | Step | Statement |
 | --- | --- |
@@ -444,7 +462,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code returns the reference as the invocation's value |
 | Then | the host receives the original object |
 
-## T-055 — Even nested in a container
+## `T-055` Even nested in a container
 
 | Step | Statement |
 | --- | --- |
@@ -452,7 +470,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code returns the reference inside nested containers |
 | Then | the host receives the original object in place |
 
-## T-056 — Even standing as a Hash key
+## `T-056` Even standing as a Hash key
 
 | Step | Statement |
 | --- | --- |
@@ -460,7 +478,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code returns the reference as a Hash key |
 | Then | the host receives the original object in that position |
 
-## T-057 — And when it comes back through a yield block
+## `T-057` And when it comes back through a yield block
 
 | Step | Statement |
 | --- | --- |
@@ -468,7 +486,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the block answers with a reference |
 | Then | the Service receives the original object |
 
-## T-058 — A reference the guest damaged still routes to its object
+## `T-058` A reference the guest damaged still routes to its object
 
 | Step | Statement |
 | --- | --- |
@@ -476,7 +494,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | it calls a method through that reference |
 | Then | the original host object answers |
 
-## T-059 — A brace-less keyword arrives as a keyword
+## `T-059` A brace-less keyword arrives as a keyword
 
 | Step | Statement |
 | --- | --- |
@@ -484,7 +502,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code calls it with a brace-less keyword |
 | Then | the Service receives it among its keywords |
 
-## T-060 — An explicit Hash stays positional
+## `T-060` An explicit Hash stays positional
 
 | Step | Statement |
 | --- | --- |
@@ -492,7 +510,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code calls it with an explicit Hash literal |
 | Then | the Service receives it among its positional arguments |
 
-## T-061 — The two never mix
+## `T-061` The two never mix
 
 | Step | Statement |
 | --- | --- |
@@ -500,7 +518,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code calls it with an explicit Hash and a brace-less keyword together |
 | Then | each arrives in its own bucket |
 
-## T-062 — A splatted Hash arrives as keywords
+## `T-062` A splatted Hash arrives as keywords
 
 | Step | Statement |
 | --- | --- |
@@ -508,7 +526,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code calls it splatting a Hash as keywords |
 | Then | the Service receives them among its keywords |
 
-## T-063 — Splatting nothing produces no keywords
+## `T-063` Splatting nothing produces no keywords
 
 | Step | Statement |
 | --- | --- |
@@ -516,7 +534,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code calls it splatting an empty Hash |
 | Then | the Service receives no keywords |
 
-## T-064 — A keyword whose value is a Hash is still a keyword
+## `T-064` A keyword whose value is a Hash is still a keyword
 
 | Step | Statement |
 | --- | --- |
@@ -524,7 +542,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code calls it with a keyword whose value is a Hash |
 | Then | the Service receives the keyword carrying that Hash |
 
-## T-065 — An empty explicit Hash is still positional
+## `T-065` An empty explicit Hash is still positional
 
 | Step | Statement |
 | --- | --- |
@@ -532,7 +550,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code calls it with an empty explicit Hash literal |
 | Then | the Service receives it among its positional arguments |
 
-## T-066 — An entrypoint argument the wire cannot carry becomes a reference
+## `T-066` An entrypoint argument the wire cannot carry becomes a reference
 
 | Step | Statement |
 | --- | --- |
@@ -540,7 +558,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | it runs with a stateful host object as a positional argument |
 | Then | the guest reaches that object and the call answers |
 
-## T-067 — And so does one passed by keyword
+## `T-067` And so does one passed by keyword
 
 | Step | Statement |
 | --- | --- |
@@ -548,7 +566,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | it runs with a stateful host object as a keyword value |
 | Then | the guest reaches that object and the call answers |
 
-## T-068 — An entrypoint argument keyed by an unwrappable value is refused
+## `T-068` An entrypoint argument keyed by an unwrappable value is refused
 
 | Step | Statement |
 | --- | --- |
@@ -556,7 +574,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | it runs with a Hash argument keyed by a value that cannot be referenced |
 | Then | `Kobako::SandboxError` is raised |
 
-## T-069 — An argument that refers to itself is refused
+## `T-069` An argument that refers to itself is refused
 
 | Step | Statement |
 | --- | --- |
@@ -564,7 +582,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | it runs with an argument containing itself |
 | Then | `Kobako::SandboxError` is raised |
 
-## T-070 — Dispatching survives collection pressure
+## `T-070` Dispatching survives collection pressure
 
 | Step | Statement |
 | --- | --- |
@@ -572,7 +590,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code dispatches repeatedly through references |
 | Then | every dispatch answers |
 
-## T-071 — So does unwinding out of a block under compaction
+## `T-071` So does unwinding out of a block under compaction
 
 | Step | Statement |
 | --- | --- |
@@ -580,7 +598,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code breaks out of a yielded block |
 | Then | the invocation answers the break's value |
 
-## T-072 — A receiver-less guest idiom composes over references
+## `T-072` A receiver-less guest idiom composes over references
 
 | Step | Statement |
 | --- | --- |
@@ -588,7 +606,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code builds a nested structure through a receiver-less idiom |
 | Then | the host receives the structure the idiom described |
 
-## T-073 — So does the block-parameter form
+## `T-073` So does the block-parameter form
 
 | Step | Statement |
 | --- | --- |
@@ -596,7 +614,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code builds the same structure through a block parameter |
 | Then | the host receives the structure the idiom described |
 
-## T-074 — An idiom's vocabulary is the host's method set and no wider
+## `T-074` An idiom's vocabulary is the host's method set and no wider
 
 | Step | Statement |
 | --- | --- |
@@ -604,7 +622,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code calls a name the host object does not define |
 | Then | `Kobako::ServiceError` is raised |
 
-## T-075 — Both frontends route a dispatch the same way
+## `T-075` Both frontends route a dispatch the same way
 
 | Step | Statement |
 | --- | --- |
@@ -612,7 +630,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they observe the same answer |
 
-## T-076 — Both make a Service's own failure rescuable the same way
+## `T-076` Both make a Service's own failure rescuable the same way
 
 | Step | Statement |
 | --- | --- |
@@ -620,7 +638,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they observe the same rescued value |
 
-## T-077 — Both refuse an unknown method the same way
+## `T-077` Both refuse an unknown method the same way
 
 | Step | Statement |
 | --- | --- |
@@ -628,7 +646,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they refuse it the same way |
 
-## T-078 — Both attribute an argument fault the same way
+## `T-078` Both attribute an argument fault the same way
 
 | Step | Statement |
 | --- | --- |
@@ -636,7 +654,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they attribute the failure the same way |
 
-## T-079 — Both narrow a host object the same way
+## `T-079` Both narrow a host object the same way
 
 | Step | Statement |
 | --- | --- |
@@ -644,7 +662,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they observe the same reachable surface |
 
-## T-080 — Both carry a reference through its life the same way
+## `T-080` Both carry a reference through its life the same way
 
 | Step | Statement |
 | --- | --- |
@@ -652,7 +670,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they observe the same values |
 
-## T-081 — Both refuse a reference the guest tried to mint
+## `T-081` Both refuse a reference the guest tried to mint
 
 | Step | Statement |
 | --- | --- |
@@ -660,7 +678,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they refuse it the same way |
 
-## T-082 — Both wrap an entrypoint's unwrappable argument the same way
+## `T-082` Both wrap an entrypoint's unwrappable argument the same way
 
 | Step | Statement |
 | --- | --- |

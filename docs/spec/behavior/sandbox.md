@@ -2,7 +2,29 @@
 
 What a Sandbox is built with, what one invocation leaves for the next, and what a run hands back.
 
-## Why these scenarios
+## Includes
+
+- `test/unit/values/test_sandbox_options.rb`
+- `test/unit/catalog/test_services.rb`
+- `test/unit/catalog/test_snippets.rb`
+- `test/e2e/sandbox/test_sandbox.rb`
+- `test/e2e/sandbox/test_run.rb`
+- `test/e2e/sandbox/test_preload.rb`
+- `test/e2e/sandbox/test_usage.rb`
+- `test/e2e/test_caps.rb`
+- `test/e2e/test_lifecycle.rb`
+- `test/e2e/test_preload.rb`
+- `test/e2e/test_io_streams.rb`
+- `test/e2e/test_execution.rb`
+- `test/e2e/test_outcome_values.rb`
+- `test/e2e/test_canonical_boot.rb`
+- `test/parity/test_captures.rb`
+- `test/parity/test_values.rb`
+- `test/parity/test_isolation.rb`
+- `test/parity/test_run_snippets.rb`
+- `test/parity/test_caps_usage.rb`
+
+### Why these scenarios
 
 A Sandbox is set up once and run many times, so the scenarios fall into what construction fixes, what an invocation may not carry into the next, and what a run hands back. The isolation half is witnessed on both verbs and on their interleaving, because a mechanism that clears state on one entry and not the other passes either single-verb witness.
 
@@ -12,7 +34,7 @@ Everything that raises — a rejected option, a snippet that will not compile, a
 
 The guest-side output surface — how `IO` and the Kernel writers behave inside the guest — belongs to the capability gem that implements it. What is here is the host end: which channel bytes land in, where they stop, and what survives a failure.
 
-## S-001 — A Sandbox names the artifact it was built over
+## `S-001` A Sandbox names the artifact it was built over
 
 | Step | Statement |
 | --- | --- |
@@ -20,7 +42,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | one is constructed with no `wasm_path:` |
 | Then | it reports the bundled Guest Binary's path |
 
-## S-002 — The caps a Sandbox was given are the caps it reports
+## `S-002` The caps a Sandbox was given are the caps it reports
 
 | Step | Statement |
 | --- | --- |
@@ -28,7 +50,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | one is constructed with each cap set |
 | Then | each cap reader answers the value it was given |
 
-## S-003 — The scheduling mode a Sandbox was given is the mode it reports
+## `S-003` The scheduling mode a Sandbox was given is the mode it reports
 
 | Step | Statement |
 | --- | --- |
@@ -36,7 +58,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | one is constructed with a scheduling mode |
 | Then | its mode reader answers that mode |
 
-## S-004 — Every cap has a value nobody has to supply
+## `S-004` Every cap has a value nobody has to supply
 
 | Step | Statement |
 | --- | --- |
@@ -44,7 +66,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the caps are read |
 | Then | each answers its default |
 
-## S-005 — A cap set to nothing is a cap that does not bound
+## `S-005` A cap set to nothing is a cap that does not bound
 
 | Step | Statement |
 | --- | --- |
@@ -52,7 +74,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the caps are read |
 | Then | each answers `nil` |
 
-## S-006 — A cap given a value keeps it
+## `S-006` A cap given a value keeps it
 
 | Step | Statement |
 | --- | --- |
@@ -60,7 +82,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the caps are read |
 | Then | each answers the value it was given |
 
-## S-007 — A whole-number deadline is still a deadline in seconds
+## `S-007` A whole-number deadline is still a deadline in seconds
 
 | Step | Statement |
 | --- | --- |
@@ -68,7 +90,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the timeout is read |
 | Then | it answers the same quantity as a Float |
 
-## S-008 — The memory budget is per invocation, not per Sandbox
+## `S-008` The memory budget is per invocation, not per Sandbox
 
 | Step | Statement |
 | --- | --- |
@@ -76,7 +98,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | two invocations each allocate within the cap in turn |
 | Then | both complete |
 
-## S-009 — Disabling a cap is not requesting its default
+## `S-009` Disabling a cap is not requesting its default
 
 | Step | Statement |
 | --- | --- |
@@ -84,7 +106,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an invocation runs past what the defaults would have allowed |
 | Then | it completes |
 
-## S-010 — A deadline reached is not a Sandbox spent
+## `S-010` A deadline reached is not a Sandbox spent
 
 | Step | Statement |
 | --- | --- |
@@ -92,7 +114,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a later invocation evaluates ordinary guest source |
 | Then | it answers its value |
 
-## S-011 — A memory budget reached is not a Sandbox spent either
+## `S-011` A memory budget reached is not a Sandbox spent either
 
 | Step | Statement |
 | --- | --- |
@@ -100,7 +122,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a later invocation evaluates ordinary guest source |
 | Then | it answers its value |
 
-## S-012 — Setup is paid once and serves every run
+## `S-012` Setup is paid once and serves every run
 
 | Step | Statement |
 | --- | --- |
@@ -108,7 +130,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | several invocations in turn call that Service |
 | Then | each reaches it |
 
-## S-013 — What one evaluation writes to a guest global, the next cannot read
+## `S-013` What one evaluation writes to a guest global, the next cannot read
 
 | Step | Statement |
 | --- | --- |
@@ -116,7 +138,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a later evaluation reads that global at entry |
 | Then | it reads nothing |
 
-## S-014 — The entrypoint verb leaks no more than the evaluation verb
+## `S-014` The entrypoint verb leaks no more than the evaluation verb
 
 | Step | Statement |
 | --- | --- |
@@ -124,7 +146,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a later entrypoint run reads that global at entry |
 | Then | it reads nothing |
 
-## S-015 — Interleaving the two verbs interleaves no state
+## `S-015` Interleaving the two verbs interleaves no state
 
 | Step | Statement |
 | --- | --- |
@@ -132,7 +154,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | evaluations and entrypoint runs alternate on it |
 | Then | each observes only its own state |
 
-## S-016 — Both frontends leave the same nothing behind
+## `S-016` Both frontends leave the same nothing behind
 
 | Step | Statement |
 | --- | --- |
@@ -140,7 +162,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | both frontends run it and a second invocation reads all three |
 | Then | they observe the same absences |
 
-## S-017 — A failure is confined to the Sandbox that had it
+## `S-017` A failure is confined to the Sandbox that had it
 
 | Step | Statement |
 | --- | --- |
@@ -148,7 +170,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a separate Sandbox runs the same kind of work |
 | Then | it completes |
 
-## S-018 — The declared path set is fixed at the seal
+## `S-018` The declared path set is fixed at the seal
 
 | Step | Statement |
 | --- | --- |
@@ -157,7 +179,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the declared path set is read |
 | Then | the later path is absent from it |
 
-## S-019 — Before the seal the set still grows
+## `S-019` Before the seal the set still grows
 
 | Step | Statement |
 | --- | --- |
@@ -165,7 +187,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a path is bound and the declared path set is read |
 | Then | the new path is present in it |
 
-## S-020 — The set is ordered by when each path was bound
+## `S-020` The set is ordered by when each path was bound
 
 | Step | Statement |
 | --- | --- |
@@ -173,7 +195,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the declared path set is read |
 | Then | the paths appear in the order they were bound |
 
-## S-021 — A Sandbox that binds nothing declares nothing
+## `S-021` A Sandbox that binds nothing declares nothing
 
 | Step | Statement |
 | --- | --- |
@@ -181,7 +203,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the declared path set is read |
 | Then | it is empty |
 
-## S-022 — A run that wrote nothing carries nothing
+## `S-022` A run that wrote nothing carries nothing
 
 | Step | Statement |
 | --- | --- |
@@ -189,7 +211,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an invocation that writes to neither channel completes |
 | Then | both captures are empty |
 
-## S-023 — What was written and what was returned are read separately
+## `S-023` What was written and what was returned are read separately
 
 | Step | Statement |
 | --- | --- |
@@ -197,7 +219,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an invocation both writes output and returns a value |
 | Then | the capture and the value are each readable in full |
 
-## S-024 — Output past the cap is marked as cut, not silently short
+## `S-024` Output past the cap is marked as cut, not silently short
 
 | Step | Statement |
 | --- | --- |
@@ -205,7 +227,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an invocation writes past it |
 | Then | the standard-output truncation predicate is true |
 
-## S-025 — A truncation mark belongs to the run that earned it
+## `S-025` A truncation mark belongs to the run that earned it
 
 | Step | Statement |
 | --- | --- |
@@ -213,7 +235,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a later invocation writes within the cap |
 | Then | its truncation predicate is false |
 
-## S-026 — A trap does not carry its output into the next run
+## `S-026` A trap does not carry its output into the next run
 
 | Step | Statement |
 | --- | --- |
@@ -221,7 +243,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a later invocation writes its own output |
 | Then | the capture holds only what the later invocation wrote |
 
-## S-027 — Each run's capture is its own
+## `S-027` Each run's capture is its own
 
 | Step | Statement |
 | --- | --- |
@@ -229,7 +251,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a later invocation writes different output |
 | Then | the capture holds only what the later invocation wrote |
 
-## S-028 — The error channel is a channel of its own
+## `S-028` The error channel is a channel of its own
 
 | Step | Statement |
 | --- | --- |
@@ -237,7 +259,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | guest code writes to the error stream |
 | Then | the bytes appear in the error capture |
 
-## S-029 — A warning takes the error channel
+## `S-029` A warning takes the error channel
 
 | Step | Statement |
 | --- | --- |
@@ -245,7 +267,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | guest code issues a warning |
 | Then | the bytes appear in the error capture |
 
-## S-030 — The guest may point its output stream at the other channel
+## `S-030` The guest may point its output stream at the other channel
 
 | Step | Statement |
 | --- | --- |
@@ -253,7 +275,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | guest code writes to the output stream afterward |
 | Then | the bytes appear in the error capture |
 
-## S-031 — A redirected stream is redirected for one run only
+## `S-031` A redirected stream is redirected for one run only
 
 | Step | Statement |
 | --- | --- |
@@ -261,7 +283,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a later invocation writes to the output stream |
 | Then | the bytes appear in the output capture |
 
-## S-032 — The error channel is capped like the output channel
+## `S-032` The error channel is capped like the output channel
 
 | Step | Statement |
 | --- | --- |
@@ -269,7 +291,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an invocation writes past it |
 | Then | the error truncation predicate is true |
 
-## S-033 — An uncapped channel keeps what a capped one would have cut
+## `S-033` An uncapped channel keeps what a capped one would have cut
 
 | Step | Statement |
 | --- | --- |
@@ -277,7 +299,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an invocation writes past what the default cap would have allowed |
 | Then | the capture holds every byte written |
 
-## S-034 — Both frontends separate the two channels the same way
+## `S-034` Both frontends separate the two channels the same way
 
 | Step | Statement |
 | --- | --- |
@@ -285,7 +307,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | both frontends run it |
 | Then | they observe the same two captures |
 
-## S-035 — Both frontends cut at the same place
+## `S-035` Both frontends cut at the same place
 
 | Step | Statement |
 | --- | --- |
@@ -293,7 +315,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | both frontends run it |
 | Then | they observe the same capture and truncation mark |
 
-## S-036 — A deadline does not take back what was already written
+## `S-036` A deadline does not take back what was already written
 
 | Step | Statement |
 | --- | --- |
@@ -301,7 +323,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the capture is read off the raised error's Execution |
 | Then | it holds what was written before the deadline |
 
-## S-037 — The error channel survives a deadline too
+## `S-037` The error channel survives a deadline too
 
 | Step | Statement |
 | --- | --- |
@@ -309,7 +331,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the capture is read off the raised error's Execution |
 | Then | it holds what was written before the deadline |
 
-## S-038 — A truncation mark survives a deadline
+## `S-038` A truncation mark survives a deadline
 
 | Step | Statement |
 | --- | --- |
@@ -317,7 +339,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the truncation predicate is read off the raised error's Execution |
 | Then | it is true |
 
-## S-039 — A memory budget does not take back what was written either
+## `S-039` A memory budget does not take back what was written either
 
 | Step | Statement |
 | --- | --- |
@@ -325,7 +347,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the capture is read off the raised error's Execution |
 | Then | it holds what was written before the budget was reached |
 
-## S-040 — The last expression is the answer
+## `S-040` The last expression is the answer
 
 | Step | Statement |
 | --- | --- |
@@ -333,7 +355,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation whose last expression computes a value completes |
 | Then | the invocation answers that value |
 
-## S-041 — Both frontends carry the same values out of an evaluation
+## `S-041` Both frontends carry the same values out of an evaluation
 
 | Step | Statement |
 | --- | --- |
@@ -341,7 +363,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | both frontends run it |
 | Then | they observe the same values |
 
-## S-042 — Both frontends carry the same values out of a Service
+## `S-042` Both frontends carry the same values out of a Service
 
 | Step | Statement |
 | --- | --- |
@@ -349,7 +371,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | both frontends run it |
 | Then | they observe the same values |
 
-## S-043 — A value sent to the guest and returned comes back unchanged on both
+## `S-043` A value sent to the guest and returned comes back unchanged on both
 
 | Step | Statement |
 | --- | --- |
@@ -357,7 +379,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | both frontends run it |
 | Then | they observe the same values |
 
-## S-044 — A value the wire cannot carry is refused the same way on both
+## `S-044` A value the wire cannot carry is refused the same way on both
 
 | Step | Statement |
 | --- | --- |
@@ -365,7 +387,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | both frontends run it |
 | Then | they refuse it the same way |
 
-## S-045 — An entrypoint is called and its answer comes back
+## `S-045` An entrypoint is called and its answer comes back
 
 | Step | Statement |
 | --- | --- |
@@ -373,7 +395,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | that entrypoint is run |
 | Then | the invocation answers what the entrypoint returned |
 
-## S-046 — Positional arguments reach the entrypoint
+## `S-046` Positional arguments reach the entrypoint
 
 | Step | Statement |
 | --- | --- |
@@ -381,7 +403,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | that entrypoint is run with positional arguments |
 | Then | the invocation answers a value computed from them |
 
-## S-047 — Keyword arguments reach the entrypoint as a trailing Hash
+## `S-047` Keyword arguments reach the entrypoint as a trailing Hash
 
 | Step | Statement |
 | --- | --- |
@@ -389,7 +411,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | that entrypoint is run with keyword arguments |
 | Then | the invocation answers a value computed from them |
 
-## S-048 — An entrypoint is named the same whether written as text or as a symbol
+## `S-048` An entrypoint is named the same whether written as text or as a symbol
 
 | Step | Statement |
 | --- | --- |
@@ -397,7 +419,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | it is run with its name given as a String |
 | Then | the invocation answers what the entrypoint returned |
 
-## S-049 — Snippets are in place before the entrypoint is looked for
+## `S-049` Snippets are in place before the entrypoint is looked for
 
 | Step | Statement |
 | --- | --- |
@@ -405,7 +427,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | that entrypoint is run |
 | Then | the invocation answers what it returned |
 
-## S-050 — Both frontends run an entrypoint the same way
+## `S-050` Both frontends run an entrypoint the same way
 
 | Step | Statement |
 | --- | --- |
@@ -413,7 +435,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | both frontends run it |
 | Then | they observe the same value |
 
-## S-051 — Preloading chains
+## `S-051` Preloading chains
 
 | Step | Statement |
 | --- | --- |
@@ -421,7 +443,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a snippet is preloaded onto it |
 | Then | the preload answers the Sandbox |
 
-## S-052 — A preloaded snippet is there when the guest looks
+## `S-052` A preloaded snippet is there when the guest looks
 
 | Step | Statement |
 | --- | --- |
@@ -429,7 +451,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation names that constant |
 | Then | it resolves |
 
-## S-053 — A snippet replays for every invocation, not just the first
+## `S-053` A snippet replays for every invocation, not just the first
 
 | Step | Statement |
 | --- | --- |
@@ -438,7 +460,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a later evaluation names that constant |
 | Then | it resolves |
 
-## S-054 — Snippets replay in the order they were preloaded
+## `S-054` Snippets replay in the order they were preloaded
 
 | Step | Statement |
 | --- | --- |
@@ -446,7 +468,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation observes the result |
 | Then | it reflects the order they were preloaded in |
 
-## S-055 — Bytecode is a snippet as readily as source
+## `S-055` Bytecode is a snippet as readily as source
 
 | Step | Statement |
 | --- | --- |
@@ -454,7 +476,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation names that constant |
 | Then | it resolves |
 
-## S-056 — A bytecode snippet replays for every invocation too
+## `S-056` A bytecode snippet replays for every invocation too
 
 | Step | Statement |
 | --- | --- |
@@ -463,7 +485,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a later evaluation names the constant it defines |
 | Then | it resolves |
 
-## S-057 — Bytecode without a name still carries its effects
+## `S-057` Bytecode without a name still carries its effects
 
 | Step | Statement |
 | --- | --- |
@@ -471,7 +493,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation names the constant it defines |
 | Then | it resolves |
 
-## S-058 — A run reports the time it spent
+## `S-058` A run reports the time it spent
 
 | Step | Statement |
 | --- | --- |
@@ -479,7 +501,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation completes and its usage is read |
 | Then | the wall time is above zero |
 
-## S-059 — The entrypoint verb reports its time too
+## `S-059` The entrypoint verb reports its time too
 
 | Step | Statement |
 | --- | --- |
@@ -487,7 +509,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | that entrypoint runs and the usage is read |
 | Then | the wall time is above zero |
 
-## S-060 — A run reports the memory it took
+## `S-060` A run reports the memory it took
 
 | Step | Statement |
 | --- | --- |
@@ -495,7 +517,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation that allocates completes and its usage is read |
 | Then | the memory peak is above the no-allocation baseline |
 
-## S-061 — A run cut short still reports what it spent
+## `S-061` A run cut short still reports what it spent
 
 | Step | Statement |
 | --- | --- |
@@ -503,7 +525,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the usage is read off the raised error's Execution |
 | Then | the wall time is above zero |
 
-## S-062 — The reported peak never exceeds the budget that refused it
+## `S-062` The reported peak never exceeds the budget that refused it
 
 | Step | Statement |
 | --- | --- |
@@ -511,7 +533,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the usage is read off the raised error's Execution |
 | Then | the memory peak is at or below the configured budget |
 
-## S-069 — A run the guest failed still reports what it spent
+## `S-069` A run the guest failed still reports what it spent
 
 | Step | Statement |
 | --- | --- |
@@ -519,7 +541,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the usage is read off the raised error's Execution |
 | Then | the wall time is above zero |
 
-## S-070 — A run a Service failed still reports what it spent
+## `S-070` A run a Service failed still reports what it spent
 
 | Step | Statement |
 | --- | --- |
@@ -527,7 +549,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the usage is read off the raised error's Execution |
 | Then | the wall time is above zero |
 
-## S-063 — Both frontends report usage after a run that succeeded
+## `S-063` Both frontends report usage after a run that succeeded
 
 | Step | Statement |
 | --- | --- |
@@ -535,7 +557,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | both frontends run it and read the usage |
 | Then | both carry a usage record |
 
-## S-071 — A returned value keeps its zero bytes
+## `S-071` A returned value keeps its zero bytes
 
 | Step | Statement |
 | --- | --- |
@@ -543,7 +565,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation returns a String carrying a zero byte |
 | Then | the host receives every byte including the zero |
 
-## S-072 — A raised message keeps its zero bytes too
+## `S-072` A raised message keeps its zero bytes too
 
 | Step | Statement |
 | --- | --- |
@@ -551,7 +573,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation raises with a message carrying a zero byte |
 | Then | the raised error carries that message whole |
 
-## S-073 — A value too deep or circular to encode fails cleanly
+## `S-073` A value too deep or circular to encode fails cleanly
 
 | Step | Statement |
 | --- | --- |
@@ -559,7 +581,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation returns a value nested past the encoder's bound or referring to itself |
 | Then | `Kobako::SandboxError` is raised rather than the invocation trapping |
 
-## S-074 — Nesting within the bound crosses whole
+## `S-074` Nesting within the bound crosses whole
 
 | Step | Statement |
 | --- | --- |
@@ -567,7 +589,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation returns a value nested to the encoder's bound |
 | Then | the host receives the structure unchanged |
 
-## S-075 — A Float crosses at full precision
+## `S-075` A Float crosses at full precision
 
 | Step | Statement |
 | --- | --- |
@@ -575,7 +597,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation returns a Float needing every bit of its payload |
 | Then | the host receives the same Float |
 
-## S-076 — An Integer crosses as an Integer
+## `S-076` An Integer crosses as an Integer
 
 | Step | Statement |
 | --- | --- |
@@ -583,7 +605,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation returns an Integer |
 | Then | the host receives that Integer |
 
-## S-077 — A guest Array arrives as an Array
+## `S-077` A guest Array arrives as an Array
 
 | Step | Statement |
 | --- | --- |
@@ -591,7 +613,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation returns an Array of mixed element types |
 | Then | the host receives an Array with each element's type preserved |
 
-## S-078 — A guest Hash arrives as a Hash, keys distinguished
+## `S-078` A guest Hash arrives as a Hash, keys distinguished
 
 | Step | Statement |
 | --- | --- |
@@ -599,7 +621,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation returns a Hash keyed by both Symbols and Strings |
 | Then | the host receives a Hash keeping that distinction |
 
-## S-079 — An empty Array is an empty Array
+## `S-079` An empty Array is an empty Array
 
 | Step | Statement |
 | --- | --- |
@@ -607,7 +629,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation returns an empty Array |
 | Then | the host receives an empty Array |
 
-## S-080 — An empty Hash is an empty Hash
+## `S-080` An empty Hash is an empty Hash
 
 | Step | Statement |
 | --- | --- |
@@ -615,7 +637,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation returns an empty Hash |
 | Then | the host receives an empty Hash |
 
-## S-064 — A run hands back one frozen object carrying everything it produced
+## `S-064` A run hands back one frozen object carrying everything it produced
 
 | Step | Statement |
 | --- | --- |
@@ -623,7 +645,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation that writes output and returns a value completes |
 | Then | the returned Execution is frozen and carries both |
 
-## S-065 — A failed run hands the same object back through its error
+## `S-065` A failed run hands the same object back through its error
 
 | Step | Statement |
 | --- | --- |
@@ -631,7 +653,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the raised error's Execution is read |
 | Then | it carries the observables the failed run produced |
 
-## S-066 — A value that is nothing and a run that failed are told apart
+## `S-066` A value that is nothing and a run that failed are told apart
 
 | Step | Statement |
 | --- | --- |
@@ -639,7 +661,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | each is asked whether it failed |
 | Then | only the failed one says so |
 
-## S-067 — A trapped run says it failed
+## `S-067` A trapped run says it failed
 
 | Step | Statement |
 | --- | --- |
@@ -647,7 +669,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | it is asked whether it failed |
 | Then | it says so |
 
-## S-068 — A failure before any run produces no Execution to carry
+## `S-068` A failure before any run produces no Execution to carry
 
 | Step | Statement |
 | --- | --- |

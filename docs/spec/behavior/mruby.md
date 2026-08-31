@@ -2,7 +2,12 @@
 
 The state every invocation starts from, and what a raise inside a capability gem's frame costs.
 
-## Why these scenarios
+## Includes
+
+- `test/e2e/test_canonical_boot.rb`
+- `test/e2e/test_capability_exception_safety.rb`
+
+### Why these scenarios
 
 Two invocations of one artifact begin from the same interpreter state, not merely from a clean one. The heap-slot replay is what settles the difference: an interpreter that reset everything correctly but started somewhere new each time would pass every leak test and fail this one.
 
@@ -10,7 +15,7 @@ A capability gem servicing one guest operation calls back into guest code, and t
 
 That the boot state may be computed at build time, and that per-invocation resources may be provisioned ahead of demand, are both stated to be unobservable, so neither is a scenario. The reproducible-build check holds the baking end. Leak-freedom between invocations is per-invocation isolation and belongs with the Sandbox behaviors, whose witnesses cite it alongside this one.
 
-## MR-001 — Two invocations begin from the same state, not merely a clean one
+## `MR-001` Two invocations begin from the same state, not merely a clean one
 
 | Step | Statement |
 | --- | --- |
@@ -18,7 +23,7 @@ That the boot state may be computed at build time, and that per-invocation resou
 | When | the same source is evaluated again |
 | Then | the same object id comes back |
 
-## MR-002 — A constant an invocation defines is gone at the next entry
+## `MR-002` A constant an invocation defines is gone at the next entry
 
 | Step | Statement |
 | --- | --- |
@@ -26,7 +31,7 @@ That the boot state may be computed at build time, and that per-invocation resou
 | When | a later invocation asks whether that constant is defined |
 | Then | it is not |
 
-## MR-003 — A raise in an output coercion is the guest's error, not the Sandbox's
+## `MR-003` A raise in an output coercion is the guest's error, not the Sandbox's
 
 | Step | Statement |
 | --- | --- |
@@ -35,7 +40,7 @@ That the boot state may be computed at build time, and that per-invocation resou
 | When | the invocation runs |
 | Then | `Kobako::SandboxError` is raised rather than `Kobako::TrapError` |
 
-## MR-004 — The guest's own message survives the coercion frame
+## `MR-004` The guest's own message survives the coercion frame
 
 | Step | Statement |
 | --- | --- |
@@ -44,7 +49,7 @@ That the boot state may be computed at build time, and that per-invocation resou
 | When | the invocation runs |
 | Then | the raised error carries the guest exception's message |
 
-## MR-005 — The second coercion entry answers like the first
+## `MR-005` The second coercion entry answers like the first
 
 | Step | Statement |
 | --- | --- |
@@ -53,7 +58,7 @@ That the boot state may be computed at build time, and that per-invocation resou
 | When | the invocation runs |
 | Then | `Kobako::SandboxError` is raised rather than `Kobako::TrapError` |
 
-## MR-006 — The guest's own message survives the inspect frame too
+## `MR-006` The guest's own message survives the inspect frame too
 
 | Step | Statement |
 | --- | --- |
@@ -62,7 +67,7 @@ That the boot state may be computed at build time, and that per-invocation resou
 | When | the invocation runs |
 | Then | the raised error carries the guest exception's message |
 
-## MR-007 — A raising callback costs the Sandbox nothing
+## `MR-007` A raising callback costs the Sandbox nothing
 
 | Step | Statement |
 | --- | --- |

@@ -1,32 +1,65 @@
 # frozen_string_literal: true
 
-require "json"
-
 module KobakoSpec
   # Reader behind +rake gate:spec:glossary+: the structural checks sumi does
   # not make about the vocabulary it reads.
   #
-  # sumi owns the two things it can do from the source alone — writing the
-  # glossary page, and reporting each line where a rejected name is used. What
-  # it never asks is whether the declaration makes sense on its own terms, and
-  # the two ways it can fail both flag legitimate prose rather than the drift a
-  # rejection exists to catch: a name answering to two concepts, and a
-  # rejection naming a word that is itself one of our terms.
+  # sumi owns what it can answer from the corpus — reporting each line where a
+  # rejected name is used. What it never asks is whether the declaration makes
+  # sense on its own terms, and the two ways it can fail both flag legitimate
+  # prose rather than the drift a rejection exists to catch: a name answering
+  # to two concepts, which sumi silently resolves to the later one, and a
+  # rejection naming a word that is itself one of our terms, which sumi
+  # faithfully reports at every legitimate use of it.
   #
   # Both are asked per vocabulary rather than across the file, because one
   # concept legitimately carries different definitions in different subdomains
   # — that separation is the reason a subdomain exists.
   module Glossary
     # Where the vocabularies are declared. sumi reads this same file.
-    SOURCE = ".spec/glossary.json"
+    SOURCE = "docs/spec/glossary.md"
 
     module_function
 
-    # The declared vocabularies, in file order — Global first, then each
+    # The declared vocabularies, in file order — the widest first, then each
     # subdomain, which is the order a later term overrides an earlier one in.
     def load
-      JSON.parse(File.read(SOURCE)).fetch("glossary")
+      parse(File.read(SOURCE))
     end
+
+    # The vocabularies +text+ declares, each opened by a +##+ heading.
+    def parse(text)
+      text.split(/^##(?!#)[ \t]*/).drop(1).map { |section| parse_vocabulary(section) }
+    end
+
+    # One +##+ section as a vocabulary — its heading names it, its +###+
+    # headings are its terms.
+    def parse_vocabulary(section)
+      name, body = section.split("\n", 2)
+      { "name" => name.strip, "terms" => parse_terms(body.to_s) }
+    end
+    private_class_method :parse_vocabulary
+
+    # The terms a vocabulary's body declares. +Includes+ is the one +###+
+    # heading that is reserved rather than a term.
+    def parse_terms(body)
+      body.split(/^###(?!#)[ \t]*/).drop(1).filter_map do |block|
+        heading, rest = block.split("\n", 2)
+        next if heading.strip == "Includes"
+
+        { "term" => heading.strip, "not" => parse_rejections(rest.to_s) }
+      end
+    end
+    private_class_method :parse_terms
+
+    # A term's rejected names, written +- `word` — reason+ under its
+    # +#### Rejected+ heading.
+    def parse_rejections(block)
+      _, rejected = block.split(/^####[ \t]+Rejected[ \t]*$/, 2)
+      rejected.to_s.scan(/^-[ \t]+`([^`]+)`[ \t]+—[ \t]+(.+)$/)
+              .map { |word, reason| { "term" => word, "reason" => reason.strip } }
+    end
+    private_class_method :parse_rejections
 
     # Every way +vocabularies+ can be wrong on its own terms, as reader-facing
     # lines.

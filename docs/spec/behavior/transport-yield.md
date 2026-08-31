@@ -2,7 +2,16 @@
 
 What happens when a host Service calls back into the block the guest handed it.
 
-## Why these scenarios
+## Includes
+
+- `test/e2e/test_yield.rb`
+- `test/e2e/test_yield_unwind.rb`
+- `test/e2e/test_yield_block_failure.rb`
+- `test/e2e/test_yield_block_spent.rb`
+- `test/unit/transport/test_yielder.rb`
+- `test/parity/test_yield.rb`
+
+### Why these scenarios
 
 A yield turns one dispatch into a conversation: the guest calls out, the host calls back, and either side may end it. The scenarios follow every way that conversation can close — a value, a break, a fall-through, a raise — because each unwinds a different distance.
 
@@ -10,7 +19,7 @@ The block-failure scenarios are about what a failure leaves behind. A Service th
 
 A block's answer is restored on its way in and a break's value is not, which is the one asymmetry here; the exits that raise belong to the error taxonomy and are specified there.
 
-## T-083 — A Service can tell that the guest passed it a block
+## `T-083` A Service can tell that the guest passed it a block
 
 | Step | Statement |
 | --- | --- |
@@ -18,7 +27,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code calls it with a block |
 | Then | the Service reports that it was |
 
-## T-084 — And that it was not
+## `T-084` And that it was not
 
 | Step | Statement |
 | --- | --- |
@@ -26,7 +35,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code calls it without a block |
 | Then | the Service reports that it was not |
 
-## T-085 — Yielding answers with what the block said
+## `T-085` Yielding answers with what the block said
 
 | Step | Statement |
 | --- | --- |
@@ -34,7 +43,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code calls it with a block returning a value |
 | Then | the Service receives that value from the yield |
 
-## T-086 — Yielding several times runs the block each time
+## `T-086` Yielding several times runs the block each time
 
 | Step | Statement |
 | --- | --- |
@@ -42,7 +51,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code calls it with a block |
 | Then | the block runs once per yield |
 
-## T-087 — A block may reach back out to another Service
+## `T-087` A block may reach back out to another Service
 
 | Step | Statement |
 | --- | --- |
@@ -50,7 +59,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code's block calls the other Service |
 | Then | the nested call answers and the outer yield receives the block's value |
 
-## T-088 — A Service given a block need not use it
+## `T-088` A Service given a block need not use it
 
 | Step | Statement |
 | --- | --- |
@@ -58,7 +67,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code calls it with a block |
 | Then | the call answers and the block never runs |
 
-## T-089 — Breaking out of a block unwinds the Service
+## `T-089` Breaking out of a block unwinds the Service
 
 | Step | Statement |
 | --- | --- |
@@ -66,7 +75,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code's block breaks with a value |
 | Then | the call answers that value without the Service finishing |
 
-## T-090 — Breaking out of a lambda leaves the Service running
+## `T-090` Breaking out of a lambda leaves the Service running
 
 | Step | Statement |
 | --- | --- |
@@ -74,7 +83,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | the lambda breaks with a value |
 | Then | the yield receives that value and the Service continues |
 
-## T-091 — A break value the wire cannot carry is refused
+## `T-091` A break value the wire cannot carry is refused
 
 | Step | Statement |
 | --- | --- |
@@ -82,7 +91,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code's block breaks with a value having no wire representation |
 | Then | the invocation fails rather than carrying it across |
 
-## T-092 — Each nested frame carries its own block
+## `T-092` Each nested frame carries its own block
 
 | Step | Statement |
 | --- | --- |
@@ -90,7 +99,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code drives two nested yields |
 | Then | each frame yields to the block it was given |
 
-## T-093 — A refused nested call leaves the outer block usable
+## `T-093` A refused nested call leaves the outer block usable
 
 | Step | Statement |
 | --- | --- |
@@ -98,7 +107,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | the inner call is refused and the outer block runs on |
 | Then | the outer yield still answers |
 
-## T-094 — A raise inside the block surfaces where the Service yielded
+## `T-094` A raise inside the block surfaces where the Service yielded
 
 | Step | Statement |
 | --- | --- |
@@ -106,7 +115,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code's block raises |
 | Then | the Service sees the failure at its yield |
 
-## T-095 — An unrescued block raise stays the guest's own exception
+## `T-095` An unrescued block raise stays the guest's own exception
 
 | Step | Statement |
 | --- | --- |
@@ -114,7 +123,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code's block raises and nobody rescues it |
 | Then | the guest can rescue it as the exception it raised |
 
-## T-096 — A Service that rescues the block reports its own failure instead
+## `T-096` A Service that rescues the block reports its own failure instead
 
 | Step | Statement |
 | --- | --- |
@@ -122,7 +131,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code's block raises |
 | Then | the guest sees the Service's failure rather than its own |
 
-## T-097 — A rescued block failure leaves nothing behind
+## `T-097` A rescued block failure leaves nothing behind
 
 | Step | Statement |
 | --- | --- |
@@ -130,7 +139,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | the invocation continues |
 | Then | no trace of that failure reaches the next yield |
 
-## T-098 — A held failure answers only for the block that raised it
+## `T-098` A held failure answers only for the block that raised it
 
 | Step | Statement |
 | --- | --- |
@@ -138,7 +147,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | another block is yielded to |
 | Then | the held failure does not answer for it |
 
-## T-099 — A rescued failure does not answer that block's later refusal
+## `T-099` A rescued failure does not answer that block's later refusal
 
 | Step | Statement |
 | --- | --- |
@@ -146,7 +155,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | the same block is refused later for another reason |
 | Then | the later refusal is reported as its own |
 
-## T-100 — A reference in the block's answer becomes its object
+## `T-100` A reference in the block's answer becomes its object
 
 | Step | Statement |
 | --- | --- |
@@ -154,7 +163,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | the Service receives the answer |
 | Then | it holds the original host object |
 
-## T-101 — An answer carrying no reference crosses unchanged
+## `T-101` An answer carrying no reference crosses unchanged
 
 | Step | Statement |
 | --- | --- |
@@ -162,7 +171,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | the Service receives the answer |
 | Then | it holds that value unchanged |
 
-## T-102 — A break value is not restored on its way out
+## `T-102` A break value is not restored on its way out
 
 | Step | Statement |
 | --- | --- |
@@ -170,7 +179,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | the break unwinds |
 | Then | the reference passes through without being restored |
 
-## T-103 — Both frontends yield and answer the same way
+## `T-103` Both frontends yield and answer the same way
 
 | Step | Statement |
 | --- | --- |
@@ -178,7 +187,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | both frontends run it |
 | Then | they observe the same value |
 
-## T-104 — Both unwind a break and fall through a next the same way
+## `T-104` Both unwind a break and fall through a next the same way
 
 | Step | Statement |
 | --- | --- |
@@ -186,7 +195,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | both frontends run it |
 | Then | they observe the same values |
 
-## T-105 — Both carry a nested dispatch through a block the same way
+## `T-105` Both carry a nested dispatch through a block the same way
 
 | Step | Statement |
 | --- | --- |
@@ -194,7 +203,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | both frontends run it |
 | Then | they observe the same value |
 
-## T-106 — Both refuse a block exit aimed past the boundary the same way
+## `T-106` Both refuse a block exit aimed past the boundary the same way
 
 | Step | Statement |
 | --- | --- |
@@ -202,7 +211,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | both frontends run it |
 | Then | they refuse it the same way |
 
-## T-107 — Both surface an unrescued block raise the same way
+## `T-107` Both surface an unrescued block raise the same way
 
 | Step | Statement |
 | --- | --- |
