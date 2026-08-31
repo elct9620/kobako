@@ -39,7 +39,7 @@ module KobakoAnchors
     text.scan(/\b#{prefix}-(\d+)\b[^\n]*?retired/i).flatten.map(&:to_i)
   end
 
-  # A sumi claim line. Its ids name scenarios in +.spec/behavior/+, which
+  # A sumi claim line. Its ids name scenarios in +docs/spec/behavior/+, which
   # share the +RX+ / +JS+ series letters with this corpus while numbering
   # independently — so reading one as a citation invents a reference to an
   # anchor nobody wrote.

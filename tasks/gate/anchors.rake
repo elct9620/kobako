@@ -21,11 +21,11 @@ require_relative "../support/report"
 # are excluded: their anchor-shaped tokens are hand-built fixtures, not
 # references.
 #
-# +docs/spec/+ is excluded from both corpora: sumi writes it, and a rendered
-# scenario heading carries the same +## RX-010 — + shape this checker reads
-# as a definition. A behavior migrated to sumi keeps its old definition here
-# until the migration finishes, so a rendered page must stay invisible to
-# this gate on both counts.
+# +docs/spec/+ is excluded from both corpora: it is the sumi specification,
+# which numbers its scenarios in series of its own that share letters with
+# these families. A behavior migrated to sumi keeps its old definition here
+# until the migration finishes, so reading a scenario id as an anchor would
+# both invent references and collide with them.
 ANCHOR_ROOT = File.expand_path("../..", __dir__)
 ANCHOR_DEF_BEHAVIOR = FileList["docs/behavior/*.md"]
 ANCHOR_DEF_REGEXP = FileList["docs/regexp.md"]
