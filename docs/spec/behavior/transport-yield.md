@@ -17,7 +17,7 @@ A yield turns one dispatch into a conversation: the guest calls out, the host ca
 
 The block-failure scenarios are about what a failure leaves behind. A Service that rescues one raise, holds it, and yields again must not answer the second block with the first block's failure, and a failure already rescued must not reappear as a later refusal. Both are witnessed because neither shows up in the single-yield case.
 
-A block's answer is restored on its way in and a break's value is not, which is the one asymmetry here; the exits that raise belong to the error taxonomy and are specified there.
+A block's answer is restored on its way in and a break's value is not, which is the one asymmetry here. The exits that raise are followed too: an unwind aimed past the boundary, an answer the wire cannot carry, and a Yielder reached after its frame returned each end the conversation somewhere the ordinary closes cannot reach.
 
 ## `T-083` A Service can tell that the guest passed it a block
 
@@ -218,3 +218,27 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | Given | a scenario whose block raises with nobody to rescue it |
 | When | both frontends run it |
 | Then | they attribute it the same way |
+
+## `T-134` An unwind aimed past the yield boundary
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that yields |
+| When | guest code's block returns to an enclosing method still on the guest stack |
+| Then | the invocation fails naming a local jump |
+
+## `T-135` An answer the wire cannot carry is refused at the yield site
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that yields |
+| When | guest code's block answers a value having no wire representation |
+| Then | the invocation fails rather than carrying a coerced value across |
+
+## `T-136` A Yielder reached after its frame returned
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that stored the block it was yielded |
+| When | a later dispatch calls that stored block |
+| Then | the invocation fails naming a local jump |

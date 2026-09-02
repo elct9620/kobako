@@ -42,14 +42,13 @@ class TestE2EYieldUnwind < Minitest::Test
                  "yield observes the break value as a normal `next` outcome"
   end
 
-  # E-21: `return val` inside a guest block whose enclosing method is
-  # still on the guest call stack would unwind across the host yield
-  # boundary — unrepresentable on the wire. The guest classifier sees
-  # an RBreak whose `ci_break_index` points deeper than the yielder's
-  # frame and emits tag 0x04 LocalJumpError; the host Yielder surfaces
-  # it as a Ruby exception.
+  # A `return` whose target frame is still on the guest stack would have
+  # to unwind across the host yield boundary, which the wire cannot carry.
+  # The guest classifier sees a break index pointing deeper than the
+  # yielder's frame and reports the local jump instead.
   E21_RETURN_SCRIPT = "def make_return; Probe::OnceX.call(5) { |x| return x * 2 }; end; make_return"
 
+  # @behavior T-134
   def test_e21_proc_return_aimed_past_yield_boundary_raises_local_jump_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
@@ -117,6 +116,10 @@ class TestE2EYieldUnwind < Minitest::Test
   # called +#invalidate!+, flipping the Yielder off.
   E23_ESCAPE_SCRIPT = "Probe::Stash.stash { :payload }; Probe::Stash.replay"
 
+  # @behavior T-136
+  # The Dispatcher's ensure block invalidates the Yielder as its frame
+  # returns, so a Service that stored the block finds it switched off
+  # rather than reaching into a frame that is no longer there.
   def test_e23_escaped_yielder_invocation_raises_local_jump_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     stash_service = Class.new do

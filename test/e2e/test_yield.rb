@@ -86,6 +86,10 @@ class TestE2EYield < Minitest::Test
                  "on to the outer Service's yield site"
   end
 
+  # @behavior T-135
+  # Coercing the answer to a String would hand the Service a plausible
+  # value in place of one that never crossed, so the round-trip reports
+  # the refusal at the yield site instead.
   def test_e22_block_returns_unrepresentable_value_raises_at_yield_site
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
@@ -104,6 +108,10 @@ class TestE2EYield < Minitest::Test
                  "must surface as a 0x04 error at the yield site, not a coerced String")
   end
 
+  # @behavior T-091
+  # The break arm returns to the guest rather than to host code, so it
+  # needs its own witness that the value is refused rather than coerced
+  # on the way out.
   def test_e22_break_with_unrepresentable_value_raises_at_yield_site
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
