@@ -19,7 +19,7 @@ The collision scenarios are three refusals and one survival. The survival is sep
 
 A path declared without an object and a name never declared at all fail differently, and that difference is the point: one is a capability the host has reserved, the other is nothing. The override scenarios then cover who may change what stands behind a declared name, and for how long — never for longer than one invocation, and never for a name that was not already there.
 
-A malformed path segment and a bind after the seal both raise, so they belong to the error taxonomy and are specified there. The declared path set that every invocation ships belongs to the invocation, not to registration.
+A malformed path segment and a bind after the seal both raise rather than answer, so each is settled by what `bind` refuses. The declared path set that every invocation ships belongs to the invocation, not to registration.
 
 ## `SV-001` A bound path answers with what was bound to it
 
@@ -256,3 +256,19 @@ A malformed path segment and a bind after the seal both raise, so they belong to
 | Given | a Context captured out of a completed invocation's block |
 | When | an override is bound through it afterward |
 | Then | `ArgumentError` is raised |
+
+## `SV-030` A path segment that is not a constant name
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry with nothing bound |
+| When | an object is bound at a path any segment of which is not a constant name |
+| Then | `ArgumentError` is raised |
+
+## `SV-031` A bind after registration is sealed
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry sealed by the first invocation |
+| When | another object is bound |
+| Then | `ArgumentError` names the first invocation |

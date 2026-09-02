@@ -51,7 +51,11 @@ module Kobako
       assert_equal :str, @services.lookup("Auth::Token")
     end
 
-    # E-16: a path with any malformed segment is rejected at bind time.
+    # @behavior SV-030
+    # A path becomes a constant chain in the guest, so a segment that is
+    # not a constant name has no guest form to become. The cases cover
+    # each position a bad segment can take, since a check that only reads
+    # the first would let the rest through.
     def test_bind_rejects_a_malformed_path_segment
       ["lower::Ok", "Ok::lower", :"Has-Dash::X", "9Numeric", "A::", "::A", "A::B::"].each do |bad|
         assert_raises(ArgumentError, "malformed path #{bad.inspect} must raise (E-16)") do
@@ -130,7 +134,10 @@ module Kobako
 
     # ---------- seal / lookup error paths ----------
 
-    # E-45: bind raises ArgumentError once Services#seal! has fired.
+    # @behavior SV-031
+    # The seal is what makes the declared path set stable for every later
+    # invocation, so the refusal has to name the invocation that closed
+    # registration rather than read as an ordinary collision.
     def test_bind_after_seal_raises
       @services.bind("Early::A", :a)
       @services.seal!
