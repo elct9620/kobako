@@ -116,7 +116,10 @@ class TestSandboxRun < Minitest::Test
                  "snippet-contributed constants as the unresolved entrypoint's correction"
   end
 
-  # E-28: entrypoint constant is defined but does not respond to #call.
+  # @behavior S-081
+  # A constant that exists but answers no call is a different mistake
+  # from one that is not there, so the message says which — a Host App
+  # correcting the entrypoint needs to know it named the right constant.
   def test_e28_entrypoint_without_call_raises_sandbox_error
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Worker = 42", name: :Worker)

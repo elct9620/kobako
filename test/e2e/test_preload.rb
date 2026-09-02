@@ -39,11 +39,11 @@ class TestE2EPreload < Minitest::Test
     assert_equal 20, sandbox.eval("EXTENDED").value
   end
 
-  # docs/behavior/errors.md E-32: an uncompilable `code:` snippet is
-  # accepted at #preload — detection timing is uniform with the binary:
-  # form — and the compile failure surfaces on the first invocation's
-  # snippet replay. Compilation runs no snippet code, so the failure
-  # carries mruby's generic syntax-error message and an empty backtrace.
+  # @behavior S-083 S-084
+  # Accepting the snippet keeps the detection timing uniform with the
+  # binary: form, which cannot be compiled at preload at all. Compilation
+  # runs no snippet code, so the failure carries mruby's generic
+  # syntax-error message and an empty backtrace.
   def test_e32_snippet_compile_failure_surfaces_on_first_invocation_replay
     sandbox = Kobako::Sandbox.new
     assert_same sandbox, sandbox.preload(code: "def broken(", name: :Broken),
@@ -56,9 +56,10 @@ class TestE2EPreload < Minitest::Test
                  "mruby's syntax-error message")
   end
 
-  # E-36: a preloaded snippet whose top-level expression raises during
-  # replay surfaces as Kobako::SandboxError with the backtrace attributed
-  # to the snippet's `(snippet:Name)` filename.
+  # @behavior S-088
+  # The backtrace has to name the snippet rather than the invocation that
+  # replayed it, or a Host App reading the failure would look for the
+  # raise in the source it just submitted.
   def test_e36_preloaded_snippet_replay_failure_surfaces_as_sandbox_error
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: 'raise "broken at preload"', name: :Broken)
@@ -127,6 +128,7 @@ class TestE2EPreload < Minitest::Test
   # enough that section parsing fails inside mruby's load path.
   E38_FIXTURE_PATH = TestPaths.fixture("snippet_corrupt.mrb")
 
+  # @behavior S-089
   def test_e38_bytecode_corrupt_body_raises_bytecode_error
     sandbox = Kobako::Sandbox.new
     sandbox.preload(binary: File.binread(E38_FIXTURE_PATH))
@@ -136,24 +138,19 @@ class TestE2EPreload < Minitest::Test
     assert_equal "Kobako::BytecodeError", err.klass
   end
 
-  # docs/behavior/errors.md E-36 (binary: form): bytecode that loads cleanly
-  # but whose top-level expression raises at replay surfaces as
-  # Kobako::SandboxError with the natural mruby class preserved — NOT
-  # promoted to Kobako::BytecodeError, which is reserved for the two
-  # structural failure modes (E-37 / E-38). The raise_boom fixture is
-  # `raise "boom from snippet"` compiled with `mrbc -g`.
+  # The regression risk is a silent unconditional promotion to
+  # BytecodeError, which is reserved for the structural failures. The
+  # raise_boom fixture is `raise "boom from snippet"` compiled with
+  # `mrbc -g`.
   #
-  # Scope: this test pins the E-36 dispatch contract only — E-36 covers
-  # binary form, and the regression risk is a silent unconditional
-  # promotion to BytecodeError. Backtrace attribution for
-  # binary form (whatever filename the bytecode's debug_info carries,
-  # routed through mruby's own `pack_backtrace`) is upstream-inherited,
-  # so it is not separately pinned here. The source-form companion at
-  # `test_e36_preloaded_snippet_replay_failure_surfaces_as_sandbox_error`
-  # exercises the parallel attribution path for the `(snippet:Name)`
-  # ccontext filename, which is host-set rather than upstream-inherited.
+  # Backtrace attribution for the binary form is whatever filename the
+  # bytecode's debug_info carries, routed through mruby's own
+  # `pack_backtrace`, so it is upstream-inherited and not pinned here;
+  # the source-form companion above exercises the host-set
+  # `(snippet:Name)` filename instead.
   E36_BINARY_FIXTURE_PATH = TestPaths.fixture("snippet_raise_boom.mrb")
 
+  # @behavior S-090
   def test_e36_binary_form_replay_raise_is_sandbox_error_not_bytecode_error
     sandbox = Kobako::Sandbox.new
     sandbox.preload(binary: File.binread(E36_BINARY_FIXTURE_PATH))

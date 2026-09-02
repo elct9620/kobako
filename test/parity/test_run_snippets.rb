@@ -37,9 +37,10 @@ class TestParityRunSnippets < Parity::Case
     )
   end
 
-  # SPEC.md E-27 / E-28: a missing entrypoint constant and a defined
-  # constant that does not respond to #call are both sandbox-origin
-  # failures, never traps.
+  # @behavior S-082
+  # Both entrypoint faults are sandbox-origin failures rather than traps,
+  # and a frontend that attributed either as a trap would tell its Host
+  # App the guest had been cut short when it had not.
   def test_entrypoint_faults
     assert_parity Parity::Scenario.new(
       name: "entrypoint-faults", anchors: %w[E-27 E-28],
@@ -51,9 +52,10 @@ class TestParityRunSnippets < Parity::Case
     )
   end
 
-  # SPEC.md E-32 / E-36: a snippet that fails compilation and one whose
-  # top-level expression raises both surface on the invocation that
-  # replays them, as sandbox-origin failures carrying the guest class.
+  # @behavior S-091
+  # Both snippet faults surface on the invocation that replays them
+  # rather than on the preload, so a frontend reporting either early
+  # would be answering before the guest had read the snippet at all.
   def test_snippet_faults
     assert_parity Parity::Scenario.new(
       name: "snippet-compile-failure", anchors: %w[E-32],

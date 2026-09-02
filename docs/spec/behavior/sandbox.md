@@ -30,7 +30,7 @@ A Sandbox is set up once and run many times, so the scenarios fall into what con
 
 Captures are read after failures as often as after successes, so the trap paths carry their own scenarios rather than resting on the success ones. What a run wrote before it was cut short is exactly what a Host App triaging the failure has to read.
 
-Everything that raises — a rejected option, a snippet that will not compile, an entrypoint that is not there, a cap reached — belongs to the error taxonomy and is specified there. The registries behind preload and bind have invariants of their own that no public surface shows; those are pinned by unit tests and are not behaviors.
+Everything that raises is a behavior too, settling on the class a Host App rescues and where the failure is attributed. The option checks belong to the runtime that performs them and are specified there; the entrypoint, snippet and preload refusals are here, each witnessed at whatever level shows it. What the registries do internally — how a name is normalized, what order entries keep — no public surface shows, so it is pinned by unit tests and is not a behavior.
 
 The guest-side output surface — how `IO` and the Kernel writers behave inside the guest — belongs to the capability gem that implements it. What is here is the host end: which channel bytes land in, where they stop, and what survives a failure.
 
@@ -676,3 +676,91 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a Sandbox given an input refused before the guest runs |
 | When | the raised error is asked for its Execution |
 | Then | there is none |
+
+## `S-081` An entrypoint that is there but cannot be called
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose preloaded snippet defines the entrypoint constant as a plain value |
+| When | `#run` names that constant |
+| Then | `Kobako::SandboxError` says it does not respond to the call |
+
+## `S-082` Both frontends attribute an entrypoint fault the same way
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario running an entrypoint that is missing and one that cannot be called |
+| When | both frontends run it |
+| Then | they observe the same failures |
+
+## `S-083` A snippet that will not compile is still accepted
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | `#preload(code:)` is given source that does not compile |
+| Then | the preload answers its Sandbox |
+
+## `S-084` A snippet's compile failure surfaces on the invocation that replays it
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox holding a preloaded snippet that does not compile |
+| When | the first invocation runs |
+| Then | `Kobako::SandboxError` carries the guest's syntax error |
+
+## `S-085` A snippet name that is not a constant name
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet table |
+| When | a snippet is registered under a name that is not a constant name |
+| Then | `ArgumentError` names the constraint |
+
+## `S-086` A snippet name already taken
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet table holding a snippet under a name |
+| When | another snippet is registered under that same name |
+| Then | `ArgumentError` says the name is already preloaded |
+
+## `S-087` A preload after the snippet table is sealed
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose first invocation has begun |
+| When | `#preload` runs |
+| Then | `ArgumentError` names the first invocation |
+
+## `S-088` A snippet that raises at replay is attributed to the snippet
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox holding a preloaded snippet whose top-level expression raises |
+| When | the first invocation runs |
+| Then | the failure's backtrace names the snippet |
+
+## `S-089` Bytecode that will not load is a structural failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox holding preloaded bytecode whose body is corrupt |
+| When | the first invocation runs |
+| Then | `Kobako::BytecodeError` is raised |
+
+## `S-090` Bytecode that loads and then raises is not one
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox holding preloaded bytecode whose top-level expression raises |
+| When | the first invocation runs |
+| Then | the failure carries the guest's own exception class |
+
+## `S-091` Both frontends attribute a snippet fault the same way
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario preloading a snippet that will not compile and one that raises at replay |
+| When | both frontends run it |
+| Then | they observe the same failures |

@@ -31,12 +31,11 @@ class TestSandboxPreload < Minitest::Test
     assert_same @sandbox, @sandbox.preload(binary: "RITE")
   end
 
-  # E-35: post-seal #preload calls raise. The minimal_abi_ok.wat
-  # fixture stubs the entry points without __kobako_take_outcome, so
-  # #eval raises TrapError — but seal! has already fired by then, so
-  # the subsequent #preload must raise. The seal-mechanism observable
-  # lives on the Sandbox surface; Services#seal! itself is covered in
-  # test/unit/catalog/test_services.rb.
+  # @behavior S-087
+  # The seal fires as the invocation begins, so it holds even when that
+  # invocation then fails: the minimal_abi_ok.wat fixture stubs the entry
+  # points without __kobako_take_outcome, and the TrapError that follows
+  # does not reopen the table.
   def test_preload_rejects_calls_after_first_invocation
     @sandbox.preload(code: "X = 1", name: :Early)
 

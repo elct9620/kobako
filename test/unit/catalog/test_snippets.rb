@@ -35,7 +35,10 @@ module Kobako
       assert_equal :Worker, @table.register(code: "Y = 2", name: "Worker")
     end
 
-    # E-34
+    # @behavior S-085
+    # A snippet name becomes a guest constant, so a name that is not one
+    # has nothing to become. The cases cover each way a name can miss the
+    # pattern rather than only the lowercase one.
     def test_register_rejects_name_not_matching_constant_pattern
       %i[lowercase _Leading 1Digit].each do |bad|
         err = assert_raises(ArgumentError) { @table.register(code: "X", name: bad) }
@@ -73,7 +76,10 @@ module Kobako
       assert_match(%r{cannot combine binary: with code: / name:}, err.message)
     end
 
-    # E-33
+    # @behavior S-086
+    # Two snippets under one name would leave which body replays down to
+    # registration order, so the second is refused rather than shadowing
+    # the first.
     def test_register_rejects_duplicate_name
       @table.register(code: "first body", name: :Worker)
       err = assert_raises(ArgumentError) { @table.register(code: "second body", name: :Worker) }
