@@ -6,7 +6,10 @@ require "test_helper"
 # (docs/behavior/runtime.md B-46 + E-47). Pool.new builds no Sandbox, so every
 # case here runs without the native ext.
 class TestPoolConstruction < Minitest::Test
-  # E-47
+  # @behavior PL-020
+  # A slot count is what the Pool sizes itself by, so a value it cannot
+  # count with is refused at construction rather than at the first
+  # checkout, where the caller would already be waiting on it.
   def test_e47_slots_must_be_positive_integer
     [0, -1, 1.5, "3", nil].each do |bad|
       err = assert_raises(ArgumentError, "slots: #{bad.inspect} through Pool.new must raise ArgumentError") do
@@ -16,8 +19,10 @@ class TestPoolConstruction < Minitest::Test
     end
   end
 
-  # E-47: nil is valid (waits indefinitely); zero, negative, and
-  # non-finite values are not.
+  # @behavior PL-021
+  # Every rejected form here is one that would make the wait unbounded
+  # by accident rather than by request — the deliberate unbounded wait
+  # has its own spelling, pinned in the next test.
   def test_e47_checkout_timeout_must_be_positive_finite_or_nil
     [0, -1, Float::INFINITY, Float::NAN, "5"].each do |bad|
       err = assert_raises(ArgumentError,
@@ -28,7 +33,9 @@ class TestPoolConstruction < Minitest::Test
     end
   end
 
-  # E-47: the nil sentinel constructs — it selects the indefinite wait.
+  # @behavior PL-022
+  # The sentinel that selects an indefinite wait has to construct, or
+  # the only way to ask for one would be a value the checks reject.
   def test_e47_nil_checkout_timeout_is_valid
     assert_instance_of Kobako::Pool, Kobako::Pool.new(slots: 1, checkout_timeout: nil),
                        "checkout_timeout: nil through Pool.new must construct a Pool (E-47)"
@@ -51,8 +58,10 @@ class TestPoolConstruction < Minitest::Test
     assert_equal 0, setup_runs, "Pool.new must not construct any Sandbox before the first checkout (B-46)"
   end
 
-  # E-46 taxonomy: a single `rescue Kobako::Error` covers pool checkout
-  # timeouts alongside the invocation-outcome classes.
+  # @behavior PL-023
+  # A checkout timeout reaches the Host App from a different place than
+  # an invocation outcome does, so a single `rescue Kobako::Error` has to
+  # cover both or the two would need separate handling.
   def test_pool_timeout_error_sits_under_kobako_error
     assert_operator Kobako::PoolTimeoutError, :<, Kobako::Error,
                     "Kobako::PoolTimeoutError must be rescuable as Kobako::Error"

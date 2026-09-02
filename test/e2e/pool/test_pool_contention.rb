@@ -8,7 +8,9 @@ require "test_helper"
 class TestPoolContention < Minitest::Test
   include E2eGuestHelper
 
-  # E-46: all slots held past checkout_timeout raises PoolTimeoutError.
+  # @behavior PL-024
+  # The wait is bounded so a full Pool refuses rather than hanging the
+  # caller; the refusal has to arrive before any Sandbox is touched.
   def test_e46_exhausted_pool_times_out
     pool = Kobako::Pool.new(slots: 1, checkout_timeout: 0.05)
     release, holder = hold_one_slot(pool)

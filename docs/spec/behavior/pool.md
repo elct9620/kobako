@@ -11,7 +11,7 @@ How a Pool hands out warm Sandboxes, and what a checkout leaves behind.
 
 A Pool is observable in three places: which Sandbox a checkout receives, how many times the setup block has prepared one, and whether a slot survives what its holder did with it. Each scenario settles one of those and stops.
 
-The checkout wait bound and the constructor's argument validation raise rather than answer, so they belong to the error taxonomy and are specified there.
+A rejected constructor argument and an exhausted pool raise rather than answer, so what each settles is the class a Host App rescues.
 
 That a pooled Sandbox satisfies every other behavior identically to a directly constructed one is a claim about the whole corpus rather than a difference one observation settles; the isolation scenarios above are its pool-side witnesses.
 
@@ -178,3 +178,44 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | Given | a running `Pool#with` block that has dropped the last Pool reference and run a collection |
 | When | the checked-out Sandbox evaluates guest code inside that block |
 | Then | the evaluation returns its value |
+
+## `PL-020` A slot count that is not a positive Integer
+
+| Step | Statement |
+| --- | --- |
+| Given | `slots:` written as zero, a negative, a Float, a String, or nil |
+| When | `Kobako::Pool.new` runs |
+| Then | `ArgumentError` names `slots` |
+
+## `PL-021` A checkout bound that is not a positive finite number
+
+| Step | Statement |
+| --- | --- |
+| Given | `checkout_timeout:` written as zero, a negative, an infinity, a NaN, or a String |
+| When | `Kobako::Pool.new` runs |
+| Then | `ArgumentError` names `checkout_timeout` |
+
+## `PL-022` The indefinite wait is spelled nil
+
+| Step | Statement |
+| --- | --- |
+| Given | `checkout_timeout: nil` |
+| When | `Kobako::Pool.new` runs |
+| Then | a Pool is constructed |
+
+## `PL-023` A checkout timeout is one of kobako's own failures
+
+| Step | Statement |
+| --- | --- |
+| Given | `Kobako::PoolTimeoutError` |
+| When | its ancestry is read |
+| Then | `Kobako::Error` is among its ancestors |
+
+## `PL-024` Every slot held past the checkout bound
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool with `slots: 1` and `checkout_timeout: 0.05` |
+| Given | that slot held by another thread for longer than the bound |
+| When | `Pool#with` runs |
+| Then | `Kobako::PoolTimeoutError` is raised |
