@@ -273,3 +273,27 @@ The ambient denial the hermetic posture rests on has no scenario of its own: the
 | Given | a scenario switching to the permissive posture |
 | When | both frontends run it |
 | Then | they resolve it the same way |
+
+## `RT-032` An option value the runtime cannot build with
+
+| Step | Statement |
+| --- | --- |
+| Given | a runtime path and a timeout that is not positive |
+| When | `Kobako::Runtime.from_path` runs |
+| Then | `ArgumentError` names the timeout constraint |
+
+## `RT-033` A posture the ladder does not name
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox construction requesting a profile off the ladder |
+| When | `Kobako::Sandbox.new` runs |
+| Then | `ArgumentError` is raised |
+
+## `RT-034` A keyword the options do not take
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox construction carrying an unknown keyword |
+| When | `Kobako::Sandbox.new` runs |
+| Then | `ArgumentError` is raised |

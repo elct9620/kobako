@@ -28,10 +28,11 @@ class TestSandboxProfile < Minitest::Test
                  "profile: :permissive through Sandbox.new must construct and read back the requested rung"
   end
 
+  # @behavior RT-033 RT-034
   # Sandbox.new forwards every non-wasm_path keyword verbatim to
-  # SandboxOptions, so both option validation (E-39, covered per value
-  # in test_sandbox_options.rb) and unknown-keyword rejection surface
-  # through the Sandbox entry point unchanged.
+  # SandboxOptions, so both refusals have to surface through the Sandbox
+  # entry point unchanged — a forwarding that swallowed either would
+  # leave the per-value coverage in test_sandbox_options.rb unreachable.
   def test_option_keywords_forward_to_sandbox_options_rejection
     assert_raises(ArgumentError, "a non-ladder profile through Sandbox.new must be rejected (E-39)") do
       Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, profile: :sealed)

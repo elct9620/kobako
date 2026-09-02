@@ -76,11 +76,11 @@ class TestRuntime < Minitest::Test
     assert_match(/failed to compile Sandbox runtime/, err.message)
   end
 
-  # docs/behavior/errors.md E-39: an invalid timeout argument is a Host App
-  # programming error, raised as +ArgumentError+ before any engine work —
-  # distinct from the construction-failure +SetupError+ branch. The
-  # +Kobako::Sandbox+ path validates via +SandboxOptions+; this exercises the
-  # ext's defence-in-depth guard on a direct +from_path+ call.
+  # @behavior RT-032
+  # An unusable option is the Host App's own mistake, so it is refused
+  # before any engine work rather than surfacing as a construction
+  # failure. +Kobako::Sandbox+ validates through +SandboxOptions+; this
+  # exercises the ext's own guard on a direct +from_path+ call.
   def test_from_path_raises_argument_error_for_invalid_timeout
     err = assert_raises(ArgumentError) do
       Kobako::Runtime.from_path(Kobako::Runtime.default_path, -1.0, nil, nil, nil, :hermetic, :hold)
