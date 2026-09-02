@@ -13,6 +13,7 @@ class TestE2EYieldValueRefusal < Minitest::Test
 
   YIELD_ONCE = "Probe::Yields.call { |x| x }"
 
+  # @behavior T-154
   def test_e57_a_service_rescuing_its_own_yield_refusal_answers_normally
     seen = rescuing_sandbox.eval(YIELD_ONCE).value
 
@@ -21,6 +22,7 @@ class TestE2EYieldValueRefusal < Minitest::Test
                  "so the refusal is the Service's to handle rather than the invocation's end"
   end
 
+  # @behavior T-155
   def test_e57_the_refusal_names_the_position_rather_than_a_codec_class
     rescuing_sandbox.eval(YIELD_ONCE)
 
@@ -37,6 +39,7 @@ class TestE2EYieldValueRefusal < Minitest::Test
     ran
   RUBY
 
+  # @behavior T-156
   def test_e57_the_block_never_runs
     seen = rescuing_sandbox.eval(BLOCK_RAN_PROBE).value
 
@@ -47,6 +50,7 @@ class TestE2EYieldValueRefusal < Minitest::Test
 
   # Unrescued it is the Service failing, since the Service is the only side
   # that can change what it yields.
+  # @behavior T-157
   def test_e57_an_unrescued_yield_refusal_reaches_the_host_app_as_a_service_failure
     err = assert_raises(Kobako::ServiceError) { propagating_sandbox.eval(YIELD_ONCE) }
 
@@ -55,6 +59,7 @@ class TestE2EYieldValueRefusal < Minitest::Test
                        "Service failure, not as an exchange that produced no Service outcome"
   end
 
+  # @behavior T-158
   def test_e57_an_unrescued_yield_refusal_answers_in_kobakos_own_wording
     err = assert_raises(Kobako::ServiceError) { propagating_sandbox.eval(YIELD_ONCE) }
 
@@ -68,6 +73,7 @@ class TestE2EYieldValueRefusal < Minitest::Test
   # both answer here rather than travelling any further. This one runs on a
   # stack of its own — refusing it costs the thread that takes it (see
   # StackQuarantine).
+  # @behavior T-159
   def test_e57_a_yield_argument_that_nests_without_bound_refuses_at_the_same_site
     seen = in_a_spendable_stack { cyclic_yield_sandbox.eval(YIELD_ONCE).value }
 

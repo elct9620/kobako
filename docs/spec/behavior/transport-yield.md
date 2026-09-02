@@ -8,6 +8,7 @@ What happens when a host Service calls back into the block the guest handed it.
 - `test/e2e/test_yield_unwind.rb`
 - `test/e2e/test_yield_block_failure.rb`
 - `test/e2e/test_yield_block_spent.rb`
+- `test/e2e/test_yield_value_refusal.rb`
 - `test/unit/transport/test_yielder.rb`
 - `test/parity/test_yield.rb`
 
@@ -242,3 +243,53 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | Given | a Sandbox with a bound Service that stored the block it was yielded |
 | When | a later dispatch calls that stored block |
 | Then | the invocation fails naming a local jump |
+
+## `T-154` A yield argument the host cannot write is the Service's to handle
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service yielding a value having no wire representation |
+| Given | the Service rescuing that refusal |
+| When | guest code calls it with a block |
+| Then | the invocation answers what the Service returned |
+
+## `T-155` The refusal names the position it failed at
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service yielding a value having no wire representation |
+| When | the Service rescues the refusal and reads it |
+| Then | it names the yield the value could not cross |
+
+## `T-156` The block never runs
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service yielding a value having no wire representation |
+| When | guest code's block records that it ran |
+| Then | the record shows it did not |
+
+## `T-157` Unrescued, it is the Service that failed
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service yielding a value having no wire representation |
+| When | the Service leaves the refusal unrescued |
+| Then | `Kobako::ServiceError` reaches the Host App |
+
+## `T-158` The refusal is worded as kobako's own
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Service left a yield refusal unrescued |
+| When | the Host App reads the failure's message |
+| Then | it does not wear the shape a Service's own exception crosses in |
+
+## `T-159` A yield argument that nests without end refuses at the same site
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service yielding a value that nests without end |
+| Given | the Service rescuing that refusal |
+| When | guest code calls it with a block |
+| Then | the invocation answers what the Service returned |

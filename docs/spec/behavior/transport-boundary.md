@@ -11,6 +11,7 @@ What the host refuses to dispatch, and how narrow a bound object can make its ow
 - `test/e2e/test_class_escape.rb`
 - `test/unit/transport/test_dispatcher_allowlist.rb`
 - `test/unit/transport/test_dispatcher_gadget_return.rb`
+- `test/unit/transport/test_dispatcher_permissive_return.rb`
 - `test/unit/transport/test_dispatcher_narrowing.rb`
 - `test/parity/test_reflection.rb`
 
@@ -229,3 +230,11 @@ Narrowing sits beneath the boundary, never above it: an object may close its sur
 | Given | a class or module bound directly as a Service |
 | When | guest code calls one of its class-level methods |
 | Then | the call is refused rather than forwarded |
+
+## `T-160` An object that answers everything still crosses as a reference
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound Service answering an object whose missing-method handler answers any call |
+| When | the guest calls it |
+| Then | the answer crosses as a capability reference |

@@ -14,6 +14,7 @@ How a guest call reaches a host object, what crosses in each direction, and how 
 - `test/e2e/test_handle_arguments.rb`
 - `test/e2e/test_handle_restoration.rb`
 - `test/e2e/test_handle_proxy.rb`
+- `test/e2e/test_dispatch_args.rb`
 - `test/e2e/test_dispatch_kwargs_partition.rb`
 - `test/e2e/test_dispatch_gc_safety.rb`
 - `test/e2e/test_dsl_composition.rb`
@@ -766,3 +767,59 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a registry with a Service whose method collects arbitrary keywords |
 | When | a dispatch carries several |
 | Then | the Service received them all unchanged |
+
+## `T-147` A short method name survives a short keyword name
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service whose method name and keyword name are both short enough to be inline symbols |
+| When | guest code calls it with that keyword |
+| Then | the Service received the call under its own method name |
+
+## `T-148` An argument the wire cannot carry is refused at the call site
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service |
+| When | guest code passes a value having no wire representation, positionally or by keyword |
+| Then | the guest sees a `TypeError` rather than the value's string form |
+
+## `T-149` A Symbol argument arrives as a Symbol
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service reporting whether its argument is a Symbol |
+| When | guest code passes one |
+| Then | the Service reports that it is |
+
+## `T-150` An Array answer arrives as a guest Array
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service answering an Array |
+| When | guest code calls it and reads the answer's length |
+| Then | it reads the Array's own length |
+
+## `T-151` A Hash answer arrives as a guest Hash under its own keys
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service answering a Hash with Symbol keys |
+| When | guest code calls it and subscripts the answer by one of those keys |
+| Then | it reads the value bound under that key |
+
+## `T-152` Nesting crosses in both directions unchanged
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service echoing what it receives |
+| When | guest code passes an Array of Hashes |
+| Then | the Service received that structure and the guest receives it back |
+
+## `T-153` An argument's size is read from the value, not asked of the guest
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service echoing what it receives |
+| When | guest code passes an Array whose own length method reports a larger count |
+| Then | the Service received the Array's real elements |

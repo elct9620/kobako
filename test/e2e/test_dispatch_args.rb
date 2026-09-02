@@ -10,7 +10,10 @@ require "test_helper"
 class TestE2EDispatchArgs < Minitest::Test
   include E2eGuestHelper
 
-  # SPEC.md E-15: kwargs string keys → symbol keys at the dispatch boundary.
+  # @behavior T-138
+  # The wire carries keyword names as strings, so the symbolization has
+  # to happen at the boundary — this is the same observation the unit
+  # witness makes, driven through real mruby.
   def test_kwargs_string_keys_become_symbol_keys_at_dispatch_boundary
     klass = Class.new do
       define_method(:lookup) { |name:, region:| "#{region}/#{name}" }
@@ -24,7 +27,7 @@ class TestE2EDispatchArgs < Minitest::Test
                  "E-15: wire kwargs str keys symbolized at dispatch boundary (SPEC.md E-15)"
   end
 
-  # SPEC.md L1001 + E-15: empty kwargs path also exercised.
+  # @behavior T-142
   def test_empty_kwargs_dispatch_to_no_kwargs_method
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Math::Pi", -> { 3.14 })
@@ -35,11 +38,10 @@ class TestE2EDispatchArgs < Minitest::Test
                  "E-15: empty kwargs dispatches cleanly to a no-kwargs method (SPEC.md L1001)"
   end
 
-  # A short method name and a short kwarg key are both mruby inline symbols,
-  # which mruby unpacks through one shared per-VM name buffer. Reading the
-  # kwarg key while building the request must not corrupt the already-read
-  # method name: a +get+ dispatched with +auth:+ must arrive as +get+, not as
-  # the kwarg key truncated to the method-name length.
+  # @behavior T-147
+  # Both names are mruby inline symbols, which unpack through one shared
+  # per-VM buffer — reading the keyword while building the request must
+  # not overwrite the method name already read into it.
   def test_short_method_name_survives_a_short_kwarg_key
     klass = Class.new do
       define_method(:get) { |id, auth:| "#{id}:#{auth}" }
@@ -70,6 +72,11 @@ class TestE2EDispatchArgs < Minitest::Test
     "kwargs value" => "Sym::Echo.call(data: RpcProbe.new)"
   }.freeze
 
+  # @behavior T-148
+  # Both argument positions are covered because a guard on one would
+  # leave the other open, and the class has to match the one the yield
+  # position raises for the same refusal — the script chose the value,
+  # so it is the script's error rather than a transport fault.
   def test_rpc_unrepresentable_arg_rejected_not_coerced
     UNREPRESENTABLE_DISPATCH_CALLS.each do |position, call|
       err = dispatch_unrepresentable(call)
@@ -92,9 +99,9 @@ class TestE2EDispatchArgs < Minitest::Test
     assert_raises(Kobako::SandboxError) { sandbox.eval(script) }
   end
 
-  # docs/wire/payload-msgpack.md § Ext Types → ext 0x00: a Symbol transport argument
-  # travels on the wire as an ext 0x00 frame and arrives at the Service
-  # as a Ruby Symbol (not as the +to_s+ string form).
+  # @behavior T-149
+  # A Symbol travels as its own wire frame rather than as text, so the
+  # Service receives the Symbol the guest wrote and not its `to_s` form.
   def test_rpc_arg_symbol_arrives_as_symbol
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Sym::Echo", ->(arg) { arg.is_a?(Symbol) ? "sym:#{arg}" : "str:#{arg}" })
@@ -106,11 +113,10 @@ class TestE2EDispatchArgs < Minitest::Test
                  "(ext 0x00), not as a String via Object#to_s"
   end
 
-  # transport path: a Service returning an Array must reach the guest as an
-  # mruby Array (callable methods like +#length+, +#first+), not as
-  # +nil+. Reproduces the +examples/codemode+ failure where
-  # +KV::Store.keys+ — an +Array+ of +String+ — was deserialized to
-  # +nil+ inside the guest.
+  # @behavior T-150
+  # Reproduces the codemode failure where a Service answering an Array
+  # of String deserialized to +nil+ inside the guest, so the assertion
+  # calls a method on the answer rather than comparing it.
   def test_rpc_service_returning_array_arrives_as_array_in_guest
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("KV::Keys", -> { %w[a b c] })
@@ -122,9 +128,9 @@ class TestE2EDispatchArgs < Minitest::Test
                  "in the guest (currently regressed to nil — see codemode failure)"
   end
 
-  # transport path: a Service returning a Hash must reach the guest as an
-  # mruby Hash with usable subscript access; Symbol keys returned by
-  # the host arrive as Symbols on the guest side.
+  # @behavior T-151
+  # Subscripting by the Symbol key is what shows both that the answer is
+  # a guest Hash and that its keys survived as Symbols.
   def test_rpc_service_returning_hash_arrives_as_hash_in_guest
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("KV::Snapshot", -> { { a: 1, b: 2 } })
@@ -136,12 +142,12 @@ class TestE2EDispatchArgs < Minitest::Test
                  "with Symbol keys preserved (SPEC.md Type Mapping #8)"
   end
 
-  # transport path: nested Array of Hash passes from guest → host → guest with
-  # element-level fidelity. The Service captures into +seen+ before
-  # echoing so the assertion can prove both the host-side arrival shape
-  # and the guest-side round-trip shape match the original structure.
+  # The Service captures into +seen+ before echoing, so one call shows
+  # both the host-side arrival shape and the guest-side return shape —
+  # a conversion correct in one direction only would pass either alone.
   NESTED_AOH = [{ x: 1 }, { y: 2 }].freeze
 
+  # @behavior T-152
   def test_rpc_nested_array_of_hash_round_trip
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     seen = []
@@ -153,17 +159,17 @@ class TestE2EDispatchArgs < Minitest::Test
     assert_equal NESTED_AOH, result, "transport return: nested Array-of-Hash must round-trip losslessly"
   end
 
-  # transport path: argument conversion sizes a buffer from the array length,
-  # so it reads the C element count rather than dispatching `#length`, which
-  # untrusted guest mruby can override per-instance. An array whose `length`
-  # the guest has inflated must still convert by its real elements — neither
-  # trapping on an oversized reservation nor mis-shaping the request.
+  # Argument conversion sizes a buffer from the array length, so it reads
+  # the element count directly rather than dispatching `#length`, which
+  # untrusted guest code can override per instance — an inflated one would
+  # otherwise steer an oversized reservation.
   OVERRIDDEN_LENGTH_SCRIPT = <<~RUBY
     a = [1, 2, 3]
     def a.length; 1_000_000_000; end
     Echo::Identity.call(a)
   RUBY
 
+  # @behavior T-153
   def test_rpc_array_arg_ignores_guest_overridden_length
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     seen = []

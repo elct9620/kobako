@@ -30,6 +30,7 @@ class TestDispatchPermissiveReturn < Minitest::Test
     DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
   end
 
+  # @behavior T-160
   def test_permissive_builder_return_crosses_as_handle
     resp = dispatch("widget")
     assert_equal true, resp.ok?,
