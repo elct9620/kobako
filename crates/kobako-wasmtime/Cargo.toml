@@ -38,7 +38,7 @@ kobako-transport = { version = "0.14.0", path = "../kobako-transport" }
 # feature so test fixtures can be expressed as text.
 # `cache` / `parallel-compilation` / `pooling` / `component-model` / `async`
 # are intentionally off — kobako runs short-lived synchronous sandboxes.
-wasmtime = { version = "47.0.2", default-features = false, features = [
+wasmtime = { version = "48.0.1", default-features = false, features = [
     "cranelift",
     "runtime",
     "gc",
