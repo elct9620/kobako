@@ -3,11 +3,12 @@
 require "test_helper"
 
 # Attribution coverage for the branches that don't need a live Sandbox:
-# the two arms that carry no record, an unreadable ok payload, and
-# the Panic class-to-Ruby-class mapping (including the +BytecodeError+
-# and +UndefinedEntrypointError+ subclass selections). Attribution lives
-# on +Kobako::Outcome+ as a stateless module of pure functions, so the
-# arms the native side names are handed to it directly.
+# the two arms that carry no record (docs/behavior/errors.md E-02 / E-03),
+# an unreadable ok payload, and the Panic class-to-Ruby-class mapping
+# (including the +BytecodeError+ and +UndefinedEntrypointError+ subclass
+# selections). Attribution lives on +Kobako::Outcome+ as a stateless
+# module of pure functions, so the arms the native side names are handed
+# to it directly.
 class TestOutcomeDecoding < Minitest::Test
   # One panic arm's fields, in the order the native side hands them over.
   def panic(origin:, klass:, message:, backtrace: [], available: [])
