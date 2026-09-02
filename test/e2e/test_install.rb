@@ -71,7 +71,10 @@ class TestE2EInstall < Minitest::Test
                  "per-invocation resolution must let the next invocation run once the provider succeeds (B-56)"
   end
 
-  # E-51: install after the first invocation has sealed registration.
+  # @behavior EX-028
+  # Composition is fixed at setup so every invocation ships the same
+  # idioms; the refusal names the invocation that closed it rather than
+  # reading as a malformed Extension.
   def test_install_after_first_invocation_raises
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.eval("1")
@@ -80,10 +83,11 @@ class TestE2EInstall < Minitest::Test
     assert_match(/after first Sandbox invocation/, err.message)
   end
 
-  # E-52: an unmet depends_on raises at the first invocation — before the
-  # guest runs — naming the missing dependency. Walks the real
-  # install -> #eval seam (begin_invocation! sealing the Extension
-  # registry) that the unit suite pins only by calling seal! in isolation.
+  # @behavior EX-029
+  # Walks the real install -> #eval seam, where the invocation itself
+  # seals the Extension registry — the unit suite reaches the same check
+  # only by calling seal! in isolation, which cannot show that the guest
+  # never starts.
   def test_unmet_dependency_raises_before_the_guest_runs_naming_it
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.install(Kobako::Extension.new(name: :File, source: FILE_SOURCE, depends_on: [:Errno]))

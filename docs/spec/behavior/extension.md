@@ -12,7 +12,7 @@ What installing a guest idiom with an optional host backend composes, and what s
 
 Installing an Extension is observable in two places: what the composition leaves behind — a snippet under one name, a Service under another — and what stands behind that path once an invocation begins, which the backend's declared keyword decides. The dependency scenarios cover the third: when that composition is checked, and how little the check asks.
 
-Installing after the seal, an unmet dependency, and a malformed Extension all raise, so they belong to the error taxonomy and are specified there.
+Installing after the seal, an unmet dependency, and a malformed Extension all raise rather than compose, and each is settled here by what the refusal names — the dependency ones twice over, because when the check fires and what it can say are separate observations.
 
 The `File` idiom the end-to-end witnesses install is an illustrative fixture — kobako ships no concrete Extension — so no scenario here states what that idiom does, only what installing one produces.
 
@@ -235,3 +235,51 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | Given | two installed Extensions, the dependent one installed first, whose source names the other's constant |
 | When | guest code calls the dependent Extension's method |
 | Then | it answers with the value read from the other Extension's constant |
+
+## `EX-028` An install after registration is sealed
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose first invocation has completed |
+| When | `#install` runs |
+| Then | `ArgumentError` names the first invocation |
+
+## `EX-029` An unmet dependency refuses the first invocation
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox holding an Extension that names a dependency nothing installed |
+| When | the first invocation begins |
+| Then | `ArgumentError` names the missing Extension |
+
+## `EX-030` The refusal names the Extension that asked as well
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry holding an Extension that names a dependency nothing installed |
+| When | the registry is sealed |
+| Then | `ArgumentError` names both the Extension and the dependency |
+
+## `EX-031` A failed seal is checked again on the next attempt
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry whose seal already failed on an unmet dependency |
+| When | the registry is sealed again |
+| Then | `ArgumentError` is raised again |
+
+## `EX-032` An idiom that is not source
+
+| Step | Statement |
+| --- | --- |
+| Given | an Extension whose `source` is not a String |
+| When | `#install` runs |
+| Then | `ArgumentError` names `source` |
+
+## `EX-033` A backend that declares no kind
+
+| Step | Statement |
+| --- | --- |
+| Given | an Extension whose `backend` exposes neither `path`, `object`, nor `provider` |
+| When | `#install` runs |
+| Then | `ArgumentError` names `backend` |

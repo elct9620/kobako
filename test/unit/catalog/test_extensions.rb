@@ -107,7 +107,9 @@ module Kobako
       assert_same @extensions, @extensions.seal!
     end
 
-    # E-52: an unmet dependency raises at the seal, naming both ends.
+    # @behavior EX-030
+    # Naming only the missing half would leave a Host App with several
+    # Extensions unable to tell which one asked for it.
     def test_seal_raises_on_an_unmet_dependency_naming_it
       install(extension(name: :File, source: "1", depends_on: [:Errno]))
 
@@ -152,9 +154,10 @@ module Kobako
                   "unmet afterward does not raise on a later seal (B-57)"
     end
 
-    # E-52: a seal that failed on an unmet dependency must re-check on the
-    # next attempt — the asserted flag flips only on success, so a retry
-    # keeps failing closed rather than silently passing a broken Sandbox.
+    # @behavior EX-031
+    # The asserted flag flips only on a successful seal, so a retry keeps
+    # failing closed rather than passing a Sandbox whose dependency is
+    # still missing.
     def test_seal_re_asserts_after_a_failed_seal_so_a_retry_still_raises
       install(extension(name: :File, source: "1", depends_on: [:Errno]))
 
@@ -166,11 +169,17 @@ module Kobako
       end
     end
 
+    # @behavior EX-032
+    # The source is what becomes a guest snippet, so anything that is not
+    # source has nothing to become.
     def test_install_rejects_a_non_string_source
       err = assert_raises(ArgumentError) { install(extension(name: :File, source: 123)) }
       assert_match(/source/, err.message, "a non-String source is a malformed Extension (E-53)")
     end
 
+    # @behavior EX-033
+    # A backend declares its kind by keyword rather than by inference, so
+    # one exposing none of the three says nothing install can act on.
     def test_install_rejects_a_backend_missing_path_object_or_provider
       err = assert_raises(ArgumentError) { install(extension(name: :File, source: "1", backend: Object.new)) }
       assert_match(/backend/, err.message,
