@@ -4,6 +4,7 @@ How a guest call reaches a host object, what crosses in each direction, and how 
 
 ## Includes
 
+- `test/unit/transport/test_dispatcher.rb`
 - `test/unit/transport/test_dispatcher_handles.rb`
 - `test/unit/transport/test_dispatcher_invalidity.rb`
 - `test/unit/transport/test_dispatcher_violations.rb`
@@ -685,3 +686,83 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a scenario running an entrypoint with a stateful host argument |
 | When | both frontends run it |
 | Then | they observe the same answer |
+
+## `T-137` A dispatch to a bound path answers on the ok arm
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry with a Service bound at a path |
+| When | a dispatch names that path and a method it answers |
+| Then | the answer carries the Service's value on the ok arm |
+
+## `T-138` Keyword names reach the Service as Symbols
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry with a Service recording the keywords it is called with |
+| When | a dispatch carries keyword arguments |
+| Then | the Service received them under Symbol keys |
+
+## `T-139` A path nothing is bound at is an undefined target
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry with nothing bound at a path |
+| When | a dispatch names that path |
+| Then | it answers on the fault arm as an undefined target |
+
+## `T-140` A Service's own exception is the Service's failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry with a Service whose method raises |
+| When | the guest calls it |
+| Then | it answers on the fault arm as a runtime failure carrying the Service's message |
+
+## `T-141` Arguments that will not bind are an argument failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry with a Service whose method takes two positional arguments |
+| When | a dispatch supplies none |
+| Then | it answers on the fault arm as an argument failure |
+
+## `T-142` No keywords is a keyword map with nothing in it
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry with a Service whose method takes no keywords |
+| When | a dispatch carries an empty keyword map |
+| Then | the call answers on the ok arm |
+
+## `T-143` Keywords a method cannot take are an argument failure, not a runtime one
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry with a Service whose method takes no keywords |
+| When | a dispatch carries a keyword anyway |
+| Then | it answers on the fault arm as an argument failure |
+
+## `T-144` So is a keyword the method does not name
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry with a Service whose method names one keyword |
+| When | a dispatch carries that keyword and one more |
+| Then | it answers on the fault arm as an argument failure |
+
+## `T-145` Positional and keyword arguments arrive in their own positions
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry with a Service whose method takes one of each |
+| When | a dispatch carries both |
+| Then | the Service received each in its own position |
+
+## `T-146` A method collecting keywords collects whichever arrive
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry with a Service whose method collects arbitrary keywords |
+| When | a dispatch carries several |
+| Then | the Service received them all unchanged |
