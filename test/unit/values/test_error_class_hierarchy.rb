@@ -7,16 +7,17 @@ require "test_helper"
 # three invocation-outcome classes plus the construction-layer
 # `SetupError` branch.
 class TestErrorClassHierarchy < Minitest::Test
+  # @behavior OC-016
   def test_three_top_level_classes_descend_from_kobako_error
     assert Kobako::TrapError < Kobako::Error
     assert Kobako::SandboxError < Kobako::Error
     assert Kobako::ServiceError < Kobako::Error
   end
 
-  # docs/behavior/errors.md E-40 / E-41: SetupError is the construction-layer branch,
-  # a sibling of the invocation-outcome classes under Kobako::Error — not a
-  # TrapError, because no invocation runs when Sandbox.new fails to build the
-  # runtime. ModuleNotBuiltError is its named absent-artifact subclass.
+  # @behavior OC-017
+  # A construction failure is not a trap, because no invocation ran to be
+  # cut short — it is a sibling of the outcome classes rather than one
+  # of them.
   def test_setup_error_is_a_construction_branch_under_kobako_error
     assert Kobako::SetupError < Kobako::Error
     assert Kobako::ModuleNotBuiltError < Kobako::SetupError
@@ -24,22 +25,23 @@ class TestErrorClassHierarchy < Minitest::Test
            "construction failures are not invocation traps"
   end
 
+  # @behavior OC-018
   def test_handler_exhausted_chains_under_sandbox_error
     assert Kobako::HandleExhaustedError < Kobako::SandboxError
   end
 
-  # SPEC E-27: the named subclass for an unresolved `#run` entrypoint. A
-  # Host App that only wants "the guest failed" must still catch it with
-  # one `rescue Kobako::SandboxError`.
+  # @behavior OC-019
+  # A Host App that only wants "the guest failed" must still catch it
+  # with one `rescue Kobako::SandboxError`.
   def test_undefined_entrypoint_chains_under_sandbox_error
     assert Kobako::UndefinedEntrypointError < Kobako::SandboxError
     assert Kobako::UndefinedEntrypointError < Kobako::Error
   end
 
-  # docs/behavior/errors.md § Dispatch failure attribution: a dispatch
-  # failure's category picks one of these, and the whole point of putting
-  # them under ServiceError is that gaining the distinction costs a Host
-  # App nothing — one rescue still catches every Service failure.
+  # @behavior OC-020
+  # A dispatch failure's category picks one of these, and the point of
+  # putting them under ServiceError is that gaining the distinction costs
+  # a Host App nothing — one rescue still catches every Service failure.
   def test_every_dispatch_failure_class_chains_under_service_error
     [Kobako::NoServiceError, Kobako::ServiceArgumentError].each do |subclass|
       assert_operator subclass, :<, Kobako::ServiceError,
@@ -56,6 +58,7 @@ class TestErrorClassHierarchy < Minitest::Test
   YIELD_SITE_CLASSES = [Kobako::BlockError, Kobako::YieldValueError].freeze
   INVOCATION_OUTCOMES = [Kobako::TrapError, Kobako::SandboxError, Kobako::ServiceError].freeze
 
+  # @behavior OC-021
   def test_a_yield_site_failure_is_not_an_invocation_outcome
     YIELD_SITE_CLASSES.product(INVOCATION_OUTCOMES).each do |yield_site, outcome|
       assert_operator yield_site, :<, Kobako::Error
@@ -67,13 +70,16 @@ class TestErrorClassHierarchy < Minitest::Test
     end
   end
 
-  # SPEC E-19 / E-20: TimeoutError and MemoryLimitError are the two named
-  # TrapError subclasses for the configured per-run caps from B-01.
+  # @behavior OC-022
+  # The two configured per-run caps are the named trap subclasses, so a
+  # Host App can tell a cap apart from an engine trap without losing the
+  # single rescue that covers both.
   def test_timeout_error_chains_under_trap_error
     assert Kobako::TimeoutError < Kobako::TrapError
     assert Kobako::TimeoutError < Kobako::Error
   end
 
+  # @behavior OC-023
   def test_memory_limit_error_chains_under_trap_error
     assert Kobako::MemoryLimitError < Kobako::TrapError
     assert Kobako::MemoryLimitError < Kobako::Error

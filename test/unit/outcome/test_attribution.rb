@@ -17,11 +17,10 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
     Kobako::Outcome.reify(:panic, payload, [origin, klass, message, []])
   end
 
-  # --- Panic with unknown origin (errors.md § Error Scenarios, Step 2) ---
-  #
-  # Origins other than "service" attribute to the sandbox — the third
-  # branch of the origin decision tree, and the one an origin the
-  # contract does not reserve lands on.
+  # @behavior OC-010
+  # The sandbox branch is where an origin the contract reserves nothing
+  # for lands, so an unrecognised origin never widens what the guest can
+  # be blamed for.
   def test_panic_with_unknown_origin_raises_sandbox_error
     err = assert_raises(Kobako::SandboxError) do
       reify_panic(origin: "unknown", klass: "Kobako::SomeError", message: "strange")
@@ -34,8 +33,9 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
                  "the unrecognised origin rides through verbatim rather than being overwritten"
   end
 
-  # Belt-and-suspenders: pin the canonical "sandbox" origin path
-  # independently of the fixture-driven cases in test_decoding.rb.
+  # @behavior OC-009
+  # Pinned independently of the fixture-driven cases in test_decoding.rb,
+  # so the named origin and the fallback are not proved by one path.
   def test_panic_with_sandbox_origin_raises_sandbox_error_not_service_error
     err = assert_raises(Kobako::SandboxError) do
       reify_panic(origin: "sandbox", klass: "RuntimeError", message: "box-side error")
@@ -45,12 +45,10 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
     assert_equal "box-side error", err.message
   end
 
-  # --- ok arm with an empty payload raises Transport::Error (E-09) ---
-  #
-  # An empty payload is not a valid msgpack value, so the codec raises
-  # and the host wraps it as a Transport::Error whose user-facing message
-  # stays in caller vocabulary; the inner codec diagnostic reaches an
-  # operator through Ruby's own +#detailed_message+ channel.
+  # @behavior OC-004 OC-005
+  # An empty payload is not a value the codec can read, so the refusal
+  # has to say what a Host App can act on while still leaving the codec's
+  # own account reachable through Ruby's +#detailed_message+ channel.
   def test_ok_arm_with_an_empty_payload_raises_sandbox_error
     err = assert_raises(Kobako::Transport::Error) { Kobako::Outcome.reify(:ok, "".b, nil) }
 
@@ -77,6 +75,7 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
     ["sandbox", "Kobako::BytecodeError"] => Kobako::BytecodeError
   }.freeze
 
+  # @behavior OC-011
   def test_a_guest_written_class_name_narrows_within_its_origins_branch
     NARROWED.each do |(origin, klass), expected|
       err = assert_raises(expected) { reify_panic(origin: origin, klass: klass, message: "m") }
@@ -86,6 +85,7 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
     end
   end
 
+  # @behavior OC-012
   def test_a_class_name_outside_its_origins_branch_is_ignored
     err = assert_raises(Kobako::ServiceError) do
       reify_panic(origin: "service", klass: "Kobako::BytecodeError", message: "m")

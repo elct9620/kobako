@@ -19,6 +19,7 @@ class TestOutcomeValueSharing < Minitest::Test
   # past it that an owned buffer cannot be mistaken for a view.
   LARGE = "x" * 65_536
 
+  # @behavior OC-007
   def test_a_large_invocation_value_decodes_without_copying_its_bytes
     value = Kobako::Outcome.reify(:ok, Kobako::Codec::Encoder.encode(LARGE), nil)
 

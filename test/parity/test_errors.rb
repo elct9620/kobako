@@ -6,8 +6,9 @@ require "test_helper"
 # E-20; E-01 pending): each failure origin must reach the same
 # neutral status and guest class through both frontends.
 class TestParityErrors < Parity::Case
-  # SPEC.md E-04: an uncaught guest exception is a sandbox-origin
-  # failure carrying the guest class.
+  # @behavior OC-024
+  # Both an anonymous raise and one of the guest's own class are run,
+  # since a frontend could carry the class for one and not the other.
   def test_uncaught_guest_exception
     assert_parity Parity::Scenario.new(
       name: "uncaught-raise", anchors: %w[E-04],
@@ -18,8 +19,9 @@ class TestParityErrors < Parity::Case
     )
   end
 
-  # SPEC.md E-05: a source that fails to compile is a sandbox-origin
-  # failure, not a trap.
+  # @behavior OC-025
+  # A frontend attributing this as a trap would tell its Host App to
+  # discard a Sandbox that never ran anything.
   def test_compile_failure
     assert_parity Parity::Scenario.new(
       name: "compile-failure", anchors: %w[E-05],
@@ -27,8 +29,7 @@ class TestParityErrors < Parity::Case
     )
   end
 
-  # SPEC.md B-01 / E-19: the wall-clock cap interrupts an infinite
-  # loop with the timeout status on both sides.
+  # @behavior OC-026
   def test_timeout_cap
     assert_parity Parity::Scenario.new(
       name: "timeout-cap", anchors: %w[B-01 E-19],
@@ -37,8 +38,7 @@ class TestParityErrors < Parity::Case
     )
   end
 
-  # SPEC.md B-01 / E-20: the linear-memory cap traps runaway
-  # allocation with the memory-limit status on both sides.
+  # @behavior OC-027
   def test_memory_limit_cap
     assert_parity Parity::Scenario.new(
       name: "memory-limit-cap", anchors: %w[E-20],
