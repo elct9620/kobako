@@ -30,6 +30,7 @@ class TestE2EByteFidelity < Minitest::Test
   NON_UTF8 = "bin\xFFkey"
   NON_UTF8_SOURCE = '"bin\xFFkey"'
 
+  # @behavior CD-005
   def test_outcome_non_utf8_string_keeps_its_bytes_as_binary
     result = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(NON_UTF8_SOURCE).value
 
@@ -39,6 +40,9 @@ class TestE2EByteFidelity < Minitest::Test
                  "a String that rode as wire bin through #eval must arrive ASCII-8BIT-tagged"
   end
 
+  # @behavior CD-006
+  # A name has nowhere to keep bytes that are not text, so interning it
+  # would leave the guest holding a name it never wrote.
   def test_outcome_non_utf8_symbol_is_refused
     err = assert_raises(Kobako::SandboxError) do
       Kobako::Sandbox.new(wasm_path: REAL_WASM).eval('"s\xFFy".to_sym')
@@ -49,6 +53,7 @@ class TestE2EByteFidelity < Minitest::Test
                  "unrepresentable return value, not interned under a name the guest never wrote")
   end
 
+  # @behavior CD-007
   def test_dispatch_argument_non_utf8_string_reaches_the_service_intact
     seen = nil
     sandbox = probe_sandbox { |value| seen = value }
@@ -60,6 +65,9 @@ class TestE2EByteFidelity < Minitest::Test
                  "the Service with those bytes intact"
   end
 
+  # @behavior CD-008
+  # The script chose the value, so the refusal is its own type error at
+  # the call site rather than a transport fault about the boundary.
   def test_dispatch_argument_non_utf8_symbol_is_refused
     sandbox = probe_sandbox
 
@@ -72,9 +80,10 @@ class TestE2EByteFidelity < Minitest::Test
                  "the refusal must name the argument slot it stopped at")
   end
 
+  # @behavior CD-009
   # A keyword name rides as a Symbol whatever the guest wrote it as, so a
-  # String key double-splatted into a call is held to the same UTF-8 rule
-  # as a Symbol one.
+  # String key double-splatted into a call is held to the same rule as a
+  # Symbol one.
   def test_dispatch_non_utf8_keyword_name_is_refused
     sandbox = probe_sandbox
 
@@ -85,9 +94,9 @@ class TestE2EByteFidelity < Minitest::Test
                  "refused as the script's own type error at the call site, not renamed"
   end
 
-  # The rule is the bytes, not the shape a guest wrote the name in — a
-  # UTF-8 String key rides as a Symbol and is not what the refusal above
-  # is reacting to.
+  # @behavior CD-010
+  # The rule is the bytes, not the shape a guest wrote the name in, so
+  # this stands beside the refusal above to show what it is reacting to.
   def test_dispatch_utf8_keyword_name_written_as_a_string_is_accepted
     seen = nil
     sandbox = probe_sandbox { |value| seen = value }

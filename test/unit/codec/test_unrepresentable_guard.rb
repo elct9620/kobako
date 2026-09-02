@@ -11,6 +11,7 @@ require "test_helper"
 class TestCodecUnrepresentableGuard < Minitest::Test
   include CodecHelpers
 
+  # @behavior CD-015
   def test_permissive_object_encodes_as_unsupported_not_nil
     perm = Object.new
     def perm.method_missing(name, *) = (name == :to_msgpack ? nil : super)
@@ -23,6 +24,7 @@ class TestCodecUnrepresentableGuard < Minitest::Test
     end
   end
 
+  # @behavior CD-016
   def test_basic_object_proxy_encodes_as_unsupported
     proxy = BasicObject.new
     def proxy.method_missing(_name, *) = nil
@@ -33,6 +35,9 @@ class TestCodecUnrepresentableGuard < Minitest::Test
     end
   end
 
+  # @behavior CD-017
+  # The guard's id exists only so the encoder can refuse; nothing may
+  # arrive carrying it, so the decoder refuses it in turn.
   def test_guard_ext_id_is_rejected_on_decode
     bytes = [0xD4, 0x7F, 0x00].pack("C*") # fixext1 carrying the guard's inert id 0x7F
     assert_raises(InvalidTypeError,

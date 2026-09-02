@@ -14,9 +14,9 @@ class TestE2EIntegerRange < Minitest::Test
   I32_MAX = (2**31) - 1
   OVER_I32 = 2**31
 
-  # dispatch-return path: a Service returning an integer beyond the guest's
-  # range raises in the calling guest code rather than handing the script a
-  # saturated value.
+  # @behavior CD-001
+  # Saturating to the nearest bound would hand the script a different
+  # number than the wire carried, with nothing to say it had changed.
   def test_service_return_above_i32_range_is_refused_in_guest
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Clock::Millis", -> { OVER_I32 })
@@ -30,8 +30,9 @@ class TestE2EIntegerRange < Minitest::Test
                  "the refusal must name the value it could not hold, not just that one failed")
   end
 
-  # boundary guard: the largest in-range value still round-trips, so the
-  # refusal does not over-reach.
+  # @behavior CD-002
+  # Pinned against the refusal above so a check that over-reached by one
+  # would be caught rather than read as caution.
   def test_service_return_at_i32_max_round_trips
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Clock::Max", -> { I32_MAX })
@@ -40,9 +41,9 @@ class TestE2EIntegerRange < Minitest::Test
                  "an inbound integer at the 32-bit ceiling must round-trip, not be refused"
   end
 
-  # E-26: a #run argument beyond the guest's range has no faithful guest
-  # representation, so the invocation fails at guest entry rather than
-  # reaching the entrypoint with a saturated value.
+  # @behavior CD-003
+  # The refusal has to land at guest entry rather than at the entrypoint,
+  # or the entrypoint would run against a value it was never sent.
   def test_run_argument_above_i32_range_fails_the_invocation
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.preload(code: "Echo = ->(x) { x }", name: :Echo)
@@ -57,6 +58,7 @@ class TestE2EIntegerRange < Minitest::Test
                  "must say which value stopped it rather than that decoding failed")
   end
 
+  # @behavior CD-004
   # The third inbound direction, and the only one whose refusal takes
   # three hops: the block never runs, so the guest answers the Yield Reply
   # with its error arm, the host re-raises that at the Service's own yield

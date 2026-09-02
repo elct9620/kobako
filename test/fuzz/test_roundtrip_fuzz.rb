@@ -58,6 +58,7 @@ class TestCodecRoundtripFuzz < Minitest::Test
     initialize_fuzzer_params
   end
 
+  # @behavior CD-021
   def test_round_trip_fuzz
     ORACLE.open do |channel|
       @iterations.times do |i|

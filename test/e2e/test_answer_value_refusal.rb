@@ -19,6 +19,7 @@ class TestE2EAnswerValueRefusal < Minitest::Test
   # The Service ran and produced something; only it can change what that is.
   # A trap would tell the Host App to discard the Sandbox for a failure that
   # is neither the guest's nor the runtime's.
+  # @behavior CD-018
   def test_an_unwritable_answer_reaches_the_host_app_as_a_service_failure
     error = in_a_spendable_stack do
       assert_raises(Kobako::ServiceError) { cyclic_sandbox.eval(CALL_ONCE) }
@@ -30,6 +31,7 @@ class TestE2EAnswerValueRefusal < Minitest::Test
                        "outcome and not as a trap"
   end
 
+  # @behavior CD-019
   def test_an_unwritable_answer_answers_in_kobakos_own_wording
     error = in_a_spendable_stack do
       assert_raises(Kobako::ServiceError) { cyclic_sandbox.eval(CALL_ONCE) }
@@ -51,6 +53,7 @@ class TestE2EAnswerValueRefusal < Minitest::Test
     end
   RUBY
 
+  # @behavior CD-020
   def test_the_guest_may_rescue_an_unwritable_answer_and_carry_on
     seen = in_a_spendable_stack { cyclic_sandbox.eval(RESCUING).value }
 

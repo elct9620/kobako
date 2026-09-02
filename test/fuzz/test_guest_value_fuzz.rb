@@ -59,6 +59,7 @@ class TestGuestValueFuzz < Minitest::Test
   # A wire value the guest can hold must survive the round trip unchanged.
   # The guest walk is the only implementation on this path, so identity is
   # the whole oracle.
+  # @behavior CD-022
   def test_guest_value_round_trip_fuzz
     sandbox = echo_sandbox
     @iterations.times { |iter| assert_round_trip(sandbox, @generator.generate, iter) }

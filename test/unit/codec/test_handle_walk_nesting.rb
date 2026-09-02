@@ -20,6 +20,7 @@ class TestCodecHandleWalkNesting < Minitest::Test
     depth.times.reduce(leaf) { |acc, _| [acc] }
   end
 
+  # @behavior CD-011
   def test_argument_at_max_nesting_depth_crosses_unchanged
     value = nest(MAX_DEPTH)
 
@@ -27,8 +28,9 @@ class TestCodecHandleWalkNesting < Minitest::Test
                  "a #run argument nested at the maximum encodable depth must cross the boundary unchanged"
   end
 
-  # The depth cap and the guest wire cap name the same bound, so an argument
-  # one level past it has no faithful representation and is refused host-side.
+  # @behavior CD-012
+  # The walk's cap and the guest wire cap name the same bound, so an
+  # argument one level past it has no representation to cross in.
   def test_argument_past_max_nesting_depth_is_rejected_as_sandbox_error
     err = assert_raises(Kobako::SandboxError) do
       HandleWalk.deep_wrap(nest(MAX_DEPTH + 1), @table)
@@ -38,9 +40,9 @@ class TestCodecHandleWalkNesting < Minitest::Test
                  "a #run argument nested past the maximum encodable depth must be refused as a clean SandboxError")
   end
 
-  # A reference cycle nests without bound; the wrap walk must refuse it as a
-  # bounded SandboxError rather than recurse into a host SystemStackError,
-  # which is not a StandardError and would escape Sandbox#invoke! uncaught.
+  # @behavior CD-013
+  # Recursing instead would raise a host SystemStackError, which is not a
+  # StandardError and would escape Sandbox#invoke! uncaught.
   def test_cyclic_argument_is_rejected_without_stack_overflow
     cyclic = []
     cyclic << cyclic
@@ -48,8 +50,9 @@ class TestCodecHandleWalkNesting < Minitest::Test
     assert_raises(Kobako::SandboxError) { HandleWalk.deep_wrap(cyclic, @table) }
   end
 
-  # The key-representability walk is depth-bounded too, so a cyclic Hash key
-  # is refused as a SandboxError rather than overflowing the predicate walk.
+  # @behavior CD-014
+  # The key-representability walk is bounded separately from the value
+  # one, so a key that refers to itself needs its own witness.
   def test_cyclic_hash_key_is_rejected_without_stack_overflow
     cyclic = []
     cyclic << cyclic
