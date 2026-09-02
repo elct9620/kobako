@@ -17,6 +17,7 @@ class TestSandboxRunEnvelope < Minitest::Test
     require_fixture!(ALLOC_ZERO_FIXTURE_PATH)
   end
 
+  # @behavior S-098
   def test_run_raises_sandbox_error_when_guest_alloc_reports_exhaustion
     sandbox = Kobako::Sandbox.new(wasm_path: ALLOC_ZERO_FIXTURE_PATH)
 

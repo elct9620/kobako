@@ -9,6 +9,8 @@ What a Sandbox is built with, what one invocation leaves for the next, and what 
 - `test/unit/catalog/test_snippets.rb`
 - `test/e2e/sandbox/test_sandbox.rb`
 - `test/e2e/sandbox/test_run.rb`
+- `test/e2e/sandbox/test_run_preflight.rb`
+- `test/e2e/sandbox/test_run_envelope.rb`
 - `test/e2e/sandbox/test_preload.rb`
 - `test/e2e/sandbox/test_usage.rb`
 - `test/e2e/test_caps.rb`
@@ -764,3 +766,59 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a scenario preloading a snippet that will not compile and one that raises at replay |
 | When | both frontends run it |
 | Then | they observe the same failures |
+
+## `S-092` An entrypoint named as something that is not a name
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | `#run` is given a target that is neither a Symbol nor a String |
+| Then | `TypeError` names the two forms it takes |
+
+## `S-093` An entrypoint name that is not a constant name
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | `#run` is given a target that is not a constant name |
+| Then | `ArgumentError` names the constraint |
+
+## `S-094` An entrypoint is one name, not a path
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | `#run` is given a target spelling a nested constant |
+| Then | `ArgumentError` names the constraint |
+
+## `S-095` A capability reference among a run's arguments
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | `#run` carries a capability reference in its positional arguments |
+| Then | `ArgumentError` names the reference |
+
+## `S-096` A capability reference among a run's keyword values
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | `#run` carries a capability reference in a keyword value |
+| Then | `ArgumentError` names the reference |
+
+## `S-097` A keyword key that is not a Symbol
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | `#run` carries a keyword key that is not a Symbol |
+| Then | `ArgumentError` names the constraint |
+
+## `S-098` A guest that cannot reserve the run's envelope
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose guest allocator reports exhaustion |
+| When | `#run` reserves the invocation envelope |
+| Then | `Kobako::SandboxError` says the input buffer could not be allocated |

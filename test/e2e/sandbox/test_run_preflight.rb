@@ -18,44 +18,46 @@ class TestSandboxRunPreflight < Minitest::Test
     @fixture_sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
   end
 
-  # E-24
+  # @behavior S-092
   def test_e24_target_must_be_symbol_or_string
     err = assert_raises(TypeError) { @fixture_sandbox.run(42) }
     assert_match(/Symbol or String/, err.message)
   end
 
-  # E-25
+  # @behavior S-093
   def test_e25_target_must_match_constant_pattern
     err = assert_raises(ArgumentError) { @fixture_sandbox.run(:lowercase) }
     assert_match(/must match/, err.message)
   end
 
-  # E-25: `::`-segmented names fail the pattern check at host pre-flight.
+  # @behavior S-094
+  # An entrypoint is looked up as one top-level constant, so a nested
+  # name is refused at pre-flight rather than resolving to something.
   def test_e25_target_rejects_double_colon_segmented_name
     err = assert_raises(ArgumentError) { @fixture_sandbox.run("Outer::Inner") }
     assert_match(/must match/, err.message)
   end
 
-  # E-29 — host pre-flight rejects a forged Handle arriving in args.
-  # Legitimate Handles only surface through error fields; a Handle
-  # constructed by the caller can only be smuggled, so the wire layer
-  # never sees one in this position.
+  # @behavior S-095
+  # Legitimate Handles only surface through error fields, so one the
+  # caller constructed can only have been smuggled — refusing it at
+  # pre-flight keeps the wire layer from ever seeing one here.
   def test_e29_args_must_not_contain_handle
     handle = Kobako::Handle.restore(1)
     err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, handle) }
     assert_match(/Handle/, err.message)
   end
 
-  # E-29 — kwargs branch of the same rule. A Handle reaching a kwargs
-  # value is rejected with the same message structure as the args
-  # branch (both go through Transport::Run#forged_handle_message).
+  # @behavior S-096
+  # The keyword position is walked separately from the positional one,
+  # so a guard covering only the latter would leave this way in open.
   def test_e29_kwargs_values_must_not_contain_handle
     handle = Kobako::Handle.restore(1)
     err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, env: handle) }
     assert_match(/Handle/, err.message)
   end
 
-  # E-30
+  # @behavior S-097
   def test_e30_kwargs_keys_must_be_symbols
     err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, **{ "bad" => 1 }) }
     assert_match(/keyword argument keys must be Symbols/, err.message)
