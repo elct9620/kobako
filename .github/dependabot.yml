@@ -31,9 +31,13 @@ updates:
       semver-minor-days: 5
     groups:
       # wasmtime, wasmtime-wasi, and wasmtime-wizer share one release
-      # train and only compile when they name the same major, so they
-      # move as a single PR — including majors, which rust-deps below
-      # deliberately leaves for individual review.
+      # train, so their minor and patch bumps arrive as a single PR
+      # instead of dissolving into the rust-deps catch-all.
+      #
+      # A major crossing does not: Dependabot raises every major as its
+      # own PR whatever a group says, so the train arrives split across
+      # crates/ and kobako-baker and each half fails to compile alone.
+      # Bump all four declarations on one branch and close those PRs.
       wasmtime-deps:
         patterns:
           - "wasmtime*"
