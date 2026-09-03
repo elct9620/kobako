@@ -23,10 +23,10 @@ gem "beni", "~> 0.10.0"
 group :development do
   gem "irb"
   gem "minitest", "~> 6.0"
-  gem "rubocop", "~> 1.89"
+  gem "rubocop", "~> 1.90"
 
   # Static type checker. Signatures live in sig/.
-  gem "steep", "~> 2.0", require: false
+  gem "steep", "~> 2.1", require: false
 
   # benchmark-ips drives the SPEC.md "Regression benchmarks" suite in
   # benchmark/. Dev-only — the gem itself does not depend on it.
