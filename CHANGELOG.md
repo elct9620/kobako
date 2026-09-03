@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.24.0](https://github.com/elct9620/kobako/compare/v0.23.0...v0.24.0) (2026-09-03)
+
+
+### Features
+
+* **spec:** declare how a dispatch binds its arguments and reports what will not ([d5af2d8](https://github.com/elct9620/kobako/commit/d5af2d8c863f91c7916d9c5ed4ee8ac415c849b1))
+* **spec:** declare the boundary's value fidelity and its outbound refusals ([505845c](https://github.com/elct9620/kobako/commit/505845cb02e6d5dd94886cc2256708a9058b4c7f))
+* **spec:** declare the options a runtime will not build with ([1bbd018](https://github.com/elct9620/kobako/commit/1bbd018c05099b0501334292dd03e17ffb040c46))
+* **spec:** declare the three ways a yield ends badly ([c1b9024](https://github.com/elct9620/kobako/commit/c1b9024416d5c3a2f52c6137621a2656cf95fd1d))
+* **spec:** declare what a Pool refuses and what it raises ([b5cec2d](https://github.com/elct9620/kobako/commit/b5cec2d2d1083d49cdfd8ab5dc46ef164ea30aa7))
+* **spec:** declare what a preload and an entrypoint refuse ([299c177](https://github.com/elct9620/kobako/commit/299c1771cfaef57023b277bfd01a347f23908354))
+* **spec:** declare what a run refuses before the guest is reached ([073f801](https://github.com/elct9620/kobako/commit/073f801f1b37a82d4b6bfd9f574f2c2cce49889c))
+* **spec:** declare what an invocation settles into and who it is attributed to ([02a5b38](https://github.com/elct9620/kobako/commit/02a5b38eb256027db53aaa0c8dc5a97d4e2ae927))
+* **spec:** declare what bind refuses ([1b5dce3](https://github.com/elct9620/kobako/commit/1b5dce30eb418a1a2deb6e690d43ba3a4d04a675))
+* **spec:** declare what install refuses and when the check fires ([1032921](https://github.com/elct9620/kobako/commit/1032921f7e5d1e1c53fbf2d1c6ec46240d1ff768))
+* **spec:** declare what the payload wire carries and what it will not ([341fd40](https://github.com/elct9620/kobako/commit/341fd40ce60373858002205ad5a77618e6cbb520))
+* **spec:** make Markdown the specification's source ([8d4e56b](https://github.com/elct9620/kobako/commit/8d4e56b18ae8118a2251f60fdbd8b917e5f60ebe))
+* **spec:** register the calls each frontend keeps ([dc2285e](https://github.com/elct9620/kobako/commit/dc2285edd275185be35700cd3aec67abd253b8c7))
+
+
+### Bug Fixes
+
+* **release:** let a gem-only release create its tag ([d65c451](https://github.com/elct9620/kobako/commit/d65c4513d30aacb11d0c008d28791355d8da13b7))
+* **spec:** keep the two record-free arms cited on the anchor track ([9eec1b6](https://github.com/elct9620/kobako/commit/9eec1b6696c8ff0d5e1d63bb29c9637dd52bdb52))
+
 ## [0.23.0](https://github.com/elct9620/kobako/compare/v0.22.0...v0.23.0) (2026-08-28)
 
 
