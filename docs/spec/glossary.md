@@ -34,7 +34,7 @@ A host object the guest reaches by name. It is the only route from guest code to
 
 #### Rejected
 
-- `adapter` — Names a translation role. What distinguishes a Service is that the guest can name it at all.
+- `adapter` - Names a translation role. What distinguishes a Service is that the guest can name it at all.
 
 ### Wire Spec
 
