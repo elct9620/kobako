@@ -19,6 +19,7 @@ class TestE2EJourneys < Minitest::Test
 
   # SPEC.md L152-156: model-generated script calls a curated Service
   # and the Host App receives a deserialized return value.
+  # @behavior J-001
   def test_j01_curated_capability_call_returns_deserialized_result
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("KV::Lookup", ->(key) { "value:#{key}" })
@@ -32,6 +33,7 @@ class TestE2EJourneys < Minitest::Test
   end
 
   # SPEC.md L157: scripts with Ruby errors raise SandboxError.
+  # @behavior J-002
   def test_j01_script_ruby_error_raises_sandbox_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -50,6 +52,7 @@ class TestE2EJourneys < Minitest::Test
   # before any execution begins, so a syntactically invalid script — the
   # common shape of model-generated code — raises SandboxError and never
   # runs the statements preceding the error.
+  # @behavior J-003
   def test_j01_syntax_error_source_raises_sandbox_error_before_execution
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -71,6 +74,7 @@ class TestE2EJourneys < Minitest::Test
   # already pins the Array-of-String type invariant via the RBS alias
   # +Outcome::panic_fields+,
   # so this E2E only asserts the non-empty contract.
+  # @behavior J-004
   def test_j01_script_ruby_error_exposes_mruby_backtrace
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     err = assert_raises(Kobako::SandboxError) do
@@ -85,6 +89,7 @@ class TestE2EJourneys < Minitest::Test
   end
 
   # SPEC.md L157: Service capability call that errors → ServiceError.
+  # @behavior J-005
   def test_j01_capability_error_raises_service_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Log::Sink", ->(_msg) { raise "capability denied" })
@@ -103,6 +108,7 @@ class TestE2EJourneys < Minitest::Test
   # the Panic envelope, so its backtrace must also reach the Host App.
   # Otherwise an LLM-generated script that calls a misbehaving capability
   # would surface as ServiceError with no debugging context at all.
+  # @behavior J-006
   def test_j01_unrescued_service_error_exposes_mruby_backtrace
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Log::Sink", ->(_msg) { raise "capability denied" })
@@ -133,6 +139,7 @@ class TestE2EJourneys < Minitest::Test
     'Svc::Call.call("x")' => Kobako::ServiceError
   }.freeze
 
+  # @behavior J-007
   def test_j05_developer_routes_each_failure_by_its_own_class
     FAILURES_TO_ROUTE.each do |source, expected|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -153,6 +160,7 @@ class TestE2EJourneys < Minitest::Test
   # mapped collection flows back; the per-step yield mechanics are pinned
   # in test_yield.rb / test_yield_unwind.rb.
 
+  # @behavior J-008
   def test_j06_block_yielding_service_maps_each_element_through_the_guest_block
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Service::MyEach", ->(items, &blk) { items.map { |x| blk.call(x) } })
@@ -170,6 +178,7 @@ class TestE2EJourneys < Minitest::Test
   # once per pooled Sandbox, then concurrent handlers each run the worker
   # exclusively; checkout/checkin mechanics are pinned in test/pool/.
 
+  # @behavior J-009
   def test_j08_concurrent_requests_each_receive_their_own_worker_result
     pool = Kobako::Pool.new(slots: 2) do |sandbox|
       sandbox.preload(code: 'Worker = ->(req) { "done:" + req }', name: :Worker)
