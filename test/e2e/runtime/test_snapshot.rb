@@ -27,6 +27,7 @@ class TestRuntimeSnapshot < Minitest::Test
   # Integer for usage) — pin them so a magnus binding change cannot silently
   # shift a type past RBS, which does not verify what a C extension actually
   # returns.
+  # @behavior RT-040
   def test_snapshot_exposes_documented_raw_types_on_a_completed_run
     snapshot = drive_eval("42")
 
@@ -42,6 +43,7 @@ class TestRuntimeSnapshot < Minitest::Test
   # The ext splits the outcome off the core envelope, so what reaches Ruby
   # is the arm plus the fields that arm carries — pin the shape for the
   # arm every successful run takes.
+  # @behavior RT-041
   def test_snapshot_splits_a_successful_outcome_into_its_ok_arm
     kind, payload, panic = drive_eval("42").outcome
 
@@ -54,6 +56,7 @@ class TestRuntimeSnapshot < Minitest::Test
   # The two capture channels are distinct readers; a reader swap in the ext
   # would silently cross the channels. Writing distinct content to each
   # channel in one run pins stdout to #stdout and stderr to #stderr.
+  # @behavior RT-042
   def test_snapshot_keeps_stdout_and_stderr_channels_apart
     snapshot = drive_eval('$stdout.puts "to-out"; $stderr.puts "to-err"; 1')
 
@@ -64,6 +67,7 @@ class TestRuntimeSnapshot < Minitest::Test
   # A run that writes nothing yields empty captures with the flags down, so
   # the Sandbox's Capture wrapping never leaks a previous process state or
   # nil into the captures it exposes.
+  # @behavior RT-043
   def test_snapshot_of_a_silent_run_has_empty_captures
     snapshot = drive_eval("1 + 1")
 

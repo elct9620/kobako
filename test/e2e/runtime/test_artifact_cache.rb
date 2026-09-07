@@ -21,6 +21,7 @@ class TestRuntimeArtifactCache < Minitest::Test
 
   # docs/behavior/lifecycle.md B-01 Notes: a corrupt cache entry falls back to
   # in-process compilation rather than failing construction.
+  # @behavior RT-035 RT-036
   def test_from_path_falls_back_to_compile_when_cached_artifact_is_corrupt
     with_private_cache_root do |dir|
       wasm_path, entry = plant_corrupt_artifact(dir)
@@ -39,6 +40,7 @@ class TestRuntimeArtifactCache < Minitest::Test
   # current user exclusively owns; a directory writable by group or
   # other could carry another local user's planted artifact, so both
   # disk-cache tiers must skip it.
+  # @behavior RT-037 RT-038
   def test_group_writable_cache_directory_is_not_trusted
     with_private_cache_root do |dir|
       wasm_path, entry = plant_corrupt_artifact(dir)
@@ -55,6 +57,7 @@ class TestRuntimeArtifactCache < Minitest::Test
   # docs/behavior/lifecycle.md B-01 Notes: writing a new artifact opportunistically
   # removes cache entries unused for the retention window, so the cache
   # directory does not grow without bound across Guest Binary rebuilds.
+  # @behavior RT-039
   def test_storing_an_artifact_prunes_entries_unused_past_the_retention_window
     with_private_cache_root do |dir|
       stale = plant_stale_artifact(dir)

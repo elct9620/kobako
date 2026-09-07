@@ -11,6 +11,9 @@ What the host checks before a guest runs, which posture it builds, and how invoc
 - `test/e2e/sandbox/test_gvl_scheduling.rb`
 - `test/e2e/sandbox/test_gvl_handle_isolation.rb`
 - `test/e2e/runtime/test_runtime.rb`
+- `test/e2e/runtime/test_artifact_cache.rb`
+- `test/e2e/runtime/test_snapshot.rb`
+- `test/e2e/sandbox/test_null_guest.rb`
 - `test/fuzz/test_dispatch_scheduling_fuzz.rb`
 - `test/parity/test_hermetic.rb`
 
@@ -21,6 +24,12 @@ The runtime is what stands between a request and a guest that runs. Three checks
 The scheduling scenarios pair off deliberately. Releasing the lock is a scheduling change and nothing else, so each witness runs one scenario under both modes and compares — a value, a dispatch, a nested dispatch, a capture. The host-parallel run is the one that shows what the mode is for.
 
 The ambient denial the hermetic posture rests on has no scenario of its own: the default Guest Binary exposes no time or entropy surface for guest code to read, which is the posture itself, so there is nothing to observe from inside. What the determinism buys is witnessed where it shows — two invocations beginning from the same interpreter state — and what is checked here is the seam the request travels along.
+
+Compiling an artifact is expensive enough to keep on disk, and a cache is a second way in. So each of its refusals is witnessed twice over: that construction still succeeds, and what the cache directory holds afterwards. A cache that quietly loaded a planted artifact would pass the first observation alone.
+
+What the runtime hands an invocation back is read here rather than through the Sandbox that usually reads it, because a binding that shifted a field's shape would still satisfy every assertion the Sandbox makes about the value it derived. Which is also why the two channels are separated twice: once at this seam, and once as a difference the two frontends must agree on.
+
+An artifact that satisfies the whole invocation ABI while doing no guest work is what makes the host's own per-invocation cost measurable as a total. That is a claim about the artifact, so it is held to both verbs and to the capture it leaves — the ways it could satisfy the loader without satisfying the ABI.
 
 ## `RT-001` Threads holding their own Sandboxes hold their own guest state
 
@@ -297,3 +306,99 @@ The ambient denial the hermetic posture rests on has no scenario of its own: the
 | Given | a Sandbox construction carrying an unknown keyword |
 | When | `Kobako::Sandbox.new` runs |
 | Then | `ArgumentError` is raised |
+
+## `RT-035` A corrupt cache entry does not stop a runtime being built
+
+| Step | Statement |
+| --- | --- |
+| Given | a compiled-artifact cache entry holding bytes that are not an artifact |
+| When | a runtime is built over the artifact that entry names |
+| Then | it is built |
+
+## `RT-036` The compile it falls back to replaces that entry
+
+| Step | Statement |
+| --- | --- |
+| Given | a compiled-artifact cache entry holding bytes that are not an artifact |
+| When | a runtime is built over the artifact that entry names |
+| Then | the entry no longer holds those bytes |
+
+## `RT-037` A cache directory others may write is not read from
+
+| Step | Statement |
+| --- | --- |
+| Given | a cache entry in a directory writable beyond its owner |
+| When | a runtime is built over the artifact that entry names |
+| Then | it is built by compiling |
+
+## `RT-038` And nothing is written back into it
+
+| Step | Statement |
+| --- | --- |
+| Given | a cache entry in a directory writable beyond its owner |
+| When | a runtime is built over the artifact that entry names |
+| Then | the entry still holds what it held |
+
+## `RT-039` Storing an artifact prunes what has gone unused
+
+| Step | Statement |
+| --- | --- |
+| Given | a cache entry untouched for longer than the retention window |
+| When | a runtime is built over an artifact the cache does not hold |
+| Then | the untouched entry is gone |
+
+## `RT-040` A completed invocation reports both channels, both marks, and its usage
+
+| Step | Statement |
+| --- | --- |
+| Given | a runtime driven without a Sandbox around it |
+| When | an invocation completes |
+| Then | it answers two captures, two truncation marks, an elapsed time and a memory peak |
+
+## `RT-041` A successful outcome carries a payload and no attribution record
+
+| Step | Statement |
+| --- | --- |
+| Given | a runtime driven without a Sandbox around it |
+| When | an invocation completes |
+| Then | the outcome names its successful arm, carries payload bytes, and carries no record |
+
+## `RT-042` The two channels are already apart at this seam
+
+| Step | Statement |
+| --- | --- |
+| Given | a runtime driven without a Sandbox around it |
+| When | an invocation writes different content to each channel |
+| Then | each capture carries only what was written to its own |
+
+## `RT-043` An invocation that wrote nothing carries empty captures
+
+| Step | Statement |
+| --- | --- |
+| Given | a runtime driven without a Sandbox around it |
+| When | an invocation writes to neither channel |
+| Then | both captures are empty and neither mark is set |
+
+## `RT-044` A guest that does no work still answers an evaluation
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over an artifact that satisfies the ABI and does no guest work |
+| When | source is evaluated against it |
+| Then | the invocation completes with no value |
+
+## `RT-045` And answers an entrypoint run carrying arguments
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over an artifact that satisfies the ABI and does no guest work |
+| When | an entrypoint is run against it with positional and keyword arguments |
+| Then | the invocation completes with no value |
+
+## `RT-046` Doing no work leaves nothing captured
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over an artifact that satisfies the ABI and does no guest work |
+| When | source is evaluated against it |
+| Then | the capture is empty |
