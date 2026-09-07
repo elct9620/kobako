@@ -13,6 +13,7 @@ require "test_helper"
 class TestCodecTrackHandles < Minitest::Test
   include CodecHelpers
 
+  # @behavior CD-023
   def test_handle_carrying_decode_reports_true
     bytes = Encoder.encode(["payload", Handle.restore(7)])
     value, carried = Kobako::Codec.track_handles { Decoder.decode(bytes) }
@@ -22,6 +23,7 @@ class TestCodecTrackHandles < Minitest::Test
                  "track_handles must return the block's decoded value unchanged"
   end
 
+  # @behavior CD-024
   def test_handle_free_decode_reports_false
     bytes = Encoder.encode(["payload", { "count" => 42 }])
     value, carried = Kobako::Codec.track_handles { Decoder.decode(bytes) }
@@ -30,6 +32,7 @@ class TestCodecTrackHandles < Minitest::Test
                  "track_handles must return the block's decoded value unchanged"
   end
 
+  # @behavior CD-025
   def test_handle_sighting_does_not_leak_into_the_next_bracket
     handle_bytes = Encoder.encode(Handle.restore(7))
     plain_bytes = Encoder.encode("payload")

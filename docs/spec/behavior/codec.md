@@ -6,6 +6,7 @@ What the payload codec will carry between host and guest, and what it refuses ra
 
 - `test/unit/codec/test_handle_walk_nesting.rb`
 - `test/unit/codec/test_unrepresentable_guard.rb`
+- `test/unit/codec/test_track_handles.rb`
 - `test/e2e/test_byte_fidelity.rb`
 - `test/e2e/test_integer_range.rb`
 - `test/e2e/test_answer_value_refusal.rb`
@@ -19,6 +20,8 @@ A codec that changes a value on the way is worse than one that refuses it, becau
 The bounds are reached from three directions — an answer, an argument, a yield — and each is witnessed, since a check placed on one path leaves the others carrying whatever they were given.
 
 Two implementations of this codec exist on the host and a third inside the guest. The first two are held to each other byte for byte; the third has no peer, so it is held to an identity law instead. Both are properties over generated values rather than statements about one, which is why each is a single scenario.
+
+Whether a decode carried a capability reference only decides whether a later walk is worth taking, so a wrong answer costs time rather than correctness. It is declared anyway, in both directions and across two brackets, because the walk it skips is the one that resolves references — and a signal stuck at either answer stops being a signal quietly.
 
 What the codec does with a value it accepts — which of the eleven type mappings each shape takes, how a length is framed, what a malformed frame answers — is the encoding table rather than the boundary, and is specified with the wire format.
 
@@ -197,3 +200,27 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | Given | generated values covering the shapes the wire carries |
 | When | each is sent to the guest and answered back |
 | Then | it comes back as itself |
+
+## `CD-023` A decode says whether the value it read carried a reference
+
+| Step | Statement |
+| --- | --- |
+| Given | a payload whose tree carries a capability reference |
+| When | it is decoded inside a tracking bracket |
+| Then | the bracket reports a reference was carried, and answers the decoded value unchanged |
+
+## `CD-024` And says so when it carried none
+
+| Step | Statement |
+| --- | --- |
+| Given | a payload whose tree carries no capability reference |
+| When | it is decoded inside a tracking bracket |
+| Then | the bracket reports none was carried, and answers the decoded value unchanged |
+
+## `CD-025` One bracket's sighting is not the next one's
+
+| Step | Statement |
+| --- | --- |
+| Given | a bracket on this thread that decoded a payload carrying a reference |
+| When | a second bracket on the same thread decodes a payload carrying none |
+| Then | the second reports none was carried |
