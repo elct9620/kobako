@@ -7,6 +7,7 @@ require "test_helper"
 # is refused on both frontends (each in its own idiom, one observable
 # status).
 class TestParitySeal < Parity::Case
+  # @behavior S-099
   # SPEC.md B-33: bind after the first invocation → sealed refusal.
   def test_late_registration_is_refused
     assert_parity Parity::Scenario.new(

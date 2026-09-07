@@ -25,6 +25,7 @@ What a Sandbox is built with, what one invocation leaves for the next, and what 
 - `test/parity/test_isolation.rb`
 - `test/parity/test_run_snippets.rb`
 - `test/parity/test_caps_usage.rb`
+- `test/parity/test_seal.rb`
 
 ### Why these scenarios
 
@@ -822,3 +823,12 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a Sandbox whose guest allocator reports exhaustion |
 | When | `#run` reserves the invocation envelope |
 | Then | `Kobako::SandboxError` says the input buffer could not be allocated |
+
+## `S-099` Both frontends refuse a registration that arrives after the seal
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario whose first invocation seals the registration tables |
+| Given | a binding attempted after that invocation |
+| When | both frontends run it |
+| Then | they observe the same refusal |
