@@ -23,7 +23,7 @@ Two implementations of this codec exist on the host and a third inside the guest
 
 Whether a decode carried a capability reference only decides whether a later walk is worth taking, so a wrong answer costs time rather than correctness. It is declared anyway, in both directions and across two brackets, because the walk it skips is the one that resolves references — and a signal stuck at either answer stops being a signal quietly.
 
-What the codec does with a value it accepts — which of the eleven type mappings each shape takes, how a length is framed, what a malformed frame answers — is the encoding table rather than the boundary, and is specified with the wire format.
+What the codec does with a value it accepts — which of the eleven type mappings each shape takes, how a length is framed, what a malformed frame answers — is the encoding table rather than the boundary. It is specified with the wire format, and its scenarios are the payload encoding feature's.
 
 ## `CD-001` A Service answer past the guest's integer width is refused
 

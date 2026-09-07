@@ -45,12 +45,14 @@ class TestArgumentsRoundtrip < Minitest::Test
 
   # ---------- invocation Arguments payload ----------
 
+  # @behavior WP-007
   def test_invocation_arguments_round_trip
     bytes = Kobako::Payload::Arguments.new(args: [42, "alice"], kwargs: { active: true }).encode
     assert_equal bytes, oracle_roundtrip("A", bytes),
                  "an args-and-kwargs payload must survive the guest codec byte-identically"
   end
 
+  # @behavior WP-008
   def test_invocation_arguments_carrying_a_wrapped_leaf_round_trip
     # A non-wire-representable argument auto-wraps into the Handles table
     # and rides as ext 0x01 in its args position — the payload Handle

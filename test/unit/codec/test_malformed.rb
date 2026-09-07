@@ -9,33 +9,39 @@ require "test_helper"
 class TestCodecMalformed < Minitest::Test
   include CodecHelpers
 
+  # @behavior WP-048
   def test_truncated_empty_input
     assert_raises(TruncatedInputError) { Decoder.decode("".b) }
   end
 
+  # @behavior WP-049
   def test_truncated_in_str_payload
     # fixstr len=5 but only 2 bytes follow
     bytes = "\xa5ab".b
     assert_raises(TruncatedInputError) { Decoder.decode(bytes) }
   end
 
+  # @behavior WP-050
   def test_truncated_in_int64
     bytes = "\xcf\x00\x00\x00".b
     assert_raises(TruncatedInputError) { Decoder.decode(bytes) }
   end
 
+  # @behavior WP-051
   def test_invalid_type_tag
     # 0xc1 is reserved as "never used" in msgpack -> wire violation
     bytes = "\xc1".b
     assert_raises(InvalidTypeError) { Decoder.decode(bytes) }
   end
 
+  # @behavior WP-052
   def test_unknown_ext_code_rejected
     # fixext1 with type 0x99 (not 0x00 or 0x01)
     bytes = "\xd4\x99\x00".b
     assert_raises(InvalidTypeError) { Decoder.decode(bytes) }
   end
 
+  # @behavior WP-053
   def test_invalid_utf8_in_str_rejected
     # fixstr len=2 with invalid UTF-8 bytes (lone continuation byte)
     bytes = "\xa2\xff\xfe".b
@@ -45,18 +51,21 @@ class TestCodecMalformed < Minitest::Test
   # The validation walk must cover both halves of every map entry — a
   # regression skipping keys or values stays green on the top-level
   # fixstr case above.
+  # @behavior WP-054
   def test_invalid_utf8_in_map_key_rejected
     # fixmap1 { fixstr2 <invalid> => fixint 1 }
     bytes = "\x81\xa2\xff\xfe\x01".b
     assert_raises(InvalidEncodingError) { Decoder.decode(bytes) }
   end
 
+  # @behavior WP-055
   def test_invalid_utf8_in_map_value_rejected
     # fixmap1 { fixstr1 "a" => fixstr2 <invalid> }
     bytes = "\x81\xa1a\xa2\xff\xfe".b
     assert_raises(InvalidEncodingError) { Decoder.decode(bytes) }
   end
 
+  # @behavior WP-056
   def test_unsupported_ruby_type_at_encode
     # SPEC's 11-entry mapping is closed; types outside it (Object,
     # Range, Time, ...) raise UnsupportedTypeError.
@@ -66,6 +75,7 @@ class TestCodecMalformed < Minitest::Test
   # The single-MessagePack-value rule (docs/wire/payload-msgpack.md
   # § Payload Positions) is the Decoder's own property, so one case pins it
   # for every payload shape rather than each position re-checking it.
+  # @behavior WP-057
   def test_trailing_bytes_after_a_complete_value_rejected
     bytes = Encoder.encode(42) + Encoder.encode(nil)
     assert_raises(InvalidTypeError,

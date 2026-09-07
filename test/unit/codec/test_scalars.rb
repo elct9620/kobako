@@ -10,20 +10,24 @@ class TestCodecScalars < Minitest::Test
 
   # ---------- nil / bool ----------
 
+  # @behavior WP-009
   def test_nil_roundtrip
     assert_roundtrip(nil)
   end
 
+  # @behavior WP-010
   def test_true_roundtrip
     assert_roundtrip(true)
   end
 
+  # @behavior WP-011
   def test_false_roundtrip
     assert_roundtrip(false)
   end
 
   # ---------- integer boundaries ----------
 
+  # @behavior WP-012
   def test_integer_fixint_boundaries
     # positive fixint: 0..127
     [0, 1, 0x7f].each { |n| assert_roundtrip(n) }
@@ -31,6 +35,7 @@ class TestCodecScalars < Minitest::Test
     [-1, -32].each { |n| assert_roundtrip(n) }
   end
 
+  # @behavior WP-013
   def test_integer_uint_boundaries
     [0x80, 0xff,                              # uint8
      0x100, 0xffff,                           # uint16
@@ -40,6 +45,7 @@ class TestCodecScalars < Minitest::Test
     end
   end
 
+  # @behavior WP-014
   def test_integer_int_boundaries
     [-33, -0x80,                              # int8
      -0x81, -0x8000,                          # int16
@@ -49,6 +55,7 @@ class TestCodecScalars < Minitest::Test
     end
   end
 
+  # @behavior WP-015
   def test_integer_overflow_raises
     assert_raises(UnsupportedTypeError,
                   "an integer past u64 max through Encoder.encode must raise UnsupportedTypeError") do
@@ -62,6 +69,7 @@ class TestCodecScalars < Minitest::Test
 
   # ---------- float ----------
 
+  # @behavior WP-016
   def test_float_special_values
     [0.0, -0.0, 1.0, -1.0, 0.1, 1e308, -1e308, Float::INFINITY, -Float::INFINITY].each do |f|
       _, decoded = roundtrip(f)
@@ -71,6 +79,7 @@ class TestCodecScalars < Minitest::Test
     end
   end
 
+  # @behavior WP-017
   def test_float_nan_preserves_nan_identity
     _, decoded = roundtrip(Float::NAN)
     assert_predicate decoded, :nan?, "NaN must round-trip as NaN"
@@ -78,10 +87,12 @@ class TestCodecScalars < Minitest::Test
 
   # ---------- str / bin ----------
 
+  # @behavior WP-018
   def test_str_empty
     assert_roundtrip("")
   end
 
+  # @behavior WP-019
   def test_str_ascii
     s = "hello"
     _, decoded = roundtrip(s)
@@ -89,6 +100,7 @@ class TestCodecScalars < Minitest::Test
     assert_equal Encoding::UTF_8, decoded.encoding, "a str-family value must decode as UTF-8"
   end
 
+  # @behavior WP-020
   def test_str_multibyte_utf8
     s = "蒼時弦也こんにちは"
     _, decoded = roundtrip(s)
@@ -96,6 +108,7 @@ class TestCodecScalars < Minitest::Test
     assert_equal Encoding::UTF_8, decoded.encoding, "a multibyte str value must decode as UTF-8"
   end
 
+  # @behavior WP-021
   def test_str_long_crosses_str8_boundary
     # str 8 covers 32..255 bytes; verify both sides of the boundary.
     ["a" * 31, "a" * 32, "a" * 255, "a" * 256].each do |s|
@@ -104,6 +117,7 @@ class TestCodecScalars < Minitest::Test
     end
   end
 
+  # @behavior WP-022
   def test_str_long_crosses_str16_boundary
     ["a" * 0xffff, "a" * 0x1_0000].each do |s|
       _, decoded = roundtrip(s)
@@ -111,6 +125,7 @@ class TestCodecScalars < Minitest::Test
     end
   end
 
+  # @behavior WP-023
   def test_bin_non_utf8_bytes
     raw = [0xff, 0xfe, 0x00, 0x80].pack("C*") # invalid UTF-8
     _, decoded = roundtrip(raw)
@@ -118,6 +133,7 @@ class TestCodecScalars < Minitest::Test
     assert_equal Encoding::ASCII_8BIT, decoded.encoding, "a bin-family value must decode as ASCII-8BIT"
   end
 
+  # @behavior WP-024
   def test_bin_explicit_binary_encoding
     s = "abc".b
     bytes = Encoder.encode(s)

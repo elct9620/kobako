@@ -16,6 +16,7 @@ module Kobako
   class PayloadArgumentsTest < Minitest::Test
     Arguments = Kobako::Payload::Arguments
 
+    # @behavior WP-001
     def test_positional_and_keyword_arguments_round_trip
       arguments = Arguments.new(args: [1, "two", nil], kwargs: { force: true })
 
@@ -24,6 +25,7 @@ module Kobako
                    "must decode back to an equal value object"
     end
 
+    # @behavior WP-002
     def test_an_empty_payload_keeps_both_positions
       encoded = Arguments.new.encode
 
@@ -35,6 +37,7 @@ module Kobako
                    "rather than as a malformed frame"
     end
 
+    # @behavior WP-003
     def test_a_kwargs_key_that_is_not_a_symbol_is_refused
       assert_raises(ArgumentError, "a String kwargs key through Arguments.new must be refused — " \
                                    "SPEC pins keyword names to Symbols on the wire") do
@@ -42,6 +45,7 @@ module Kobako
       end
     end
 
+    # @behavior WP-004
     def test_a_non_array_args_is_refused
       assert_raises(ArgumentError, "a non-Array args through Arguments.new must be refused " \
                                    "rather than encoded as some other wire shape") do
@@ -49,6 +53,7 @@ module Kobako
       end
     end
 
+    # @behavior WP-005
     def test_a_frame_of_the_wrong_arity_is_refused
       bytes = Kobako::Codec::Encoder.encode([[]])
 
@@ -59,6 +64,7 @@ module Kobako
       end
     end
 
+    # @behavior WP-006
     def test_a_capability_handle_rides_an_argument_position
       handle = Kobako::Handle.restore(7)
       arguments = Arguments.new(args: [handle], kwargs: { owner: handle })

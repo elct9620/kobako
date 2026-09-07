@@ -10,48 +10,57 @@ require "test_helper"
 class TestCodecGoldenVectors < Minitest::Test
   include CodecHelpers
 
+  # @behavior WP-058
   def test_golden_vector_nil
     # 0xc0 = msgpack nil
     assert_bytes "c0", nil
   end
 
+  # @behavior WP-059
   def test_golden_vector_positive_fixint
     # 42 is a positive fixint -> single byte 0x2a
     assert_bytes "2a", 42
   end
 
+  # @behavior WP-060
   def test_golden_vector_negative_fixint
     # -1 -> negative fixint 0xff
     assert_bytes "ff", -1
   end
 
+  # @behavior WP-061
   def test_golden_vector_fixstr_hello
     # "hello" -> 0xa5 'h' 'e' 'l' 'l' 'o'
     assert_bytes "a568656c6c6f", "hello"
   end
 
+  # @behavior WP-062
   def test_golden_vector_fixarray_with_positive_fixint
     # [42] -> 0x91 0x2a (fixarray len=1, positive fixint 42).
     # Generic msgpack codec check.
     assert_bytes "912a", [42]
   end
 
+  # @behavior WP-063
   def test_golden_vector_symbol_empty
     # :"" -> ext 8 len=0 type=0x00 -> 0xc7 0x00 0x00
     assert_bytes "c70000", :""
   end
 
+  # @behavior WP-064
   def test_golden_vector_symbol_short_uses_narrowest_ext
     # :hello -> ext 8 len=5 type=0x00 followed by "hello" bytes.
     assert_bytes "c7050068656c6c6f", :hello
   end
 
+  # @behavior WP-065
   def test_golden_vector_handle
     # Handle(1) -> fixext4 ext 0x01 + big-endian u32 1
     # 0xd6 0x01 0x00 0x00 0x00 0x01
     assert_bytes "d60100000001", Handle.restore(1)
   end
 
+  # @behavior WP-066
   def test_golden_vector_handle_max
     # Handle(0x7fff_ffff) -> 0xd6 0x01 0x7f 0xff 0xff 0xff
     assert_bytes "d6017fffffff", Handle.restore(Handle::MAX_ID)
@@ -62,21 +71,25 @@ class TestCodecGoldenVectors < Minitest::Test
   # Each empty container must encode to its narrowest possible tag — the
   # single-byte "fix" form.
 
+  # @behavior WP-067
   def test_golden_vector_empty_str
     # "" -> fixstr len=0 -> 0xa0 (no payload bytes)
     assert_bytes "a0", ""
   end
 
+  # @behavior WP-068
   def test_golden_vector_empty_bin
     # "".b -> bin8 len=0 -> 0xc4 0x00
     assert_bytes "c400", "".b
   end
 
+  # @behavior WP-069
   def test_golden_vector_empty_array
     # [] -> fixarray len=0 -> 0x90
     assert_bytes "90", []
   end
 
+  # @behavior WP-070
   def test_golden_vector_empty_map
     # {} -> fixmap len=0 -> 0x80
     assert_bytes "80", {}
@@ -88,16 +101,19 @@ class TestCodecGoldenVectors < Minitest::Test
   # future encoder change that silently promotes to a wider format is
   # caught as a golden-vector mismatch.
 
+  # @behavior WP-071
   def test_golden_vector_zero_positive_fixint
     # 0 -> positive fixint -> 0x00
     assert_bytes "00", 0
   end
 
+  # @behavior WP-072
   def test_golden_vector_max_positive_fixint
     # 127 -> positive fixint -> 0x7f (last positive-fixint value)
     assert_bytes "7f", 127
   end
 
+  # @behavior WP-073
   def test_golden_vector_min_negative_fixint
     # -32 -> negative fixint -> 0xe0 (first negative-fixint value = 0b111_00000)
     assert_bytes "e0", -32
