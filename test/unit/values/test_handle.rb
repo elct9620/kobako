@@ -11,12 +11,14 @@ require "test_helper"
 # caller-chosen id — is removed. `.restore` stays as the Host Gem-internal
 # factory; its range invariants are pinned in test/unit/codec/test_ext_types.rb.
 class TestHandle < Minitest::Test
+  # @behavior T-161
   def test_new_is_not_a_public_constructor
     assert_raises(NoMethodError, "a bare integer through Kobako::Handle.new must not construct a Handle") do
       Kobako::Handle.new(id: 1)
     end
   end
 
+  # @behavior T-162
   def test_with_cannot_derive_a_handle_with_a_chosen_id
     handle = Kobako::Handle.restore(1)
     assert_raises(NoMethodError, "a legitimate Handle through #with must not mint a Handle with a caller-chosen id") do

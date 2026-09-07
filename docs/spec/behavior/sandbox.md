@@ -26,6 +26,7 @@ What a Sandbox is built with, what one invocation leaves for the next, and what 
 - `test/parity/test_run_snippets.rb`
 - `test/parity/test_caps_usage.rb`
 - `test/parity/test_seal.rb`
+- `test/unit/values/test_capture.rb`
 
 ### Why these scenarios
 
@@ -832,3 +833,67 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a binding attempted after that invocation |
 | When | both frontends run it |
 | Then | they observe the same refusal |
+
+## `S-100` A capture of nothing carries no bytes
+
+| Step | Statement |
+| --- | --- |
+| Given | the capture that stands for a channel nothing was written to |
+| When | its bytes are read |
+| Then | they are empty text |
+
+## `S-101` A capture of nothing is not marked truncated
+
+| Step | Statement |
+| --- | --- |
+| Given | the capture that stands for a channel nothing was written to |
+| When | its truncation mark is read |
+| Then | it is not set |
+
+## `S-102` That capture cannot be changed
+
+| Step | Statement |
+| --- | --- |
+| Given | the capture that stands for a channel nothing was written to |
+| When | it is asked whether it is frozen |
+| Then | it is |
+
+## `S-103` A capture answers the bytes and the mark it was made with
+
+| Step | Statement |
+| --- | --- |
+| Given | a capture made from bytes and a truncation mark |
+| When | both are read |
+| Then | each answers what it was made with |
+
+## `S-104` Nor can any other capture be changed
+
+| Step | Statement |
+| --- | --- |
+| Given | a capture made from bytes and a truncation mark |
+| When | it is asked whether it is frozen |
+| Then | it is |
+
+## `S-105` Captured bytes that are text arrive as text
+
+| Step | Statement |
+| --- | --- |
+| Given | a capture made from binary bytes that are valid UTF-8 |
+| When | its bytes are read |
+| Then | they carry the same content as UTF-8 |
+
+## `S-106` Captured bytes that are not text still arrive
+
+| Step | Statement |
+| --- | --- |
+| Given | a capture made from binary bytes that are not valid UTF-8 |
+| When | its bytes are read |
+| Then | they carry the same content as binary rather than raising |
+
+## `S-107` Making a capture leaves the bytes it was given alone
+
+| Step | Statement |
+| --- | --- |
+| Given | binary bytes held by the caller |
+| When | a capture is made from them |
+| Then | the caller's bytes are unchanged |

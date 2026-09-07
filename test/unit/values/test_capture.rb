@@ -7,19 +7,23 @@ require "test_helper"
 # WASI pipe sets when the guest wrote past the configured cap
 # (SPEC.md B-04). Sandbox stores one Capture per channel between runs.
 class TestCapture < Minitest::Test
+  # @behavior S-100
   def test_empty_constant_carries_utf8_empty_bytes
     assert_equal "", Kobako::Capture::EMPTY.bytes
     assert_equal Encoding::UTF_8, Kobako::Capture::EMPTY.bytes.encoding
   end
 
+  # @behavior S-101
   def test_empty_constant_is_not_truncated
     refute Kobako::Capture::EMPTY.truncated?
   end
 
+  # @behavior S-102
   def test_empty_constant_is_frozen
     assert_predicate Kobako::Capture::EMPTY, :frozen?
   end
 
+  # @behavior S-103
   def test_initialize_exposes_bytes_and_truncated_predicate
     capture = Kobako::Capture.new(bytes: "hello", truncated: true)
 
@@ -27,6 +31,7 @@ class TestCapture < Minitest::Test
     assert_predicate capture, :truncated?
   end
 
+  # @behavior S-104
   def test_instances_are_frozen_after_initialize
     capture = Kobako::Capture.new(bytes: "data", truncated: false)
 
@@ -36,6 +41,7 @@ class TestCapture < Minitest::Test
   # SPEC.md B-04: ext provides binary bytes; Capture.new coerces them
   # to UTF-8 when valid so callers receive an inspectable String without
   # encoding work.
+  # @behavior S-105
   def test_new_returns_utf8_when_bytes_are_valid_utf8
     capture = Kobako::Capture.new(bytes: "hello".b, truncated: false)
 
@@ -46,6 +52,7 @@ class TestCapture < Minitest::Test
 
   # Invalid UTF-8 must not raise — fall back to ASCII-8BIT so the host
   # can still inspect the raw bytes for debugging.
+  # @behavior S-106
   def test_new_falls_back_to_ascii_8bit_on_invalid_utf8
     invalid = "\xff\xfe".b
     capture = Kobako::Capture.new(bytes: invalid, truncated: true)
@@ -55,6 +62,7 @@ class TestCapture < Minitest::Test
     assert_predicate capture, :truncated?
   end
 
+  # @behavior S-107
   def test_new_does_not_mutate_input_bytes
     original = "data".b
 

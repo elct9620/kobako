@@ -14,6 +14,7 @@ What the host refuses to dispatch, and how narrow a bound object can make its ow
 - `test/unit/transport/test_dispatcher_permissive_return.rb`
 - `test/unit/transport/test_dispatcher_narrowing.rb`
 - `test/parity/test_reflection.rb`
+- `test/unit/values/test_handle.rb`
 
 ### Why these scenarios
 
@@ -238,3 +239,19 @@ Narrowing sits beneath the boundary, never above it: an object may close its sur
 | Given | a bound Service answering an object whose missing-method handler answers any call |
 | When | the guest calls it |
 | Then | the answer crosses as a capability reference |
+
+## `T-161` A Host App cannot turn an integer into a capability reference
+
+| Step | Statement |
+| --- | --- |
+| Given | a Host App holding an integer |
+| When | it calls the reference type's constructor with that integer |
+| Then | `NoMethodError` is raised |
+
+## `T-162` Nor derive one carrying an identifier it chose
+
+| Step | Statement |
+| --- | --- |
+| Given | a Host App holding a legitimate capability reference |
+| When | it asks that reference for a copy carrying another identifier |
+| Then | `NoMethodError` is raised |
