@@ -470,6 +470,7 @@ mod tests {
     // The seal-once lifecycle is pure state and testable without a
     // driver; the invocation path itself is pinned end-to-end by the
     // parity harness against the real guest binary.
+    // @behavior S-099
     #[test]
     fn registry_seals_once_and_refuses_late_mutation() {
         let mut registry = Registry::Open(Catalog::default());

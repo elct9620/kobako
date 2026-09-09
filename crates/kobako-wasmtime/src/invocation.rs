@@ -412,7 +412,7 @@ mod tests {
         assert_growing(&mut limiter, (2 << 20) + (1 << 19));
     }
 
-    // @behavior OC-023
+    // @behavior S-121
     #[test]
     fn delta_past_cap_traps_with_memory_limit_trap() {
         let mut limiter = MemoryLimiter::new(Some(1 << 20));
@@ -435,7 +435,7 @@ mod tests {
         assert_growing(&mut limiter, (3 << 20) + (1 << 20));
     }
 
-    // @behavior S-005
+    // @behavior S-009
     #[test]
     fn disabled_cap_ignores_delta_size() {
         let mut limiter = MemoryLimiter::new(None);

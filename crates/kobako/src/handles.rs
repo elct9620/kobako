@@ -122,6 +122,7 @@ mod tests {
     use super::*;
     use crate::receiver::Probe;
 
+    // @behavior T-009
     #[test]
     fn ids_start_at_one_and_increase_monotonically() {
         let mut table = HandleTable::default();
@@ -129,6 +130,7 @@ mod tests {
         assert_eq!(table.alloc(Arc::new(Probe)), Ok(2));
     }
 
+    // @behavior T-017
     #[test]
     fn get_rejects_the_zero_sentinel_and_unissued_ids() {
         let mut table = HandleTable::default();
@@ -137,6 +139,7 @@ mod tests {
         assert!(table.get(2).is_none());
     }
 
+    // @behavior T-010
     #[test]
     fn facade_round_trips_an_object_through_alloc_and_resolve() {
         let table = Mutex::new(HandleTable::default());
@@ -150,6 +153,7 @@ mod tests {
         );
     }
 
+    // @behavior T-175
     #[test]
     fn a_resolved_receiver_downcasts_to_its_concrete_type() {
         let table = Mutex::new(HandleTable::default());

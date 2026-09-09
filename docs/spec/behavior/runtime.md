@@ -18,6 +18,8 @@ What the host checks before a guest runs, which posture it builds, and how invoc
 - `test/parity/test_hermetic.rb`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/frames.rs`
+- `crates/kobako/tests/concurrency.rs`
+- `crates/kobako/tests/runtime_injection.rs`
 
 ### Why these scenarios
 
@@ -444,3 +446,27 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Given | the clock a guest at the strongest posture measures elapsed time with |
 | When | it is read |
 | Then | it stands still |
+
+## `RT-052` An engine behind the contract drives the invocation
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox built over an engine the Host App supplied |
+| When | an invocation runs |
+| Then | that engine is driven once for it |
+
+## `RT-053` And is handed the registrations the Sandbox sealed
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over a supplied engine that has bound a path |
+| When | an invocation runs |
+| Then | the engine is handed the sealed bindings |
+
+## `RT-054` A Sandbox that states no posture asks for the strongest
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox built without stating a posture |
+| When | the runtime is asked to build |
+| Then | the floor it is asked for is the strongest rung |

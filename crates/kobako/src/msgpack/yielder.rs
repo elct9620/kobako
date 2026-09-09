@@ -64,6 +64,7 @@ mod tests {
         }
     }
 
+    // @behavior T-172
     #[test]
     fn call_ships_the_args_as_one_msgpack_array_and_reads_the_answer_back() {
         let reply = YieldReply::Ok(Encoder::encode(&Value::Int(42)).unwrap()).encode();
@@ -82,6 +83,7 @@ mod tests {
         );
     }
 
+    // @behavior T-166
     #[test]
     fn an_ok_arm_this_schema_cannot_read_aborts() {
         let mut channel = scripted(vec![YieldReply::Ok(vec![0xc1]).encode()]);

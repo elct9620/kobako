@@ -11,6 +11,9 @@ What one invocation's result settles into, which side it is attributed to, and w
 - `test/parity/test_errors.rb`
 - `crates/kobako-wasmtime/src/invocation.rs`
 - `crates/kobako-wasmtime/src/trap.rs`
+- `crates/kobako/src/execution.rs`
+- `crates/kobako/src/error.rs`
+- `crates/kobako/src/msgpack/execution.rs`
 
 ### Why these scenarios
 
@@ -263,3 +266,99 @@ The parity scenarios settle that both frontends attribute the same origin, not t
 | Given | a trap carrying a reason and no frames |
 | When | its message is read |
 | Then | the reason appears once |
+
+## `OC-031` A construction failure reads as the message it was given
+
+| Step | Statement |
+| --- | --- |
+| Given | a construction failure carrying a message |
+| When | it is read as text |
+| Then | it is that message and nothing around it |
+
+## `OC-032` A deadline reached is classified as the deadline's own trap
+
+| Step | Statement |
+| --- | --- |
+| Given | a run cut short by its deadline |
+| When | the failure is classified |
+| Then | it is the deadline's own kind, carrying the message it was given |
+
+## `OC-033` A memory budget reached is classified as the budget's own trap
+
+| Step | Statement |
+| --- | --- |
+| Given | a run cut short by its memory budget |
+| When | the failure is classified |
+| Then | it is the budget's own kind, carrying the message it was given |
+
+## `OC-034` Each trap kind reaches the Rust frontend as its own failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a trap of each kind |
+| When | each is handed to the Rust frontend |
+| Then | each arrives as the failure kind naming what stopped the run |
+
+## `OC-035` A Service-origin failure reaches the Rust frontend as the Service's
+
+| Step | Statement |
+| --- | --- |
+| Given | a failed invocation whose record names the service origin |
+| When | the Rust frontend reads the outcome |
+| Then | it answers a Service failure carrying the record's message |
+
+## `OC-036` A sandbox-origin failure reaches it as the Sandbox's
+
+| Step | Statement |
+| --- | --- |
+| Given | a failed invocation whose record names the sandbox origin |
+| When | the Rust frontend reads the outcome |
+| Then | it answers a Sandbox failure |
+
+## `OC-037` A bytecode failure reaches it as its own kind
+
+| Step | Statement |
+| --- | --- |
+| Given | a failed invocation whose record names the bytecode class |
+| When | the Rust frontend reads the outcome |
+| Then | it answers the bytecode failure kind |
+
+## `OC-038` A guest that wrote nothing reaches it as a trap
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation whose guest wrote no result |
+| When | the Rust frontend reads the outcome |
+| Then | it answers a trap |
+
+## `OC-039` A result the envelope cannot frame reaches it as a trap
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation whose result bytes the envelope cannot frame |
+| When | the Rust frontend reads the outcome |
+| Then | it answers a trap, there being nothing left to attribute to |
+
+## `OC-040` An unresolved entrypoint reaches it carrying its correction
+
+| Step | Statement |
+| --- | --- |
+| Given | a failed invocation whose record names an entrypoint that did not resolve |
+| When | the Rust frontend reads the outcome |
+| Then | the failure carries the names it could have been |
+
+## `OC-041` A construction failure is not an invocation outcome there either
+
+| Step | Statement |
+| --- | --- |
+| Given | a construction failure on the Rust frontend |
+| When | it is read |
+| Then | it stays a construction failure rather than becoming an outcome |
+
+## `OC-042` A result the codec cannot read is a Sandbox failure there too
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation answering bytes the payload codec cannot read |
+| When | the Rust frontend reads the outcome |
+| Then | it answers a Sandbox failure naming the wire |

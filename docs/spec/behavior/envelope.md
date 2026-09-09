@@ -7,6 +7,8 @@ The bytes that say where a message goes and how it turned out, and the fixed val
 - `crates/kobako-transport/src/**/*.rs`
 - `crates/kobako-wasmtime/src/guest_mem.rs`
 - `wasm/kobako-core/src/frames.rs`
+- `crates/kobako/src/snippet.rs`
+- `crates/kobako/src/catalog.rs`
 
 ### Why these scenarios
 

@@ -136,6 +136,7 @@ mod tests {
         }
     }
 
+    // @behavior T-171
     #[test]
     fn the_seam_decodes_the_payload_and_encodes_the_answer() {
         let payload = Arguments::new(vec![Value::Int(42)], Vec::new())
@@ -156,6 +157,7 @@ mod tests {
         );
     }
 
+    // @behavior T-163
     #[test]
     fn a_payload_this_schema_cannot_read_folds_into_an_internal_fault() {
         let table = Detached::new();
@@ -173,6 +175,7 @@ mod tests {
         );
     }
 
+    // @behavior T-126
     #[test]
     fn the_seam_forwards_the_wrapped_receivers_narrowing() {
         let bound = Echo.into_receiver();

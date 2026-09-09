@@ -67,6 +67,7 @@ mod tests {
         }
     }
 
+    // @behavior T-173
     #[test]
     fn resolve_as_hands_back_the_type_that_was_bound() {
         let table = Detached::new();
@@ -82,6 +83,7 @@ mod tests {
         );
     }
 
+    // @behavior T-174
     #[test]
     fn resolve_as_refuses_an_id_standing_for_another_type() {
         let table = Detached::new();
@@ -97,6 +99,7 @@ mod tests {
         );
     }
 
+    // @behavior T-017
     #[test]
     fn resolve_as_refuses_an_id_the_invocation_never_issued() {
         let table = Detached::new();

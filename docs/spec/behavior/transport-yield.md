@@ -11,6 +11,10 @@ What happens when a host Service calls back into the block the guest handed it.
 - `test/e2e/test_yield_value_refusal.rb`
 - `test/unit/transport/test_yielder.rb`
 - `test/parity/test_yield.rb`
+- `crates/kobako/src/dispatch.rs`
+- `crates/kobako/src/yielder.rs`
+- `crates/kobako/src/msgpack/yielder.rs`
+- `crates/kobako/tests/byte_surface.rs`
 
 ### Why these scenarios
 
@@ -293,3 +297,35 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | Given | the Service rescuing that refusal |
 | When | guest code calls it with a block |
 | Then | the invocation answers what the Service returned |
+
+## `T-165` A guest that trapped inside a block aborts the yield
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service yielding to a block |
+| When | the guest traps before answering |
+| Then | the yield is abandoned rather than answered |
+
+## `T-166` A yield answer the envelope cannot frame aborts the yield
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service yielding to a block |
+| When | the answer is bytes the envelope cannot frame |
+| Then | the yield is abandoned rather than answered |
+
+## `T-170` A yield on the byte seam carries the Host App's own bytes
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service yielding arguments the Host App encoded itself |
+| When | the block answers |
+| Then | the block's own answer comes back as bytes for the Host App to read |
+
+## `T-172` A yield through the schema seam ships one frame and reads the answer back
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service yielding values rather than bytes |
+| When | the block answers |
+| Then | the arguments crossed as one frame and the answer is read for the Service |

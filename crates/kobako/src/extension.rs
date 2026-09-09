@@ -220,6 +220,7 @@ mod tests {
         Arc::new(TestExt { name, depends_on })
     }
 
+    // @behavior EX-023
     #[test]
     fn assert_dependencies_accepts_a_satisfied_set() {
         let mut extensions = Extensions::default();
@@ -228,6 +229,7 @@ mod tests {
         assert!(extensions.assert_dependencies().is_ok());
     }
 
+    // @behavior EX-034 EX-035
     #[test]
     fn assert_dependencies_rejects_an_unmet_dependency() {
         let mut extensions = Extensions::default();
@@ -239,6 +241,7 @@ mod tests {
         );
     }
 
+    // @behavior EX-036
     #[test]
     fn assert_dependencies_re_asserts_after_a_failed_seal() {
         let mut extensions = Extensions::default();
@@ -250,6 +253,7 @@ mod tests {
         );
     }
 
+    // @behavior EX-025
     #[test]
     fn assert_dependencies_permits_cycles() {
         let mut extensions = Extensions::default();
@@ -260,6 +264,7 @@ mod tests {
 
     // A shared provider resolves once per invocation to one object; the
     // resolution carries every path that provider backs.
+    // @behavior EX-017
     #[test]
     fn resolve_shares_one_object_across_paths_of_a_shared_provider() {
         let shared: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);
@@ -271,6 +276,7 @@ mod tests {
         );
     }
 
+    // @behavior EX-018
     #[test]
     fn resolve_gives_distinct_providers_distinct_objects() {
         let a: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);

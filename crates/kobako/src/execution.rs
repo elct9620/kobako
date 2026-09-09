@@ -207,6 +207,7 @@ mod tests {
         (execution, id)
     }
 
+    // @behavior T-010
     #[test]
     fn resolve_recovers_the_object_the_outcome_handle_id_stands_for() {
         let object: Arc<dyn Receiver> = Arc::new(Probe);
@@ -221,6 +222,7 @@ mod tests {
         );
     }
 
+    // @behavior T-017
     #[test]
     fn resolve_refuses_an_id_the_invocation_never_issued() {
         let (execution, id) = execution_holding(Arc::new(Probe));
@@ -252,6 +254,7 @@ mod classify_tests {
         .encode()
     }
 
+    // @behavior OC-006
     #[test]
     fn the_ok_arm_yields_the_payload_bytes_it_carried() {
         assert_eq!(
@@ -262,34 +265,40 @@ mod classify_tests {
         );
     }
 
+    // @behavior OC-035
     #[test]
     fn service_origin_panic_becomes_service_error() {
         let result = classify(&panic_bytes(Origin::Service, "Kobako::ServiceError"));
         assert!(matches!(result, Err(Error::Service(f)) if f.message == "boom"));
     }
 
+    // @behavior OC-037
     #[test]
     fn bytecode_class_panic_becomes_bytecode_error() {
         let result = classify(&panic_bytes(Origin::Sandbox, "Kobako::BytecodeError"));
         assert!(matches!(result, Err(Error::Bytecode(_))));
     }
 
+    // @behavior OC-036
     #[test]
     fn sandbox_origin_panic_becomes_sandbox_error() {
         let result = classify(&panic_bytes(Origin::Sandbox, "RuntimeError"));
         assert!(matches!(result, Err(Error::Sandbox(f)) if f.name == "RuntimeError"));
     }
 
+    // @behavior OC-038
     #[test]
     fn empty_bytes_walk_the_trap_path() {
         assert!(matches!(classify(&[]), Err(Error::Trap(_))));
     }
 
+    // @behavior OC-039
     #[test]
     fn unknown_tag_walks_the_trap_path() {
         assert!(matches!(classify(&[0x7f, 0x2a]), Err(Error::Trap(_))));
     }
 
+    // @behavior OC-039
     #[test]
     fn a_panic_record_the_envelope_cannot_frame_walks_the_trap_path() {
         // The Panic arm followed by a truncated origin length prefix.
@@ -303,6 +312,7 @@ mod classify_tests {
     // E-27: an unresolved entrypoint reaches the caller with the names it
     // could have been, matching what the Ruby frontend exposes as
     // `#available` on its own subclass.
+    // @behavior OC-040
     #[test]
     fn an_unresolved_entrypoint_carries_the_names_it_could_have_been() {
         let bytes = Outcome::Panic(Panic {

@@ -21,6 +21,12 @@ How a guest call reaches a host object, what crosses in each direction, and how 
 - `test/e2e/sandbox/test_run_auto_wrap.rb`
 - `test/parity/test_dispatch.rb`
 - `test/parity/test_handles.rb`
+- `crates/kobako/src/dispatch.rs`
+- `crates/kobako/src/execution.rs`
+- `crates/kobako/src/handles.rs`
+- `crates/kobako/src/msgpack/receiver.rs`
+- `crates/kobako/src/msgpack/handles.rs`
+- `crates/kobako/tests/byte_surface.rs`
 
 ### Why these scenarios
 
@@ -823,3 +829,75 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a Sandbox with a Service echoing what it receives |
 | When | guest code passes an Array whose own length method reports a larger count |
 | Then | the Service received the Array's real elements |
+
+## `T-163` A payload the schema cannot read is the wire's own failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a Call whose envelope is whole and whose payload is not a value |
+| When | it is dispatched |
+| Then | the fault names the wire rather than the Service, which never ran |
+
+## `T-164` A break reaches the guest even when the Service discards it
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service that swallows the break its block raised |
+| When | the guest is answered |
+| Then | it receives the break value |
+
+## `T-167` A run carries the Host App's own bytes and hands them back
+
+| Step | Statement |
+| --- | --- |
+| Given | an entrypoint and arguments the Host App encoded itself |
+| When | the run settles |
+| Then | the answer comes back as bytes for the Host App to read |
+
+## `T-168` A Receiver answers through a reference table the caller holds
+
+| Step | Statement |
+| --- | --- |
+| Given | a Receiver reached with a reference table of the caller's own |
+| When | it is called |
+| Then | it answers as it would through the invocation's own table |
+
+## `T-169` A Receiver on the byte seam is handed the payload undecoded
+
+| Step | Statement |
+| --- | --- |
+| Given | a Receiver answering on the byte seam |
+| When | the guest dispatches to it |
+| Then | it is handed the Call's payload once, exactly as the guest sent it |
+
+## `T-171` The schema seam reads the payload and writes the answer
+
+| Step | Statement |
+| --- | --- |
+| Given | a Receiver written against a schema's values rather than bytes |
+| When | the guest dispatches to it |
+| Then | the payload is read for it and its answer is written back |
+
+## `T-173` A reference resolves as the type it was bound as
+
+| Step | Statement |
+| --- | --- |
+| Given | a reference standing for a host object of a known type |
+| When | it is resolved as that type |
+| Then | the object is handed back as that type |
+
+## `T-174` A reference standing for another type is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a reference standing for a host object of one type |
+| When | it is resolved as another |
+| Then | it resolves to nothing |
+
+## `T-175` A resolved Receiver is recoverable as what it was
+
+| Step | Statement |
+| --- | --- |
+| Given | a Receiver bound into the invocation's table |
+| When | it is resolved and asked for its own type |
+| Then | it is the object that was bound |

@@ -153,6 +153,7 @@ mod tests {
         }
     }
 
+    // @behavior T-085
     #[test]
     fn call_payload_ships_the_bytes_it_was_handed_and_returns_the_ok_body() {
         let mut channel = Scripted::new(vec![Ok(YieldReply::Ok(vec![0x2a]).encode())]);
@@ -168,6 +169,7 @@ mod tests {
         );
     }
 
+    // @behavior T-089
     #[test]
     fn break_records_the_body_and_stops_re_entering_the_guest() {
         let mut channel = Scripted::new(vec![Ok(YieldReply::Break(vec![0x2a]).encode())]);
@@ -183,6 +185,7 @@ mod tests {
         );
     }
 
+    // @behavior T-094
     #[test]
     fn the_error_arm_surfaces_the_records_name_and_message() {
         let record = YieldReply::Error(ErrorRecord {
@@ -203,6 +206,7 @@ mod tests {
         );
     }
 
+    // @behavior T-165
     #[test]
     fn trap_during_re_entry_aborts() {
         let mut channel = Scripted::new(vec![Err(Trap::Timeout("deadline".into()))]);
@@ -214,6 +218,7 @@ mod tests {
         );
     }
 
+    // @behavior T-166
     #[test]
     fn malformed_response_bytes_abort() {
         let mut channel = Scripted::new(vec![Ok(vec![0x03, 0xc0])]);
@@ -225,6 +230,7 @@ mod tests {
         );
     }
 
+    // @behavior T-095
     #[test]
     fn a_yield_error_folds_to_the_category_that_names_whose_failure_it_is() {
         let failure = YieldError::Failure {

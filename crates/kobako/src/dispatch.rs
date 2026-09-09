@@ -318,12 +318,14 @@ mod tests {
         }
     }
 
+    // @behavior T-137
     #[test]
     fn routed_call_returns_the_receiver_value() {
         let req = request(Target::Path("MyService::KV"), "echo", vec![Value::Int(7)]);
         assert_eq!(roundtrip(&req), Answer::Ok(Value::Int(7)));
     }
 
+    // @behavior T-145
     #[test]
     fn kwargs_reach_the_receiver_intact() {
         let mut req = request(Target::Path("MyService::KV"), "first_kwarg", vec![]);
@@ -341,6 +343,7 @@ mod tests {
         fault.kind.name()
     }
 
+    // @behavior T-140
     #[test]
     fn receiver_fault_folds_into_a_runtime_fault() {
         let req = request(Target::Path("MyService::KV"), "explode", vec![]);
@@ -351,6 +354,7 @@ mod tests {
         );
     }
 
+    // @behavior T-139
     #[test]
     fn unknown_path_folds_into_an_undefined_fault() {
         let req = request(Target::Path("Nope::Nada"), "echo", vec![]);
@@ -361,6 +365,7 @@ mod tests {
         );
     }
 
+    // @behavior T-042
     #[test]
     fn unknown_handle_target_folds_into_an_undefined_fault() {
         let req = request(Target::Handle(1), "echo", vec![]);
@@ -373,6 +378,7 @@ mod tests {
 
     // Per-invocation resolution wins over the sealed Catalog: the placeholder
     // bound at install (Echo, no `label`) is shadowed by the fresh object.
+    // @behavior SV-021
     #[test]
     fn resolution_wins_over_the_sealed_catalog() {
         let mut catalog = Catalog::default();
@@ -393,6 +399,7 @@ mod tests {
         );
     }
 
+    // @behavior T-006
     #[test]
     fn allocated_handle_routes_the_next_dispatch_to_its_object() {
         let handler = handler();
@@ -441,6 +448,7 @@ mod tests {
     // body fails as a *runtime* fault when it runs: only the fault
     // type can tell "rejected before running" (undefined) apart from
     // "ran and failed" (runtime).
+    // @behavior T-126
     #[test]
     fn narrowing_predicate_rejects_an_unexposed_method_before_it_runs() {
         let mut catalog = Catalog::default();
@@ -464,6 +472,7 @@ mod tests {
         );
     }
 
+    // @behavior T-125
     #[test]
     fn narrowing_predicate_applies_to_a_handle_target() {
         let handles: Arc<Mutex<HandleTable>> = Arc::default();
@@ -486,6 +495,7 @@ mod tests {
         );
     }
 
+    // @behavior T-003
     #[test]
     fn handle_argument_resolves_to_the_live_object() {
         let handler = handler();
@@ -501,6 +511,7 @@ mod tests {
         );
     }
 
+    // @behavior T-163
     #[test]
     fn a_malformed_payload_folds_into_an_internal_fault() {
         // The envelope is well-formed; only its payload is garbage — the
@@ -529,6 +540,7 @@ mod tests {
         req
     }
 
+    // @behavior T-085
     #[test]
     fn yield_results_flow_back_through_the_receiver_value() {
         let req = block_request("yield_each", vec![Value::Int(1), Value::Int(2)]);
@@ -542,6 +554,7 @@ mod tests {
         );
     }
 
+    // @behavior T-089
     #[test]
     fn break_answers_the_guest_with_the_break_value() {
         let req = block_request(
@@ -558,6 +571,7 @@ mod tests {
         );
     }
 
+    // @behavior T-164
     #[test]
     fn break_overrides_even_a_receiver_that_swallows_it() {
         let req = block_request("swallow_break", vec![]);
@@ -569,6 +583,7 @@ mod tests {
         );
     }
 
+    // @behavior T-088
     #[test]
     fn receiver_that_never_yields_discards_the_block() {
         let req = block_request("ignores_block", vec![]);
@@ -578,6 +593,7 @@ mod tests {
         );
     }
 
+    // @behavior T-095
     #[test]
     fn propagated_block_failure_folds_into_a_block_fault() {
         let req = block_request("yield_each", vec![Value::Int(1)]);

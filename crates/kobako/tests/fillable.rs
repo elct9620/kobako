@@ -69,6 +69,7 @@ impl Extension for StoreExt {
     }
 }
 
+// @behavior SV-034
 #[test]
 fn an_unfilled_fillable_dispatch_fails_closed_as_a_service_error() {
     let Some(mut sandbox) = real_sandbox() else {
@@ -92,6 +93,7 @@ fn an_unfilled_fillable_dispatch_fails_closed_as_a_service_error() {
     );
 }
 
+// @behavior SV-035
 #[test]
 fn a_fillable_is_distinct_from_an_undeclared_constant() {
     let Some(mut sandbox) = real_sandbox() else {
@@ -117,6 +119,7 @@ fn a_fillable_is_distinct_from_an_undeclared_constant() {
     );
 }
 
+// @behavior EX-015
 #[test]
 fn an_extension_fillable_backend_left_unfilled_fails_closed() {
     let Some(mut sandbox) = real_sandbox() else {
@@ -139,6 +142,7 @@ fn an_extension_fillable_backend_left_unfilled_fails_closed() {
     );
 }
 
+// @behavior SV-022
 #[test]
 fn a_ctx_bind_override_fills_an_extension_fillable_backend() {
     let Some(mut sandbox) = real_sandbox() else {

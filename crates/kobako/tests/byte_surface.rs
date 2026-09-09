@@ -85,6 +85,7 @@ impl Receiver for ByteEcho {
     }
 }
 
+// @behavior T-167
 #[test]
 fn a_run_carries_the_host_s_own_bytes_and_payload_hands_them_back() {
     let Some(mut sandbox) = real_sandbox() else {
@@ -114,6 +115,7 @@ fn a_run_carries_the_host_s_own_bytes_and_payload_hands_them_back() {
 /// only reach their own method by driving a whole guest. This is the
 /// shape that makes it reachable, exercised here on the byte seam because
 /// that is where an implementation with its own schema lives.
+// @behavior T-168
 #[test]
 fn a_receiver_answers_through_a_detached_handle_table() {
     let echo = ByteEcho::new();
@@ -132,6 +134,7 @@ fn a_receiver_answers_through_a_detached_handle_table() {
     );
 }
 
+// @behavior T-169
 #[test]
 fn a_byte_seam_receiver_sees_the_payload_the_guest_sent() {
     let Some(mut sandbox) = real_sandbox() else {
@@ -187,6 +190,7 @@ impl Receiver for ByteYielder {
     }
 }
 
+// @behavior T-170
 #[test]
 fn call_payload_yields_with_host_encoded_bytes_and_returns_the_block_s_own() {
     let Some(mut sandbox) = real_sandbox() else {

@@ -74,6 +74,7 @@ mod tests {
     use super::*;
     use crate::execution::classify;
 
+    // @behavior OC-006
     #[test]
     fn the_ok_arm_yields_payload_bytes_the_codec_reads_back() {
         let bytes = Outcome::Ok(Encoder::encode(&Value::Int(42)).unwrap()).encode();
@@ -85,6 +86,7 @@ mod tests {
         );
     }
 
+    // @behavior OC-042
     #[test]
     fn a_malformed_value_body_is_a_wire_violation_sandbox_error() {
         // The ok arm followed by a truncated msgpack str header.

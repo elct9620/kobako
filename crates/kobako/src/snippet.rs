@@ -78,6 +78,7 @@ mod tests {
     // Replay order is the property the guest depends on; read it back
     // through the envelope rather than pinning bytes the envelope's own
     // tests already own.
+    // @behavior WE-052
     #[test]
     fn the_frame_carries_source_and_binary_entries_in_insertion_order() {
         let mut snippets = Snippets::default();
@@ -100,6 +101,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-053
     #[test]
     fn an_empty_table_sends_a_present_zero_count_frame() {
         assert_eq!(
@@ -109,6 +111,7 @@ mod tests {
         );
     }
 
+    // @behavior S-122
     #[test]
     fn register_source_rejects_a_non_constant_name() {
         for name in ["lower", "1X", "X::Y", "", "Na-me"] {
@@ -123,6 +126,7 @@ mod tests {
         }
     }
 
+    // @behavior S-123
     #[test]
     fn register_source_rejects_a_duplicate_name() {
         let mut snippets = Snippets::default();
@@ -133,6 +137,7 @@ mod tests {
         ));
     }
 
+    // @behavior S-120
     #[test]
     fn register_binary_entries_stay_anonymous_and_may_repeat() {
         let mut snippets = Snippets::default();

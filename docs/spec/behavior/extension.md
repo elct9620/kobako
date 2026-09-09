@@ -7,6 +7,9 @@ What installing a guest idiom with an optional host backend composes, and what s
 - `test/unit/catalog/test_extensions.rb`
 - `test/e2e/test_install.rb`
 - `test/parity/test_install.rb`
+- `crates/kobako/src/extension.rs`
+- `crates/kobako/tests/install.rs`
+- `crates/kobako/tests/fillable.rs`
 
 ### Why these scenarios
 
@@ -283,3 +286,27 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | Given | an Extension whose `backend` exposes neither `path`, `object`, nor `provider` |
 | When | `#install` runs |
 | Then | `ArgumentError` names `backend` |
+
+## `EX-034` An unmet dependency refuses the first invocation on the Rust frontend too
+
+| Step | Statement |
+| --- | --- |
+| Given | an Extension on the Rust frontend depending on one that was never installed |
+| When | the first invocation begins |
+| Then | it is refused before the guest runs |
+
+## `EX-035` The refusal names the Extension that asked as well
+
+| Step | Statement |
+| --- | --- |
+| Given | an Extension on the Rust frontend depending on one that was never installed |
+| When | the refusal is read |
+| Then | it names the Extension that asked and the one it asked for |
+
+## `EX-036` A failed seal is checked again on the next attempt there too
+
+| Step | Statement |
+| --- | --- |
+| Given | a seal on the Rust frontend that already refused an unmet dependency |
+| When | it is attempted again |
+| Then | it refuses again rather than passing |

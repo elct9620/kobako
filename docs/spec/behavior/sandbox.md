@@ -30,6 +30,9 @@ What a Sandbox is built with, what one invocation leaves for the next, and what 
 - `crates/kobako-wasmtime/src/capture.rs`
 - `crates/kobako-wasmtime/src/invocation.rs`
 - `crates/kobako-wasmtime/src/trap.rs`
+- `crates/kobako/src/sandbox.rs`
+- `crates/kobako/src/snippet.rs`
+- `crates/kobako/src/catalog.rs`
 
 ### Why these scenarios
 
@@ -996,3 +999,35 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | an engine whose clock has already moved |
 | When | a run with no deadline begins |
 | Then | it is not cut short |
+
+## `S-120` Bytecode preloads stay unnamed and may repeat
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox preloading bytecode more than once |
+| When | the preloads are read back |
+| Then | each is there under no name of its own |
+
+## `S-121` Growth past the budget is stopped as the budget's own failure
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation under way with a memory budget |
+| When | the guest grows its memory past it |
+| Then | the growth is refused as the budget's own failure |
+
+## `S-122` A snippet name that is not a constant name is refused on the Rust frontend too
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet table on the Rust frontend |
+| When | a snippet is registered under a name that is not a constant name |
+| Then | it is refused |
+
+## `S-123` A snippet name already taken is refused there too
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet table on the Rust frontend carrying a name |
+| When | the same name is registered again |
+| Then | it is refused |

@@ -44,6 +44,7 @@ fn real_sandbox() -> Option<Sandbox> {
     Some(Sandbox::new(WASM, Options::default()).expect("construct the Sandbox"))
 }
 
+// @behavior SV-022
 #[test]
 fn eval_with_fills_a_fillable_for_the_invocation() {
     let Some(mut sandbox) = real_sandbox() else {
@@ -68,6 +69,7 @@ fn eval_with_fills_a_fillable_for_the_invocation() {
     );
 }
 
+// @behavior SV-026 SV-027
 #[test]
 fn eval_with_shadows_a_static_binding_for_one_invocation_only() {
     let Some(mut sandbox) = real_sandbox() else {
@@ -102,6 +104,7 @@ fn eval_with_shadows_a_static_binding_for_one_invocation_only() {
     );
 }
 
+// @behavior SV-032
 #[test]
 fn a_second_override_of_a_path_wins_over_the_first() {
     let Some(mut sandbox) = real_sandbox() else {
@@ -128,6 +131,7 @@ fn a_second_override_of_a_path_wins_over_the_first() {
     );
 }
 
+// @behavior SV-036
 #[test]
 fn eval_with_rejects_an_undeclared_override_before_the_guest_runs() {
     let Some(mut sandbox) = real_sandbox() else {
@@ -147,6 +151,7 @@ fn eval_with_rejects_an_undeclared_override_before_the_guest_runs() {
     );
 }
 
+// @behavior SV-025
 #[test]
 fn run_with_fills_a_fillable_for_the_invocation() {
     let Some(mut sandbox) = real_sandbox() else {
@@ -174,6 +179,7 @@ fn run_with_fills_a_fillable_for_the_invocation() {
     );
 }
 
+// @behavior SV-025 SV-026
 #[test]
 fn run_with_shadows_a_static_binding_for_one_invocation_only() {
     let Some(mut sandbox) = real_sandbox() else {
@@ -211,6 +217,7 @@ fn run_with_shadows_a_static_binding_for_one_invocation_only() {
     );
 }
 
+// @behavior SV-036
 #[test]
 fn run_with_rejects_an_undeclared_override_before_the_guest_runs() {
     let Some(mut sandbox) = real_sandbox() else {

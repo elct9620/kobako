@@ -119,7 +119,7 @@ mod tests {
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
     }
 
-    // @behavior OC-022
+    // @behavior OC-032
     #[test]
     fn trap_from_routes_timeout_trap_to_timeout() {
         let err = wasmtime::Error::new(TimeoutTrap);
@@ -127,7 +127,7 @@ mod tests {
         assert!(matches!(trap_from(err), Trap::Timeout(msg) if msg == expected));
     }
 
-    // @behavior OC-023
+    // @behavior OC-033
     #[test]
     fn trap_from_routes_memory_limit_trap_to_memory_limit() {
         let trap = MemoryLimitTrap::new(1 << 20, 1 << 19);

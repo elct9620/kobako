@@ -10,6 +10,10 @@ Where a host object becomes a name the guest can reach, and who may change what 
 - `test/e2e/test_fillable.rb`
 - `test/e2e/test_ctx_bind.rb`
 - `test/parity/test_fillable.rb`
+- `crates/kobako/src/dispatch.rs`
+- `crates/kobako/src/catalog.rs`
+- `crates/kobako/tests/fillable.rs`
+- `crates/kobako/tests/overrides.rs`
 
 ### Why these scenarios
 
@@ -272,3 +276,43 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | Given | a registry sealed by the first invocation |
 | When | another object is bound |
 | Then | `ArgumentError` names the first invocation |
+
+## `SV-032` A second override of a path wins over the first
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation whose path has already been overridden |
+| When | the same path is overridden again |
+| Then | the guest reaches the later object |
+
+## `SV-033` The registry behind the Rust frontend replaces rather than refuses
+
+| Step | Statement |
+| --- | --- |
+| Given | the Rust frontend's registry with an object bound at a path |
+| When | the same path is bound again |
+| Then | the later object stands there |
+
+## `SV-034` An unfilled path fails closed for the Rust frontend too
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox on the Rust frontend declaring a path nothing fills |
+| When | the guest dispatches to it |
+| Then | the invocation fails as a Service failure |
+
+## `SV-035` A declared name and an unknown one are told apart there too
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox on the Rust frontend declaring one path and not another |
+| When | the guest reaches for each |
+| Then | the two failures are not the same |
+
+## `SV-036` An override of a path nobody declared is refused before the guest runs
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox on the Rust frontend |
+| When | an invocation overrides a path the Sandbox never declared |
+| Then | it is refused before the guest runs |

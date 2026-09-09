@@ -129,6 +129,7 @@ mod tests {
 
     // The trap folding is the one mapping with room to drift: each cap
     // must keep its own attribution instead of collapsing into `Trap`.
+    // @behavior OC-034
     #[test]
     fn trap_channels_keep_their_cap_attribution() {
         assert!(matches!(
@@ -145,6 +146,7 @@ mod tests {
         ));
     }
 
+    // @behavior OC-041
     #[test]
     fn contract_error_setup_stays_setup() {
         let err = kobako_runtime::error::InvokeError::Setup(SetupError::Intact("pre-call".into()));
@@ -153,6 +155,7 @@ mod tests {
 
     // A Setup error displayed to a host embedder must read as the plain
     // failure message, not the leaked `ModuleNotBuilt("…")` Debug form.
+    // @behavior OC-031
     #[test]
     fn setup_error_display_is_the_plain_message() {
         let err = Error::Setup(SetupError::ModuleNotBuilt("kobako.wasm not found".into()));

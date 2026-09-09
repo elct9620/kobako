@@ -15,6 +15,8 @@ What the host refuses to dispatch, and how narrow a bound object can make its ow
 - `test/unit/transport/test_dispatcher_narrowing.rb`
 - `test/parity/test_reflection.rb`
 - `test/unit/values/test_handle.rb`
+- `crates/kobako/src/dispatch.rs`
+- `crates/kobako/src/msgpack/receiver.rs`
 
 ### Why these scenarios
 

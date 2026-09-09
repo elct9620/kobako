@@ -60,6 +60,7 @@ mod tests {
 
     use super::*;
 
+    // @behavior SV-001
     #[test]
     fn bind_then_lookup_resolves_the_path() {
         let mut catalog = Catalog::default();
@@ -70,6 +71,7 @@ mod tests {
         assert!(catalog.lookup("MyService::Other").is_none());
     }
 
+    // @behavior SV-033
     #[test]
     fn rebind_replaces_the_object_at_the_same_path() {
         let mut catalog = Catalog::default();
@@ -81,6 +83,7 @@ mod tests {
     // The preamble is the guest's registration input; bind order is the
     // property that matters to it, so read it back through the envelope
     // rather than pinning bytes the envelope's own tests already own.
+    // @behavior S-020
     #[test]
     fn the_preamble_carries_every_bound_path_in_bind_order() {
         let mut catalog = Catalog::default();
@@ -95,6 +98,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-050
     #[test]
     fn an_empty_catalog_sends_a_present_empty_preamble() {
         assert_eq!(
