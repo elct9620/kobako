@@ -367,7 +367,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | --- | --- |
 | Given | the reserved identifier |
 | When | a capability reference is made from it |
-| Then | `ArgumentError` is raised |
+| Then | it is refused |
 
 ## `WP-044` Nor does one past the highest
 
@@ -375,7 +375,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | --- | --- |
 | Given | an identifier past the highest |
 | When | a capability reference is made from it |
-| Then | `ArgumentError` is raised |
+| Then | it is refused |
 
 ## `WP-045` The reserved identifier is refused off the wire too
 

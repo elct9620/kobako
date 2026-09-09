@@ -69,7 +69,7 @@ impl Extension for StoreExt {
     }
 }
 
-// @behavior SV-034
+// @behavior SV-017
 #[test]
 fn an_unfilled_fillable_dispatch_fails_closed_as_a_service_error() {
     let Some(mut sandbox) = real_sandbox() else {
@@ -93,7 +93,7 @@ fn an_unfilled_fillable_dispatch_fails_closed_as_a_service_error() {
     );
 }
 
-// @behavior SV-035
+// @behavior SV-019
 #[test]
 fn a_fillable_is_distinct_from_an_undeclared_constant() {
     let Some(mut sandbox) = real_sandbox() else {

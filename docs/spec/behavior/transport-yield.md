@@ -279,7 +279,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | --- | --- |
 | Given | a Sandbox with a Service yielding a value having no wire representation |
 | When | the Service leaves the refusal unrescued |
-| Then | `Kobako::ServiceError` reaches the Host App |
+| Then | it reaches the Host App as a Service failure |
 
 ## `T-158` The refusal is worded as kobako's own
 

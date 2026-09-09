@@ -229,7 +229,7 @@ mod tests {
         assert!(extensions.assert_dependencies().is_ok());
     }
 
-    // @behavior EX-034 EX-035
+    // @behavior EX-029 EX-030
     #[test]
     fn assert_dependencies_rejects_an_unmet_dependency() {
         let mut extensions = Extensions::default();
@@ -241,7 +241,7 @@ mod tests {
         );
     }
 
-    // @behavior EX-036
+    // @behavior EX-031
     #[test]
     fn assert_dependencies_re_asserts_after_a_failed_seal() {
         let mut extensions = Extensions::default();

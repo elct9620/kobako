@@ -120,7 +120,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | --- | --- |
 | Given | a value nested one level past what the wire encodes |
 | When | the wrap walk carries it |
-| Then | `Kobako::SandboxError` names the depth bound |
+| Then | it fails as a Sandbox failure naming the depth bound |
 
 ## `CD-013` A value that refers to itself is refused rather than followed
 
@@ -128,7 +128,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | --- | --- |
 | Given | a value holding a reference to itself |
 | When | the wrap walk carries it |
-| Then | `Kobako::SandboxError` is raised |
+| Then | it fails as a Sandbox failure |
 
 ## `CD-014` So is one standing as a key
 
@@ -136,7 +136,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | --- | --- |
 | Given | a Hash whose key holds a reference to itself |
 | When | the wrap walk carries it |
-| Then | `Kobako::SandboxError` is raised |
+| Then | it fails as a Sandbox failure |
 
 ## `CD-015` A value outside the type mapping is refused, not probed
 
@@ -168,7 +168,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | --- | --- |
 | Given | a Sandbox with a Service answering a value that nests without end |
 | When | guest code calls it and leaves the failure unrescued |
-| Then | `Kobako::ServiceError` reaches the Host App |
+| Then | it reaches the Host App as a Service failure |
 
 ## `CD-019` That refusal is worded as kobako's own
 

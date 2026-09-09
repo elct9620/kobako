@@ -86,7 +86,7 @@ mod tests {
         );
     }
 
-    // @behavior OC-042
+    // @behavior OC-003
     #[test]
     fn a_malformed_value_body_is_a_wire_violation_sandbox_error() {
         // The ok arm followed by a truncated msgpack str header.

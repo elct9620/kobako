@@ -111,7 +111,7 @@ mod tests {
         );
     }
 
-    // @behavior S-122
+    // @behavior S-085
     #[test]
     fn register_source_rejects_a_non_constant_name() {
         for name in ["lower", "1X", "X::Y", "", "Na-me"] {
@@ -126,7 +126,7 @@ mod tests {
         }
     }
 
-    // @behavior S-123
+    // @behavior S-086
     #[test]
     fn register_source_rejects_a_duplicate_name() {
         let mut snippets = Snippets::default();

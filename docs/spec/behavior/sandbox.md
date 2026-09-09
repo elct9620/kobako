@@ -80,9 +80,9 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 
 | Step | Statement |
 | --- | --- |
-| Given | Sandbox options carrying `nil` for each cap |
+| Given | Sandbox options carrying nothing for each cap |
 | When | the caps are read |
-| Then | each answers `nil` |
+| Then | each answers as unbounded rather than as its default |
 
 ## `S-006` A cap given a value keeps it
 
@@ -589,7 +589,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox |
 | When | an evaluation returns a value nested past the encoder's bound or referring to itself |
-| Then | `Kobako::SandboxError` is raised rather than the invocation trapping |
+| Then | it fails as a Sandbox failure rather than the invocation trapping |
 
 ## `S-074` Nesting within the bound crosses whole
 
@@ -693,7 +693,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox whose preloaded snippet defines the entrypoint constant as a plain value |
 | When | `#run` names that constant |
-| Then | `Kobako::SandboxError` says it does not respond to the call |
+| Then | it fails as a Sandbox failure saying it does not respond to the call |
 
 ## `S-082` Both frontends attribute an entrypoint fault the same way
 
@@ -717,7 +717,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox holding a preloaded snippet that does not compile |
 | When | the first invocation runs |
-| Then | `Kobako::SandboxError` carries the guest's syntax error |
+| Then | it fails as a Sandbox failure carrying the guest's syntax error |
 
 ## `S-085` A snippet name that is not a constant name
 
@@ -725,7 +725,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a snippet table |
 | When | a snippet is registered under a name that is not a constant name |
-| Then | `ArgumentError` names the constraint |
+| Then | the refusal names the constraint |
 
 ## `S-086` A snippet name already taken
 
@@ -733,7 +733,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a snippet table holding a snippet under a name |
 | When | another snippet is registered under that same name |
-| Then | `ArgumentError` says the name is already preloaded |
+| Then | the refusal says the name is already preloaded |
 
 ## `S-087` A preload after the snippet table is sealed
 
@@ -741,7 +741,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox whose first invocation has begun |
 | When | `#preload` runs |
-| Then | `ArgumentError` names the first invocation |
+| Then | the refusal names the first invocation |
 
 ## `S-088` A snippet that raises at replay is attributed to the snippet
 
@@ -757,7 +757,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox holding preloaded bytecode whose body is corrupt |
 | When | the first invocation runs |
-| Then | `Kobako::BytecodeError` is raised |
+| Then | it fails as a bytecode failure |
 
 ## `S-090` Bytecode that loads and then raises is not one
 
@@ -781,7 +781,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox |
 | When | `#run` is given a target that is neither a Symbol nor a String |
-| Then | `TypeError` names the two forms it takes |
+| Then | the refusal names the two forms it takes |
 
 ## `S-093` An entrypoint name that is not a constant name
 
@@ -789,7 +789,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox |
 | When | `#run` is given a target that is not a constant name |
-| Then | `ArgumentError` names the constraint |
+| Then | the refusal names the constraint |
 
 ## `S-094` An entrypoint is one name, not a path
 
@@ -797,7 +797,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox |
 | When | `#run` is given a target spelling a nested constant |
-| Then | `ArgumentError` names the constraint |
+| Then | the refusal names the constraint |
 
 ## `S-095` A capability reference among a run's arguments
 
@@ -805,7 +805,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox |
 | When | `#run` carries a capability reference in its positional arguments |
-| Then | `ArgumentError` names the reference |
+| Then | the refusal names the reference |
 
 ## `S-096` A capability reference among a run's keyword values
 
@@ -813,7 +813,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox |
 | When | `#run` carries a capability reference in a keyword value |
-| Then | `ArgumentError` names the reference |
+| Then | the refusal names the reference |
 
 ## `S-097` A keyword key that is not a Symbol
 
@@ -821,7 +821,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox |
 | When | `#run` carries a keyword key that is not a Symbol |
-| Then | `ArgumentError` names the constraint |
+| Then | the refusal names the constraint |
 
 ## `S-098` A guest that cannot reserve the run's envelope
 
@@ -829,7 +829,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox whose guest allocator reports exhaustion |
 | When | `#run` reserves the invocation envelope |
-| Then | `Kobako::SandboxError` says the input buffer could not be allocated |
+| Then | it fails as a Sandbox failure saying the input buffer could not be allocated |
 
 ## `S-099` Both frontends refuse a registration that arrives after the seal
 
@@ -1015,22 +1015,6 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | an invocation under way with a memory budget |
 | When | the guest grows its memory past it |
 | Then | the growth is refused as the budget's own failure |
-
-## `S-122` A snippet name that is not a constant name is refused on the Rust frontend too
-
-| Step | Statement |
-| --- | --- |
-| Given | a snippet table on the Rust frontend |
-| When | a snippet is registered under a name that is not a constant name |
-| Then | it is refused |
-
-## `S-123` A snippet name already taken is refused there too
-
-| Step | Statement |
-| --- | --- |
-| Given | a snippet table on the Rust frontend carrying a name |
-| When | the same name is registered again |
-| Then | it is refused |
 
 ## `S-124` A registry seals once and refuses what arrives after
 

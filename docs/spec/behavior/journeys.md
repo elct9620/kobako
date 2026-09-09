@@ -28,7 +28,7 @@ The reuse and isolation walks are not here. They are what a Sandbox does between
 | --- | --- |
 | Given | a Sandbox |
 | When | generated source raises and nothing in it rescues |
-| Then | `Kobako::SandboxError` is raised, attributed to the sandbox and to neither other class |
+| Then | it fails as a Sandbox failure, attributed to the sandbox and to neither other side |
 
 ## `J-003` Source that will not compile runs nothing first
 
@@ -36,7 +36,7 @@ The reuse and isolation walks are not here. They are what a Sandbox does between
 | --- | --- |
 | Given | a Sandbox |
 | When | generated source that writes output and then fails to parse is evaluated |
-| Then | `Kobako::SandboxError` is raised, attributed to the sandbox, and nothing was written |
+| Then | it fails as a Sandbox failure, attributed to the sandbox, and nothing was written |
 
 ## `J-004` A script failure says where in the script it happened
 
@@ -52,7 +52,7 @@ The reuse and isolation walks are not here. They are what a Sandbox does between
 | --- | --- |
 | Given | a Sandbox with a Service that raises |
 | When | generated source calls that Service and nothing rescues |
-| Then | `Kobako::ServiceError` is raised, attributed to the service and not as a script failure |
+| Then | it fails as a Service failure, attributed to the service and not as a script failure |
 
 ## `J-006` A capability failure says where too
 

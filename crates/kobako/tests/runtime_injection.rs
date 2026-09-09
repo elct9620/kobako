@@ -122,7 +122,7 @@ fn a_runtime_declaring_more_than_the_requested_floor_is_accepted() {
     );
 }
 
-// @behavior RT-054
+// @behavior RT-009
 #[test]
 fn the_default_options_floor_reaches_the_bundled_driver_unchanged() {
     assert_eq!(

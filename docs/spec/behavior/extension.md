@@ -81,7 +81,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | --- | --- |
 | Given | an installed Extension carrying source and no backend |
 | When | guest code calls a method the idiom routes to a backend |
-| Then | `Kobako::ServiceError` is raised |
+| Then | it fails as a Service failure |
 
 ## `EX-009` A backend declaring `object:` is bound at install
 
@@ -105,7 +105,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | --- | --- |
 | Given | an Extension whose backend declares `provider:` |
 | When | `install` runs |
-| Then | the path is bound to the `Kobako::Unresolved` sentinel |
+| Then | the path is bound to the sentinel that stands for nothing yet |
 
 ## `EX-012` A backend declaring `provider:` yields a fresh object per invocation
 
@@ -121,7 +121,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | --- | --- |
 | Given | a backend declaration carrying both `object:` and `provider:` |
 | When | the backend is constructed |
-| Then | `ArgumentError` is raised |
+| Then | the construction is refused |
 
 ## `EX-014` A backend declaring neither keyword is a fillable
 
@@ -129,7 +129,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | --- | --- |
 | Given | an Extension whose backend declares neither `object:` nor `provider:` |
 | When | `install` runs |
-| Then | the path is bound to the `Kobako::Unresolved` sentinel |
+| Then | the path is bound to the sentinel that stands for nothing yet |
 
 ## `EX-015` A fillable waits to be filled rather than resolved
 
@@ -245,7 +245,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | --- | --- |
 | Given | a Sandbox whose first invocation has completed |
 | When | `#install` runs |
-| Then | `ArgumentError` names the first invocation |
+| Then | the refusal names the first invocation |
 
 ## `EX-029` An unmet dependency refuses the first invocation
 
@@ -253,7 +253,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | --- | --- |
 | Given | a Sandbox holding an Extension that names a dependency nothing installed |
 | When | the first invocation begins |
-| Then | `ArgumentError` names the missing Extension |
+| Then | the refusal names the missing Extension |
 
 ## `EX-030` The refusal names the Extension that asked as well
 
@@ -261,7 +261,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | --- | --- |
 | Given | a registry holding an Extension that names a dependency nothing installed |
 | When | the registry is sealed |
-| Then | `ArgumentError` names both the Extension and the dependency |
+| Then | the refusal names both the Extension and the dependency |
 
 ## `EX-031` A failed seal is checked again on the next attempt
 
@@ -269,7 +269,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | --- | --- |
 | Given | a registry whose seal already failed on an unmet dependency |
 | When | the registry is sealed again |
-| Then | `ArgumentError` is raised again |
+| Then | it is refused again |
 
 ## `EX-032` An idiom that is not source
 
@@ -277,7 +277,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | --- | --- |
 | Given | an Extension whose `source` is not a String |
 | When | `#install` runs |
-| Then | `ArgumentError` names `source` |
+| Then | the refusal names the idiom |
 
 ## `EX-033` A backend that declares no kind
 
@@ -285,31 +285,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | --- | --- |
 | Given | an Extension whose `backend` exposes neither `path`, `object`, nor `provider` |
 | When | `#install` runs |
-| Then | `ArgumentError` names `backend` |
-
-## `EX-034` An unmet dependency refuses the first invocation on the Rust frontend too
-
-| Step | Statement |
-| --- | --- |
-| Given | an Extension on the Rust frontend depending on one that was never installed |
-| When | the first invocation begins |
-| Then | it is refused before the guest runs |
-
-## `EX-035` The refusal names the Extension that asked as well
-
-| Step | Statement |
-| --- | --- |
-| Given | an Extension on the Rust frontend depending on one that was never installed |
-| When | the refusal is read |
-| Then | it names the Extension that asked and the one it asked for |
-
-## `EX-036` A failed seal is checked again on the next attempt there too
-
-| Step | Statement |
-| --- | --- |
-| Given | a seal on the Rust frontend that already refused an unmet dependency |
-| When | it is attempted again |
-| Then | it refuses again rather than passing |
+| Then | the refusal names the backend |
 
 ## `EX-037` An unfilled backend fails closed where the guest reaches it
 

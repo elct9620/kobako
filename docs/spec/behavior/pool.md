@@ -54,7 +54,7 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | --- | --- |
 | Given | a Pool constructed with `slots: 1` and `timeout: 0.05` |
 | When | a checked-out Sandbox evaluates a non-terminating loop |
-| Then | `Kobako::TimeoutError` is raised |
+| Then | it fails as a deadline reached |
 
 ## `PL-006` A setup failure surfaces where it was triggered
 
@@ -97,7 +97,7 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | Given | a Pool with `slots: 1` |
 | Given | a completed checkout that set a guest global variable |
 | When | a later checkout reads that global |
-| Then | it reads `nil` |
+| Then | it reads nothing |
 
 ## `PL-011` A full Pool makes the caller wait rather than refuse
 
@@ -185,7 +185,7 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | --- | --- |
 | Given | `slots:` written as zero, a negative, a Float, a String, or nil |
 | When | `Kobako::Pool.new` runs |
-| Then | `ArgumentError` names `slots` |
+| Then | the refusal names the slot count |
 
 ## `PL-021` A checkout bound that is not a positive finite number
 
@@ -193,7 +193,7 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | --- | --- |
 | Given | `checkout_timeout:` written as zero, a negative, an infinity, a NaN, or a String |
 | When | `Kobako::Pool.new` runs |
-| Then | `ArgumentError` names `checkout_timeout` |
+| Then | the refusal names the checkout bound |
 
 ## `PL-022` The indefinite wait is spelled nil
 
@@ -218,4 +218,4 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | Given | a Pool with `slots: 1` and `checkout_timeout: 0.05` |
 | Given | that slot held by another thread for longer than the bound |
 | When | `Pool#with` runs |
-| Then | `Kobako::PoolTimeoutError` is raised |
+| Then | it fails as a checkout that waited past its bound |

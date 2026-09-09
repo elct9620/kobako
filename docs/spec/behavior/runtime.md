@@ -83,7 +83,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | --- | --- |
 | Given | a Guest Binary exporting no ABI version |
 | When | a Sandbox is constructed over it |
-| Then | `Kobako::SetupError` is raised |
+| Then | construction fails |
 
 ## `RT-007` A guest stating another ABI version does not run
 
@@ -91,7 +91,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | --- | --- |
 | Given | a Guest Binary reporting an ABI version the Host Gem does not implement |
 | When | a Sandbox is constructed over it |
-| Then | `Kobako::SetupError` is raised |
+| Then | construction fails |
 
 ## `RT-008` A refused artifact is never remembered as usable
 
@@ -99,7 +99,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | --- | --- |
 | Given | a Guest Binary already refused once for its ABI version |
 | When | a Sandbox is constructed over the same path again |
-| Then | `Kobako::SetupError` is raised again |
+| Then | construction fails again |
 
 ## `RT-009` The strongest posture is the one nobody has to ask for
 
@@ -107,7 +107,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | --- | --- |
 | Given | Sandbox options carrying no `profile:` |
 | When | the options are read |
-| Then | the profile is `:hermetic` |
+| Then | the posture is the strongest rung |
 
 ## `RT-010` Both rungs of the ladder may be requested
 
@@ -123,7 +123,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | --- | --- |
 | Given | Sandbox options carrying a `profile:` value the ladder does not name |
 | When | the options are built |
-| Then | `ArgumentError` is raised |
+| Then | the posture is refused |
 
 ## `RT-012` A runtime that built less than was asked for does not run
 
@@ -173,8 +173,8 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Step | Statement |
 | --- | --- |
 | Given | the bundled Guest Binary |
-| When | a runtime is built from that path with a `profile:` the ladder does not name |
-| Then | `ArgumentError` is raised |
+| When | a runtime is built from that path with a posture the ladder does not name |
+| Then | the posture is refused |
 
 ## `RT-018` Holding the lock is what happens when nobody chooses
 
@@ -198,15 +198,15 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | --- | --- |
 | Given | Sandbox options carrying a `gvl:` value the mode set does not name |
 | When | the options are built |
-| Then | `ArgumentError` is raised |
+| Then | the mode is refused |
 
 ## `RT-021` The runtime refuses an unknown mode on its own
 
 | Step | Statement |
 | --- | --- |
 | Given | the bundled Guest Binary |
-| When | a runtime is built from that path with a `gvl:` the mode set does not name |
-| Then | `ArgumentError` is raised |
+| When | a runtime is built from that path with a scheduling mode the set does not name |
+| Then | the mode is refused |
 
 ## `RT-022` Releasing the lock changes no value
 
@@ -294,7 +294,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | --- | --- |
 | Given | a runtime path and a timeout that is not positive |
 | When | `Kobako::Runtime.from_path` runs |
-| Then | `ArgumentError` names the timeout constraint |
+| Then | the refusal names the deadline's constraint |
 
 ## `RT-033` A posture the ladder does not name
 
@@ -302,7 +302,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | --- | --- |
 | Given | a Sandbox construction requesting a profile off the ladder |
 | When | `Kobako::Sandbox.new` runs |
-| Then | `ArgumentError` is raised |
+| Then | the option is refused |
 
 ## `RT-034` A keyword the options do not take
 
@@ -310,7 +310,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | --- | --- |
 | Given | a Sandbox construction carrying an unknown keyword |
 | When | `Kobako::Sandbox.new` runs |
-| Then | `ArgumentError` is raised |
+| Then | the option is refused |
 
 ## `RT-035` A corrupt cache entry does not stop a runtime being built
 
@@ -463,11 +463,3 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Given | a Sandbox over a supplied engine that has bound a path |
 | When | an invocation runs |
 | Then | the engine is handed the sealed bindings |
-
-## `RT-054` A Sandbox that states no posture asks for the strongest
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox built without stating a posture |
-| When | the runtime is asked to build |
-| Then | the floor it is asked for is the strongest rung |

@@ -119,7 +119,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | --- | --- |
 | Given | a registry with a Service bound at a path |
 | When | the same path is bound again |
-| Then | `ArgumentError` is raised |
+| Then | the bind is refused |
 
 ## `SV-013` A name is a Service or a grouping, never both
 
@@ -127,7 +127,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | --- | --- |
 | Given | a registry with a Service bound at a single-segment path |
 | When | a path extending it is bound |
-| Then | `ArgumentError` is raised |
+| Then | the bind is refused |
 
 ## `SV-014` A grouping cannot become a Service either
 
@@ -135,7 +135,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | --- | --- |
 | Given | a registry with a Service bound at a two-segment path |
 | When | that path's prefix is bound |
-| Then | `ArgumentError` is raised |
+| Then | the bind is refused |
 
 ## `SV-015` A refused bind changes nothing
 
@@ -160,7 +160,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | --- | --- |
 | Given | a Sandbox declaring a Service path with no object |
 | When | guest code calls that path and leaves the failure unrescued |
-| Then | `Kobako::ServiceError` is raised |
+| Then | it fails as a Service failure |
 
 ## `SV-018` The sentinel is the declaration, spelled out
 
@@ -168,7 +168,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | --- | --- |
 | Given | a Sandbox binding `Kobako::Unresolved` at a path explicitly |
 | When | guest code calls that path and leaves the failure unrescued |
-| Then | `Kobako::ServiceError` is raised |
+| Then | it fails as a Service failure |
 
 ## `SV-019` A declared name and an unknown one are told apart
 
@@ -176,7 +176,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | --- | --- |
 | Given | a Sandbox declaring one Service path with no object |
 | When | guest code names a constant that was never declared |
-| Then | `Kobako::SandboxError` is raised |
+| Then | it fails as a Sandbox failure |
 
 ## `SV-020` The guest may carry on past an unfilled path
 
@@ -210,7 +210,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | --- | --- |
 | Given | an invocation whose registry declares one path |
 | When | an override is bound at a path the registry never declared |
-| Then | `ArgumentError` is raised |
+| Then | the override is refused |
 
 ## `SV-024` What the override fills is what the guest reaches
 
@@ -251,7 +251,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | --- | --- |
 | Given | a Sandbox declaring a Service path with no object |
 | When | guest code calls that path during an invocation whose block left it unfilled |
-| Then | `Kobako::ServiceError` is raised |
+| Then | it fails as a Service failure |
 
 ## `SV-029` A Context is spent when its block returns
 
@@ -259,7 +259,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | --- | --- |
 | Given | a Context captured out of a completed invocation's block |
 | When | an override is bound through it afterward |
-| Then | `ArgumentError` is raised |
+| Then | the override is refused |
 
 ## `SV-030` A path segment that is not a constant name
 
@@ -267,7 +267,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | --- | --- |
 | Given | a registry with nothing bound |
 | When | an object is bound at a path any segment of which is not a constant name |
-| Then | `ArgumentError` is raised |
+| Then | the bind is refused |
 
 ## `SV-031` A bind after registration is sealed
 
@@ -275,7 +275,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | --- | --- |
 | Given | a registry sealed by the first invocation |
 | When | another object is bound |
-| Then | `ArgumentError` names the first invocation |
+| Then | the refusal names the first invocation |
 
 ## `SV-032` A second override of a path wins over the first
 
@@ -292,27 +292,3 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | Given | the Rust frontend's registry with an object bound at a path |
 | When | the same path is bound again |
 | Then | the later object stands there |
-
-## `SV-034` An unfilled path fails closed for the Rust frontend too
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox on the Rust frontend declaring a path nothing fills |
-| When | the guest dispatches to it |
-| Then | the invocation fails as a Service failure |
-
-## `SV-035` A declared name and an unknown one are told apart there too
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox on the Rust frontend declaring one path and not another |
-| When | the guest reaches for each |
-| Then | the two failures are not the same |
-
-## `SV-036` An override of a path nobody declared is refused before the guest runs
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox on the Rust frontend |
-| When | an invocation overrides a path the Sandbox never declared |
-| Then | it is refused before the guest runs |

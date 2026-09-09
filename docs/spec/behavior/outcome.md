@@ -28,13 +28,15 @@ The class hierarchy is asserted as relations rather than through failures. A Hos
 
 The parity scenarios settle that both frontends attribute the same origin, not that either is right — what is right is stated by the scenarios above.
 
+One block here is deliberately written in one frontend's own names: the ancestry scenarios say what the Ruby gem's error classes descend from, which is a promise that frontend makes and no other can answer for. Everything else states the attribution itself, so either frontend's tests witness it in its own spelling.
+
 ## `OC-001` A guest that wrote nothing costs the Sandbox
 
 | Step | Statement |
 | --- | --- |
 | Given | an invocation whose guest wrote no result |
 | When | the outcome is read |
-| Then | `Kobako::TrapError` says the Sandbox exited without producing one |
+| Then | it fails as a trap saying the Sandbox exited without producing one |
 
 ## `OC-002` So does a result the envelope cannot frame
 
@@ -42,7 +44,7 @@ The parity scenarios settle that both frontends attribute the same origin, not t
 | --- | --- |
 | Given | an invocation whose result bytes the envelope cannot frame |
 | When | the outcome is read |
-| Then | `Kobako::TrapError` says the runtime is corrupted |
+| Then | it fails as a trap, there being nothing left to attribute to |
 
 ## `OC-003` A result the codec cannot read does not
 
@@ -50,7 +52,7 @@ The parity scenarios settle that both frontends attribute the same origin, not t
 | --- | --- |
 | Given | an invocation answering bytes the payload codec cannot read |
 | When | the outcome is read |
-| Then | `Kobako::SandboxError` is raised rather than a trap |
+| Then | it fails as a Sandbox failure rather than a trap |
 
 ## `OC-004` The refusal stays in the caller's vocabulary
 
@@ -90,7 +92,7 @@ The parity scenarios settle that both frontends attribute the same origin, not t
 | --- | --- |
 | Given | a failed invocation whose record names the service origin |
 | When | the outcome is read |
-| Then | `Kobako::ServiceError` carries that origin |
+| Then | it fails as a Service failure carrying that origin |
 
 ## `OC-009` A failure the sandbox caused is attributed to the sandbox
 
@@ -98,7 +100,7 @@ The parity scenarios settle that both frontends attribute the same origin, not t
 | --- | --- |
 | Given | a failed invocation whose record names the sandbox origin |
 | When | the outcome is read |
-| Then | `Kobako::SandboxError` is raised and it is not a Service failure |
+| Then | it fails as a Sandbox failure and not as a Service failure |
 
 ## `OC-010` An origin the contract does not name lands with the sandbox
 
@@ -106,7 +108,7 @@ The parity scenarios settle that both frontends attribute the same origin, not t
 | --- | --- |
 | Given | a failed invocation whose record names an origin the contract reserves nothing for |
 | When | the outcome is read |
-| Then | `Kobako::SandboxError` carries that origin unchanged |
+| Then | it fails as a Sandbox failure carrying that origin unchanged |
 
 ## `OC-011` A class the guest named narrows inside the origin's branch
 
@@ -130,7 +132,7 @@ The parity scenarios settle that both frontends attribute the same origin, not t
 | --- | --- |
 | Given | a failed invocation whose record names the bytecode class |
 | When | the outcome is read |
-| Then | `Kobako::BytecodeError` is raised and is still a Sandbox failure |
+| Then | it fails as a bytecode failure and is still a Sandbox failure |
 
 ## `OC-014` An unresolved entrypoint carries its correction
 
@@ -138,7 +140,7 @@ The parity scenarios settle that both frontends attribute the same origin, not t
 | --- | --- |
 | Given | a failed invocation whose record names an entrypoint that did not resolve |
 | When | the outcome is read |
-| Then | `Kobako::UndefinedEntrypointError` carries the name asked for and the names available |
+| Then | the failure carries the name asked for and the names available |
 
 ## `OC-015` A failed arm never asks the codec anything
 
@@ -292,77 +294,21 @@ The parity scenarios settle that both frontends attribute the same origin, not t
 | When | the failure is classified |
 | Then | it is the budget's own kind, carrying the message it was given |
 
-## `OC-034` Each trap kind reaches the Rust frontend as its own failure
+## `OC-034` Each trap kind reaches the Host App as its own failure
 
 | Step | Statement |
 | --- | --- |
 | Given | a trap of each kind |
-| When | each is handed to the Rust frontend |
+| When | each is carried out to the Host App |
 | Then | each arrives as the failure kind naming what stopped the run |
 
-## `OC-035` A Service-origin failure reaches the Rust frontend as the Service's
+## `OC-041` A construction failure never becomes an invocation outcome
 
 | Step | Statement |
 | --- | --- |
-| Given | a failed invocation whose record names the service origin |
-| When | the Rust frontend reads the outcome |
-| Then | it answers a Service failure carrying the record's message |
-
-## `OC-036` A sandbox-origin failure reaches it as the Sandbox's
-
-| Step | Statement |
-| --- | --- |
-| Given | a failed invocation whose record names the sandbox origin |
-| When | the Rust frontend reads the outcome |
-| Then | it answers a Sandbox failure |
-
-## `OC-037` A bytecode failure reaches it as its own kind
-
-| Step | Statement |
-| --- | --- |
-| Given | a failed invocation whose record names the bytecode class |
-| When | the Rust frontend reads the outcome |
-| Then | it answers the bytecode failure kind |
-
-## `OC-038` A guest that wrote nothing reaches it as a trap
-
-| Step | Statement |
-| --- | --- |
-| Given | an invocation whose guest wrote no result |
-| When | the Rust frontend reads the outcome |
-| Then | it answers a trap |
-
-## `OC-039` A result the envelope cannot frame reaches it as a trap
-
-| Step | Statement |
-| --- | --- |
-| Given | an invocation whose result bytes the envelope cannot frame |
-| When | the Rust frontend reads the outcome |
-| Then | it answers a trap, there being nothing left to attribute to |
-
-## `OC-040` An unresolved entrypoint reaches it carrying its correction
-
-| Step | Statement |
-| --- | --- |
-| Given | a failed invocation whose record names an entrypoint that did not resolve |
-| When | the Rust frontend reads the outcome |
-| Then | the failure carries the names it could have been |
-
-## `OC-041` A construction failure is not an invocation outcome there either
-
-| Step | Statement |
-| --- | --- |
-| Given | a construction failure on the Rust frontend |
-| When | it is read |
+| Given | a construction failure |
+| When | it is carried out to the Host App |
 | Then | it stays a construction failure rather than becoming an outcome |
-
-## `OC-042` A result the codec cannot read is a Sandbox failure there too
-
-| Step | Statement |
-| --- | --- |
-| Given | an invocation answering bytes the payload codec cannot read |
-| When | the Rust frontend reads the outcome |
-| Then | it answers a Sandbox failure naming the wire |
 
 ## `OC-043` A failure before the guest is ready is the Sandbox's own boot failure
 

@@ -270,7 +270,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a Hash keyed by a value the wire cannot carry |
 | When | the walk runs over it |
-| Then | `Kobako::SandboxError` is raised |
+| Then | it fails as a Sandbox failure |
 
 ## `T-030` A reference is not referenced again
 
@@ -334,7 +334,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a capability reference whose binding is gone |
 | When | the restore runs over it |
-| Then | `Kobako::SandboxError` is raised |
+| Then | it fails as a Sandbox failure |
 
 ## `T-038` A reference does not survive its invocation
 
@@ -414,7 +414,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | an invocation whose Handle table is exhausted |
 | When | the guest leaves the failure unrescued |
-| Then | `Kobako::SandboxError` is raised |
+| Then | it fails as a Sandbox failure |
 
 ## `T-048` A failure the host was not meant to catch is not caught
 
@@ -582,7 +582,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a Sandbox carrying a preloaded entrypoint |
 | When | it runs with a Hash argument keyed by a value that cannot be referenced |
-| Then | `Kobako::SandboxError` is raised |
+| Then | it fails as a Sandbox failure |
 
 ## `T-069` An argument that refers to itself is refused
 
@@ -590,7 +590,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a Sandbox carrying a preloaded entrypoint |
 | When | it runs with an argument containing itself |
-| Then | `Kobako::SandboxError` is raised |
+| Then | it fails as a Sandbox failure |
 
 ## `T-070` Dispatching survives collection pressure
 
@@ -630,7 +630,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a Sandbox whose guest idiom forwards any name to the host |
 | When | guest code calls a name the host object does not define |
-| Then | `Kobako::ServiceError` is raised |
+| Then | it fails as a Service failure |
 
 ## `T-075` Both frontends route a dispatch the same way
 
