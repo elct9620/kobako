@@ -230,7 +230,7 @@ mod tests {
         );
     }
 
-    // @behavior T-095
+    // @behavior T-184
     #[test]
     fn a_yield_error_folds_to_the_category_that_names_whose_failure_it_is() {
         let failure = YieldError::Failure {

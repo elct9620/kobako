@@ -350,7 +350,7 @@ mod tests {
     // the `send` family pivots into the private `Kernel#eval` / `#system`
     // surface, the `eval` family runs guest-authored strings, and the gadget
     // reflectors (`binding` reaches `Binding#eval`) hand back host internals.
-    // @behavior T-114
+    // @behavior T-182
     #[test]
     fn denylist_covers_the_reflection_escape_vectors() {
         for name in [
@@ -381,7 +381,7 @@ mod tests {
     // The callable allowlist is expressed by absence from the denylist: a
     // bound lambda / Method stays invocable. Denying any of these would make
     // Service callables unreachable end to end.
-    // @behavior T-115
+    // @behavior T-183
     #[test]
     fn denylist_keeps_the_callable_allowlist_forwardable() {
         for name in ["call", "[]", "yield", "arity", "lambda?"] {

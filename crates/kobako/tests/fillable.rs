@@ -119,7 +119,7 @@ fn a_fillable_is_distinct_from_an_undeclared_constant() {
     );
 }
 
-// @behavior EX-015
+// @behavior EX-037
 #[test]
 fn an_extension_fillable_backend_left_unfilled_fails_closed() {
     let Some(mut sandbox) = real_sandbox() else {

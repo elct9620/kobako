@@ -1031,3 +1031,11 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a snippet table on the Rust frontend carrying a name |
 | When | the same name is registered again |
 | Then | it is refused |
+
+## `S-124` A registry seals once and refuses what arrives after
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry that has sealed |
+| When | a registration is attempted afterward |
+| Then | it is refused, and the seal does not happen a second time |

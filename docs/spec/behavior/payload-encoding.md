@@ -784,3 +784,19 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | Given | the kinds this mapping carries |
 | When | the set is read |
 | Then | it holds each of them and nothing else |
+
+## `WP-096` A reference the writer would never emit is refused when written
+
+| Step | Statement |
+| --- | --- |
+| Given | a capability reference carrying the reserved identifier, and one past the highest |
+| When | each is written |
+| Then | each is refused rather than emitted for a reader to reject |
+
+## `WP-097` A number promising more than it carries is truncated at any width
+
+| Step | Statement |
+| --- | --- |
+| Given | bytes declaring a number of a width the payload does not reach |
+| When | they are read |
+| Then | the input is refused as truncated |

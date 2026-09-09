@@ -310,3 +310,11 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | Given | a seal on the Rust frontend that already refused an unmet dependency |
 | When | it is attempted again |
 | Then | it refuses again rather than passing |
+
+## `EX-037` An unfilled backend fails closed where the guest reaches it
+
+| Step | Statement |
+| --- | --- |
+| Given | an installed Extension whose backend nothing filled |
+| When | the guest dispatches to the path it stands at |
+| Then | the invocation fails as a Service failure rather than reaching nothing |

@@ -455,7 +455,7 @@ mod tests {
         }
     }
 
-    // @behavior WP-023 WP-024
+    // @behavior WP-023
     #[test]
     fn roundtrip_bin_with_non_utf8_bytes() {
         let cases = vec![
@@ -563,7 +563,7 @@ mod tests {
         assert_eq!(dec.read_value(), Err(Error::Utf8));
     }
 
-    // @behavior WP-048 WP-049 WP-050
+    // @behavior WP-048 WP-049 WP-097
     #[test]
     fn decode_truncated_input_returns_truncated() {
         let bytes = [0xa3];
@@ -614,7 +614,7 @@ mod tests {
         assert_eq!(dec.read_value(), Err(Error::InvalidHandle));
     }
 
-    // @behavior WP-044
+    // @behavior WP-046
     #[test]
     fn decode_handle_above_cap_returns_invalid_handle() {
         let bytes = [0xd6, 0x01, 0x80, 0x00, 0x00, 0x00];
@@ -622,7 +622,7 @@ mod tests {
         assert_eq!(dec.read_value(), Err(Error::InvalidHandle));
     }
 
-    // @behavior WP-043
+    // @behavior WP-045
     #[test]
     fn decode_handle_zero_returns_invalid_handle() {
         // ID 0 is the reserved invalid sentinel

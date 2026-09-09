@@ -329,3 +329,11 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | Given | a Service yielding values rather than bytes |
 | When | the block answers |
 | Then | the arguments crossed as one frame and the answer is read for the Service |
+
+## `T-184` A yield failure is categorised by whose failure it is
+
+| Step | Statement |
+| --- | --- |
+| Given | each way a yield can end badly |
+| When | the failure is categorised |
+| Then | each names the side it belongs to, carrying what a guest needs to continue |

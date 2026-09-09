@@ -313,7 +313,7 @@ mod tests {
         assert_eq!(encode(&Value::Map(m16))[0], 0xde);
     }
 
-    // @behavior WP-045 WP-046
+    // @behavior WP-096
     #[test]
     fn encode_handle_outside_id_range_returns_invalid_handle() {
         // The encoder refuses to emit what the decoder would reject, so

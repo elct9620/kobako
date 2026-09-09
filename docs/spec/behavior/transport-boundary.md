@@ -258,3 +258,19 @@ Narrowing sits beneath the boundary, never above it: an object may close its sur
 | Given | a Host App holding a legitimate capability reference |
 | When | it asks that reference for a copy carrying another identifier |
 | Then | `NoMethodError` is raised |
+
+## `T-182` The guest's denylist names every reflective escape
+
+| Step | Statement |
+| --- | --- |
+| Given | the names a guest could reach host internals or run its own source through |
+| When | the guest's denylist is read |
+| Then | each of them is on it |
+
+## `T-183` And leaves the callable names off
+
+| Step | Statement |
+| --- | --- |
+| Given | the names by which a bound callable is invoked |
+| When | the guest's denylist is read |
+| Then | none of them is on it |
