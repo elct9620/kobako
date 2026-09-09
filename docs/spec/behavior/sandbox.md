@@ -49,7 +49,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Step | Statement |
 | --- | --- |
 | Given | no Sandbox |
-| When | one is constructed with no `wasm_path:` |
+| When | one is constructed naming no artifact |
 | Then | it reports the bundled Guest Binary's path |
 
 ## `S-002` The caps a Sandbox was given are the caps it reports
@@ -96,9 +96,9 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 
 | Step | Statement |
 | --- | --- |
-| Given | Sandbox options carrying an Integer `timeout:` |
-| When | the timeout is read |
-| Then | it answers the same quantity as a Float |
+| Given | Sandbox options carrying a deadline written as a whole number |
+| When | the deadline is read |
+| Then | it answers the same quantity as a fraction |
 
 ## `S-008` The memory budget is per invocation, not per Sandbox
 
@@ -112,7 +112,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox constructed with every cap set to `nil` |
+| Given | a Sandbox constructed with every cap set to nothing |
 | When | an invocation runs past what the defaults would have allowed |
 | Then | it completes |
 
@@ -305,7 +305,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose standard-output cap is `nil` |
+| Given | a Sandbox whose standard-output cap is unset |
 | When | an invocation writes past what the default cap would have allowed |
 | Then | the capture holds every byte written |
 
@@ -426,7 +426,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox carrying a preloaded entrypoint |
-| When | it is run with its name given as a String |
+| When | it is run with its name given as text |
 | Then | the invocation answers what the entrypoint returned |
 
 ## `S-049` Snippets are in place before the entrypoint is looked for
@@ -605,7 +605,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox |
 | When | an evaluation returns a Float needing every bit of its payload |
-| Then | the host receives the same Float |
+| Then | the host receives it with every bit intact |
 
 ## `S-076` An Integer crosses as an Integer
 
@@ -613,7 +613,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox |
 | When | an evaluation returns an Integer |
-| Then | the host receives that Integer |
+| Then | the host receives it as a whole number |
 
 ## `S-077` A guest Array arrives as an Array
 
@@ -629,7 +629,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox |
 | When | an evaluation returns a Hash keyed by both Symbols and Strings |
-| Then | the host receives a Hash keeping that distinction |
+| Then | the host receives a map keeping that distinction |
 
 ## `S-079` An empty Array is an empty Array
 
@@ -645,7 +645,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox |
 | When | an evaluation returns an empty Hash |
-| Then | the host receives an empty Hash |
+| Then | the host receives an empty map |
 
 ## `S-064` A run hands back one frozen object carrying everything it produced
 
@@ -692,7 +692,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox whose preloaded snippet defines the entrypoint constant as a plain value |
-| When | `#run` names that constant |
+| When | the entrypoint verb names that constant |
 | Then | it fails as a Sandbox failure saying it does not respond to the call |
 
 ## `S-082` Both frontends attribute an entrypoint fault the same way
@@ -708,7 +708,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | `#preload(code:)` is given source that does not compile |
+| When | a preload is given source that does not compile |
 | Then | the preload answers its Sandbox |
 
 ## `S-084` A snippet's compile failure surfaces on the invocation that replays it
@@ -740,7 +740,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox whose first invocation has begun |
-| When | `#preload` runs |
+| When | a preload runs |
 | Then | the refusal names the first invocation |
 
 ## `S-088` A snippet that raises at replay is attributed to the snippet
@@ -780,7 +780,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | `#run` is given a target that is neither a Symbol nor a String |
+| When | the entrypoint verb is given a target that is neither a name nor text |
 | Then | the refusal names the two forms it takes |
 
 ## `S-093` An entrypoint name that is not a constant name
@@ -788,7 +788,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | `#run` is given a target that is not a constant name |
+| When | the entrypoint verb is given a target that is not a constant name |
 | Then | the refusal names the constraint |
 
 ## `S-094` An entrypoint is one name, not a path
@@ -796,7 +796,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | `#run` is given a target spelling a nested constant |
+| When | the entrypoint verb is given a target spelling a nested constant |
 | Then | the refusal names the constraint |
 
 ## `S-095` A capability reference among a run's arguments
@@ -804,7 +804,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | `#run` carries a capability reference in its positional arguments |
+| When | the entrypoint verb carries a capability reference in its positional arguments |
 | Then | the refusal names the reference |
 
 ## `S-096` A capability reference among a run's keyword values
@@ -812,7 +812,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | `#run` carries a capability reference in a keyword value |
+| When | the entrypoint verb carries a capability reference in a keyword value |
 | Then | the refusal names the reference |
 
 ## `S-097` A keyword key that is not a Symbol
@@ -820,7 +820,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | `#run` carries a keyword key that is not a Symbol |
+| When | the entrypoint verb carries a keyword key that is not a name |
 | Then | the refusal names the constraint |
 
 ## `S-098` A guest that cannot reserve the run's envelope
@@ -828,7 +828,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox whose guest allocator reports exhaustion |
-| When | `#run` reserves the invocation envelope |
+| When | the entrypoint verb reserves the invocation envelope |
 | Then | it fails as a Sandbox failure saying the input buffer could not be allocated |
 
 ## `S-099` Both frontends refuse a registration that arrives after the seal

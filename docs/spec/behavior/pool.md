@@ -20,14 +20,14 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | Step | Statement |
 | --- | --- |
 | Given | a setup block that counts the pooled Sandboxes it prepares |
-| When | `Kobako::Pool.new(slots: 2)` runs |
+| When | a Pool of two slots is constructed |
 | Then | the setup block has not run |
 
 ## `PL-002` The checkout wait has a default bound
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool constructed without `checkout_timeout:` |
+| Given | a Pool constructed without a checkout bound |
 | When | the default checkout wait bound is read |
 | Then | the bound is 5.0 seconds |
 
@@ -35,16 +35,16 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool with `slots: 2` |
+| Given | a Pool of two slots |
 | Given | a completed checkout that left its Sandbox idle |
-| When | `Pool#with` runs again |
+| When | a checkout runs again |
 | Then | the block receives the Sandbox the first checkout held |
 
 ## `PL-004` Setup prepares a Sandbox, not a checkout
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool with `slots: 2` and a setup block that records each Sandbox it prepares |
+| Given | a Pool of two slots and a setup block that records each Sandbox it prepares |
 | When | two sequential checkouts complete |
 | Then | the setup block has run once |
 
@@ -52,7 +52,7 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool constructed with `slots: 1` and `timeout: 0.05` |
+| Given | a Pool of one slot whose Sandboxes carry a short deadline |
 | When | a checked-out Sandbox evaluates a non-terminating loop |
 | Then | it fails as a deadline reached |
 
@@ -61,25 +61,25 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | Step | Statement |
 | --- | --- |
 | Given | a Pool whose setup block raises on its first run |
-| When | the first `Pool#with` triggers that construction |
-| Then | the setup block's own exception reaches the `#with` caller unchanged |
+| When | the first checkout triggers that construction |
+| Then | the setup block's own failure reaches the checkout's caller unchanged |
 
 ## `PL-007` A failed construction does not consume its slot
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool with `slots: 1` |
+| Given | a Pool of one slot |
 | Given | a first checkout whose construction failed in the setup block |
-| When | `Pool#with` runs again |
+| When | a checkout runs again |
 | Then | the checkout succeeds and the block's value comes back |
 
 ## `PL-008` Checkout answers with what the caller computed
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool with `slots: 1` |
-| When | `Pool#with` runs with a block returning a value |
-| Then | `#with` returns that value |
+| Given | a Pool of one slot |
+| When | a checkout runs with a block returning a value |
+| Then | the checkout answers that value |
 
 ## `PL-009` Setup registrations outlive the checkout that first used them
 
@@ -94,7 +94,7 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool with `slots: 1` |
+| Given | a Pool of one slot |
 | Given | a completed checkout that set a guest global variable |
 | When | a later checkout reads that global |
 | Then | it reads nothing |
@@ -103,7 +103,7 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool with `slots: 1` whose only Sandbox is held by another thread |
+| Given | a Pool of one slot whose only Sandbox is held by another thread |
 | Given | a checkout blocked waiting for it |
 | When | the holder checks its Sandbox back in |
 | Then | the blocked checkout completes and returns its block's value |
@@ -112,26 +112,26 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool with `slots: 2` |
-| Given | a running `Pool#with` block on this thread |
-| When | `Pool#with` runs again inside that block |
+| Given | a Pool of two slots |
+| Given | a running checkout block on this thread |
+| When | a checkout runs again inside that block |
 | Then | the inner block receives a different Sandbox than the outer one |
 
 ## `PL-013` A trapped Sandbox is never handed out again
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool with `slots: 1` |
-| Given | a checkout whose block raised `Kobako::TrapError` |
-| When | `Pool#with` runs again |
+| Given | a Pool of one slot |
+| Given | a checkout whose block met a trap |
+| When | a checkout runs again |
 | Then | the block receives a different Sandbox than the one the trap left |
 
 ## `PL-014` The refilled slot is a working one
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool with `slots: 1` |
-| Given | a checkout whose block raised `Kobako::TrapError` |
+| Given | a Pool of one slot |
+| Given | a checkout whose block met a trap |
 | When | the next checkout's Sandbox evaluates guest code |
 | Then | the evaluation returns its value |
 
@@ -139,27 +139,27 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool with `slots: 1` and a setup block that records each Sandbox it prepares |
-| Given | a checkout whose block raised `Kobako::TrapError` |
-| When | `Pool#with` runs again |
+| Given | a Pool of one slot and a setup block that records each Sandbox it prepares |
+| Given | a checkout whose block met a trap |
+| When | a checkout runs again |
 | Then | the setup block has run twice |
 
 ## `PL-016` Only a trap costs the Pool its Sandbox
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool with `slots: 1` |
-| Given | a checkout whose block raised `Kobako::SandboxError` |
-| When | `Pool#with` runs again |
+| Given | a Pool of one slot |
+| Given | a checkout whose block met a Sandbox failure |
+| When | a checkout runs again |
 | Then | the block receives the Sandbox that error left |
 
 ## `PL-017` A guest error costs no construction
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool with `slots: 1` and a setup block that records each Sandbox it prepares |
-| Given | a checkout whose block raised `Kobako::SandboxError` |
-| When | `Pool#with` runs again |
+| Given | a Pool of one slot and a setup block that records each Sandbox it prepares |
+| Given | a checkout whose block met a Sandbox failure |
+| When | a checkout runs again |
 | Then | the setup block has run once |
 
 ## `PL-018` Reachability is the whole of the lifecycle
@@ -175,7 +175,7 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 
 | Step | Statement |
 | --- | --- |
-| Given | a running `Pool#with` block that has dropped the last Pool reference and run a collection |
+| Given | a running checkout block that has dropped the last Pool reference and run a collection |
 | When | the checked-out Sandbox evaluates guest code inside that block |
 | Then | the evaluation returns its value |
 
@@ -183,24 +183,24 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 
 | Step | Statement |
 | --- | --- |
-| Given | `slots:` written as zero, a negative, a Float, a String, or nil |
-| When | `Kobako::Pool.new` runs |
+| Given | a slot count written as zero, a negative, a fraction, text, or nothing |
+| When | a Pool is constructed |
 | Then | the refusal names the slot count |
 
 ## `PL-021` A checkout bound that is not a positive finite number
 
 | Step | Statement |
 | --- | --- |
-| Given | `checkout_timeout:` written as zero, a negative, an infinity, a NaN, or a String |
-| When | `Kobako::Pool.new` runs |
+| Given | a checkout bound written as zero, a negative, an infinity, a value that is not a number, or text |
+| When | a Pool is constructed |
 | Then | the refusal names the checkout bound |
 
 ## `PL-022` The indefinite wait is spelled nil
 
 | Step | Statement |
 | --- | --- |
-| Given | `checkout_timeout: nil` |
-| When | `Kobako::Pool.new` runs |
+| Given | a checkout bound written as nothing |
+| When | a Pool is constructed |
 | Then | a Pool is constructed |
 
 ## `PL-023` A checkout timeout is one of kobako's own failures
@@ -215,7 +215,7 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool with `slots: 1` and `checkout_timeout: 0.05` |
+| Given | a Pool of one slot with a short checkout bound |
 | Given | that slot held by another thread for longer than the bound |
-| When | `Pool#with` runs |
+| When | a checkout runs |
 | Then | it fails as a checkout that waited past its bound |

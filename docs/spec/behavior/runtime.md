@@ -65,7 +65,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 
 | Step | Statement |
 | --- | --- |
-| Given | several Threads invoking their own Sandboxes constructed with `gvl: :release` |
+| Given | several Threads invoking their own Sandboxes constructed to release the lock |
 | When | each Thread restores the Handles its own invocation minted |
 | Then | each restores only its own |
 
@@ -73,7 +73,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 
 | Step | Statement |
 | --- | --- |
-| Given | several Threads invoking their own Sandboxes constructed with `gvl: :release` |
+| Given | several Threads invoking their own Sandboxes constructed to release the lock |
 | When | each Thread passes its own Handles back as dispatch arguments |
 | Then | each resolves only its own |
 
@@ -105,7 +105,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 
 | Step | Statement |
 | --- | --- |
-| Given | Sandbox options carrying no `profile:` |
+| Given | Sandbox options naming no posture |
 | When | the options are read |
 | Then | the posture is the strongest rung |
 
@@ -121,7 +121,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 
 | Step | Statement |
 | --- | --- |
-| Given | Sandbox options carrying a `profile:` value the ladder does not name |
+| Given | Sandbox options naming a posture the ladder does not |
 | When | the options are built |
 | Then | the posture is refused |
 
@@ -180,7 +180,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 
 | Step | Statement |
 | --- | --- |
-| Given | Sandbox options carrying no `gvl:` |
+| Given | Sandbox options naming no scheduling mode |
 | When | the options are read |
 | Then | the mode is `:hold` |
 
@@ -196,7 +196,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 
 | Step | Statement |
 | --- | --- |
-| Given | Sandbox options carrying a `gvl:` value the mode set does not name |
+| Given | Sandbox options naming a scheduling mode the set does not |
 | When | the options are built |
 | Then | the mode is refused |
 
@@ -244,7 +244,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 
 | Step | Statement |
 | --- | --- |
-| Given | several Threads, each with its own Sandbox constructed with `gvl: :release` |
+| Given | several Threads, each with its own Sandbox constructed to release the lock |
 | When | every Thread evaluates guest source computing from its own input |
 | Then | each Thread receives the result of its own input |
 
@@ -293,7 +293,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Step | Statement |
 | --- | --- |
 | Given | a runtime path and a timeout that is not positive |
-| When | `Kobako::Runtime.from_path` runs |
+| When | a runtime is built from that path |
 | Then | the refusal names the deadline's constraint |
 
 ## `RT-033` A posture the ladder does not name
@@ -301,7 +301,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox construction requesting a profile off the ladder |
-| When | `Kobako::Sandbox.new` runs |
+| When | a Sandbox is constructed |
 | Then | the option is refused |
 
 ## `RT-034` A keyword the options do not take
@@ -309,7 +309,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox construction carrying an unknown keyword |
-| When | `Kobako::Sandbox.new` runs |
+| When | a Sandbox is constructed |
 | Then | the option is refused |
 
 ## `RT-035` A corrupt cache entry does not stop a runtime being built

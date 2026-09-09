@@ -47,7 +47,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox with a preloaded entrypoint |
-| When | `#run` carries an integer wider than the guest carries |
+| When | the entrypoint verb carries an integer wider than the guest carries |
 | Then | the invocation fails before the entrypoint is reached |
 
 ## `CD-004` A yield argument past the guest's integer width is refused at the yield

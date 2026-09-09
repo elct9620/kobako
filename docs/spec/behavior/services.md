@@ -53,8 +53,8 @@ A malformed path segment and a bind after the seal both raise rather than answer
 
 | Step | Statement |
 | --- | --- |
-| Given | a registry holding one path bound as a Symbol and another as a String |
-| When | each is resolved by its String form |
+| Given | a registry holding one path bound as a name and another as text |
+| When | each is resolved by its text form |
 | Then | each answers the object bound under it |
 
 ## `SV-005` A Service is whatever answers the call
@@ -166,7 +166,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox binding `Kobako::Unresolved` at a path explicitly |
+| Given | a Sandbox binding the unfilled sentinel at a path explicitly |
 | When | guest code calls that path and leaves the failure unrescued |
 | Then | it fails as a Service failure |
 

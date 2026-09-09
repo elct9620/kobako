@@ -210,7 +210,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 
 | Step | Statement |
 | --- | --- |
-| Given | two installed Extensions whose `depends_on` entry and name are written in different String and Symbol forms |
+| Given | two installed Extensions whose dependency entry and name are written one as text and one as a name |
 | When | the registries seal |
 | Then | the seal answers its registry |
 
@@ -244,7 +244,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox whose first invocation has completed |
-| When | `#install` runs |
+| When | the Extension is installed |
 | Then | the refusal names the first invocation |
 
 ## `EX-029` An unmet dependency refuses the first invocation
@@ -275,8 +275,8 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 
 | Step | Statement |
 | --- | --- |
-| Given | an Extension whose `source` is not a String |
-| When | `#install` runs |
+| Given | an Extension whose idiom is not text |
+| When | the Extension is installed |
 | Then | the refusal names the idiom |
 
 ## `EX-033` A backend that declares no kind
@@ -284,7 +284,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | Step | Statement |
 | --- | --- |
 | Given | an Extension whose `backend` exposes neither `path`, `object`, nor `provider` |
-| When | `#install` runs |
+| When | the Extension is installed |
 | Then | the refusal names the backend |
 
 ## `EX-037` An unfilled backend fails closed where the guest reaches it

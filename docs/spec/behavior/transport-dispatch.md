@@ -204,7 +204,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Integer outside the range the wire carries |
+| Given | a whole number outside the range the wire carries |
 | When | the walk classifies it |
 | Then | it is refused |
 
