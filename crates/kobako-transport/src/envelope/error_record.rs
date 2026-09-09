@@ -47,6 +47,7 @@ mod tests {
         }
     }
 
+    // @behavior WE-047
     #[test]
     fn round_trips_through_the_wire() {
         let mut w = Writer::new();
@@ -60,6 +61,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-048
     #[test]
     fn an_empty_backtrace_is_legal() {
         let record = ErrorRecord {
@@ -77,6 +79,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-049
     #[test]
     fn golden_layout_is_name_then_message_then_backtrace() {
         let record = ErrorRecord {

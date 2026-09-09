@@ -82,6 +82,7 @@ impl<'a> Call<'a> {
 mod tests {
     use super::*;
 
+    // @behavior WE-009
     #[test]
     fn a_path_target_round_trips() {
         let call = Call {
@@ -98,6 +99,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-010
     #[test]
     fn a_handle_target_round_trips() {
         let call = Call {
@@ -114,6 +116,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-011
     #[test]
     fn the_payload_is_borrowed_not_interpreted() {
         // Bytes that are not valid msgpack: the envelope layer must carry
@@ -133,6 +136,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-012
     #[test]
     fn golden_layout_pins_the_path_kind_and_field_order() {
         let call = Call {
@@ -155,6 +159,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-013
     #[test]
     fn golden_layout_pins_the_handle_kind_and_its_bare_id() {
         let call = Call {
@@ -176,6 +181,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-014
     #[test]
     fn an_unknown_kind_is_refused() {
         let bytes = [9u8, 0, 0, 0, 0];
@@ -185,6 +191,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-015
     #[test]
     fn handle_id_zero_is_refused() {
         let call_bytes = {
@@ -198,6 +205,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-016
     #[test]
     fn a_non_boolean_block_flag_is_refused() {
         let bytes = {
@@ -211,6 +219,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-017
     #[test]
     fn a_truncated_call_is_refused() {
         let bytes = [KIND_PATH, 0, 0, 0, 4, b'a'];

@@ -133,6 +133,7 @@ impl Fault {
 mod tests {
     use super::*;
 
+    // @behavior WE-038
     #[test]
     fn every_kind_round_trips_through_the_wire() {
         for kind in [
@@ -155,6 +156,7 @@ mod tests {
         }
     }
 
+    // @behavior WE-039
     #[test]
     fn a_kind_the_reader_does_not_know_degrades_to_undefined() {
         let encoded = vec![0xfe, 0, 0, 0, 1, b'x'];
@@ -167,6 +169,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-040
     #[test]
     fn a_field_the_reader_does_not_know_is_skipped() {
         let mut w = Writer::new();
@@ -182,6 +185,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-041
     #[test]
     fn golden_layout_is_kind_then_message() {
         let mut w = Writer::new();
@@ -196,6 +200,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-042 WE-043
     #[test]
     fn names_map_both_ways() {
         for kind in [

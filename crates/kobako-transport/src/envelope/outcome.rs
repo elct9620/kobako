@@ -118,6 +118,7 @@ mod tests {
         }
     }
 
+    // @behavior WE-027
     #[test]
     fn an_ok_outcome_round_trips() {
         let outcome = Outcome::Ok(vec![0x2a]);
@@ -129,6 +130,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-028
     #[test]
     fn a_panic_round_trips() {
         let outcome = Outcome::Panic(panic_sample());
@@ -140,6 +142,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-029
     #[test]
     fn a_panic_carrying_available_names_round_trips() {
         let outcome = Outcome::Panic(Panic {
@@ -154,6 +157,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-030
     #[test]
     fn a_panic_offering_no_correction_decodes_as_an_empty_list() {
         let encoded = Outcome::Panic(panic_sample()).encode();
@@ -166,6 +170,7 @@ mod tests {
         }
     }
 
+    // @behavior WE-031
     #[test]
     fn attribution_reads_origin_alone() {
         let service = Panic {
@@ -180,6 +185,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-032
     #[test]
     fn bytes_past_the_available_list_are_refused() {
         let mut encoded = Outcome::Panic(panic_sample()).encode();
@@ -190,6 +196,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-033
     #[test]
     fn an_unrecognised_origin_attributes_to_the_sandbox() {
         // Written by hand: the origin field is an open set on the wire, so
@@ -207,6 +214,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-034
     #[test]
     fn golden_layout_pins_the_ok_tag() {
         assert_eq!(
@@ -216,6 +224,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-035
     #[test]
     fn golden_layout_pins_the_panic_field_order() {
         let panic = Panic {
@@ -243,6 +252,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-036
     #[test]
     fn a_zero_length_outcome_is_refused() {
         assert!(
@@ -251,6 +261,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-037
     #[test]
     fn an_unknown_outcome_tag_is_refused() {
         assert!(

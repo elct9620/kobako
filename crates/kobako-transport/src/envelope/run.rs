@@ -39,6 +39,7 @@ impl Run {
 mod tests {
     use super::*;
 
+    // @behavior WE-044
     #[test]
     fn a_run_round_trips() {
         let run = Run {
@@ -53,6 +54,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-045
     #[test]
     fn a_run_with_no_arguments_round_trips() {
         let run = Run {
@@ -67,6 +69,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-046
     #[test]
     fn golden_layout_pins_the_run_field_order() {
         let run = Run {

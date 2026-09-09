@@ -33,6 +33,7 @@ fn read_frame_from<R: std::io::Read>(input: &mut R) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
 
+    // @behavior WE-066
     #[test]
     fn read_frame_from_round_trips_a_prefixed_payload() {
         let payload = b"hello".to_vec();
@@ -42,6 +43,7 @@ mod tests {
         assert_eq!(read_frame_from(&mut cursor), Some(payload));
     }
 
+    // @behavior WE-067
     #[test]
     fn read_frame_from_rejects_an_over_cap_length_prefix() {
         let mut framed = ((MAX_FRAME_LEN as u32) + 1).to_be_bytes().to_vec();

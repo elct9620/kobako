@@ -59,6 +59,7 @@ pub fn unpack_ptr_len(packed: u64) -> (u32, u32) {
 mod tests {
     use super::*;
 
+    // @behavior WE-001
     #[test]
     fn the_layout_is_high_ptr_low_len() {
         let packed = pack_ptr_len(0xAABB_CCDD, 0x1122_3344);
@@ -68,6 +69,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-002
     #[test]
     fn every_pair_round_trips() {
         for &(ptr, len) in &[

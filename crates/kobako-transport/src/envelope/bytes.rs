@@ -151,6 +151,7 @@ impl Writer {
 mod tests {
     use super::*;
 
+    // @behavior WE-003
     #[test]
     fn round_trips_every_primitive() {
         let mut w = Writer::new();
@@ -181,6 +182,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-004
     #[test]
     fn u32_is_big_endian_on_the_wire() {
         let mut w = Writer::new();
@@ -192,6 +194,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-005
     #[test]
     fn a_length_running_past_the_end_is_refused() {
         // Declares 8 bytes but supplies 2.
@@ -203,6 +206,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-006
     #[test]
     fn a_count_larger_than_the_message_is_refused() {
         // Declares 0xffff_ffff elements in a 4-byte message.
@@ -214,6 +218,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-007
     #[test]
     fn non_utf8_in_a_text_field_is_refused() {
         let mut w = Writer::new();
@@ -226,6 +231,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-008
     #[test]
     fn trailing_bytes_after_a_self_delimiting_field_are_refused() {
         let mut w = Writer::new();

@@ -103,6 +103,7 @@ impl Snippets {
 mod tests {
     use super::*;
 
+    // @behavior WE-050
     #[test]
     fn empty_bindings_round_trip() {
         let encoded = Bindings::default().encode();
@@ -113,6 +114,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-051
     #[test]
     fn bindings_round_trip_every_path() {
         let bindings = Bindings {
@@ -126,6 +128,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-052
     #[test]
     fn snippets_round_trip_both_kinds_in_order() {
         let snippets = Snippets {
@@ -147,6 +150,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-053
     #[test]
     fn an_empty_snippet_table_round_trips() {
         let encoded = Snippets::default().encode();
@@ -157,6 +161,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-054
     #[test]
     fn golden_layout_pins_the_bindings_as_a_counted_list() {
         let bindings = Bindings {
@@ -172,6 +177,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-055
     #[test]
     fn golden_layout_pins_the_snippet_entry_shape() {
         let snippets = Snippets {
@@ -198,6 +204,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-056
     #[test]
     fn an_unknown_snippet_kind_is_refused() {
         let bytes = {
@@ -211,6 +218,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-057
     #[test]
     fn a_snippet_count_the_frame_cannot_satisfy_is_refused() {
         let bytes = [0xff, 0xff, 0xff, 0xff];
@@ -220,6 +228,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-058
     #[test]
     fn trailing_bytes_after_a_frame_are_refused() {
         let mut encoded = Bindings::default().encode();

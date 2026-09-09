@@ -198,6 +198,7 @@ mod tests {
         checked_payload_len, guest_buffer_range, unpack_outcome_packed, MAX_DISPATCH_PAYLOAD,
     };
 
+    // @behavior WE-059
     #[test]
     fn checked_payload_len_accepts_zero_and_the_cap() {
         assert_eq!(checked_payload_len(0), Ok(0));
@@ -207,34 +208,40 @@ mod tests {
         );
     }
 
+    // @behavior WE-060
     #[test]
     fn checked_payload_len_rejects_past_the_cap() {
         assert!(checked_payload_len(MAX_DISPATCH_PAYLOAD + 1).is_err());
         assert!(checked_payload_len(usize::MAX).is_err());
     }
 
+    // @behavior WE-061
     #[test]
     fn guest_buffer_range_returns_half_open_range() {
         assert_eq!(guest_buffer_range(10, 5, 100), Ok(10..15));
     }
 
+    // @behavior WE-062
     #[test]
     fn guest_buffer_range_accepts_zero_length_at_any_in_bounds_ptr() {
         assert_eq!(guest_buffer_range(0, 0, 0), Ok(0..0));
         assert_eq!(guest_buffer_range(42, 0, 100), Ok(42..42));
     }
 
+    // @behavior WE-063
     #[test]
     fn guest_buffer_range_rejects_ptr_plus_len_overflow() {
         assert!(guest_buffer_range(usize::MAX, 1, usize::MAX).is_err());
     }
 
+    // @behavior WE-064
     #[test]
     fn guest_buffer_range_rejects_end_past_memory() {
         assert!(guest_buffer_range(10, 100, 50).is_err());
         assert_eq!(guest_buffer_range(0, 50, 50), Ok(0..50));
     }
 
+    // @behavior WE-001
     #[test]
     fn unpack_outcome_packed_extracts_high_ptr_low_len() {
         assert_eq!(
@@ -243,6 +250,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-065
     #[test]
     fn unpack_outcome_packed_zero_decodes_to_zero_pair() {
         assert_eq!(unpack_outcome_packed(0), (0, 0));

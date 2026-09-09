@@ -107,6 +107,7 @@ impl YieldReply {
 mod tests {
     use super::*;
 
+    // @behavior WE-018
     #[test]
     fn both_reply_arms_round_trip() {
         for reply in [
@@ -125,6 +126,7 @@ mod tests {
         }
     }
 
+    // @behavior WE-019
     #[test]
     fn an_empty_ok_body_round_trips() {
         let encoded = Reply::Ok(Vec::new()).encode();
@@ -135,6 +137,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-020
     #[test]
     fn an_unknown_reply_tag_is_refused() {
         assert!(
@@ -143,6 +146,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-021
     #[test]
     fn a_zero_length_reply_is_refused() {
         assert!(
@@ -151,6 +155,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-022
     #[test]
     fn every_live_yield_arm_round_trips() {
         let arms = [
@@ -172,6 +177,7 @@ mod tests {
         }
     }
 
+    // @behavior WE-023
     #[test]
     fn the_reserved_yield_tag_is_refused() {
         assert!(
@@ -180,6 +186,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-024
     #[test]
     fn an_unknown_yield_tag_is_refused() {
         assert!(
@@ -188,6 +195,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-025
     #[test]
     fn golden_layout_pins_the_reply_tags() {
         // The same body on both arms: what separates "the Service returned
@@ -206,6 +214,7 @@ mod tests {
         );
     }
 
+    // @behavior WE-026
     #[test]
     fn golden_layout_pins_the_yield_tags() {
         assert_eq!(
