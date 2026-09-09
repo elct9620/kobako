@@ -90,6 +90,7 @@ impl Decode for Arguments {
 mod tests {
     use super::*;
 
+    // @behavior WP-001
     #[test]
     fn round_trips_positional_and_keyword_arguments() {
         let arguments = Arguments::new(
@@ -104,6 +105,7 @@ mod tests {
         );
     }
 
+    // @behavior WP-002
     #[test]
     fn an_empty_payload_keeps_both_positions() {
         let encoded = Arguments::default().encode().unwrap();
@@ -119,6 +121,7 @@ mod tests {
         );
     }
 
+    // @behavior WP-094
     #[test]
     fn kwargs_keys_ride_as_symbols() {
         let encoded = Arguments::new(Vec::new(), vec![("name".into(), Value::Nil)])
@@ -136,6 +139,7 @@ mod tests {
         );
     }
 
+    // @behavior WP-003
     #[test]
     fn a_string_kwargs_key_is_refused() {
         let bytes = Encoder::encode(&Value::Array(vec![
@@ -149,6 +153,7 @@ mod tests {
         );
     }
 
+    // @behavior WP-005
     #[test]
     fn a_frame_of_the_wrong_arity_is_refused() {
         let bytes = Encoder::encode(&Value::Array(vec![Value::Array(Vec::new())])).unwrap();

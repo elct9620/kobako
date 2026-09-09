@@ -255,6 +255,7 @@ mod tests {
         Encoder::encode(v).expect("encode")
     }
 
+    // @behavior WP-074
     #[test]
     fn decoder_tracks_position() {
         let bytes = [0xc0_u8];
@@ -263,12 +264,14 @@ mod tests {
         assert!(!dec.at_end());
     }
 
+    // @behavior WP-075
     #[test]
     fn decoder_empty_input_is_at_end() {
         let dec = Decoder::new(&[]);
         assert!(dec.at_end());
     }
 
+    // @behavior WP-077
     #[test]
     fn read_only_value_accepts_a_sole_value() {
         let bytes = encode(&Value::Int(42));
@@ -276,6 +279,7 @@ mod tests {
         assert_eq!(dec.read_only_value(), Ok(Value::Int(42)));
     }
 
+    // @behavior WP-057
     #[test]
     fn read_only_value_rejects_trailing_bytes() {
         // Two concatenated values: an envelope buffer must hold exactly
@@ -289,6 +293,7 @@ mod tests {
         );
     }
 
+    // @behavior WP-037
     #[test]
     fn decoder_accepts_nesting_at_max_depth() {
         // A value nested exactly to the cap round-trips — the boundary
@@ -301,6 +306,7 @@ mod tests {
         assert_eq!(roundtrip(v.clone()), v);
     }
 
+    // @behavior WP-034
     #[test]
     fn decoder_rejects_nesting_past_max_depth() {
         // One level past the cap fails as a clean wire error instead of
@@ -319,6 +325,7 @@ mod tests {
         );
     }
 
+    // @behavior WP-078
     #[test]
     fn decoder_rejects_forged_array_length_without_eager_alloc() {
         // An `array 32` header claiming u32::MAX elements with no body
@@ -330,6 +337,7 @@ mod tests {
         assert_eq!(dec.read_value(), Err(Error::Truncated));
     }
 
+    // @behavior WP-079
     #[test]
     fn decoder_rejects_forged_map_length_without_eager_alloc() {
         // A `map 32` header claiming u32::MAX pairs must fail as a clean
@@ -341,6 +349,7 @@ mod tests {
         assert_eq!(dec.read_value(), Err(Error::Truncated));
     }
 
+    // @behavior WP-009 WP-010 WP-011
     #[test]
     fn roundtrip_nil_and_bools() {
         assert_eq!(roundtrip(Value::Nil), Value::Nil);
@@ -348,6 +357,7 @@ mod tests {
         assert_eq!(roundtrip(Value::Bool(false)), Value::Bool(false));
     }
 
+    // @behavior WP-012 WP-013 WP-014
     #[test]
     fn roundtrip_int_boundaries() {
         let cases: &[i64] = &[
@@ -380,6 +390,7 @@ mod tests {
         }
     }
 
+    // @behavior WP-080 WP-081
     #[test]
     fn roundtrip_uint_max_preserves_uint_variant() {
         assert_eq!(roundtrip(Value::UInt(u64::MAX)), Value::UInt(u64::MAX));
@@ -389,6 +400,7 @@ mod tests {
         );
     }
 
+    // @behavior WP-016 WP-017
     #[test]
     fn roundtrip_floats_special() {
         match roundtrip(Value::Float(0.0)) {
@@ -423,6 +435,7 @@ mod tests {
         );
     }
 
+    // @behavior WP-018 WP-019 WP-020 WP-021 WP-022
     #[test]
     fn roundtrip_str_lengths_and_multibyte() {
         let cases = vec![
@@ -442,6 +455,7 @@ mod tests {
         }
     }
 
+    // @behavior WP-023 WP-024
     #[test]
     fn roundtrip_bin_with_non_utf8_bytes() {
         let cases = vec![
@@ -456,6 +470,7 @@ mod tests {
         }
     }
 
+    // @behavior WP-025 WP-027
     #[test]
     fn roundtrip_arrays_empty_and_nested() {
         assert_eq!(roundtrip(Value::Array(vec![])), Value::Array(vec![]));
@@ -469,6 +484,7 @@ mod tests {
         assert_eq!(roundtrip(big.clone()), big);
     }
 
+    // @behavior WP-029 WP-030 WP-032
     #[test]
     fn roundtrip_maps_empty_and_nested() {
         assert_eq!(roundtrip(Value::Map(vec![])), Value::Map(vec![]));
@@ -486,6 +502,7 @@ mod tests {
         assert_eq!(roundtrip(big.clone()), big);
     }
 
+    // @behavior WP-038
     #[test]
     fn roundtrip_sym_payload_sizes() {
         // Empty Symbol (`:""`) is wire-legal — exercised explicitly so a
@@ -508,6 +525,7 @@ mod tests {
         }
     }
 
+    // @behavior WP-041 WP-042
     #[test]
     fn roundtrip_handle_boundaries() {
         // Handle id 0 is a wire-violation at the codec layer (caller built
@@ -519,6 +537,7 @@ mod tests {
         );
     }
 
+    // @behavior WP-033
     #[test]
     fn roundtrip_deeply_nested_mixed() {
         let v = Value::Array(vec![
@@ -535,6 +554,7 @@ mod tests {
         assert_eq!(roundtrip(v.clone()), v);
     }
 
+    // @behavior WP-040
     #[test]
     fn decode_sym_with_invalid_utf8_returns_utf8_error() {
         // `c7 02 00 ff fe` — ext 8, len=2, type=0x00, non-UTF-8 bytes.
@@ -543,6 +563,7 @@ mod tests {
         assert_eq!(dec.read_value(), Err(Error::Utf8));
     }
 
+    // @behavior WP-048 WP-049 WP-050
     #[test]
     fn decode_truncated_input_returns_truncated() {
         let bytes = [0xa3];
@@ -562,6 +583,7 @@ mod tests {
         assert_eq!(dec.read_value(), Err(Error::Truncated));
     }
 
+    // @behavior WP-051 WP-052
     #[test]
     fn decode_invalid_type_tag_returns_invalid_type() {
         // 0xc1 is reserved/never used in msgpack.
@@ -575,6 +597,7 @@ mod tests {
         assert_eq!(dec.read_value(), Err(Error::InvalidType));
     }
 
+    // @behavior WP-053
     #[test]
     fn decode_invalid_utf8_in_str_returns_utf8() {
         let bytes = [0xa2, 0xff, 0xfe];
@@ -582,6 +605,7 @@ mod tests {
         assert_eq!(dec.read_value(), Err(Error::Utf8));
     }
 
+    // @behavior WP-047
     #[test]
     fn decode_handle_with_wrong_payload_length_returns_invalid_handle() {
         // fixext 1 with type 0x01 — Handle with only 1 payload byte.
@@ -590,6 +614,7 @@ mod tests {
         assert_eq!(dec.read_value(), Err(Error::InvalidHandle));
     }
 
+    // @behavior WP-044
     #[test]
     fn decode_handle_above_cap_returns_invalid_handle() {
         let bytes = [0xd6, 0x01, 0x80, 0x00, 0x00, 0x00];
@@ -597,6 +622,7 @@ mod tests {
         assert_eq!(dec.read_value(), Err(Error::InvalidHandle));
     }
 
+    // @behavior WP-043
     #[test]
     fn decode_handle_zero_returns_invalid_handle() {
         // ID 0 is the reserved invalid sentinel
@@ -608,6 +634,7 @@ mod tests {
         assert_eq!(dec.read_value(), Err(Error::InvalidHandle));
     }
 
+    // @behavior WP-080
     #[test]
     fn decode_uint64_above_i64max_uses_uint_variant() {
         let mut bytes = vec![0xcf];
@@ -616,6 +643,7 @@ mod tests {
         assert_eq!(dec.read_value(), Ok(Value::UInt(u64::MAX)));
     }
 
+    // @behavior WP-082
     #[test]
     fn decode_accepts_float32_payload() {
         let mut bytes = vec![0xca];

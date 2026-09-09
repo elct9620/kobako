@@ -32,6 +32,7 @@ pub enum Value {
 mod tests {
     use super::*;
 
+    // @behavior WP-095
     #[test]
     fn value_variants_cover_the_closed_wire_type_set() {
         let _ = Value::Nil;

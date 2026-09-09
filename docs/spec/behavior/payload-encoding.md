@@ -11,16 +11,19 @@ Which form each value takes on the payload wire, and what a frame that is not on
 - `test/unit/codec/test_ext_types.rb`
 - `test/unit/codec/test_malformed.rb`
 - `test/unit/codec/test_golden_vectors.rb`
+- `crates/kobako-codec/src/msgpack/**/*.rs`
 
 ### Why these scenarios
 
 The boundary this codec keeps — which values it refuses rather than change — is specified with the codec itself. What is here is the other half: the form each accepted value takes, and what a frame that is not a value answers. A caller never sees this half directly, which is exactly why it is declared: the two independent implementations agree only if both read the same table, and a table nobody wrote down is one each side is free to drift from.
 
+Both implementations witness this one table, which is what makes a scenario here worth more than a scenario each: where the two agree, the same statement is answered twice from independently written code, and where they do not, the difference has to be declared rather than discovered. The reader's and writer's own state is declared alongside the tiers, since a tier is only ever observed through them.
+
 Every encoding tier is witnessed at its bound and just past it, because a tier chosen one step too wide still round-trips through the writer that chose it. The byte vectors are what catch that: a value whose form is fixed to specific bytes cannot silently be promoted, and the narrowest tag for each empty container is pinned for the same reason.
 
 Round-trips answer for what survives; the refusals answer for what a reader is handed by something that is not this writer. Those are separate observations even where one value reaches both — a reference the writer would never emit with a zero identifier still arrives with one when the bytes were built by hand.
 
-Two asymmetries are declared as they are rather than as they should be. The writer will emit nesting its own reader refuses, because the library beneath it bounds the reader alone; nothing crosses that should not, since the guest's writer carries the bound. And a cyclic map is beyond reach entirely — the walk that would hit the cycle runs in frames carrying no guard, so the process ends before anything here could answer. That case is left without a scenario, since a test that cannot run witnesses nothing.
+Two asymmetries are declared as they are rather than as they should be. One writer will emit nesting its own reader refuses, because the library beneath it bounds the reader alone; nothing crosses that should not, since the writer at the other end carries the bound and refuses there. And a cyclic map is beyond reach entirely — the walk that would hit the cycle runs in frames carrying no guard, so the process ends before anything here could answer. That case is left without a scenario, since a test that cannot run witnesses nothing.
 
 ## `WP-001` An invocation's arguments cross in both positions
 
@@ -605,3 +608,179 @@ Two asymmetries are declared as they are rather than as they should be. The writ
 | Given | the lowest negative number the single-byte tier carries |
 | When | it is written |
 | Then | the bytes are the ones the wire states |
+
+## `WP-074` A reader over bytes stands before the first of them
+
+| Step | Statement |
+| --- | --- |
+| Given | a reader over bytes carrying a value |
+| When | it is asked where it stands |
+| Then | it stands at the beginning and is not at its end |
+
+## `WP-075` A reader over no bytes is already at its end
+
+| Step | Statement |
+| --- | --- |
+| Given | a reader over no bytes |
+| When | it is asked whether it is at its end |
+| Then | it is |
+
+## `WP-076` A writer that has written nothing carries nothing
+
+| Step | Statement |
+| --- | --- |
+| Given | a writer nothing has been written to |
+| When | its bytes are taken |
+| Then | there are none |
+
+## `WP-077` A buffer holding one complete value is read as that value
+
+| Step | Statement |
+| --- | --- |
+| Given | bytes carrying exactly one value |
+| When | they are read as a sole value |
+| Then | the value arrives as it was written |
+
+## `WP-078` A list declaring more than the bytes carry is refused before anything is allocated
+
+| Step | Statement |
+| --- | --- |
+| Given | bytes declaring a list of more elements than could follow |
+| When | they are read |
+| Then | the input is refused as truncated |
+
+## `WP-079` A map declaring more than the bytes carry is refused the same way
+
+| Step | Statement |
+| --- | --- |
+| Given | bytes declaring a map of more entries than could follow |
+| When | they are read |
+| Then | the input is refused as truncated |
+
+## `WP-080` A number past the signed ceiling keeps its unsigned reading
+
+| Step | Statement |
+| --- | --- |
+| Given | a number above the highest signed number |
+| When | it is read |
+| Then | it arrives unsigned |
+
+## `WP-081` A number inside the signed range comes back signed
+
+| Step | Statement |
+| --- | --- |
+| Given | an unsigned number no higher than the highest signed one |
+| When | it is written and read back |
+| Then | it arrives signed |
+
+## `WP-082` A float written at the narrower width is read
+
+| Step | Statement |
+| --- | --- |
+| Given | bytes carrying a float at the narrower of the two widths |
+| When | they are read |
+| Then | the float arrives with its value intact |
+
+## `WP-083` Truth takes the byte the wire states
+
+| Step | Statement |
+| --- | --- |
+| Given | truth |
+| When | it is written |
+| Then | the bytes are the ones the wire states |
+
+## `WP-084` And falsity the byte the wire states
+
+| Step | Statement |
+| --- | --- |
+| Given | falsity |
+| When | it is written |
+| Then | the bytes are the ones the wire states |
+
+## `WP-085` The extension codes are the ones the wire states
+
+| Step | Statement |
+| --- | --- |
+| Given | the codes this mapping writes its two extensions under |
+| When | they are read |
+| Then | each is the code the wire states |
+
+## `WP-086` The highest reference identifier is the one the wire states
+
+| Step | Statement |
+| --- | --- |
+| Given | the ceiling this mapping holds capability references to |
+| When | it is read |
+| Then | it is the one the wire states |
+
+## `WP-087` The writer that carries the bound refuses to write past it
+
+| Step | Statement |
+| --- | --- |
+| Given | a value nesting one step past the wire bound |
+| When | it is written by the writer that carries the bound |
+| Then | a wire violation is raised rather than bytes its own reader would refuse |
+
+## `WP-088` Each integer tier begins at the number the wire states
+
+| Step | Statement |
+| --- | --- |
+| Given | each bound of the integer tiers, on both sides of zero |
+| When | each is written |
+| Then | each takes the narrowest tier that holds it |
+
+## `WP-089` The widest unsigned number takes the widest tier
+
+| Step | Statement |
+| --- | --- |
+| Given | the highest unsigned number |
+| When | it is written |
+| Then | it takes the widest tier |
+
+## `WP-090` Each text tier begins at the length the wire states
+
+| Step | Statement |
+| --- | --- |
+| Given | text at each bound of the text tiers |
+| When | each is written |
+| Then | each takes the narrowest tier that holds it |
+
+## `WP-091` Each bytes tier begins at the length the wire states
+
+| Step | Statement |
+| --- | --- |
+| Given | bytes at each bound of the bytes tiers |
+| When | each is written |
+| Then | each takes the narrowest tier that holds it |
+
+## `WP-092` Each list tier begins at the count the wire states
+
+| Step | Statement |
+| --- | --- |
+| Given | a list at each bound of the list tiers |
+| When | each is written |
+| Then | each takes the narrowest tier that holds it |
+
+## `WP-093` Each map tier begins at the count the wire states
+
+| Step | Statement |
+| --- | --- |
+| Given | a map at each bound of the map tiers |
+| When | each is written |
+| Then | each takes the narrowest tier that holds it |
+
+## `WP-094` A keyword name reaches the wire as a name
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation carrying a keyword argument |
+| When | the payload is written |
+| Then | the key rides as a name rather than as text |
+
+## `WP-095` The mapping names a closed set of value kinds
+
+| Step | Statement |
+| --- | --- |
+| Given | the kinds this mapping carries |
+| When | the set is read |
+| Then | it holds each of them and nothing else |
