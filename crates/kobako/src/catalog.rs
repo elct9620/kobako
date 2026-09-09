@@ -13,8 +13,19 @@ use std::sync::Arc;
 
 use kobako_transport::envelope::Bindings;
 
+use crate::error::Error;
 use crate::receiver::Receiver;
 use crate::snippet::Snippets;
+
+/// Whether `path` is one or more constant-form segments joined by `::`.
+fn is_constant_path(path: &str) -> bool {
+    !path.is_empty()
+        && path.split("::").all(|segment| {
+            let mut chars = segment.chars();
+            chars.next().is_some_and(|c| c.is_ascii_uppercase())
+                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        })
+}
 
 /// Bind-ordered Service registry plus the snippet table for one Sandbox.
 #[derive(Default)]
@@ -24,16 +35,33 @@ pub(crate) struct Catalog {
 }
 
 impl Catalog {
-    /// Bind a host object as the Service reachable at `path`. Rebinding
-    /// an identical path replaces the object — the Ruby frontend refuses
-    /// a malformed or colliding path at its own surface, so this registry
-    /// stays permissive; a path that is a prefix of another is caught
-    /// fail-closed by the guest when it materializes the proxies.
-    pub(crate) fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) {
-        match self.bindings.iter_mut().find(|(p, _)| p == path) {
-            Some((_, slot)) => *slot = object,
-            None => self.bindings.push((path.to_string(), object)),
+    /// Bind a host object as the Service reachable at `path`. A path is
+    /// constant-form segments joined by `::`, and one already bound —
+    /// or standing as another's namespace — is refused rather than
+    /// replaced: the guest reaches a Service by that name alone, so a
+    /// name meaning two things is a name the guest cannot resolve.
+    pub(crate) fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
+        if !is_constant_path(path) {
+            return Err(Error::Argument(format!(
+                "bind path must be constant-form segments joined by '::' (got {path:?})"
+            )));
         }
+        if self.collides(path) {
+            return Err(Error::Argument(format!(
+                "Service path {path} conflicts with an existing binding"
+            )));
+        }
+        self.bindings.push((path.to_string(), object));
+        Ok(())
+    }
+
+    /// Whether `path` names, contains, or sits inside an existing binding.
+    fn collides(&self, path: &str) -> bool {
+        self.bindings.iter().any(|(existing, _)| {
+            existing == path
+                || existing.starts_with(&format!("{path}::"))
+                || path.starts_with(&format!("{existing}::"))
+        })
     }
 
     /// Resolve a dispatch target path to its bound object.
@@ -60,24 +88,65 @@ mod tests {
 
     use super::*;
 
+    fn bound(catalog: &mut Catalog, path: &str) -> Result<(), Error> {
+        catalog.bind(path, Arc::new(Probe))
+    }
+
     // @behavior SV-001
     #[test]
     fn bind_then_lookup_resolves_the_path() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::KV", Arc::new(Probe));
-        catalog.bind("File", Arc::new(Probe));
+        bound(&mut catalog, "MyService::KV").expect("a constant path binds");
+        bound(&mut catalog, "File").expect("a single segment is a whole path");
         assert!(catalog.lookup("MyService::KV").is_some());
         assert!(catalog.lookup("File").is_some());
         assert!(catalog.lookup("MyService::Other").is_none());
     }
 
-    // @behavior SV-033
+    // @behavior SV-012
     #[test]
-    fn rebind_replaces_the_object_at_the_same_path() {
+    fn a_path_already_bound_is_refused_rather_than_replaced() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::KV", Arc::new(Probe));
-        catalog.bind("MyService::KV", Arc::new(Probe));
-        assert!(catalog.lookup("MyService::KV").is_some());
+        bound(&mut catalog, "MyService::KV").expect("the first bind stands");
+        assert!(
+            bound(&mut catalog, "MyService::KV").is_err(),
+            "a path already bound must be refused, since the guest reaches a Service by \
+             that name alone"
+        );
+    }
+
+    // @behavior SV-013
+    #[test]
+    fn a_path_extending_a_bound_one_is_refused() {
+        let mut catalog = Catalog::default();
+        bound(&mut catalog, "File").expect("the first bind stands");
+        assert!(
+            bound(&mut catalog, "File::Reader").is_err(),
+            "a name cannot be a Service and a namespace at once"
+        );
+    }
+
+    // @behavior SV-014
+    #[test]
+    fn a_path_that_is_a_bound_ones_namespace_is_refused_too() {
+        let mut catalog = Catalog::default();
+        bound(&mut catalog, "File::Reader").expect("the first bind stands");
+        assert!(
+            bound(&mut catalog, "File").is_err(),
+            "a grouping cannot become a Service either"
+        );
+    }
+
+    // @behavior SV-030
+    #[test]
+    fn a_segment_that_is_not_a_constant_name_is_refused() {
+        for path in ["lower", "1X", "", "Na-me", "My::lower", "My::"] {
+            let mut catalog = Catalog::default();
+            assert!(
+                bound(&mut catalog, path).is_err(),
+                "{path:?} is not constant-form segments joined by '::' and must be refused"
+            );
+        }
     }
 
     // The preamble is the guest's registration input; bind order is the
@@ -87,8 +156,8 @@ mod tests {
     #[test]
     fn the_preamble_carries_every_bound_path_in_bind_order() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::KV", Arc::new(Probe));
-        catalog.bind("File", Arc::new(Probe));
+        bound(&mut catalog, "MyService::KV").expect("a constant path binds");
+        bound(&mut catalog, "File").expect("a single segment is a whole path");
         assert_eq!(
             Bindings::decode(&catalog.preamble()),
             Ok(Bindings {

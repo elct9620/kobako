@@ -243,7 +243,9 @@ mod tests {
 
     fn handler() -> CatalogHandler {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::KV", Echo.into_receiver());
+        catalog
+            .bind("MyService::KV", Echo.into_receiver())
+            .expect("a constant path binds");
         CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new())
     }
 
@@ -382,7 +384,9 @@ mod tests {
     #[test]
     fn resolution_wins_over_the_sealed_catalog() {
         let mut catalog = Catalog::default();
-        catalog.bind("File", Echo.into_receiver());
+        catalog
+            .bind("File", Echo.into_receiver())
+            .expect("a single segment is a whole path");
         let handler = CatalogHandler::new(
             Arc::new(catalog),
             Arc::default(),
@@ -452,7 +456,9 @@ mod tests {
     #[test]
     fn narrowing_predicate_rejects_an_unexposed_method_before_it_runs() {
         let mut catalog = Catalog::default();
-        catalog.bind("MyService::Narrow", Narrowed.into_receiver());
+        catalog
+            .bind("MyService::Narrow", Narrowed.into_receiver())
+            .expect("a constant path binds");
         let handler = CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new());
         let visible = request(
             Target::Path("MyService::Narrow"),

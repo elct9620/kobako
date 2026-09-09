@@ -284,11 +284,3 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | Given | an invocation whose path has already been overridden |
 | When | the same path is overridden again |
 | Then | the guest reaches the later object |
-
-## `SV-033` The registry behind the Rust frontend replaces rather than refuses
-
-| Step | Statement |
-| --- | --- |
-| Given | the Rust frontend's registry with an object bound at a path |
-| When | the same path is bound again |
-| Then | the later object stands there |

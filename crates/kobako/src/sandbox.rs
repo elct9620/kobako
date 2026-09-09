@@ -181,10 +181,11 @@ impl Sandbox {
 
     /// Bind a host object as the Service reachable at `path` — a
     /// constant path of one or more `::`-separated segments
-    /// (`"MyService::KV"` or a top-level `"File"`). Refused once sealed.
+    /// (`"MyService::KV"` or a top-level `"File"`). A path already bound,
+    /// or one that would sit inside another, is refused. Refused once
+    /// sealed.
     pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
-        self.open_catalog()?.bind(path, object);
-        Ok(())
+        self.open_catalog()?.bind(path, object)
     }
 
     /// Declare a fillable Service at `path` with no object — the Rust spelling
@@ -194,8 +195,7 @@ impl Sandbox {
     /// closed as an undefined target (a guest `ServiceError`). Refused once
     /// sealed.
     pub fn bind_fillable(&mut self, path: &str) -> Result<(), Error> {
-        self.open_catalog()?.bind(path, unresolved());
-        Ok(())
+        self.open_catalog()?.bind(path, unresolved())
     }
 
     /// Install an Extension — a guest idiom (`source`) paired with an
@@ -210,7 +210,7 @@ impl Sandbox {
             .snippets
             .register_source(extension.name(), extension.source())?;
         if let Some(backend) = extension.backend() {
-            catalog.bind(&backend.path, install_object(&backend.provider));
+            catalog.bind(&backend.path, install_object(&backend.provider))?;
         }
         self.extensions.record(extension);
         Ok(())
