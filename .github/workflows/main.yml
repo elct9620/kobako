@@ -16,8 +16,8 @@ jobs:
     env:
       # Pinned by hand: nothing watches a release asset fetched over curl.
       # The digest is pinned alongside the tag because an asset can be replaced.
-      SUMI_VERSION: 0.1.0-preview8
-      SUMI_SHA256: 9a2795b566301ca204f555b4107157925c247bd09c7a2cd72d93757026ccc401
+      SUMI_VERSION: 0.1.0-preview9
+      SUMI_SHA256: b2a8eb702c281527b87733491de71c129340c6a1dd63ea6873adf6be6467e200
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,6 +31,10 @@ jobs:
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Check the source against the specification
         run: sumi verify
+      # The form is held locally by an edit hook, which reaches only what this
+      # repository's own tooling writes. Here it is held for every commit.
+      - name: Check the specification is written the way a reference line is
+        run: sumi fmt --check
 
   build:
     runs-on: ubuntu-latest
