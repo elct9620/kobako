@@ -39,22 +39,26 @@ pub(crate) fn clip_capture(mut raw: Vec<u8>, cap: Option<usize>) -> (Vec<u8>, bo
 mod tests {
     use super::{clip_capture, pipe_capacity};
 
+    // @behavior S-108
     #[test]
     fn pipe_capacity_adds_one_when_cap_is_set() {
         assert_eq!(pipe_capacity(Some(5)), 6);
         assert_eq!(pipe_capacity(Some(0)), 1);
     }
 
+    // @behavior S-109
     #[test]
     fn pipe_capacity_falls_back_to_usize_max_when_uncapped() {
         assert_eq!(pipe_capacity(None), usize::MAX);
     }
 
+    // @behavior S-110
     #[test]
     fn pipe_capacity_saturates_at_usize_max() {
         assert_eq!(pipe_capacity(Some(usize::MAX)), usize::MAX);
     }
 
+    // @behavior S-111
     #[test]
     fn clip_capture_returns_full_bytes_when_under_cap() {
         let (bytes, truncated) = clip_capture(b"abc".to_vec(), Some(5));
@@ -62,6 +66,7 @@ mod tests {
         assert!(!truncated);
     }
 
+    // @behavior S-112
     #[test]
     fn clip_capture_does_not_flag_truncation_at_exactly_cap_bytes() {
         let (bytes, truncated) = clip_capture(b"abcde".to_vec(), Some(5));
@@ -69,6 +74,7 @@ mod tests {
         assert!(!truncated);
     }
 
+    // @behavior S-024
     #[test]
     fn clip_capture_clips_to_cap_and_flags_truncation_on_overflow() {
         // The pipe is sized `cap + 1`, so the snapshot can be at most
@@ -79,6 +85,7 @@ mod tests {
         assert!(truncated);
     }
 
+    // @behavior S-033
     #[test]
     fn clip_capture_treats_none_as_uncapped() {
         let (bytes, truncated) = clip_capture(b"abcdef".to_vec(), None);
@@ -86,6 +93,7 @@ mod tests {
         assert!(!truncated);
     }
 
+    // @behavior S-100 S-101
     #[test]
     fn clip_capture_handles_empty_input() {
         let (bytes, truncated) = clip_capture(Vec::new(), Some(5));

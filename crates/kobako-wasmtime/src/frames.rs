@@ -243,6 +243,7 @@ mod tests {
         (clock, random)
     }
 
+    // @behavior RT-047 RT-048
     #[test]
     fn hermetic_denies_ambient_time_and_entropy() {
         let (clock, random) = probe_ambient(Profile::Hermetic);
@@ -256,6 +257,7 @@ mod tests {
         );
     }
 
+    // @behavior RT-049 RT-050
     #[test]
     fn permissive_grants_live_ambient_time_and_entropy() {
         let (clock, random) = probe_ambient(Profile::Permissive);

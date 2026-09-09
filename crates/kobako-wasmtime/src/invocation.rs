@@ -394,6 +394,7 @@ mod tests {
         );
     }
 
+    // @behavior S-113
     #[test]
     fn dormant_limiter_allows_any_growth() {
         let mut limiter = MemoryLimiter::new(Some(1 << 20));
@@ -402,6 +403,7 @@ mod tests {
         assert_growing(&mut limiter, 100 << 20);
     }
 
+    // @behavior S-114
     #[test]
     fn delta_below_cap_passes_after_activate() {
         let mut limiter = MemoryLimiter::new(Some(1 << 20));
@@ -410,6 +412,7 @@ mod tests {
         assert_growing(&mut limiter, (2 << 20) + (1 << 19));
     }
 
+    // @behavior OC-023
     #[test]
     fn delta_past_cap_traps_with_memory_limit_trap() {
         let mut limiter = MemoryLimiter::new(Some(1 << 20));
@@ -418,6 +421,7 @@ mod tests {
         assert_trapping(&mut limiter, 4 << 20);
     }
 
+    // @behavior S-008
     #[test]
     fn activate_resets_baseline_on_each_invocation() {
         let mut limiter = MemoryLimiter::new(Some(1 << 20));
@@ -431,6 +435,7 @@ mod tests {
         assert_growing(&mut limiter, (3 << 20) + (1 << 20));
     }
 
+    // @behavior S-005
     #[test]
     fn disabled_cap_ignores_delta_size() {
         let mut limiter = MemoryLimiter::new(None);
@@ -438,12 +443,14 @@ mod tests {
         assert_growing(&mut limiter, 100 << 20);
     }
 
+    // @behavior S-116
     #[test]
     fn peak_starts_at_zero_before_any_grow() {
         let limiter = MemoryLimiter::new(Some(1 << 20));
         assert_eq!(limiter.peak(), 0);
     }
 
+    // @behavior S-115
     #[test]
     fn peak_tracks_high_water_of_delta_past_baseline() {
         let mut limiter = MemoryLimiter::new(Some(1 << 20));
@@ -454,6 +461,7 @@ mod tests {
         assert_eq!(limiter.peak(), 1 << 19);
     }
 
+    // @behavior S-062
     #[test]
     fn trap_does_not_update_peak() {
         let mut limiter = MemoryLimiter::new(Some(1 << 20));
@@ -464,6 +472,7 @@ mod tests {
         assert_eq!(limiter.peak(), 1 << 19);
     }
 
+    // @behavior S-117
     #[test]
     fn activate_resets_peak_for_new_invocation() {
         let mut limiter = MemoryLimiter::new(Some(1 << 20));
@@ -474,6 +483,7 @@ mod tests {
         assert_eq!(limiter.peak(), 0);
     }
 
+    // @behavior S-118
     #[test]
     fn disabled_cap_still_tracks_peak() {
         let mut limiter = MemoryLimiter::new(None);

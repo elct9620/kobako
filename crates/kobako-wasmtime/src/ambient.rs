@@ -61,6 +61,7 @@ mod tests {
     //! default would re-expose ambient time to a future libc-backed gem.
     use super::*;
 
+    // @behavior RT-047
     #[test]
     fn the_guest_wall_clock_reads_the_unix_epoch() {
         assert_eq!(
@@ -70,6 +71,7 @@ mod tests {
         );
     }
 
+    // @behavior RT-051
     #[test]
     fn the_guest_monotonic_clock_never_advances() {
         assert_eq!(

@@ -9,6 +9,8 @@ What one invocation's result settles into, which side it is attributed to, and w
 - `test/unit/outcome/test_value_sharing.rb`
 - `test/unit/values/test_error_class_hierarchy.rb`
 - `test/parity/test_errors.rb`
+- `crates/kobako-wasmtime/src/invocation.rs`
+- `crates/kobako-wasmtime/src/trap.rs`
 
 ### Why these scenarios
 
@@ -237,3 +239,27 @@ The parity scenarios settle that both frontends attribute the same origin, not t
 | Given | a scenario allocating past a memory budget |
 | When | both frontends run it |
 | Then | they observe the same failure |
+
+## `OC-028` A failure neither cap caused is still a trap
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest failure attributable to neither cap |
+| When | it is read |
+| Then | it is a trap of no named cap |
+
+## `OC-029` A trap carries its reason, not only the frames around it
+
+| Step | Statement |
+| --- | --- |
+| Given | a trap whose reason sits beneath the frames describing where it happened |
+| When | its message is read |
+| Then | the reason and the frames are both there |
+
+## `OC-030` A trap carrying no frames is not repeated
+
+| Step | Statement |
+| --- | --- |
+| Given | a trap carrying a reason and no frames |
+| When | its message is read |
+| Then | the reason appears once |

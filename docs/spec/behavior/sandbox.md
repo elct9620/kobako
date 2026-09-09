@@ -27,6 +27,9 @@ What a Sandbox is built with, what one invocation leaves for the next, and what 
 - `test/parity/test_caps_usage.rb`
 - `test/parity/test_seal.rb`
 - `test/unit/values/test_capture.rb`
+- `crates/kobako-wasmtime/src/capture.rs`
+- `crates/kobako-wasmtime/src/invocation.rs`
+- `crates/kobako-wasmtime/src/trap.rs`
 
 ### Why these scenarios
 
@@ -897,3 +900,99 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | binary bytes held by the caller |
 | When | a capture is made from them |
 | Then | the caller's bytes are unchanged |
+
+## `S-108` A capped channel is given room for one byte past its cap
+
+| Step | Statement |
+| --- | --- |
+| Given | a channel with a cap |
+| When | its room is sized |
+| Then | it is one byte more than the cap |
+
+## `S-109` A channel with no cap is given unbounded room
+
+| Step | Statement |
+| --- | --- |
+| Given | a channel with no cap |
+| When | its room is sized |
+| Then | it is unbounded |
+
+## `S-110` A cap at the widest value stays there
+
+| Step | Statement |
+| --- | --- |
+| Given | a channel capped at the widest value there is |
+| When | its room is sized |
+| Then | it stays at that value rather than passing it |
+
+## `S-111` Output within the cap is kept whole and unmarked
+
+| Step | Statement |
+| --- | --- |
+| Given | a run that wrote fewer bytes than its cap |
+| When | the capture is taken |
+| Then | every byte is there and no mark is set |
+
+## `S-112` Output filling the cap exactly is unmarked too
+
+| Step | Statement |
+| --- | --- |
+| Given | a run that wrote exactly as many bytes as its cap |
+| When | the capture is taken |
+| Then | every byte is there and no mark is set |
+
+## `S-113` Growth before an invocation begins is not bounded
+
+| Step | Statement |
+| --- | --- |
+| Given | a memory budget and no invocation yet under way |
+| When | the guest's memory grows |
+| Then | the growth is allowed |
+
+## `S-114` Growth within the budget is allowed
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation under way with a memory budget |
+| When | the guest grows its memory by less than the budget |
+| Then | the growth is allowed |
+
+## `S-115` The memory reported is the highest the invocation reached
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation whose memory grew and then grew by less |
+| When | the figure is read |
+| Then | it is the highest the invocation reached, not the last |
+
+## `S-116` Nothing is reported before anything has grown
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation whose memory has not grown |
+| When | the figure is read |
+| Then | it is nothing |
+
+## `S-117` The figure is reset for each invocation
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation that grew its memory |
+| When | the next invocation begins |
+| Then | the figure it starts from is nothing |
+
+## `S-118` A run with no budget still reports what it took
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation with no memory budget |
+| When | the guest grows its memory and the figure is read |
+| Then | it is what the invocation took |
+
+## `S-119` A run with no deadline is not cut short by the clock the engine keeps
+
+| Step | Statement |
+| --- | --- |
+| Given | an engine whose clock has already moved |
+| When | a run with no deadline begins |
+| Then | it is not cut short |

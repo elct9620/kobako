@@ -16,6 +16,8 @@ What the host checks before a guest runs, which posture it builds, and how invoc
 - `test/e2e/sandbox/test_null_guest.rb`
 - `test/fuzz/test_dispatch_scheduling_fuzz.rb`
 - `test/parity/test_hermetic.rb`
+- `crates/kobako-wasmtime/src/ambient.rs`
+- `crates/kobako-wasmtime/src/frames.rs`
 
 ### Why these scenarios
 
@@ -402,3 +404,43 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Given | a Sandbox over an artifact that satisfies the ABI and does no guest work |
 | When | source is evaluated against it |
 | Then | the capture is empty |
+
+## `RT-047` The strongest posture reads no host time
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest running at the strongest posture |
+| When | it reads the clock |
+| Then | it reads the epoch rather than the host's time |
+
+## `RT-048` The strongest posture reads no host entropy
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest running at the strongest posture |
+| When | it reads entropy |
+| Then | it reads a constant stream rather than the host's entropy |
+
+## `RT-049` The weaker posture reads live host time
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest running at the weaker posture |
+| When | it reads the clock |
+| Then | it reads the host's time |
+
+## `RT-050` The weaker posture reads host entropy
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest running at the weaker posture |
+| When | it reads entropy |
+| Then | it reads the host's entropy |
+
+## `RT-051` The clock the strongest posture offers never advances
+
+| Step | Statement |
+| --- | --- |
+| Given | the clock a guest at the strongest posture measures elapsed time with |
+| When | it is read |
+| Then | it stands still |

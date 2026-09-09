@@ -110,6 +110,7 @@ mod tests {
     // `increment_epoch` stands in for the ticker to make the ticked
     // state deterministic; under debug overflow checks an overflowing
     // delta panics right here.
+    // @behavior S-119
     #[test]
     fn no_timeout_delta_survives_a_ticked_engine_epoch() {
         let engine = crate::cache::shared_engine().expect("shared engine must be constructible");
@@ -118,6 +119,7 @@ mod tests {
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
     }
 
+    // @behavior OC-022
     #[test]
     fn trap_from_routes_timeout_trap_to_timeout() {
         let err = wasmtime::Error::new(TimeoutTrap);
@@ -125,6 +127,7 @@ mod tests {
         assert!(matches!(trap_from(err), Trap::Timeout(msg) if msg == expected));
     }
 
+    // @behavior OC-023
     #[test]
     fn trap_from_routes_memory_limit_trap_to_memory_limit() {
         let trap = MemoryLimitTrap::new(1 << 20, 1 << 19);
@@ -133,6 +136,7 @@ mod tests {
         assert!(matches!(trap_from(err), Trap::MemoryLimit(msg) if msg == expected));
     }
 
+    // @behavior OC-028
     #[test]
     fn trap_from_falls_back_to_other_for_unknown_errors() {
         let err = wasmtime::Error::msg("some other wasmtime fault");
@@ -142,6 +146,7 @@ mod tests {
     // A guest hard trap reaches the host as a wasmtime error whose Display is
     // only the backtrace framing, with the trap reason buried as the chain's
     // root cause. The named-capture regex bug surfaced as exactly this shape.
+    // @behavior OC-029
     #[test]
     fn other_trap_message_surfaces_buried_trap_reason() {
         let err = wasmtime::Error::msg("wasm trap: indirect call type mismatch")
@@ -159,6 +164,7 @@ mod tests {
 
     // A flat error (no cause chain) is its own root_cause; appending it would
     // duplicate the whole message.
+    // @behavior OC-030
     #[test]
     fn other_trap_message_does_not_duplicate_a_flat_error() {
         let err = wasmtime::Error::msg("plain fault");
