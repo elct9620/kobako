@@ -387,6 +387,7 @@ pub(super) fn panic_from_error(kobako: &Kobako, err: beni::Error) -> Panic {
 mod tests {
     use super::*;
 
+    // @behavior OC-043
     #[test]
     fn boot_panic_carries_kobako_boot_defaults() {
         let p = boot_panic("failed to read preamble frame");
@@ -397,6 +398,7 @@ mod tests {
         assert!(p.available.is_empty());
     }
 
+    // @behavior OC-044
     #[test]
     fn transport_panic_carries_kobako_transport_defaults() {
         let p = transport_panic("failed to decode the invocation request");
@@ -407,6 +409,7 @@ mod tests {
         assert!(p.available.is_empty());
     }
 
+    // @behavior OC-045
     #[test]
     fn origin_for_class_routes_every_service_error_to_service() {
         for class in SERVICE_ERROR_CLASSES {
@@ -419,6 +422,7 @@ mod tests {
         }
     }
 
+    // @behavior OC-046
     #[test]
     fn origin_for_class_defaults_to_sandbox() {
         assert_eq!(origin_for_class("RuntimeError"), Origin::Sandbox);
@@ -429,6 +433,7 @@ mod tests {
         assert_eq!(origin_for_class("NoMethodError"), Origin::Sandbox);
     }
 
+    // @behavior OC-047
     #[test]
     fn a_guests_own_error_named_like_kobakos_does_not_claim_service_origin() {
         assert_eq!(

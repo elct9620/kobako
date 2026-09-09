@@ -20,6 +20,7 @@ What the host checks before a guest runs, which posture it builds, and how invoc
 - `crates/kobako-wasmtime/src/frames.rs`
 - `crates/kobako/tests/concurrency.rs`
 - `crates/kobako/tests/runtime_injection.rs`
+- `crates/kobako-runtime/src/profile.rs`
 
 ### Why these scenarios
 

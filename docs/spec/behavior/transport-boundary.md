@@ -17,6 +17,7 @@ What the host refuses to dispatch, and how narrow a bound object can make its ow
 - `test/unit/values/test_handle.rb`
 - `crates/kobako/src/dispatch.rs`
 - `crates/kobako/src/msgpack/receiver.rs`
+- `wasm/kobako-mruby/src/runtime/bridges.rs`
 
 ### Why these scenarios
 

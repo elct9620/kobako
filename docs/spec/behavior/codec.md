@@ -12,6 +12,7 @@ What the payload codec will carry between host and guest, and what it refuses ra
 - `test/e2e/test_answer_value_refusal.rb`
 - `test/fuzz/test_roundtrip_fuzz.rb`
 - `test/fuzz/test_guest_value_fuzz.rb`
+- `wasm/kobako-mruby/src/refusal.rs`
 
 ### Why these scenarios
 
@@ -224,3 +225,83 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | Given | a bracket on this thread that decoded a payload carrying a reference |
 | When | a second bracket on the same thread decodes a payload carrying none |
 | Then | the second reports none was carried |
+
+## `CD-026` A value the schema cannot write is the script's own type error
+
+| Step | Statement |
+| --- | --- |
+| Given | a value the schema cannot write, handed over at a position a script reached |
+| When | the refusal is raised |
+| Then | it is the class a script sees for handing over the wrong type |
+
+## `CD-027` A value the schema cannot write at the invocation's own position fails the invocation
+
+| Step | Statement |
+| --- | --- |
+| Given | a value the schema cannot write, standing as the invocation's own result |
+| When | the refusal is made |
+| Then | the invocation fails, no guest frame being left to raise into |
+
+## `CD-028` That refusal names the type the codec reported
+
+| Step | Statement |
+| --- | --- |
+| Given | a value the schema cannot write, standing as the invocation's own result |
+| When | the refusal's message is read |
+| Then | it names the type rather than describing the value |
+
+## `CD-029` The interpreter's own limit travels as a wire failure everywhere
+
+| Step | Statement |
+| --- | --- |
+| Given | a value the interpreter itself cannot carry, at each position there is |
+| When | the refusal is made |
+| Then | each is an exchange that did not complete, not a schema or script fault |
+
+## `CD-030` A message that could not be carried names its position and direction
+
+| Step | Statement |
+| --- | --- |
+| Given | a message the codec could not carry, at each position there is |
+| When | the refusal's message is read |
+| Then | it says what was being carried and which way it was going |
+
+## `CD-031` A run payload words each refusal distinctly
+
+| Step | Statement |
+| --- | --- |
+| Given | each kind of refusal a run's arguments can meet |
+| When | their messages are read |
+| Then | no two are worded alike, that message being the only account of why nothing ran |
+
+## `CD-032` A position the schema does not serve refuses as unimplemented
+
+| Step | Statement |
+| --- | --- |
+| Given | a position this schema does not serve, reached from a guest frame |
+| When | the refusal is raised |
+| Then | it is the class a bare rescue does not swallow |
+
+## `CD-033` A schema serving a Call but not its Reply leaves the exchange half-served
+
+| Step | Statement |
+| --- | --- |
+| Given | a schema that writes a Call and cannot read its Reply |
+| When | the refusal is raised |
+| Then | it is an exchange that did not complete, not a missing capability |
+
+## `CD-034` A position only the host reads fails the invocation when the capability is absent
+
+| Step | Statement |
+| --- | --- |
+| Given | a position only the host reads, whose capability this schema does not serve |
+| When | the refusal is made |
+| Then | the invocation fails, no guest frame being left to raise into |
+
+## `CD-035` A refusal raised into a guest frame names a class that frame can raise
+
+| Step | Statement |
+| --- | --- |
+| Given | each refusal reachable at the two positions delivered into a live guest frame |
+| When | the class each names is read |
+| Then | each is a class the guest can resolve |

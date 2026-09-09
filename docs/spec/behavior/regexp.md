@@ -18,6 +18,7 @@ The pattern object the guest compiles and matches with, and what it refuses to r
 - `test/e2e/regexp/test_utf8.rb`
 - `test/e2e/regexp/test_non_utf8.rb`
 - `test/e2e/regexp/test_unicode_gate.rb`
+- `wasm/kobako-regexp/src/translate.rs`
 
 ### Why these scenarios
 
@@ -788,3 +789,67 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp Guest Binary built without Unicode support |
 | When | guest code matches an ASCII digit shorthand |
 | Then | it answers the matched substring |
+
+## `RX-167` A flag string is read letter by letter
+
+| Step | Statement |
+| --- | --- |
+| Given | a flag string carrying each letter the language names, and one it does not |
+| When | it is read |
+| Then | each named letter becomes its own option and the rest are ignored |
+
+## `RX-168` Every pattern is compiled with the anchors the language means
+
+| Step | Statement |
+| --- | --- |
+| Given | a pattern carrying no options |
+| When | it is compiled |
+| Then | the line anchors mean what they mean in the language, not what they mean beneath it |
+
+## `RX-169` Each option is carried into the compiled pattern
+
+| Step | Statement |
+| --- | --- |
+| Given | a pattern carrying each option |
+| When | it is compiled |
+| Then | each becomes the form the engine beneath reads |
+
+## `RX-170` A shorthand class outside a class is rewritten to its own characters
+
+| Step | Statement |
+| --- | --- |
+| Given | a pattern carrying each shorthand class |
+| When | it is compiled |
+| Then | each stands for the characters the language means, not the wider set beneath |
+
+## `RX-171` A shorthand class inside a character class is rewritten too
+
+| Step | Statement |
+| --- | --- |
+| Given | a pattern carrying a shorthand class inside a character class |
+| When | it is compiled |
+| Then | it stands for the same characters it would outside one |
+
+## `RX-172` A negated shorthand inside a character class is left as it was
+
+| Step | Statement |
+| --- | --- |
+| Given | a pattern carrying a negated shorthand inside a character class |
+| When | it is compiled |
+| Then | it is left for the engine beneath to read |
+
+## `RX-173` An escaped backslash stays a literal
+
+| Step | Statement |
+| --- | --- |
+| Given | a pattern carrying an escaped backslash before a shorthand letter |
+| When | it is compiled |
+| Then | the letter stays a literal rather than becoming a class |
+
+## `RX-174` An escape that is not a shorthand is left untouched
+
+| Step | Statement |
+| --- | --- |
+| Given | a pattern carrying an escape the rewriting does not name |
+| When | it is compiled |
+| Then | it crosses unchanged |

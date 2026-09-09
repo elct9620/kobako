@@ -181,6 +181,7 @@ mod tests {
         set_loopback(None);
     }
 
+    // @behavior T-176
     #[test]
     fn dispatch_returns_the_ok_body_uninterpreted() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -209,6 +210,7 @@ mod tests {
         );
     }
 
+    // @behavior T-177
     #[test]
     fn a_handle_target_rides_the_envelope_rather_than_the_payload() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -227,6 +229,7 @@ mod tests {
         );
     }
 
+    // @behavior T-178
     #[test]
     fn the_fault_arm_hands_back_its_body_for_the_caller_to_read() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -244,6 +247,7 @@ mod tests {
         );
     }
 
+    // @behavior T-179
     #[test]
     fn a_reply_the_envelope_cannot_frame_is_a_wire_fault() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -260,6 +264,7 @@ mod tests {
         );
     }
 
+    // @behavior T-180
     #[test]
     fn dispatch_without_loopback_fails_loudly() {
         // Defensive: if a test forgets to install a loopback, the

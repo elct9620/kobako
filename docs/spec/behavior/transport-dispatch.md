@@ -27,6 +27,8 @@ How a guest call reaches a host object, what crosses in each direction, and how 
 - `crates/kobako/src/msgpack/receiver.rs`
 - `crates/kobako/src/msgpack/handles.rs`
 - `crates/kobako/tests/byte_surface.rs`
+- `wasm/kobako-core/src/proxy.rs`
+- `wasm/kobako-core/src/guest.rs`
 
 ### Why these scenarios
 
@@ -901,3 +903,51 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a Receiver bound into the invocation's table |
 | When | it is resolved and asked for its own type |
 | Then | it is the object that was bound |
+
+## `T-176` The guest's proxy hands back the answer without reading it
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest dispatching to a bound path |
+| When | the host answers on the ok arm |
+| Then | the body reaches the caller as the bytes it was sent, read by no schema |
+
+## `T-177` A reference target rides the envelope rather than the payload
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest dispatching to a capability reference |
+| When | the Call is written |
+| Then | the target rides the envelope and the payload carries only arguments |
+
+## `T-178` The fault arm's body reaches the guest to read
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest dispatching to a path the host refuses |
+| When | the host answers on the fault arm |
+| Then | the body reaches the caller for it to read |
+
+## `T-179` An answer the envelope cannot frame is a wire failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest dispatching to the host |
+| When | the answer carries a tag the Reply does not define |
+| Then | it fails as a wire failure |
+
+## `T-180` A guest with no way back to the host fails loudly
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest whose way back to the host was never wired |
+| When | it dispatches |
+| Then | it fails as a wire failure naming what is missing |
+
+## `T-181` A guest that serves no block traps when one is yielded to
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest that did not implement yielding to a block |
+| When | a yield reaches it |
+| Then | it traps rather than answering |

@@ -104,6 +104,7 @@ fn ascii_class(letter: char, in_class: bool) -> Option<&'static str> {
 mod tests {
     use super::*;
 
+    // @behavior RX-167
     #[test]
     fn flag_string_parses_known_letters() {
         assert_eq!(parse_flag_string(""), 0);
@@ -113,11 +114,13 @@ mod tests {
         assert_eq!(parse_flag_string("z"), 0);
     }
 
+    // @behavior RX-168
     #[test]
     fn pattern_always_enables_multiline_for_ruby_anchors() {
         assert_eq!(build_pattern("abc", 0), "(?m)abc");
     }
 
+    // @behavior RX-169
     #[test]
     fn pattern_maps_options_to_inline_flags() {
         assert_eq!(build_pattern("abc", IGNORECASE), "(?mi)abc");
@@ -130,6 +133,7 @@ mod tests {
         );
     }
 
+    // @behavior RX-170
     #[test]
     fn rewrites_shorthand_classes_outside_a_class() {
         assert_eq!(build_pattern(r"\d+", 0), r"(?m)[0-9]+");
@@ -138,6 +142,7 @@ mod tests {
         assert_eq!(build_pattern(r"\s", 0), r"(?m)[\x20\t\n\x0b\x0c\r]");
     }
 
+    // @behavior RX-171
     #[test]
     fn rewrites_shorthand_inside_a_character_class() {
         assert_eq!(build_pattern(r"[\d]", 0), r"(?m)[0-9]");
@@ -145,6 +150,7 @@ mod tests {
         assert_eq!(build_pattern(r"[^\d]", 0), r"(?m)[^0-9]");
     }
 
+    // @behavior RX-172
     #[test]
     fn keeps_negated_shorthand_inside_a_class_as_unicode() {
         // docs/regexp.md RX-01: `[\D]` / `[\W]` / `[\S]` keep the engine's
@@ -154,12 +160,14 @@ mod tests {
         assert_eq!(build_pattern(r"[\S]", 0), r"(?m)[\S]");
     }
 
+    // @behavior RX-173
     #[test]
     fn leaves_an_escaped_backslash_as_a_literal() {
         // `\\d` is a literal backslash then `d`, not a shorthand class.
         assert_eq!(build_pattern(r"\\d", 0), r"(?m)\\d");
     }
 
+    // @behavior RX-174
     #[test]
     fn leaves_non_shorthand_escapes_untouched() {
         assert_eq!(build_pattern(r"\bword\b", 0), r"(?m)\bword\b");

@@ -14,6 +14,7 @@ What one invocation's result settles into, which side it is attributed to, and w
 - `crates/kobako/src/execution.rs`
 - `crates/kobako/src/error.rs`
 - `crates/kobako/src/msgpack/execution.rs`
+- `wasm/kobako-mruby/src/flows/boot.rs`
 
 ### Why these scenarios
 
@@ -362,3 +363,43 @@ The parity scenarios settle that both frontends attribute the same origin, not t
 | Given | an invocation answering bytes the payload codec cannot read |
 | When | the Rust frontend reads the outcome |
 | Then | it answers a Sandbox failure naming the wire |
+
+## `OC-043` A failure before the guest is ready is the Sandbox's own boot failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest that could not read what it was set up with |
+| When | the Outcome is written |
+| Then | it attributes to the Sandbox under the boot failure's own name |
+
+## `OC-044` A failure reading the invocation is the Sandbox's own wire failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest that could not read the invocation it was handed |
+| When | the Outcome is written |
+| Then | it attributes to the Sandbox under the wire failure's own name |
+
+## `OC-045` Every class a failed Service call raises attributes to the Service
+
+| Step | Statement |
+| --- | --- |
+| Given | each class a failed Service call raises |
+| When | the origin is decided |
+| Then | each attributes to the Service |
+
+## `OC-046` Every other class attributes to the Sandbox
+
+| Step | Statement |
+| --- | --- |
+| Given | a class no failed Service call raises |
+| When | the origin is decided |
+| Then | it attributes to the Sandbox |
+
+## `OC-047` A guest class named like one of kobako's claims no Service origin
+
+| Step | Statement |
+| --- | --- |
+| Given | a class the guest defined whose name resembles one kobako raises |
+| When | the origin is decided |
+| Then | it attributes to the Sandbox |

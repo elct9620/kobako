@@ -179,6 +179,7 @@ mod tests {
     // A script hands a value over at a position a guest frame is running
     // at; the refusal has to read as that script's own mistake, which is
     // the class Ruby already uses for handing over the wrong type.
+    // @behavior CD-026
     #[test]
     fn a_value_the_schema_cannot_write_is_the_script_s_type_error() {
         for position in [
@@ -199,6 +200,7 @@ mod tests {
     // No guest frame is left to receive an exception once the invocation
     // is writing its own outcome, so the same fact has to reach the host
     // as the invocation failing.
+    // @behavior CD-027 CD-028
     #[test]
     fn an_unrepresentable_invocation_value_fails_the_invocation() {
         let refusal = at(Position::InvocationValue, unrepresentable());
@@ -217,6 +219,7 @@ mod tests {
 
     // The interpreter's own limit is not the schema's, and it is not the
     // script's either — the value simply could not survive the crossing.
+    // @behavior CD-029
     #[test]
     fn the_interpreter_s_own_refusal_travels_as_a_wire_fault_everywhere() {
         for position in EVERY_POSITION {
@@ -238,6 +241,7 @@ mod tests {
     // two dispatch positions share one wording — both halves of the same
     // exchange fail at the same guest call site, so a script cannot act
     // on which half.
+    // @behavior CD-030
     #[test]
     fn a_message_that_could_not_be_carried_names_its_position_and_direction() {
         let dispatch = "transport envelope error (proxy dispatch)";
@@ -273,6 +277,7 @@ mod tests {
 
     // A `#run` payload is read before anything of the invocation runs, so
     // its report is the only account of the failure a host ever gets.
+    // @behavior CD-031
     #[test]
     fn a_run_payload_reports_what_the_codec_reported() {
         let refusals = [
@@ -299,6 +304,7 @@ mod tests {
     // A script asked for a position this schema does not serve. That is
     // not the value's fault and not the wire's — the capability is simply
     // absent, which is the one thing a bare `rescue` should not swallow.
+    // @behavior CD-032
     #[test]
     fn a_position_the_schema_does_not_serve_refuses_as_unimplemented() {
         for position in [
@@ -319,6 +325,7 @@ mod tests {
     // A codec that wrote the Call but cannot read the Reply left the
     // exchange half-served. Nothing is missing from the script's point of
     // view — the guest was assembled inconsistently.
+    // @behavior CD-033
     #[test]
     fn a_reply_the_schema_does_not_serve_is_an_incomplete_exchange() {
         assert_eq!(
@@ -331,6 +338,7 @@ mod tests {
 
     // With no guest frame left to raise into, an absent capability can
     // only be reported as the invocation failing.
+    // @behavior CD-034
     #[test]
     fn an_absent_capability_the_host_reads_fails_the_invocation() {
         for position in [Position::RunArguments, Position::InvocationValue] {
@@ -347,6 +355,7 @@ mod tests {
     // into a live guest frame, which resolves a class by name. Anything
     // they could name beyond mruby's own core classes would have to come
     // from kobako's namespace, where no name lookup reaches it.
+    // @behavior CD-035
     #[test]
     fn a_dispatch_refusal_names_a_class_a_guest_frame_can_raise() {
         for position in [Position::CallArguments, Position::ReplyValue] {
@@ -372,6 +381,7 @@ mod tests {
     // `encode_value` is the capability floor, so nothing stops a codec
     // returning `Unsupported` from it anyway — the two positions it serves
     // still need a real answer rather than an unreachable assertion.
+    // @behavior CD-032
     #[test]
     fn the_floor_s_own_positions_still_answer_an_unsupported_refusal() {
         for position in [

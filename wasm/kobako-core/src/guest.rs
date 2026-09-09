@@ -107,6 +107,7 @@ mod tests {
         fn run(_env: &[u8]) {}
     }
 
+    // @behavior T-181
     #[test]
     #[should_panic(expected = "no block support")]
     fn default_yield_to_block_panics() {
