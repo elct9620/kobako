@@ -430,7 +430,7 @@ Guest code rescuing a Service failure by its base class also catches a call that
 | When | a Service answers a value needing a new reference |
 | Then | the dispatch answers on the fault arm |
 
-## `T-047` Running out of references is a Sandbox failure
+## `T-047` An allocation past the highest id is a Sandbox failure
 
 | Step | Statement |
 | --- | --- |
