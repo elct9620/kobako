@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.24.0](https://github.com/elct9620/kobako/compare/v0.23.0...v0.24.0) (2026-09-10)
+
+
+### Features
+
+* **mruby:** upgrade beni to 0.14 and locate a parse failure ([586c910](https://github.com/elct9620/kobako/commit/586c910873710169c0dfce1fe7edb21f9e91cdea))
+* **spec:** account for every boundary and isolation behavior ([226a563](https://github.com/elct9620/kobako/commit/226a5637350f3561e93b56d2acc5571c75447fb6))
+* **spec:** account for every dispatch behavior the old anchors stated ([524b0ba](https://github.com/elct9620/kobako/commit/524b0ba7024e3a5a05d883fd0529c7abd53649a4))
+* **spec:** account for every error scenario the old anchors stated ([179de50](https://github.com/elct9620/kobako/commit/179de5040c54bf3800d3d6ba02b56cf4eaed685b))
+* **spec:** account for every lifecycle and invocation behavior ([75dc57f](https://github.com/elct9620/kobako/commit/75dc57f833a9933bd42ad55f48a6ed25f579826d))
+* **spec:** account for every regexp and JSON behavior the old anchors stated ([9f93e59](https://github.com/elct9620/kobako/commit/9f93e599b5bf8dd2aefedcc856ec1d634a8179c7))
+* **spec:** account for every registration and Extension behavior ([8750cba](https://github.com/elct9620/kobako/commit/8750cbae0901d8f1e4b6a22b90a70cc5bc6fff79))
+* **spec:** account for every yield, runtime, and pool behavior ([29a7824](https://github.com/elct9620/kobako/commit/29a7824abcaa539b451d4b38a0bb6a2876c32f75))
+* **spec:** bring the Rust frontend under the behaviors it answers ([b62243f](https://github.com/elct9620/kobako/commit/b62243f68b338fd219136d60c9cf760d0be03fc0))
+* **spec:** declare every behavior the parity harness compares ([94f044a](https://github.com/elct9620/kobako/commit/94f044afa5ef84f05b868587101b15faa486b039))
+* **spec:** declare how a dispatch binds its arguments and reports what will not ([d5af2d8](https://github.com/elct9620/kobako/commit/d5af2d8c863f91c7916d9c5ed4ee8ac415c849b1))
+* **spec:** declare that both frontends refuse a late registration ([3aac1d0](https://github.com/elct9620/kobako/commit/3aac1d094ee4f3b3017760892c62d4fcee49f34b))
+* **spec:** declare the boundary's value fidelity and its outbound refusals ([505845c](https://github.com/elct9620/kobako/commit/505845cb02e6d5dd94886cc2256708a9058b4c7f))
+* **spec:** declare the bytes both sides must already agree on ([3875755](https://github.com/elct9620/kobako/commit/3875755999550511837808dcd24a25086bedc926))
+* **spec:** declare the form each value takes on the payload wire ([2ceee24](https://github.com/elct9620/kobako/commit/2ceee24df27b0fbe07c29d33830e8be49593f260))
+* **spec:** declare the options a runtime will not build with ([1bbd018](https://github.com/elct9620/kobako/commit/1bbd018c05099b0501334292dd03e17ffb040c46))
+* **spec:** declare the three ways a yield ends badly ([c1b9024](https://github.com/elct9620/kobako/commit/c1b9024416d5c3a2f52c6137621a2656cf95fd1d))
+* **spec:** declare the walks a Host App takes end to end ([f5012a1](https://github.com/elct9620/kobako/commit/f5012a1a8a5ea7abe1db28a9a4039648c4bc4041))
+* **spec:** declare what a capture holds and what mints a reference ([7cf8afe](https://github.com/elct9620/kobako/commit/7cf8afe1b643ebd7225998bf101219a0ab8421fd))
+* **spec:** declare what a decode says about the references it read ([4cff987](https://github.com/elct9620/kobako/commit/4cff98751eb75e9316048d8b0820c5bb423d86a8))
+* **spec:** declare what a Pool refuses and what it raises ([b5cec2d](https://github.com/elct9620/kobako/commit/b5cec2d2d1083d49cdfd8ab5dc46ef164ea30aa7))
+* **spec:** declare what a preload and an entrypoint refuse ([299c177](https://github.com/elct9620/kobako/commit/299c1771cfaef57023b277bfd01a347f23908354))
+* **spec:** declare what a run refuses before the guest is reached ([073f801](https://github.com/elct9620/kobako/commit/073f801f1b37a82d4b6bfd9f574f2c2cce49889c))
+* **spec:** declare what an invocation settles into and who it is attributed to ([02a5b38](https://github.com/elct9620/kobako/commit/02a5b38eb256027db53aaa0c8dc5a97d4e2ae927))
+* **spec:** declare what bind refuses ([1b5dce3](https://github.com/elct9620/kobako/commit/1b5dce30eb418a1a2deb6e690d43ba3a4d04a675))
+* **spec:** declare what install refuses and when the check fires ([1032921](https://github.com/elct9620/kobako/commit/1032921f7e5d1e1c53fbf2d1c6ec46240d1ff768))
+* **spec:** declare what the driver holds a run to ([4539cc1](https://github.com/elct9620/kobako/commit/4539cc16a7ddb6c1706c36282e64182bb480b684))
+* **spec:** declare what the guest answers when a value will not cross ([886a16f](https://github.com/elct9620/kobako/commit/886a16f173efe44766dd9884ac8bfed61113728a))
+* **spec:** declare what the payload wire carries and what it will not ([341fd40](https://github.com/elct9620/kobako/commit/341fd40ce60373858002205ad5a77618e6cbb520))
+* **spec:** declare what the runtime keeps on disk and hands back ([e2f71de](https://github.com/elct9620/kobako/commit/e2f71de89a31dc968950d2c32815193090156d73))
+* **spec:** let both payload implementations answer for one table ([5368ee7](https://github.com/elct9620/kobako/commit/5368ee790d0e8fc0c8e7d6b6222d55da11a7f05c))
+* **spec:** locate a parse failure and name the class a bytecode load answers ([b9a04b7](https://github.com/elct9620/kobako/commit/b9a04b7b72cfc4a207d4540839e24475bbaa0313))
+* **spec:** make Markdown the specification's source ([8d4e56b](https://github.com/elct9620/kobako/commit/8d4e56b18ae8118a2251f60fdbd8b917e5f60ebe))
+* **spec:** register the calls each frontend keeps ([dc2285e](https://github.com/elct9620/kobako/commit/dc2285edd275185be35700cd3aec67abd253b8c7))
+
+
+### Bug Fixes
+
+* **release:** let a gem-only release create its tag ([d65c451](https://github.com/elct9620/kobako/commit/d65c4513d30aacb11d0c008d28791355d8da13b7))
+* **sdk:** refuse a Service path that is already a name ([8362f46](https://github.com/elct9620/kobako/commit/8362f46d80791baab23c86996d42bb80b9a2186a))
+* **spec:** claim the scenario each test actually witnesses ([ab92e8b](https://github.com/elct9620/kobako/commit/ab92e8b9f5948f16fb86e517b9501598d76e4b89))
+* **spec:** keep the two record-free arms cited on the anchor track ([9eec1b6](https://github.com/elct9620/kobako/commit/9eec1b6696c8ff0d5e1d63bb29c9637dd52bdb52))
+
 ## [0.23.0](https://github.com/elct9620/kobako/compare/v0.22.0...v0.23.0) (2026-08-28)
 
 
