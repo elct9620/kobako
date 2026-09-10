@@ -43,7 +43,7 @@ class TestRegexpPatternErrors < Minitest::Test
 
   # The RegexpError diagnostic quotes the pattern; quoting the subject instead
   # would mislabel user data as the invalid expression.
-  # @behavior RX-079 RX-080
+  # @behavior RX-079 RX-080 RX-176
   def test_match_time_engine_error_names_the_pattern
     message = eval_regexp('begin; /(a|aa|aaa)+\1$/.match("a" * 40 + "!"); "matched"; ' \
                           "rescue RegexpError => e; e.message; end")

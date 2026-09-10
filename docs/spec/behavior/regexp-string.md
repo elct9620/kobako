@@ -18,6 +18,24 @@ Splitting and scanning disagree deliberately about a group that did not take par
 
 Replacement text is a small language of its own, so its scenarios cover what expands, what stays literal, and what is refused — a name no group carries, and a name marker with no name behind it.
 
+### Behaviors without a witness
+
+Single substitution with a Hash replacement replaces the first match with the value it maps to.
+
+A doubled backslash in a replacement writes one literal backslash.
+
+Where the guest composes Enumerator support, global substitution with neither a block nor a replacement answers an Enumerator over the matches.
+
+Scanning resumes after each match, so the matches it collects never overlap.
+
+Scanning with a block answers the String it scanned.
+
+Splitting on a pattern with no limit, or a limit of zero, drops the trailing empty fields.
+
+Asking a String whether it matches a pattern answers true or false, as the pattern's predicate does.
+
+The slice alias answers as indexing does when handed a pattern.
+
 ## `RX-118` Matching a String answers a match with its captures
 
 | Step | Statement |
@@ -409,3 +427,27 @@ Replacement text is a small language of its own, so its scenarios cover what exp
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code substitutes once with neither a block nor a replacement |
 | Then | an argument error is raised |
+
+## `RX-178` Searching for a String is still the ordinary search
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code searches a String for another String |
+| Then | it answers what the language's own search answers |
+
+## `RX-179` Slicing by a String is still the ordinary slice
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code slices a String with another String |
+| Then | it answers what the language's own slice answers |
+
+## `RX-180` Slicing by a start and a length is too
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code slices a String with a start and a length |
+| Then | it answers what the language's own slice answers |

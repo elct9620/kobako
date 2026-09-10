@@ -70,7 +70,7 @@ class TestRegexpMethods < Minitest::Test
                  "Regexp.compile compiles a pattern like Regexp.new"
   end
 
-  # @behavior RX-012
+  # @behavior RX-012 RX-177
   def test_runtime_new_round_trips_capture
     assert_equal "bbb", eval_regexp('Regexp.new("a(b+)c").match("xabbbcx")[1]'),
                  "Regexp.new compiles a runtime pattern and yields its capture"

@@ -35,6 +35,16 @@ An object answering `respond_to?` or the array or hash conversion methods is sti
 
 What the serialization hook answers is held to the same depth bound as any other value.
 
+A `Hash` key that is nothing is written as its string form.
+
+A `Hash` key that is a boolean is written as its string form.
+
+A bound constant used as a `Hash` key is refused with a generator error, never stringified through the host.
+
+A plain object used as a `Hash` key is refused with a generator error.
+
+An object that opted in through the hook is still refused when it stands as a `Hash` key.
+
 ## `JS-001` Every JSON value reads as its native counterpart
 
 | Step | Statement |

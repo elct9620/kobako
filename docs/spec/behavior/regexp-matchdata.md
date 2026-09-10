@@ -7,6 +7,7 @@ What a successful match hands the guest, and how it is read.
 - `test/e2e/regexp/test_match_data.rb`
 - `test/e2e/regexp/test_match_data_aref.rb`
 - `test/e2e/regexp/test_match_data_bounds.rb`
+- `test/e2e/regexp/test_regexp_methods.rb`
 
 ### Why these scenarios
 
@@ -15,6 +16,20 @@ A match is a snapshot the guest reads several ways — as a list, by number, by 
 The out-of-range readings are errors rather than absences, while a group that was in range and simply did not participate answers nothing. Telling those two apart is what lets guest code branch on an optional group without rescuing.
 
 A match cannot be constructed. It exists because a pattern matched, which is what makes the offsets it carries mean anything about the subject it names.
+
+### Behaviors without a witness
+
+The end and the offset of a group that did not participate answer nothing, as its beginning does.
+
+Reading a match's beginning, end or offset by a name the pattern never declared is an index error.
+
+A match converted to a String answers the whole match.
+
+A match's length counts the same as its size.
+
+A match answers the subject it was matched against.
+
+Cloning a match carries the same snapshot as duplicating it.
 
 ## `RX-095` A match lists the whole match before its captures
 
@@ -199,3 +214,11 @@ A match cannot be constructed. It exists because a pattern matched, which is wha
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code reads the beginning of a valid group that did not participate |
 | Then | it answers nothing |
+
+## `RX-177` A group is reachable by its number
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code indexes a match by a group number |
+| Then | it answers that group's capture |

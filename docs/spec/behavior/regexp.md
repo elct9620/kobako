@@ -28,6 +28,46 @@ Text that is not text is refused rather than read as empty. An empty subject rep
 
 Memoizing a compiled pattern is meant to be invisible, so its scenarios assert results rather than timings: distinct objects, options as part of the identity, and correct matching past the memo's capacity.
 
+### Behaviors without a witness
+
+A pattern that cannot compile raises `RegexpError` inside the guest, where guest code can rescue it.
+
+A pattern carrying the extended flag reports the extended bit, 2, among its options.
+
+Every whitespace control — tab, vertical tab, form feed and carriage return as well as newline — renders literally when a pattern is inspected.
+
+An inline-flag group spanning the whole source carries its disabled flags into the outer flags as well as its enabled ones.
+
+Two patterns are equal when their source and options are equal, and unequal when either differs.
+
+The quoting alias escapes exactly as escaping does.
+
+Matching, the predicate and the match operator read a `Symbol` subject as its name, as case equality does.
+
+The match operator answers nothing for a subject that is nothing.
+
+Case equality answers false for a subject that is nothing.
+
+Matching from a byte position inside a multibyte character starts at that character's boundary.
+
+A match that finds nothing clears the match global.
+
+After a match that finds nothing, the numbered and special globals hold nothing.
+
+Matching a String against another String through the match form, not only the predicate, is a type error.
+
+A non-pattern argument coerced into a pattern is refused with an argument error when its bytes are not text.
+
+A substitution block answering a String whose bytes are not text is refused with an argument error.
+
+A capture name whose bytes are not text is refused with an argument error.
+
+A pattern with no backreference and no look-around never reaches the backtracking bound, whatever the subject.
+
+A deadline interrupts a match still running, ending the invocation as a trap rather than a pattern error.
+
+Where the language reaches an answer, a match reaches the same answer or fails with the pattern error — never a different answer.
+
 ## `RX-001` The match operator answers where the match starts
 
 | Step | Statement |
@@ -853,3 +893,19 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a pattern carrying an escape the rewriting does not name |
 | When | it is compiled |
 | Then | it crosses unchanged |
+
+## `RX-175` The string form writes its flags in the language's order
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code converts a pattern carrying the multiline and case-insensitive flags to a String |
+| Then | the flags are written in multiline, case-insensitive, extended order |
+
+## `RX-176` A match the bound stops is a pattern error the guest can rescue
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code rescues the pattern error around a match past the engine's bound and returns a value |
+| Then | the invocation answers that value |

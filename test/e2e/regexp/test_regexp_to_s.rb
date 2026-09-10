@@ -40,7 +40,7 @@ class TestRegexpToS < Minitest::Test
                  "a whole-source (?:abc) through Regexp#to_s must drop the group and keep the body"
   end
 
-  # @behavior RX-070
+  # @behavior RX-070 RX-175
   def test_combines_inline_and_outer_flags
     assert_equal "(?mi-x:abc)", eval_regexp('Regexp.new("(?i:abc)", Regexp::MULTILINE).to_s'),
                  "a lifted inline flag through Regexp#to_s must combine with the outer options"
