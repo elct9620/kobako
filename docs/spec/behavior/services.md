@@ -9,6 +9,7 @@ Where a host object becomes a name the guest can reach, and who may change what 
 - `test/e2e/test_bind_paths.rb`
 - `test/e2e/test_fillable.rb`
 - `test/e2e/test_ctx_bind.rb`
+- `test/e2e/sandbox/test_sandbox.rb`
 - `test/parity/test_fillable.rb`
 - `crates/kobako/src/dispatch.rs`
 - `crates/kobako/src/catalog.rs`
@@ -24,6 +25,22 @@ The collision scenarios are three refusals and one survival. The survival is sep
 A path declared without an object and a name never declared at all fail differently, and that difference is the point: one is a capability the host has reserved, the other is nothing. The override scenarios then cover who may change what stands behind a declared name, and for how long — never for longer than one invocation, and never for a name that was not already there.
 
 A malformed path segment and a bind after the seal both raise rather than answer, so each is settled by what `bind` refuses. The declared path set that every invocation ships belongs to the invocation, not to registration.
+
+### Behaviors without a witness
+
+A Service bound on one Sandbox is not reachable from guest code running in another Sandbox.
+
+A path that shares only leading characters with a bound path, not a whole segment, binds beside it without colliding.
+
+A path declared with no object refuses a colliding bind exactly as an object-bound path does.
+
+A constant that was never declared fails in the guest as `NameError`.
+
+An override outranks the object a per-invocation provider yields for the same path.
+
+An exception raised inside the override block reaches the invocation's caller unchanged.
+
+When the override block raises, the guest does not run and no Execution is produced.
 
 ## `SV-001` A bound path answers with what was bound to it
 
@@ -320,3 +337,11 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | Given | an entrypoint invocation whose block fills that path |
 | When | both frontends run it |
 | Then | they observe the same value |
+
+## `SV-041` A refused override leaves no run behind
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox declaring one Service path |
+| When | an invocation's block overrides a path the Sandbox never declared |
+| Then | no Execution is produced |

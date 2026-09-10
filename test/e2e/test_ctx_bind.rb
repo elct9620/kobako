@@ -65,7 +65,7 @@ class TestE2ECtxBind < Minitest::Test
 
     assert_raises(Kobako::ServiceError,
                   "a fillable the block leaves unfilled must still fail closed as ServiceError (B-62 / B-63)") do
-      sandbox.eval("Store.get(1)")
+      sandbox.eval("Store.get(1)") { |_ctx| nil }
     end
   end
 

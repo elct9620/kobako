@@ -38,7 +38,7 @@ impl Extension for FileExt {
     }
 }
 
-// @behavior EX-029 EX-030
+// @behavior EX-029 EX-030 EX-041 EX-043
 #[test]
 fn unmet_dependency_raises_at_first_invocation_naming_the_missing_dependency() {
     if !Path::new(WASM).exists() {

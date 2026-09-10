@@ -122,6 +122,7 @@ class TestSandbox < Minitest::Test
   # that #bind delegates to Catalog::Services rather than dropping the call
   # on the floor. Catalog::Services's own contract is pinned in
   # test/unit/catalog/test_services.rb.
+  # @behavior SV-002
   def test_bind_returns_sandbox_for_chaining
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 

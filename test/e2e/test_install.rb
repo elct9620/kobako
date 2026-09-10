@@ -57,7 +57,7 @@ class TestE2EInstall < Minitest::Test
                  "File.open serves the eager-slurped buffer in-guest (B-55)"
   end
 
-  # @behavior EX-019 EX-020
+  # @behavior EX-019 EX-020 EX-042
   # B-56: a callable provider that raises surfaces its own error class (not a
   # Kobako error) and leaves the guest unrun; resolution being per-invocation,
   # the next invocation whose provider succeeds runs normally.

@@ -131,7 +131,7 @@ fn a_second_override_of_a_path_wins_over_the_first() {
     );
 }
 
-// @behavior SV-023
+// @behavior SV-023 SV-041
 #[test]
 fn eval_with_rejects_an_undeclared_override_before_the_guest_runs() {
     let Some(mut sandbox) = real_sandbox() else {
@@ -217,7 +217,7 @@ fn run_with_shadows_a_static_binding_for_one_invocation_only() {
     );
 }
 
-// @behavior SV-023
+// @behavior SV-023 SV-041
 #[test]
 fn run_with_rejects_an_undeclared_override_before_the_guest_runs() {
     let Some(mut sandbox) = real_sandbox() else {

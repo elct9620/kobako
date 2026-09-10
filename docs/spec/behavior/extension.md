@@ -19,6 +19,14 @@ Installing after the seal, an unmet dependency, and a malformed Extension all ra
 
 The `File` idiom the end-to-end witnesses install is an illustrative fixture — kobako ships no concrete Extension — so no scenario here states what that idiom does, only what installing one produces.
 
+### Behaviors without a witness
+
+A backend declaring a callable as its fixed object binds that callable itself; it is never called as a provider.
+
+Concurrent invocations on one Sandbox each receive their own provider object; none sees another's.
+
+A provider that raises stops its invocation before any guest code runs.
+
 ## `EX-001` The idiom becomes a snippet under the Extension's name
 
 | Step | Statement |
@@ -320,3 +328,27 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | Given | two invocations each calling it |
 | When | both frontends run it |
 | Then | they observe the same counts |
+
+## `EX-041` An Extension of the Host App's own making installs
+
+| Step | Statement |
+| --- | --- |
+| Given | an Extension the Host App defined itself, carrying a name and an idiom |
+| When | `install` runs |
+| Then | the install is accepted |
+
+## `EX-042` A provider is called whether or not the guest reaches its path
+
+| Step | Statement |
+| --- | --- |
+| Given | an installed Extension whose backend declares `provider:` over a callable that raises |
+| When | an invocation runs guest code that never names the backend's path |
+| Then | the provider's own exception reaches the caller |
+
+## `EX-043` An unmet dependency leaves no run behind
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox holding an Extension that names a dependency nothing installed |
+| When | the first invocation begins |
+| Then | no Execution is produced |
