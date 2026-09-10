@@ -142,7 +142,7 @@ The Error Record plus the fields attribution and correction need.
 | `backtrace` | `list<bytes>` | mruby backtrace, one UTF-8 line per element. |
 | `available` | `list<bytes>` | The names the invocation could have used in place of the one it named, as UTF-8 — the top-level constants a `#run` entrypoint failed to resolve against. An empty list is legal and means the failure offers no correction. |
 
-Panic carries no codec-encoded field. Attribution reads `origin` here — `"service"` maps to `Kobako::ServiceError`, anything else to `Kobako::SandboxError` (→ [`../behavior/errors.md`](../behavior/errors.md)) — and `available` is a plain list at this layer, so a host reports a failure and the correction for it without decoding a payload byte.
+Panic carries no codec-encoded field. Attribution reads `origin` here — `"service"` maps to `Kobako::ServiceError`, anything else to `Kobako::SandboxError` (→ [`WE-031`](../spec/behavior/envelope.md), [`WE-033`](../spec/behavior/envelope.md)) — and `available` is a plain list at this layer, so a host reports a failure and the correction for it without decoding a payload byte.
 
 `available` is the last field and is self-delimiting, so bytes past it are a framing desync the receiving side rejects.
 

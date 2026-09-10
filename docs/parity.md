@@ -62,7 +62,7 @@ carries the concept's own name.
 
 | SPEC concept | Ruby frontend | Rust SDK |
 |---|---|---|
-| Receiver — the host object a dispatch resolves its target to | any Ruby object, reached by reflection under the B-42 floor | the `Receiver` trait — one dispatch contract covering bound Services and Handle-allocated objects; a Receiver whose `respond_to_guest` denies every name is opaque (B-50) |
+| Receiver — the host object a dispatch resolves its target to | any Ruby object, reached by reflection under the reflection floor ([`T-117`](spec/behavior/transport-boundary.md)) | the `Receiver` trait — one dispatch contract covering bound Services and Handle-allocated objects; a Receiver whose `respond_to_guest` denies every name is opaque ([`T-124`](spec/behavior/transport-boundary.md)) |
 | Service — the host object bound at a constant-path name | any Ruby object bound via `bind` (duck-typed) | a `Receiver` bound via `Sandbox::bind` |
 | Bound constant — the leaf name of a constant path | `bind(path, object)` on the `Sandbox` | `Sandbox::bind(path, object)` |
 | Yielder — the host-side stand-in for a guest Block | `Kobako::Transport::Yielder`, internal: it rides the `&block` slot, so the Service method sees an ordinary Proc | `kobako::Yielder`, public: it rides the `block` parameter of `Receiver::call`, so the yield site still reads `block.call(args)` |

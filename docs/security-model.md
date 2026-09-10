@@ -27,22 +27,22 @@ name only ever resolves to something you bound.
 
 These hold without any host effort — do not re-implement them.
 
-| Guarantee | Anchor |
-|-----------|--------|
-| Only a bound object's own Service methods are reachable; Ruby's ambient reflection / eval surface is rejected host-side, and reflective objects never cross as Handles — a bound lambda keeps only the callable allowlist (`call` / `[]` / `yield` / `arity` / `lambda?`). What counts as reflection is B-42 / B-43's to define. | B-12, B-42, B-43 |
-| The guest cannot construct a `Kobako::Handle` (B-39); a bound-constant proxy it constructs is capability-inert; neither can be dereferenced to a value — the host's `Catalog::Handles` membership and path resolution gate every dispatch. | B-20, B-38, B-39 |
-| Each invocation starts from the canonical boot state; Handles, stdout / stderr, and memory delta reset between calls. Monkeypatching and globals do not persist. | B-03, B-18, B-19, B-49 |
-| Services and state on different Sandbox instances are fully isolated. | B-09 |
-| Under the default `hermetic` profile, guest code observes no ambient wall-clock time or host entropy; `wasi:clocks` is frozen and `wasi:random` is constant, so the guest is deterministic but for values a Service injects. | B-45 |
-| `Sandbox.new(profile:)` requests the isolation posture on the `permissive < hermetic` ladder — `hermetic` by default; the runtime builds it, declares what it built, and construction fails cleanly when the declaration falls below the request. | B-54 |
-| Per-invocation `timeout`, linear-memory cap, and stdout / stderr clipping, all with clean errors. | B-01, B-35 |
-| Only the type allowlist serializes; an unrepresentable, over-deep, cyclic, or NUL-bearing value becomes a controlled `Kobako::SandboxError`, never a host crash. | B-06, E-06, E-54, [`wire/payload-msgpack.md`](wire/payload-msgpack.md) § Structural Nesting Depth |
+| Guarantee | Scenario |
+|-----------|----------|
+| Only a bound object's own Service methods are reachable; Ruby's ambient reflection / eval surface is rejected host-side, and reflective objects never cross as Handles — a bound lambda keeps only the callable allowlist (`call` / `[]` / `yield` / `arity` / `lambda?`). What counts as reflection is [`transport-boundary.md`](spec/behavior/transport-boundary.md)'s to define. | [`T-117`](spec/behavior/transport-boundary.md), [`T-122`](spec/behavior/transport-boundary.md) |
+| The guest cannot construct a `Kobako::Handle` ([`T-110`](spec/behavior/transport-boundary.md)); a bound-constant proxy it constructs is capability-inert; neither can be dereferenced to a value — the host's `Catalog::Handles` membership and path resolution gate every dispatch. | [`T-109`](spec/behavior/transport-boundary.md), [`T-042`](spec/behavior/transport-dispatch.md) |
+| Each invocation starts from the canonical boot state; Handles, stdout / stderr, and memory delta reset between calls. Monkeypatching and globals do not persist. | [`MR-001`](spec/behavior/mruby.md), [`S-013`](spec/behavior/sandbox.md) |
+| Services and state on different Sandbox instances are fully isolated. | [`S-017`](spec/behavior/sandbox.md), [`T-039`](spec/behavior/transport-dispatch.md) |
+| Under the default `hermetic` profile, guest code observes no ambient wall-clock time or host entropy; `wasi:clocks` is frozen and `wasi:random` is constant, so the guest is deterministic but for values a Service injects. | [`RT-047`](spec/behavior/runtime.md), [`RT-048`](spec/behavior/runtime.md) |
+| `Sandbox.new(profile:)` requests the isolation posture on the `permissive < hermetic` ladder — `hermetic` by default; the runtime builds it, declares what it built, and construction fails cleanly when the declaration falls below the request. | [`RT-009`](spec/behavior/runtime.md), [`RT-012`](spec/behavior/runtime.md) |
+| Per-invocation `timeout`, linear-memory cap, and stdout / stderr clipping, all with clean errors. | [`OC-034`](spec/behavior/outcome.md), [`S-024`](spec/behavior/sandbox.md) |
+| Only the type allowlist serializes; an unrepresentable, over-deep, cyclic, or NUL-bearing value becomes a controlled `Kobako::SandboxError`, never a host crash. | [`S-135`](spec/behavior/sandbox.md), [`S-073`](spec/behavior/sandbox.md), [`wire/payload-msgpack.md`](wire/payload-msgpack.md) § Structural Nesting Depth |
 
 ## Isolation profiles
 
-Isolation postures form the ordered ladder `permissive < hermetic` (B-54). `hermetic` is
-the full ambient-denial posture this document describes: B-45's frozen clocks and constant
-entropy, no filesystem, `ENV`, or network reachability, and no host import beyond the wire
+Isolation postures form the ordered ladder `permissive < hermetic` ([`RT-014`](spec/behavior/runtime.md)). `hermetic` is
+the full ambient-denial posture this document describes: frozen clocks and constant
+entropy ([`RT-051`](spec/behavior/runtime.md), [`RT-048`](spec/behavior/runtime.md)), no filesystem, `ENV`, or network reachability, and no host import beyond the wire
 ABI's single `__kobako_dispatch` — so the guest's only paths outward are the Services you
 inject and the stdout / stderr capture. `permissive` relaxes exactly one thing: the guest's
 `wasi:clocks` and `wasi:random` read live host time and entropy, giving up reproducible
@@ -70,7 +70,7 @@ questions to ask before you do.
 A Sandbox's bindings *are* its capability set, so one Sandbox shared across contexts turns
 every binding into ambient authority for all of them. Build one per principal — per user,
 agent session, or submission — bind only what that context may touch, and finish all
-`bind` / `preload` before the first dispatch, where the registry seals (B-33).
+`bind` / `preload` before the first dispatch, where the registry seals ([`SV-031`](spec/behavior/services.md)).
 
 ```ruby
 def sandbox_for(session)
@@ -100,7 +100,7 @@ sandbox.bind("Cfg::Settings", ThemeReader.new)  # reachable: only #color
 
 > **Gotcha:** a Service method named after Ruby's reflection / eval surface (`send`, `eval`,
 > `binding`, `instance_eval`, `method`, …) is rejected rather than dispatched — the guest
-> proxy raises and the host refuses it (B-42, B-44) — so it is never reachable. Rename it,
+> proxy raises and the host refuses it ([`T-114`](spec/behavior/transport-boundary.md), [`T-117`](spec/behavior/transport-boundary.md)) — so it is never reachable. Rename it,
 > and never reuse member / method names across trust layers.
 
 ### Least privilege — let a crossing object gate its own surface
@@ -114,7 +114,7 @@ it — the bearer-token shape a credential or Vault handle wants, without hand-b
 wrapper that exposes nothing. Return `true` for a chosen subset and it is an allow-list. The
 predicate composes beneath the reflection floor and can only narrow, so even a buggy
 predicate can never re-open `send` / `eval`; keep it private so the guest cannot probe it
-(B-50).
+([`T-130`](spec/behavior/transport-boundary.md)).
 
 ```ruby
 class ApiCredential
@@ -126,17 +126,17 @@ class ApiCredential
   def respond_to_guest?(_name) = false                 # opaque: carried, never read
 end
 
-# A Service issues the credential; being non-wire it crosses as an opaque Handle (B-14).
+# A Service issues the credential; being non-wire it crosses as an opaque Handle.
 sandbox.bind("Secret::Issue", -> { ApiCredential.new })
 
 # guest:  cred = Secret::Issue.call            # a Handle it holds but cannot read
-#         WebFetch::Get.call(url, cred: cred)  # forwards it to another Service (B-16)
+#         WebFetch::Get.call(url, cred: cred)  # forwards it to another Service
 # host:   WebFetch receives the real ApiCredential and calls #headers;
 #         any cred.<method> the guest attempts raises instead
 ```
 
 > An opaque object's calls are rejected with the same `undefined` fault as a name that
-> resolves to nothing (B-50), so the guest learns nothing about which methods it defines. To
+> resolves to nothing ([`T-197`](spec/behavior/transport-boundary.md)), so the guest learns nothing about which methods it defines. To
 > expose a safe subset instead, answer `true` only for those names:
 > `def respond_to_guest?(name) = name == :public_id`.
 
@@ -183,7 +183,7 @@ sandbox.bind("Net::Get", ->(url) {
 
 A non-wire-representable return crosses as a `Kobako::Handle`, which makes the object's
 *entire* public surface reachable and mints a fresh Handle at each hop with no identity
-dedup (B-15). Return the data the guest needs as a terminal value, not a host object it can
+dedup ([`T-007`](spec/behavior/transport-dispatch.md)). Return the data the guest needs as a terminal value, not a host object it can
 keep calling into. When the guest must hold the object itself — a capability it forwards to
 another Service rather than reads — give it a `respond_to_guest?` that seals or narrows that
 surface (above) instead of leaving every method reachable.
@@ -194,14 +194,14 @@ sandbox.bind("Search::Docs", ->(q) { index.query(q).map(&:title) })  # => ["..."
 ```
 
 The same applies to failures: an exception a Service raises crosses to the guest as
-`<class>: <message>` fault text (B-12), so keep secrets and internal detail out of
+`<class>: <message>` fault text ([`T-140`](spec/behavior/transport-dispatch.md)), so keep secrets and internal detail out of
 raisable messages — rescue internal errors and re-raise a clean, guest-safe one.
 
 ### Availability — bound work volume under abuse
 
 Caps limit the *rate* of dispatch, not its total *volume*: tens of thousands of Handles
 can mint inside one invocation, living in host memory — outside the guest's Wasm cap —
-until that invocation ends and releases its table (B-18). For hostile input, bound the amount of work and the number of
+until that invocation ends and releases its table ([`T-038`](spec/behavior/transport-dispatch.md)). For hostile input, bound the amount of work and the number of
 Handles a single invocation can create.
 
 ```ruby

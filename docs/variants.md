@@ -12,18 +12,18 @@ the engine — are in [`customization.md`](customization.md).
 ## The base surface
 
 Every variant — including the default — links the mruby core, the curated
-mrbgem allowlist, and the IO / Kernel write capability (B-04). IO / Kernel is
+mrbgem allowlist, and the IO / Kernel write capability ([`io.md`](spec/behavior/io.md)). IO / Kernel is
 not an opt-in axis; it is the base of every Guest Binary. The opt-in axes are
-the Regexp capability (B-41) and the JSON capability (B-52).
+the Regexp capability ([`regexp.md`](spec/behavior/regexp.md)) and the JSON capability ([`json.md`](spec/behavior/json.md)).
 
 ## Variant matrix
 
 | Variant | Artifact | Capabilities beyond the base |
 |---------|----------|------------------------------|
 | default | `kobako.wasm` | none — pure compute |
-| regexp | `kobako+regexp.wasm` | ASCII Regexp / MatchData (B-41) |
+| regexp | `kobako+regexp.wasm` | ASCII Regexp / MatchData ([`regexp.md`](spec/behavior/regexp.md)) |
 | regexp-unicode | `kobako+regexp-unicode.wasm` | Regexp / MatchData with Unicode case-insensitive matching |
-| json | `kobako+json.wasm` | JSON parse / generate (B-52) |
+| json | `kobako+json.wasm` | JSON parse / generate ([`json.md`](spec/behavior/json.md)) |
 | full | `kobako+full.wasm` | ASCII Regexp + JSON |
 
 The `regexp` and `regexp-unicode` variants differ by one behavior:
@@ -62,5 +62,5 @@ capability negotiation.
 `rake wasm:build` produces the default; `rake wasm:build:regexp`,
 `wasm:build:regexp_unicode`, `wasm:build:json`, and `wasm:build:full` produce the
 variants. Every variant — default and capability — passes through the canonical
-boot bake (B-49); re-baking the same inputs yields a byte-identical artifact,
+boot bake ([`mruby.md`](spec/behavior/mruby.md)); re-baking the same inputs yields a byte-identical artifact,
 gated by the reproducible-build pipeline (F-10).

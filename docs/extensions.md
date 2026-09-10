@@ -8,11 +8,11 @@ with no round-trip; privileged operations (`File.read`) dispatch to the
 host backend under the same isolation and reflection guarantees as any
 bound Service.
 
-The behavior is governed by B-55..B-57 in
-[`behavior/extension.md`](behavior/extension.md) and the setup errors
-E-51..E-53 in [`behavior/errors.md`](behavior/errors.md). This document
-is the contract-in-use and a worked example; the anchors are the
-authority.
+The behavior is governed by the scenarios in
+[`spec/behavior/extension.md`](spec/behavior/extension.md), its setup
+refusals included ([`EX-029`](spec/behavior/extension.md),
+[`EX-032`](spec/behavior/extension.md)). This document is the
+contract-in-use and a worked example; the scenarios are the authority.
 
 kobako ships **no concrete Extension** — only the contract and the
 `#install` consumer. A guest idiom such as `File` is authored by the

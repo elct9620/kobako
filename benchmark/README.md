@@ -23,7 +23,7 @@ The suite perceives drift against a fixed reference point — the committed anch
 | Runner            | When used                              | Records                                                            |
 |-------------------|----------------------------------------|---------------------------------------------------------------------|
 | `ips`             | iterated micro-benches                  | median `ips`, `ips_mean`, `ips_sd` per cycle                        |
-| `case_with_usage` | sandbox-driven `ips` cases              | adds median `wall_time` + `memory_peak` from `Execution#usage` (B-35) |
+| `case_with_usage` | sandbox-driven `ips` cases              | adds median `wall_time` + `memory_peak` from `Execution#usage` ([`S-058`](../docs/spec/behavior/sandbox.md), [`S-060`](../docs/spec/behavior/sandbox.md)) |
 | `one_shot`        | cold paths, and costs outside the gate  | CPU seconds — a single run (`rounds: 1`) or the median across `rounds` (warm `1c`, `5b`, `9a` windows) |
 | wall-clock helper | multi-thread suite                      | wall seconds — CPU time would hide scheduler overhead               |
 
@@ -75,7 +75,7 @@ Isolates Engine + Module JIT (one-time per process) from subsequent `Sandbox.new
 | Steady-state `Sandbox.new` only                         | **2.9 µs**    |
 | Steady-state `Sandbox.new` + first `#eval("nil")`       | **61.0 µs**   |
 
-The multi-hundred-millisecond Cranelift JIT now lands once per machine and gem version: the `.cwasm` disk cache (B-01) carries the compiled artifact across processes, so a fresh process deserializes in single-digit milliseconds instead of recompiling. The cold-cache figure is the previous anchor's fresh-process cost.
+The multi-hundred-millisecond Cranelift JIT now lands once per machine and gem version: the `.cwasm` disk cache ([`runtime.md`](../docs/spec/behavior/runtime.md)) carries the compiled artifact across processes, so a fresh process deserializes in single-digit milliseconds instead of recompiling. The cold-cache figure is the previous anchor's fresh-process cost.
 
 #### Reusing a Sandbox vs constructing one per request
 
@@ -85,7 +85,7 @@ The multi-hundred-millisecond Cranelift JIT now lands once per machine and gem v
 | Fresh Sandbox every request (`Kobako::Sandbox.new.eval("nil")`)  | **61.0 µs**      | `1b-sandbox-new+eval-nil` |
 | Overhead of constructing a new Sandbox per request               | **2.9 µs**       | `1a-sandbox-new`        |
 
-Construction is no longer a term worth reasoning about: it is under 3 µs, an order of magnitude below the invocation it precedes, which is why the two rows above no longer order the way the question implies (they run different guest work, not the same work with and without a constructor). Under B-49 the wasm instance is created per invocation either way, so a fresh Sandbox pays no per-instance boot. `wall_time` reads the guest export only; total minus `wall_time` (2a: 71.2 − 36.6 ≈ 35 µs) bundles the per-invocation instantiation with the host wrapper, so it is not a single-digit-µs wrapper readout.
+Construction is no longer a term worth reasoning about: it is under 3 µs, an order of magnitude below the invocation it precedes, which is why the two rows above no longer order the way the question implies (they run different guest work, not the same work with and without a constructor). The wasm instance is created per invocation either way ([`mruby.md`](../docs/spec/behavior/mruby.md)), so a fresh Sandbox pays no per-instance boot. `wall_time` reads the guest export only; total minus `wall_time` (2a: 71.2 − 36.6 ≈ 35 µs) bundles the per-invocation instantiation with the host wrapper, so it is not a single-digit-µs wrapper readout.
 
 ### Wire layer (host ↔ guest)
 
@@ -101,7 +101,7 @@ One guest→host Service call wrapped in one `#eval`. Each row bundles `#eval` s
 | One Service call with one Integer arg                      | **74.5 µs**                            | 37.6 µs                            |
 | One Service call with one Symbol-keyed keyword arg         | 75.0 µs                                | 38.8 µs                            |
 | 1 000 sequential Service calls inside one `#eval`          | 5.72 ms total → **5.7 µs per call**    | 5.72 ms / 5.7 µs per call          |
-| Handle chain — one call returns object, second targets the Handle ([B-17](../docs/behavior/dispatch.md)) | 85.2 µs | 48.3 µs |
+| Handle chain — one call returns object, second targets the Handle ([`T-006`](../docs/spec/behavior/transport-dispatch.md)) | 85.2 µs | 48.3 µs |
 
 #### Wire codec — host side ([`codec.rb`](codec.rb))
 
@@ -141,14 +141,14 @@ Note: mruby caps a single String at 1 MiB ([SPEC Invariant](../SPEC.md)); the la
 
 #### Yield round-trip latency ([`yield_roundtrip.rb`](yield_roundtrip.rb))
 
-Host-initiated counterpart of #2 — a Service method `yield`s into a guest-supplied block ([B-23..B-30](../docs/behavior/yield.md)). The cost lives on a different path (Yield Reply codec, `__kobako_yield_to_block` export, guest `BLOCK_STACK`), so a regression here is invisible to #2. Per-yield steady state is `6c` `wall_time / 1000`.
+Host-initiated counterpart of #2 — a Service method `yield`s into a guest-supplied block ([`T-085`](../docs/spec/behavior/transport-yield.md)). The cost lives on a different path (Yield Reply codec, `__kobako_yield_to_block` export, guest `BLOCK_STACK`), so a regression here is invisible to #2. Per-yield steady state is `6c` `wall_time / 1000`.
 
 | Case                            | What it isolates                                                                          |
 |---------------------------------|--------------------------------------------------------------------------------------------|
 | `6a-single-yield`               | One yield (tag 0x01 ok) above the no-block #2 baseline.                                    |
-| `6b-block-no-yield`             | `block_given` flag travels, Yielder built, never invoked (B-30) — re-entry-free floor.     |
+| `6b-block-no-yield`             | `block_given` flag travels, Yielder built, never invoked ([`T-088`](../docs/spec/behavior/transport-yield.md)) — re-entry-free floor. |
 | `6c-1000-yields-in-one-call`    | 1 000 yields in one dispatch (J-06 shape) — load-bearing for `each`-style Services.        |
-| `6d-yield-break`                | Block runs `break` on first yield (tag 0x02), unwinding via catch/throw (B-25).            |
+| `6d-yield-break`                | Block runs `break` on first yield (tag 0x02), unwinding via catch/throw ([`T-089`](../docs/spec/behavior/transport-yield.md)). |
 
 | Case                            | Latency                            | `wall_time` (guest)        |
 |---------------------------------|------------------------------------|----------------------------|
@@ -193,7 +193,7 @@ Self-contained mruby computations whose only host cost is the constant `Sandbox#
 | 1 000 allocs against a 1 M-entry table                              | 0.571 ms                 |
 | Warm `#eval("nil")` under sustained heap pressure (1 M-entry table) | 61.3 µs (`wall_time` = 25.9 µs) |
 
-Per-alloc cost holds 443-571 ns across four orders of magnitude — the gentle climb is allocator state, not lookup curve. ([B-21](../docs/behavior/dispatch.md) caps the counter at `0x7fff_ffff`; the cap guard is constant-time and not iterated here.)
+Per-alloc cost holds 443-571 ns across four orders of magnitude — the gentle climb is allocator state, not lookup curve. ([`T-012`](../docs/spec/behavior/transport-dispatch.md) caps the counter at `0x7fff_ffff`; the cap guard is constant-time and not iterated here.)
 
 ### Host side, isolated
 
@@ -264,7 +264,7 @@ Compile cost is roughly linear to 100 statements and steepens past it. Binding m
 | Warm `#run(:Noop)` (1 entrypoint preloaded)                         | 80.8 µs  | 37.7 µs             |
 | Warm `#run(:Echo, 42)` (positional arg)                             | 81.7 µs  | 37.5 µs             |
 | Warm `#run(:Greet, name: :alice)` (Symbol-keyed kwargs)             | 87.6 µs  | 39.2 µs             |
-| Warm `#run(:Wrap, StringIO)` (B-34 host→guest auto-wrap)            | 78.1 µs  | 32.4 µs             |
+| Warm `#run(:Wrap, StringIO)` ([`T-066`](../docs/spec/behavior/transport-dispatch.md) host→guest auto-wrap) | 78.1 µs  | 32.4 µs             |
 | Warm `#run(:Noop)` with 0 helper snippets preloaded                 | 75.3 µs  | 29.6 µs             |
 | Warm `#run(:Noop)` with 8 helper snippets preloaded                 | 133.0 µs | 79.6 µs             |
 | Warm `#run(:Noop)` with 64 helper snippets preloaded                | 591.2 µs | 509.3 µs            |
@@ -294,7 +294,7 @@ Throughput stays flat across Thread counts, which is the `:hold` signature — t
 
 #### `gvl:` hold vs release ([`concurrent/gvl_scheduling.rb`](concurrent/gvl_scheduling.rb))
 
-What the per-Sandbox `gvl:` mode (B-64) buys and costs, bracketed by two opposed workloads plus an arm where every Thread shares one Sandbox (B-22). Weak scaling — each Thread does a fixed amount of work — so under perfect parallelism the `:release` column stays flat as N grows while `:hold` climbs with it. Wall-clock, not CPU time: parallel progress is exactly what a CPU-time sum cannot see.
+What the per-Sandbox `gvl:` mode ([`RT-019`](../docs/spec/behavior/runtime.md)) buys and costs, bracketed by two opposed workloads plus an arm where every Thread shares one Sandbox ([`RT-057`](../docs/spec/behavior/runtime.md)). Weak scaling — each Thread does a fixed amount of work — so under perfect parallelism the `:release` column stays flat as N grows while `:hold` climbs with it. Wall-clock, not CPU time: parallel progress is exactly what a CPU-time sum cannot see.
 
 | Threads | compute (hold → release) | dispatch (hold → release) | compute, one shared Sandbox |
 |---------|--------------------------|---------------------------|-----------------------------|
@@ -307,9 +307,9 @@ Three readings. The compute `:release` column moves 392 → 396 ms from 1 to 8 T
 
 #### Memory cost ([`memory.rb`](memory.rb))
 
-Two lenses: external RSS sampling (`ps -o rss=`), which never reaches inside the Sandbox's mruby heap, and the B-35 `memory_peak` reader, which reports the invocation's `memory.grow` delta in guest linear memory. The granularity that capacity planning needs without violating SPEC's Non-Goal on per-invocation instrumentation.
+Two lenses: external RSS sampling (`ps -o rss=`), which never reaches inside the Sandbox's mruby heap, and the `memory_peak` reader ([`S-115`](../docs/spec/behavior/sandbox.md)), which reports the invocation's `memory.grow` delta in guest linear memory. The granularity that capacity planning needs without violating SPEC's Non-Goal on per-invocation instrumentation.
 
-| Scenario                                                              | RSS                                                                            | B-35 `memory_peak`           |
+| Scenario                                                              | RSS                                                                            | `memory_peak`                |
 |-----------------------------------------------------------------------|--------------------------------------------------------------------------------|------------------------------|
 | Process RSS at boot (no Sandbox)                                      | 26.6 MB                                                                        | —                            |
 | RSS after the first `Sandbox.new` + `#eval("nil")`                    | 32.2 MB (**+5.7 MB** — Engine init + `.cwasm` deserialize, one-time)           | —                            |
@@ -322,7 +322,7 @@ Two lenses: external RSS sampling (`ps -o rss=`), which never reaches inside the
 | Peak RSS while holding a 1 MiB capped stdout buffer                   | +3.2 MB above baseline (allocator-state-dependent)                             | **192 KiB** (stdout flows via WASI pipe, not linear memory) |
 | Retained RSS after GC of the same capture                             | +3.2 MB                                                                        | —                            |
 
-Budget ~32 MB up front per worker process; an idle Sandbox holds no wasm instance under B-49, so additional Sandboxes cost KB, not MB — **1 000 tenants ≈ 32.5 MB** in one Ruby process. Per-invocation linear memory lives and dies with the invocation's instance; RSS figures swing with host load and allocator state, so treat them as ranges.
+Budget ~32 MB up front per worker process; an idle Sandbox holds no wasm instance ([`mruby.md`](../docs/spec/behavior/mruby.md)), so additional Sandboxes cost KB, not MB — **1 000 tenants ≈ 32.5 MB** in one Ruby process. Per-invocation linear memory lives and dies with the invocation's instance; RSS figures swing with host load and allocator state, so treat them as ranges.
 
 #### Regexp engine (#11, [`regexp.rb`](regexp.rb))
 
@@ -340,7 +340,7 @@ Regexp is an opt-in capability gem, excluded from the gated default binary, so t
 | `gsub` upcasing every word (block)                         | 24 i/s     | 41 µs / gsub     |
 | `split` on a delimiter pattern                             | 331 i/s    | 3.0 µs / split   |
 
-`=~` costs ~4.5× `match?` because it eagerly builds the `MatchData` and refreshes the match globals every call, which `match?` skips — reach for `match?` for boolean tests. The literal-in-loop vs hoisted gap stays small because the RX-08 per-invocation compile cache absorbs mruby's recompile-per-literal.
+`=~` costs ~4.5× `match?` because it eagerly builds the `MatchData` and refreshes the match globals every call, which `match?` skips — reach for `match?` for boolean tests. The literal-in-loop vs hoisted gap stays small because the per-invocation compile cache ([`regexp.md`](../docs/spec/behavior/regexp.md)) absorbs mruby's recompile-per-literal.
 
 ## What changed vs previous baseline
 
@@ -427,7 +427,7 @@ Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`. T
 | `iterations` / `cycles`                              | Total iterations measured and number of samples collected within the time budget.             |
 | `seconds` / `rounds`                                 | `one_shot` CPU seconds (the median across `rounds` when > 1); wall seconds on the multi-thread suite. |
 | `env.load_avg` / `env.power_source` / `env.cpu_probe_spread_pct` | Machine state at capture: 1-minute load, AC vs battery, and the spread between two back-to-back runs of a fixed pure-CPU probe — the session's own noise floor. |
-| `wall_time` / `wall_time_sd` / `wall_time_samples` / `memory_peak` | Sandbox-driven rows only (B-35). Median of `Execution#usage` samples, the deviation across them, and how many there were; `memory_peak` is `memory.grow` delta past the per-invocation baseline. A gated row is always sampled: a single observation leaves the noise band nothing to read, so the `+10 %` floor would be its only bar. |
+| `wall_time` / `wall_time_sd` / `wall_time_samples` / `memory_peak` | Sandbox-driven rows only ([`S-058`](../docs/spec/behavior/sandbox.md), [`S-060`](../docs/spec/behavior/sandbox.md)). Median of `Execution#usage` samples, the deviation across them, and how many there were; `memory_peak` is `memory.grow` delta past the per-invocation baseline. A gated row is always sampled: a single observation leaves the noise band nothing to read, so the `+10 %` floor would be its only bar. |
 | `methods`                                            | The measurement-method version each captured suite ran under — the key that says which archived runs a figure may be compared against. |
 
 A run says which release it belongs to through its `git_sha`, and which measurements it may be compared against through its `methods` map — the archive needs no second index.
