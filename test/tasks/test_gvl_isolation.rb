@@ -4,7 +4,7 @@ require "test_helper"
 
 require_relative "../../tasks/support/gvl_isolation"
 
-# Unit coverage for the reader behind gate:gvl:isolation (B-64): the gate
+# Unit coverage for the reader behind gate:gvl:isolation: the gate
 # fails if the wasmtime driver's manifest names magnus, because the
 # GVL-released span calls into that driver and a magnus dependency would put
 # a Ruby VALUE in its reach. The reader lists the magnus-naming lines,
@@ -20,7 +20,7 @@ class KobakoGvlIsolationTest < Minitest::Test
     TOML
 
     assert_equal ['magnus = { version = "0.8.2" }'], Reader.magnus_mentions(manifest),
-                 "a manifest that declares magnus must surface the dependency line (B-64)"
+                 "a manifest that declares magnus must surface the dependency line"
   end
 
   def test_ignores_magnus_named_only_in_a_comment
@@ -31,7 +31,7 @@ class KobakoGvlIsolationTest < Minitest::Test
     TOML
 
     assert_empty Reader.magnus_mentions(manifest),
-                 "magnus named only in a comment is prose, not a dependency (B-64)"
+                 "magnus named only in a comment is prose, not a dependency"
   end
 
   def test_a_magnus_free_manifest_yields_no_mentions
@@ -42,6 +42,6 @@ class KobakoGvlIsolationTest < Minitest::Test
     TOML
 
     assert_empty Reader.magnus_mentions(manifest),
-                 "a driver manifest that names no magnus must pass the isolation gate (B-64)"
+                 "a driver manifest that names no magnus must pass the isolation gate"
   end
 end

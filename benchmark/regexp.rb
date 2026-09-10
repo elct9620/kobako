@@ -10,7 +10,7 @@
 #   recompiles a `/.../` literal on every evaluation, so 11a re-evaluates the
 #   literal each iteration while 11b/11c hoist it out; 11d isolates compilation
 #   with no matching. 11a − 11b is the recompilation cost the per-invocation
-#   compile cache (docs/regexp.md RX-08) removes, so this group is the guard
+#   compile cache removes, so this group is the guard
 #   that the cache keeps paying off.
 #
 #   Operations (11f–11i) hoist the pattern so they measure fancy-regex matching

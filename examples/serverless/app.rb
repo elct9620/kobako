@@ -14,11 +14,11 @@
 #   * --pool: a Kobako::Pool of long-lived Sandboxes, each preloaded with
 #     every route on first checkout; each request checks one out and
 #     dispatches #run on it. Per-invocation guest isolation is unchanged —
-#     every #run still runs a fresh mrb_state (SPEC B-03) — while
+#     every #run still runs a fresh mrb_state — while
 #     Sandbox.new + #preload move off the hot path.
 #
 # The Rack::Request is a non-wire-representable host object, so kobako's
-# #run host→guest auto-wrap (SPEC B-34) allocates a Handle for
+# #run host→guest auto-wrap allocates a Handle for
 # it; the guest receives a Kobako::Handle proxy whose method calls
 # (request_method, path, params) round-trip back through RPC. No
 # host-side marshalling step sits between the Rack env and the script.
@@ -126,12 +126,12 @@ module Serverless
   # Hands each request a warm +Kobako::Sandbox+ from a +Kobako::Pool+,
   # each preloaded with every route's entrypoint, and dispatches +#run+ on
   # the checked-out Sandbox. Reuse keeps the same per-invocation guest
-  # isolation (each +#run+ runs a fresh +mrb_state+, SPEC B-03) while
+  # isolation (each +#run+ runs a fresh +mrb_state+) while
   # moving +Sandbox.new+ + +#preload+ off the hot path. The Pool block is
   # the per-Sandbox setup window — it runs once per constructed Sandbox.
   # Exclusive checkout is the Pool's own contract, not a safety
   # requirement: a Sandbox holds no state from any run, so threads sharing
-  # one would be equally isolated (SPEC B-22).
+  # one would be equally isolated.
   class PooledInvoker
     def initialize(routes, size:)
       @pool = Kobako::Pool.new(slots: size) do |sandbox|

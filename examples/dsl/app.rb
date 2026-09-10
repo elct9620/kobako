@@ -13,17 +13,17 @@
 # behaviours:
 #
 #   * a Service method returns a stateful object, which crosses as a
-#     Capability Handle (B-14);
+#     Capability Handle;
 #   * the guest calls methods on that Handle, and the returned child Handle
-#     chains to arbitrary depth (B-17);
+#     chains to arbitrary depth;
 #   * the reflection denial is scoped to guest→host dispatch, so a guest-LOCAL
-#     `instance_eval` on a plain wrapper object is permitted (B-42 / B-44).
+#     `instance_eval` on a plain wrapper object is permitted.
 #
 # `Studio.card` returns a card Handle; `body` returns a section Handle; the
 # generic `Build` wrapper descends into each returned child with
 # `instance_eval`, so the guest writes a receiver-less DSL while the vocabulary
 # at each level is whatever the host object at that level defines — a method the
-# host does not define is refused host-side (B-42), so the wrapper can never
+# host does not define is refused host-side, so the wrapper can never
 # widen the reachable surface.
 #
 # The one wrapper rule that matters
@@ -32,8 +32,8 @@
 # descend into); a block-less call returns the RAW Handle. That is deliberate:
 # a value object like an image is fetched block-lessly (`logo = Studio.image`)
 # and then passed as an argument (`image logo`), where it crosses as a Handle
-# and is restored to the real host object (B-16). A guest wrapper object has no
-# wire representation, so passing one as an argument is refused (E-55) — keeping
+# and is restored to the real host object. A guest wrapper object has no
+# wire representation, so passing one as an argument is refused — keeping
 # leaves raw is what lets them travel.
 #
 # Usage:
@@ -102,7 +102,7 @@ module Dsl
   MRUBY
 
   # A method no host dialect defines, forwarded through the wrapper. The host
-  # refuses it (B-42), so the DSL's vocabulary can never exceed the host's.
+  # refuses it, so the DSL's vocabulary can never exceed the host's.
   UNKNOWN_VERB_SCRIPT = <<~MRUBY
     Build.new(Studio.card).instance_eval { marquee "not a card method" }
   MRUBY
@@ -111,7 +111,7 @@ module Dsl
   # the guest can descend into it; the tree is assembled entirely host-side. --
 
   # A leaf value object. It is fetched block-lessly by the guest and passed as
-  # an argument, so it crosses as a Handle and is restored here (B-16).
+  # an argument, so it crosses as a Handle and is restored here.
   class Image
     def initialize(url) = (@url = url)
     def to_h = { "type" => "image", "url" => @url }
@@ -218,7 +218,7 @@ puts <<~GUEST.gsub(/^/, "  ")
     header "Welcome aboard"
     body do
       text "Thanks for joining."
-      image logo                    # Handle passed as an argument (B-16)
+      image logo                    # Handle passed as an argument
       group { ... }                 # a nested section dialect
     end
   end
@@ -228,4 +228,4 @@ puts "host-assembled card (one Sandbox invocation, built entirely host-side):"
 puts JSON.pretty_generate(card).gsub(/^/, "  ")
 puts
 puts "unknown verb — a method no host dialect defines:"
-puts "  marquee \"...\" : #{unknown}   # bounded by the host method set (B-42)"
+puts "  marquee \"...\" : #{unknown}   # bounded by the host method set"

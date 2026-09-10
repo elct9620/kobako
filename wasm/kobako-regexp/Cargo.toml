@@ -28,8 +28,8 @@ beni = "0.14.1"
 # only by default; `unicode` is opt-in.
 fancy-regex = { version = "0.19", default-features = false, features = ["std"] }
 
-# Bounded LRU for the per-invocation compiled-pattern cache (docs/regexp.md
-# RX-08). Its default hashbrown backend keeps the hot-path lookup fast; the
+# Bounded LRU for the per-invocation compiled-pattern cache. Its default
+# hashbrown backend keeps the hot-path lookup fast; the
 # cache exists for speed, so the small size cost over std HashMap is worth it.
 lru = "0.18"
 

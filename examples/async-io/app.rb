@@ -91,7 +91,7 @@ module AsyncIO
 
   # Builds a Sandbox with both phases preloaded. Each concurrent request
   # owns one so the trace reads one Sandbox per request; sharing a single
-  # Sandbox across the fibers would be equally safe (SPEC B-22), since the
+  # Sandbox across the fibers would be equally safe, since the
   # reactor only suspends a fiber between invocations.
   def self.build_sandbox
     sandbox = Kobako::Sandbox.new

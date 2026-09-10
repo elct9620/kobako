@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # Characterization benchmark (not in release gate) — the wall-clock
-# effect of the per-Sandbox gvl: mode (B-64) on multi-Thread guest
+# effect of the per-Sandbox gvl: mode on multi-Thread guest
 # execution. :release drops Ruby's GVL for the guest span so distinct
 # Sandboxes on distinct Threads run their wasm in parallel; :hold
 # serializes them. Two opposed workloads bracket where release helps
@@ -14,8 +14,8 @@
 #   dispatch — each Thread runs many guest->host dispatches. Every
 #              dispatch re-acquires the GVL, so the handoff cost makes
 #              :release match or trail :hold; the speedup stays near 1.
-#   compute-shared — the compute loop, but all Threads share ONE Sandbox
-#              (B-22). Each invocation still gets its own guest instance,
+#   compute-shared — the compute loop, but all Threads share ONE Sandbox.
+#              Each invocation still gets its own guest instance,
 #              so :release scales like the distinct-Sandbox compute arm;
 #              the arm confirms sharing costs no parallelism.
 #
@@ -82,7 +82,7 @@ def measure(mode, count, script, &binder)
 end
 
 # Wall-clock for +count+ Threads to each run +script+ REPEAT times on ONE
-# shared Sandbox in +mode+ — the shared-Sandbox shape (B-22), where each
+# shared Sandbox in +mode+ — the shared-Sandbox shape, where each
 # invocation's own guest instance keeps spans parallel under :release.
 def measure_shared(mode, count, script)
   shared = Kobako::Sandbox.new(wasm_path: GUEST, gvl: mode)

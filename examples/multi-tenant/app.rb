@@ -7,15 +7,15 @@
 # The lesson this example encodes
 # -------------------------------
 # A Sandbox holds no state from any run, so Threads may invoke a single
-# shared one concurrently (B-22). What each invocation still needs is its
+# shared one concurrently. What each invocation still needs is its
 # own identity, and that is what the two setup-time-vs-run-time binding
 # forms give you:
 #
 #   * `bind("Tenant::Store")` with no object declares a FILLABLE path — the
-#     guest sees the constant, the host defers the object (B-62). An
+#     guest sees the constant, the host defers the object. An
 #     invocation that never fills it fails closed as a ServiceError.
 #   * `eval(source) { |ctx| ctx.bind(path, object) }` fills it for that one
-#     invocation (B-63), so the object is never shared with another Thread.
+#     invocation, so the object is never shared with another Thread.
 #
 # The guest source is IDENTICAL for every tenant. Nothing in it names a
 # tenant; the host decides whose ledger the run reaches by what it binds.
@@ -28,7 +28,7 @@
 # the practical reason to prefer `ctx.bind` for anything mutable.
 #
 # `gvl: :release` lets the Threads run their guest code in parallel instead
-# of serialising on Ruby's GVL (B-64). It changes scheduling only — the
+# of serialising on Ruby's GVL. It changes scheduling only — the
 # isolation this demo prints is identical under the default `:hold`.
 #
 # Usage:
@@ -51,7 +51,7 @@ require "kobako"
 module MultiTenant
   # One tenant's book of entries. It has no wire representation, so it
   # crosses into the guest as a Capability Handle minted by the invocation
-  # that asked for it (B-14) and dies with that invocation.
+  # that asked for it and dies with that invocation.
   class Ledger
     attr_reader :name, :entries
 
