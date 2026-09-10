@@ -11,7 +11,7 @@ class TestParitySeal < Parity::Case
   # SPEC.md B-33: bind after the first invocation → sealed refusal.
   def test_late_registration_is_refused
     assert_parity Parity::Scenario.new(
-      name: "late-registration", anchors: %w[B-33],
+      name: "late-registration",
       invocations: [
         { verb: "eval", source: "1" },
         { verb: "late_bind", name: "LateService::KV" }

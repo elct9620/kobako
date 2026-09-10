@@ -19,7 +19,7 @@ class TestParityHermetic < Parity::Case
   # identically, and an eval under it observes the same result.
   def test_hermetic_profile_is_honored_identically
     assert_parity Parity::Scenario.new(
-      name: "hermetic-profile", anchors: %w[B-45],
+      name: "hermetic-profile",
       options: { profile: "hermetic" },
       invocations: [{ verb: "eval", source: "1 + 1" }]
     )
@@ -31,7 +31,7 @@ class TestParityHermetic < Parity::Case
   # must agree.
   def test_permissive_profile_switch_is_identical
     assert_parity Parity::Scenario.new(
-      name: "permissive-profile", anchors: %w[B-54],
+      name: "permissive-profile",
       options: { profile: "permissive" },
       invocations: [{ verb: "eval", source: "1 + 1" }]
     )

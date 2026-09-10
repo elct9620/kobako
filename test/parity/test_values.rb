@@ -16,7 +16,7 @@ class TestParityValues < Parity::Case
       "[1, [2, :a], nil]", '{ answer: 42, "k" => [true, 1.5] }'
     ]
     assert_parity Parity::Scenario.new(
-      name: "eval-wire-values", anchors: %w[B-06],
+      name: "eval-wire-values",
       invocations: sources.map { |source| { verb: "eval", source: } }
     )
   end
@@ -38,7 +38,7 @@ class TestParityValues < Parity::Case
       ["value#{index}", { behavior: "value", value: constant }]
     end
     assert_parity Parity::Scenario.new(
-      name: "service-values", anchors: %w[B-13],
+      name: "service-values",
       services: [{ name: "MyService::KV", methods: }],
       invocations: SERVICE_CONSTANTS.each_index.map { |i| { verb: "eval", source: "MyService::KV.value#{i}" } }
     )
@@ -49,7 +49,7 @@ class TestParityValues < Parity::Case
   # @behavior S-043
   def test_echo_round_trip
     assert_parity Parity::Scenario.new(
-      name: "echo-round-trip", anchors: %w[B-12 B-13],
+      name: "echo-round-trip",
       services: [{ name: "MyService::KV", methods: { echo: { behavior: "echo" } } }],
       invocations: [
         { verb: "eval", source: "MyService::KV.echo({ nested: [1, :a, { deep: true }] })" }
@@ -62,7 +62,7 @@ class TestParityValues < Parity::Case
   # @behavior S-044
   def test_unrepresentable_return_value
     assert_parity Parity::Scenario.new(
-      name: "unrepresentable-return", anchors: %w[E-06],
+      name: "unrepresentable-return",
       invocations: [
         { verb: "eval", source: "Object.new" },
         { verb: "eval", source: "proc { 1 }" }

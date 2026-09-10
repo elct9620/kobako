@@ -12,7 +12,7 @@ class TestParityFillable < Parity::Case
   # but a dispatch to it fails closed as a Service failure on both frontends.
   def test_unfilled_fillable_dispatch_fails_closed
     assert_parity Parity::Scenario.new(
-      name: "fillable-unfilled", anchors: %w[B-62],
+      name: "fillable-unfilled",
       services: [{ name: "Store", fillable: true }],
       invocations: [{ verb: "eval", source: "Store.get(1)" }]
     )
@@ -23,7 +23,7 @@ class TestParityFillable < Parity::Case
   # to the supplied object and observe the same value.
   def test_ctx_bind_override_fills_a_fillable
     assert_parity Parity::Scenario.new(
-      name: "fillable-override", anchors: %w[B-63],
+      name: "fillable-override",
       services: [{ name: "Store", fillable: true }],
       invocations: [override_eval("filled")]
     )
@@ -35,7 +35,7 @@ class TestParityFillable < Parity::Case
   # frontends.
   def test_ctx_bind_override_shadows_a_static_binding_for_one_invocation
     assert_parity Parity::Scenario.new(
-      name: "override-shadows-static", anchors: %w[B-63],
+      name: "override-shadows-static",
       services: [{ name: "Store", methods: { get: { behavior: "value", value: str("base") } } }],
       invocations: [override_eval("shadow"), { verb: "eval", source: "Store.get(1)" }]
     )
@@ -47,7 +47,7 @@ class TestParityFillable < Parity::Case
   # frontends.
   def test_ctx_bind_override_fills_a_fillable_on_the_run_path
     assert_parity Parity::Scenario.new(
-      name: "fillable-override-run", anchors: %w[B-63],
+      name: "fillable-override-run",
       services: [{ name: "Store", fillable: true }],
       preloads: [{ kind: "source", name: "Worker", code: "Worker = ->(*_a, **_k) { Store.get(1) }" }],
       invocations: [{

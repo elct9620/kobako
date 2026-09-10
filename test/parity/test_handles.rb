@@ -30,7 +30,7 @@ class TestParityHandles < Parity::Case
   # @behavior T-080
   def test_handle_lifecycle
     assert_parity Parity::Scenario.new(
-      name: "handle-lifecycle", anchors: %w[B-14 B-16 B-17 B-37],
+      name: "handle-lifecycle",
       services: OPAQUE_SERVICE,
       invocations: LIFECYCLE_INVOCATIONS
     )
@@ -60,7 +60,7 @@ class TestParityHandles < Parity::Case
   # @behavior T-081
   def test_forged_handle
     assert_parity Parity::Scenario.new(
-      name: "handle-forge-rejected", anchors: %w[B-20],
+      name: "handle-forge-rejected",
       invocations: FORGE_INVOCATIONS
     )
   end
@@ -84,7 +84,7 @@ class TestParityHandles < Parity::Case
   # @behavior T-082
   def test_run_auto_wrap
     assert_parity Parity::Scenario.new(
-      name: "run-auto-wrap", anchors: %w[B-34],
+      name: "run-auto-wrap",
       preloads: AUTO_WRAP_PRELOADS,
       invocations: AUTO_WRAP_INVOCATIONS
     )

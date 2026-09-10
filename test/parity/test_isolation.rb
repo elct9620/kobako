@@ -11,7 +11,7 @@ class TestParityIsolation < Parity::Case
   # classes from one invocation are invisible to the next.
   def test_successive_invocations_are_isolated
     assert_parity Parity::Scenario.new(
-      name: "invocation-isolation", anchors: %w[B-02 B-03 B-49],
+      name: "invocation-isolation",
       invocations: [
         { verb: "eval", source: "$leak = 41; LEAKED = 7; class String; def leaked?; true; end; end; :first" },
         { verb: "eval", source: '[$leak, defined?(LEAKED), "".respond_to?(:leaked?)]' }

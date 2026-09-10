@@ -16,7 +16,7 @@ class TestParityDispatch < Parity::Case
   # @behavior T-075
   def test_dispatch_round_trip
     assert_parity Parity::Scenario.new(
-      name: "dispatch-round-trip", anchors: %w[B-12],
+      name: "dispatch-round-trip",
       services: ECHO_SERVICE,
       invocations: [{ verb: "eval", source: "MyService::KV.echo([1, :two]) << :three" }]
     )
@@ -27,7 +27,7 @@ class TestParityDispatch < Parity::Case
   # @behavior T-076
   def test_bound_constant_failure_is_rescuable
     assert_parity Parity::Scenario.new(
-      name: "dispatch-bound-constant-raise", anchors: %w[E-11],
+      name: "dispatch-bound-constant-raise",
       services: ECHO_SERVICE,
       invocations: [
         { verb: "eval", source: "MyService::KV.explode" },
@@ -41,7 +41,7 @@ class TestParityDispatch < Parity::Case
   # @behavior T-077
   def test_unknown_method_is_undefined
     assert_parity Parity::Scenario.new(
-      name: "dispatch-unknown-method", anchors: %w[E-12],
+      name: "dispatch-unknown-method",
       services: ECHO_SERVICE,
       invocations: [{ verb: "eval", source: "MyService::KV.not_a_method" }]
     )
@@ -66,7 +66,7 @@ class TestParityDispatch < Parity::Case
   # @behavior T-078
   def test_argument_fault
     assert_parity Parity::Scenario.new(
-      name: "dispatch-kwargs-binding-fault", anchors: %w[E-15],
+      name: "dispatch-kwargs-binding-fault",
       services: STRICT_SERVICE,
       invocations: STRICT_INVOCATIONS
     )
@@ -92,7 +92,7 @@ class TestParityDispatch < Parity::Case
   # @behavior T-079
   def test_respond_to_guest
     assert_parity Parity::Scenario.new(
-      name: "dispatch-guest-surface-narrowing", anchors: %w[B-50 E-48],
+      name: "dispatch-guest-surface-narrowing",
       services: NARROWED_SERVICE,
       invocations: NARROWED_INVOCATIONS
     )

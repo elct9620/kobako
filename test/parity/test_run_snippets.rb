@@ -27,7 +27,7 @@ class TestParityRunSnippets < Parity::Case
   # @behavior S-050
   def test_run_entrypoint
     assert_parity Parity::Scenario.new(
-      name: "run-entrypoint", anchors: %w[B-31 B-32],
+      name: "run-entrypoint",
       preloads: REPLAY_CHAIN,
       invocations: [
         { verb: "run", target: "Handler" },
@@ -43,7 +43,7 @@ class TestParityRunSnippets < Parity::Case
   # App the guest had been cut short when it had not.
   def test_entrypoint_faults
     assert_parity Parity::Scenario.new(
-      name: "entrypoint-faults", anchors: %w[E-27 E-28],
+      name: "entrypoint-faults",
       preloads: [{ kind: "source", name: "NotCallable", code: "NotCallable = 8" }],
       invocations: [
         { verb: "run", target: "Missing" },
@@ -58,12 +58,12 @@ class TestParityRunSnippets < Parity::Case
   # would be answering before the guest had read the snippet at all.
   def test_snippet_faults
     assert_parity Parity::Scenario.new(
-      name: "snippet-compile-failure", anchors: %w[E-32],
+      name: "snippet-compile-failure",
       preloads: [{ kind: "source", name: "Broken", code: "def broken(" }],
       invocations: [{ verb: "eval", source: "1" }]
     )
     assert_parity Parity::Scenario.new(
-      name: "snippet-replay-raise", anchors: %w[E-36],
+      name: "snippet-replay-raise",
       preloads: [{ kind: "source", name: "Boom", code: 'raise "boom at replay"' }],
       invocations: [{ verb: "eval", source: "1" }]
     )
@@ -77,7 +77,7 @@ class TestParityRunSnippets < Parity::Case
     %w[snippet_wrong_version snippet_corrupt].each do |fixture|
       hex = File.binread(File.expand_path("../fixtures/#{fixture}.mrb", __dir__)).unpack1("H*")
       assert_parity Parity::Scenario.new(
-        name: fixture.tr("_", "-"), anchors: %w[E-37 E-38],
+        name: fixture.tr("_", "-"),
         preloads: [{ kind: "bytecode", hex: hex }],
         invocations: [{ verb: "eval", source: "nil" }]
       )

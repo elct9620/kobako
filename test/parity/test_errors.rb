@@ -11,7 +11,7 @@ class TestParityErrors < Parity::Case
   # since a frontend could carry the class for one and not the other.
   def test_uncaught_guest_exception
     assert_parity Parity::Scenario.new(
-      name: "uncaught-raise", anchors: %w[E-04],
+      name: "uncaught-raise",
       invocations: [
         { verb: "eval", source: 'raise "boom"' },
         { verb: "eval", source: 'class MyFault < StandardError; end; raise MyFault, "typed"' }
@@ -24,7 +24,7 @@ class TestParityErrors < Parity::Case
   # discard a Sandbox that never ran anything.
   def test_compile_failure
     assert_parity Parity::Scenario.new(
-      name: "compile-failure", anchors: %w[E-05],
+      name: "compile-failure",
       invocations: [{ verb: "eval", source: "def broken(" }]
     )
   end
@@ -32,7 +32,7 @@ class TestParityErrors < Parity::Case
   # @behavior OC-026
   def test_timeout_cap
     assert_parity Parity::Scenario.new(
-      name: "timeout-cap", anchors: %w[B-01 E-19],
+      name: "timeout-cap",
       options: { timeout_ms: 300 },
       invocations: [{ verb: "eval", source: "loop { }" }]
     )
@@ -41,7 +41,7 @@ class TestParityErrors < Parity::Case
   # @behavior OC-027
   def test_memory_limit_cap
     assert_parity Parity::Scenario.new(
-      name: "memory-limit-cap", anchors: %w[E-20],
+      name: "memory-limit-cap",
       options: { memory_limit: 2 << 20, timeout_ms: 5000 },
       invocations: [{ verb: "eval", source: 'a = []; 200.times { a << ("x" * 100_000) }; nil' }]
     )

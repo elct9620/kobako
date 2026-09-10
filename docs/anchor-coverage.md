@@ -20,8 +20,8 @@ block.
 - **Citations** — textual anchor references in `test/**/*.rb`, with the
   tooling suites (`test/tasks/`, `test/bench/`) excluded: their
   anchor-shaped tokens are hand-built fixtures, not witnesses. A
-  citation is the naming convention itself (a comment block, an
-  assertion message, a parity `anchors:` list), so any textual
+  citation is the naming convention itself (a comment block or an
+  assertion message), so any textual
   reference counts, and the counting unit is the **citing file** —
   mention counts inflate with witness-table size and are not
   comparable across anchors.

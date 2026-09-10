@@ -17,7 +17,7 @@ class TestParityInstall < Parity::Case
   # to the bound backend.
   def test_pure_method_is_local_and_io_dispatches_to_the_backend
     assert_install(
-      name: "install-composition", anchors: %w[B-55], source: PURE_AND_IO,
+      name: "install-composition", source: PURE_AND_IO,
       backend: { path: "File", provider: "fixed", methods: { read: { behavior: "echo" } } },
       sources: ["File.join('dir', 'a.txt')", "File.read('payload')"]
     )
@@ -28,7 +28,7 @@ class TestParityInstall < Parity::Case
   # counter keeps counting across invocations.
   def test_fixed_provider_persists_a_stateful_backend
     assert_install(
-      name: "install-fixed-provider", anchors: %w[B-56], source: BACKED_ONLY,
+      name: "install-fixed-provider", source: BACKED_ONLY,
       backend: counter_backend("fixed"), sources: %w[File.tick File.tick]
     )
   end
@@ -39,16 +39,16 @@ class TestParityInstall < Parity::Case
   # invocations.
   def test_per_invocation_provider_resets_a_stateful_backend
     assert_install(
-      name: "install-per-invocation-provider", anchors: %w[B-56], source: BACKED_ONLY,
+      name: "install-per-invocation-provider", source: BACKED_ONLY,
       backend: counter_backend("per_invocation"), sources: %w[File.tick File.tick]
     )
   end
 
   private
 
-  def assert_install(name:, anchors:, source:, backend:, sources:)
+  def assert_install(name:, source:, backend:, sources:)
     assert_parity Parity::Scenario.new(
-      name: name, anchors: anchors,
+      name:,
       extensions: [{ name: "File", source: source, backend: backend }],
       invocations: sources.map { |code| { verb: "eval", source: code } }
     )

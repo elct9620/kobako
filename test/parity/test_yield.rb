@@ -20,7 +20,7 @@ class TestParityYield < Parity::Case
   # @behavior T-103
   def test_yield_round_trip
     assert_parity Parity::Scenario.new(
-      name: "yield-round-trip", anchors: %w[B-23 B-24 B-29 B-30],
+      name: "yield-round-trip",
       services: YIELD_SERVICE,
       invocations: [
         { verb: "eval", source: "MyService::KV.each(1, 2, 3) { |x| x * 10 }" },
@@ -35,7 +35,7 @@ class TestParityYield < Parity::Case
   # @behavior T-104
   def test_break_next_semantics
     assert_parity Parity::Scenario.new(
-      name: "yield-break-next-lambda", anchors: %w[B-25 B-26 B-27],
+      name: "yield-break-next-lambda",
       services: YIELD_SERVICE,
       invocations: [
         { verb: "eval", source: "MyService::KV.each(1, 2, 3) { |x| break :stop if x == 2; x * 2 }" },
@@ -57,7 +57,7 @@ class TestParityYield < Parity::Case
   # @behavior T-105
   def test_nested_dispatch
     assert_parity Parity::Scenario.new(
-      name: "yield-nested-frames", anchors: %w[B-28],
+      name: "yield-nested-frames",
       services: [
         { name: "Outer::A", methods: { each: { behavior: "yield_each" } } },
         { name: "Inner::B", methods: { each: { behavior: "yield_each" } } }
@@ -81,7 +81,7 @@ class TestParityYield < Parity::Case
   # @behavior T-106
   def test_yield_escapes
     assert_parity Parity::Scenario.new(
-      name: "yield-escapes", anchors: %w[E-21 E-22],
+      name: "yield-escapes",
       services: YIELD_SERVICE,
       invocations: ESCAPE_INVOCATIONS
     )
@@ -103,7 +103,7 @@ class TestParityYield < Parity::Case
   # @behavior T-107
   def test_unrescued_block_raise
     assert_parity Parity::Scenario.new(
-      name: "yield-block-raise", anchors: %w[B-24 E-04],
+      name: "yield-block-raise",
       services: YIELD_SERVICE,
       invocations: BLOCK_RAISE_INVOCATIONS
     )

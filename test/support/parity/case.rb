@@ -15,7 +15,7 @@ module Parity
       ruby = RubyExecutor.new(E2eGuestHelper::REAL_WASM).execute(scenario)
       rust = rust_executor.execute(scenario)
       assert_equal normalize(ruby), normalize(rust),
-                   "scenario #{scenario.name} (#{scenario.anchors.join(", ")}) through " \
+                   "scenario #{scenario.name} through " \
                    "Kobako::Sandbox and the kobako SDK must observe identically"
     end
 

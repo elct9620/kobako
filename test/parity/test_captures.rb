@@ -10,7 +10,7 @@ class TestParityCaptures < Parity::Case
   # @behavior S-034
   def test_streams_are_captured_separately
     assert_parity Parity::Scenario.new(
-      name: "capture-streams", anchors: %w[B-04],
+      name: "capture-streams",
       invocations: [
         { verb: "eval", source: 'puts "to out"; $stderr.puts "to err"; :done' }
       ]
@@ -22,7 +22,7 @@ class TestParityCaptures < Parity::Case
   # @behavior S-035
   def test_truncation_at_the_cap
     assert_parity Parity::Scenario.new(
-      name: "capture-truncation", anchors: %w[B-04],
+      name: "capture-truncation",
       options: { stdout_limit: 16, stderr_limit: 8 },
       invocations: [
         { verb: "eval", source: 'print "x" * 100; $stderr.print "y" * 100; :done' }
