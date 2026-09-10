@@ -107,7 +107,7 @@ class TestE2ELifecycle < Minitest::Test
   # SPEC.md L243-254: setup-once / dispatch-many pattern using #preload +
   # #run. Per-invocation isolation (B-03) means no state leaks between
   # successive #run calls on the same Sandbox.
-  # @behavior S-053
+  # @behavior S-053 S-140
   def test_j07_preload_worker_and_dispatch_many_requests
     sandbox = Kobako::Sandbox.new
     # B-31 (mruby C API limitation): kwargs land as a trailing positional
@@ -157,7 +157,7 @@ class TestE2ELifecycle < Minitest::Test
   # B-61: a failed run raises an invocation-outcome error carrying that run's
   # frozen Execution on #execution, so a rescue reads the pre-failure captures
   # exactly as a successful caller reads the return value; #value is nil there.
-  # @behavior S-065
+  # @behavior S-065 S-138
   def test_b61_failed_run_carries_its_execution_on_the_raised_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 

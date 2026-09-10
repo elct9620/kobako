@@ -9,6 +9,7 @@ What one invocation's result settles into, which side it is attributed to, and w
 - `test/unit/outcome/test_value_sharing.rb`
 - `test/unit/values/test_error_class_hierarchy.rb`
 - `test/parity/test_errors.rb`
+- `test/e2e/test_caps.rb`
 - `crates/kobako-wasmtime/src/invocation.rs`
 - `crates/kobako-wasmtime/src/trap.rs`
 - `crates/kobako/src/execution.rs`

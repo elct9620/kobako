@@ -21,6 +21,7 @@ What a Sandbox is built with, what one invocation leaves for the next, and what 
 - `test/e2e/test_execution.rb`
 - `test/e2e/test_outcome_values.rb`
 - `test/e2e/test_canonical_boot.rb`
+- `test/e2e/test_journeys.rb`
 - `test/parity/test_captures.rb`
 - `test/parity/test_values.rb`
 - `test/parity/test_isolation.rb`
@@ -47,7 +48,35 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 
 ### Behaviors without a witness
 
-What a failed invocation left in guest state is gone at the next entry.
+Constructing a Sandbox runs no guest code; nothing is evaluated until the first invocation.
+
+The deadline never interrupts host code: a Service callback running past the deadline completes, and the run is cut short once control returns to the guest.
+
+A Service callback's wall-clock time counts against the invocation's deadline, and the wall time a run reports includes it.
+
+A failure raised by evaluated source names that source as `(eval)` in its backtrace.
+
+The deadline and the memory budget bound an entrypoint run exactly as they bound an evaluation.
+
+What a failed invocation left in guest state is gone at the next entry, as after a successful one.
+
+Evaluating source that has no expression answers nothing.
+
+An entrypoint run captures output on both channels exactly as an evaluation does.
+
+A module, or an instance, that answers `call` is as valid an entrypoint as a `Proc` or a class.
+
+An entrypoint run as the first invocation seals registration exactly as an evaluation does.
+
+A failure raised under an entrypoint run carries no `(eval)` frame; its trailing frame names the entrypoint's snippet.
+
+Frames raised from a bytecode snippet carry whatever filename its producing tool embedded.
+
+A snippet that fails to compile fails with an empty backtrace, since none of it ran.
+
+A failure raised by bytecode carrying no debug information keeps its class, message and origin; only the snippet's frames are absent from the backtrace.
+
+A preload refused after the seal leaves the snippets already preloaded replaying unchanged.
 
 Bound Service names are already in place when preloaded snippets replay.
 
@@ -1055,3 +1084,171 @@ Bound Service names are already in place when preloaded snippets replay.
 | Given | a scenario preloading bytecode whose body is corrupt |
 | When | both frontends run each |
 | Then | they observe the same failures |
+
+## `S-128` A deadline is not reached early
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a deadline |
+| When | an invocation loops until it is cut short and its usage is read off the raised error's Execution |
+| Then | the wall time is at least the deadline |
+
+## `S-129` Evaluated source answers to the name `(eval)`
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | source that fails to parse is evaluated |
+| Then | the failure's message names the source as `(eval)` |
+
+## `S-130` Source that is not text is refused before the guest runs
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation is given source that is not text |
+| Then | it fails as a Sandbox failure saying the source must be text |
+
+## `S-131` Output past the cap keeps exactly what fit
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a standard-output cap |
+| When | an invocation writes past it |
+| Then | the capture holds exactly the leading bytes that fit, with nothing appended |
+
+## `S-132` The error channel keeps exactly what fit too
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with an error-output cap |
+| When | an invocation writes past it |
+| Then | the error capture holds exactly the leading bytes that fit, with nothing appended |
+
+## `S-133` Reaching an output cap does not end the run
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a standard-output cap |
+| When | an invocation writes past it and goes on to return a value |
+| Then | the invocation answers that value |
+
+## `S-134` A trap is not a truncation
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose invocation wrote within its standard-output cap and then reached its deadline |
+| When | the truncation mark is read off the raised error's Execution |
+| Then | it is not set |
+
+## `S-135` A value the wire cannot carry fails the evaluation
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation's last expression is an object with no wire representation |
+| Then | it fails as a Sandbox failure naming the unsupported type |
+
+## `S-136` Usage reports time in fractional seconds
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation completes and its usage is read |
+| Then | the wall time is a fractional number of seconds |
+
+## `S-137` Usage reports memory in whole bytes
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation completes and its usage is read |
+| Then | the memory peak is a whole number of bytes |
+
+## `S-138` A failed run carries no value
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose invocation failed |
+| When | the value is read off the raised error's Execution |
+| Then | it is nothing |
+
+## `S-139` An entrypoint run without keywords is not handed an empty Hash
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox carrying a preloaded entrypoint that accepts exactly two positional arguments |
+| When | it is run with two positional arguments and no keywords |
+| Then | the invocation answers a value computed from them |
+
+## `S-140` A `Proc` and a class are entrypoints alike
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox carrying one preloaded entrypoint written as a `Proc` and one written as a class answering `call` |
+| When | each is run |
+| Then | each invocation answers what its entrypoint returned |
+
+## `S-141` A snippet name that is neither a name nor text
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet table |
+| When | a snippet is registered under a name that is neither a name nor text |
+| Then | the refusal names the two forms it takes |
+
+## `S-142` Snippet source that is not text
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet table |
+| When | a source snippet is registered with source that is not text |
+| Then | the refusal names the constraint |
+
+## `S-143` Bytecode that is not bytes
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet table |
+| When | a bytecode snippet is registered with something other than bytes |
+| Then | the refusal names the constraint |
+
+## `S-144` A preload naming neither form
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet table |
+| When | a snippet is registered with neither source nor bytecode |
+| Then | it is refused |
+
+## `S-145` Bytecode is not combined with source
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet table |
+| When | a snippet is registered with both bytecode and source |
+| Then | the refusal says the two forms do not combine |
+
+## `S-146` Bytecode takes no name of its own
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet table |
+| When | a bytecode snippet is registered together with a name |
+| Then | the refusal says a name does not combine with bytecode |
+
+## `S-147` Preloading takes the source as it stood
+
+| Step | Statement |
+| --- | --- |
+| Given | source text held by the caller |
+| When | a snippet is registered from it and the caller then alters that text |
+| Then | the table still holds the source as registered |
+
+## `S-148` Bytecode written for another format version is a structural failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox holding preloaded bytecode stamped with a format version the guest does not read |
+| When | the first invocation runs |
+| Then | it fails as a bytecode failure |

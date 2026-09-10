@@ -126,6 +126,7 @@ class TestE2EOutcomeValues < Minitest::Test
   # lives in test_dispatch_args.rb.
   UNREPRESENTABLE_OUTCOME_SCRIPT = "Object.new"
 
+  # @behavior S-135
   def test_outcome_unrepresentable_value_raises_sandbox_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 

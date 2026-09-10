@@ -66,6 +66,7 @@ class TestSandboxOptions < Minitest::Test
     stderr_limit: [0, -1, 1.5, "100"]
   }.freeze
 
+  # @behavior RT-058
   def test_rejects_invalid_cap_values
     INVALID_CAP_VALUES.each do |cap, values|
       values.each do |bad|

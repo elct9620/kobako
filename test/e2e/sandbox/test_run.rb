@@ -12,7 +12,7 @@ class TestSandboxRun < Minitest::Test
 
   # B-31: a preloaded snippet defines a top-level constant responding to
   # #call; #run dispatches into it and returns the call's value.
-  # @behavior S-045
+  # @behavior S-045 S-140
   def test_b31_runs_preloaded_entrypoint_with_no_args
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Worker = ->(*_args, **_kw) { 42 }", name: :Worker)
@@ -21,7 +21,7 @@ class TestSandboxRun < Minitest::Test
                  "a preloaded callable entrypoint through #run must return its call value"
   end
 
-  # @behavior S-046
+  # @behavior S-046 S-139
   def test_b31_passes_positional_args_to_entrypoint
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Adder = ->(a, b) { a + b }", name: :Adder)

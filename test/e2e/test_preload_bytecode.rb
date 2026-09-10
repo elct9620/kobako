@@ -51,6 +51,7 @@ class TestE2EPreloadBytecode < Minitest::Test
   # version bump.
   E37_FIXTURE_PATH = TestPaths.fixture("snippet_wrong_version.mrb")
 
+  # @behavior S-148
   def test_e37_bytecode_wrong_version_raises_bytecode_error
     sandbox = Kobako::Sandbox.new
     sandbox.preload(binary: File.binread(E37_FIXTURE_PATH))

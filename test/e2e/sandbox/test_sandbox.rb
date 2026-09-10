@@ -58,6 +58,7 @@ class TestSandbox < Minitest::Test
                  "gvl: :release through Sandbox.new must read back off #gvl, delegated to SandboxOptions (B-64)"
   end
 
+  # @behavior RT-059
   def test_missing_wasm_raises_module_not_built_error
     assert_raises(Kobako::ModuleNotBuiltError) do
       Kobako::Sandbox.new(wasm_path: "/nonexistent/kobako.wasm")
@@ -112,6 +113,7 @@ class TestSandbox < Minitest::Test
     end
   end
 
+  # @behavior S-130
   def test_eval_rejects_non_string_code
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
     err = assert_raises(Kobako::SandboxError) { sandbox.eval(nil) }

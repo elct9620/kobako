@@ -24,7 +24,7 @@ class TestSandboxUsage < Minitest::Test
   # `1 + 1` may or may not trigger `memory.grow`, and the meaningful
   # bound (`>= 200_000` for an allocating script) is pinned by
   # `test_allocating_eval_reports_memory_peak` below.
-  # @behavior S-058
+  # @behavior S-058 S-136 S-137
   def test_eval_success_populates_wall_time
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -75,7 +75,7 @@ class TestSandboxUsage < Minitest::Test
   # off the carried Execution in the rescue branch must see a real
   # measurement so it can decide whether the script ran long because of
   # CPU work or host-side Service callback time.
-  # @behavior S-061
+  # @behavior S-061 S-128
   def test_timeout_trap_path_still_populates_usage
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 

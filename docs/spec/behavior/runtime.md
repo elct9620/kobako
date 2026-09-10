@@ -502,3 +502,19 @@ An invocation that fails, fails the same way whether its Sandbox releases the lo
 | Given | several Threads evaluating on one shared Sandbox, each with its own input |
 | When | every Thread evaluates guest source computing from its input |
 | Then | each Thread receives the result of its own input |
+
+## `RT-058` A cap that is not a positive quantity of its kind is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | Sandbox options carrying, for each cap in turn, zero, a negative, or a value of the wrong kind |
+| When | the options are built |
+| Then | the cap is refused |
+
+## `RT-059` An artifact that is not there does not run
+
+| Step | Statement |
+| --- | --- |
+| Given | no Guest Binary at the path a Sandbox names |
+| When | a Sandbox is constructed over it |
+| Then | it fails as a construction failure saying the artifact has not been built |

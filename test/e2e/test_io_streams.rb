@@ -26,7 +26,7 @@ class TestE2EIoStreams < Minitest::Test
   # boundary, +#stdout+ carries no truncation sentinel, and
   # +#stdout_truncated?+ flips to +true+. The cap is enforced inside the
   # WASI pipe — +#run+ still returns the script's last expression.
-  # @behavior S-024
+  # @behavior S-024 S-131 S-133
   def test_stdout_truncation_flag_when_output_exceeds_cap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stdout_limit: 5)
     execution = sandbox.eval(OVERFLOW_SCRIPT)
@@ -151,7 +151,7 @@ class TestE2EIoStreams < Minitest::Test
   # Symmetric to test_stdout_truncation_flag_when_output_exceeds_cap.
   # Cap is enforced inside the WASI pipe on fd 2; #stderr never contains
   # truncation sentinels.
-  # @behavior S-032
+  # @behavior S-032 S-132
   def test_stderr_truncation_flag_when_output_exceeds_cap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stderr_limit: 5)
     execution = sandbox.eval(OVERFLOW_STDERR_SCRIPT)

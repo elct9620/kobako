@@ -14,6 +14,7 @@ class TestE2ECaps < Minitest::Test
   # cap raises `Kobako::TimeoutError`, which is a `Kobako::TrapError`
   # subclass — callers that only care about the unrecoverable outcome
   # can rescue the base class.
+  # @behavior OC-032
   def test_timeout_cap_traps_infinite_loop
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 
@@ -34,6 +35,7 @@ class TestE2ECaps < Minitest::Test
   # the mruby image's initial allocation and the watermark left by
   # prior invocations sit outside the budget — so a runaway script
   # that allocates far more than the cap still surfaces as a trap.
+  # @behavior OC-033
   def test_memory_limit_cap_traps_runaway_allocation
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 2 << 20)
 
@@ -68,6 +70,7 @@ class TestE2ECaps < Minitest::Test
   # bisection lives in the cargo `KobakoLimiter` unit tests; this case
   # only pins that the cap is wired through the real guest at the
   # default cap, not at some far larger figure.
+  # @behavior OC-033
   def test_memory_limit_traps_single_invocation_past_default_cap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
 
@@ -121,7 +124,7 @@ class TestE2ECaps < Minitest::Test
   # in the one run — the trap kills the instance mid-invocation, the one
   # moment the two capture pipes could plausibly diverge — and this case
   # asserts the stdout half; the stderr half is the case below.
-  # @behavior S-036
+  # @behavior S-036 S-134
   def test_partial_stdout_readable_after_timeout_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 

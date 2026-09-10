@@ -67,7 +67,7 @@ class TestE2EJourneys < Minitest::Test
 
   # A script that never compiled never ran, so it has no backtrace; the
   # message is where the author of generated code reads what to fix.
-  # @behavior J-010
+  # @behavior J-010 S-129
   def test_j01_syntax_error_source_names_where_the_parse_stopped
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 

@@ -46,31 +46,37 @@ module Kobako
       end
     end
 
+    # @behavior S-141
     def test_register_rejects_name_of_wrong_type
       err = assert_raises(ArgumentError) { @table.register(code: "X", name: 42) }
       assert_match(/must be a Symbol or String/, err.message)
     end
 
+    # @behavior S-142
     def test_register_rejects_non_string_code
       err = assert_raises(ArgumentError) { @table.register(code: nil, name: :Helper) }
       assert_match(/code must be a String/, err.message)
     end
 
+    # @behavior S-143
     def test_register_rejects_non_string_binary
       err = assert_raises(ArgumentError) { @table.register(binary: 42) }
       assert_match(/binary must be a String/, err.message)
     end
 
+    # @behavior S-144
     def test_register_rejects_no_keyword_call
       err = assert_raises(ArgumentError) { @table.register }
       assert_match(/missing keyword/, err.message)
     end
 
+    # @behavior S-145
     def test_register_rejects_combining_binary_with_code
       err = assert_raises(ArgumentError) { @table.register(code: "X = 1", binary: "RITE") }
       assert_match(%r{cannot combine binary: with code: / name:}, err.message)
     end
 
+    # @behavior S-146
     def test_register_rejects_combining_binary_with_name
       err = assert_raises(ArgumentError) { @table.register(binary: "RITE", name: :Helper) }
       assert_match(%r{cannot combine binary: with code: / name:}, err.message)
@@ -95,6 +101,7 @@ module Kobako
       assert_equal "X = 1", body
     end
 
+    # @behavior S-147
     def test_register_detaches_body_from_caller_reference
       original = +"X = 1"
       @table.register(code: original, name: :Helper)
