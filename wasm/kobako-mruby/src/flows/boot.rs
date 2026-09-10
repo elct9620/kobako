@@ -330,16 +330,9 @@ fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
 /// Panic envelope. A raised Ruby exception reuses
 /// `panic_from_exception`; a Rust-side `Error::Panic` becomes a
 /// sandbox-origin `RuntimeError`.
-///
-/// A load answers its exception already cleared from the interpreter,
-/// where nothing roots it, and reading its fields allocates — so it is
-/// protected on the arena before it is read.
 pub(super) fn panic_from_error(kobako: &Kobako, err: beni::Error) -> Panic {
     match err {
-        beni::Error::Exception(exc) => {
-            let exc = kobako.mrb().arena_scope().keep(exc);
-            panic_from_exception(kobako, exc)
-        }
+        beni::Error::Exception(exc) => panic_from_exception(kobako, exc),
         beni::Error::Syntax(_) => {
             unreachable!("only a load answers a parse failure, and `load_panic` folds it")
         }
