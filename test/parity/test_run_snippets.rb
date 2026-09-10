@@ -72,6 +72,7 @@ class TestParityRunSnippets < Parity::Case
   # SPEC.md E-37 / E-38: RITE version mismatch and corrupt bytecode are
   # the two structural failure modes reserved for the bytecode status;
   # fixtures are the e2e suite's flipped-version and truncated blobs.
+  # @behavior S-127
   def test_bytecode_faults
     %w[snippet_wrong_version snippet_corrupt].each do |fixture|
       hex = File.binread(File.expand_path("../fixtures/#{fixture}.mrb", __dir__)).unpack1("H*")

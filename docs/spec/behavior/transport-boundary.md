@@ -21,7 +21,7 @@ What the host refuses to dispatch, and how narrow a bound object can make its ow
 
 ### Why these scenarios
 
-The host is the boundary. Every refusal here is witnessed where the host decides it, and the guest-side mirror is witnessed separately as a convenience rather than as the thing that holds — a guest that skipped its own check would still be refused.
+The host is the boundary. Every refusal here is witnessed where the host decides it, and the guest-side mirror is witnessed separately as a convenience rather than as the thing that holds — a guest that skipped its own check would still be refused. A reflective object returned from a host method has no parity scenario: only one frontend has such objects to return, so that refusal is witnessed on that frontend alone.
 
 Refusal turns on who owns the method rather than on how it is spelled, so a bound object defining a method whose name matches a refused one is answered by its own. Without that scenario the rule would read as a list of forbidden words.
 

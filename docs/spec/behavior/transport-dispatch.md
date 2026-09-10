@@ -34,7 +34,7 @@ How a guest call reaches a host object, what crosses in each direction, and how 
 
 A guest call reaching a host object is the only route outward, so what it carries is witnessed in both directions and at three depths: the walk that decides what the wire can hold, the table that hands out references for what it cannot, and the dispatch that puts them back together.
 
-A reference lasts one invocation and belongs to one Sandbox. Both bounds are witnessed as a receiver and as an argument, because a table consulted on one path and not the other would pass either witness alone.
+A reference lasts one invocation and belongs to one Sandbox. Both bounds are witnessed as a receiver and as an argument, because a table consulted on one path and not the other would pass either witness alone. A stale reference has no parity scenario: every invocation begins in a fresh guest, so nothing a scenario runs can present one, and each frontend's table is witnessed on its own.
 
 The two argument kinds are separated by how the guest wrote the call and not by what the value is, so a Hash appears on both sides of that line — as a positional literal, as a splatted keyword map, and as a keyword's value — and each is witnessed.
 

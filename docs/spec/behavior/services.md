@@ -284,3 +284,39 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | Given | an invocation whose path has already been overridden |
 | When | the same path is overridden again |
 | Then | the guest reaches the later object |
+
+## `SV-037` Both frontends fail an unfilled path closed the same way
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario declaring a Service path with no object |
+| Given | an invocation calling that path |
+| When | both frontends run it |
+| Then | they observe the same failure |
+
+## `SV-038` Both frontends reach what an override fills the same way
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario declaring a Service path with no object |
+| Given | an invocation whose block fills that path and whose source calls it |
+| When | both frontends run it |
+| Then | they observe the same value |
+
+## `SV-039` Both frontends spend an override with its invocation the same way
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario with an object bound at a path |
+| Given | an invocation whose block binds another object there, followed by one with no block |
+| When | both frontends run it |
+| Then | they observe the same values |
+
+## `SV-040` Both frontends serve an override on the entrypoint verb the same way
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario declaring a Service path with no object and preloading an entrypoint that calls it |
+| Given | an entrypoint invocation whose block fills that path |
+| When | both frontends run it |
+| Then | they observe the same value |

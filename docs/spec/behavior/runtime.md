@@ -248,6 +248,22 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | When | every Thread evaluates guest source computing from its own input |
 | Then | each Thread receives the result of its own input |
 
+## `RT-027` A requested posture is honored the same way by either frontend
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario requesting the hermetic posture explicitly |
+| When | both frontends run it |
+| Then | they observe the same result |
+
+## `RT-028` A posture switch resolves the same way on either frontend
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario switching to the permissive posture |
+| When | both frontends run it |
+| Then | they resolve it the same way |
+
 ## `RT-029` Randomly generated dispatch programs answer the same under either mode
 
 | Step | Statement |
@@ -271,22 +287,6 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Given | generated dispatch programs run concurrently on one shared released Sandbox, each supplying its own identity |
 | When | each Thread resolves the identity it was given |
 | Then | each resolves only its own |
-
-## `RT-027` A requested posture is honored the same way by either frontend
-
-| Step | Statement |
-| --- | --- |
-| Given | a scenario requesting the hermetic posture explicitly |
-| When | both frontends run it |
-| Then | they observe the same result |
-
-## `RT-028` A posture switch resolves the same way on either frontend
-
-| Step | Statement |
-| --- | --- |
-| Given | a scenario switching to the permissive posture |
-| When | both frontends run it |
-| Then | they resolve it the same way |
 
 ## `RT-032` An option value the runtime cannot build with
 

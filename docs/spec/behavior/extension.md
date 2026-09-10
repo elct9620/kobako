@@ -294,3 +294,29 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | Given | an installed Extension whose backend nothing filled |
 | When | the guest dispatches to the path it stands at |
 | Then | the invocation fails as a Service failure rather than reaching nothing |
+
+## `EX-038` Both frontends compose an installed idiom the same way
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario installing an Extension whose idiom answers one method itself and leaves another to its backend |
+| When | both frontends run it |
+| Then | they observe the same values |
+
+## `EX-039` Both frontends keep a fixed backend across invocations the same way
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario installing an Extension whose fixed backend counts the calls it answers |
+| Given | two invocations each calling it |
+| When | both frontends run it |
+| Then | they observe the same counts |
+
+## `EX-040` Both frontends give each invocation a fresh per-invocation backend the same way
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario installing an Extension whose per-invocation backend counts the calls it answers |
+| Given | two invocations each calling it |
+| When | both frontends run it |
+| Then | they observe the same counts |

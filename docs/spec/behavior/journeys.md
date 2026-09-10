@@ -39,14 +39,6 @@ The reuse and isolation walks are not here. They are what a Sandbox does between
 | When | generated source that writes output and then fails to parse is evaluated |
 | Then | it fails as a Sandbox failure, attributed to the sandbox, and nothing was written |
 
-## `J-010` Source that will not compile says where the parse stopped
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox |
-| When | generated source that fails to parse is evaluated |
-| Then | the failure's message names the line and column the parse stopped at |
-
 ## `J-004` A script failure says where in the script it happened
 
 | Step | Statement |
@@ -94,3 +86,11 @@ The reuse and isolation walks are not here. They are what a Sandbox does between
 | Given | a Pool whose Sandboxes each preloaded an entrypoint |
 | When | more requests than slots run that entrypoint at once, each with its own argument |
 | Then | each request reads the result of its own |
+
+## `J-010` Source that will not compile says where the parse stopped
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | generated source that fails to parse is evaluated |
+| Then | the failure's message names the line and column the parse stopped at |

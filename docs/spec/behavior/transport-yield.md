@@ -22,7 +22,7 @@ A yield turns one dispatch into a conversation: the guest calls out, the host ca
 
 The block-failure scenarios are about what a failure leaves behind. A Service that rescues one raise, holds it, and yields again must not answer the second block with the first block's failure, and a failure already rescued must not reappear as a later refusal. Both are witnessed because neither shows up in the single-yield case.
 
-A block's answer is restored on its way in and a break's value is not, which is the one asymmetry here. The exits that raise are followed too: an unwind aimed past the boundary, an answer the wire cannot carry, and a Yielder reached after its frame returned each end the conversation somewhere the ordinary closes cannot reach.
+A block's answer is restored on its way in and a break's value is not, which is the one asymmetry here. The exits that raise are followed too: an unwind aimed past the boundary, an answer the wire cannot carry, and a Yielder reached after its frame returned each end the conversation somewhere the ordinary closes cannot reach. That last exit has no parity scenario: one frontend lends its Yielder for the frame alone, so holding it past the frame does not compile there, and the refusal is witnessed on the frontend that can reach it.
 
 ## `T-083` A Service can tell that the guest passed it a block
 

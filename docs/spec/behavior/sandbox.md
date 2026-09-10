@@ -544,6 +544,54 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the usage is read off the raised error's Execution |
 | Then | the memory peak is at or below the configured budget |
 
+## `S-063` Both frontends report usage after a run that succeeded
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario whose invocation completes |
+| When | both frontends run it and read the usage |
+| Then | both carry a usage record |
+
+## `S-064` A run hands back one frozen object carrying everything it produced
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation that writes output and returns a value completes |
+| Then | the returned Execution is frozen and carries both |
+
+## `S-065` A failed run hands the same object back through its error
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose invocation failed |
+| When | the raised error's Execution is read |
+| Then | it carries the observables the failed run produced |
+
+## `S-066` A value that is nothing and a run that failed are told apart
+
+| Step | Statement |
+| --- | --- |
+| Given | one Execution from a run whose value was legitimately nothing, and one from a failed run |
+| When | each is asked whether it failed |
+| Then | only the failed one says so |
+
+## `S-067` A trapped run says it failed
+
+| Step | Statement |
+| --- | --- |
+| Given | an Execution from a run cut short by a trap |
+| When | it is asked whether it failed |
+| Then | it says so |
+
+## `S-068` A failure before any run produces no Execution to carry
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox given an input refused before the guest runs |
+| When | the raised error is asked for its Execution |
+| Then | there is none |
+
 ## `S-069` A run the guest failed still reports what it spent
 
 | Step | Statement |
@@ -559,14 +607,6 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a Sandbox whose invocation raised from a bound Service |
 | When | the usage is read off the raised error's Execution |
 | Then | the wall time is above zero |
-
-## `S-063` Both frontends report usage after a run that succeeded
-
-| Step | Statement |
-| --- | --- |
-| Given | a scenario whose invocation completes |
-| When | both frontends run it and read the usage |
-| Then | both carry a usage record |
 
 ## `S-071` A returned value keeps its zero bytes
 
@@ -648,46 +688,6 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation returns an empty Hash |
 | Then | the host receives an empty map |
 
-## `S-064` A run hands back one frozen object carrying everything it produced
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox |
-| When | an evaluation that writes output and returns a value completes |
-| Then | the returned Execution is frozen and carries both |
-
-## `S-065` A failed run hands the same object back through its error
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox whose invocation failed |
-| When | the raised error's Execution is read |
-| Then | it carries the observables the failed run produced |
-
-## `S-066` A value that is nothing and a run that failed are told apart
-
-| Step | Statement |
-| --- | --- |
-| Given | one Execution from a run whose value was legitimately nothing, and one from a failed run |
-| When | each is asked whether it failed |
-| Then | only the failed one says so |
-
-## `S-067` A trapped run says it failed
-
-| Step | Statement |
-| --- | --- |
-| Given | an Execution from a run cut short by a trap |
-| When | it is asked whether it failed |
-| Then | it says so |
-
-## `S-068` A failure before any run produces no Execution to carry
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox given an input refused before the guest runs |
-| When | the raised error is asked for its Execution |
-| Then | there is none |
-
 ## `S-081` An entrypoint that is there but cannot be called
 
 | Step | Statement |
@@ -719,14 +719,6 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a Sandbox holding a preloaded snippet that does not compile |
 | When | the first invocation runs |
 | Then | it fails as a Sandbox failure carrying the guest's syntax error |
-
-## `S-125` A snippet's compile failure says where the parse stopped
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox holding a preloaded snippet that does not compile |
-| When | the first invocation runs |
-| Then | the failure's message names the snippet and the line and column the parse stopped at |
 
 ## `S-085` A snippet name that is not a constant name
 
@@ -775,14 +767,6 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a Sandbox holding preloaded bytecode whose top-level expression raises any class but `ScriptError` itself |
 | When | the first invocation runs |
 | Then | the failure carries the guest's own exception class |
-
-## `S-126` Bytecode that raises the class a structural failure carries reads as one
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox holding preloaded bytecode whose top-level expression raises `ScriptError` itself |
-| When | the first invocation runs |
-| Then | it fails as a bytecode failure |
 
 ## `S-091` Both frontends attribute a snippet fault the same way
 
@@ -1040,3 +1024,28 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a registry that has sealed |
 | When | a registration is attempted afterward |
 | Then | it is refused, and the seal does not happen a second time |
+
+## `S-125` A snippet's compile failure says where the parse stopped
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox holding a preloaded snippet that does not compile |
+| When | the first invocation runs |
+| Then | the failure's message names the snippet and the line and column the parse stopped at |
+
+## `S-126` Bytecode that raises the class a structural failure carries reads as one
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox holding preloaded bytecode whose top-level expression raises `ScriptError` itself |
+| When | the first invocation runs |
+| Then | it fails as a bytecode failure |
+
+## `S-127` Both frontends attribute bytecode that will not load the same way
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario preloading bytecode written for another format version |
+| Given | a scenario preloading bytecode whose body is corrupt |
+| When | both frontends run each |
+| Then | they observe the same failures |
