@@ -79,7 +79,7 @@ task test: ["wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode", "was
 # gate:*-named task never joins the release gate by accident). The default
 # and CI reference `gate`, never the list.
 desc "Run every gate:* verification check (the release gate's verification tier)."
-task gate: %w[gate:rbs:lock gate:rbs:orphans gate:anchors gate:anchors:coverage gate:wire:symmetry
+task gate: %w[gate:rbs:lock gate:rbs:orphans gate:anchors gate:wire:symmetry
               gate:payload:optional gate:engine:optional gate:surface
               gate:gvl:isolation gate:bench:smoke gate:release:wiring]
 

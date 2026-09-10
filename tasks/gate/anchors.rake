@@ -35,9 +35,8 @@ ANCHOR_REF_GLOBS = FileList[
 ].exclude(%r{/(target|vendor|tmp)/}, %r{\Atest/(tasks|bench)/}, %r{\Adocs/spec/})
 
 # The behavior-family definition corpus (+B+ / +E+ share the behavior
-# split; +RX+ / +JS+ are topic-doc-local) — one assembly audited by the
-# anchors gate and profiled by anchors:coverage, so a new family is
-# wired in one place.
+# split; +RX+ / +JS+ are topic-doc-local), assembled in one place so a
+# new family is wired once.
 def anchor_behavior_def_sources
   behavior = KobakoAnchors.read_sources(ANCHOR_DEF_BEHAVIOR, ANCHOR_ROOT)
   { "B" => behavior, "E" => behavior,

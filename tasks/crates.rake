@@ -41,7 +41,7 @@ namespace :coverage do
     json, status = Open3.capture2("cargo", "llvm-cov", "--manifest-path", CRATES_MANIFEST, "--workspace", "--json")
     abort "coverage:crates: cargo llvm-cov failed" unless status.success?
 
-    reads_as = "driver paths are E2E-exercised (rake test); behavior coverage in rake gate:anchors:coverage"
+    reads_as = "driver paths are E2E-exercised (rake test); behavior coverage in sumi verify"
     puts KobakoReport.banner("coverage:crates — crates/ line coverage, files below 100%", reads_as: reads_as)
     puts KobakoRustCoverage.table(json, root: PROJECT_ROOT)
   end

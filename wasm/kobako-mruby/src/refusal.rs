@@ -145,10 +145,9 @@ pub(crate) fn at(position: Position, err: CodecError) -> Refusal {
 }
 
 /// Attribution coverage for every position × kind, pure string work that
-/// needs no interpreter booted. The `Unsupported` cases are E-56's only
-/// witness — no codec kobako ships refuses at a position, so no Ruby
-/// surface reaches that behavior (docs/anchor-coverage.md § Pending
-/// anchors).
+/// needs no interpreter booted. The `Unsupported` cases are a refusing
+/// codec's only witness: no codec kobako ships refuses at a position, so
+/// no frontend reaches that behavior.
 #[cfg(test)]
 mod tests {
     use super::*;

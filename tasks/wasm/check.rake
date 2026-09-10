@@ -81,7 +81,7 @@ namespace :coverage do
                                   "--manifest-path", KobakoWasm::MANIFEST, "--workspace", "--json")
     abort "coverage:wasm: cargo llvm-cov failed" unless status.success?
 
-    reads_as = "wasm32 behavior is E2E-exercised via data/kobako.wasm; behavior coverage in rake gate:anchors:coverage"
+    reads_as = "wasm32 behavior is E2E-exercised via data/kobako.wasm; behavior coverage in sumi verify"
     puts KobakoReport.banner("coverage:wasm — guest crates line coverage, files below 100%", reads_as: reads_as)
     puts KobakoRustCoverage.table(json, root: File.expand_path("../..", __dir__))
   end
