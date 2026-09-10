@@ -4,15 +4,15 @@ Static binaries the test suite reads via `File.binread` / `Kobako::Sandbox.new(w
 
 ## `minimal.wasm`
 
-Minimal `wasm32-wasip1` Reactor module that exposes `__kobako_eval` / `__kobako_run` as no-op stubs and omits the `__kobako_abi_version` export — the frozen witness for the `docs/behavior/errors.md` E-42 absent-export branch (`Kobako::Sandbox.new` raises `Kobako::SetupError`). It deliberately has no in-repo source: a buildable fixture crate would violate the "no parallel fixture-driven wasm crates" convention, so any replacement is hand-authored (the `.wat` fixtures below show the text-format route).
+Minimal `wasm32-wasip1` Reactor module that exposes `__kobako_eval` / `__kobako_run` as no-op stubs and omits the `__kobako_abi_version` export — the frozen witness for the absent-export branch of [`RT-006`](../../docs/spec/behavior/runtime.md) (`Kobako::Sandbox.new` raises `Kobako::SetupError`). It deliberately has no in-repo source: a buildable fixture crate would violate the "no parallel fixture-driven wasm crates" convention, so any replacement is hand-authored (the `.wat` fixtures below show the text-format route).
 
 ## `minimal_abi_ok.wat` / `minimal_abi_mismatch.wat`
 
-Hand-written text-format modules around the B-40 construction-time ABI version check; the ext's wasmtime `wat` feature loads them through the same `wasm_path:` path as binary artifacts. `minimal_abi_ok.wat` reports the current ABI version plus the `minimal.wasm` no-op stubs — the construction stand-in for tests that never invoke end-to-end (update its `i32.const` by hand on an ABI version bump). `minimal_abi_mismatch.wat` reports `9999` — the E-42 mismatch branch, deterministic regardless of future bumps (same convention as `snippet_wrong_version.mrb`).
+Hand-written text-format modules around the construction-time ABI version check ([`RT-056`](../../docs/spec/behavior/runtime.md), [`RT-007`](../../docs/spec/behavior/runtime.md)); the ext's wasmtime `wat` feature loads them through the same `wasm_path:` path as binary artifacts. `minimal_abi_ok.wat` reports the current ABI version plus the `minimal.wasm` no-op stubs — the construction stand-in for tests that never invoke end-to-end (update its `i32.const` by hand on an ABI version bump). `minimal_abi_mismatch.wat` reports `9999` — the mismatch branch, deterministic regardless of future bumps (same convention as `snippet_wrong_version.mrb`).
 
 ## `minimal_alloc_zero.wat`
 
-Hand-written text-format module that passes the B-40 ABI version check but whose `__kobako_alloc` always returns `0` — the frozen witness for the `docs/behavior/errors.md` E-31 branch: the host cannot reserve guest memory for the Run envelope, a runtime-intact failure surfacing as `Kobako::SandboxError` (never a trap; the guest entry point is never reached). Update its `i32.const` ABI version by hand on a bump, same as `minimal_abi_ok.wat`.
+Hand-written text-format module that passes the ABI version check but whose `__kobako_alloc` always returns `0` — the frozen witness for [`S-098`](../../docs/spec/behavior/sandbox.md): the host cannot reserve guest memory for the Run envelope, a runtime-intact failure surfacing as `Kobako::SandboxError` (never a trap; the guest entry point is never reached). Update its `i32.const` ABI version by hand on a bump, same as `minimal_abi_ok.wat`.
 
 ## `minimal_null_guest.wat`
 
@@ -20,17 +20,17 @@ Hand-written text-format module that satisfies the whole invocation ABI and does
 
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 
-Each fixture exercises one path of `docs/behavior/invocation.md` B-32 / E-36 / E-37 / E-38 through the real `data/kobako.wasm`. Those with a matching `.rb` source are compiled from it; the rest are byte-level derivatives of `snippet_answers.mrb`. The recipes below assume `mrbc` is the host-target build from `vendor/mruby/build/host/bin/mrbc` (produced by the same vendored mruby tree as `libmruby.a`).
+Each fixture exercises one bytecode-preload path of [`sandbox.md`](../../docs/spec/behavior/sandbox.md) through the real `data/kobako.wasm`. Those with a matching `.rb` source are compiled from it; the rest are byte-level derivatives of `snippet_answers.mrb`. The recipes below assume `mrbc` is the host-target build from `vendor/mruby/build/host/bin/mrbc` (produced by the same vendored mruby tree as `libmruby.a`).
 
 ### `snippet_answers.mrb` — happy-path bytecode
 
-Source: [`snippet_answers.rb`](snippet_answers.rb) (`ANSWERS = 42`). Compiled with `-g` so the IREP carries a `debug_info` section — the canonical-name path B-32 expects.
+Source: [`snippet_answers.rb`](snippet_answers.rb) (`ANSWERS = 42`). Compiled with `-g` so the IREP carries a `debug_info` section — the happy path of [`S-055`](../../docs/spec/behavior/sandbox.md).
 
 ```sh
 vendor/mruby/build/host/bin/mrbc -g -o test/fixtures/snippet_answers.mrb test/fixtures/snippet_answers.rb
 ```
 
-### `snippet_raise_boom.mrb` — E-36 binary form (top-level raise after clean load)
+### `snippet_raise_boom.mrb` — top-level raise after a clean load ([`S-090`](../../docs/spec/behavior/sandbox.md))
 
 Source: [`snippet_raise_boom.rb`](snippet_raise_boom.rb) (`raise "boom from snippet"`). Compiled with `-g`.
 
@@ -47,15 +47,15 @@ vendor/mruby/build/host/bin/mrbc -g -o test/fixtures/snippet_raise_script_error.
 vendor/mruby/build/host/bin/mrbc -g -o test/fixtures/snippet_raise_not_implemented.mrb test/fixtures/snippet_raise_not_implemented.rb
 ```
 
-### `snippet_no_debug.mrb` — B-32 stripped-bytecode acceptance
+### `snippet_no_debug.mrb` — stripped-bytecode acceptance ([`S-057`](../../docs/spec/behavior/sandbox.md))
 
-Same `ANSWERS = 42` source as `snippet_answers.mrb`, compiled **without** `-g`. The IREP omits `debug_info`; per the relaxed B-32 the guest still loads it and the snippet contributes top-level effects.
+Same `ANSWERS = 42` source as `snippet_answers.mrb`, compiled **without** `-g`. The IREP omits `debug_info`; the guest still loads it and the snippet contributes top-level effects.
 
 ```sh
 vendor/mruby/build/host/bin/mrbc -o test/fixtures/snippet_no_debug.mrb test/fixtures/snippet_answers.rb
 ```
 
-### `snippet_wrong_version.mrb` — E-37 (RITE version mismatch)
+### `snippet_wrong_version.mrb` — RITE version mismatch ([`S-148`](../../docs/spec/behavior/sandbox.md))
 
 Byte-level patch of `snippet_answers.mrb`: copy the blob, then overwrite the 4-byte RITE format version at offset 4 from `0400` to `9999`. The patched version must not match `RITE_BINARY_FORMAT_VER` in `vendor/mruby/include/mruby/dump.h`; `9999` keeps the failure deterministic regardless of future mruby version bumps.
 
@@ -64,7 +64,7 @@ cp test/fixtures/snippet_answers.mrb test/fixtures/snippet_wrong_version.mrb
 printf '9999' | dd conv=notrunc of=test/fixtures/snippet_wrong_version.mrb bs=1 seek=4
 ```
 
-### `snippet_corrupt.mrb` — E-38 (corrupt body / non-RITE input)
+### `snippet_corrupt.mrb` — corrupt body / non-RITE input ([`S-089`](../../docs/spec/behavior/sandbox.md))
 
 Header-prefix truncation of `snippet_answers.mrb`: keep the first 30 bytes — enough to pass the 4-byte `RITE` ident check and the 4-byte format-version check, but short enough that the IREP section parse inside `mrb_read_irep_buf` fails.
 

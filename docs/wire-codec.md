@@ -58,7 +58,7 @@ Single dispatch size limit: 16 MiB in either direction, applied to the whole env
 
 ### Guest-provided exports
 
-The ABI is a closed enumerated set: exactly six guest exports are permitted, listed below. No additional exports may be added without a new SPEC anchor that lifts the count.
+The ABI is a closed enumerated set: exactly six guest exports are permitted, listed below. No additional exports may be added without a SPEC change that lifts the count.
 
 | Export name | Wasm signature | Return convention |
 |---|---|---|
