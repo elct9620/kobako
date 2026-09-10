@@ -1,7 +1,8 @@
 #!/bin/bash
 # Stop: rustdoc gate (-D warnings, private items included) over every
 # workspace; catches intra-doc links and malformed doc comments that
-# clippy does not see.
+# clippy does not see. The wasm sub-workspace builds against the host
+# archive `rake beni:build` stages, found through BENI_VENDOR_DIR.
 set -euo pipefail
 
 root="${CLAUDE_PROJECT_DIR:?}"
@@ -23,5 +24,5 @@ doc() {
 
 doc host --manifest-path "$root/Cargo.toml" --workspace
 doc crates --manifest-path "$root/crates/Cargo.toml" --workspace
-doc wasm --manifest-path "$root/wasm/Cargo.toml" --workspace
+BENI_VENDOR_DIR="$root/vendor" doc wasm --manifest-path "$root/wasm/Cargo.toml" --workspace
 doc baker --manifest-path "$root/wasm/kobako-baker/Cargo.toml"

@@ -26,6 +26,12 @@
 # out. Reaching a payload codec from a +[dev-dependencies]+ entry stays
 # fine — +cargo tree -e normal+ does not see one, and neither does anyone
 # installing the crate.
+#
+# The probes compile on the host, and the mruby-linked tier builds
+# +beni-sys+, which needs the host archive Stage B stages — hence the
+# +beni:build+ prerequisite and +KobakoWasm::HOST_CARGO_ENV+.
+
+require_relative "../support/wasm"
 
 # Each tier whose default build must stand without a payload codec, with
 # the workspace its manifest lives in.
@@ -43,7 +49,7 @@ CODEC_FREE_ALLOWED = (CODEC_FREE_TIERS.keys + %w[beni beni-sys]).freeze
 # routing-only tiers themselves.
 def codec_free_violation(crate, dir)
   Dir.chdir(dir) do
-    unless system("cargo check -p #{crate} --all-targets --quiet", out: File::NULL)
+    unless system(KobakoWasm::HOST_CARGO_ENV, "cargo check -p #{crate} --all-targets --quiet", out: File::NULL)
       next "#{crate}'s default build fails — it reaches into the payload codec"
     end
 
@@ -108,7 +114,7 @@ end
 namespace :gate do
   namespace :payload do
     desc "Check the routing-only tiers build with no payload codec and no msgpack dependency."
-    task :optional do
+    task optional: ["beni:build"] do
       violations = CODEC_FREE_TIERS.filter_map { |crate, dir| codec_free_violation(crate, dir) }
       violations += CODEC_ABSENT_TIERS.filter_map { |crate, dir| codec_absent_violation(crate, dir) }
       total = CODEC_FREE_TIERS.size + CODEC_ABSENT_TIERS.size

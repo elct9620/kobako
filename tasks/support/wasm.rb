@@ -79,6 +79,11 @@ module KobakoWasm
   MRUBY_LIB_DIR  = File.join(VENDOR_DIR, "mruby", "build", "wasi", "lib").freeze
   LIBMRUBY_PATH  = File.join(MRUBY_LIB_DIR, "libmruby.a").freeze
 
+  # Environment for a host-target cargo run over the `wasm/` workspace:
+  # `beni-sys` discovers the host archive through the vendor tree
+  # `rake beni:build` staged (the `host` build of build_config/wasi.rb).
+  HOST_CARGO_ENV = { "BENI_VENDOR_DIR" => VENDOR_DIR }.freeze
+
   def self.cargo_available?
     system("which cargo > /dev/null 2>&1")
   end

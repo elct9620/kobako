@@ -81,6 +81,11 @@ unless defined?(KobakoBuildConfig)
       mruby-error
       mruby-metaprog
     ].freeze
+
+    # The `-D` flags (rule #4). MRB_WORDBOX_NO_INLINE_FLOAT pins mrb_value
+    # layout to the wasm32 default; the host-side wire codec assumes this
+    # layout, changing it breaks the ABI. MRB_INT32 pins the integer width.
+    GUEST_DEFINES = %w[MRB_WORDBOX_NO_INLINE_FLOAT MRB_INT32].freeze
   end
 end
 
@@ -88,10 +93,21 @@ end
 # (vendor/mruby/lib/mruby/build.rb:573). +:gcc+ forces a bare +gcc+ so
 # +Toolchain.guess+ cannot pick +:clang+ on macOS and resolve through
 # PATH into wasi-sdk's clang.
+#
+# Besides the mrbc the cross build compiles its mrblib with, the host
+# build archives a libmruby.a for one consumer: the guest crates' unit
+# tests, which wasm32 cannot run and which link through beni on the
+# host. It carries the guest's gem set and `-D` flags so those crates
+# compile against the same mruby API and integer width as the Guest
+# Binary.
 MRuby::Build.new("host") do |conf|
   conf.toolchain :gcc
   conf.build_mrbc_exec
-  conf.disable_libmruby
+  KobakoBuildConfig::MRBGEM_ALLOWLIST.each { |gem_name| conf.gem core: gem_name }
+  KobakoBuildConfig::GUEST_DEFINES.each do |flag|
+    conf.cc.defines << flag
+    conf.cxx.defines << flag
+  end
 end
 
 MRuby::CrossBuild.new(KobakoBuildConfig::MRUBY_BUILD_NAME) do |conf|
@@ -104,14 +120,11 @@ MRuby::CrossBuild.new(KobakoBuildConfig::MRUBY_BUILD_NAME) do |conf|
   # construction. Bumping the list is a security-review-bearing change.
   KobakoBuildConfig::MRBGEM_ALLOWLIST.each { |gem_name| conf.gem core: gem_name }
 
-  # ---- `-D` flags (rule #4) --------------------------------------------
-  # MRB_WORDBOX_NO_INLINE_FLOAT — pin mrb_value layout to the wasm32
-  # default; the host-side wire codec assumes this layout, changing it
-  # breaks the ABI. MRB_INT32 pins the integer width.
-  conf.cc.defines  << "MRB_WORDBOX_NO_INLINE_FLOAT"
-  conf.cxx.defines << "MRB_WORDBOX_NO_INLINE_FLOAT"
-  conf.cc.defines  << "MRB_INT32"
-  conf.cxx.defines << "MRB_INT32"
+  # `-D` flags (rule #4).
+  KobakoBuildConfig::GUEST_DEFINES.each do |flag|
+    conf.cc.defines << flag
+    conf.cxx.defines << flag
+  end
 
   # Rule #5: we deliberately do NOT add `MRB_USE_VM_SWITCH_DISPATCH`.
   # mruby's default computed-goto path is rewritten by LLVM

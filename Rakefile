@@ -51,12 +51,12 @@ require "beni/tasks"
 # Stages A+B of the Build Pipeline: `rake beni:build` vendors the pinned
 # wasi-sdk + mruby toolchains and drives mruby's own rake against
 # build_config/wasi.rb, producing vendor/mruby/build/wasi/lib/libmruby.a
-# (+ its libmruby.flags.mak sidecar). Only the wasi cross target is
-# declared — the config's host build is mrbc-only, so there is no host
-# libmruby.a for beni to verify.
+# (+ its libmruby.flags.mak sidecar) for the Guest Binary, and the host
+# archive the guest crates' host-target unit tests link against.
 Beni::Tasks.new do
   build_config "build_config/wasi.rb"
 
+  target :host
   target :wasi do
     toolchain "wasi-sdk"
   end

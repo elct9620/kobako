@@ -50,9 +50,20 @@ jobs:
           persist-credentials: false
       - name: Set up Rust toolchain
         uses: ./.github/actions/setup-rust
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+      # The verify builds compile the guest crates on the host, and
+      # beni-sys links an archive on every target — stage the host one
+      # through the gem's task surface and name it via BENI_VENDOR_DIR.
+      - name: Build the mruby archives
+        run: bundle exec rake beni:build
       - name: Dry-run publish
         if: ${{ github.event_name != 'release' && !inputs.push }}
         working-directory: wasm
+        env:
+          BENI_VENDOR_DIR: ${{ github.workspace }}/vendor
         run: '"$GITHUB_WORKSPACE/.github/scripts/publish-crates.sh" --dry-run'
       # Trusted Publishing: exchange the workflow's OIDC token for a
       # short-lived crates.io token (the crates.io counterpart of the
@@ -67,4 +78,5 @@ jobs:
         working-directory: wasm
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          BENI_VENDOR_DIR: ${{ github.workspace }}/vendor
         run: '"$GITHUB_WORKSPACE/.github/scripts/publish-crates.sh"'
