@@ -1,27 +1,23 @@
 # frozen_string_literal: true
 
 # Append-only anchor checker backing +tasks/gate/anchors.rake+. Enforces the
-# N-8 invariant once the behavior spec is split across +docs/behavior/+:
-# every +B-xx+ / +E-xx+ / +RX-xx+ / +JS-xx+ is defined exactly once, the
-# sequence is contiguous up to the ceiling +SPEC.md+ states (gaps only where a
-# retired tombstone declares one, the ceiling itself included), and every
-# reference resolves to a definition. +B+ / +RX+ / +JS+ anchors are defined by
-# a Markdown heading, +E+ anchors by an error-table row; +RX-xx+ (regexp.md)
-# and +JS-xx+ (json.md) are topic-doc-local sequences with no SPEC ceiling, so
-# each top is the highest anchor of that prefix defined.
+# N-8 invariant for the families +SPEC.md+ defines for itself — +F-xx+
+# features, +J-xx+ journeys, +N-x+ naming principles: each is defined exactly
+# once, its sequence is contiguous (gaps only where a retired tombstone
+# declares one), and every reference resolves to a definition.
 module KobakoAnchors
   module_function
 
-  # A reference token (+B-07+, +E-19+, +RX-03+, +JS-08+, +F-10+, +J-06+,
-  # +N-8+). The surrounding boundaries keep it from binding inside a longer
-  # token such as a date (+2026-06+) or an identifier, so prose, ranges, and
-  # tables all read the same anchors a human would.
-  REFERENCE = /(?<![A-Za-z0-9])(RX|JS|B|E|F|J|N)-(\d{1,3})(?![0-9])/
+  # A reference token (+F-10+, +J-06+, +N-8+). The surrounding boundaries keep
+  # it from binding inside a longer token — a date (+2026-06+), an identifier,
+  # or a three-digit sumi scenario id (+J-010+) — so prose, ranges, and tables
+  # read the same anchors a human would.
+  REFERENCE = /(?<![A-Za-z0-9])(F|J|N)-(\d{1,2})(?![0-9])/
 
-  # The prefixes whose definition site is a +| E-04 |+-style table row —
-  # the others define by a +## B-07 — +-style heading — so an inline
-  # +(E-04)+ reference is never mistaken for a definition.
-  TABLE_DEFINED = %w[E F N].freeze
+  # The prefixes whose definition site is a +| F-01 |+-style table row — +J+
+  # defines by a +#### J-01 — +-style heading — so an inline +(F-01)+
+  # reference is never mistaken for a definition.
+  TABLE_DEFINED = %w[F N].freeze
 
   # The numbers a prefix defines in +text+, read from its definition shape.
   def definitions(text, prefix)
@@ -39,15 +35,9 @@ module KobakoAnchors
     text.scan(/\b#{prefix}-(\d+)\b[^\n]*?retired/i).flatten.map(&:to_i)
   end
 
-  # A sumi claim line. Its ids name scenarios in +docs/spec/behavior/+, which
-  # share the +RX+ / +JS+ series letters with this corpus while numbering
-  # independently — so reading one as a citation invents a reference to an
-  # anchor nobody wrote.
-  CLAIM_LINE = /^.*@behavior\b.*$/
-
   # Every anchor reference token in +text+, as +[prefix, number]+ pairs.
   def references(text)
-    text.gsub(CLAIM_LINE, "").scan(REFERENCE).map { |prefix, number| [prefix, number.to_i] }
+    text.scan(REFERENCE).map { |prefix, number| [prefix, number.to_i] }
   end
 
   # Read +paths+ into a +{ relative_path => contents }+ map, with each key
@@ -56,38 +46,17 @@ module KobakoAnchors
     paths.to_h { |path| [path.sub("#{root}/", ""), File.read(path)] }
   end
 
-  # The SPEC-stated ceiling per prefix, read from the +### Refinement+
-  # prose "+The current ceiling is B-50 / E-48+" so the checker and SPEC
-  # cannot drift apart silently.
-  def parse_ceilings(text)
-    match = text.match(%r{current ceiling is B-(\d+)\s*/\s*E-(\d+)})
-    return {} unless match
-
-    { "B" => match[1].to_i, "E" => match[2].to_i }
-  end
-
-  # The gate's own liveness check: an empty +parse_ceilings+ result
-  # means the SPEC statement moved or was reworded, and letting it pass
-  # would silently disarm the ceiling and sequence enforcement.
-  def ceiling_statement_violations(ceilings)
-    return [] unless ceilings.empty?
-
-    ['no SPEC ceiling parsed — expected "current ceiling is B-nn / E-nn" in SPEC.md']
-  end
-
   # Audit a corpus and return the list of violation strings (empty = clean).
   # +def_sources+ maps each prefix to its authoritative +{ path => text }+
   # definition files; +ref_sources+ is every +{ path => text }+ scanned for
-  # references; +ceilings+ carries the SPEC-stated top per prefix (+RX+ is
-  # omitted — it derives its own).
-  def audit(def_sources:, ref_sources:, ceilings:)
+  # references.
+  def audit(def_sources:, ref_sources:)
     defs = collect_definitions(def_sources)
     retired = collect_tombstones(def_sources)
     refs = collect_references(ref_sources)
 
     duplicate_violations(defs) +
-      sequence_violations(defs, retired, ceilings) +
-      ceiling_violations(defs, retired, ceilings) +
+      sequence_violations(defs, retired) +
       dangling_violations(defs, retired, refs)
   end
 
@@ -122,28 +91,14 @@ module KobakoAnchors
     end
   end
 
-  def sequence_violations(defs, retired, ceilings)
+  def sequence_violations(defs, retired)
     defs.flat_map do |prefix, sites|
-      top = ceilings[prefix] || sites.keys.max || 0
+      top = sites.keys.max || 0
       (1..top).filter_map do |n|
         next if sites.key?(n) || retired.fetch(prefix, Set.new).include?(n)
 
         "gap at #{prefix}-#{format("%02d", n)} — neither defined nor a retired tombstone"
       end
-    end
-  end
-
-  # The ceiling is the highest number ever *assigned*, which a retired
-  # tombstone holds as firmly as a definition — N-8 reserves a retired
-  # number permanently, so the top anchor retiring must not free its number
-  # for the next one.
-  def ceiling_violations(defs, retired, ceilings)
-    ceilings.filter_map do |prefix, stated|
-      assigned = defs.fetch(prefix, {}).keys.to_set | retired.fetch(prefix, Set.new)
-      highest = assigned.max
-      next if highest.nil? || highest == stated
-
-      "ceiling mismatch for #{prefix}: SPEC states #{stated} but highest assigned is #{prefix}-#{highest}"
     end
   end
 

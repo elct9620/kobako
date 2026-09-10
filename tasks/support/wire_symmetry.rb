@@ -55,8 +55,8 @@ module KobakoWireSymmetry
       stale_accepted(accepted, one_sided)
   end
 
-  # The ledger's staleness half, mirroring the Pending-anchors rule: an
-  # accepted entry with no current divergence is dead weight to shed.
+  # The ledger's staleness half: an accepted entry with no current
+  # divergence is dead weight to shed.
   def stale_accepted(accepted, one_sided)
     (accepted - one_sided)
       .map { |name| "accepted asymmetry #{name} no longer diverges — drop it from the ledger" }

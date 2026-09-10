@@ -133,8 +133,8 @@ module KobakoPubSurface
   end
 
   # The acknowledged names no current pub item carries — the ledger's
-  # staleness half, mirroring the Pending-anchors rule so a renamed or
-  # demoted item cannot leave dead weight behind.
+  # staleness half, so a renamed or demoted item cannot leave dead weight
+  # behind.
   def stale_acknowledgements(items, acknowledged)
     acknowledged.keys - items.map { |name, _location| name }
   end

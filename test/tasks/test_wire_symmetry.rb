@@ -98,9 +98,8 @@ class KobakoWireSymmetryTest < Minitest::Test
                  "a one-sided type carried by the ledger through violations must not surface"
   end
 
-  # The staleness half of the ledger gate, mirroring the Pending-anchors
-  # rule: an entry the inventories no longer diverge on is dead weight
-  # the ledger must shed.
+  # The staleness half of the ledger gate: an entry the inventories no
+  # longer diverge on is dead weight the ledger must shed.
   def test_ledger_entry_with_no_current_divergence_is_a_violation
     violations = Symmetry.violations(
       ruby_types: %w[Arguments], rust_types: %w[Arguments], accepted: %w[Probe]

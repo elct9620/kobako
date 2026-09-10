@@ -103,9 +103,8 @@ class KobakoPubSurfaceTest < Minitest::Test
                  "an item through unconsumed must drop out on a downstream reference or a ledger entry"
   end
 
-  # The staleness half of the ledger, mirroring the Pending-anchors
-  # rule: an acknowledgement whose pub item is gone is dead weight the
-  # ledger must shed.
+  # The staleness half of the ledger: an acknowledgement whose pub item
+  # is gone is dead weight the ledger must shed.
   def test_stale_acknowledgements_list_entries_no_pub_item_carries
     items = [["pack_u64", "src/abi.rs:1"]]
 
