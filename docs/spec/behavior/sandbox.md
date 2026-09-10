@@ -719,6 +719,14 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the first invocation runs |
 | Then | it fails as a Sandbox failure carrying the guest's syntax error |
 
+## `S-125` A snippet's compile failure says where the parse stopped
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox holding a preloaded snippet that does not compile |
+| When | the first invocation runs |
+| Then | the failure's message names the snippet and the line and column the parse stopped at |
+
 ## `S-085` A snippet name that is not a constant name
 
 | Step | Statement |
@@ -763,9 +771,17 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox holding preloaded bytecode whose top-level expression raises |
+| Given | a Sandbox holding preloaded bytecode whose top-level expression raises any class but `ScriptError` itself |
 | When | the first invocation runs |
 | Then | the failure carries the guest's own exception class |
+
+## `S-126` Bytecode that raises the class a structural failure carries reads as one
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox holding preloaded bytecode whose top-level expression raises `ScriptError` itself |
+| When | the first invocation runs |
+| Then | it fails as a bytecode failure |
 
 ## `S-091` Both frontends attribute a snippet fault the same way
 
