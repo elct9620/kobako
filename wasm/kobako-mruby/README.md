@@ -93,13 +93,11 @@ the shippable artifact.
 
 ## Building
 
-Linking a Guest Binary needs the `libmruby.a` archive that `beni-sys`
-discovers via `MRUBY_LIB_DIR` + `WASI_SDK_PATH`; the
+Every build links the `libmruby.a` archive that `beni-sys` discovers —
+via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` for a wasm32 Guest Binary, or
+through the vendor tree `BENI_VENDOR_DIR` names for a host build; the
 [beni](https://github.com/elct9620/beni) gem's rake tasks vendor the
-toolchain and build the archive. Without a discovered archive the
-crate still compiles in placeholder mode (beni's placeholder rule):
-mruby-touching operations panic at runtime instead of failing the
-build.
+toolchain and build the archive.
 
 ## License
 

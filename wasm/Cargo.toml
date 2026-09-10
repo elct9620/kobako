@@ -24,8 +24,9 @@
 #   * `kobako-wasm` — leaf shell producing `kobako.wasm`; composes the
 #     published crates and emits the wasm exports. The typed
 #     mruby wrapper comes from the published `beni` crate (extracted
-#     from this repository); its `beni-sys` FFI layer consumes
-#     `MRUBY_LIB_DIR` and `WASI_SDK_PATH`.
+#     from this repository); its `beni-sys` FFI layer links the
+#     archive `MRUBY_LIB_DIR` + `WASI_SDK_PATH` name on wasm32, and the
+#     host one under `BENI_VENDOR_DIR` on a host build.
 #
 # The split keeps each reason-to-change (ABI contract, assembled
 # implementation, IO capability, bundled product) in its own crate.

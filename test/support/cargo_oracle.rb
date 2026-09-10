@@ -82,10 +82,13 @@ class CargoOracle
 
   private
 
+  # A guest-crate oracle links mruby through +beni-sys+, which finds the
+  # host archive through the vendor tree +rake beni:build+ stages.
   def cargo_build
     return BuildResult.new(status: :no_cargo, error: nil) unless cargo_on_path?
 
     out, status = Open3.capture2e(
+      { "BENI_VENDOR_DIR" => ENV.fetch("BENI_VENDOR_DIR", TestPaths.source("vendor")) },
       "cargo", "build", "--release",
       "--manifest-path", manifest_path,
       "--bin", @bin_name

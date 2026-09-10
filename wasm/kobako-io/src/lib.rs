@@ -10,10 +10,7 @@
 //! Pure Rust over `beni`: the entire Ruby-level surface is defined
 //! through the typed wrapper — no mrblib, no mrbc / RITE pipeline.
 //! The gem is kobako-free; output goes straight to wasi-libc
-//! `write(2)`, so any guest shell can compose it. Placeholder-mode
-//! builds (host targets without a discovered `libmruby.a`) compile
-//! the whole crate; `init` is unreachable there, as beni's
-//! `Mrb::open` returns `Err` and no `&Mrb` exists to call it with.
+//! `write(2)`, so any guest shell can compose it.
 
 mod io;
 mod kernel_ext;

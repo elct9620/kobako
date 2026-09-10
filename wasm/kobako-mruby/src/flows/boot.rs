@@ -16,15 +16,10 @@
 //! are always sandbox-origin even when the raised class would otherwise
 //! map to "service" — preloaded snippets are sandbox code.
 
-#[cfg(mruby_linked)]
 use crate::runtime::Kobako;
-#[cfg(mruby_linked)]
 use beni::Ccontext;
-#[cfg(mruby_linked)]
 use beni::Mrb;
-#[cfg(mruby_linked)]
-use kobako_transport::envelope::{Bindings, Snippet, Snippets};
-use kobako_transport::envelope::{ErrorRecord, Origin, Panic};
+use kobako_transport::envelope::{Bindings, ErrorRecord, Origin, Panic, Snippet, Snippets};
 
 /// Build a Panic envelope carrying the kobako boot defaults
 /// (`origin = sandbox`, `name = "Kobako::BootError"`, empty
@@ -48,7 +43,6 @@ pub(super) fn transport_panic(message: impl Into<String>) -> Panic {
 /// Frame a codec refusal as the Panic the host reads it as. The class and
 /// wording are the refusal's; this only gives them the invocation
 /// boundary's envelope shape.
-#[cfg(mruby_linked)]
 pub(super) fn panic_for(refusal: &crate::refusal::Refusal) -> Panic {
     sandbox_panic(refusal.class, refusal.message.clone())
 }
@@ -56,7 +50,6 @@ pub(super) fn panic_for(refusal: &crate::refusal::Refusal) -> Panic {
 /// The shape every host-detected failure at the invocation boundary
 /// shares: sandbox origin, no backtrace (the failure is the host's
 /// reading of the wire, not a guest stack), no correction to offer.
-#[cfg(any(mruby_linked, test))]
 fn sandbox_panic(class: &str, message: impl Into<String>) -> Panic {
     Panic {
         origin: Origin::Sandbox,
@@ -73,7 +66,6 @@ fn sandbox_panic(class: &str, message: impl Into<String>) -> Panic {
 /// matching Panic when the value has no wire representation or the
 /// envelope encode fails. The shared tail of the eval and run entry
 /// bodies, so the outcome attribution cannot drift between them.
-#[cfg(mruby_linked)]
 pub(super) fn write_value_outcome<G: crate::MrbGuest>(kobako: &Kobako, result_val: beni::Value) {
     use crate::codec::PayloadCodec;
     use crate::refusal::Position;
@@ -113,7 +105,6 @@ pub(super) fn origin_for_class(class_name: &str) -> Origin {
 
 /// Read Frame 1 from stdin and decode it into the bind-path list.
 /// Either step failing surfaces as a `boot_panic`.
-#[cfg(mruby_linked)]
 pub(super) fn read_preamble() -> Result<Vec<String>, Panic> {
     let bytes = kobako_core::frames::read_frame()
         .ok_or_else(|| boot_panic("failed to read the Sandbox setup data"))?;
@@ -123,7 +114,6 @@ pub(super) fn read_preamble() -> Result<Vec<String>, Panic> {
 }
 
 /// Read Frame 3 from stdin and decode it into the snippet list.
-#[cfg(mruby_linked)]
 pub(super) fn read_snippets() -> Result<Vec<Snippet>, Panic> {
     let bytes = kobako_core::frames::read_frame()
         .ok_or_else(|| boot_panic("failed to read the preloaded snippets"))?;
@@ -136,7 +126,6 @@ pub(super) fn read_snippets() -> Result<Vec<Snippet>, Panic> {
 /// install the Kobako runtime plus the shell gem set — producing the
 /// canonical boot state. On `Err` the slot is
 /// cleared so no caller observes a half-set state.
-#[cfg(mruby_linked)]
 pub(super) fn boot_vm<G: crate::MrbGuest>() -> Result<(), Panic> {
     let mrb = Mrb::open().map_err(|_| boot_panic("failed to start the Sandbox interpreter"))?;
     super::mrb_slot::MRB.install(mrb);
@@ -164,7 +153,6 @@ pub(super) fn boot_vm<G: crate::MrbGuest>() -> Result<(), Panic> {
 /// the slot the Guest Binary's pre-initialized image baked, or boot
 /// lazily when the artifact carries none. Returns the `Kobako` token
 /// for the live VM.
-#[cfg(mruby_linked)]
 pub(super) fn acquire_vm<G: crate::MrbGuest>() -> Result<Kobako, Panic> {
     if super::mrb_slot::MRB.as_ref().is_none() {
         boot_vm::<G>()?;
@@ -181,7 +169,6 @@ pub(super) fn acquire_vm<G: crate::MrbGuest>() -> Result<Kobako, Panic> {
 /// the body behind `MrbGuest::bake_boot`, called by the build-time
 /// wizer pre-initialization entry. Panics on failure so a bake aborts
 /// loudly instead of shipping a half-booted image.
-#[cfg(mruby_linked)]
 pub(crate) fn bake_boot<G: crate::MrbGuest>() {
     if let Err(panic) = boot_vm::<G>() {
         panic!("canonical boot state bake failed: {}", panic.error.message);
@@ -190,7 +177,6 @@ pub(crate) fn bake_boot<G: crate::MrbGuest>() {
 
 /// Materialise the bound-constant proxy classes from the Frame 1
 /// `paths` onto the invocation's VM.
-#[cfg(mruby_linked)]
 pub(super) fn install_preamble(kobako: &Kobako, paths: &[String]) -> Result<(), Panic> {
     kobako
         .install_bindings(paths)
@@ -210,7 +196,6 @@ pub(super) fn install_preamble(kobako: &Kobako, paths: &[String]) -> Result<(), 
 /// additionally override the panic class to `Kobako::BytecodeError`;
 /// a successful load that then raised at top level keeps the
 /// natural mruby class.
-#[cfg(mruby_linked)]
 pub(super) fn replay_snippets(kobako: &Kobako, snippets: &[Snippet]) -> Result<(), Panic> {
     let mrb = kobako.mrb();
     for entry in snippets {
@@ -236,7 +221,6 @@ pub(super) fn replay_snippets(kobako: &Kobako, snippets: &[Snippet]) -> Result<(
 /// natural mruby class preserved. Functional struct-update keeps the
 /// reshape in one expression — no mid-life mutation of the panic
 /// fields.
-#[cfg(mruby_linked)]
 fn reshape_replay_panic(panic: Panic, load: BytecodeLoad) -> Panic {
     let name = match load {
         BytecodeLoad::StructuralFailure => "Kobako::BytecodeError".into(),
@@ -258,7 +242,6 @@ fn reshape_replay_panic(panic: Panic, load: BytecodeLoad) -> Panic {
 /// raised, natural mruby class preserved) from a structural
 /// failure on the RITE header / IREP body, which gets promoted to
 /// `Kobako::BytecodeError`.
-#[cfg(mruby_linked)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BytecodeLoad {
     Loaded,
@@ -271,7 +254,6 @@ enum BytecodeLoad {
 /// `mrb->exc` for the shared `take_pending_panic` step. A snippet
 /// `name` carrying an interior NUL byte (wire violation) also fails
 /// through `boot_panic` since `CString::new` rejects it.
-#[cfg(mruby_linked)]
 fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
     let filename = std::ffi::CString::new(format!("(snippet:{})", name))
         .map_err(|_| boot_panic("snippet name contains an invalid character"))?;
@@ -291,7 +273,6 @@ fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
 /// pending exception is left in `mrb->exc` for the shared
 /// `take_pending_panic` step. Folding the return code into a typed
 /// enum keeps the `c_int` from leaking into the replay control flow.
-#[cfg(mruby_linked)]
 fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> BytecodeLoad {
     if mrb.load_bytecode(body) == 0 {
         BytecodeLoad::Loaded
@@ -305,7 +286,6 @@ fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> BytecodeLoad {
 /// `origin` chosen by `origin_for_class`). Returns `None` when no
 /// exception is pending. Clears `mrb->exc` via `Mrb::clear_exc`
 /// before returning.
-#[cfg(mruby_linked)]
 pub(super) fn take_pending_panic(kobako: &Kobako) -> Option<Panic> {
     let mrb = kobako.mrb();
     let exc_val = mrb.pending_exc();
@@ -325,7 +305,6 @@ pub(super) fn take_pending_panic(kobako: &Kobako) -> Option<Panic> {
 /// `RuntimeError`, and the `message` accessor itself raising (or
 /// returning empty) degrades to the class name rather than recursing
 /// into another failure.
-#[cfg(mruby_linked)]
 pub(super) fn exception_fields(
     kobako: &Kobako,
     exc_val: beni::Value,
@@ -358,7 +337,6 @@ pub(super) fn exception_fields(
 /// chosen by `origin_for_class`. Shared by `take_pending_panic` (the
 /// `mrb->exc`-set path a source / bytecode load leaves) and
 /// `panic_from_error` (the `Err` a protected funcall returns).
-#[cfg(mruby_linked)]
 fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
     let (class, message, backtrace) = exception_fields(kobako, exc_val);
     Panic {
@@ -375,7 +353,6 @@ fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
 /// Fold a `beni::Error` a protected funcall returns into a Panic
 /// envelope. A raised Ruby exception reuses `panic_from_exception`; a
 /// Rust-side `Error::Panic` becomes a sandbox-origin `RuntimeError`.
-#[cfg(mruby_linked)]
 pub(super) fn panic_from_error(kobako: &Kobako, err: beni::Error) -> Panic {
     match err {
         beni::Error::Exception(exc) => panic_from_exception(kobako, exc),

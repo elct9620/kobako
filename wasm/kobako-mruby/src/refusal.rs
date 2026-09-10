@@ -22,12 +22,6 @@ pub(crate) const TRANSPORT_ERROR: &str = "Kobako::Transport::Error";
 /// Two of these — a block's return and its `break` value — share one
 /// envelope position and differ only in the value they name, because the
 /// reader is told which of the two it was handed.
-///
-/// Only the two dispatch positions are named outside the invocation
-/// flows, and those flows need a linked mruby to compile — so a
-/// placeholder build sees the rest constructed by this module's tests
-/// alone.
-#[cfg_attr(not(mruby_linked), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Position {
     /// A guest→host dispatch's arguments, written by the calling script.
@@ -150,8 +144,8 @@ pub(crate) fn at(position: Position, err: CodecError) -> Refusal {
     }
 }
 
-/// Attribution coverage for every position × kind, host-buildable so it
-/// runs without a linked mruby. The `Unsupported` cases are E-56's only
+/// Attribution coverage for every position × kind, pure string work that
+/// needs no interpreter booted. The `Unsupported` cases are E-56's only
 /// witness — no codec kobako ships refuses at a position, so no Ruby
 /// surface reaches that behavior (docs/anchor-coverage.md § Pending
 /// anchors).

@@ -27,20 +27,16 @@
 //! 5. Allocate the response buffer via `__kobako_alloc`, copy the
 //!    bytes in, return the packed `(ptr<<32)|len`.
 
-#[cfg(mruby_linked)]
 use kobako_core::abi::pack_ptr_len;
-#[cfg(mruby_linked)]
 use kobako_transport::envelope::{ErrorRecord, YieldReply};
 
 /// Invocation entry behind the `__kobako_yield_to_block` export —
 /// see module docs. Signature pinned by docs/wire-codec.md § ABI
 /// Signatures (5 guest exports).
-#[cfg(mruby_linked)]
 pub(crate) fn yield_to_block<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     yield_to_block_body::<G>(req)
 }
 
-#[cfg(mruby_linked)]
 fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     use super::mrb_slot::MRB;
     use crate::codec::PayloadCodec;
@@ -117,7 +113,6 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
 /// — discriminate them by comparing `RBreak.ci_break_index` against
 /// the `enter_idx` snapshot taken immediately before the protected
 /// yield.
-#[cfg(mruby_linked)]
 fn classify_protected_error<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     exc: beni::Value,
@@ -149,7 +144,6 @@ fn classify_protected_error<G: crate::MrbGuest>(
 /// Encode a value-carrying Yield Reply (the ok or break arm). A value the
 /// schema cannot write surfaces as an error arm the host Yielder reifies
 /// at the Service's yield site, rather than being coerced to a String.
-#[cfg(mruby_linked)]
 fn encode_value_response<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     value: beni::Value,
@@ -166,7 +160,6 @@ fn encode_value_response<G: crate::MrbGuest>(
     }
 }
 
-#[cfg(mruby_linked)]
 fn encode_break_response<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     value: beni::Value,
@@ -175,7 +168,6 @@ fn encode_break_response<G: crate::MrbGuest>(
     encode_value_response::<G>(kobako, value, YieldReply::Break, Position::BreakValue)
 }
 
-#[cfg(mruby_linked)]
 fn encode_ok_response<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     value: beni::Value,
@@ -184,7 +176,6 @@ fn encode_ok_response<G: crate::MrbGuest>(
     encode_value_response::<G>(kobako, value, YieldReply::Ok, Position::BlockReturnValue)
 }
 
-#[cfg(mruby_linked)]
 fn encode_error_response_from_exception(
     kobako: &crate::runtime::Kobako,
     exc: beni::Value,
@@ -200,7 +191,6 @@ fn encode_error_response_from_exception(
     encode_error_bytes(&class, &message, backtrace)
 }
 
-#[cfg(mruby_linked)]
 fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec<u8> {
     YieldReply::Error(ErrorRecord {
         name: class.into(),
@@ -213,7 +203,6 @@ fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec
 /// Write an error Yield Reply directly into a fresh guest buffer
 /// and return its packed `(ptr<<32)|len`. Used by the early-out paths
 /// that never reach the protect / classify steps.
-#[cfg(mruby_linked)]
 fn write_error_response(class: &str, message: impl Into<String>, backtrace: Vec<String>) -> u64 {
     let bytes = encode_error_bytes(class, &message.into(), backtrace);
     write_yield_buffer(&bytes)
@@ -222,7 +211,6 @@ fn write_error_response(class: &str, message: impl Into<String>, backtrace: Vec<
 /// Allocate a `len`-byte buffer via `__kobako_alloc` inside the active
 /// wasm instance, copy `bytes` into it, and return the packed
 /// `(ptr<<32)|len` u64 the host reads.
-#[cfg(mruby_linked)]
 fn write_yield_buffer(bytes: &[u8]) -> u64 {
     let len_u32 = match u32::try_from(bytes.len()) {
         Ok(n) => n,

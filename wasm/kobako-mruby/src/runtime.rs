@@ -115,12 +115,6 @@ impl std::error::Error for InstallError {}
 ///     `extract_backtrace`, `set_handle_id`, `raise_transport_error`.
 ///     These look internal to the bundled flows, and are exactly what
 ///     someone writing their own flow reaches for.
-///
-/// ## Placeholder mode
-///
-/// The type and its methods compile on every target; without a
-/// linked `libmruby.a` (host builds in beni placeholder mode) the
-/// operations they delegate to panic at runtime — see the crate doc.
 pub struct Kobako {
     mrb: *mut sys::mrb_state,
     /// `Kobako::Proxy` capability module — extended onto every bound
@@ -305,7 +299,6 @@ impl Kobako {
     ///
     /// As `Kobako::raise_transport_error`, and `exc` must be a live
     /// exception value on this VM.
-    #[cfg(mruby_linked)]
     pub(crate) unsafe fn reraise(&self, exc: beni::Value) -> ! {
         // SAFETY: bridge frame — caller upholds the unwind contract and
         // the liveness of `exc`; `mrb_exc_raise` never returns.
@@ -313,13 +306,6 @@ impl Kobako {
             beni::sys::mrb_exc_raise(self.mrb, exc.as_raw());
             core::hint::unreachable_unchecked()
         }
-    }
-
-    /// Placeholder mode: no VM ever raised the exception this would
-    /// continue, so reaching here is a build error made visible late.
-    #[cfg(not(mruby_linked))]
-    pub(crate) unsafe fn reraise(&self, _exc: beni::Value) -> ! {
-        panic!("kobako-mruby was built without a linked libmruby.a")
     }
 
     /// Raise, at the guest call site, the exception this Fault's category

@@ -12,13 +12,13 @@ require_relative "rust_source"
 module KobakoPubSurface
   module_function
 
-  # The kobako-mruby bridge cluster is crate-internal to the flows, but on
-  # mruby-less host builds the flows that use it are compiled out (beni
-  # placeholder rule) and pub reachability is what keeps the dead-code
-  # analysis quiet — demoting it trades a clean surface for 20+ dead_code
-  # warnings or banned #[allow]s.
-  BRIDGE_REASON = "placeholder-rule liveness — pub keeps the mruby-less host build " \
-                  "warning-free; crate-internal to the flows, not third-party API"
+  # The invocation-flow seam. A shell that implements a `Guest` entry
+  # instead of forwarding it writes its own flow, and reaches these to
+  # acquire the VM, install bindings and report failures — so the only
+  # in-repo consumers are the bundled flows beside them, which the grep
+  # does not count as downstream.
+  FLOW_REASON = "invocation-flow API — what a shell-written flow calls; " \
+                "the bundled flows are the only in-repo users"
 
   # The payload-codec seam. A shell names its schema on `MrbGuest::Codec`,
   # and a codec written outside this crate reaches these to build guest
@@ -34,9 +34,9 @@ module KobakoPubSurface
                 "parking any block for its duration; the built-in proxy is the only in-repo user"
 
   # Pub items confirmed to stay public for a reason the in-repo grep cannot
-  # see — macro-expanded third-party API, or pub reachability a
-  # placeholder-rule crate relies on. gate:surface fails the day an entry
-  # names an item no current pub surface carries.
+  # see — third-party API whose only in-repo users sit beside it, or reach
+  # it through a macro expansion. gate:surface fails the day an entry names
+  # an item no current pub surface carries.
   ACKNOWLEDGED = {
     "crates/kobako" => {
       "YieldError" => "SDK third-party API — the yield-arm error embedders match on; " \
@@ -53,11 +53,11 @@ module KobakoPubSurface
     },
     "wasm/kobako-mruby" => %w[
       InstallError install_bindings Kobako init resolve_raw raise_transport_error
-      extract_backtrace top_level_constants set_handle_id extract_handle_id
-    ].to_h { |name| [name, BRIDGE_REASON] }
+      extract_backtrace top_level_constants set_handle_id
+    ].to_h { |name| [name, FLOW_REASON] }
                            .merge(%w[
-                             PayloadCodec CodecError Arguments
-                             IntegerOutOfRange unrepresentable message mint_handle narrow_int
+                             PayloadCodec CodecError Arguments IntegerOutOfRange
+                             unrepresentable message mint_handle extract_handle_id narrow_int
                            ].to_h { |name| [name, CODEC_REASON] })
                            .merge(%w[dispatch]
                                     .to_h { |name| [name, WIRE_REASON] })

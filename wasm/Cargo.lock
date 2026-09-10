@@ -230,7 +230,6 @@ name = "kobako-mruby"
 version = "0.14.0"
 dependencies = [
  "beni",
- "beni-sys",
  "kobako-codec",
  "kobako-core",
  "kobako-transport",

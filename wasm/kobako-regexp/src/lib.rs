@@ -6,11 +6,6 @@
 //! guest shell composes it the same way it composes `kobako-io`.
 //! Coverage tracks the curated regexp engine's
 //! surface, not the full CRuby API; match offsets are byte-based.
-//!
-//! Placeholder-mode builds (host targets without a discovered
-//! `libmruby.a`) compile the whole crate; `init` is unreachable there,
-//! as beni's `Mrb::open` returns `Err` and no `&Mrb` exists to call it
-//! with.
 
 mod errors;
 mod kernel_ext;

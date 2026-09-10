@@ -7,10 +7,6 @@
 //! way it composes `kobako-io`. Coverage is a curated subset of MRI's
 //! `JSON` module, not the full API; the engine is an implementation
 //! choice below the capability contract.
-//!
-//! Placeholder-mode builds (host targets without a discovered
-//! `libmruby.a`) compile the whole crate; `init` is unreachable there, as
-//! beni's `Mrb::open` returns `Err` and no `&Mrb` exists to call it with.
 
 mod convert;
 mod errors;

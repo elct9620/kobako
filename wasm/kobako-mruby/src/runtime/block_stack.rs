@@ -57,7 +57,6 @@ impl BlockStack {
     /// rooting argument intact for the duration of the dispatch
     /// frame, so reading the top is safe inside the same single-
     /// threaded invocation that pushed it.
-    #[cfg(mruby_linked)]
     pub(crate) fn last(&self) -> Option<Value> {
         // SAFETY: see type doc.
         unsafe { (*self.0.get()).last().copied() }

@@ -49,7 +49,6 @@ impl RaisedBlock {
     /// Record `exception` as what `block` raised, rooting it against GC:
     /// the mruby frame that raised has already unwound by the time the
     /// host sees the failure, so nothing else keeps it alive.
-    #[cfg(mruby_linked)]
     pub(crate) fn set(&self, mrb: &beni::Mrb, block: Value, exception: Value) {
         self.clear(mrb);
         // SAFETY: see type doc.
@@ -60,7 +59,6 @@ impl RaisedBlock {
     }
 
     /// Release whatever is held, dropping its GC root.
-    #[cfg(mruby_linked)]
     pub(crate) fn clear(&self, mrb: &beni::Mrb) {
         // SAFETY: see type doc.
         let held = unsafe { (*self.0.get()).take() };
@@ -84,19 +82,12 @@ impl RaisedBlock {
     }
 }
 
-#[cfg(mruby_linked)]
 fn unroot(mrb: &beni::Mrb, held: Option<Held>) {
     if let Some(one) = held {
         // SAFETY: paired with the register in `set`.
         unsafe { beni::sys::mrb_gc_unregister(mrb.as_ptr(), one.exception.as_raw()) };
     }
 }
-
-// Placeholder mode: nothing ever reached `set`, so the slot is always
-// empty and there is no root to drop. Present because `take_for` is
-// reached from the dispatch bridge, which compiles on every target.
-#[cfg(not(mruby_linked))]
-fn unroot(_mrb: &beni::Mrb, _held: Option<Held>) {}
 
 // SAFETY: identical argument to `crate::runtime::block_stack::BlockStack`
 // — wasm32 is single-threaded inside any one Instance; the inner `Value`

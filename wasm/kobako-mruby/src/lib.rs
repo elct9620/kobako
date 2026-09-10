@@ -18,12 +18,6 @@
 //! emits the wasm exports with `kobako_core::export_guest!`. Any
 //! provided flow stays overridable by implementing it in the `Guest`
 //! impl instead of forwarding.
-//!
-//! The mruby-touching internals follow the beni placeholder rule:
-//! everything compiles on every target, and operations that need a
-//! linked `libmruby.a` are gated on the `mruby_linked` cfg mirrored
-//! from `beni-sys` (see `build.rs`) — a placeholder-mode call panics
-//! at runtime instead of failing the build.
 
 mod codec;
 mod dispatch;
@@ -69,14 +63,7 @@ pub trait MrbGuest {
     where
         Self: Sized,
     {
-        #[cfg(mruby_linked)]
-        {
-            flows::eval::<Self>()
-        }
-        #[cfg(not(mruby_linked))]
-        {
-            not_linked()
-        }
+        flows::eval::<Self>()
     }
 
     /// `__kobako_run` — entrypoint dispatch against the invocation
@@ -85,15 +72,7 @@ pub trait MrbGuest {
     where
         Self: Sized,
     {
-        #[cfg(mruby_linked)]
-        {
-            flows::run::<Self>(env)
-        }
-        #[cfg(not(mruby_linked))]
-        {
-            let _ = env;
-            not_linked()
-        }
+        flows::run::<Self>(env)
     }
 
     /// `__kobako_yield_to_block` — host-initiated re-entry into the
@@ -102,15 +81,7 @@ pub trait MrbGuest {
     where
         Self: Sized,
     {
-        #[cfg(mruby_linked)]
-        {
-            flows::yield_to_block::<Self>(req)
-        }
-        #[cfg(not(mruby_linked))]
-        {
-            let _ = req;
-            not_linked()
-        }
+        flows::yield_to_block::<Self>(req)
     }
 
     /// Bake the canonical boot state into the
@@ -124,20 +95,6 @@ pub trait MrbGuest {
     where
         Self: Sized,
     {
-        #[cfg(mruby_linked)]
-        {
-            flows::bake_boot::<Self>()
-        }
-        #[cfg(not(mruby_linked))]
-        {
-            not_linked()
-        }
+        flows::bake_boot::<Self>()
     }
-}
-
-/// Placeholder-mode failure — mirrors `beni`'s runtime semantics for
-/// builds without a discovered `libmruby.a`.
-#[cfg(not(mruby_linked))]
-fn not_linked() -> ! {
-    panic!("kobako placeholder mode: mruby is not linked; the provided flows need a discovered libmruby.a")
 }

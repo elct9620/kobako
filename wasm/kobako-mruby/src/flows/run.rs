@@ -32,12 +32,10 @@
 /// Invocation entry behind the `__kobako_run` export — see module
 /// docs. `G` supplies the shell-chosen gem set via
 /// `MrbGuest::init_gems`.
-#[cfg(mruby_linked)]
 pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
     run_body::<G>(env);
 }
 
-#[cfg(mruby_linked)]
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
     use crate::codec::PayloadCodec;
