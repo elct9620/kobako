@@ -2,13 +2,12 @@
 
 require "test_helper"
 
-# Differential parity — value round-trip (SPEC.md B-06, B-13, E-06):
-# every wire type must deserialize identically through both frontends,
+# Differential parity — value round-trip: every wire type must
+# deserialize identically through both frontends,
 # whether returned by the guest or by a bound Service. Host-side value
 # fidelity edge cases (embedded NUL, the structural depth guard, Float /
 # Integer bit-fidelity) live in test/e2e/test_outcome_values.rb.
 class TestParityValues < Parity::Case
-  # SPEC.md B-06: `#eval` last-expression values of every wire type.
   # @behavior S-041
   def test_eval_wire_values_round_trip
     sources = [
@@ -29,9 +28,8 @@ class TestParityValues < Parity::Case
     { "t" => "array", "v" => [{ "t" => "int", "v" => "1" }, { "t" => "sym", "v" => "x" }] }
   ].freeze
 
-  # SPEC.md B-13: a Service returning wire-representable values —
-  # constants flow host→guest, the guest hands them back as its
-  # last expression.
+  # A Service returning wire-representable values — constants flow
+  # host→guest, the guest hands them back as its last expression.
   # @behavior S-042
   def test_service_values_round_trip
     methods = SERVICE_CONSTANTS.each_with_index.to_h do |constant, index|
@@ -44,8 +42,6 @@ class TestParityValues < Parity::Case
     )
   end
 
-  # SPEC.md B-12 / B-13: guest-built values survive the
-  # guest→host→guest echo round-trip.
   # @behavior S-043
   def test_echo_round_trip
     assert_parity Parity::Scenario.new(
@@ -57,8 +53,8 @@ class TestParityValues < Parity::Case
     )
   end
 
-  # SPEC.md E-06: a return value with no wire representation is a
-  # sandbox-origin fault on both sides.
+  # A return value with no wire representation is a sandbox-origin fault
+  # on both sides.
   # @behavior S-044
   def test_unrepresentable_return_value
     assert_parity Parity::Scenario.new(

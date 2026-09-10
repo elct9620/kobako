@@ -2,11 +2,11 @@
 
 require "test_helper"
 
-# Coverage for Kobako::Sandbox#run host→guest argument auto-wrap
-# (docs/behavior/dispatch.md B-34) — non-wire-representable args / kwargs values
-# are routed through the Sandbox's Catalog::Handles and arrive in the guest
-# as Kobako::Handle proxies whose method calls dispatch back as
-# transport calls (B-17). The forged-Handle reject path (E-29) lives in
+# Coverage for Kobako::Sandbox#run host→guest argument auto-wrap —
+# non-wire-representable args / kwargs values are routed through the
+# Sandbox's Catalog::Handles and arrive in the guest as Kobako::Handle
+# proxies whose method calls dispatch back as transport calls. The
+# forged-Handle reject path lives in
 # test/e2e/sandbox/test_run_preflight.rb alongside the rest of the #run
 # host pre-flight error coverage; this file is the e2e elevation of the
 # auto-wrap happy path against the real data/kobako.wasm.
@@ -53,7 +53,7 @@ class TestSandboxRunAutoWrap < Minitest::Test
   end
 
   # A cyclic argument nests without bound and cannot faithfully cross. The
-  # host refuses it while encoding the Run payload (E-54), so #run surfaces a
+  # host refuses it while encoding the Run payload, so #run surfaces a
   # clean SandboxError before entering the guest rather than a host stack
   # overflow escaping the invocation.
   # @behavior T-069
@@ -66,7 +66,7 @@ class TestSandboxRunAutoWrap < Minitest::Test
     err = assert_raises(Kobako::SandboxError) { sandbox.run(:App, cyclic) }
 
     assert_match(/nests deeper than 128 levels/, err.message,
-                 "E-54: a cyclic #run argument must be refused for its depth, so the refusal " \
+                 "a cyclic #run argument must be refused for its depth, so the refusal " \
                  "is not mistaken for the sibling unwrappable-key one")
   end
 end

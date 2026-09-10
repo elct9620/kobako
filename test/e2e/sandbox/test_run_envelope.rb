@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# The #run invocation-envelope reservation (docs/behavior/errors.md
-# E-31): the guest's `__kobako_alloc` reporting exhaustion (returns 0)
+# The #run invocation-envelope reservation: the guest's `__kobako_alloc`
+# reporting exhaustion (returns 0)
 # is a runtime-intact host-side failure — it surfaces as
 # Kobako::SandboxError, never as a trap, and never reaches the guest
 # entry point. Driven by a frozen wat fixture whose allocator always

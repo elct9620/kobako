@@ -7,8 +7,8 @@ require "test_helper"
 # Sandbox.new constructs the wasmtime pipeline (Engine / Module / Store /
 # Instance) against the test fixture wasm and normalizes its caps through
 # SandboxOptions; the ABI-version probe and profile-floor check run here too.
-# A run's captures live on the +Kobako::Execution+ it returns (SPEC.md B-04),
-# not on the stateless Sandbox — exercised end-to-end against the real guest
+# A run's captures live on the +Kobako::Execution+ it returns, not on the
+# stateless Sandbox — exercised end-to-end against the real guest
 # elsewhere. The per-channel cap itself is enforced inside the ext-owned WASI
 # pipe.
 class TestSandbox < Minitest::Test
@@ -55,7 +55,7 @@ class TestSandbox < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, gvl: :release)
 
     assert_equal :release, sandbox.gvl,
-                 "gvl: :release through Sandbox.new must read back off #gvl, delegated to SandboxOptions (B-64)"
+                 "gvl: :release through Sandbox.new must read back off #gvl, delegated to SandboxOptions"
   end
 
   # @behavior RT-059
@@ -79,9 +79,9 @@ class TestSandbox < Minitest::Test
   end
 
   # @behavior RT-006
-  # docs/behavior/runtime.md B-40 / E-42: construction probes the guest's
-  # __kobako_abi_version export and accepts only the host's own ABI
-  # version. minimal.wasm predates the export (absent branch);
+  # Construction probes the guest's __kobako_abi_version export and
+  # accepts only the host's own ABI version. minimal.wasm predates the
+  # export (absent branch);
   # minimal_abi_mismatch.wat reports 9999 (non-equal branch). Both are
   # deterministic artifact faults, so they surface at Sandbox.new as
   # Kobako::SetupError — never mid-invocation.

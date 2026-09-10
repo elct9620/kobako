@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Regexp#match / #match? position argument (SPEC.md B-41), MRI-aligned: a
+# Regexp#match / #match? position argument, MRI-aligned: a
 # negative pos counts back from the end (as String#index does); a pos outside
 # 0..length yields no match; pos equal to the length allows an empty match.
 class TestRegexpMatchPosition < Minitest::Test

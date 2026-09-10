@@ -2,7 +2,7 @@
 
 # Seeded generator of random Handle-minting mruby dispatch programs, used by
 # the concurrency scheduling fuzz (test/fuzz/test_dispatch_scheduling_fuzz.rb)
-# that witnesses the gvl: :release scheduling-only guarantee (SPEC.md B-64).
+# that witnesses the gvl: :release scheduling-only guarantee.
 #
 # Every program evaluates to an Array of one leaf per element. Each element
 # mints exactly one Capability Handle from a bound Vault::Mint (which returns
@@ -15,17 +15,16 @@
 #
 # +generate+ returns the program plus a per-element +:int+ / +:token+ kind
 # list, so the harness predicts the canonical result for any tag without
-# parsing the program: an :int leaf reads the owner host-side (B-16), a
-# :token leaf returns the Handle for host-side restoration (B-37).
+# parsing the program: an :int leaf reads the owner host-side, a :token leaf
+# returns the Handle for host-side restoration.
 class DispatchProgramGenerator
   MAX_ELEMENTS = 8
   MAX_NEST = 3
 
-  # Variants whose leaf reads the owner integer host-side (B-16 argument
+  # Variants whose leaf reads the owner integer host-side (argument
   # resolution), each travelling the Handle a different way first.
   OWNER_VARIANTS = %i[arg_direct via_local via_array via_hash yield_break nested_dispatch].freeze
-  # Variants whose leaf returns the Handle itself for host-side restoration
-  # (B-37).
+  # Variants whose leaf returns the Handle itself for host-side restoration.
   RETURN_VARIANTS = %i[return_bare].freeze
   VARIANTS = (OWNER_VARIANTS + RETURN_VARIANTS).freeze
 
@@ -77,7 +76,7 @@ class DispatchProgramGenerator
   end
 
   # Wrap the owner read in 1..MAX_NEST Vault::Wrap yield frames, exercising
-  # nested guest->host dispatch (B-28) under the GVL re-entry to varying
+  # nested guest->host dispatch under the GVL re-entry to varying
   # depth.
   def emit_nested
     depth = @rng.rand(1..MAX_NEST)

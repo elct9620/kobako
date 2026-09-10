@@ -309,7 +309,7 @@ mod classify_tests {
         );
     }
 
-    // E-27: an unresolved entrypoint reaches the caller with the names it
+    // An unresolved entrypoint reaches the caller with the names it
     // could have been, matching what the Ruby frontend exposes as
     // `#available` on its own subclass.
     // @behavior OC-014

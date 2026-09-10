@@ -3,12 +3,12 @@
 require "test_helper"
 
 # Unit-level coverage of Handle invalidity through Transport::Dispatcher:
-# a Handle dies with its run (B-18) and never crosses Sandbox instances
-# (B-19). Handle resolution itself lives in test_dispatcher_handles.rb.
+# a Handle dies with its run and never crosses Sandbox instances. Handle
+# resolution itself lives in test_dispatcher_handles.rb.
 class TestTransportDispatchInvalidity < Minitest::Test
   include DispatcherHelpers
 
-  # ---------- Cross-run invalidity (SPEC B-18) ----------
+  # ---------- Cross-run invalidity ----------
 
   # @behavior T-038
   def test_a_prior_runs_handle_is_undefined_against_the_next_runs_table
@@ -23,14 +23,11 @@ class TestTransportDispatchInvalidity < Minitest::Test
     assert_equal "undefined", resp.payload.type
   end
 
-  # ---------- Cross-Sandbox-instance invalidity (SPEC B-19) ----------
+  # ---------- Cross-Sandbox-instance invalidity ----------
 
-  # SPEC B-19: Handle IDs are Sandbox-private. A Handle ID issued by
-  # Sandbox A's Catalog::Handles has no meaning in Sandbox B's Catalog::Handles;
-  # presenting it there resolves to "ID not found" and surfaces as a
-  # the fault arm with type="undefined". Distinct from B-18 (cross-#run
-  # within one Sandbox): here two physically separate Catalog::Handles
-  # instances back two separate dispatchers, mirroring two live Sandboxes.
+  # Distinct from cross-run invalidity within one Sandbox: here two
+  # physically separate Catalog::Handles instances back two separate
+  # dispatchers, mirroring two live Sandboxes.
   # @behavior T-039
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_target
     table_a = Kobako::Catalog::Handles.new
@@ -49,7 +46,7 @@ class TestTransportDispatchInvalidity < Minitest::Test
 
   # @behavior T-040
   def test_handle_from_sandbox_a_is_undefined_in_sandbox_b_as_arg
-    # Same B-19 boundary, but the cross-Sandbox handle arrives as a
+    # Same boundary, but the cross-Sandbox handle arrives as a
     # positional arg rather than the target. The Server path resolves;
     # arg resolution fails when the id misses B's Catalog::Handles.
     handle_id_in_a = foreign_handle_id(Object.new)
@@ -66,13 +63,13 @@ class TestTransportDispatchInvalidity < Minitest::Test
   private
 
   # Allocate +obj+ in a Catalog::Handles that no dispatcher under test
-  # uses — the foreign Sandbox A side of the B-19 boundary.
+  # uses — the foreign Sandbox A side of the cross-Sandbox boundary.
   def foreign_handle_id(obj)
     Kobako::Catalog::Handles.new.alloc(obj).id
   end
 
   # A second physically separate [server, table] pair mirroring a second
-  # live Sandbox (B-19).
+  # live Sandbox.
   def sandbox_b
     table = Kobako::Catalog::Handles.new
     server = Kobako::Catalog::Services.new
@@ -80,7 +77,7 @@ class TestTransportDispatchInvalidity < Minitest::Test
   end
 
   # Fixture: object with a single `ping → "pong"` method, the minimum
-  # Handle target needed for cross-Sandbox B-19 invalidity coverage.
+  # Handle target needed for cross-Sandbox invalidity coverage.
   def pinger
     obj = Object.new
     def obj.ping = "pong"

@@ -2,14 +2,14 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — capability-gem FFI exception-safety (SPEC.md B-51).
+# E2E (Layer 4) — capability-gem FFI exception-safety.
 #
-# A capability gem (here the kobako-io write surface, B-04) coerces each
+# A capability gem (here the kobako-io write surface) coerces each
 # argument through a guest-supplied `to_s` / `inspect` inside its Rust
 # frame. When that guest method raises, the raise must propagate as an
-# ordinary guest exception attributed as Kobako::SandboxError (E-04) — it
+# ordinary guest exception attributed as Kobako::SandboxError — it
 # must never long-jump across the gem's host-language boundary and surface
-# as a Kobako::TrapError (E-01) that retires the Sandbox. A regression
+# as a Kobako::TrapError that retires the Sandbox. A regression
 # reintroducing the long-jump surfaces here as a TrapError escaping the
 # Kobako::SandboxError expectation.
 class TestE2ECapabilityExceptionSafety < Minitest::Test
@@ -26,7 +26,7 @@ class TestE2ECapabilityExceptionSafety < Minitest::Test
 
   # @behavior MR-003 MR-004
   # `$stdout.puts` coerces its argument via `to_s`; a raising `to_s` is a
-  # guest application error, attributed as Kobako::SandboxError per E-04.
+  # guest application error, attributed as Kobako::SandboxError.
   def test_puts_attributes_a_raising_to_s_as_sandbox_error_not_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -50,7 +50,7 @@ class TestE2ECapabilityExceptionSafety < Minitest::Test
 
   # @behavior MR-005 MR-006
   # `p` coerces its argument via `inspect` — the second funcall coercion
-  # path on the write surface, attributed identically per E-04.
+  # path on the write surface, attributed identically.
   def test_p_attributes_a_raising_inspect_as_sandbox_error_not_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 

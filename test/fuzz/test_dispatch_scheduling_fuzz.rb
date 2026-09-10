@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Fuzz (drives real data/kobako.wasm) — the gvl: :release scheduling-only
-# guarantee over randomized Handle-minting dispatch trees (SPEC.md B-64).
+# guarantee over randomized Handle-minting dispatch trees.
 # Two oracles share one seeded generator of programs that mint Capability
 # Handles and route them back through varied dispatch shapes:
 #
@@ -13,10 +13,10 @@ require "test_helper"
 #     so this exercises the re-entry path across arbitrary shapes.
 #   * Parallel isolation — Threads invoking concurrently each mint and
 #     round-trip only their own Handles, so a foreign owner is a
-#     cross-invocation misdelivery (B-03). Both concurrency shapes B-22
-#     sanctions are covered: distinct :release Sandboxes per Thread, and
-#     one Sandbox shared across Threads with each invocation supplying its
-#     own identity through the per-invocation ctx.bind override (B-63).
+#     cross-invocation misdelivery. Both sanctioned concurrency shapes
+#     are covered: distinct :release Sandboxes per Thread, and one Sandbox
+#     shared across Threads with each invocation supplying its own
+#     identity through the per-invocation ctx.bind override.
 #
 # Fuzz discipline mirrors the Layer 1 codec harness: the seed is sourced
 # from KOBAKO_FUZZ_SEED (random otherwise) and printed in every failure so
@@ -45,7 +45,7 @@ class TestDispatchSchedulingFuzz < Minitest::Test
   end
 
   # A generated program run under :hold and under :release must decode to
-  # the same owners: releasing the GVL changes scheduling only (B-64).
+  # the same owners: releasing the GVL changes scheduling only.
   # @behavior RT-029
   def test_release_outcome_matches_hold
     hold = tagged_sandbox(:hold, 0)
@@ -57,10 +57,10 @@ class TestDispatchSchedulingFuzz < Minitest::Test
 
   # Distinct :release Sandboxes minting Handles on distinct Threads must each
   # resolve only their own Tokens — a foreign owner is a cross-invocation
-  # misdelivery (B-03).
+  # misdelivery.
   # @behavior RT-030
   def test_release_isolates_handles_across_threads
-    assert_isolation_across_batches("each :release Thread must resolve only its own Handles (B-03)") do |specs|
+    assert_isolation_across_batches("each :release Thread must resolve only its own Handles") do |specs|
       run_batch(specs)
     end
   end
@@ -68,12 +68,12 @@ class TestDispatchSchedulingFuzz < Minitest::Test
   # Threads sharing ONE :release Sandbox, each filling Vault::Mint with its own
   # tag through the per-invocation ctx.bind override, must each resolve only
   # their own Handles — a foreign owner is a cross-invocation misdelivery on the
-  # shared-Sandbox shape (B-22 / B-03).
+  # shared-Sandbox shape.
   # @behavior RT-031
   def test_release_shared_sandbox_isolates_across_threads
     shared = shared_sandbox
     assert_isolation_across_batches("each :release Thread sharing one Sandbox must resolve only its own " \
-                                    "ctx.bind identity (B-22 / B-03)") do |specs|
+                                    "ctx.bind identity") do |specs|
       run_shared_batch(shared, specs)
     end
   end
@@ -103,7 +103,7 @@ class TestDispatchSchedulingFuzz < Minitest::Test
     release_result = canonicalize(release.eval(program).value)
     assert_equal want, hold_result, failure(iter, program, ":hold outcome must decode to the minting tag's owners")
     assert_equal hold_result, release_result,
-                 failure(iter, program, ":release outcome must equal :hold — releasing changes scheduling only (B-64)")
+                 failure(iter, program, ":release outcome must equal :hold — releasing changes scheduling only")
   end
 
   # Run one program per Thread on that Thread's own :release Sandbox and

@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Attribution coverage for the branches that don't need a live Sandbox:
-# the two arms that carry no record (docs/behavior/errors.md E-02 / E-03),
+# the two arms that carry no record,
 # an unreadable ok payload, and the Panic class-to-Ruby-class mapping
 # (including the +BytecodeError+ and +UndefinedEntrypointError+ subclass
 # selections). Attribution lives on +Kobako::Outcome+ as a stateless

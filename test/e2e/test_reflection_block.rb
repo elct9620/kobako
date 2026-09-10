@@ -4,11 +4,11 @@ require "test_helper"
 
 # E2E (Layer 4) — guest-side reflection mirror through real mruby
 # (`data/kobako.wasm`). The guest proxy refuses to forward an ambient
-# reflection / eval method name to the host (docs/behavior/security.md
-# B-44); the callable allowlist still forwards.
+# reflection / eval method name to the host; the callable allowlist still
+# forwards.
 #
-# B-44 is non-authoritative opacity — the host's B-42 guard is the real
-# boundary and is covered host-side in test/unit/transport/test_dispatcher_allowlist.rb.
+# The guest refusal is non-authoritative opacity — the host's guard is the
+# real boundary and is covered host-side in test/unit/transport/test_dispatcher_allowlist.rb.
 # This file pins the guest-observable behaviour end to end.
 class TestE2EReflectionBlock < Minitest::Test
   include E2eGuestHelper
@@ -23,10 +23,10 @@ class TestE2EReflectionBlock < Minitest::Test
   def test_reflection_name_is_refused_by_the_guest_proxy
     # A gadget-invoker name reaches the bound-constant proxy's method_missing (it is
     # not a real method on the proxy) and is refused before any wire Call;
-    # the uncaught guest NoMethodError surfaces as SandboxError (E-04).
+    # the uncaught guest NoMethodError surfaces as SandboxError.
     %w[to_proc curry].each do |meth|
       script = "KV::Fn.#{meth}"
-      err = assert_raises(Kobako::SandboxError, "#{script} must be refused guest-side (B-44)") do
+      err = assert_raises(Kobako::SandboxError, "#{script} must be refused guest-side") do
         sandbox_with_fn.eval(script)
       end
       assert_match(/#{meth}/, err.message,
@@ -37,7 +37,7 @@ class TestE2EReflectionBlock < Minitest::Test
   # @behavior T-115
   def test_callable_allowlist_forwards_through_the_guest
     # The denylist excludes the callable allowlist, so a bound lambda stays
-    # invocable end to end (B-42 / B-44).
+    # invocable end to end.
     result = sandbox_with_fn.eval("KV::Fn.call(21)").value
     assert_equal 42, result,
                  "a bound lambda must remain invocable via #call through the real guest"

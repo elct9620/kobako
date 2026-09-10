@@ -2,23 +2,22 @@
 
 require "test_helper"
 
-# Layer 4 — End-to-end coverage for `Kobako::Execution#usage`
-# (docs/behavior/lifecycle.md B-35).
+# Layer 4 — End-to-end coverage for `Kobako::Execution#usage`.
 #
 # Drives the real mruby Guest Binary (`data/kobako.wasm`) so the
 # `wall_time` and `memory_peak` readers exercise the same wasmtime path
-# the production caps in B-01 / E-19 / E-20 ride on. The contract under
+# the production timeout and memory caps ride on. The contract under
 # test: `#eval` / `#run` return a `Kobako::Execution` whose `#usage` is
 # populated on every one of the four outcome classes — value return,
 # `Kobako::TrapError` (including the cap subclasses), `Kobako::SandboxError`,
 # and `Kobako::ServiceError`. A failed run raises an error carrying the same
 # Execution, so a Host App reads `#usage` off the rescue branch exactly as a
 # successful caller reads it off the return value. `memory_peak` never
-# exceeds the configured `memory_limit` even on the E-20 trap.
+# exceeds the configured `memory_limit` even on the memory-cap trap.
 class TestSandboxUsage < Minitest::Test
   include E2eGuestHelper
 
-  # B-35: a successful `#eval` populates `wall_time` with a positive
+  # A successful `#eval` populates `wall_time` with a positive
   # value because the guest export call always takes nonzero time to
   # execute. `memory_peak` is intentionally not asserted here —
   # `1 + 1` may or may not trigger `memory.grow`, and the meaningful
@@ -42,7 +41,7 @@ class TestSandboxUsage < Minitest::Test
                    "a successful invocation's Execution#usage must report memory_peak as Integer bytes"
   end
 
-  # B-35: `#run` shares the same usage path as `#eval`. Pin both verbs
+  # `#run` shares the same usage path as `#eval`. Pin both verbs
   # so a regression that only wires one is caught.
   # @behavior S-059
   def test_run_success_populates_wall_time
@@ -55,7 +54,7 @@ class TestSandboxUsage < Minitest::Test
     assert_operator execution.usage.wall_time, :>, 0.0
   end
 
-  # B-35: each invocation's Execution carries its own usage. A script
+  # Each invocation's Execution carries its own usage. A script
   # that allocates ~200 KiB must report a `memory_peak` past the
   # no-allocation baseline through `memory_growing`.
   # @behavior S-060
@@ -70,7 +69,7 @@ class TestSandboxUsage < Minitest::Test
                     "an allocation of ~200 KiB must register through memory_growing past the entry-time baseline"
   end
 
-  # B-35: the usage record is populated even when the invocation
+  # The usage record is populated even when the invocation
   # terminates via a `TimeoutError` trap. A Host App reading `#usage`
   # off the carried Execution in the rescue branch must see a real
   # measurement so it can decide whether the script ran long because of
@@ -87,7 +86,7 @@ class TestSandboxUsage < Minitest::Test
                 "a timed-out invocation's carried Execution must report the real usage, not the pre-run sentinel"
   end
 
-  # B-35: on `MemoryLimitError`, `memory_peak` reports the last
+  # On `MemoryLimitError`, `memory_peak` reports the last
   # accepted grow rather than the rejected `desired` — so the reading
   # never exceeds `memory_limit`. Without this guarantee a Host App
   # reading the failure would see a budget violation in the
@@ -107,8 +106,8 @@ class TestSandboxUsage < Minitest::Test
     assert_operator error.execution.usage.wall_time, :>, 0.0
   end
 
-  # B-35: a guest-side raise propagates out as `Kobako::SandboxError`
-  # via the Panic envelope path (E-04). Its carried Execution still holds
+  # A guest-side raise propagates out as `Kobako::SandboxError` via the
+  # Panic envelope path. Its carried Execution still holds
   # the run's usage, so a Host App rescuing a runtime guest error can see
   # how much of the budget the failing invocation consumed.
   # @behavior S-069
@@ -122,8 +121,8 @@ class TestSandboxUsage < Minitest::Test
     assert_operator error.execution.usage.wall_time, :>, 0.0
   end
 
-  # B-35: an unrescued Service-call failure surfaces as
-  # `Kobako::ServiceError` (E-13). Same guarantee as the SandboxError
+  # An unrescued Service-call failure surfaces as
+  # `Kobako::ServiceError`. Same guarantee as the SandboxError
   # path — pinning all four outcome classes (success, TrapError,
   # SandboxError, ServiceError) proves usage rides the carried Execution
   # on every outcome the guest reached, not only the value-return one.

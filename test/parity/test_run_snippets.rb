@@ -2,18 +2,17 @@
 
 require "test_helper"
 
-# Differential parity — `#run` and preloaded snippets (SPEC.md B-31,
-# B-32, E-27, E-28, E-32, E-36, E-37, E-38): entrypoint dispatch and
-# per-invocation snippet replay must observe identically through both
-# frontends.
+# Differential parity — `#run` and preloaded snippets: entrypoint
+# dispatch and per-invocation snippet replay must observe identically
+# through both frontends.
 class TestParityRunSnippets < Parity::Case
   BYTECODE_ANSWERS_HEX = File.binread(
     File.expand_path("../fixtures/snippet_answers.mrb", __dir__)
   ).unpack1("H*")
 
-  # The B-31/B-32 replay chain: the Total snippet evaluates its
-  # predecessors' constants (one of them bytecode-form) at replay time,
-  # so an insertion-order or replay drift fails the whole chain.
+  # The replay chain: the Total snippet evaluates its predecessors'
+  # constants (one of them bytecode-form) at replay time, so an
+  # insertion-order or replay drift fails the whole chain.
   REPLAY_CHAIN = [
     { kind: "source", name: "Base", code: "BASE = 40" },
     { kind: "bytecode", hex: BYTECODE_ANSWERS_HEX },
@@ -21,9 +20,9 @@ class TestParityRunSnippets < Parity::Case
     { kind: "source", name: "Handler", code: "Handler = ->() { TOTAL }" }
   ].freeze
 
-  # SPEC.md B-31 / B-32: dispatch into a preloaded entrypoint; source
-  # and bytecode snippets replay in insertion order on every
-  # invocation, uniformly across the #run / #eval verbs.
+  # Dispatch into a preloaded entrypoint; source and bytecode snippets
+  # replay in insertion order on every invocation, uniformly across the
+  # #run / #eval verbs.
   # @behavior S-050
   def test_run_entrypoint
     assert_parity Parity::Scenario.new(
@@ -69,9 +68,9 @@ class TestParityRunSnippets < Parity::Case
     )
   end
 
-  # SPEC.md E-37 / E-38: RITE version mismatch and corrupt bytecode are
-  # the two structural failure modes reserved for the bytecode status;
-  # fixtures are the e2e suite's flipped-version and truncated blobs.
+  # RITE version mismatch and corrupt bytecode are the two structural
+  # failure modes reserved for the bytecode status; fixtures are the e2e
+  # suite's flipped-version and truncated blobs.
   # @behavior S-127
   def test_bytecode_faults
     %w[snippet_wrong_version snippet_corrupt].each do |fixture|

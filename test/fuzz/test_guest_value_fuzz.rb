@@ -26,7 +26,7 @@ require "test_helper"
 #
 #   * The Guest Binary is built MRB_INT32, so integers outside the signed
 #     32-bit range have no guest representation and are refused at the
-#     boundary (E-26, covered in test/e2e/test_integer_range.rb). The
+#     boundary (covered in test/e2e/test_integer_range.rb). The
 #     generator draws only bands the guest can hold.
 #   * mruby Strings carry no encoding tag, so a guest re-encoding a String
 #     has exactly one rule available: valid UTF-8 travels as msgpack str,
@@ -47,7 +47,7 @@ class TestGuestValueFuzz < Minitest::Test
 
   # A generated tree reaches hundreds of kilobytes once the wide bands
   # nest, which the default cap refuses. The subject here is fidelity and
-  # the caps carry their own coverage (E-20), so this harness lifts the
+  # the caps carry their own coverage, so this harness lifts the
   # one that would otherwise decide the run.
   MEMORY_LIMIT = 64 * 1024 * 1024
 

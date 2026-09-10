@@ -106,7 +106,7 @@ class TestCodecContainers < Minitest::Test
   # codec fault the dispatch answer path rescues into Handle allocation,
   # so an over-deep value routed there would be minted as an opaque Handle
   # rather than refused — the opposite of what the #run argument path does
-  # with the same value (E-54).
+  # with the same value.
   # @behavior WP-035
   def test_cyclic_array_encodes_as_a_catchable_wire_violation
     cyclic = []

@@ -3,10 +3,9 @@
 require "test_helper"
 
 # A bound object narrows its own guest-reachable surface through the opt-in
-# private predicate +respond_to_guest?+
-# (docs/behavior/security.md B-50): falsy for every name
+# private predicate +respond_to_guest?+: falsy for every name
 # is opaque, truthy for a subset is an allow-list. The predicate composes
-# beneath the B-42 reflection floor and can only narrow — it never re-opens the
+# beneath the reflection floor and can only narrow — it never re-opens the
 # +send+ / +eval+ surface the floor rejects, so the bound object never becomes
 # an authority over its own security gate.
 class TestDispatchGuestNarrowing < Minitest::Test
@@ -87,12 +86,12 @@ class TestDispatchGuestNarrowing < Minitest::Test
       assert_equal false, resp.ok?,
                    "an opaque object's #{meth} through guest dispatch must be rejected, not invoked on the host"
       assert_equal "undefined", resp.payload.type,
-                   "the opaque object's rejection must surface as the undefined fault (E-48)"
+                   "the opaque object's rejection must surface as the undefined fault"
     end
   end
 
   # The headline credential path: an opaque object handed back as a Capability
-  # Handle (B-14) and reached by the guest as a Handle target (B-17) is narrowed
+  # Handle and reached by the guest as a Handle target is narrowed
   # by the same chokepoint as a bound constant — the guest holds it but calls nothing.
   # @behavior T-125 T-197
   def test_opaque_object_is_narrowed_through_a_handle_target
@@ -101,7 +100,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
     assert_equal false, resp.ok?,
                  "an opaque object reached as a Handle target must be narrowed identically to a bound constant"
     assert_equal "undefined", resp.payload.type,
-                 "the Handle-target rejection must surface as the undefined fault (E-48)"
+                 "the Handle-target rejection must surface as the undefined fault"
   end
 
   # @behavior T-126 T-197
@@ -116,7 +115,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
     assert_equal false, denied.ok?,
                  "a method outside the allow-list through guest dispatch must be rejected"
     assert_equal "undefined", denied.payload.type,
-                 "the non-permitted method rejection must surface as the undefined fault (E-48)"
+                 "the non-permitted method rejection must surface as the undefined fault"
   end
 
   # @behavior T-127
@@ -125,7 +124,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
     assert_equal false, rce.ok?,
                  "send must stay rejected by the floor even when the predicate permits every name"
     assert_equal "undefined", rce.payload.type,
-                 "send must be rejected by the reflection floor (E-43 undefined), not incidentally by the predicate"
+                 "send must be rejected by the reflection floor as undefined, not incidentally by the predicate"
 
     own = dispatch("Cfg::Wide", "safe")
     assert_equal true, own.ok?,
@@ -135,7 +134,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
 
   # respond_to_guest? answers permission, not existence: a permitted name is
   # still subject to the method actually running. A dynamic method_missing
-  # Service that cannot satisfy the name fails as a runtime fault (E-11), never
+  # Service that cannot satisfy the name fails as a runtime fault, never
   # as the undefined narrowing fault — so a truthy predicate never disguises a
   # failed dispatch as a narrowing rejection.
   # @behavior T-128 T-198
@@ -150,7 +149,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
     assert_equal false, boom.ok?,
                  "a permitted name the dynamic Service cannot satisfy must fail at dispatch, not be narrowed away"
     assert_equal "runtime", boom.payload.type,
-                 "the failed dynamic dispatch must surface as a runtime fault (E-11), not the undefined narrowing fault"
+                 "the failed dynamic dispatch must surface as a runtime fault, not the undefined narrowing fault"
   end
 
   # @behavior T-129

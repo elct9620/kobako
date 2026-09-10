@@ -2,17 +2,17 @@
 
 require "test_helper"
 
-# Differential parity — Service dispatch (SPEC.md B-12, E-11, E-12,
-# E-15, B-50, E-48): a guest call on a bound constant must produce the
-# same value or the same fault class on both sides.
+# Differential parity — Service dispatch: a guest call on a bound
+# constant must produce the same value or the same fault class on both
+# sides.
 class TestParityDispatch < Parity::Case
   ECHO_SERVICE = [
     { name: "MyService::KV",
       methods: { echo: { behavior: "echo" }, explode: { behavior: "raise", message: "kaput" } } }
   ].freeze
 
-  # SPEC.md B-12: positional args reach the bound constant and its value
-  # returns to the guest expression.
+  # Positional args reach the bound constant and its value returns to the
+  # guest expression.
   # @behavior T-075
   def test_dispatch_round_trip
     assert_parity Parity::Scenario.new(
@@ -22,8 +22,8 @@ class TestParityDispatch < Parity::Case
     )
   end
 
-  # SPEC.md E-11: a bound constant that raises surfaces as a rescuable
-  # service-origin exception, never a trap.
+  # A bound constant that raises surfaces as a rescuable service-origin
+  # exception, never a trap.
   # @behavior T-076
   def test_bound_constant_failure_is_rescuable
     assert_parity Parity::Scenario.new(
@@ -36,8 +36,8 @@ class TestParityDispatch < Parity::Case
     )
   end
 
-  # SPEC.md E-12: a method the bound constant does not expose resolves to the
-  # undefined fault on both sides.
+  # A method the bound constant does not expose resolves to the undefined
+  # fault on both sides.
   # @behavior T-077
   def test_unknown_method_is_undefined
     assert_parity Parity::Scenario.new(
@@ -47,10 +47,9 @@ class TestParityDispatch < Parity::Case
     )
   end
 
-  # SPEC.md E-15: keyword arguments offered to a method whose signature
-  # accepts none fail the parameter binding as an +argument+ fault on
-  # both sides — derived from the stub's positional-only shape, never
-  # declared.
+  # Keyword arguments offered to a method whose signature accepts none
+  # fail the parameter binding as an +argument+ fault on both sides —
+  # derived from the stub's positional-only shape, never declared.
   STRICT_SERVICE = [
     { name: "MyService::KV",
       methods: { strict_echo: { behavior: "echo_positional" } } }
@@ -72,10 +71,10 @@ class TestParityDispatch < Parity::Case
     )
   end
 
-  # SPEC.md B-50 / E-48: a service's +exposed+ list narrows the
-  # guest-reachable surface on both frontends — an unexposed method is
-  # the undefined fault before it runs, an exposed one is unchanged,
-  # and the predicate itself is never guest-dispatchable.
+  # A service's +exposed+ list narrows the guest-reachable surface on both
+  # frontends — an unexposed method is the undefined fault before it runs,
+  # an exposed one is unchanged, and the predicate itself is never
+  # guest-dispatchable.
   NARROWED_SERVICE = [
     { name: "MyService::KV",
       methods: { visible: { behavior: "echo" }, hidden: { behavior: "echo" } },

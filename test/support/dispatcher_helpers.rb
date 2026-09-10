@@ -53,9 +53,8 @@ module DispatcherHelpers
 
   # Drive the Dispatcher directly with the configured registry / handler
   # and the +NO_YIELD+ stub. Mirrors the per-invocation dispatch +Proc+
-  # +Sandbox+ hands to +Runtime#eval+ / +#run+ (docs/behavior/dispatch.md
-  # B-12) so these unit tests exercise the same entry point as the live
-  # ext callback.
+  # +Sandbox+ hands to +Runtime#eval+ / +#run+ so these unit tests exercise
+  # the same entry point as the live ext callback.
   def dispatch(call, server: @registry, handler: @handler)
     Kobako::Transport::Dispatcher.dispatch(call, server, handler, NO_YIELD)
   end
@@ -77,7 +76,7 @@ module DispatcherHelpers
   end
 
   # Round-trip a Handle-target Call through the dispatcher: build,
-  # dispatch, reify — the shape a guest emits for B-17 chaining.
+  # dispatch, reify — the shape a guest emits for Handle chaining.
   def dispatch_handle_target(id, method, args = [], kwargs = {}, **dispatch_opts)
     reify(dispatch(build_call(id, method, args, kwargs), **dispatch_opts))
   end

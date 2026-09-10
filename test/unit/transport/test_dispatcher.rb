@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Unit-level coverage of Transport::Dispatcher.dispatch — path-target
-# dispatch, kwargs symbolization (E-15), and the error taxonomy for raised
+# dispatch, kwargs symbolization, and the error taxonomy for raised
 # Service methods. Handle resolution lives in test_dispatcher_handles.rb;
 # wire violations and exhaustion in test_dispatcher_violations.rb.
 class TestTransportDispatchUnit < Minitest::Test
@@ -71,9 +71,9 @@ class TestTransportDispatchUnit < Minitest::Test
     assert_equal "argument", answer.payload.type
   end
 
-  # ---------- E-15 — kwargs dispatch (Testing Layer 4) -------------------
+  # ---------- kwargs dispatch (Testing Layer 4) -------------------
 
-  # SPEC E-15 + Wire Contract Call kwargs + Ext Types → ext 0x00.
+  # Wire Contract Call kwargs + Ext Types → ext 0x00.
   # Keyword argument names travel on the wire as Symbols; the dispatcher
   # forwards them to +public_send+ without further conversion.
 

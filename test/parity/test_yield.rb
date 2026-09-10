@@ -2,10 +2,10 @@
 
 require "test_helper"
 
-# Differential parity — block yield protocol (SPEC.md B-23..B-30,
-# E-21, E-22, E-23): the synchronous yield round-trip, break / next /
-# lambda semantics, nested dispatch frames, repeated yields, and the
-# escape hatches must observe identically through both frontends.
+# Differential parity — block yield protocol: the synchronous yield
+# round-trip, break / next / lambda semantics, nested dispatch frames,
+# repeated yields, and the escape hatches must observe identically through
+# both frontends.
 class TestParityYield < Parity::Case
   YIELD_SERVICE = [
     { name: "MyService::KV",
@@ -13,10 +13,9 @@ class TestParityYield < Parity::Case
                  answer: { behavior: "value", value: { t: "sym", v: "ok" } } } }
   ].freeze
 
-  # SPEC.md B-23 / B-24 / B-29 / B-30: a guest block reaches the
-  # Service, each yield round-trips a value, repeated yields run the
-  # block once per iteration, and a Service that never yields discards
-  # the block silently.
+  # A guest block reaches the Service, each yield round-trips a value,
+  # repeated yields run the block once per iteration, and a Service that
+  # never yields discards the block silently.
   # @behavior T-103
   def test_yield_round_trip
     assert_parity Parity::Scenario.new(
@@ -29,9 +28,9 @@ class TestParityYield < Parity::Case
     )
   end
 
-  # SPEC.md B-25 / B-26 / B-27: `break val` terminates the Service with
-  # +val+ as the call's value, `next val` / fallthrough feed the yield
-  # site, and a lambda block's `break` behaves as a plain return.
+  # `break val` terminates the Service with +val+ as the call's value,
+  # `next val` / fallthrough feed the yield site, and a lambda block's
+  # `break` behaves as a plain return.
   # @behavior T-104
   def test_break_next_semantics
     assert_parity Parity::Scenario.new(
@@ -45,9 +44,9 @@ class TestParityYield < Parity::Case
     )
   end
 
-  # SPEC.md B-28: nested dispatch frames each hold their own block; an
-  # inner break terminates only the inner Service.
-  B28_NESTED_SOURCE = <<~RUBY
+  # Nested dispatch frames each hold their own block; an inner break
+  # terminates only the inner Service.
+  NESTED_SOURCE = <<~RUBY
     Outer::A.each(1, 2) do |a|
       inner = Inner::B.each(10, 20) { |b| b == 20 ? (break :inner_stop) : b + a }
       [a, inner]
@@ -62,13 +61,13 @@ class TestParityYield < Parity::Case
         { name: "Outer::A", methods: { each: { behavior: "yield_each" } } },
         { name: "Inner::B", methods: { each: { behavior: "yield_each" } } }
       ],
-      invocations: [{ verb: "eval", source: B28_NESTED_SOURCE }]
+      invocations: [{ verb: "eval", source: NESTED_SOURCE }]
     )
   end
 
-  # SPEC.md E-21 / E-22: a block `return` aimed past the yield boundary
-  # and an unrepresentable block value both surface at the Service's
-  # yield site and, unrescued, attribute to the service origin.
+  # A block `return` aimed past the yield boundary and an unrepresentable
+  # block value both surface at the Service's yield site and, unrescued,
+  # attribute to the service origin.
   ESCAPE_INVOCATIONS = [
     { verb: "eval", source: "def leaker; MyService::KV.each(5) { |x| return x }; end; leaker" },
     { verb: "eval",
@@ -87,12 +86,12 @@ class TestParityYield < Parity::Case
     )
   end
 
-  # SPEC.md B-24 / E-04: a block that raises reaches the Service's yield
-  # site and, left unrescued there, continues in the guest frame that
-  # raised it. Both frontends decide independently which failure came
-  # back from a yield — Ruby by the identity of what it raised, the SDK by
-  # the +YieldError+ variant — so what the guest ends up rescuing, and
-  # what the Host App sees when it does not, is where they could diverge.
+  # A block that raises reaches the Service's yield site and, left
+  # unrescued there, continues in the guest frame that raised it. Both
+  # frontends decide independently which failure came back from a yield —
+  # Ruby by the identity of what it raised, the SDK by the +YieldError+
+  # variant — so what the guest ends up rescuing, and what the Host App
+  # sees when it does not, is where they could diverge.
   BLOCK_RAISE_INVOCATIONS = [
     { verb: "eval", source: "MyService::KV.each(1) { |_x| raise 'from the block' }" },
     { verb: "eval",
@@ -109,12 +108,11 @@ class TestParityYield < Parity::Case
     )
   end
 
-  # SPEC.md E-23: the SDK's +Yielder+ borrows its dispatch frame, so a
-  # Service stashing it for a later dispatch is a compile error on the
-  # Rust side — no scenario can express the escape there. The Ruby
-  # frontend's runtime refusal is pinned by
-  # test/e2e/test_yield_unwind.rb.
+  # The SDK's +Yielder+ borrows its dispatch frame, so a Service stashing
+  # it for a later dispatch is a compile error on the Rust side — no
+  # scenario can express the escape there. The Ruby frontend's runtime
+  # refusal is pinned by test/e2e/test_yield_unwind.rb.
   def test_escaped_yielder_pending
-    skip "E-23 is compile-time-prevented on the SDK Yielder seam; no differential scenario exists"
+    skip "an escaped Yielder is compile-time-prevented on the SDK seam; no differential scenario exists"
   end
 end

@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E (Layer 4) — how long a guest block's failure stays available to be
-# continued (docs/behavior/yield.md B-24). The guest holds the exception
+# continued. The guest holds the exception
 # only until it learns whether the Service rescued it; once the Service
 # runs the block again or the dispatch answers, the failure is spent and
 # must not be handed to any later one. What an unrescued failure becomes
@@ -12,7 +12,7 @@ class TestE2EYieldBlockSpent < Minitest::Test
   include E2eGuestHelper
 
   # @behavior T-097
-  def test_b24_a_rescued_block_raise_leaves_nothing_behind
+  def test_a_rescued_block_raise_leaves_nothing_behind
     seen = swallowing_sandbox.eval(<<~RUBY).value
       first = Probe::Swallow.call { raise "swallowed" }
       first.to_s + ' then ' + Probe::Echo.call(42).to_s
@@ -42,7 +42,7 @@ class TestE2EYieldBlockSpent < Minitest::Test
   RUBY
 
   # @behavior T-098
-  def test_b24_a_held_block_failure_answers_only_its_own_block
+  def test_a_held_block_failure_answers_only_its_own_block
     sandbox = twice_sandbox
     sandbox.bind("Probe::Once", ->(&blk) { blk.call(1) })
 
@@ -64,7 +64,7 @@ class TestE2EYieldBlockSpent < Minitest::Test
   RUBY
 
   # @behavior T-099
-  def test_b24_a_rescued_failure_does_not_answer_the_same_blocks_later_refusal
+  def test_a_rescued_failure_does_not_answer_the_same_blocks_later_refusal
     err = assert_raises(Kobako::ServiceError) { twice_sandbox.eval(SPENT_PROBE) }
 
     assert_match(/not a supported sandbox value type/, err.message,

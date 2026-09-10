@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Regexp#inspect rendering contract (docs/regexp.md RX-01). The source is
+# Regexp#inspect rendering contract. The source is
 # rendered as a regexp literal: / is escaped to \/, a non-whitespace control
 # character becomes \xHH, and printable characters, multibyte UTF-8, and the
 # whitespace controls pass through literally — matching MRI.

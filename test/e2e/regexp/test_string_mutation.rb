@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# In-place String mutation through a Regexp (SPEC.md B-41). String#[]= and
+# In-place String mutation through a Regexp. String#[]= and
 # String#slice! are regexp-aware while delegating a non-Regexp argument to
 # the core method. Offsets are byte-based.
 class TestRegexpStringMutation < Minitest::Test

@@ -2,13 +2,12 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the gvl: scheduling mode through real mruby
-# (docs/behavior/runtime.md B-64). gvl: :release drops Ruby's GVL for the
-# guest span so distinct Sandboxes on distinct Threads run in parallel;
-# :hold keeps it. Releasing changes scheduling only, so every witness here
+# E2E (Layer 4) — the gvl: scheduling mode through real mruby.
+# gvl: :release drops Ruby's GVL for the guest span so distinct Sandboxes
+# on distinct Threads run in parallel; :hold keeps it. Releasing changes scheduling only, so every witness here
 # runs the same scenario under both modes and asserts the observable
 # outcome is identical — the guest value, a guest→host dispatch result, a
-# nested dispatch result (B-28, which exercises the one re-acquire of the
+# nested dispatch result (which exercises the one re-acquire of the
 # released GVL), and the stdout capture all hold across the modes. The
 # host-parallel journey the feature exists for is walked end to end by
 # running distinct :release Sandboxes on distinct Threads. Option
@@ -25,7 +24,7 @@ class TestE2EGvlScheduling < Minitest::Test
 
     assert_equal [1024, 1024], values,
                  "a plain eval through Sandbox.new(gvl:) must yield the same guest value under " \
-                 ":hold and :release (B-64)"
+                 ":hold and :release"
   end
 
   # @behavior RT-023
@@ -38,7 +37,7 @@ class TestE2EGvlScheduling < Minitest::Test
 
     assert_equal ["gvl!", "gvl!"], values,
                  "a guest→host dispatch must return the same result under :hold and :release — " \
-                 "release re-acquires the GVL for the callback (B-64)"
+                 "release re-acquires the GVL for the callback"
   end
 
   # @behavior RT-024
@@ -51,8 +50,8 @@ class TestE2EGvlScheduling < Minitest::Test
     end
 
     assert_equal ["A[outer]:fetched:k1", "A[outer]:fetched:k1"], values,
-                 "nested guest→host dispatch (B-28) must resolve identically under :hold and :release — " \
-                 "the released GVL is re-acquired once and held across the nested frames (B-64)"
+                 "nested guest→host dispatch must resolve identically under :hold and :release — " \
+                 "the released GVL is re-acquired once and held across the nested frames"
   end
 
   # @behavior RT-025
@@ -63,15 +62,15 @@ class TestE2EGvlScheduling < Minitest::Test
     end
 
     assert_equal captures.first, captures.last,
-                 "the stdout capture (B-04) must be identical under :hold and :release — " \
-                 "release changes scheduling only (B-64)"
+                 "the stdout capture must be identical under :hold and :release — " \
+                 "release changes scheduling only"
   end
 
   # @behavior RT-026
   # The journey the feature exists for: a Host App runs guest code on
   # distinct :release Sandboxes across distinct Threads and every thread
   # returns its own correct result, so releasing the GVL keeps each
-  # invocation isolated (B-03) while allowing them to run host-parallel.
+  # invocation isolated while allowing them to run host-parallel.
   def test_release_runs_host_parallel_across_threads_with_isolated_results
     results = (0...4).map do |i|
       Thread.new do
@@ -82,6 +81,6 @@ class TestE2EGvlScheduling < Minitest::Test
 
     assert_equal [0, 100, 200, 300], results,
                  "distinct :release Sandboxes on distinct Threads must each return their own " \
-                 "isolated result (B-64 / B-03)"
+                 "isolated result"
   end
 end

@@ -6,15 +6,10 @@ require "test_helper"
 # isolation-profile floor, and owns the PROFILES ladder comparison
 # (#enforce_floor!) that Sandbox.new delegates its construction floor
 # check to. Pure Ruby — no native ext — so it runs on a clean checkout.
-# The contract (docs/behavior/lifecycle.md B-01,
-# docs/behavior/security.md B-54): an absent cap takes its DEFAULT, an
-# explicit nil disables that bound, and a set output / memory cap must be a
-# positive Integer. All four caps behave uniformly. The profile option is
-# the one non-cap: nil is NOT a disable switch there — the no-floor
-# request is an explicit :permissive — so nil is rejected with the other
-# non-ladder values (E-39).
+# The profile option is the one non-cap: nil is NOT a disable switch there
+# — the no-floor request is an explicit :permissive.
 class TestSandboxOptions < Minitest::Test
-  # Pins the literal SPEC B-01 values (60 s / 1 MiB), not just the
+  # Pins the literal SPEC default values (60 s / 1 MiB), not just the
   # DEFAULT_* constants, so a drift in either direction is caught here.
   # @behavior S-004
   def test_absent_caps_take_their_spec_defaults
@@ -94,7 +89,7 @@ class TestSandboxOptions < Minitest::Test
   # @behavior RT-011
   def test_rejects_profile_outside_the_ladder
     # nil included deliberately: the no-floor request is an explicit
-    # :permissive, so profile has no nil-disable form (B-54 / E-39).
+    # :permissive, so profile has no nil-disable form.
     [nil, :sealed, "hermetic", 1].each do |bad|
       assert_raises(ArgumentError, "profile #{bad.inspect} through SandboxOptions.new must be rejected") do
         Kobako::SandboxOptions.new(profile: bad)
@@ -105,36 +100,36 @@ class TestSandboxOptions < Minitest::Test
   # @behavior RT-018
   def test_absent_gvl_takes_the_hold_default
     assert_equal :hold, Kobako::SandboxOptions.new.gvl,
-                 "an absent gvl through SandboxOptions.new must default to :hold, the GVL-holding mode (B-64)"
+                 "an absent gvl through SandboxOptions.new must default to :hold, the GVL-holding mode"
   end
 
   # @behavior RT-019
   def test_gvl_modes_pass_through
     Kobako::SandboxOptions::GVL_MODES.each do |mode|
       assert_equal mode, Kobako::SandboxOptions.new(gvl: mode).gvl,
-                   "gvl mode #{mode.inspect} through SandboxOptions.new must be readable back unchanged (B-64)"
+                   "gvl mode #{mode.inspect} through SandboxOptions.new must be readable back unchanged"
     end
   end
 
   # @behavior RT-020
   def test_rejects_gvl_outside_the_mode_set
     # nil included deliberately: gvl is requested as an explicit mode, so
-    # it has no nil-disable form — anything off GVL_MODES is rejected (B-64).
+    # it has no nil-disable form — anything off GVL_MODES is rejected.
     [nil, :auto, "release", 1].each do |bad|
-      assert_raises(ArgumentError, "gvl #{bad.inspect} through SandboxOptions.new must be rejected (B-64)") do
+      assert_raises(ArgumentError, "gvl #{bad.inspect} through SandboxOptions.new must be rejected") do
         Kobako::SandboxOptions.new(gvl: bad)
       end
     end
   end
 
   # @behavior RT-012
-  # The floor check's failing branch (E-49) is witnessed here, on the
+  # The floor check's failing branch is witnessed here, on the
   # ladder owner, with a plain declared value — the bundled runtime
   # always builds the requested rung, so no real runtime can hand
   # Sandbox.new a below-floor declaration.
   def test_enforce_floor_rejects_a_declaration_below_the_requested_floor
     err = assert_raises(Kobako::SetupError,
-                        "a :permissive declaration through #enforce_floor! must fail a :hermetic floor (E-49)") do
+                        "a :permissive declaration through #enforce_floor! must fail a :hermetic floor") do
       Kobako::SandboxOptions.new(profile: :hermetic).enforce_floor!(:permissive)
     end
     assert_match(/permissive/, err.message)
@@ -142,20 +137,20 @@ class TestSandboxOptions < Minitest::Test
   end
 
   # @behavior RT-013
-  # B-54's fail-closed clause: a declaration the gem cannot place on the
-  # ladder ranks below every floor. Witnessed against the :permissive
+  # Fail-closed: a declaration the gem cannot place on the ladder ranks
+  # below every floor. Witnessed against the :permissive
   # floor because that is the rung an off-ladder declaration could most
   # plausibly slip past.
   def test_enforce_floor_ranks_an_off_ladder_declaration_below_every_floor
     err = assert_raises(Kobako::SetupError,
-                        "an off-ladder declaration must rank below even the :permissive floor (B-54 fail-closed)") do
+                        "an off-ladder declaration must rank below even the :permissive floor, failing closed") do
       Kobako::SandboxOptions.new(profile: :permissive).enforce_floor!(:isolated)
     end
     assert_match(/isolated/, err.message)
   end
 
   # @behavior RT-014
-  # B-54's passing branch: a declaration at the floor constructs, and a
+  # The passing branch: a declaration at the floor constructs, and a
   # runtime that can only build a stronger posture satisfies a weaker
   # request by declaring what it built. The contract is "returns
   # without raising" — the return value is void — and minitest turns

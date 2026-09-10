@@ -15,9 +15,9 @@ require "tempfile"
 # Two paths bring a Class/Module to a guest, closed by two complementary
 # guards:
 #   * A bound Service that returns a bare Class/Module (the advisory PoC) is
-#     refused at the Handle mint point (B-43) — it never crosses.
+#     refused at the Handle mint point — it never crosses.
 #   * A Class/Module bound directly as a Service has its class-level methods
-#     refused by the owner-based dispatch floor (B-42), which now treats a
+#     refused by the owner-based dispatch floor, which now treats a
 #     singleton-class owner as ambient surface.
 # `bind` is meant for a Host App's own domain objects, whose ordinary
 # instance methods (owner = that class) stay reachable; the high-privilege
@@ -47,7 +47,7 @@ class TestE2EClassEscape < Minitest::Test
     end
   end
 
-  # --- B-43: a returned Class / Module never crosses as a Handle ---
+  # --- a returned Class / Module never crosses as a Handle ---
 
   # @behavior T-132
   def test_returned_class_is_refused_at_the_mint_point
@@ -88,7 +88,7 @@ class TestE2EClassEscape < Minitest::Test
                  "no command output may reach the guest — the process must never spawn")
   end
 
-  # --- B-42: a directly-bound Class / Module has class-level methods denied ---
+  # --- a directly-bound Class / Module has class-level methods denied ---
 
   # @behavior T-133 T-194
   def test_directly_bound_module_refuses_a_class_level_command

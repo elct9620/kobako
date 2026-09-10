@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Coverage for the Codec::HandleWalk predicate and deep-wrap helpers
-# behind SPEC B-34 — host→guest auto-wrap. The byte-boundary
+# behind host→guest auto-wrap. The byte-boundary
 # +assert_utf8!+ / +with_boundary+ helpers that stayed on +Codec::Utils+
 # are exercised transitively by the Codec / Decoder / Factory tests; this
 # file pins the allocator-aware surface. The symmetric +deep_restore+

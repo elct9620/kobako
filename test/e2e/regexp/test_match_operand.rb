@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# The match-family operand contract (docs/regexp.md RX-02 / RX-06). A Regexp
+# The match-family operand contract. A Regexp
 # match takes a String or Symbol subject, treats nil as no match, and raises
 # TypeError on anything else (=== rescues to false). For String#match /
 # #match? the pattern must be a Regexp (a String is not coerced) — anything

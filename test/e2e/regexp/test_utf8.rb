@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# UTF-8 matching contract (SPEC.md B-41). Literal multibyte patterns match
+# UTF-8 matching contract. Literal multibyte patterns match
 # their substrings and offsets are byte-based.
 class TestRegexpUtf8 < Minitest::Test
   include RegexpGuestHelper
@@ -25,10 +25,9 @@ class TestRegexpUtf8 < Minitest::Test
                  "a multibyte capture group must round-trip through the host wire as an Array of substrings"
   end
 
-  # docs/regexp.md RX-01: the shorthand classes are ASCII, but a negated
-  # shorthand inside a character class keeps the engine's Unicode category
-  # semantics. The fullwidth digit ５ (Unicode Nd, not ASCII 0-9) tells the
-  # two apart.
+  # The shorthand classes are ASCII, but a negated shorthand inside a
+  # character class keeps the engine's Unicode category semantics. The
+  # fullwidth digit ５ (Unicode Nd, not ASCII 0-9) tells the two apart.
   # @behavior RX-085
   def test_negated_shorthand_is_ascii_outside_a_class
     assert_equal 0, eval_regexp('"５" =~ /\D/'),

@@ -6,18 +6,6 @@
 # guest-observable end of the mechanism (File.join local, File.read
 # dispatched) lives in the #install E2E; this file pins the host-side
 # composition, provider resolution, and dependency contract.
-#
-# Cross-references:
-#   - SPEC.md / docs/behavior/extension.md B-55 — install composes an
-#     Extension into a preloaded snippet plus an optional bound backend
-#   - SPEC.md / docs/behavior/extension.md B-56 — a backend's bound object is
-#     a static object:, a per-invocation provider: resolved fresh per
-#     invocation, or a fillable defaulting to Kobako::Unresolved; the kind is
-#     chosen by keyword and provider identity is resource identity
-#   - SPEC.md / docs/behavior/extension.md B-57 — depends_on is asserted
-#     for presence at the seal; cycles permitted
-#   - SPEC.md / docs/behavior/errors.md E-52 — an unmet dependency raises
-#   - SPEC.md / docs/behavior/errors.md E-53 — a malformed Extension raises
 
 require "test_helper"
 
@@ -67,7 +55,7 @@ module Kobako
     def snippet_names = @snippets.entries.map { |entry| entry[1] }
   end
 
-  # B-55 composition, B-57 / E-52 dependency presence, E-53 malformed shape.
+  # Composition, dependency presence, and malformed-shape refusal.
   class CatalogExtensionsTest < Minitest::Test
     include ExtensionTestSupport
 
@@ -80,9 +68,9 @@ module Kobako
                         backend: static_backend("Vfs", fs)))
 
       assert_equal ["File"], snippet_names,
-                   "install must register the Extension source as a snippet named by #name (B-55)"
+                   "install must register the Extension source as a snippet named by #name"
       assert_same fs, @services.lookup("Vfs"),
-                  "install must bind the backend at backend.path, independent of #name (B-55)"
+                  "install must bind the backend at backend.path, independent of #name"
     end
 
     # @behavior EX-003
@@ -91,7 +79,7 @@ module Kobako
 
       assert_equal ["Errno"], snippet_names
       assert_empty @services.paths,
-                   "a pure-guest Extension (no backend) must bind no Service (B-55)"
+                   "a pure-guest Extension (no backend) must bind no Service"
     end
 
     # @behavior EX-004
@@ -116,7 +104,7 @@ module Kobako
       err = assert_raises(ArgumentError) { @extensions.seal! }
       assert_match(/:File/, err.message)
       assert_match(/:Errno/, err.message,
-                   "an unmet dependency assertion names the missing Extension (B-57 / E-52)")
+                   "an unmet dependency assertion names the missing Extension")
     end
 
     # @behavior EX-024
@@ -125,7 +113,7 @@ module Kobako
       install(extension(name: "File", source: "2", depends_on: ["Errno"]))
 
       assert_same @extensions, @extensions.seal!,
-                  "a depends_on entry and a name match by Symbol, so their String/Symbol forms interchange (B-57)"
+                  "a depends_on entry and a name match by Symbol, so their String/Symbol forms interchange"
     end
 
     # @behavior EX-025
@@ -134,7 +122,7 @@ module Kobako
       install(extension(name: :B, source: "2", depends_on: [:A]))
 
       assert_same @extensions, @extensions.seal!,
-                  "presence-only assertion permits dependency cycles (B-57)"
+                  "presence-only assertion permits dependency cycles"
     end
 
     # @behavior EX-026
@@ -151,7 +139,7 @@ module Kobako
       install(extension(name: :B, source: "2", depends_on: [:Missing]))
       assert_same @extensions, @extensions.seal!,
                   "seal! asserts dependencies only at the first seal, so a dependency left " \
-                  "unmet afterward does not raise on a later seal (B-57)"
+                  "unmet afterward does not raise on a later seal"
     end
 
     # @behavior EX-031
@@ -164,7 +152,7 @@ module Kobako
       assert_raises(ArgumentError) { @extensions.seal! }
       assert_raises(ArgumentError,
                     "a seal that failed on an unmet dependency must re-check on retry, not silently " \
-                    "pass — the asserted flag flips only on a successful seal (E-52)") do
+                    "pass — the asserted flag flips only on a successful seal") do
         @extensions.seal!
       end
     end
@@ -174,7 +162,7 @@ module Kobako
     # source has nothing to become.
     def test_install_rejects_a_non_string_source
       err = assert_raises(ArgumentError) { install(extension(name: :File, source: 123)) }
-      assert_match(/source/, err.message, "a non-String source is a malformed Extension (E-53)")
+      assert_match(/source/, err.message, "a non-String source is a malformed Extension")
     end
 
     # @behavior EX-033
@@ -183,11 +171,11 @@ module Kobako
     def test_install_rejects_a_backend_missing_path_object_or_provider
       err = assert_raises(ArgumentError) { install(extension(name: :File, source: "1", backend: Object.new)) }
       assert_match(/backend/, err.message,
-                   "a backend that does not expose #path, #object, and #provider is malformed (E-53)")
+                   "a backend that does not expose #path, #object, and #provider is malformed")
     end
   end
 
-  # B-56 backend provider resolution: fixed vs per-invocation, identity.
+  # Backend provider resolution: fixed vs per-invocation, identity.
   class CatalogExtensionsProviderTest < Minitest::Test
     include ExtensionTestSupport
 
@@ -198,23 +186,23 @@ module Kobako
       fs = Object.new
       install(extension(name: :File, source: "1", backend: static_backend("File", fs)))
 
-      assert_same fs, @services.lookup("File"), "a fixed provider is bound directly at install (B-55)"
+      assert_same fs, @services.lookup("File"), "a fixed provider is bound directly at install"
       refute @extensions.resolve.key?("File"),
-             "a fixed provider is never per-invocation resolved; it stays the install-bound object (B-56)"
+             "a fixed provider is never per-invocation resolved; it stays the install-bound object"
       assert_same fs, @services.lookup("File"),
-                  "a fixed provider stays the same object across invocations (B-56)"
+                  "a fixed provider stays the same object across invocations"
     end
 
     # @behavior EX-011 EX-012
     def test_provider_backend_resolves_a_fresh_object_each_invocation
       install(extension(name: :File, source: "1", backend: provider_backend("File", -> { Object.new })))
       assert_same Kobako::Unresolved, @services.lookup("File"),
-                  "a provider: backend reserves the base path with the Unresolved placeholder until resolve (B-56)"
+                  "a provider: backend reserves the base path with the Unresolved placeholder until resolve"
 
       first = @extensions.resolve.fetch("File")
 
       refute_same first, @extensions.resolve.fetch("File"),
-                  "each invocation resolves a fresh backend object (B-56)"
+                  "each invocation resolves a fresh backend object"
     end
 
     # @behavior EX-014 EX-015
@@ -222,9 +210,9 @@ module Kobako
       install(extension(name: :File, source: "1", backend: Kobako::Extension::Backend.new(path: "File")))
 
       assert_same Kobako::Unresolved, @services.lookup("File"),
-                  "a backend declaring neither object: nor provider: is fillable, binding Kobako::Unresolved (B-56)"
+                  "a backend declaring neither object: nor provider: is fillable, binding Kobako::Unresolved"
       refute @extensions.resolve.key?("File"),
-             "a fillable backend is never per-invocation resolved; it stays Unresolved until filled (B-56)"
+             "a fillable backend is never per-invocation resolved; it stays Unresolved until filled"
     end
 
     # @behavior EX-013
@@ -233,7 +221,7 @@ module Kobako
         Kobako::Extension::Backend.new(path: "File", object: Object.new, provider: -> { Object.new })
       end
       assert_match(/object.*provider|not both/, err.message,
-                   "declaring both object: and provider: is ambiguous and must raise (B-56)")
+                   "declaring both object: and provider: is ambiguous and must raise")
     end
 
     # @behavior EX-016 EX-017
@@ -245,9 +233,9 @@ module Kobako
 
       resolved = @extensions.resolve
 
-      assert_equal 1, sink.size, "one provider shared by several Extensions resolves once per invocation (B-56)"
+      assert_equal 1, sink.size, "one provider shared by several Extensions resolves once per invocation"
       assert_same resolved.fetch("File"), resolved.fetch("Dir"),
-                  "a shared provider must back every path with the same object (B-56)"
+                  "a shared provider must back every path with the same object"
     end
 
     # @behavior EX-018
@@ -258,22 +246,22 @@ module Kobako
       resolved = @extensions.resolve
 
       refute_same resolved.fetch("File"), resolved.fetch("Dir"),
-                  "distinct providers must resolve to distinct objects (B-56)"
+                  "distinct providers must resolve to distinct objects"
     end
 
     # @behavior EX-019 EX-020
-    # B-56 provider failure: a raising provider is host code, so its own
-    # exception propagates unwrapped; resolution being per-invocation, a
-    # later resolve whose provider succeeds resolves the path normally.
+    # A raising provider is host code, so its own exception propagates
+    # unwrapped; resolution being per-invocation, a later resolve whose
+    # provider succeeds resolves the path normally.
     def test_raising_provider_propagates_unchanged_then_recovers_on_a_later_resolve
       install(extension(name: :File, source: "1", backend: provider_backend("File", raise_once_provider)))
 
       err = assert_raises(RuntimeError) { @extensions.resolve }
       assert_equal "provider boom", err.message,
-                   "a raising provider's own exception must propagate unchanged, never a wrapped Kobako error (B-56)"
+                   "a raising provider's own exception must propagate unchanged, never a wrapped Kobako error"
 
       refute_nil @extensions.resolve.fetch("File"),
-                 "per-invocation resolution must let a later resolve whose provider succeeds bind the path (B-56)"
+                 "per-invocation resolution must let a later resolve whose provider succeeds bind the path"
     end
   end
 end

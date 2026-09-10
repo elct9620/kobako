@@ -3,10 +3,8 @@
 require "test_helper"
 
 # How a pattern that cannot compile, or a match that cannot be bounded,
-# surfaces (SPEC.md B-41; docs/regexp.md RX-01 / RX-10). The guest raises
-# RegexpError, which reaches an uncatching host as SandboxError. The witness
-# for the ceiling is a shape MRI cannot answer either, so the tests pin the
-# contract rather than the engine version's threshold.
+# surfaces. The witness for the ceiling is a shape MRI cannot answer either,
+# so the tests pin the contract rather than the engine version's threshold.
 class TestRegexpPatternErrors < Minitest::Test
   include RegexpGuestHelper
 

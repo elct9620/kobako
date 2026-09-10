@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E (Layer 4) — the JSON capability-reference boundary through the real
-# json guest (SPEC.md B-53). parse cannot fabricate a host capability, and
+# json guest. parse cannot fabricate a host capability, and
 # generate refuses one rather than dispatching to the host.
 class TestJsonCapabilityBoundary < Minitest::Test
   include JsonGuestHelper
@@ -23,23 +23,20 @@ class TestJsonCapabilityBoundary < Minitest::Test
     JSON.generate(o)
   RUBY
 
-  # B-53 (inbound): no JSON syntax decodes to a Handle — a parsed object is
-  # an ordinary Hash exposing no host capability, so a guest cannot forge
-  # one through parse.
+  # Inbound: no JSON syntax decodes to a Handle — a parsed object is an
+  # ordinary Hash exposing no host capability.
   # @behavior JS-041
-  def test_b53_parse_cannot_forge_a_handle
+  def test_parse_cannot_forge_a_handle
     assert_equal "Hash", eval_json('JSON.parse(%q({"greet":"x"})).class.to_s'),
                  "JSON.parse through the json guest must yield an ordinary Hash, never a host capability"
     assert_equal false, eval_json('JSON.parse(%q({"greet":"x"})).respond_to?(:greet)'),
                  "a value JSON.parse produced must not answer to a host Service method — it is no capability"
   end
 
-  # B-53 (outbound): a bare Handle reaches the generate converter and is
-  # refused with GeneratorError. The error is the witness that the
-  # Object-rooted as_json default fired locally — a host round-trip would
-  # surface a different outcome, not a JSON::GeneratorError.
+  # GeneratorError is the witness that the Object-rooted as_json default
+  # fired locally — a host round-trip would surface a different outcome.
   # @behavior JS-042
-  def test_b53_generate_refuses_a_bare_handle
+  def test_generate_refuses_a_bare_handle
     sandbox = Kobako::Sandbox.new(wasm_path: JsonGuestHelper::JSON_WASM)
     sandbox.bind("Source::Get", -> { Greeter.new })
 
@@ -49,11 +46,10 @@ class TestJsonCapabilityBoundary < Minitest::Test
                  "JSON.generate of a Handle through the json guest must raise GeneratorError, not dispatch to the host"
   end
 
-  # B-53 (outbound): a Handle smuggled inside an opt-in object's as_json
-  # result is still refused — the depth-first walk reaches it and the same
-  # boundary fires.
+  # The depth-first walk reaches a Handle smuggled inside an opt-in object's
+  # as_json result, so the same boundary fires.
   # @behavior JS-043
-  def test_b53_generate_refuses_a_handle_nested_in_an_as_json_result
+  def test_generate_refuses_a_handle_nested_in_an_as_json_result
     sandbox = Kobako::Sandbox.new(wasm_path: JsonGuestHelper::JSON_WASM)
     sandbox.bind("Source::Get", -> { Greeter.new })
 
@@ -63,13 +59,10 @@ class TestJsonCapabilityBoundary < Minitest::Test
                  "JSON.generate must refuse a Handle nested in an as_json result, not dispatch it to the host"
   end
 
-  # B-53 (outbound): a Handle used as a Hash key is refused through the key
-  # boundary, distinct from the value boundary. GeneratorError is the
-  # witness that the key was rejected locally — a host-dispatching to_s
-  # would stringify the Handle and let generate succeed, the failure mode
-  # this pins shut.
+  # The key boundary is distinct from the value boundary: a host-dispatching
+  # to_s would stringify the Handle and let generate succeed.
   # @behavior JS-044
-  def test_b53_generate_refuses_a_handle_used_as_a_hash_key
+  def test_generate_refuses_a_handle_used_as_a_hash_key
     sandbox = Kobako::Sandbox.new(wasm_path: JsonGuestHelper::JSON_WASM)
     sandbox.bind("Source::Get", -> { Greeter.new })
 
@@ -79,13 +72,11 @@ class TestJsonCapabilityBoundary < Minitest::Test
                  "a Handle Hash key through JSON.generate must be refused at the key boundary, not host-dispatched"
   end
 
-  # B-53 (outbound): the as_json hook is itself no host-penetration path.
-  # A direct as_json call on a Handle resolves the Object-rooted default
-  # locally — were it unshadowed, the call would fall to the Handle's
-  # method_missing and dispatch as_json to the host, surfacing some other
-  # error rather than the JSON::GeneratorError this asserts.
+  # The as_json hook is itself no host-penetration path: were the
+  # Object-rooted default unshadowed, the call would fall to the Handle's
+  # method_missing and dispatch as_json to the host.
   # @behavior JS-045
-  def test_b53_calling_as_json_on_a_handle_raises_locally_without_host_dispatch
+  def test_calling_as_json_on_a_handle_raises_locally_without_host_dispatch
     sandbox = Kobako::Sandbox.new(wasm_path: JsonGuestHelper::JSON_WASM)
     sandbox.bind("Source::Get", -> { Greeter.new })
 

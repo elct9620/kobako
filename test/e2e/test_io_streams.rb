@@ -2,9 +2,9 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the stdout / stderr capture channels through real mruby
-# (SPEC.md B-04): routing, truncation caps, per-run reset (B-03), and
-# $stdout reassignment semantics. Kernel-level write primitives live in
+# E2E (Layer 4) — the stdout / stderr capture channels through real mruby:
+# routing, truncation caps, per-run reset, and $stdout reassignment
+# semantics. Kernel-level write primitives live in
 # test_io_kernel.rb; the IO write byte paths in test_io_write.rb.
 class TestE2EIoStreams < Minitest::Test
   include E2eGuestHelper
@@ -22,10 +22,8 @@ class TestE2EIoStreams < Minitest::Test
   OVERFLOW_STDERR_SCRIPT =
     'begin; $stderr.puts "long enough to overflow the 5-byte cap"; rescue StandardError; end; 1'
 
-  # SPEC.md B-04: output past +stdout_limit+ is clipped at the cap
-  # boundary, +#stdout+ carries no truncation sentinel, and
-  # +#stdout_truncated?+ flips to +true+. The cap is enforced inside the
-  # WASI pipe — +#run+ still returns the script's last expression.
+  # The cap is enforced inside the WASI pipe, so +#run+ still returns the
+  # script's last expression.
   # @behavior S-024 S-131 S-133
   def test_stdout_truncation_flag_when_output_exceeds_cap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stdout_limit: 5)
@@ -43,8 +41,8 @@ class TestE2EIoStreams < Minitest::Test
     assert execution.stdout_truncated?
   end
 
-  # SPEC.md B-03: truncation predicates reset together with the capture
-  # buffers at the start of the next +#run+.
+  # Truncation predicates reset together with the capture buffers at the
+  # start of the next +#run+.
   # @behavior S-025
   def test_stdout_truncated_predicate_resets_between_runs
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stdout_limit: 5)
@@ -52,17 +50,13 @@ class TestE2EIoStreams < Minitest::Test
     assert first.stdout_truncated?, "setup: first run must overflow the cap"
 
     second = sandbox.eval("nil")
-    refute second.stdout_truncated?, "B-03: stdout_truncated? must reset on the next run"
+    refute second.stdout_truncated?, "stdout_truncated? must reset on the next run"
     assert_equal "", second.stdout
   end
 
-  # SPEC.md B-03: the per-run reset also covers a run that *trapped* —
-  # the invocation raises instead of returning, the one path where the
-  # reset could plausibly be skipped — so a rescued TimeoutError's
-  # partial output must not bleed into the next run's readout. Trap
-  # counterpart of the truncation-predicate reset case above; the
-  # trapped run's partial-output readability itself is pinned by the
-  # B-04 cases in test_caps.rb.
+  # A trapped run raises instead of returning — the one path where the
+  # per-run reset could plausibly be skipped — so a rescued TimeoutError's
+  # partial output must not bleed into the next run's readout.
   # @behavior S-026
   def test_captures_reset_on_the_invocation_after_a_trap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
@@ -74,33 +68,28 @@ class TestE2EIoStreams < Minitest::Test
     assert_equal 3, execution.value
 
     assert_equal "", execution.stdout,
-                 "stdout left by a trapped run must reset on the next invocation per SPEC.md B-03"
+                 "stdout left by a trapped run must reset on the next invocation"
     assert_equal "", execution.stderr,
-                 "stderr left by a trapped run must reset on the next invocation per SPEC.md B-03"
+                 "stderr left by a trapped run must reset on the next invocation"
   end
 
-  # SPEC.md B-04: $stderr writes land in Execution#stderr, not Execution#stdout.
-  # Covers the guest-side fd 2 path enabled by the kobako-io ::IO gem.
-  # The equality assertion rejects install-time noise (e.g. mruby's +mrb_warn+
-  # for a NULL super class) leaking onto fd 2 — the guest's own +$stderr.puts+
-  # output is the only thing the channel may carry on this run.
+  # Covers the guest-side fd 2 path enabled by the kobako-io ::IO gem; the
+  # equality assertion rejects install-time noise (e.g. mruby's +mrb_warn+
+  # for a NULL super class) leaking onto fd 2.
   # @behavior S-028
   def test_stderr_puts_routes_to_stderr_channel
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     execution = sandbox.eval('$stderr.puts "diagnostic"; 1')
 
     assert_equal "diagnostic\n", execution.stderr,
-                 "B-04: $stderr.puts must reach Execution#stderr exclusively"
+                 "$stderr.puts must reach Execution#stderr exclusively"
     assert_empty execution.stdout,
-                 "B-04: stderr writes must not bleed into Execution#stdout"
+                 "stderr writes must not bleed into Execution#stdout"
   end
 
-  # SPEC.md B-04: Kernel#warn delegates through $stderr per the kobako-io
-  # Kernel delegators,
-  # so warned bytes show up on Execution#stderr like any other stderr write.
-  # The equality assertion also rejects install-time noise (e.g. mruby's
-  # +mrb_warn+ for a NULL super class) leaking onto fd 2 — the guest's own
-  # +warn+ output is the only thing the channel may carry on this run.
+  # Kernel#warn delegates through $stderr, so warned bytes show up on
+  # Execution#stderr like any other stderr write; the equality assertion
+  # also rejects install-time noise leaking onto fd 2.
   # @behavior S-029
   def test_warn_routes_to_stderr_channel
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -164,12 +153,9 @@ class TestE2EIoStreams < Minitest::Test
     assert execution.stderr_truncated?
   end
 
-  # L5 / B-01: an explicit nil output cap leaves the channel uncapped, so
-  # output far past the 1 MiB default is captured in full and the predicate
-  # stays false. Proves the ext's uncapped (None → usize::MAX) capture path
-  # is reachable from the Sandbox once nil disables the bound. memory_limit
-  # is also lifted so the 2 MiB the guest builds is not stopped by the
-  # memory cap before it can reach the capture pipe.
+  # Proves the ext's uncapped (None → usize::MAX) capture path is reachable
+  # from the Sandbox once nil disables the bound. memory_limit is also lifted
+  # so the 2 MiB the guest builds is not stopped by the memory cap first.
   # @behavior S-033
   def test_nil_stdout_limit_captures_output_past_the_default_cap
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, stdout_limit: nil, memory_limit: nil)
@@ -187,9 +173,8 @@ class TestE2EIoStreams < Minitest::Test
            "an uncapped stdout channel must never report truncation"
   end
 
-  # SPEC.md B-04: stdout buffer is per-run; second #run does not see first run's output.
   # @behavior S-027
-  def test_stdout_is_per_run_b04
+  def test_stdout_is_per_run
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     first = sandbox.eval('puts "first"; 1')
@@ -197,7 +182,7 @@ class TestE2EIoStreams < Minitest::Test
 
     second = sandbox.eval('puts "second"; 2')
     refute_includes second.stdout, "first",
-                    "B-04: stdout must reset between runs (SPEC.md B-04 L264-270)"
+                    "stdout must reset between runs"
     assert_includes second.stdout, "second"
   end
 end

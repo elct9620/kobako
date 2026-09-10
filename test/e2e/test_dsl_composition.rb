@@ -4,13 +4,13 @@ require "test_helper"
 
 # E2E (Layer 4) — host-object DSL composition through real mruby. A guest-side
 # builder idiom (a generic wrapper over Capability Handles) composes existing
-# anchors into a nested-structure builder whose dialects live entirely on the
-# host: a Service returns child Handles (B-14), the guest chains method calls
-# onto them (B-17), and a guest-LOCAL wrapper drives the descent with
-# +instance_eval+ or an explicit block parameter. The reflection denial is
-# scoped to guest→host dispatch and to bound-constant / Handle proxies (B-42 / B-44),
-# so +instance_eval+ on a plain guest-local object is permitted; the host
-# dialect's own method set stays the reachable surface (B-42 undefined).
+# behaviors into a nested-structure builder whose dialects live entirely on the
+# host: a Service returns child Handles, the guest chains method calls onto
+# them, and a guest-LOCAL wrapper drives the descent with +instance_eval+ or an
+# explicit block parameter. The reflection denial is scoped to guest→host
+# dispatch and to bound-constant / Handle proxies, so +instance_eval+ on a
+# plain guest-local object is permitted; the host dialect's own method set
+# stays the reachable surface.
 #
 # These are witness tests: they pin an already-working composition as contract
 # so a later change to the Handle lifecycle, the reflection boundary, or the
@@ -18,8 +18,8 @@ require "test_helper"
 class TestE2EDslComposition < Minitest::Test
   include E2eGuestHelper
 
-  # A two-level host dialect tree. +node+ returns the child (a fresh Handle
-  # per B-14) so the guest can descend into it; +text+ is a leaf; +result+
+  # A two-level host dialect tree. +node+ returns the child (a fresh Handle)
+  # so the guest can descend into it; +text+ is a leaf; +result+
   # serializes the whole host-held tree to a wire-representable Hash.
   class Node
     def initialize(name)
@@ -131,10 +131,8 @@ class TestE2EDslComposition < Minitest::Test
     root.handle.result
   RUBY
 
-  # B-42 / B-44 scope + B-14 / B-17: a receiver-less DSL driven by
-  # +instance_eval+ on a guest-local wrapper builds a nested structure whose
-  # dialects live on the host. Proves guest-local instance_eval is outside the
-  # reflection denial and that returned child Handles chain to arbitrary depth.
+  # Proves guest-local instance_eval is outside the reflection denial and
+  # that returned child Handles chain to arbitrary depth.
   # @behavior T-072
   def test_implicit_self_idiom_builds_nested_structure_over_handles
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -142,8 +140,8 @@ class TestE2EDslComposition < Minitest::Test
 
     assert_equal EXPECTED, sandbox.eval(IMPLICIT_SCRIPT).value,
                  "an instance_eval-driven guest idiom over host-returned child Handles " \
-                 "must build the nested structure host-side (B-14 / B-17; guest-local " \
-                 "instance_eval permitted per the B-42 / B-44 dispatch-scoped denial)"
+                 "must build the nested structure host-side (guest-local instance_eval " \
+                 "is outside the dispatch-scoped denial)"
   end
 
   # Same composition through the explicit block-parameter form: the wrapper
@@ -155,13 +153,11 @@ class TestE2EDslComposition < Minitest::Test
 
     assert_equal EXPECTED, sandbox.eval(BLOCK_PARAM_SCRIPT).value,
                  "a block-parameter guest idiom over host-returned child Handles must " \
-                 "build the same nested structure host-side (B-14 / B-17)"
+                 "build the same nested structure host-side"
   end
 
-  # B-42: the generic forwarder does not widen the reachable surface — a
-  # method the host dialect does not define, forwarded through the wrapper,
-  # is refused host-side as an undefined target, surfacing as ServiceError.
-  # The host dialect's own method set stays the DSL's vocabulary.
+  # The generic forwarder does not widen the reachable surface: the host
+  # dialect's own method set stays the DSL's vocabulary.
   # @behavior T-074
   def test_dialect_vocabulary_is_bounded_by_the_host_method_set
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -169,7 +165,7 @@ class TestE2EDslComposition < Minitest::Test
 
     assert_raises(Kobako::ServiceError,
                   "a name the host dialect does not define, forwarded through the " \
-                  "generic wrapper, must be refused host-side (B-42 undefined) — the " \
+                  "generic wrapper, must be refused host-side as undefined — the " \
                   "wrapper cannot reach beyond the dialect's own methods") do
       sandbox.eval(UNBOUND_VOCAB_SCRIPT).value
     end

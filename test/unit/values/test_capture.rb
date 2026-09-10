@@ -4,8 +4,8 @@ require "test_helper"
 
 # Kobako::Capture is the immutable value object that pairs the host-side
 # captured prefix of guest stdout / stderr with the truncation flag the
-# WASI pipe sets when the guest wrote past the configured cap
-# (SPEC.md B-04). Sandbox stores one Capture per channel between runs.
+# WASI pipe sets when the guest wrote past the configured cap. Sandbox stores
+# one Capture per channel between runs.
 class TestCapture < Minitest::Test
   # @behavior S-100
   def test_empty_constant_carries_utf8_empty_bytes
@@ -38,7 +38,7 @@ class TestCapture < Minitest::Test
     assert_predicate capture, :frozen?
   end
 
-  # SPEC.md B-04: ext provides binary bytes; Capture.new coerces them
+  # The ext provides binary bytes; Capture.new coerces them
   # to UTF-8 when valid so callers receive an inspectable String without
   # encoding work.
   # @behavior S-105

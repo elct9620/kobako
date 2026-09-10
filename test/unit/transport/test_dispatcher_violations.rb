@@ -3,28 +3,19 @@
 require "test_helper"
 
 # Unit-level coverage of Transport::Dispatcher containment: the
-# malformed-payload channel (E-10 — non-Symbol kwargs keys, over-deep
-# nesting), a Handle id the invocation never issued (B-65), and
-# Catalog::Handles exhaustion (B-21 / E-07) all come back on the Reply's
+# malformed-payload channel (non-Symbol kwargs keys, over-deep nesting), a
+# Handle id the invocation never issued, and Catalog::Handles exhaustion
+# all come back on the Reply's
 # fault arm — never a host crash. Well-formed dispatch lives in
 # test_dispatcher.rb.
 class TestTransportDispatchViolations < Minitest::Test
   include DispatcherHelpers
   include StackQuarantine
 
-  # E-10, on the ext 0x00 rule (docs/wire/payload-msgpack.md § Ext
-  # Types → ext 0x00): kwargs map keys MUST be ext
-  # 0x00 Symbols. A non-Symbol key (String and Integer cover the natively
-  # msgpack-representable shapes) decodes to a structurally valid
-  # 2-element payload, then fails the Payload::Arguments kwargs-key
-  # invariant; because that invariant is checked inside the block
-  # Arguments.decode yields to, Codec::Decoder.decode rescues the
-  # ArgumentError and re-raises it as a wire-decode InvalidTypeError, so the
-  # dispatcher reports type="internal" — the request never became a call,
-  # so no Service outcome exists to report. The payload MUST carry both
-  # elements: a 1-element array would trip the shape guard first and never
-  # reach the kwargs-key check — the second message assertion witnesses
-  # that the kwargs-key path, not the shape guard, produced this error.
+  # Kwargs map keys must be ext 0x00 Symbols (docs/wire/payload-msgpack.md
+  # § Ext Types → ext 0x00). Each payload carries both elements so it reaches
+  # the kwargs-key check instead of tripping the shape guard first — the
+  # second message assertion witnesses which of the two fired.
   NON_SYMBOL_KWARGS = {
     "a String kwargs key" => { "name" => "alice" },
     "an Integer kwargs key" => { 42 => "v" }
@@ -53,14 +44,12 @@ class TestTransportDispatchViolations < Minitest::Test
     end
   end
 
-  # ---------- Un-issued Handle id (SPEC B-65 / E-13) ----------
+  # ---------- Un-issued Handle id ----------
 
-  # SPEC B-65: the core envelope carries a Handle target as a bare id its
-  # sender chooses, so an id the table never issued is a well-formed Call
-  # that reaches the host — the invocation's Catalog::Handles membership
-  # is what refuses it, not the wire shape. The guest sees a transport
-  # error on the fault arm rather than a wasm trap, and the refused id
-  # leaves the table untouched, which the size assertion witnesses.
+  # The core envelope carries a Handle target as a bare id its sender
+  # chooses, so an id the table never issued is a well-formed Call — the
+  # invocation's Catalog::Handles membership is what refuses it, not the
+  # wire shape.
   # @behavior T-042
   def test_an_id_the_table_never_issued_is_refused_as_undefined
     answer = reify(dispatch(DispatcherHelpers.call_for(42, "call", ["x"])))
@@ -73,15 +62,13 @@ class TestTransportDispatchViolations < Minitest::Test
                  "a refused Handle id must not enter the Catalog::Handles"
   end
 
-  # ---------- Over-deep wire violation (E-10, on the depth bound) ----------
+  # ---------- Over-deep wire violation (on the depth bound) ----------
 
-  # E-10: a Call nested beyond the codec's depth bound
-  # (docs/wire/payload-msgpack.md § Structural Nesting Depth) must come back
-  # on the fault arm with type="internal" — the same containment as any other
-  # malformed payload, never a host crash or a wasm trap. The dispatcher
-  # rescues only StandardError; this holds because the codec maps the nesting
-  # overflow into the Kobako::Codec::Error taxonomy before it can become a
-  # Ruby SystemStackError that would escape the rescue.
+  # A Call nested beyond the codec's depth bound (docs/wire/payload-msgpack.md
+  # § Structural Nesting Depth) is contained like any other malformed payload.
+  # The dispatcher rescues only StandardError, so this holds only because the
+  # codec maps the overflow into Kobako::Codec::Error before it can become a
+  # SystemStackError that would escape the rescue.
   # @behavior T-043
   def test_over_deep_call_is_contained_as_an_internal_fault
     # 1000 nested single-element arrays terminated by nil — a misbehaving
@@ -100,13 +87,10 @@ class TestTransportDispatchViolations < Minitest::Test
   # ---------- Over-deep answer (the outbound twin) ----------
 
   # The same codec fault in the other direction is not the same failure.
-  # Inbound, the request never became a call, so no Service outcome exists to
-  # report (`internal`). Outbound, a Service ran and handed over a value the
-  # host cannot write — it is the Service that has to change what it returns
-  # for the same call to succeed, which is the question the fault category
-  # answers (docs/behavior/errors.md § Dispatch failure attribution). It is
-  # the position E-44 already occupies one step further along the same path,
-  # where an unwrappable gadget is refused at the mint.
+  # Inbound, the request never became a call (`internal`); outbound, a Service
+  # ran and handed over a value the host cannot write, so only the Service can
+  # change what it returns — the position an unwrappable gadget refused at the
+  # mint occupies one step further along the same path.
   #
   # Each case runs on a stack of its own: the refusal costs the thread that
   # takes it (see StackQuarantine).
@@ -134,16 +118,11 @@ class TestTransportDispatchViolations < Minitest::Test
                  "exception crosses in, which would read as the Service having raised it")
   end
 
-  # ---------- Catalog::Handles exhaustion (SPEC B-21 / E-07) ----------
+  # ---------- Catalog::Handles exhaustion ----------
 
-  # SPEC B-21 / E-07: when the per-#run Catalog::Handles counter reaches
-  # MAX_ID (0x7fff_ffff), the next allocation must fail fast with
-  # Kobako::HandleExhaustedError (a SandboxError subclass). The
-  # dispatcher's wrap_return path is the call site that triggers this
-  # during a normal transport call: a Service method returns a non-wire-representable
-  # value, the codec raises UnsupportedTypeError, wrap_return falls through to
-  # @handler.alloc, and the cap raise surfaces via the dispatcher's
-  # rescue chain on the fault arm the guest observes.
+  # The dispatcher's wrap_return path is where a normal transport call reaches
+  # the cap: a non-wire-representable return falls through to @handler.alloc,
+  # and the exhaustion raise must surface on the fault arm the guest observes.
   # @behavior T-046
   def test_handler_exhaustion_during_wrap_return_takes_the_fault_arm
     answer = reify(dispatch(build_call("Factory::Make", "make", [], {}),
@@ -161,12 +140,9 @@ class TestTransportDispatchViolations < Minitest::Test
 
   # @behavior T-047
   def test_handler_exhaustion_propagates_as_sandbox_error_class
-    # Pin the class hierarchy: HandleExhaustedError < SandboxError
-    # (per Kobako::errors). This matters because Sandbox-invocation-
-    # level callers rescuing SandboxError must catch the exhaustion path;
-    # the dispatcher's rescue StandardError branch turns the raise into
-    # a fault the guest can observe, but the underlying
-    # class identity is what SPEC B-21 pins.
+    # Callers rescuing SandboxError must catch the exhaustion path, so the
+    # class identity matters even though the dispatcher turns the raise into
+    # a fault the guest can observe.
     assert_operator Kobako::HandleExhaustedError, :<, Kobako::SandboxError
 
     table = Kobako::Catalog::Handles.new(
@@ -199,7 +175,7 @@ class TestTransportDispatchViolations < Minitest::Test
   private
 
   # Fixture: factory whose `make` always returns a fresh Object — the
-  # non-wire-representable return value that drives B-21 exhaustion.
+  # non-wire-representable return value that drives Handle exhaustion.
   def object_factory
     Class.new { def make = Object.new }.new
   end

@@ -2,12 +2,10 @@
 
 require "test_helper"
 
-# Per-invocation compiled-pattern memoization (SPEC.md B-41 / docs/regexp.md
-# RX-08). The cache reuses a compiled pattern across repeated compilation of the
-# same (source, options) within one invocation, yet stays observably invisible.
-# These scenarios pin that invisibility — distinct objects, options as part of
-# the key, and correct matching past the bounded capacity — so a regression that
-# shared the wrong engine or collided keys would surface as a wrong result.
+# Per-invocation compiled-pattern memoization. The cache reuses a compiled
+# pattern across repeated compilation of the same (source, options) within one
+# invocation, yet stays observably invisible — so a regression that shared the
+# wrong engine or collided keys would surface as a wrong result.
 class TestRegexpCompileCache < Minitest::Test
   include RegexpGuestHelper
 

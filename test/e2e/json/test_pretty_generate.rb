@@ -2,8 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — JSON.pretty_generate layout through the real json guest
-# (docs/json.md JS-07).
+# E2E (Layer 4) — JSON.pretty_generate layout through the real json guest.
 class TestJsonPrettyGenerate < Minitest::Test
   include JsonGuestHelper
 
@@ -21,18 +20,15 @@ class TestJsonPrettyGenerate < Minitest::Test
     }
   JSON
 
-  # JS-07: pretty_generate emits the indented layout, leaving an empty array
-  # or object inline.
   # @behavior JS-031
-  def test_js07_pretty_generate_indents_with_empty_containers_inline
+  def test_pretty_generate_indents_with_empty_containers_inline
     assert_equal EXPECTED, eval_json('JSON.pretty_generate({"a" => [1, 2], "e" => [], "o" => {}})'),
                  "JSON.pretty_generate through the json guest must emit the indented layout, empty containers inline"
   end
 
-  # JS-07: the indented output carries the same value as generate — parsing
-  # it yields the same tree.
+  # The indented output carries the same value as generate.
   # @behavior JS-032
-  def test_js07_pretty_output_reparses_to_the_same_tree
+  def test_pretty_output_reparses_to_the_same_tree
     result = eval_json('v = {"a" => [1, 2], "b" => nil}; JSON.parse(JSON.pretty_generate(v)) == v')
 
     assert_equal true, result,

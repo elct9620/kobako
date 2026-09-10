@@ -4,10 +4,9 @@ require "test_helper"
 
 module Kobako
   # Unit tests for Kobako::Catalog::Snippets — the per-Sandbox
-  # insertion-ordered registry of preloaded snippets (docs/behavior/invocation.md
-  # B-32 / E-33 / E-34). Behavioural coverage at the Sandbox#preload
-  # boundary lives in test/e2e/sandbox/test_preload.rb; this file pins the
-  # table's own contract.
+  # insertion-ordered registry of preloaded snippets. Behavioural coverage at
+  # the Sandbox#preload boundary lives in test/e2e/sandbox/test_preload.rb;
+  # this file pins the table's own contract.
   #
   # The table exposes only #register (mutation) and #entries (the
   # invocation's projection) to the outside world — every observable

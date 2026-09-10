@@ -2,9 +2,9 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the kobako-io ::IO class surface through real mruby
-# (SPEC.md B-04): construction validation, fileno, the mruby-io-compatible
-# supplementary surface, IO#write byte-pumping fidelity, and the
+# E2E (Layer 4) — the kobako-io ::IO class surface through real mruby:
+# construction validation, fileno, the mruby-io-compatible supplementary
+# surface, IO#write byte-pumping fidelity, and the
 # mruby-sprintf formatting capability. Kernel delegators live in
 # test_io_kernel.rb; channel routing in test_io_streams.rb.
 class TestE2EIoWrite < Minitest::Test
@@ -85,11 +85,9 @@ class TestE2EIoWrite < Minitest::Test
   RUBY
 
   # @behavior IO-006 IO-007 IO-008 IO-009 IO-010 IO-011 IO-012 IO-013 IO-014
-  # SPEC.md B-04: the mruby-io-compatible supplementary IO surface —
-  # `<<` chaining, tty? / sync / sync= / flush / closed? introspection,
-  # and the to_i alias — stays drop-in compatible so scripts written
-  # against mruby-io run unchanged. `<<` additionally lands its bytes
-  # on the stdout capture channel.
+  # The supplementary surface stays drop-in compatible so scripts written
+  # against mruby-io run unchanged; `<<` additionally lands its bytes on the
+  # stdout capture channel.
   def test_io_supplementary_surface_matches_mruby_io
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 

@@ -3,9 +3,9 @@
 require "test_helper"
 
 # E2E (Layer 4) — the transport (guest→host dispatch) value path through
-# real mruby: kwargs symbolization at the dispatch boundary (E-15), rejection
-# of a dispatch argument with no wire representation (E-55), Symbol fidelity
-# (ext 0x00), and native Array / Hash argument and return fidelity (Type
+# real mruby: kwargs symbolization at the dispatch boundary, rejection of a
+# dispatch argument with no wire representation, Symbol fidelity (ext 0x00),
+# and native Array / Hash argument and return fidelity (Type
 # Mapping #7-#8). The outcome-path counterpart lives in test_outcome_values.rb.
 class TestE2EDispatchArgs < Minitest::Test
   include E2eGuestHelper
@@ -24,7 +24,7 @@ class TestE2EDispatchArgs < Minitest::Test
     result = sandbox.eval('Geo::Lookup.lookup(name: "alice", region: "us")').value
 
     assert_equal "us/alice", result,
-                 "E-15: wire kwargs str keys symbolized at dispatch boundary (SPEC.md E-15)"
+                 "wire kwargs str keys symbolized at dispatch boundary"
   end
 
   # @behavior T-142
@@ -35,7 +35,7 @@ class TestE2EDispatchArgs < Minitest::Test
     result = sandbox.eval("Math::Pi.call").value
 
     assert_equal 3.14, result,
-                 "E-15: empty kwargs dispatches cleanly to a no-kwargs method (SPEC.md L1001)"
+                 "empty kwargs dispatches cleanly to a no-kwargs method"
   end
 
   # @behavior T-147
@@ -56,12 +56,11 @@ class TestE2EDispatchArgs < Minitest::Test
   end
 
   # transport path: an unrepresentable value is rejected at the guest call site
-  # rather than coerced — E-55 covers "a dispatch argument or kwargs value", so
-  # both the positional walk (+unpack_args_kwargs+) and the keyword-bucket walk
-  # (+extract_hash_kwargs+) must reject. RpcProbe's +to_s+ sentinel would
-  # surface if the old coercion path were live; the raise happens in the guest
-  # bridge before dispatch, so the Service never runs. Uniform with the
-  # return-path rejection (E-06) pinned in test_outcome_values.rb.
+  # rather than coerced, by both the positional walk (+unpack_args_kwargs+) and
+  # the keyword-bucket walk (+extract_hash_kwargs+). RpcProbe's +to_s+ sentinel
+  # would surface if the old coercion path were live; the raise happens in the
+  # guest bridge before dispatch, so the Service never runs. Uniform with the
+  # return-path rejection pinned in test_outcome_values.rb.
   #
   # The guest class is pinned alongside the host class because the two do not
   # move together: every sandbox-origin failure maps to +Kobako::SandboxError+
@@ -81,10 +80,10 @@ class TestE2EDispatchArgs < Minitest::Test
     UNREPRESENTABLE_DISPATCH_CALLS.each do |position, call|
       err = dispatch_unrepresentable(call)
       assert_match(/not a supported sandbox value type/, err.message,
-                   "E-55: an unrepresentable #{position} must be rejected at the guest " \
+                   "an unrepresentable #{position} must be rejected at the guest " \
                    "call site as Kobako::SandboxError, never coerced to an Object#to_s String")
       assert_equal "TypeError", err.klass,
-                   "E-55: an unrepresentable #{position} must reach the script as TypeError, " \
+                   "an unrepresentable #{position} must reach the script as TypeError, " \
                    "the same class the yield position raises for the same refusal, rather " \
                    "than reporting a transport fault for a value the script chose"
     end

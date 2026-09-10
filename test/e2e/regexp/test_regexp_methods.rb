@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Regexp instance- and class-method contract (SPEC.md B-41). Offsets are
+# Regexp instance- and class-method contract. Offsets are
 # byte-based and #options reports MRI's option bits; how a pattern that cannot
 # compile or match cheaply surfaces is covered in test_pattern_errors.rb.
 class TestRegexpMethods < Minitest::Test

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Regexp#to_s rendering contract (docs/regexp.md RX-01). The form is
+# Regexp#to_s rendering contract. The form is
 # (?enabled-disabled:body) with flags in m, i, x order; the -disabled block
 # is dropped when all are on, and a whole-source inline-flag group is lifted —
 # matching MRI.

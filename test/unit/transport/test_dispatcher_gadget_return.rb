@@ -3,9 +3,9 @@
 require "test_helper"
 
 # Regression: a Service returning a reflective gadget must not mint a
-# Capability Handle (docs/behavior/security.md B-43).
-# Otherwise the guest would receive a callable proxy onto host reflection
-# (a returned Binding -> Binding#eval), the second hop of the B-42 escape.
+# Capability Handle. Otherwise the guest would receive a callable proxy onto
+# host reflection (a returned Binding -> Binding#eval), the second hop of the
+# reflection escape.
 class TestDispatchGadgetReturn < Minitest::Test
   class Service
     def a_method = method(:a_method)
@@ -45,7 +45,7 @@ class TestDispatchGadgetReturn < Minitest::Test
       assert_equal false, resp.ok?,
                    "a Service returning ##{meth} (a bare Class/Module) must not mint a Handle onto its class-level API"
       assert_equal "runtime", resp.payload.type,
-                   "##{meth} return must surface as the runtime fault (E-44)"
+                   "##{meth} return must surface as the runtime fault"
       assert_equal 0, @handler.size,
                    "##{meth} must allocate no Handle entry"
     end
@@ -53,8 +53,8 @@ class TestDispatchGadgetReturn < Minitest::Test
 
   # @behavior T-123
   def test_proc_return_is_still_wrapped_as_handle
-    # A Proc stays wrappable (its reflective #binding is blocked by B-42 on
-    # the resulting Handle); only Binding / Method / UnboundMethod are refused.
+    # A Proc stays wrappable (its reflective #binding is blocked at dispatch
+    # on the resulting Handle); only Binding / Method / UnboundMethod are refused.
     resp = dispatch("a_proc")
     assert_equal true, resp.ok?,
                  "a returned Proc must still cross as a Capability Handle"
@@ -69,7 +69,7 @@ class TestDispatchGadgetReturn < Minitest::Test
     assert_equal false, resp.ok?,
                  "a Service returning ##{meth} must not mint a callable Handle onto host reflection"
     assert_equal "runtime", resp.payload.type,
-                 "##{meth} gadget return must surface as the runtime fault (E-44)"
+                 "##{meth} gadget return must surface as the runtime fault"
     refute_match(/Kobako::/, resp.payload.message,
                  "the refusal of ##{meth} is kobako's own, so it must not wear the " \
                  "<class>: <message> shape a Service exception crosses in")

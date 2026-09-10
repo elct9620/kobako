@@ -4,8 +4,7 @@
 //! A rung on an ordered ladder: the host application requests the
 //! posture it wants, the runtime builds it and declares the posture it
 //! actually built, and the frontend refuses a declaration below the
-//! request — so the request is also the floor. The governing contract
-//! lives in the spec corpus (docs/behavior/security.md).
+//! request — so the request is also the floor.
 
 /// The ordered isolation ladder a runtime builds one rung of.
 ///

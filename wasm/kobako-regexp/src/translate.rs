@@ -153,7 +153,7 @@ mod tests {
     // @behavior RX-172
     #[test]
     fn keeps_negated_shorthand_inside_a_class_as_unicode() {
-        // docs/regexp.md RX-01: `[\D]` / `[\W]` / `[\S]` keep the engine's
+        // `[\D]` / `[\W]` / `[\S]` keep the engine's
         // Unicode category semantics rather than the ASCII rewrite.
         assert_eq!(build_pattern(r"[\D]", 0), r"(?m)[\D]");
         assert_eq!(build_pattern(r"[\W]", 0), r"(?m)[\W]");

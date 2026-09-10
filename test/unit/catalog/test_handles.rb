@@ -8,9 +8,6 @@
 # so it still runs on a clean checkout.
 #
 # Cross-references:
-#   - SPEC.md B-15 — monotonic counter scoped to a single #run, ID 0 reserved
-#   - SPEC.md B-18 — each invocation mints a fresh table; a prior run's id is invalid
-#   - SPEC.md B-21 — Catalog::Handles exhaustion at 0x7fff_ffff
 #   - SPEC.md "Handle Lifecycle" — no finalizer; lifecycle bound to #run
 
 require "test_helper"
@@ -73,17 +70,17 @@ module Kobako
 
     # @behavior T-013
     def test_max_id_constant_is_wire_invariant
-      # SPEC B-21 + Wire Contract: Handle ext 0x01 carries a 4-byte signed int;
+      # Wire Contract: Handle ext 0x01 carries a 4-byte signed int;
       # 0x7fff_ffff is the maximum valid Handle ID.
       assert_equal 0x7fff_ffff, Kobako::Handle::MAX_ID
       assert_equal (2**31) - 1, Kobako::Handle::MAX_ID
     end
 
-    # ---------- Reflective gadget refusal (SPEC B-43) ----------
+    # ---------- Reflective gadget refusal ----------
 
     # @behavior T-014
     def test_alloc_refuses_reflective_gadgets
-      # SPEC B-43: a Binding / Method / UnboundMethod must never be minted as a
+      # A Binding / Method / UnboundMethod must never be minted as a
       # Capability Handle — wrapping one would hand the guest a callable proxy
       # onto host reflection (a returned Binding reaches Binding#eval). The rule
       # lives here so it holds on both the Service-return and #run auto-wrap paths.
@@ -97,16 +94,16 @@ module Kobako
     # @behavior T-015
     def test_alloc_still_wraps_a_proc
       # A Proc is excluded from the refusal (its reflective #binding is blocked
-      # at dispatch, B-42); only Binding / Method / UnboundMethod are unwrappable.
+      # at dispatch); only Binding / Method / UnboundMethod are unwrappable.
       table = Table.new
       assert_equal 1, table.alloc(-> { 1 }).id
     end
 
-    # ---------- Cross-run Handle invalidity (SPEC B-18) ----------
+    # ---------- Cross-run Handle invalidity ----------
 
     # @behavior T-016
     def test_a_prior_runs_handle_id_resolves_to_no_object_in_the_next_run
-      # SPEC B-18: each invocation mints its own Catalog::Handles, so a Handle
+      # Each invocation mints its own Catalog::Handles, so a Handle
       # issued in one run resolves in no other. The next run's fresh table
       # re-allocates id 1 to its OWN object; the prior binding is unreachable,
       # so the original Handle reference cannot resolve to its old object.
@@ -124,7 +121,7 @@ module Kobako
       refute_same obj_a, next_run.fetch(id_b)
     end
 
-    # ---------- No reachable un-delivered Handle (SPEC B-65) ----------
+    # ---------- No reachable un-delivered Handle ----------
     #
     # An opaque payload lets a guest write any integer where a Handle id
     # goes, so the boundary cannot rest on the guest being unable to name

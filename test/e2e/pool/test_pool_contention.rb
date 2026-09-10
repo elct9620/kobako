@@ -3,18 +3,19 @@
 require "test_helper"
 
 # Coverage for Kobako::Pool under cross-thread contention — the blocking
-# checkout wait, its E-46 timeout bound, and checkout independence
-# (docs/behavior/runtime.md B-47 + E-46), driving the real data/kobako.wasm.
+# checkout wait, its timeout bound, and checkout independence, driving the
+# real data/kobako.wasm.
 class TestPoolContention < Minitest::Test
   include E2eGuestHelper
 
   # @behavior PL-024
   # The wait is bounded so a full Pool refuses rather than hanging the
   # caller; the refusal has to arrive before any Sandbox is touched.
-  def test_e46_exhausted_pool_times_out
+  def test_exhausted_pool_times_out
     pool = Kobako::Pool.new(slots: 1, checkout_timeout: 0.05)
     release, holder = hold_one_slot(pool)
-    assert_raises(Kobako::PoolTimeoutError, "a checkout past checkout_timeout on a full pool must raise E-46") do
+    assert_raises(Kobako::PoolTimeoutError,
+                  "a checkout past checkout_timeout on a full pool must raise PoolTimeoutError") do
       pool.with { |sandbox| sandbox }
     end
     release << true
@@ -22,24 +23,22 @@ class TestPoolContention < Minitest::Test
   end
 
   # @behavior PL-011
-  # B-47: a blocked checkout proceeds as soon as a holder checks in.
   def test_blocked_checkout_proceeds_on_checkin
     pool = Kobako::Pool.new(slots: 1, checkout_timeout: 5.0)
     release, holder = hold_one_slot(pool)
     waiter = Thread.new { pool.with { |sandbox| sandbox.eval("3").value } }
     Thread.pass until waiter.stop?
     release << true
-    assert_equal 3, waiter.value, "a blocked checkout must receive the checked-in Sandbox and proceed (B-47)"
+    assert_equal 3, waiter.value, "a blocked checkout must receive the checked-in Sandbox and proceed"
     holder.join
   end
 
   # @behavior PL-012
-  # B-47: checkouts are independent — a nested #with draws a second slot.
   def test_nested_with_checks_out_a_distinct_sandbox
     pool = Kobako::Pool.new(slots: 2)
     pool.with do |outer|
       pool.with do |inner|
-        refute_same outer, inner, "a nested Pool#with on the same thread must hold a distinct Sandbox (B-47)"
+        refute_same outer, inner, "a nested Pool#with on the same thread must hold a distinct Sandbox"
       end
     end
   end

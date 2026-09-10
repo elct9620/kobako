@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Coverage for Codec::HandleWalk.deep_restore — the guest→host Handle
-# restoration walk introduced for SPEC B-37. The symmetric inverse of
+# restoration walk. The symmetric inverse of
 # deep_wrap (test_handle_walk.rb): a value decoded off a guest→host wire
 # (the #eval / #run result or a yield-block result) carries Kobako::Handle
 # tokens where the guest returned a Handle it held; the walk resolves each
@@ -77,9 +77,9 @@ class TestCodecDeepRestore < Minitest::Test
     assert_same object, inner_array[1][:inner]
   end
 
-  # A Handle the guest cannot forge (B-20) always resolves while its
-  # invocation is live; an id with no live binding is the corrupted-runtime
-  # fallback B-37 routes to Kobako::SandboxError. A fresh table stands in for
+  # A Handle the guest cannot forge always resolves while its invocation is
+  # live; an id with no live binding is the corrupted-runtime fallback that
+  # routes to Kobako::SandboxError. A fresh table stands in for
   # the next invocation's own, where the prior run's id has no binding.
   # @behavior T-037
   def test_handle_with_no_live_binding_raises_sandbox_error

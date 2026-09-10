@@ -2,15 +2,10 @@
 
 require "test_helper"
 
-# docs/regexp.md RX-09: bytes that are not UTF-8, on every text a Regexp
-# operation reads.
-#
-# The engine matches over `&str` and offsets index into one, so a subject,
-# a pattern, or a replacement whose bytes are not UTF-8 has no text to be.
-# Refusing is the only honest answer available: reading such a String
-# through a render answers the empty string, and the two failures that
-# produces are both silent and both wrong — an empty subject reports "no
-# match" for every pattern, and an empty pattern matches everywhere.
+# Bytes that are not UTF-8, on every text a Regexp operation reads, are
+# refused: the engine matches over `&str`, and reading such a String through a
+# render would answer the empty string — silently reporting "no match" for a
+# subject and matching everywhere for a pattern.
 class TestRegexpNonUtf8 < Minitest::Test
   include RegexpGuestHelper
 

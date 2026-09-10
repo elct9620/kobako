@@ -181,7 +181,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    //! Witness the B-54 rung split at the WASI boundary: one probe
+    //! Witness the profile rung split at the WASI boundary: one probe
     //! module reads `wasi:clocks` / `wasi:random` through the context
     //! `install_wasi_frames` builds — frozen under `Hermetic`, live
     //! under `Permissive`.

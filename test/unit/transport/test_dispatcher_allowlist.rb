@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Regression: a guest-supplied method name must not reach Ruby's ambient
-# reflection surface (docs/behavior/security.md B-42).
+# reflection surface.
 # Before the guard, method="send" let a guest pivot
 # `public_send(:send, :eval, code)` into host RCE; a bound lambda's own
 # `Proc#binding` reached `Binding#eval` for the same effect.
@@ -57,7 +57,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
         assert_equal false, resp.ok?,
                      "#{target}.#{meth} through guest dispatch must be rejected, not invoked on the host"
         assert_equal "undefined", resp.payload.type,
-                     "#{target}.#{meth} rejection must surface as the undefined Service-method fault (E-43)"
+                     "#{target}.#{meth} rejection must surface as the undefined Service-method fault"
       end
     end
   end
@@ -89,7 +89,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
     # The guard is owner-based, not a static name list: a Service that defines
     # its own public method named `tap` (owned by the Service, not Kernel) stays
     # reachable, while the same name on a plain Service is rejected as Kernel
-    # reflection surface. This pins the B-42 mechanism, not just the denylist.
+    # reflection surface. This pins the owner-based mechanism, not just the denylist.
     own = dispatch("Cfg::Own", "tap", [])
     assert_equal true, own.ok?,
                  "a Service's own `tap` (owner = the Service) must stay reachable, not be rejected by name"
@@ -99,7 +99,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
     assert_equal false, inherited.ok?,
                  "`tap` owned by Kernel must be rejected as ambient reflection surface"
     assert_equal "undefined", inherited.payload.type,
-                 "the Kernel-owned `tap` rejection must surface as the undefined Service-method fault (E-43)"
+                 "the Kernel-owned `tap` rejection must surface as the undefined Service-method fault"
   end
 
   # @behavior T-133
@@ -109,7 +109,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
     # fixed core-module list can name. The floor treats a singleton-class
     # owner as ambient surface when the target is itself a Module, so
     # File.popen / File.read / File.new / Kernel.system / Kernel.exec are
-    # refused, and a forged Call is bound identically (B-42 is host-side).
+    # refused, and a forged Call is bound identically since the floor is host-side.
     { "Cfg::Klass" => %w[popen read new open],
       "Cfg::Mod" => %w[system exec eval] }.each do |target, methods|
       methods.each do |meth|
@@ -117,7 +117,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
         assert_equal false, resp.ok?,
                      "#{target}.#{meth} (a class-level method) must be refused, not invoked on the host"
         assert_equal "undefined", resp.payload.type,
-                     "#{target}.#{meth} rejection must surface as the undefined Service-method fault (E-43)"
+                     "#{target}.#{meth} rejection must surface as the undefined Service-method fault"
       end
     end
   end
@@ -128,13 +128,13 @@ class TestDispatchMethodAllowlist < Minitest::Test
     # method_missing): the floor finds no concrete public method and the
     # respond_to? opt-in is false, so the call is refused. The refusal reuses
     # the opaque type="undefined" — the same the floor gives a reflection
-    # method — so a target discloses nothing about which methods it defines
-    # (B-42), rather than "argument" or "runtime".
+    # method — so a target discloses nothing about which methods it defines,
+    # rather than "argument" or "runtime".
     resp = dispatch("Cfg::Theme", "no_such_method", [])
     assert_equal false, resp.ok?,
                  "a method a plain Service does not define must be refused, not dispatched"
     assert_equal "undefined", resp.payload.type,
-                 "an absent method must surface as the opaque undefined fault, not argument or runtime (B-42)"
+                 "an absent method must surface as the opaque undefined fault, not argument or runtime"
     assert_match(/no public method/, resp.payload.message,
                  "the refusal must come from the absent-method arm, not the reflection-owner arm")
   end

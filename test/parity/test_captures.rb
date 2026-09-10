@@ -2,11 +2,10 @@
 
 require "test_helper"
 
-# Differential parity — output captures (SPEC.md B-04): both frontends
-# must expose the same captured bytes and the same truncation
-# predicates after every invocation.
+# Differential parity — output captures: both frontends must expose the
+# same captured bytes and the same truncation predicates after every
+# invocation.
 class TestParityCaptures < Parity::Case
-  # SPEC.md B-04: stdout and stderr arrive as separate byte streams.
   # @behavior S-034
   def test_streams_are_captured_separately
     assert_parity Parity::Scenario.new(
@@ -17,8 +16,8 @@ class TestParityCaptures < Parity::Case
     )
   end
 
-  # SPEC.md B-04: a configured cap clips the stream and flips the
-  # truncation predicate — identically on both sides.
+  # A configured cap clips the stream and flips the truncation predicate
+  # — identically on both sides.
   # @behavior S-035
   def test_truncation_at_the_cap
     assert_parity Parity::Scenario.new(

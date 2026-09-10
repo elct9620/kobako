@@ -3,11 +3,11 @@
 require "test_helper"
 require "weakref"
 
-# Coverage for Kobako::Pool teardown — reachability is the lifecycle
-# (docs/behavior/runtime.md B-48): dropping the last Pool reference
-# releases the Pool and its pooled Sandboxes through ordinary garbage
-# collection, and an in-flight #with holder stays valid until its block
-# exits. Drives the real data/kobako.wasm.
+# Coverage for Kobako::Pool teardown — reachability is the lifecycle:
+# dropping the last Pool reference releases the Pool and its pooled
+# Sandboxes through ordinary garbage collection, and an in-flight #with
+# holder stays valid until its block exits. Drives the real
+# data/kobako.wasm.
 class TestPoolTeardown < Minitest::Test
   include E2eGuestHelper
 
@@ -17,20 +17,20 @@ class TestPoolTeardown < Minitest::Test
   GC_PASSES = 10
 
   # @behavior PL-018
-  # B-48: the Pool has no teardown verb — once the Host App drops its
-  # last reference, the pooled Sandboxes go with it. A regression
+  # The Pool has no teardown verb — once the Host App drops its last
+  # reference, the pooled Sandboxes go with it. A regression
   # parking Sandboxes in any pool-external strong reference (a process
   # registry, a finalizer, a watcher thread) keeps these WeakRefs alive
   # past every GC pass and fails here.
   def test_dropping_the_last_pool_reference_releases_pool_and_sandboxes
     refs = pool_and_sandbox_refs
     assert reclaimed?(refs),
-           "an unreachable Pool and its pooled Sandboxes must be reclaimed by garbage collection (B-48)"
+           "an unreachable Pool and its pooled Sandboxes must be reclaimed by garbage collection"
   end
 
   # @behavior PL-019
-  # B-48: a Sandbox held by an in-flight #with block remains valid until
-  # the block exits, even after the holder drops its own Pool reference
+  # A Sandbox held by an in-flight #with block remains valid until the
+  # block exits, even after the holder drops its own Pool reference
   # mid-block.
   def test_in_flight_checkout_stays_valid_after_pool_reference_dropped
     pool = Kobako::Pool.new(slots: 1)
@@ -41,7 +41,7 @@ class TestPoolTeardown < Minitest::Test
     end
     assert_nil pool
     assert_equal 42, result,
-                 "a Sandbox inside an in-flight #with must stay invocable after its Pool reference is dropped (B-48)"
+                 "a Sandbox inside an in-flight #with must stay invocable after its Pool reference is dropped"
   end
 
   private

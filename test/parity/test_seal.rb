@@ -2,13 +2,11 @@
 
 require "test_helper"
 
-# Differential parity — seal-once registration (SPEC.md B-33): the
-# first invocation seals the registration tables; a late registration
-# is refused on both frontends (each in its own idiom, one observable
-# status).
+# Differential parity — seal-once registration: the first invocation
+# seals the registration tables; a late registration is refused on both
+# frontends (each in its own idiom, one observable status).
 class TestParitySeal < Parity::Case
   # @behavior S-099
-  # SPEC.md B-33: bind after the first invocation → sealed refusal.
   def test_late_registration_is_refused
     assert_parity Parity::Scenario.new(
       name: "late-registration",

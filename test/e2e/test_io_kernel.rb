@@ -2,17 +2,16 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the kobako-io Kernel delegators through real mruby
-# (SPEC.md B-04): putc byte semantics, private registration, p's inspect
-# form, and puts' Array flattening / GC-arena behaviour. Channel routing
-# lives in test_io_streams.rb; IO write byte paths in test_io_write.rb.
+# E2E (Layer 4) — the kobako-io Kernel delegators through real mruby:
+# putc byte semantics, private registration, p's inspect form, and puts'
+# Array flattening / GC-arena behaviour. Channel routing lives in
+# test_io_streams.rb; IO write byte paths in test_io_write.rb.
 class TestE2EIoKernel < Minitest::Test
   include E2eGuestHelper
 
   # @behavior IO-023 IO-024
-  # SPEC.md B-04: Kernel#putc routes through $stdout, Integer arg writes a
-  # single byte (c & 0xff). Pins alignment with mruby-io's mrblib/kernel.rb
-  # putc surface (vendor/mruby/mrbgems/mruby-io/mrblib/kernel.rb:95-98).
+  # Pins alignment with mruby-io's putc surface
+  # (vendor/mruby/mrbgems/mruby-io/mrblib/kernel.rb:95-98).
   def test_putc_integer_writes_byte_to_stdout
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     execution = sandbox.eval("putc 65; 1")
@@ -24,13 +23,9 @@ class TestE2EIoKernel < Minitest::Test
   end
 
   # @behavior IO-024 IO-025
-  # SPEC.md B-04: Kernel#putc with an Integer masks with +& 0xff+ before
-  # writing — mirrors mruby-io's +io_putc+ in
-  # vendor/mruby/mrbgems/mruby-io/src/io.c:1103. The companion test
-  # +test_putc_integer_writes_byte_to_stdout+ uses +putc 65+ where the
-  # mask is the identity; this one feeds +putc 321+ (321 & 0xff == 65)
-  # so dropping the mask would silently write +"Ł"+-ish bytes
-  # instead of +"A"+ and the assertion would catch the drift.
+  # Mirrors mruby-io's +io_putc+ mask (vendor/mruby/mrbgems/mruby-io/src/io.c:1103).
+  # +putc 321+ (321 & 0xff == 65) is an input where the mask is not the
+  # identity, so dropping it would write a byte other than +"A"+.
   def test_putc_integer_masks_byte
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     execution = sandbox.eval("putc 321; 1")
@@ -42,12 +37,9 @@ class TestE2EIoKernel < Minitest::Test
   end
 
   # @behavior IO-023 IO-026
-  # SPEC.md B-04: Kernel#putc returns +nil+, not the argument — pinned
-  # by mruby-io's mrblib/kernel.rb:95-98. The IO-level +IO#putc+
-  # returns the original object; the Kernel delegator deliberately
-  # drops it. If anyone collapses the Kernel#putc body back to a
-  # one-liner delegate, IO#putc's +obj+ would bleed through and this
-  # assertion catches the drift.
+  # Pinned by mruby-io's mrblib/kernel.rb:95-98: +IO#putc+ returns its
+  # argument, but the Kernel delegator deliberately drops it, so collapsing
+  # the delegator into a one-liner would leak IO#putc's +obj+.
   def test_kernel_putc_returns_nil
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     execution = sandbox.eval("putc 65")
@@ -59,12 +51,9 @@ class TestE2EIoKernel < Minitest::Test
   end
 
   # @behavior IO-027 IO-028
-  # SPEC.md B-04: the Kernel delegators register private, matching the
-  # mruby-io mrblib declaration (+module Kernel; private; def puts ...+).
-  # mruby 4 enforces visibility at VM dispatch, so a public registration
-  # would be observably different: +42.puts("x")+ would write to the
-  # capture pipe instead of raising. Unrescued, the raise reaches the
-  # host as SandboxError (E-04) carrying the guest exception class.
+  # The delegators match mruby-io's private mrblib declaration; mruby 4
+  # enforces visibility at VM dispatch, so a public registration would let
+  # +42.puts("x")+ write to the capture pipe instead of raising.
   def test_kernel_delegators_register_private
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -78,7 +67,6 @@ class TestE2EIoKernel < Minitest::Test
   end
 
   # @behavior IO-024 IO-029
-  # SPEC.md B-04: Kernel#putc with a String writes the first character.
   # Mruby is compiled without MRB_UTF8_STRING, so the first character is
   # the first byte — same behavior as mruby-io's non-UTF8 fallback path
   # (vendor/mruby/mrbgems/mruby-io/src/io.c:1125-1129).
@@ -93,7 +81,6 @@ class TestE2EIoKernel < Minitest::Test
   end
 
   # @behavior IO-030
-  # SPEC.md B-04: Kernel#p writes inspect form to $stdout (not the raw to_s).
   # Pins the inspect-format invariant that distinguishes #p from #puts.
   def test_p_writes_inspect_form_to_stdout
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -104,13 +91,10 @@ class TestE2EIoKernel < Minitest::Test
   end
 
   # @behavior IO-031
-  # SPEC.md B-04: the IO write loops run in C frames, where mruby's GC
-  # arena (100 slots) is not restored per instruction the way it is
-  # under the VM; each iteration allocates at least a coerced String
-  # and a newline, so 150 arguments overflow the arena unless the loop
-  # brackets every iteration in an arena scope. Witness: dropping the
-  # scope makes mruby raise its arena-overflow error mid-loop, which
-  # surfaces as SandboxError instead of the full output.
+  # The IO write loops run in C frames, where mruby's 100-slot GC arena is
+  # not restored per instruction, so 150 arguments overflow it unless every
+  # iteration is bracketed in an arena scope; dropping the scope surfaces as
+  # SandboxError instead of the full output.
   def test_puts_long_argument_list_does_not_overflow_gc_arena
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     execution = sandbox.eval("puts(*(1..150).to_a); 1")
@@ -131,9 +115,8 @@ class TestE2EIoKernel < Minitest::Test
   RUBY
 
   # @behavior IO-032
-  # SPEC.md B-04: Kernel#puts flattens Array arguments element-wise, and
-  # the recursion gate is is_a?(Array) — an Array *subclass* instance
-  # must flatten too, not stringify wholesale through to_s.
+  # The recursion gate is is_a?(Array), so an Array *subclass* instance
+  # must flatten too rather than stringify wholesale through to_s.
   def test_puts_flattens_array_subclass_elementwise
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     execution = sandbox.eval(ARRAY_SUBCLASS_PUTS_SCRIPT)

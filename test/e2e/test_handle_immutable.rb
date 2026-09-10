@@ -5,7 +5,7 @@ require "test_helper"
 # E2E (Layer 4) — in-guest Handle immutability through real mruby. A
 # decoder-minted Kobako::Handle is frozen, so the guest cannot re-point its
 # id ivar (reflective mutation raises FrozenError) and a dup stays frozen,
-# closing the forge / guess surface (B-60). A frozen Handle still dispatches,
+# closing the forge / guess surface. A frozen Handle still dispatches,
 # because the seam only reads the id.
 class TestE2EHandleImmutable < Minitest::Test
   include E2eGuestHelper
@@ -30,14 +30,14 @@ class TestE2EHandleImmutable < Minitest::Test
   RUBY
 
   # @behavior T-111 T-112 T-199 T-200
-  def test_b60_held_handle_is_frozen_and_still_dispatches
+  def test_held_handle_is_frozen_and_still_dispatches
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
 
     result = sandbox.eval(IMMUTABILITY_SCRIPT).value
 
     assert_equal ["hi,Bob", "FrozenError", true, true], result,
-                 "B-60: re-pointing a held Handle's id must raise FrozenError (immutable), " \
+                 "re-pointing a held Handle's id must raise FrozenError (immutable), " \
                  "while dup stays frozen and the Handle still dispatches"
   end
 end

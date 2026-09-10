@@ -3,7 +3,7 @@
 require "test_helper"
 
 # The structural nesting-depth cap on Codec::HandleWalk's host→guest wrap
-# walk (E-54). A #run argument nesting past the maximum encodable depth — a
+# walk. A #run argument nesting past the maximum encodable depth — a
 # reference cycle necessarily does — is refused host-side as a clean
 # SandboxError rather than recursing until the host stack overflows. The
 # happy-path wrap surface lives in test_handle_walk.rb.

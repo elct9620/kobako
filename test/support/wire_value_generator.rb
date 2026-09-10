@@ -45,7 +45,7 @@ class WireValueGenerator
   # The bands a guest-domain run may draw from. The Guest Binary is built
   # MRB_INT32, so a wire integer outside the signed 32-bit range has no
   # guest representation and is refused at the boundary rather than
-  # carried (E-26, covered on its own in test/e2e/test_integer_range.rb).
+  # carried (covered on its own in test/e2e/test_integer_range.rb).
   # Narrowing the bands keeps a guest harness's subject the value
   # conversion instead of the range refusal.
   GUEST_INT_BANDS = %i[pos_fix neg_fix u8 u16 i8 i16 i32].freeze

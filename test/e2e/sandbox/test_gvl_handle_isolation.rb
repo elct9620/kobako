@@ -3,27 +3,25 @@
 require "test_helper"
 
 # E2E (Layer 4) — concurrent invocations isolate per invocation under
-# gvl: :release, whether Threads use distinct Sandboxes or share one
-# (docs/behavior/runtime.md B-22 / B-64). Each invocation runs on its own
-# Context, so a Handle minted in one never resolves in another Thread's
-# invocation. Two shapes are witnessed:
+# gvl: :release, whether Threads use distinct Sandboxes or share one. Each
+# invocation runs on its own Context, so a Handle minted in one never
+# resolves in another Thread's invocation. Two shapes are witnessed:
 #
 #   * distinct Sandbox per Thread — each Thread's Sandbox mints Tokens
 #     tagged with its id; every Thread mints the SAME Handle ids but with
 #     distinct owners, so a table shared across Threads would surface as a
 #     foreign owner. Handles round-trip both as the result (restored
-#     host-side, B-37) and as a dispatch argument (resolved host-side,
-#     B-16).
+#     host-side) and as a dispatch argument (resolved host-side).
 #   * shared Sandbox — all Threads invoke one Sandbox, each supplying its
-#     identity through the per-invocation ctx.bind override (B-63) over
-#     both #eval and #run; a leaked override or table would surface as a
+#     identity through the per-invocation ctx.bind override over both
+#     #eval and #run; a leaked override or table would surface as a
 #     foreign owner.
 #
 # Correctness is timing-independent — every owner must be the invoking
 # Thread's own regardless of interleaving — while the Thread and round
 # counts widen the parallel overlap. The sequential guarantee — a Handle
 # from invocation N invalid in N+1 — is a separate property covered by the
-# cross-invocation invalidity test (B-18).
+# cross-invocation invalidity test.
 class TestE2EGvlHandleIsolation < Minitest::Test
   include E2eGuestHelper
 
@@ -51,8 +49,7 @@ class TestE2EGvlHandleIsolation < Minitest::Test
         rounds.each do |restored|
           assert_equal [tid] * HANDLES, restored.map(&:owner),
                        "distinct :release Sandboxes minting Handles on distinct Threads must each " \
-                       "restore only their own host Tokens — a foreign owner is a cross-invocation " \
-                       "misdelivery (B-64 / B-03 / B-37)"
+                       "restore only their own host Tokens — a foreign owner is a cross-invocation misdelivery"
         end
       end
   end
@@ -68,8 +65,7 @@ class TestE2EGvlHandleIsolation < Minitest::Test
         rounds.each do |owners|
           assert_equal [tid] * HANDLES, owners,
                        "a Handle passed back as a dispatch argument under gvl: :release must resolve " \
-                       "against its own invocation's table — a foreign owner is a cross-invocation " \
-                       "misdelivery (B-64 / B-03 / B-16)"
+                       "against its own invocation's table — a foreign owner is a cross-invocation misdelivery"
         end
       end
   end
@@ -77,7 +73,7 @@ class TestE2EGvlHandleIsolation < Minitest::Test
   # @behavior RT-002 RT-055
   # Threads sharing ONE :release Sandbox, each #eval supplying its own
   # identity through the per-invocation ctx.bind override, must each resolve
-  # only their own Tokens (shared-Sandbox shape, B-22 / B-63).
+  # only their own Tokens (shared-Sandbox shape).
   def test_release_shared_sandbox_isolates_per_eval_identity
     shared = shared_sandbox
     program = "(0...#{HANDLES}).map { Vault::Owner.call(Vault::Mint.call) }"
@@ -87,7 +83,7 @@ class TestE2EGvlHandleIsolation < Minitest::Test
         rounds.each do |owners|
           assert_equal [tid] * HANDLES, owners,
                        "each Thread sharing one Sandbox must see only its own per-invocation ctx.bind " \
-                       "identity through #eval — a foreign owner is a cross-invocation misdelivery (B-22 / B-03)"
+                       "identity through #eval — a foreign owner is a cross-invocation misdelivery"
         end
       end
   end
@@ -103,7 +99,7 @@ class TestE2EGvlHandleIsolation < Minitest::Test
         rounds.each do |owners|
           assert_equal [tid] * HANDLES, owners,
                        "each Thread sharing one Sandbox must see only its own per-invocation ctx.bind " \
-                       "identity through #run — a foreign owner is a cross-invocation misdelivery (B-22 / B-03)"
+                       "identity through #run — a foreign owner is a cross-invocation misdelivery"
         end
       end
   end

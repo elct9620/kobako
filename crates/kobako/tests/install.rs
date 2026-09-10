@@ -1,14 +1,14 @@
-//! Integration coverage for the `install` dependency seam (E-52): an
+//! Integration coverage for the `install` dependency seam: an
 //! Extension whose `depends_on` names an uninstalled Extension must fail at
 //! the first invocation, before the guest runs, through the real
 //! `begin_invocation` path. The unit test on `assert_dependencies` pins the
 //! assertion in isolation; only driving `install` -> `eval` on a real
 //! Sandbox witnesses that the first invocation reaches it.
 //!
-//! E-52 raises ahead of the guest, so the guest binary is only needed to
-//! construct the Sandbox; the invocation never runs mruby. A missing binary
-//! is a hard failure under CI (which always builds it) and a silent skip
-//! locally, mirroring the Ruby E2E helper.
+//! The dependency assertion raises ahead of the guest, so the guest binary
+//! is only needed to construct the Sandbox; the invocation never runs mruby.
+//! A missing binary is a hard failure under CI (which always builds it) and
+//! a silent skip locally, mirroring the Ruby E2E helper.
 
 // Driven through the bundled engine: these cases load a real Guest Binary,
 // so they stand only in a build that carries one.
@@ -53,15 +53,15 @@ fn unmet_dependency_raises_at_first_invocation_naming_the_missing_dependency() {
         .install(Arc::new(FileExt))
         .expect("install the Extension");
 
-    let err = sandbox.eval("1").expect_err(
-        "an unmet dependency must fail the first invocation before the guest runs (E-52)",
-    );
+    let err = sandbox
+        .eval("1")
+        .expect_err("an unmet dependency must fail the first invocation before the guest runs");
 
     match err {
         Error::Argument(message) => assert!(
             message.contains("File") && message.contains("Errno"),
-            "an unmet depends_on must name the Extension and its missing dependency (E-52), got: {message}"
+            "an unmet depends_on must name the Extension and its missing dependency, got: {message}"
         ),
-        other => panic!("an unmet dependency must raise Error::Argument (E-52), got {other:?}"),
+        other => panic!("an unmet dependency must raise Error::Argument, got {other:?}"),
     }
 }

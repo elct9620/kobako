@@ -1,7 +1,7 @@
 //! The exception a guest block raised, held across the host round-trip.
 //!
 //! A block that raises does not end the invocation: the host re-raises at
-//! the Service's `yield` site, and the Service may rescue it (B-24). Only
+//! the Service's `yield` site, and the Service may rescue it. Only
 //! an unrescued one comes back, and when it does the failure is the
 //! caller's own — so the caller re-raises the exception it raised rather
 //! than a reconstruction of it, which is what the same two frames would
@@ -13,7 +13,7 @@
 //! Service reaching a second yield continued past the first failure —
 //! which is what rescuing it means. Left behind past either point, a spent
 //! exception would be handed to a later failure that has none of its own,
-//! such as a refused block value (E-21, E-22).
+//! such as a refused block value.
 //!
 //! The block is held alongside the exception and only its own dispatch may
 //! take it. With both rules above in force nothing reaches the slot out of

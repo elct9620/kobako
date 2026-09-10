@@ -27,13 +27,11 @@ class TestE2ELifecycle < Minitest::Test
     assert_equal "record:b", b, "J-02: subsequent run still sees the binding (SPEC.md L173)"
   end
 
-  # B-03: one long-lived Sandbox runs #run twice; each invocation executes
-  # against the canonical boot state (B-49), so guest runtime state mutated
-  # by one invocation cannot survive into the next. This is the isolation
-  # invariant the serverless example's Object Pool depends on when it
-  # reuses a single preloaded Sandbox across many requests. The Probe
-  # returns the global it observed at entry and then sets it: a leak would
-  # make the second invocation observe `true` instead of the fresh `nil`.
+  # Each invocation executes against the canonical boot state, so guest
+  # runtime state mutated by one cannot survive into the next — the invariant
+  # a single preloaded Sandbox reused across many requests depends on. The
+  # Probe returns the global it observed at entry and then sets it, so a leak
+  # would make the second invocation observe `true` instead of `nil`.
   # @behavior S-014
   def test_j02_reused_sandbox_does_not_leak_guest_globals_between_runs
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -42,12 +40,12 @@ class TestE2ELifecycle < Minitest::Test
     first = sandbox.run(:Probe).value
     second = sandbox.run(:Probe).value
 
-    assert_nil first, "J-02 / B-03: first #run on a fresh Sandbox observes an unset guest global"
+    assert_nil first, "J-02: first #run on a fresh Sandbox observes an unset guest global"
     assert_nil second,
-               "J-02 / B-03: a reused Sandbox must not surface the prior #run's guest global mutation"
+               "J-02: a reused Sandbox must not surface the prior #run's guest global mutation"
   end
 
-  # SPEC.md L169 + B-04: developer reads the run's Execution#stdout for guest
+  # SPEC.md L169: developer reads the run's Execution#stdout for guest
   # puts/print output AND the script's return value comes through the outcome
   # envelope. Both channels are independently observable.
   # @behavior S-023
@@ -60,9 +58,9 @@ class TestE2ELifecycle < Minitest::Test
     RUBY
 
     assert_equal 42, execution.value,
-                 "J-02 / B-04: return value comes through outcome envelope, not stdout"
+                 "J-02: return value comes through outcome envelope, not stdout"
     assert_includes execution.stdout, "diagnostic",
-                    "J-02 / B-04: guest puts is captured in the run's Execution#stdout (SPEC.md L169, B-04)"
+                    "J-02: guest puts is captured in the run's Execution#stdout (SPEC.md L169)"
   end
 
   # ── J-03 — Teaching platform evaluates student submissions in isolation ──
@@ -105,14 +103,14 @@ class TestE2ELifecycle < Minitest::Test
 
   # J-07 — Host App preloads a worker and dispatches many invocations.
   # SPEC.md L243-254: setup-once / dispatch-many pattern using #preload +
-  # #run. Per-invocation isolation (B-03) means no state leaks between
+  # #run. Per-invocation isolation means no state leaks between
   # successive #run calls on the same Sandbox.
   # @behavior S-053 S-140
   def test_j07_preload_worker_and_dispatch_many_requests
     sandbox = Kobako::Sandbox.new
-    # B-31 (mruby C API limitation): kwargs land as a trailing positional
-    # Hash, so entrypoints take a Hash parameter and unpack it themselves.
-    # See test/e2e/sandbox/test_run.rb:test_b31_passes_keyword_args_as_trailing_positional_hash.
+    # An mruby C API limitation lands kwargs as a trailing positional Hash, so
+    # entrypoints take a Hash parameter and unpack it themselves (see
+    # test/e2e/sandbox/test_run.rb).
     sandbox.preload(
       code: "class Worker; def self.call(req, opts = {}); req * (opts[:multiplier] || 1); end; end",
       name: :Worker
@@ -135,46 +133,43 @@ class TestE2ELifecycle < Minitest::Test
     assert_equal 25, sandbox.run(:Worker, 5).value
   end
 
-  # B-61: #eval / #run hand back a frozen Kobako::Execution bundling the run's
-  # #value with its output captures and #usage — the caller reads the result
-  # off that returned object, not off the reusable Sandbox, so the Sandbox
-  # holds no per-invocation state a concurrent eval could observe.
+  # The caller reads the result off the returned Execution, not off the
+  # reusable Sandbox, so the Sandbox holds no per-invocation state a
+  # concurrent eval could observe.
   # @behavior S-064
-  def test_b61_eval_returns_a_frozen_execution_bundling_value_and_observables
+  def test_eval_returns_a_frozen_execution_bundling_value_and_observables
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     execution = sandbox.eval('puts "trace"; 6 * 7')
 
     assert_instance_of Kobako::Execution, execution,
-                       "B-61: #eval through the real guest must return a Kobako::Execution"
+                       "#eval through the real guest must return a Kobako::Execution"
     assert_predicate execution, :frozen?,
-                     "B-61: the returned Execution must be frozen so a later run cannot mutate it"
-    assert_equal 42, execution.value, "B-61: Execution#value carries the run's last-expression value"
-    assert_instance_of Kobako::Usage, execution.usage, "B-61: Execution#usage carries the run's usage"
-    assert_includes execution.stdout, "trace", "B-61: Execution#stdout carries the run's captured output"
+                     "the returned Execution must be frozen so a later run cannot mutate it"
+    assert_equal 42, execution.value, "Execution#value carries the run's last-expression value"
+    assert_instance_of Kobako::Usage, execution.usage, "Execution#usage carries the run's usage"
+    assert_includes execution.stdout, "trace", "Execution#stdout carries the run's captured output"
   end
 
-  # B-61: a failed run raises an invocation-outcome error carrying that run's
-  # frozen Execution on #execution, so a rescue reads the pre-failure captures
-  # exactly as a successful caller reads the return value; #value is nil there.
+  # A rescue reads the pre-failure captures off the raised error's Execution
+  # exactly as a successful caller reads the return value.
   # @behavior S-065 S-138
-  def test_b61_failed_run_carries_its_execution_on_the_raised_error
+  def test_failed_run_carries_its_execution_on_the_raised_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     error = assert_raises(Kobako::SandboxError) { sandbox.eval('puts "partial"; raise "boom"') }
     execution = error.execution
 
     assert_instance_of Kobako::Execution, execution,
-                       "B-61: a failed run's error must carry its Execution on #execution"
-    assert_nil execution.value, "B-61: Execution#value is nil on a failed run (captures/usage only)"
-    assert_includes execution.stdout, "partial", "B-61: carried Execution holds output written pre-failure"
+                       "a failed run's error must carry its Execution on #execution"
+    assert_nil execution.value, "Execution#value is nil on a failed run (captures/usage only)"
+    assert_includes execution.stdout, "partial", "carried Execution holds output written pre-failure"
   end
 
-  # B-05: a run whose guest writes to neither channel yields empty captures on
-  # its Execution — an empty UTF-8 String with the truncation predicates false
-  # — so a Host App reads a silent run without a nil guard.
+  # An empty capture is an empty UTF-8 String rather than nil, so a Host App
+  # reads a silent run without a nil guard.
   # @behavior S-022
-  def test_b05_silent_run_has_empty_captures
+  def test_silent_run_has_empty_captures
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     execution = sandbox.eval("1 + 1")

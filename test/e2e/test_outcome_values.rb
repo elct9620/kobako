@@ -5,7 +5,7 @@ require "test_helper"
 # E2E (Layer 4) — the outcome (#eval return) value path through real mruby:
 # embedded-NUL fidelity, the 128-level structural depth guard, Float /
 # Integer bit-fidelity, native Array / Hash round-trips, and the
-# +try_codec_value+ raise-on-unrepresentable contract (E-06). The transport
+# +try_codec_value+ raise-on-unrepresentable contract. The transport
 # (dispatch-arg) counterpart lives in test_dispatch_args.rb; the same value
 # types' cross-frontend agreement is pinned differentially in
 # test/parity/test_values.rb.
@@ -55,7 +55,7 @@ class TestE2EOutcomeValues < Minitest::Test
   # recursive walk at 128 levels — the MessagePack limit the host decoder
   # already enforces. A return value that nests deeper, or that holds a
   # reference cycle (unbounded depth), has no wire representation and must
-  # surface as a clean, rescuable SandboxError (E-06) rather than overflowing
+  # surface as a clean, rescuable SandboxError rather than overflowing
   # the wasm stack into an unrescuable hard trap. A direct Array cycle, a Hash
   # self-cycle, and a structure far past the cap each exercise the guard.
   # @behavior S-073
@@ -120,10 +120,10 @@ class TestE2EOutcomeValues < Minitest::Test
   end
 
   # outcome path: +try_codec_value+ raises on a type outside the 11-entry
-  # wire type set rather than handing the host a misleading String (E-06;
-  # SPEC.md pins "no implicit inspect / to_h / to_s conversion"). The
-  # transport (dispatch-arg) path rejects the same way (E-55) — its pin
-  # lives in test_dispatch_args.rb.
+  # wire type set rather than handing the host a misleading String (SPEC.md
+  # pins "no implicit inspect / to_h / to_s conversion"). The transport
+  # (dispatch-arg) path rejects the same way — its pin lives in
+  # test_dispatch_args.rb.
   UNREPRESENTABLE_OUTCOME_SCRIPT = "Object.new"
 
   # @behavior S-135
@@ -135,7 +135,7 @@ class TestE2EOutcomeValues < Minitest::Test
     end
 
     assert_match(/not a supported sandbox value type/, err.message,
-                 "E-06: an #eval return value of an unsupported type must take " \
+                 "an #eval return value of an unsupported type must take " \
                  "the Panic path as Kobako::SandboxError, never an implicit inspect String")
   end
 
@@ -143,8 +143,8 @@ class TestE2EOutcomeValues < Minitest::Test
   #
   # The 11-entry Type Mapping (docs/wire/payload-msgpack.md § Type Mapping) maps
   # msgpack array → mruby Array and msgpack map → mruby Hash. Both
-  # directions must travel by value with element-level fidelity (SPEC.md
-  # B-13: "Collections (Array, Hash) whose elements are all
+  # directions must travel by value with element-level fidelity (SPEC.md:
+  # "Collections (Array, Hash) whose elements are all
   # wire-representable are transmitted in full by value").
 
   # Outcome path: a script whose last expression is an mruby Array must

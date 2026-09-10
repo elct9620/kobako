@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the block / yield round-trip through real mruby
-# (docs/behavior/yield.md B-23..B-30): a guest call site supplying a block
+# E2E (Layer 4) — the block / yield round-trip through real mruby: a guest
+# call site supplying a block
 # surfaces as a non-nil +&block+ on the host Service method, and each
 # +yield+ / +block.call+ is a synchronous round-trip into the guest via
 # +__kobako_yield_to_block+, returning the block result (tag 0x01), a
@@ -16,7 +16,7 @@ class TestE2EYield < Minitest::Test
   include E2eGuestHelper
 
   # @behavior T-083
-  def test_b23_block_given_reaches_host_when_guest_supplies_block
+  def test_block_given_reaches_host_when_guest_supplies_block
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     observed = []
     sandbox.bind("Probe::Sees", ->(*, &block) { observed << !block.nil? })
@@ -24,12 +24,12 @@ class TestE2EYield < Minitest::Test
     sandbox.eval("Probe::Sees.call { |x| x }").value
 
     assert_equal [true], observed,
-                 "B-23: guest call site supplying a block must surface as " \
+                 "guest call site supplying a block must surface as " \
                  "non-nil &block on the host Service method"
   end
 
   # @behavior T-084
-  def test_b23_no_block_means_block_given_false_on_host
+  def test_no_block_means_block_given_false_on_host
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     observed = []
     sandbox.bind("Probe::Sees", ->(*, &block) { observed << !block.nil? })
@@ -37,35 +37,35 @@ class TestE2EYield < Minitest::Test
     sandbox.eval("Probe::Sees.call").value
 
     assert_equal [false], observed,
-                 "B-23: guest call without a block leaves &block nil"
+                 "guest call without a block leaves &block nil"
   end
 
   # @behavior T-085
-  def test_b24_single_yield_returns_block_value_to_service
+  def test_single_yield_returns_block_value_to_service
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
 
     result = sandbox.eval("Probe::OnceX.call(21) { |x| x * 2 }").value
 
     assert_equal 42, result,
-                 "B-24: a Service method's yield observes the block's " \
+                 "a Service method's yield observes the block's " \
                  "last-expression value as the +yield+ expression's value"
   end
 
   # @behavior T-086 T-189
-  def test_b29_multi_yield_runs_block_once_per_iteration
+  def test_multi_yield_runs_block_once_per_iteration
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::MapEach", ->(items, &blk) { items.map(&blk) })
 
     result = sandbox.eval("Probe::MapEach.call([1, 2, 3]) { |x| x * 10 }").value
 
     assert_equal [10, 20, 30], result,
-                 "B-29: each Service yield is an independent round-trip; " \
+                 "each Service yield is an independent round-trip; " \
                  "the block runs once per iteration and the value flows back"
   end
 
   # @behavior T-087
-  def test_b28_block_body_dispatches_to_another_binding
+  def test_block_body_dispatches_to_another_binding
     # The block body itself issues a second guest→host dispatch — to a
     # different binding that takes no block — while the first Service's
     # yield is mid-flight. This is the load-bearing shape of a `step` /
@@ -81,7 +81,7 @@ class TestE2EYield < Minitest::Test
     result = sandbox.eval("A::Step.call(name: 'outer') { B::Fetch.call('k1') }").value
 
     assert_equal "A[outer]:fetched:k1", result,
-                 "B-28: a guest block may dispatch to another no-block binding " \
+                 "a guest block may dispatch to another no-block binding " \
                  "mid-yield; the inner result must flow back into the block and " \
                  "on to the outer Service's yield site"
   end
@@ -90,21 +90,18 @@ class TestE2EYield < Minitest::Test
   # Coercing the answer to a String would hand the Service a plausible
   # value in place of one that never crossed, so the round-trip reports
   # the refusal at the yield site instead.
-  def test_e22_block_returns_unrepresentable_value_raises_at_yield_site
+  def test_block_returns_unrepresentable_value_raises_at_yield_site
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
 
-    # The guest block returns a bare Object — no MessagePack wire
-    # representation. Per E-22 the yield round-trip emits tag 0x04 error
-    # rather than coercing the value to a String, so the Service's
-    # block.call raises at the yield site; unrescued, it surfaces through
-    # the same path as a block exception (B-24) — Kobako::ServiceError.
+    # A bare Object has no wire representation, so the round-trip answers with
+    # a 0x04 error and the Service's block.call raises at the yield site.
     err = assert_raises(Kobako::ServiceError) do
       sandbox.eval("Probe::OnceX.call(1) { |_x| Object.new }")
     end
 
     assert_match(/not a supported sandbox value type/, err.message,
-                 "E-22: a guest block returning a value of an unsupported type " \
+                 "a guest block returning a value of an unsupported type " \
                  "must surface as a 0x04 error at the yield site, not a coerced String")
   end
 
@@ -112,33 +109,30 @@ class TestE2EYield < Minitest::Test
   # The break arm returns to the guest rather than to host code, so it
   # needs its own witness that the value is refused rather than coerced
   # on the way out.
-  def test_e22_break_with_unrepresentable_value_raises_at_yield_site
+  def test_break_with_unrepresentable_value_raises_at_yield_site
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
 
-    # `break Object.new` is a real break (B-25), but the break value is
-    # not a supported sandbox value type. The break value cannot ride the
-    # 0x02 break tag, so the guest emits a 0x04 error instead of coercing
-    # it — the Service observes an error at its yield site rather than an
-    # unwind to a misleading String.
+    # `break Object.new` is a real break, but its value cannot ride the 0x02
+    # break tag, so the guest emits a 0x04 error instead of coercing it.
     err = assert_raises(Kobako::ServiceError) do
       sandbox.eval("Probe::Each.call([1, 2, 3]) { |_x| break Object.new }")
     end
 
     assert_match(/not a supported sandbox value type/, err.message,
-                 "E-22: a break value of an unsupported type must surface as a " \
+                 "a break value of an unsupported type must surface as a " \
                  "0x04 error, not unwind the Service method with a coerced String")
   end
 
   # @behavior T-088
-  def test_b30_service_with_block_that_never_yields_runs_clean
+  def test_service_with_block_that_never_yields_runs_clean
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Ignores", ->(*, &_blk) { :ok })
 
     result = sandbox.eval("Probe::Ignores.call { raise 'never runs' }").value
 
     assert_equal :ok, result,
-                 "B-30: a Service that receives a block but never invokes " \
+                 "a Service that receives a block but never invokes " \
                  "it must complete normally — the block body never executes"
   end
 end

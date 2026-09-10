@@ -2,19 +2,19 @@
 
 require "test_helper"
 
-# Differential parity — the Extension install mechanism (SPEC.md
-# B-55 / B-56). Both frontends install a guest File idiom over a stub
-# backend and must observe the composition and provider resolution
-# identically: a pure method runs in-guest, an I/O method dispatches to the
-# backend, a fixed provider persists a stateful backend across invocations,
-# and a per-invocation provider resets it.
+# Differential parity — the Extension install mechanism. Both frontends
+# install a guest File idiom over a stub backend and must observe the
+# composition and provider resolution identically: a pure method runs
+# in-guest, an I/O method dispatches to the backend, a fixed provider
+# persists a stateful backend across invocations, and a per-invocation
+# provider resets it.
 class TestParityInstall < Parity::Case
   PURE_AND_IO = "class File; extend Kobako::Proxy; def self.join(*p); p.join('/'); end; end"
   BACKED_ONLY = "class File; extend Kobako::Proxy; end"
 
   # @behavior EX-005 EX-006 EX-038
-  # B-55: File.join runs in-guest with no round-trip; File.read dispatches
-  # to the bound backend.
+  # File.join runs in-guest with no round-trip; File.read dispatches to
+  # the bound backend.
   def test_pure_method_is_local_and_io_dispatches_to_the_backend
     assert_install(
       name: "install-composition", source: PURE_AND_IO,
@@ -24,7 +24,7 @@ class TestParityInstall < Parity::Case
   end
 
   # @behavior EX-021 EX-039
-  # B-56: a fixed provider binds one backend for the Sandbox's life, so a
+  # A fixed provider binds one backend for the Sandbox's life, so a
   # counter keeps counting across invocations.
   def test_fixed_provider_persists_a_stateful_backend
     assert_install(
@@ -34,9 +34,8 @@ class TestParityInstall < Parity::Case
   end
 
   # @behavior EX-022 EX-040
-  # B-56: a per-invocation provider resolves a fresh backend each
-  # invocation, so the counter resets — the write cannot leak across
-  # invocations.
+  # A per-invocation provider resolves a fresh backend each invocation, so
+  # the counter resets — the write cannot leak across invocations.
   def test_per_invocation_provider_resets_a_stateful_backend
     assert_install(
       name: "install-per-invocation-provider", source: BACKED_ONLY,

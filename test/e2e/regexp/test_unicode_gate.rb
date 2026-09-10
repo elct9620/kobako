@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# The Unicode gate distinguishes the two regexp variants (SPEC.md B-41).
+# The Unicode gate distinguishes the two regexp variants.
 # fancy-regex's Unicode support is coarse: with it off the engine rejects
 # every case-insensitive pattern. These scenarios drive the no-unicode
 # +regexp+ Guest Binary to pin that the gate is closed there — a guest that

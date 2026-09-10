@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — a yield argument the host cannot write (E-57). The
+# E2E (Layer 4) — a yield argument the host cannot write. The
 # Service yields whatever host object it holds and the boundary converts
 # it, so a value outside the wire type set fails at the yield site before
 # the guest is re-entered. The inbound half — what the block sends back —
@@ -14,7 +14,7 @@ class TestE2EYieldValueRefusal < Minitest::Test
   YIELD_ONCE = "Probe::Yields.call { |x| x }"
 
   # @behavior T-154
-  def test_e57_a_service_rescuing_its_own_yield_refusal_answers_normally
+  def test_a_service_rescuing_its_own_yield_refusal_answers_normally
     seen = rescuing_sandbox.eval(YIELD_ONCE).value
 
     assert_equal :recovered, seen,
@@ -23,7 +23,7 @@ class TestE2EYieldValueRefusal < Minitest::Test
   end
 
   # @behavior T-155
-  def test_e57_the_refusal_names_the_position_rather_than_a_codec_class
+  def test_the_refusal_names_the_position_rather_than_a_codec_class
     rescuing_sandbox.eval(YIELD_ONCE)
 
     assert_match(/Service yielded a value the block cannot receive/, @caught.message,
@@ -40,7 +40,7 @@ class TestE2EYieldValueRefusal < Minitest::Test
   RUBY
 
   # @behavior T-156
-  def test_e57_the_block_never_runs
+  def test_the_block_never_runs
     seen = rescuing_sandbox.eval(BLOCK_RAN_PROBE).value
 
     assert_equal false, seen,
@@ -51,7 +51,7 @@ class TestE2EYieldValueRefusal < Minitest::Test
   # Unrescued it is the Service failing, since the Service is the only side
   # that can change what it yields.
   # @behavior T-157
-  def test_e57_an_unrescued_yield_refusal_reaches_the_host_app_as_a_service_failure
+  def test_an_unrescued_yield_refusal_reaches_the_host_app_as_a_service_failure
     err = assert_raises(Kobako::ServiceError) { propagating_sandbox.eval(YIELD_ONCE) }
 
     assert_instance_of Kobako::ServiceError, err,
@@ -60,7 +60,7 @@ class TestE2EYieldValueRefusal < Minitest::Test
   end
 
   # @behavior T-158
-  def test_e57_an_unrescued_yield_refusal_answers_in_kobakos_own_wording
+  def test_an_unrescued_yield_refusal_answers_in_kobakos_own_wording
     err = assert_raises(Kobako::ServiceError) { propagating_sandbox.eval(YIELD_ONCE) }
 
     refute_match(/Kobako::/, err.message,
@@ -74,7 +74,7 @@ class TestE2EYieldValueRefusal < Minitest::Test
   # stack of its own — refusing it costs the thread that takes it (see
   # StackQuarantine).
   # @behavior T-159
-  def test_e57_a_yield_argument_that_nests_without_bound_refuses_at_the_same_site
+  def test_a_yield_argument_that_nests_without_bound_refuses_at_the_same_site
     seen = in_a_spendable_stack { cyclic_yield_sandbox.eval(YIELD_ONCE).value }
 
     assert_equal :recovered, seen,

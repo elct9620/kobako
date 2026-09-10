@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Match backref globals contract (SPEC.md B-41). kobako-regexp sets
+# Match backref globals contract. kobako-regexp sets
 # $~ / $1..$9 / $& / $` / $' after each successful match within an
 # invocation, and refreshes them on every iteration of a gsub block.
 class TestRegexpMatchGlobals < Minitest::Test

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Kernel#=~ fallback (SPEC.md B-41). String defines its own regexp-aware =~;
+# Kernel#=~ fallback. String defines its own regexp-aware =~;
 # every other receiver falls through to Kernel#=~, fixed at nil to match
 # MRI's deprecated Object#=~.
 class TestRegexpKernel < Minitest::Test

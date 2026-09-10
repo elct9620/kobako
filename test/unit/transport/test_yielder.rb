@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Coverage for the host-side Yielder's Handle handling across the two
-# value-bearing Yield Reply arms (B-37). The distinction is invisible
+# value-bearing Yield Reply arms. The distinction is invisible
 # end-to-end — both paths leave the guest with a usable Handle — so it is
 # pinned here at the seam between the reply the native side split and
 # what the Service yield site receives:
@@ -11,7 +11,7 @@ require "test_helper"
 #   * ok    — the value is consumed by the host Service method, so a
 #             Handle is restored to its host object.
 #   * break — the value unwinds past the Service back to the guest
-#             bound-constant call (B-25), so a Handle passes through
+#             bound-constant call, so a Handle passes through
 #             unchanged; restoring it would churn a fresh
 #             Catalog::Handles id.
 #
@@ -40,7 +40,7 @@ class TestYielder < Minitest::Test
     result = yielder_answering(:ok).yield
 
     assert_same @object, result,
-                "B-37: a Handle in an ok payload reaches the Service yield site as its host object"
+                "a Handle in an ok payload reaches the Service yield site as its host object"
   end
 
   # @behavior T-101
@@ -56,7 +56,7 @@ class TestYielder < Minitest::Test
     thrown = catch(BREAK_TAG) { yielder_answering(:break).yield }
 
     assert_kind_of Kobako::Handle, thrown,
-                   "B-25/B-37: a break value returns to the guest, so a Handle passes through " \
+                   "a break value returns to the guest, so a Handle passes through " \
                    "unrestored rather than resolving to its host object"
     assert_equal @handle.id, thrown.id,
                  "the same Handle id rides back to the guest — no fresh Catalog::Handles entry is churned"

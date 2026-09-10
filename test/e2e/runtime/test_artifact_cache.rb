@@ -6,10 +6,10 @@ require "digest"
 require "fileutils"
 require "tmpdir"
 
-# Compiled-artifact disk cache behaviour through +Kobako::Runtime.from_path+
-# (docs/behavior/lifecycle.md B-01 Notes): the cache is best-effort — corrupt
-# entries fall back to in-process compilation, untrusted directories are
-# skipped, and writes prune entries unused past the retention window.
+# Compiled-artifact disk cache behaviour through +Kobako::Runtime.from_path+:
+# the cache is best-effort — corrupt entries fall back to in-process
+# compilation, untrusted directories are skipped, and writes prune entries
+# unused past the retention window.
 class TestRuntimeArtifactCache < Minitest::Test
   include GuestGuard
 
@@ -19,8 +19,8 @@ class TestRuntimeArtifactCache < Minitest::Test
     require_fixture!(FIXTURE_PATH)
   end
 
-  # docs/behavior/lifecycle.md B-01 Notes: a corrupt cache entry falls back to
-  # in-process compilation rather than failing construction.
+  # A corrupt cache entry falls back to in-process compilation rather than
+  # failing construction.
   # @behavior RT-035 RT-036
   def test_from_path_falls_back_to_compile_when_cached_artifact_is_corrupt
     with_private_cache_root do |dir|
@@ -28,11 +28,11 @@ class TestRuntimeArtifactCache < Minitest::Test
 
       assert_instance_of Kobako::Runtime,
                          Kobako::Runtime.from_path(wasm_path, nil, nil, nil, nil, :hermetic, :hold),
-                         "a corrupt compiled-artifact cache entry must fall back to compilation (B-01)"
+                         "a corrupt compiled-artifact cache entry must fall back to compilation"
       # Key-derivation witness: the test and the ext name the entry
       # independently — a drift would leave it unconsulted and vacuous.
       refute_equal "not a serialized wasmtime artifact", File.binread(entry),
-                   "the fallback compile must overwrite the corrupt cache entry in place (B-01)"
+                   "the fallback compile must overwrite the corrupt cache entry in place"
     end
   end
 
@@ -48,15 +48,15 @@ class TestRuntimeArtifactCache < Minitest::Test
 
       assert_instance_of Kobako::Runtime,
                          Kobako::Runtime.from_path(wasm_path, nil, nil, nil, nil, :hermetic, :hold),
-                         "construction over a group-writable cache directory must fall back to compilation (B-01)"
+                         "construction over a group-writable cache directory must fall back to compilation"
       assert_equal "not a serialized wasmtime artifact", File.binread(entry),
-                   "an artifact in a group-writable cache directory must be neither loaded nor overwritten (B-01)"
+                   "an artifact in a group-writable cache directory must be neither loaded nor overwritten"
     end
   end
 
-  # docs/behavior/lifecycle.md B-01 Notes: writing a new artifact opportunistically
-  # removes cache entries unused for the retention window, so the cache
-  # directory does not grow without bound across Guest Binary rebuilds.
+  # Writing a new artifact opportunistically removes cache entries unused
+  # for the retention window, so the cache directory does not grow without
+  # bound across Guest Binary rebuilds.
   # @behavior RT-039
   def test_storing_an_artifact_prunes_entries_unused_past_the_retention_window
     with_private_cache_root do |dir|
@@ -67,14 +67,14 @@ class TestRuntimeArtifactCache < Minitest::Test
       Kobako::Runtime.from_path(wasm_path, nil, nil, nil, nil, :hermetic, :hold)
 
       refute_path_exists stale,
-                         "writing a new artifact must prune cache entries unused past the retention window (B-01)"
+                         "writing a new artifact must prune cache entries unused past the retention window"
     end
   end
 
   private
 
-  # Redirect the compiled-artifact cache root (B-01: XDG_CACHE_HOME) to
-  # a private tmpdir for the block, so the test owns every cache entry
+  # Redirect the compiled-artifact cache root (XDG_CACHE_HOME) to a
+  # private tmpdir for the block, so the test owns every cache entry
   # and never touches the developer's real cache.
   def with_private_cache_root
     original = ENV.fetch("XDG_CACHE_HOME", nil)
@@ -88,7 +88,7 @@ class TestRuntimeArtifactCache < Minitest::Test
 
   # Copy the fixture to a fresh path under +dir+ and plant garbage bytes
   # at the cache entry its content hashes to (the entry name carries the
-  # driver crate's version per B-01), so the artifact-load path is forced
+  # driver crate's version), so the artifact-load path is forced
   # onto the corrupt-entry branch. Returns the wasm path and the planted
   # entry.
   def plant_corrupt_artifact(dir)

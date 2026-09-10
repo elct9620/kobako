@@ -51,14 +51,10 @@ class TestRuntime < Minitest::Test
     refute_same a, b, "each call must return a fresh Runtime with its own Store"
   end
 
-  # SPEC error taxonomy contract (docs/behavior/errors.md E-40 / E-41): a
-  # present-but-unparseable wasm artifact passing through +from_path+ raises
-  # +Kobako::SetupError+, not the absent-artifact subclass
-  # +ModuleNotBuiltError+ (reserved for "file absent", E-40) and not the
-  # invocation-outcome +TrapError+. Construction fails before any guest
-  # invocation runs, so it sits outside the invocation attribution pipeline;
-  # a single +rescue Kobako::SetupError+ covers every unconstructable-runtime
-  # cause — unreadable bytes, an invalid module, or instantiation failure.
+  # A present-but-unparseable wasm artifact through +from_path+ raises
+  # +Kobako::SetupError+ — neither the absent-artifact +ModuleNotBuiltError+
+  # nor the invocation-outcome +TrapError+ — so a single
+  # +rescue Kobako::SetupError+ covers every unconstructable-runtime cause.
   # @behavior RT-060
   def test_from_path_raises_setup_error_for_corrupt_wasm_payload
     # Any present file whose bytes are not a valid wasm module reaches
@@ -91,10 +87,9 @@ class TestRuntime < Minitest::Test
   end
 
   # @behavior RT-016
-  # docs/behavior/security.md B-54: the runtime builds the requested
-  # isolation rung and declares the posture it built, so the request
-  # round-trips through construction to the +#profile+ reader on both
-  # rungs of the ladder.
+  # The runtime builds the requested isolation rung and declares the
+  # posture it built, so the request round-trips through construction to
+  # the +#profile+ reader on both rungs of the ladder.
   def test_from_path_builds_and_declares_the_requested_profile
     skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
 
@@ -105,10 +100,10 @@ class TestRuntime < Minitest::Test
   end
 
   # @behavior RT-017
-  # docs/behavior/errors.md E-39 mirror for +profile+: an off-ladder rung
-  # must fail closed as +ArgumentError+ rather than fall back to any
-  # grant. +SandboxOptions+ validates the Sandbox path; this exercises
-  # the ext's defence-in-depth guard on a direct +from_path+ call.
+  # An off-ladder +profile+ rung must fail closed as +ArgumentError+
+  # rather than fall back to any grant. +SandboxOptions+ validates the
+  # Sandbox path; this exercises the ext's defence-in-depth guard on a
+  # direct +from_path+ call.
   def test_from_path_raises_argument_error_for_off_ladder_profile
     err = assert_raises(ArgumentError) do
       Kobako::Runtime.from_path(Kobako::Runtime.default_path, nil, nil, nil, nil, :sealed, :hold)
@@ -117,7 +112,7 @@ class TestRuntime < Minitest::Test
   end
 
   # @behavior RT-021
-  # B-64 mirror of the profile guard: an unrecognized gvl mode fails closed
+  # Mirror of the profile guard: an unrecognized gvl mode fails closed
   # as +ArgumentError+ on a direct +from_path+ call. +SandboxOptions+
   # validates the Sandbox path; this exercises the ext's defence-in-depth.
   def test_from_path_raises_argument_error_for_unrecognized_gvl_mode

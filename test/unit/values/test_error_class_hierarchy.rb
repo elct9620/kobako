@@ -54,7 +54,7 @@ class TestErrorClassHierarchy < Minitest::Test
   # answering, where the Service may rescue and go on, so neither reaches
   # the Host App as an invocation outcome and both stay outside the three
   # that do. BlockError carries what the block sent back, YieldValueError
-  # what the Service could not send (E-57).
+  # what the Service could not send.
   YIELD_SITE_CLASSES = [Kobako::BlockError, Kobako::YieldValueError].freeze
   INVOCATION_OUTCOMES = [Kobako::TrapError, Kobako::SandboxError, Kobako::ServiceError].freeze
 

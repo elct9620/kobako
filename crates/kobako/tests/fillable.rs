@@ -1,4 +1,4 @@
-//! Integration coverage for a fillable Service path (Ruby B-62): declared
+//! Integration coverage for a fillable Service path: declared
 //! with `bind_fillable`, or as an Extension backend with `Provider::Fillable`,
 //! and left unfilled, it enters Frame 1 so the guest sees the constant, but a
 //! dispatch to it fails closed as a Service failure — the same fail-closed
@@ -85,11 +85,11 @@ fn an_unfilled_fillable_dispatch_fails_closed_as_a_service_error() {
         .eval("Store.get(1)")
         .expect("the guest ran")
         .value()
-        .expect_err("a dispatch to an unfilled fillable must fail closed (B-62)");
+        .expect_err("a dispatch to an unfilled fillable must fail closed");
 
     assert!(
         matches!(err, Error::Service(_)),
-        "an unfilled fillable's dispatch must surface as a Service failure (B-62), got {err:?}"
+        "an unfilled fillable's dispatch must surface as a Service failure, got {err:?}"
     );
 }
 
@@ -115,7 +115,7 @@ fn a_fillable_is_distinct_from_an_undeclared_constant() {
     assert!(
         matches!(err, Error::Sandbox(_)),
         "a never-declared constant is a guest-side Sandbox failure, distinct from a \
-         fillable's Service failure (B-62), got {err:?}"
+         fillable's Service failure, got {err:?}"
     );
 }
 
@@ -133,12 +133,12 @@ fn an_extension_fillable_backend_left_unfilled_fails_closed() {
         .eval("Store.get(1)")
         .expect("the guest ran")
         .value()
-        .expect_err("a dispatch to an unfilled Extension fillable backend must fail closed (B-56)");
+        .expect_err("a dispatch to an unfilled Extension fillable backend must fail closed");
 
     assert!(
         matches!(err, Error::Service(_)),
-        "an unfilled Provider::Fillable backend's dispatch must surface as a Service failure \
-         (B-56), got {err:?}"
+        "an unfilled Provider::Fillable backend's dispatch must surface as a Service failure, \
+         got {err:?}"
     );
 }
 
@@ -158,12 +158,12 @@ fn a_ctx_bind_override_fills_an_extension_fillable_backend() {
         })
         .expect("the guest ran")
         .value()
-        .expect("a filled Extension backend dispatches to the override object (B-56 / B-63)");
+        .expect("a filled Extension backend dispatches to the override object");
 
     assert_eq!(
         value,
         Value::Str("filled".into()),
         "a ctx.bind override must fill a Provider::Fillable backend so the guest reaches the \
-         supplied object (B-56 / B-63)"
+         supplied object"
     );
 }

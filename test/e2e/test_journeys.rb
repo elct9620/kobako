@@ -47,8 +47,7 @@ class TestE2EJourneys < Minitest::Test
     refute_kind_of Kobako::TrapError, err, "a script fault through #eval must not surface as TrapError"
   end
 
-  # docs/behavior/errors.md E-05: source that fails to compile is rejected
-  # before any execution begins, so a syntactically invalid script — the
+  # Source that fails to compile is rejected before any execution begins, so a syntactically invalid script — the
   # common shape of model-generated code — raises SandboxError and never
   # runs the statements preceding the error.
   # @behavior J-003

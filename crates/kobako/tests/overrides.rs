@@ -1,4 +1,4 @@
-//! Integration coverage for the per-invocation override closure (Ruby B-63):
+//! Integration coverage for the per-invocation override closure:
 //! `eval_with` / `run_with` fill a fillable or shadow a declared binding for
 //! one invocation, and refuse an undeclared override before the guest runs.
 //! Driven through the real guest binary; a missing binary is a hard failure
@@ -58,14 +58,14 @@ fn eval_with_fills_a_fillable_for_the_invocation() {
         .eval_with("Store.get(1)", |ctx| {
             ctx.bind("Store", Kv("filled").into_receiver())
         })
-        .expect("a filled fillable must dispatch to the override object (B-63)")
+        .expect("a filled fillable must dispatch to the override object")
         .value()
         .expect("the override object returns its value");
 
     assert_eq!(
         value,
         Value::Str("filled".into()),
-        "eval_with must fill the fillable so the guest reaches the override object (B-63)"
+        "eval_with must fill the fillable so the guest reaches the override object"
     );
 }
 
@@ -95,12 +95,12 @@ fn eval_with_shadows_a_static_binding_for_one_invocation_only() {
     assert_eq!(
         overridden,
         Value::Str("override".into()),
-        "an override must shadow the static binding for this invocation (B-63)"
+        "an override must shadow the static binding for this invocation"
     );
     assert_eq!(
         plain,
         Value::Str("base".into()),
-        "the override lasts only its own invocation; the next eval sees the base binding (B-63)"
+        "the override lasts only its own invocation; the next eval sees the base binding"
     );
 }
 
@@ -127,7 +127,7 @@ fn a_second_override_of_a_path_wins_over_the_first() {
         value,
         Value::Str("second".into()),
         "a later ctx.bind on the same path must shadow the earlier one, matching the Ruby \
-         frontend's last-wins override semantics (B-63)"
+         frontend's last-wins override semantics"
     );
 }
 
@@ -143,11 +143,11 @@ fn eval_with_rejects_an_undeclared_override_before_the_guest_runs() {
 
     let err = sandbox
         .eval_with("1", |ctx| ctx.bind("Undeclared", Kv("x").into_receiver()))
-        .expect_err("overriding an undeclared path must fail before the guest runs (B-63)");
+        .expect_err("overriding an undeclared path must fail before the guest runs");
 
     assert!(
         matches!(err, Error::Argument(_)),
-        "an undeclared override must surface as Error::Argument, keeping the key set fixed (B-63), got {err:?}"
+        "an undeclared override must surface as Error::Argument, keeping the key set fixed, got {err:?}"
     );
 }
 
@@ -168,14 +168,14 @@ fn run_with_fills_a_fillable_for_the_invocation() {
         .run_with("Worker", RunPayload::values(vec![], vec![]), |ctx| {
             ctx.bind("Store", Kv("filled").into_receiver())
         })
-        .expect("a filled fillable must dispatch to the override object (B-63)")
+        .expect("a filled fillable must dispatch to the override object")
         .value()
         .expect("the override object returns its value");
 
     assert_eq!(
         value,
         Value::Str("filled".into()),
-        "run_with must fill the fillable so the run entrypoint reaches the override object (B-63)"
+        "run_with must fill the fillable so the run entrypoint reaches the override object"
     );
 }
 
@@ -208,12 +208,12 @@ fn run_with_shadows_a_static_binding_for_one_invocation_only() {
     assert_eq!(
         overridden,
         Value::Str("override".into()),
-        "run_with must shadow the static binding for this invocation (B-63)"
+        "run_with must shadow the static binding for this invocation"
     );
     assert_eq!(
         plain,
         Value::Str("base".into()),
-        "the override lasts only its own invocation; the next run sees the base binding (B-63)"
+        "the override lasts only its own invocation; the next run sees the base binding"
     );
 }
 
@@ -234,10 +234,10 @@ fn run_with_rejects_an_undeclared_override_before_the_guest_runs() {
         .run_with("Worker", RunPayload::values(vec![], vec![]), |ctx| {
             ctx.bind("Undeclared", Kv("x").into_receiver())
         })
-        .expect_err("overriding an undeclared path must fail before the guest runs (B-63)");
+        .expect_err("overriding an undeclared path must fail before the guest runs");
 
     assert!(
         matches!(err, Error::Argument(_)),
-        "an undeclared override must surface as Error::Argument on the run path too (B-63), got {err:?}"
+        "an undeclared override must surface as Error::Argument on the run path too, got {err:?}"
     );
 }

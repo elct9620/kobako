@@ -3,15 +3,14 @@
 require "test_helper"
 
 # Sandbox#preload surface tests. Catalog::Snippets validation
-# (E-33 / E-34 / non-String code / non-String binary / no-keyword /
-# combining binary: with code:|name:) is pinned at the table tier in
-# test/unit/catalog/test_snippets.rb; Sandbox#preload is a thin
+# (duplicate name / malformed name / non-String code / non-String binary /
+# no-keyword / combining binary: with code:|name:) is pinned at the table
+# tier in test/unit/catalog/test_snippets.rb; Sandbox#preload is a thin
 # delegation. This file holds only the Sandbox-specific contracts:
-# chain-returns-self and post-seal rejection (E-35).
+# chain-returns-self and post-seal rejection.
 #
-# Replay-side behaviour (B-32 Result, E-32, E-36, E-37, E-38) is
-# exercised end-to-end in test/e2e/test_preload.rb (source form) and
-# test/e2e/test_preload_bytecode.rb (binary form).
+# Replay-side behaviour is exercised end-to-end in test/e2e/test_preload.rb
+# (source form) and test/e2e/test_preload_bytecode.rb (binary form).
 class TestSandboxPreload < Minitest::Test
   include GuestGuard
 

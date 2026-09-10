@@ -5,16 +5,6 @@
 # needs a real Sandbox wiring (seal! triggered by the first invocation)
 # lives in test/e2e/sandbox/test_preload.rb; this file pins the registry
 # contract.
-#
-# Cross-references:
-#   - SPEC.md / docs/behavior/registration.md B-08 — bind a Service at a
-#     constant path (1+ segments), accepts class/instance/module
-#   - SPEC.md / docs/behavior/registration.md B-09 — multiple Services
-#     coexist independently; siblings share a prefix
-#   - SPEC.md / docs/behavior/registration.md B-11 — duplicate or
-#     prefix-colliding path raises, existing binding preserved
-#   - SPEC.md / docs/behavior/errors.md E-16 — malformed path segment
-#   - SPEC.md / docs/behavior/errors.md E-45 — bind after the seal
 
 require "test_helper"
 
@@ -24,7 +14,7 @@ module Kobako
       @services = Kobako::Catalog::Services.new
     end
 
-    # ---------- B-08: bind resolves; returns self for chaining ----------
+    # ---------- bind resolves; returns self for chaining ----------
 
     # @behavior SV-001 SV-002
     def test_bind_resolves_a_multi_segment_path_and_chains
@@ -32,7 +22,7 @@ module Kobako
       def logger.info(msg) = "logged:#{msg}"
 
       chain = @services.bind(:"Logger::Info", logger)
-      assert_same @services, chain, "bind through the registry must return self for chaining (B-08)"
+      assert_same @services, chain, "bind through the registry must return self for chaining"
       assert_same logger, @services.lookup("Logger::Info")
     end
 
@@ -58,17 +48,17 @@ module Kobako
     # the first would let the rest through.
     def test_bind_rejects_a_malformed_path_segment
       ["lower::Ok", "Ok::lower", :"Has-Dash::X", "9Numeric", "A::", "::A", "A::B::"].each do |bad|
-        assert_raises(ArgumentError, "malformed path #{bad.inspect} must raise (E-16)") do
+        assert_raises(ArgumentError, "malformed path #{bad.inspect} must raise") do
           @services.bind(bad, :obj)
         end
       end
     end
 
-    # ---------- B-08: bind accepts class / instance / module uniformly ----------
+    # ---------- bind accepts class / instance / module uniformly ----------
 
     # @behavior SV-005
     def test_bind_accepts_class_instance_and_module
-      klass, instance, mod = b08_class_instance_module_triple
+      klass, instance, mod = class_instance_module_triple
       @services.bind("Mixed::K", klass).bind("Mixed::I", instance).bind("Mixed::M", mod)
 
       assert_same klass,    @services.lookup("Mixed::K")
@@ -76,7 +66,7 @@ module Kobako
       assert_same mod,      @services.lookup("Mixed::M")
     end
 
-    def b08_class_instance_module_triple
+    def class_instance_module_triple
       klass = Class.new { def self.ping = :klass }
       instance = Object.new
       def instance.ping = :instance
@@ -88,7 +78,7 @@ module Kobako
       [klass, instance, mod]
     end
 
-    # ---------- B-09: multiple Services coexist; siblings share a prefix ----------
+    # ---------- multiple Services coexist; siblings share a prefix ----------
 
     # @behavior SV-010
     def test_multiple_services_resolve_independently
@@ -107,7 +97,7 @@ module Kobako
       assert_equal :set, @services.lookup("KV::Set")
     end
 
-    # ---------- B-11: duplicate / prefix collision raises ----------
+    # ---------- duplicate / prefix collision raises ----------
 
     # @behavior SV-012 SV-015
     def test_bind_rejects_an_exact_duplicate_path
@@ -121,7 +111,7 @@ module Kobako
       @services.bind("KV", :leaf)
       assert_raises(ArgumentError) { @services.bind("KV::Get", :under) }
       assert_equal :leaf, @services.lookup("KV"),
-                   "a rejected prefix-extending bind must leave the existing leaf binding intact (B-11)"
+                   "a rejected prefix-extending bind must leave the existing leaf binding intact"
     end
 
     # @behavior SV-014 SV-015
@@ -129,7 +119,7 @@ module Kobako
       @services.bind("KV::Get", :under)
       assert_raises(ArgumentError) { @services.bind("KV", :leaf) }
       assert_equal :under, @services.lookup("KV::Get"),
-                   "a rejected prefix-of-existing bind must leave the existing deeper binding intact (B-11)"
+                   "a rejected prefix-of-existing bind must leave the existing deeper binding intact"
     end
 
     # ---------- seal / lookup error paths ----------
@@ -152,10 +142,9 @@ module Kobako
     end
   end
 
-  # The declared path set every invocation ships on Frame 1
-  # (docs/behavior/lifecycle.md B-02), including the B-33 sealing snapshot
-  # — every invocation after the seal ships the bindings that existed at
-  # that moment.
+  # The declared path set every invocation ships on Frame 1, including the
+  # sealing snapshot — every invocation after the seal ships the bindings
+  # that existed at that moment.
   class CatalogServicesPathsTest < Minitest::Test
     def setup
       @services = Kobako::Catalog::Services.new
@@ -184,13 +173,12 @@ module Kobako
 
       assert_equal %w[MyService::KV], first
       assert_equal %w[MyService::KV MyService::Logger], @services.paths,
-                   "binding a Service on an unsealed registry must surface in the next #paths read (B-08)"
+                   "binding a Service on an unsealed registry must surface in the next #paths read"
     end
 
     # @behavior S-018
-    # B-33 seals Service registration (B-08) at the first invocation.
-    # Binding past the seal raises (E-45), so the declared path set is
-    # stable by construction.
+    # The first invocation seals Service registration, and binding past the
+    # seal raises, so the declared path set is stable by construction.
     def test_paths_after_seal_excludes_paths_bound_later
       @services.bind("MyService::KV", :kv)
       @services.seal!
@@ -198,7 +186,7 @@ module Kobako
       assert_raises(ArgumentError) { @services.bind("MyService::Late", :late) }
 
       assert_equal %w[MyService::KV], @services.paths,
-                   "a bind rejected after the seal must not alter the declared path set (B-33 / E-45)"
+                   "a bind rejected after the seal must not alter the declared path set"
     end
   end
 end

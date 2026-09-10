@@ -5,10 +5,9 @@ require "stringio"
 
 # GC-safety regression coverage for the host-side dispatch Proc.
 #
-# Kobako::Sandbox installs a dispatch Proc on Kobako::Runtime
-# (docs/behavior/dispatch.md B-12). The native ext holds that Proc across the whole
-# guest invocation so that guest->host dispatch (B-13) and the yield
-# round-trip (B-24) can call it. Because the Proc is reachable only from
+# Kobako::Sandbox installs a dispatch Proc on Kobako::Runtime. The native
+# ext holds that Proc across the whole guest invocation so that guest->host
+# dispatch and the yield round-trip can call it. Because the Proc is reachable only from
 # the ext while the guest runs, the ext is responsible for keeping it
 # rooted against Ruby's garbage collector for the duration.
 #
@@ -38,7 +37,7 @@ class TestE2EDispatchGcSafety < Minitest::Test
 
   # Witness: under GC.stress the dispatch Proc is collected the moment
   # control leaves Sandbox#initialize unless the ext roots it. The
-  # Handle-proxy #run path (B-34 / B-17) is the densest dispatch
+  # Handle-proxy #run path is the densest dispatch
   # round-trip available, so it is the surest trigger for the sweep
   # path. Pre-fix this SIGSEGVs on the first invocation.
   # @behavior T-070
@@ -58,7 +57,7 @@ class TestE2EDispatchGcSafety < Minitest::Test
   # Witness: GC.compact moves live objects. The ext caches the dispatch
   # Proc as a raw VALUE, so a fix that only keeps the Proc alive (e.g. a
   # Ruby-side reference) but lets it move leaves the ext pointing at the
-  # relocated-from slot. The break-in-block Service yield (B-25) exercises
+  # relocated-from slot. The break-in-block Service yield exercises
   # the dispatch + yield round-trip; pre-fix this surfaces as a
   # Kobako::SandboxError ("transport dispatch Proc raised").
   # @behavior T-071

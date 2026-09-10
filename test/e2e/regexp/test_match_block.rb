@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Block form of Regexp#match / String#match (SPEC.md B-41). A successful
+# Block form of Regexp#match / String#match. A successful
 # match yields its MatchData to the block and returns the block's result; a
 # miss returns nil without calling the block.
 class TestRegexpMatchBlock < Minitest::Test

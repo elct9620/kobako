@@ -11,8 +11,8 @@ require "test_helper"
 # available — bytes that are valid UTF-8 ride as wire str, anything else
 # as bin. A Symbol has no such second family (its name rides as ext 0x00,
 # whose payload the wire requires to be UTF-8), so a name that is not
-# UTF-8 has no representation and is refused: E-06 on the outcome path,
-# E-55 on a dispatch argument or keyword name.
+# UTF-8 has no representation and is refused, on the outcome path and on a
+# dispatch argument or keyword name alike.
 #
 # These are witnesses rather than fuzz cases because the round-trip fuzz
 # in test/fuzz/test_guest_value_fuzz.rb generates only wire-legal values:
@@ -49,7 +49,7 @@ class TestE2EByteFidelity < Minitest::Test
     end
 
     assert_match(/return value of type Symbol is not a supported/, err.message,
-                 "E-06: a Symbol whose name is not UTF-8 through #eval must be refused as an " \
+                 "a Symbol whose name is not UTF-8 through #eval must be refused as an " \
                  "unrepresentable return value, not interned under a name the guest never wrote")
   end
 
@@ -74,7 +74,7 @@ class TestE2EByteFidelity < Minitest::Test
     err = assert_raises(Kobako::SandboxError) { sandbox.eval('Probe::Sink.call("s\xFFy".to_sym)') }
 
     assert_equal "TypeError", err.klass,
-                 "E-55: a Symbol whose name is not UTF-8 through a dispatch argument must be " \
+                 "a Symbol whose name is not UTF-8 through a dispatch argument must be " \
                  "refused as the script's own type error at the call site, not renamed"
     assert_match(/argument of type Symbol/, err.message,
                  "the refusal must name the argument slot it stopped at")
@@ -90,7 +90,7 @@ class TestE2EByteFidelity < Minitest::Test
     err = assert_raises(Kobako::SandboxError) { sandbox.eval('Probe::Sink.call(**{"k\xFFy" => 1})') }
 
     assert_equal "TypeError", err.klass,
-                 "E-55: a keyword name whose bytes are not UTF-8 through a dispatch must be " \
+                 "a keyword name whose bytes are not UTF-8 through a dispatch must be " \
                  "refused as the script's own type error at the call site, not renamed"
   end
 

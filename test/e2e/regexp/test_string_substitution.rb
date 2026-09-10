@@ -2,11 +2,10 @@
 
 require "test_helper"
 
-# gsub / sub replacement-string semantics (SPEC.md B-41; docs/regexp.md
-# RX-04). A String replacement expands backreferences (\0..\9 and
-# \k<name>) against each
-# match; a Hash replacement looks each whole match up as a key. Block forms
-# live in test_string_methods.rb / test_match_globals.rb.
+# gsub / sub replacement-string semantics. A String replacement expands
+# backreferences (\0..\9 and \k<name>) against each match; a Hash replacement
+# looks each whole match up as a key. Block forms live in
+# test_string_methods.rb / test_match_globals.rb.
 class TestRegexpStringSubstitution < Minitest::Test
   include RegexpGuestHelper
 

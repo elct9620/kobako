@@ -2,16 +2,15 @@
 
 require "test_helper"
 
-# Distinct Sandboxes on distinct Threads execute independently
-# (docs/behavior/runtime.md B-22). The pool suite extends this contract
-# to pooled checkout (B-47); this is the direct witness: each thread
-# owns its Sandbox, and guest global state set on one never reaches the
-# other.
+# Distinct Sandboxes on distinct Threads execute independently. The pool
+# suite extends this contract to pooled checkout; this is the direct
+# witness: each thread owns its Sandbox, and guest global state set on one
+# never reaches the other.
 class TestE2EThreading < Minitest::Test
   include E2eGuestHelper
 
   # @behavior RT-001
-  def test_b22_distinct_sandboxes_on_distinct_threads_execute_independently
+  def test_distinct_sandboxes_on_distinct_threads_execute_independently
     results = Array.new(2)
     2.times.map do |i|
       source = format("$mark ||= %<mark>d; $mark + %<add>d", mark: i, add: i * 10)

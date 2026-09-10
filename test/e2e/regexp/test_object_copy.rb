@@ -2,10 +2,9 @@
 
 require "test_helper"
 
-# dup / clone parity for the CDATA-backed Regexp and MatchData (SPEC.md B-41).
-# Both copy methods allocate a bare instance and run initialize_copy on it;
-# without a copy body the bare instance carries no payload, so every accessor
-# fails. These scenarios pin that the copy owns an independent snapshot.
+# dup / clone parity for the CDATA-backed Regexp and MatchData. Both copy
+# methods allocate a bare instance and run initialize_copy on it; without a
+# copy body the bare instance carries no payload, so every accessor fails.
 class TestRegexpObjectCopy < Minitest::Test
   include RegexpGuestHelper
 

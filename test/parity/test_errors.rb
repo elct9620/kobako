@@ -2,9 +2,8 @@
 
 require "test_helper"
 
-# Differential parity — error taxonomy (SPEC.md E-04, E-05, E-19,
-# E-20; E-01 pending): each failure origin must reach the same
-# neutral status and guest class through both frontends.
+# Differential parity — error taxonomy: each failure origin must reach
+# the same neutral status and guest class through both frontends.
 class TestParityErrors < Parity::Case
   # @behavior OC-024
   # Both an anonymous raise and one of the guest's own class are run,
@@ -47,14 +46,13 @@ class TestParityErrors < Parity::Case
     )
   end
 
-  # SPEC.md E-01: a raw engine trap (not a cap) has no deterministic
-  # pure-mruby trigger — the guest turns deep recursion into its own
-  # SystemStackError before wasm faults, and the one live E-01 path (a
-  # host exception escaping the dispatch callback) is frontend-specific
-  # by nature. Ruby-side E-01 behavior is pinned end-to-end in
-  # test/e2e/test_capability_exception_safety.rb; trap-kind routing is
-  # unit-pinned in the driver's classify_trap tests.
+  # A raw engine trap (not a cap) has no deterministic pure-mruby trigger:
+  # the guest turns deep recursion into its own SystemStackError before
+  # wasm faults, and the one live path (a host exception escaping the
+  # dispatch callback) is frontend-specific by nature. The Ruby side is
+  # pinned in test/e2e/test_capability_exception_safety.rb, trap-kind
+  # routing in the driver's classify_trap tests.
   def test_engine_trap_pending
-    skip "pending a deterministic guest trap trigger (E-01)"
+    skip "pending a deterministic guest trap trigger"
   end
 end

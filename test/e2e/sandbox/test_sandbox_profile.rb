@@ -2,10 +2,10 @@
 
 require "test_helper"
 
-# docs/behavior/security.md B-54: Sandbox.new(profile:) requests the
-# isolation rung the runtime builds and declares. This class covers the
-# request path through the real ext; the floor-check branches (E-49 and
-# the fail-closed off-ladder ranking) live with the PROFILES ladder
+# Sandbox.new(profile:) requests the isolation rung the runtime builds and
+# declares. This class covers the request path through the real ext; the
+# floor-check branches (a runtime below the requested posture and the
+# fail-closed off-ladder ranking) live with the PROFILES ladder
 # owner and are witnessed on SandboxOptions#enforce_floor! in
 # test_sandbox_options.rb — the bundled runtime always builds the
 # requested rung, so no real runtime reaches them.
@@ -34,7 +34,7 @@ class TestSandboxProfile < Minitest::Test
   # entry point unchanged — a forwarding that swallowed either would
   # leave the per-value coverage in test_sandbox_options.rb unreachable.
   def test_option_keywords_forward_to_sandbox_options_rejection
-    assert_raises(ArgumentError, "a non-ladder profile through Sandbox.new must be rejected (E-39)") do
+    assert_raises(ArgumentError, "a non-ladder profile through Sandbox.new must be rejected") do
       Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, profile: :sealed)
     end
     assert_raises(ArgumentError, "an unknown keyword through Sandbox.new must be rejected") do

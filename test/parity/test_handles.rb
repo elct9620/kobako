@@ -2,9 +2,8 @@
 
 require "test_helper"
 
-# Differential parity — capability Handles (SPEC.md B-14, B-16, B-17,
-# B-18, B-20, B-34, B-37, E-13): allocation, nested argument passing,
-# chained targets, per-invocation staleness, forge rejection, and
+# Differential parity — capability Handles: allocation, nested argument
+# passing, chained targets, per-invocation staleness, forge rejection, and
 # restore-to-original-object must observe identically through both
 # frontends. Opaque host objects carry scenario-declared labels, so
 # both executors tag a crossed object by its identity.
@@ -15,10 +14,9 @@ class TestParityHandles < Parity::Case
                  read_label: { behavior: "read_label" } } }
   ].freeze
 
-  # SPEC.md B-14 / B-16 / B-17 / B-37: Handle allocation, argument
-  # passing (bare and Array-nested), chaining a Handle as the next
-  # dispatch target, and restoration of the invocation result to the
-  # host object's identity.
+  # Handle allocation, argument passing (bare and Array-nested), chaining
+  # a Handle as the next dispatch target, and restoration of the
+  # invocation result to the host object's identity.
   LIFECYCLE_INVOCATIONS = [
     { verb: "eval", source: "h = Factory::Make.make; h.label" },
     { verb: "eval", source: "h = Factory::Make.make; Factory::Make.read_label(h)" },
@@ -36,19 +34,19 @@ class TestParityHandles < Parity::Case
     )
   end
 
-  # SPEC.md B-18 / E-13: with one fresh guest instance per invocation,
-  # no guest state — a Handle proxy included — survives the boundary,
-  # so no scenario through the real guest can present a stale Handle.
+  # With one fresh guest instance per invocation, no guest state — a
+  # Handle proxy included — survives the boundary, so no scenario through
+  # the real guest can present a stale Handle.
   # Staleness is pinned per-frontend at unit level instead:
   # test/unit/transport/test_dispatcher_invalidity.rb on the Ruby side, the
   # handles/dispatch unit tests in crates/kobako on the SDK side.
   def test_stale_handle_pending
-    skip "B-18 E-13 have no guest-expressible differential scenario; staleness is unit-pinned per frontend"
+    skip "a stale Handle has no guest-expressible differential scenario; staleness is unit-pinned per frontend"
   end
 
-  # SPEC.md B-20: the guest cannot mint a Handle from a raw integer —
-  # both construction entries raise, and the failure attributes as an
-  # uncaught guest exception on both frontends. The refusal is a
+  # The guest cannot mint a Handle from a raw integer — both construction
+  # entries raise, and the failure attributes as an uncaught guest
+  # exception on both frontends. The refusal is a
   # property of the guest's Kobako::Handle class itself, so the
   # scenario binds no services.
   FORGE_INVOCATIONS = [
@@ -65,10 +63,9 @@ class TestParityHandles < Parity::Case
     )
   end
 
-  # SPEC.md B-34: a non-wire `#run` argument auto-wraps into a Handle
-  # the entrypoint can call back into — in the positional and in the
-  # keyword position alike (the kwargs Hash reaches the entrypoint as
-  # its trailing parameter per B-31).
+  # A non-wire `#run` argument auto-wraps into a Handle the entrypoint can
+  # call back into — in the positional and in the keyword position alike
+  # (the kwargs Hash reaches the entrypoint as its trailing parameter).
   AUTO_WRAP_PRELOADS = [
     { kind: "source", name: "Entry",
       code: "class Entry; def self.call(h); h.label; end; end" },

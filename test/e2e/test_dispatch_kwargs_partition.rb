@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E (Layer 4) — the guest→host dispatch partitions positional and keyword
-# arguments by Ruby 3 call semantics (SPEC.md B-58), not the Ruby 2
+# arguments by Ruby 3 call semantics, not the Ruby 2
 # trailing-Hash fold. Each case drives a real dispatch through a sink Service
 # that captures +args+ and +kwargs+ separately into a host-side ivar, so the
 # partition the guest bridge produced is observable after the call. The cases
@@ -23,9 +23,9 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
     @sandbox.eval('Rpc::Sink.call("u", a: 1)')
 
     assert_equal ["u"], @captured[:args],
-                 "B-58: a brace-less kwarg must leave the positional args untouched"
+                 "a brace-less kwarg must leave the positional args untouched"
     assert_equal({ a: 1 }, @captured[:kwargs],
-                 "B-58: a brace-less key: value must arrive at the Service as a keyword argument")
+                 "a brace-less key: value must arrive at the Service as a keyword argument")
   end
 
   # @behavior T-060 T-186
@@ -33,9 +33,9 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
     @sandbox.eval('Rpc::Sink.call("u", {a: 1})')
 
     assert_equal ["u", { a: 1 }], @captured[:args],
-                 "B-58: an explicit {...} Hash literal must stay positional, never fold into kwargs"
+                 "an explicit {...} Hash literal must stay positional, never fold into kwargs"
     assert_equal({}, @captured[:kwargs],
-                 "B-58: no brace-less keyword must reach the Service with empty kwargs, even with a trailing Hash")
+                 "no brace-less keyword must reach the Service with empty kwargs, even with a trailing Hash")
   end
 
   # @behavior T-061
@@ -43,9 +43,9 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
     @sandbox.eval('Rpc::Sink.call("u", {a: 1}, b: 2)')
 
     assert_equal ["u", { a: 1 }], @captured[:args],
-                 "B-58: with both present, the explicit Hash stays positional and does not absorb the keyword"
+                 "with both present, the explicit Hash stays positional and does not absorb the keyword"
     assert_equal({ b: 2 }, @captured[:kwargs],
-                 "B-58: with both present, the brace-less keyword stays in kwargs and ignores the positional Hash")
+                 "with both present, the brace-less keyword stays in kwargs and ignores the positional Hash")
   end
 
   # @behavior T-062
@@ -53,9 +53,9 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
     @sandbox.eval('opts = {a: 1}; Rpc::Sink.call("u", **opts)')
 
     assert_equal ["u"], @captured[:args],
-                 "B-58: a ** double-splat must leave the positional args untouched"
+                 "a ** double-splat must leave the positional args untouched"
     assert_equal({ a: 1 }, @captured[:kwargs],
-                 "B-58: a ** double-splat of a Hash must arrive at the Service as keyword arguments")
+                 "a ** double-splat of a Hash must arrive at the Service as keyword arguments")
   end
 
   # @behavior T-063
@@ -63,9 +63,9 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
     @sandbox.eval('Rpc::Sink.call("u", **{})')
 
     assert_equal ["u"], @captured[:args],
-                 "B-58: an empty ** double-splat must not manufacture a positional argument"
+                 "an empty ** double-splat must not manufacture a positional argument"
     assert_equal({}, @captured[:kwargs],
-                 "B-58: an empty ** double-splat must reach the Service with empty kwargs")
+                 "an empty ** double-splat must reach the Service with empty kwargs")
   end
 
   # @behavior T-064
@@ -73,9 +73,9 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
     @sandbox.eval('Rpc::Sink.call("u", data: {n: 1})')
 
     assert_equal ["u"], @captured[:args],
-                 "B-58: a keyword whose value is a Hash must not leak into the positional args"
+                 "a keyword whose value is a Hash must not leak into the positional args"
     assert_equal({ data: { n: 1 } }, @captured[:kwargs],
-                 "B-58: a Hash-valued keyword must arrive as a keyword carrying its Hash value intact")
+                 "a Hash-valued keyword must arrive as a keyword carrying its Hash value intact")
   end
 
   # @behavior T-065 T-186
@@ -83,8 +83,8 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
     @sandbox.eval('Rpc::Sink.call("u", {})')
 
     assert_equal ["u", {}], @captured[:args],
-                 "B-58: an empty {} Hash literal must stay a positional argument, not vanish into kwargs"
+                 "an empty {} Hash literal must stay a positional argument, not vanish into kwargs"
     assert_equal({}, @captured[:kwargs],
-                 "B-58: an empty {} positional literal must not populate kwargs")
+                 "an empty {} positional literal must not populate kwargs")
   end
 end

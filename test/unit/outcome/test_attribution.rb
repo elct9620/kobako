@@ -4,11 +4,6 @@
 # don't need a live wasmtime pipeline. Attribution is a stateless module
 # method, so each test hands it the arm the native side names — no
 # Sandbox.
-#
-# Cross-references:
-#   - docs/behavior/errors.md § Error Scenarios — the Step 2 arm table, where
-#     a Panic origin other than "service" maps to SandboxError
-#   - docs/behavior/errors.md E-09 — an ok payload the codec cannot read
 
 require "test_helper"
 

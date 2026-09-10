@@ -2,9 +2,8 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — what happens to the exception a guest block raises
-# (docs/behavior/yield.md B-24). The block runs inside the guest, so the
-# failure is the guest's own: the Service gets a chance to rescue it at
+# E2E (Layer 4) — what happens to the exception a guest block raises. The
+# block runs inside the guest, so the failure is the guest's own: the Service gets a chance to rescue it at
 # its yield site, and if it does not, the exception continues in the frame
 # that raised it rather than being rebuilt as a Service failure. What a
 # rescued failure leaves behind lives in test_yield_block_spent.rb, the
@@ -13,12 +12,11 @@ require "test_helper"
 class TestE2EYieldBlockFailure < Minitest::Test
   include E2eGuestHelper
 
-  # B-24: the block's exception reaches the Service's yield site, where it
-  # may be rescued. Unrescued, it is still the guest's own failure — the
-  # same exception object continuing in the frame that raised it — so it
-  # attributes to the sandbox (E-04) rather than to the Service.
+  # Unrescued by the Service, the block's exception is still the guest's own
+  # failure — the same object continuing in the frame that raised it — so it
+  # attributes to the sandbox rather than to the Service.
   # @behavior T-187
-  def test_b24_block_raise_surfaces_to_service_yield_site
+  def test_block_raise_surfaces_to_service_yield_site
     err = assert_raises(Kobako::SandboxError) do
       yielding_sandbox.eval('Probe::Boom.call { raise "from guest block" }')
     end
@@ -43,7 +41,7 @@ class TestE2EYieldBlockFailure < Minitest::Test
   RUBY
 
   # @behavior T-095
-  def test_b24_unrescued_block_raise_is_rescuable_in_the_guest_as_itself
+  def test_unrescued_block_raise_is_rescuable_in_the_guest_as_itself
     seen = yielding_sandbox.eval(IDENTITY_PROBE).value
 
     assert_equal "same object", seen,
@@ -52,7 +50,7 @@ class TestE2EYieldBlockFailure < Minitest::Test
   end
 
   # @behavior T-096 T-202
-  def test_b24_a_service_that_rescues_the_blocks_raise_reports_its_own_failure
+  def test_a_service_that_rescues_the_blocks_raise_reports_its_own_failure
     err = assert_raises(Kobako::ServiceError) do
       substituting_sandbox.eval('Probe::Swallow.call { raise "from guest block" }')
     end

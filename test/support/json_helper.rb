@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
-# Shared setup for the JSON capability coverage under test/e2e/json/ (SPEC.md
-# B-52 / B-53, docs/json.md JS-01..09). kobako-json is opt-in, so its
-# surface lives only in the json variant Guest Binary — these scenarios
-# drive data/kobako+json.wasm and assert the JS-xx contract directly.
+# Shared setup for the JSON capability coverage under test/e2e/json/.
+# kobako-json is opt-in, so its surface lives only in the json variant Guest
+# Binary — these scenarios drive data/kobako+json.wasm and assert
+# kobako-json's specified contract directly.
 module JsonGuestHelper
   JSON_WASM = File.expand_path("../../data/kobako+json.wasm", __dir__)
 
@@ -27,8 +27,8 @@ module JsonGuestHelper
   end
 
   # Assert +code+ reaches the host as a +Kobako::SandboxError+ carrying the
-  # guest exception class +expected+ (E-04 attribution of an uncaught
-  # guest raise), and return the error so the caller can probe further.
+  # guest exception class +expected+ (the attribution of an uncaught guest
+  # raise), and return the error so the caller can probe further.
   def assert_guest_raises(expected, code)
     err = assert_raises(Kobako::SandboxError) { eval_json(code) }
     assert_equal expected, err.klass,
