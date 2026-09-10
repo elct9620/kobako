@@ -13,7 +13,8 @@ sources:
 # A directory to install the downloaded RBSs
 path: .gem_rbs_collection
 
-# gems:
-#   # If you want to avoid installing rbs files for gems, you can specify them here.
-#   - name: GEM_NAME
-#     ignore: true
+gems:
+  # Build tooling the Rakefile drives; nothing Steep checks names it, and
+  # its signatures would pin the collection lock to every release.
+  - name: beni
+    ignore: true

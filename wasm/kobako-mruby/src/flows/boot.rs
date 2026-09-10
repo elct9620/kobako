@@ -189,112 +189,90 @@ pub(super) fn install_preamble(kobako: &Kobako, paths: &[String]) -> Result<(), 
 /// load via a fresh ccontext under `(snippet:Name)` filenames; bytecode
 /// entries load through beni's `Mrb::load_bytecode` (the filename,
 /// when present, is baked into their RITE `debug_info` section). The first
-/// snippet that raises wins: the resulting Panic carries that snippet's
-/// class / message / backtrace and is forced to sandbox origin even
-/// when `origin_for_class` would have chosen `"service"`. Bytecode
-/// entries whose load returned a structural-failure code
-/// additionally override the panic class to `Kobako::BytecodeError`;
-/// a successful load that then raised at top level keeps the
-/// natural mruby class.
+/// snippet that fails wins, its Panic forced to sandbox origin even
+/// when `origin_for_class` would have chosen `"service"` — preloaded
+/// snippets are sandbox code.
 pub(super) fn replay_snippets(kobako: &Kobako, snippets: &[Snippet]) -> Result<(), Panic> {
-    let mrb = kobako.mrb();
     for entry in snippets {
-        let load = match entry {
-            Snippet::Source { name, body } => {
-                load_source_snippet(mrb, name, body)?;
-                BytecodeLoad::Loaded
-            }
-            Snippet::Bytecode { body } => load_bytecode_snippet(mrb, body),
-        };
-        if let Some(panic) = take_pending_panic(kobako) {
-            return Err(reshape_replay_panic(panic, load));
+        match entry {
+            Snippet::Source { name, body } => load_source_snippet(kobako, name, body)?,
+            Snippet::Bytecode { body } => load_bytecode_snippet(kobako, body)?,
         }
     }
     Ok(())
 }
 
-/// Apply the replay-specific reshape to a pending Panic. Replay-time
-/// failures are always sandbox origin even when the class would
-/// normally map to service. Structural failures further
-/// override the class to `Kobako::BytecodeError`; a bytecode snippet
-/// that loaded cleanly and then raised at top level keeps the
-/// natural mruby class preserved. Functional struct-update keeps the
-/// reshape in one expression — no mid-life mutation of the panic
-/// fields.
-fn reshape_replay_panic(panic: Panic, load: BytecodeLoad) -> Panic {
-    let name = match load {
-        BytecodeLoad::StructuralFailure => "Kobako::BytecodeError".into(),
-        BytecodeLoad::Loaded => panic.error.name,
-    };
+/// Force a replay failure's Panic to sandbox origin.
+fn replay_panic(panic: Panic) -> Panic {
     Panic {
         origin: Origin::Sandbox,
-        error: ErrorRecord {
-            name,
-            ..panic.error
-        },
         ..panic
     }
 }
 
-/// Outcome of a bytecode-form snippet load. Distinguishes the two
-/// failure shapes the caller's class-override step needs to tell
-/// apart: a successful parse (whose top-level execution may still have
-/// raised, natural mruby class preserved) from a structural
-/// failure on the RITE header / IREP body, which gets promoted to
-/// `Kobako::BytecodeError`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BytecodeLoad {
-    Loaded,
-    StructuralFailure,
-}
-
 /// Compile and execute a source snippet under a fresh ccontext whose
 /// filename is `(snippet:Name)`. Surfaces ccontext allocation failure
-/// as a `boot_panic`; any mruby compile / runtime fault is left in
-/// `mrb->exc` for the shared `take_pending_panic` step. A snippet
-/// `name` carrying an interior NUL byte (wire violation) also fails
-/// through `boot_panic` since `CString::new` rejects it.
-fn load_source_snippet(mrb: &Mrb, name: &str, body: &str) -> Result<(), Panic> {
+/// as a `boot_panic`; a snippet `name` carrying an interior NUL byte
+/// (wire violation) also fails through `boot_panic` since
+/// `CString::new` rejects it.
+fn load_source_snippet(kobako: &Kobako, name: &str, body: &str) -> Result<(), Panic> {
     let filename = std::ffi::CString::new(format!("(snippet:{})", name))
         .map_err(|_| boot_panic("snippet name contains an invalid character"))?;
-    let Some(cxt) = Ccontext::new(mrb, &filename) else {
+    let Some(cxt) = Ccontext::new(kobako.mrb(), &filename) else {
         return Err(boot_panic("failed to initialize the Sandbox interpreter"));
     };
-    cxt.load_nstring(body.as_bytes());
-    // `cxt` drops here — `mrb_ccontext_free` runs automatically.
-    Ok(())
+    cxt.load_nstring(body.as_bytes())
+        .map(drop)
+        .map_err(|err| replay_panic(load_panic(kobako, &filename, err)))
 }
+
+/// The class a bytecode load answers when the blob fails its
+/// structural check — `ScriptError` itself, so a subclass the
+/// program raised keeps its own name.
+const STRUCTURAL_FAILURE: &str = "ScriptError";
 
 /// Execute a precompiled RITE bytecode blob via beni's
-/// `Mrb::load_bytecode`. Returns `BytecodeLoad::Loaded` when the
-/// IREP parsed (even if its top-level execution then raised)
-/// and `BytecodeLoad::StructuralFailure` when the RITE header / IREP
-/// body failed structural validation. Either way, a
-/// pending exception is left in `mrb->exc` for the shared
-/// `take_pending_panic` step. Folding the return code into a typed
-/// enum keeps the `c_int` from leaking into the replay control flow.
-fn load_bytecode_snippet(mrb: &Mrb, body: &[u8]) -> BytecodeLoad {
-    if mrb.load_bytecode(body) == 0 {
-        BytecodeLoad::Loaded
-    } else {
-        BytecodeLoad::StructuralFailure
+/// `Mrb::load_bytecode`. A blob that fails its structural check is
+/// promoted to `Kobako::BytecodeError`; a program that loaded and then
+/// raised at top level keeps the class it raised.
+fn load_bytecode_snippet(kobako: &Kobako, body: &[u8]) -> Result<(), Panic> {
+    let Err(err) = kobako.mrb().load_bytecode(body) else {
+        return Ok(());
+    };
+    let panic = replay_panic(panic_from_error(kobako, err));
+    if panic.error.name != STRUCTURAL_FAILURE {
+        return Err(panic);
     }
+    Err(Panic {
+        error: ErrorRecord {
+            name: "Kobako::BytecodeError".into(),
+            ..panic.error
+        },
+        ..panic
+    })
 }
 
-/// If an mruby exception is pending on `kobako`'s VM, extract its
-/// class name, message, and backtrace into a Panic envelope (with
-/// `origin` chosen by `origin_for_class`). Returns `None` when no
-/// exception is pending. Clears `mrb->exc` via `Mrb::clear_exc`
-/// before returning.
-pub(super) fn take_pending_panic(kobako: &Kobako) -> Option<Panic> {
-    let mrb = kobako.mrb();
-    let exc_val = mrb.pending_exc();
-    if exc_val.is_nil() {
-        return None;
-    }
-    let panic = panic_from_exception(kobako, exc_val);
-    mrb.clear_exc();
-    Some(panic)
+/// Fold the `Err` a load under the compile context named `filename`
+/// answers into a Panic. A parse failure names where the parse stopped
+/// — a program that never ran has no backtrace to locate it — falling
+/// back to mruby's bare "syntax error" when the parser recorded no
+/// diagnostic; anything else folds as `panic_from_error` does.
+pub(super) fn load_panic(kobako: &Kobako, filename: &core::ffi::CStr, err: beni::Error) -> Panic {
+    let beni::Error::Syntax(parse) = err else {
+        return panic_from_error(kobako, err);
+    };
+    let message = if parse.message().is_empty() {
+        "syntax error".to_string()
+    } else {
+        format!(
+            "{}:{}:{}: {}",
+            filename.to_string_lossy(),
+            parse.line(),
+            parse.column(),
+            parse.message()
+        )
+    };
+    sandbox_panic("SyntaxError", message)
 }
 
 /// Extract `(class, message, backtrace)` from an mruby exception value
@@ -334,9 +312,7 @@ pub(super) fn exception_fields(
 }
 
 /// Build a Panic envelope from an mruby exception value, with `origin`
-/// chosen by `origin_for_class`. Shared by `take_pending_panic` (the
-/// `mrb->exc`-set path a source / bytecode load leaves) and
-/// `panic_from_error` (the `Err` a protected funcall returns).
+/// chosen by `origin_for_class`.
 fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
     let (class, message, backtrace) = exception_fields(kobako, exc_val);
     Panic {
@@ -350,12 +326,23 @@ fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
     }
 }
 
-/// Fold a `beni::Error` a protected funcall returns into a Panic
-/// envelope. A raised Ruby exception reuses `panic_from_exception`; a
-/// Rust-side `Error::Panic` becomes a sandbox-origin `RuntimeError`.
+/// Fold a `beni::Error` a load or a protected funcall answers into a
+/// Panic envelope. A raised Ruby exception reuses
+/// `panic_from_exception`; a Rust-side `Error::Panic` becomes a
+/// sandbox-origin `RuntimeError`.
+///
+/// A load answers its exception already cleared from the interpreter,
+/// where nothing roots it, and reading its fields allocates — so it is
+/// protected on the arena before it is read.
 pub(super) fn panic_from_error(kobako: &Kobako, err: beni::Error) -> Panic {
     match err {
-        beni::Error::Exception(exc) => panic_from_exception(kobako, exc),
+        beni::Error::Exception(exc) => {
+            let exc = kobako.mrb().arena_scope().keep(exc);
+            panic_from_exception(kobako, exc)
+        }
+        beni::Error::Syntax(_) => {
+            unreachable!("only a load answers a parse failure, and `load_panic` folds it")
+        }
         beni::Error::Panic(message) => sandbox_panic("RuntimeError", message),
     }
 }

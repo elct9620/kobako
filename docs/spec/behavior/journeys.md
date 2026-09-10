@@ -5,6 +5,7 @@ The walks a Host App takes end to end, each one reaching what it set out for.
 ## Includes
 
 - `test/e2e/test_journeys.rb`
+- `test/e2e/test_journeys_host_app.rb`
 
 ### Why these scenarios
 

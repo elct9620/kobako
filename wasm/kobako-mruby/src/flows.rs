@@ -19,7 +19,7 @@
 //! * `yield_block` — `__kobako_yield_to_block` body (host-initiated
 //!   re-entry into a guest block).
 //! * `boot` — canonical-boot-state acquisition / frame reads / preamble
-//!   install / snippet replay / pending-exception extraction helpers
+//!   install / snippet replay / failure-to-Panic folding helpers
 //!   used by both entry points, plus the build-time `bake_boot` body.
 //! * `mrb_slot` — module-level static carrying the live VM across the
 //!   dispatch re-entry boundary (the block stack lives beside its

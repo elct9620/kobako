@@ -10,7 +10,8 @@ require "test_helper"
 # chain-returns-self and post-seal rejection (E-35).
 #
 # Replay-side behaviour (B-32 Result, E-32, E-36, E-37, E-38) is
-# exercised end-to-end in test/e2e/test_preload.rb.
+# exercised end-to-end in test/e2e/test_preload.rb (source form) and
+# test/e2e/test_preload_bytecode.rb (binary form).
 class TestSandboxPreload < Minitest::Test
   include GuestGuard
 

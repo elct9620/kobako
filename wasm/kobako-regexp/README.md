@@ -34,7 +34,7 @@ objects, and match offsets and substring slices are byte-based.
 ```toml
 [dependencies]
 kobako-regexp = { version = "0.14.0", features = ["unicode"] } # x-release-please-version
-beni = "0.10"
+beni = "0.14"
 ```
 
 ```rust

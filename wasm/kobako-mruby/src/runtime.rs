@@ -301,11 +301,8 @@ impl Kobako {
     /// exception value on this VM.
     pub(crate) unsafe fn reraise(&self, exc: beni::Value) -> ! {
         // SAFETY: bridge frame — caller upholds the unwind contract and
-        // the liveness of `exc`; `mrb_exc_raise` never returns.
-        unsafe {
-            beni::sys::mrb_exc_raise(self.mrb, exc.as_raw());
-            core::hint::unreachable_unchecked()
-        }
+        // the liveness of `exc`.
+        unsafe { beni::sys::mrb_exc_raise(self.mrb, exc.as_raw()) }
     }
 
     /// Raise, at the guest call site, the exception this Fault's category

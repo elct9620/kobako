@@ -20,7 +20,7 @@ Hand-written text-format module that satisfies the whole invocation ABI and does
 
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 
-Each fixture exercises one path of `docs/behavior/invocation.md` B-32 / E-36 / E-37 / E-38 through the real `data/kobako.wasm`. Two are compiled from the matching `.rb` source; the rest are byte-level derivatives of `snippet_answers.mrb`. The recipes below assume `mrbc` is the host-target build from `vendor/mruby/build/host/bin/mrbc` (produced by the same vendored mruby tree as `libmruby.a`).
+Each fixture exercises one path of `docs/behavior/invocation.md` B-32 / E-36 / E-37 / E-38 through the real `data/kobako.wasm`. Those with a matching `.rb` source are compiled from it; the rest are byte-level derivatives of `snippet_answers.mrb`. The recipes below assume `mrbc` is the host-target build from `vendor/mruby/build/host/bin/mrbc` (produced by the same vendored mruby tree as `libmruby.a`).
 
 ### `snippet_answers.mrb` — happy-path bytecode
 
@@ -36,6 +36,15 @@ Source: [`snippet_raise_boom.rb`](snippet_raise_boom.rb) (`raise "boom from snip
 
 ```sh
 vendor/mruby/build/host/bin/mrbc -g -o test/fixtures/snippet_raise_boom.mrb test/fixtures/snippet_raise_boom.rb
+```
+
+### `snippet_raise_script_error.mrb` / `snippet_raise_not_implemented.mrb` — the class a structural failure carries
+
+Sources: [`snippet_raise_script_error.rb`](snippet_raise_script_error.rb) raises `ScriptError` itself — the class a load answers for a blob that fails its structural check, so it reads as a structural failure; [`snippet_raise_not_implemented.rb`](snippet_raise_not_implemented.rb) raises the `NotImplementedError` subclass, which keeps its own name. Both compiled with `-g`.
+
+```sh
+vendor/mruby/build/host/bin/mrbc -g -o test/fixtures/snippet_raise_script_error.mrb test/fixtures/snippet_raise_script_error.rb
+vendor/mruby/build/host/bin/mrbc -g -o test/fixtures/snippet_raise_not_implemented.mrb test/fixtures/snippet_raise_not_implemented.rb
 ```
 
 ### `snippet_no_debug.mrb` — B-32 stripped-bytecode acceptance

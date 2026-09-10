@@ -16,6 +16,7 @@ What a Sandbox is built with, what one invocation leaves for the next, and what 
 - `test/e2e/test_caps.rb`
 - `test/e2e/test_lifecycle.rb`
 - `test/e2e/test_preload.rb`
+- `test/e2e/test_preload_bytecode.rb`
 - `test/e2e/test_io_streams.rb`
 - `test/e2e/test_execution.rb`
 - `test/e2e/test_outcome_values.rb`

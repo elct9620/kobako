@@ -26,12 +26,12 @@ use beni::{format, DataType, Error, FromValue, Module, Mrb, Object, Proc, Value}
 use lru::LruCache;
 use std::cell::RefCell;
 use std::num::NonZeroUsize;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Compiled pattern plus the metadata `#source` / `#options` / `#casefold?`
 /// report without an engine getter.
 pub(crate) struct RegexpState {
-    regex: Rc<fancy_regex::Regex>,
+    regex: Arc<fancy_regex::Regex>,
     source: String,
     options: i64,
 }
@@ -43,7 +43,7 @@ static REGEXP_TYPE: DataType<RegexpState> = DataType::new(c"Kobako::Regexp");
 /// an invocation; rooted on an interpreter global, it is freed with the
 /// interpreter when the invocation ends.
 struct CompileCache {
-    entries: RefCell<LruCache<(String, i64), Rc<fancy_regex::Regex>>>,
+    entries: RefCell<LruCache<(String, i64), Arc<fancy_regex::Regex>>>,
 }
 
 static COMPILE_CACHE_TYPE: DataType<CompileCache> = DataType::new(c"Kobako::RegexpCompileCache");
@@ -187,7 +187,7 @@ fn compile(mrb: &Mrb, source: String, options: i64) -> Result<Value, Error> {
         .build()
     {
         Ok(regex) => {
-            let regex = Rc::new(regex);
+            let regex = Arc::new(regex);
             cache_put(mrb, source.clone(), options, &regex);
             Ok(wrap_regexp(mrb, regex, source, options))
         }
@@ -197,7 +197,7 @@ fn compile(mrb: &Mrb, source: String, options: i64) -> Result<Value, Error> {
 
 /// Wrap a compiled pattern — freshly built or shared from the cache — as a new
 /// `Regexp` object carrying its own `source` and `options`.
-fn wrap_regexp(mrb: &Mrb, regex: Rc<fancy_regex::Regex>, source: String, options: i64) -> Value {
+fn wrap_regexp(mrb: &Mrb, regex: Arc<fancy_regex::Regex>, source: String, options: i64) -> Value {
     let cls = mrb
         .class_get(c"Regexp")
         .expect("Regexp is defined at gem init");
@@ -220,7 +220,7 @@ fn with_compile_cache<R>(mrb: &Mrb, f: impl FnOnce(&CompileCache) -> R) -> Optio
 }
 
 /// The engine cached for `(source, options)`, if present.
-fn cache_get(mrb: &Mrb, source: &str, options: i64) -> Option<Rc<fancy_regex::Regex>> {
+fn cache_get(mrb: &Mrb, source: &str, options: i64) -> Option<Arc<fancy_regex::Regex>> {
     with_compile_cache(mrb, |cache| {
         cache
             .entries
@@ -233,12 +233,12 @@ fn cache_get(mrb: &Mrb, source: &str, options: i64) -> Option<Rc<fancy_regex::Re
 
 /// Remember `regex` for `(source, options)`, evicting the least-recently-used
 /// entry when the cache is full.
-fn cache_put(mrb: &Mrb, source: String, options: i64, regex: &Rc<fancy_regex::Regex>) {
+fn cache_put(mrb: &Mrb, source: String, options: i64, regex: &Arc<fancy_regex::Regex>) {
     with_compile_cache(mrb, |cache| {
         cache
             .entries
             .borrow_mut()
-            .put((source, options), Rc::clone(regex));
+            .put((source, options), Arc::clone(regex));
     });
 }
 

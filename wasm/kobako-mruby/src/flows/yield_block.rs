@@ -97,10 +97,11 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     let bytes = match result {
         Ok(value) => encode_ok_response::<G>(&kobako, value),
         Err(beni::Error::Exception(exc)) => classify_protected_error::<G>(&kobako, exc, enter_idx),
-        // A Rust panic inside the protected yield can only surface
-        // here under unwinding panics; the guest builds with
-        // `panic = "abort"`, so this arm is unreachable in production.
-        Err(beni::Error::Panic(_)) => std::process::abort(),
+        // Calling a block compiles nothing, so no parse failure reaches
+        // here, and a Rust panic inside the protected yield surfaces
+        // only under unwinding panics — the guest builds with
+        // `panic = "abort"`. Neither arm is reachable in production.
+        Err(beni::Error::Syntax(_) | beni::Error::Panic(_)) => std::process::abort(),
     };
     write_yield_buffer(&bytes)
 }

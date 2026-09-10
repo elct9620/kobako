@@ -9,8 +9,8 @@
 //!    carries `debug_info` (needed for a populated
 //!    `Exception#backtrace`).
 //! 3. Serialize the last-expression value as an ok Outcome, or
-//!    convert the pending mruby exception into a Panic Outcome, and
-//!    write the bytes into the kobako-core outcome buffer.
+//!    convert the parse failure or raised exception into a Panic
+//!    Outcome, and write the bytes into the kobako-core outcome buffer.
 //!
 //! `__kobako_eval` never traps or calls `exit` — the host reads the
 //! outcome tag from `__kobako_take_outcome()` after this function
@@ -63,8 +63,9 @@ fn eval_body<G: crate::MrbGuest>() {
     // `vendor/mruby/src/backtrace.c` skips any frame whose IREP has no
     // debug_info, which is why `Exception#backtrace` returns an empty
     // array when scripts are loaded via the bare `mrb_load_nstring`.
-    let result_val = {
-        let Some(cxt) = Ccontext::new(mrb, c"(eval)") else {
+    let filename = c"(eval)";
+    let result = {
+        let Some(cxt) = Ccontext::new(mrb, filename) else {
             return write_panic(boot::boot_panic(
                 "failed to initialize the Sandbox interpreter",
             ));
@@ -73,12 +74,10 @@ fn eval_body<G: crate::MrbGuest>() {
         // `cxt` drops here — `mrb_ccontext_free` runs automatically.
     };
 
-    if let Some(panic) = boot::take_pending_panic(&kobako) {
-        write_panic(panic);
-        return;
+    match result {
+        Ok(value) => boot::write_value_outcome::<G>(&kobako, value),
+        Err(err) => write_panic(boot::load_panic(&kobako, filename, err)),
     }
-
-    boot::write_value_outcome::<G>(&kobako, result_val);
     // The VM stays in the slot — the host discards the whole instance
     // after draining the outcome (the per-invocation discipline).
 }
