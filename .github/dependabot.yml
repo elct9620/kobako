@@ -1,7 +1,18 @@
 version: 2
+
+# The beni gem builds the archive the beni crates link, and the two
+# release in lockstep, so a bump of either side arrives with the other
+# in one PR rather than as two that each fail alone.
+multi-ecosystem-groups:
+  beni:
+    schedule:
+      interval: weekly
+
 updates:
   - package-ecosystem: bundler
     directory: "/"
+    multi-ecosystem-group: beni
+    patterns: ["beni"]
     schedule:
       interval: weekly
     cooldown:
@@ -23,6 +34,8 @@ updates:
       - "/crates"
       - "/wasm"
       - "/wasm/kobako-baker"
+    multi-ecosystem-group: beni
+    patterns: ["beni"]
     schedule:
       interval: weekly
     cooldown:
