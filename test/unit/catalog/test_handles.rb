@@ -55,7 +55,7 @@ module Kobako
 
     # ---------- Cap exhaustion: alloc beyond Kobako::Handle::MAX_ID raises ----------
 
-    # @behavior T-012
+    # @behavior T-012 T-185
     def test_alloc_at_max_id_succeeds_then_next_alloc_raises
       # Internal seam: next_id: lets us exercise the cap without 2³¹ allocations.
       # Test-only-visible; documented as internal.

@@ -40,6 +40,18 @@ The two argument kinds are separated by how the guest wrote the call and not by 
 
 Everything that answers on the fault arm rather than raising is here, since the dispatcher never raises; what a Host App finally rescues is the error taxonomy's to state.
 
+### Behaviors without a witness
+
+A reference wrapped from an entrypoint's argument, passed back to a Service as an argument, arrives as the original host object.
+
+An entrypoint that returns a reference — including one wrapped from its own arguments — hands the Host App the original host object.
+
+Running out of references while wrapping an entrypoint's arguments fails the run as a Sandbox failure before the guest runs.
+
+A dispatch refused for a stale reference fails only that call; the invocation's other dispatches still answer.
+
+No host object referenced by a Sandbox's invocations outlives that Sandbox; discarding it releases them all.
+
 ## `T-001` An answer the wire cannot carry becomes a reference to it
 
 | Step | Statement |
@@ -408,13 +420,13 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | a Service answers a value needing a new reference |
 | Then | the dispatch answers on the fault arm |
 
-## `T-047` That exhaustion surfaces as a Sandbox failure
+## `T-047` Running out of references is a Sandbox failure
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation whose Handle table is exhausted |
-| When | the guest leaves the failure unrescued |
-| Then | it fails as a Sandbox failure |
+| Given | a Handle table filled to its highest id |
+| When | one more allocation is attempted |
+| Then | what it raises is a Sandbox failure |
 
 ## `T-048` A failure the host was not meant to catch is not caught
 
@@ -496,11 +508,11 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the block answers with a reference |
 | Then | the Service receives the original object |
 
-## `T-058` A reference the guest damaged still routes to its object
+## `T-058` A reference broken out of a block still routes to its object
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose guest code altered what it holds around a reference |
+| Given | a Sandbox whose guest broke a capability reference out of a yielded block |
 | When | it calls a method through that reference |
 | Then | the original host object answers |
 
@@ -951,3 +963,19 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a guest that did not implement yielding to a block |
 | When | a yield reaches it |
 | Then | it traps rather than answering |
+
+## `T-185` The highest id is itself issued
+
+| Step | Statement |
+| --- | --- |
+| Given | a Handle table whose next allocation is its highest id |
+| When | one more reference is allocated |
+| Then | it is issued the highest id |
+
+## `T-186` A trailing explicit Hash leaves the keywords empty
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service reading its keyword arguments |
+| When | guest code calls it with an explicit Hash literal as its last argument and no brace-less keyword |
+| Then | the Service receives no keywords |

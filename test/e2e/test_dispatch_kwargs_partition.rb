@@ -28,7 +28,7 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
                  "B-58: a brace-less key: value must arrive at the Service as a keyword argument")
   end
 
-  # @behavior T-060
+  # @behavior T-060 T-186
   def test_explicit_positional_hash_stays_a_positional_argument
     @sandbox.eval('Rpc::Sink.call("u", {a: 1})')
 
@@ -78,7 +78,7 @@ class TestE2EDispatchKwargsPartition < Minitest::Test
                  "B-58: a Hash-valued keyword must arrive as a keyword carrying its Hash value intact")
   end
 
-  # @behavior T-065
+  # @behavior T-065 T-186
   def test_empty_positional_hash_stays_a_positional_argument
     @sandbox.eval('Rpc::Sink.call("u", {})')
 
