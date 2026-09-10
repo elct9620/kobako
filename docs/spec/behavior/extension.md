@@ -27,6 +27,8 @@ Concurrent invocations on one Sandbox each receive their own provider object; no
 
 A provider that raises stops its invocation before any guest code runs.
 
+An Extension whose name is not a constant name is refused as a snippet name is, and one whose backend path carries a segment that is not a constant name is refused as a bind is.
+
 ## `EX-001` The idiom becomes a snippet under the Extension's name
 
 | Step | Statement |

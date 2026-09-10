@@ -26,6 +26,10 @@ A nested checkout counts against the slots like any other holder, so on a Pool w
 
 A slot a trap emptied is refilled when a checkout next needs it, not when the trapped holder returns.
 
+A checkout that waited past its bound fails as none of the invocation outcomes.
+
+A checkout that timed out leaves every pooled Sandbox as its holder left it.
+
 ## `PL-001` Construction builds no Sandbox
 
 | Step | Statement |

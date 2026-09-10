@@ -72,7 +72,11 @@ A failure raised under an entrypoint run carries no `(eval)` frame; its trailing
 
 Frames raised from a bytecode snippet carry whatever filename its producing tool embedded.
 
-A snippet that fails to compile fails with an empty backtrace, since none of it ran.
+A snippet that fails to load at all — source that will not compile, bytecode for another format version, a corrupt body — fails with an empty backtrace, since none of it ran.
+
+Bytecode that fails its structural check fails every later invocation the same way.
+
+An entrypoint whose call returns a value the wire cannot carry fails as a Sandbox failure.
 
 A failure raised by bytecode carrying no debug information keeps its class, message and origin; only the snippet's frames are absent from the backtrace.
 
@@ -1260,3 +1264,28 @@ Bound Service names are already in place when preloaded snippets replay.
 | Given | a Sandbox at the strongest posture with a deadline |
 | When | guest code loops without end |
 | Then | the deadline cuts it short |
+
+## `S-150` An entrypoint that raises fails as the guest's failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox carrying a preloaded entrypoint whose call raises |
+| When | that entrypoint is run |
+| Then | it fails as a Sandbox failure carrying the raised message |
+
+## `S-151` An entrypoint that is not there
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox holding no constant of the name asked for |
+| When | the entrypoint verb names it |
+| Then | it fails as an unresolved entrypoint |
+
+## `S-152` The correction offers only what the snippets defined
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose preloaded snippets define constants |
+| Given | Services bound at single- and multi-segment paths |
+| When | the entrypoint verb names a constant that is not there |
+| Then | the names the failure offers are exactly those the snippets defined |

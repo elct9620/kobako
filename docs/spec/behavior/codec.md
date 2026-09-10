@@ -26,6 +26,14 @@ Whether a decode carried a capability reference only decides whether a later wal
 
 What the codec does with a value it accepts — which of the eleven type mappings each shape takes, how a length is framed, what a malformed frame answers — is the encoding table rather than the boundary. It is specified with the wire format, and its scenarios are the payload encoding feature's.
 
+### Behaviors without a witness
+
+A dispatch argument nested past the depth the wire encodes, a reference cycle included, is refused at the guest call site.
+
+A block answer or break value nested past the depth the wire encodes, or a `Symbol` whose name is not text, is refused at the yield site rather than carried across.
+
+A Run whose envelope does not frame fails under wording distinct from every refusal of its arguments.
+
 ## `CD-001` A Service answer past the guest's integer width is refused
 
 | Step | Statement |
@@ -305,3 +313,11 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | Given | each refusal reachable at the two positions delivered into a live guest frame |
 | When | the class each names is read |
 | Then | each is a class the guest can resolve |
+
+## `CD-036` An absent capability at a floor position is still reported
+
+| Step | Statement |
+| --- | --- |
+| Given | a codec refusing the block return, the break value or the invocation value as unserved |
+| When | the refusal is made |
+| Then | it carries a message rather than being treated as unreachable |

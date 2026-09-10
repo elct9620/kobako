@@ -31,6 +31,10 @@ The parity scenarios settle that both frontends attribute the same origin, not t
 
 One block here is deliberately written in one frontend's own names: the ancestry scenarios say what the Ruby gem's error classes descend from, which is a promise that frontend makes and no other can answer for. Everything else states the attribution itself, so either frontend's tests witness it in its own spelling.
 
+### Behaviors without a witness
+
+A trap settles the invocation as a trap even when the guest had already written a result.
+
 ## `OC-001` A guest that wrote nothing costs the Sandbox
 
 | Step | Statement |
@@ -350,3 +354,11 @@ One block here is deliberately written in one frontend's own names: the ancestry
 | Given | a class the guest defined whose name resembles one kobako raises |
 | When | the origin is decided |
 | Then | it attributes to the Sandbox |
+
+## `OC-048` The unbuilt artifact is a construction failure
+
+| Step | Statement |
+| --- | --- |
+| Given | `Kobako::ModuleNotBuiltError` |
+| When | its ancestry is read |
+| Then | it descends from `Kobako::SetupError` |

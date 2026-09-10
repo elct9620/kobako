@@ -29,7 +29,7 @@ class TestDispatchGadgetReturn < Minitest::Test
     DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
   end
 
-  # @behavior T-122 T-195
+  # @behavior T-122 T-195 T-201
   def test_reflective_gadget_return_is_refused_not_wrapped
     %w[a_method a_binding an_unbound].each { |meth| assert_gadget_refused(meth) }
   end

@@ -54,6 +54,10 @@ At either posture the guest reaches no filesystem, environment variable, or netw
 
 At either posture the Guest Binary's only host import is the dispatch entry.
 
+A deadline that is not finite is refused.
+
+A Guest Binary that cannot be read, or over which the engine cannot link or instantiate, is a construction failure.
+
 ## `RT-001` Threads holding their own Sandboxes hold their own guest state
 
 | Step | Statement |
@@ -522,3 +526,11 @@ At either posture the Guest Binary's only host import is the dispatch entry.
 | Given | no Guest Binary at the path a Sandbox names |
 | When | a Sandbox is constructed over it |
 | Then | it fails as a construction failure saying the artifact has not been built |
+
+## `RT-060` An artifact that is not a Wasm module is a construction failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a file at the path whose bytes are not a Wasm module |
+| When | a runtime is built from that path |
+| Then | construction fails, and not as the artifact that has not been built |

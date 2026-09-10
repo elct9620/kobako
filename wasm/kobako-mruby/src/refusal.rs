@@ -375,7 +375,7 @@ mod tests {
     // `encode_value` is the capability floor, so nothing stops a codec
     // returning `Unsupported` from it anyway — the two positions it serves
     // still need a real answer rather than an unreachable assertion.
-    // @behavior CD-032
+    // @behavior CD-036
     #[test]
     fn the_floor_s_own_positions_still_answer_an_unsupported_refusal() {
         for position in [

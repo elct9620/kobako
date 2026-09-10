@@ -70,6 +70,7 @@ class TestSandboxRun < Minitest::Test
   # E-27: target Symbol does not resolve to a defined top-level constant.
   # Surfaces as the UndefinedEntrypointError subclass, which a caller
   # rescuing plain SandboxError still catches.
+  # @behavior S-151
   def test_e27_undefined_entrypoint_raises_the_named_subclass
     sandbox = Kobako::Sandbox.new
     err = assert_raises(Kobako::UndefinedEntrypointError) { sandbox.run(:Missing) }
@@ -81,6 +82,7 @@ class TestSandboxRun < Minitest::Test
   # E-27: the error carries the snippet-contributed top-level constants so
   # callers can correct the name from the error itself, without reading the
   # guest source (docs/behavior/invocation.md B-31).
+  # @behavior S-152
   def test_e27_available_includes_snippet_contributed_constants
     err = run_missing_against_sandbox_with_preloads
     assert_includes err.available, :Worker
@@ -90,6 +92,7 @@ class TestSandboxRun < Minitest::Test
   # E-27 (baseline filtering): kobako-installed runtime classes and mruby
   # builtins are subtracted, so callers only see constants introduced by
   # the preloaded snippets themselves.
+  # @behavior S-152
   def test_e27_available_filters_baseline_constants
     err = run_missing_against_sandbox_with_preloads
     refute_includes err.available, :Object
@@ -102,6 +105,7 @@ class TestSandboxRun < Minitest::Test
   # not a snippet touched it. The witness a registry needs: the two
   # baseline cases above bind nothing, so neither can tell the boot-state
   # subtraction apart from one that also covers the preamble.
+  # @behavior S-152
   def test_e27_available_excludes_bound_service_namespaces
     sandbox = Kobako::Sandbox.new
     sandbox.bind("Ledger", -> { 1 })
@@ -129,6 +133,7 @@ class TestSandboxRun < Minitest::Test
   end
 
   # E-04 reuse: entrypoint raises an uncaught exception.
+  # @behavior S-150
   def test_entrypoint_runtime_exception_surfaces_as_sandbox_error
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: 'Worker = ->(*_) { raise "boom from worker" }', name: :Worker)

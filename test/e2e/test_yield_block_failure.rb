@@ -51,7 +51,7 @@ class TestE2EYieldBlockFailure < Minitest::Test
                  "very object it raised, so a rescue reads the class and every field it set"
   end
 
-  # @behavior T-096
+  # @behavior T-096 T-202
   def test_b24_a_service_that_rescues_the_blocks_raise_reports_its_own_failure
     err = assert_raises(Kobako::ServiceError) do
       substituting_sandbox.eval('Probe::Swallow.call { raise "from guest block" }')

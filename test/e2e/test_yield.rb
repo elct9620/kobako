@@ -86,7 +86,7 @@ class TestE2EYield < Minitest::Test
                  "on to the outer Service's yield site"
   end
 
-  # @behavior T-135
+  # @behavior T-135 T-203
   # Coercing the answer to a String would hand the Service a plausible
   # value in place of one that never crossed, so the round-trip reports
   # the refusal at the yield site instead.
@@ -108,7 +108,7 @@ class TestE2EYield < Minitest::Test
                  "must surface as a 0x04 error at the yield site, not a coerced String")
   end
 
-  # @behavior T-091
+  # @behavior T-091 T-203
   # The break arm returns to the guest rather than to host code, so it
   # needs its own witness that the value is refused rather than coerced
   # on the way out.

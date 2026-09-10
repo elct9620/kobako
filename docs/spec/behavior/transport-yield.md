@@ -375,3 +375,36 @@ Nested yields carry no depth limit of their own; only the guest's stack bounds t
 | Given | a Sandbox with a bound Service that yields several times and answers a value of its own |
 | When | guest code calls it with a block |
 | Then | the call answers the Service's value rather than the block's last one |
+
+## `T-202` A Service's own failure crosses under its class name
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that rescues what its yield raised and raises its own exception |
+| When | guest code's block raises |
+| Then | the failure's message leads with the Service exception's class |
+
+## `T-203` A block exit the wire cannot carry reaches the Host App as a Service failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that yields |
+| Given | a guest block that returns past the boundary, answers a value, or breaks with a value having no wire representation |
+| When | nobody rescues the failure |
+| Then | it fails as a Service failure |
+
+## `T-204` A refused block value names the type error it stands for
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that yields |
+| When | guest code's block breaks with a value having no wire representation |
+| Then | the failure's message names the type error and the slot it stopped at |
+
+## `T-205` A Yielder reached after its frame returned is the Service's failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that stored the block it was yielded |
+| When | a later dispatch calls that stored block and nobody rescues the failure |
+| Then | it fails as a Service failure |

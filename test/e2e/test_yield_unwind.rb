@@ -48,7 +48,7 @@ class TestE2EYieldUnwind < Minitest::Test
   # yielder's frame and reports the local jump instead.
   E21_RETURN_SCRIPT = "def make_return; Probe::OnceX.call(5) { |x| return x * 2 }; end; make_return"
 
-  # @behavior T-134
+  # @behavior T-134 T-203
   def test_e21_proc_return_aimed_past_yield_boundary_raises_local_jump_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
@@ -64,7 +64,7 @@ class TestE2EYieldUnwind < Minitest::Test
   # representation is refused there too — the sibling of the block-return
   # rejection (E-22), on the one arm that returns to the guest rather than
   # to host code.
-  # @behavior T-091
+  # @behavior T-091 T-203 T-204
   def test_break_value_with_no_wire_representation_is_refused
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
@@ -116,7 +116,7 @@ class TestE2EYieldUnwind < Minitest::Test
   # called +#invalidate!+, flipping the Yielder off.
   E23_ESCAPE_SCRIPT = "Probe::Stash.stash { :payload }; Probe::Stash.replay"
 
-  # @behavior T-136
+  # @behavior T-136 T-205
   # The Dispatcher's ensure block invalidates the Yielder as its frame
   # returns, so a Service that stored the block finds it switched off
   # rather than reaching into a frame that is no longer there.

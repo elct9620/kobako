@@ -14,7 +14,7 @@ class TestErrorClassHierarchy < Minitest::Test
     assert Kobako::ServiceError < Kobako::Error
   end
 
-  # @behavior OC-017
+  # @behavior OC-017 OC-048
   # A construction failure is not a trap, because no invocation ran to be
   # cut short — it is a sibling of the outcome classes rather than one
   # of them.

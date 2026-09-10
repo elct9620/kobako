@@ -396,3 +396,11 @@ A copy of a held reference keeps its identifier and dispatches to the same host 
 | Given | a Sandbox whose Service answered a stateful object |
 | When | guest code asks a duplicate of the reference whether it is frozen |
 | Then | it is |
+
+## `T-201` A refused answer is worded as kobako's own
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound Service whose method answers a reflective gadget |
+| When | the guest reads the failure's message |
+| Then | it does not wear the shape a Service's own exception crosses in |

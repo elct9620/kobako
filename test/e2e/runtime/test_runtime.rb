@@ -28,6 +28,7 @@ class TestRuntime < Minitest::Test
     assert Kobako::Runtime.default_path.start_with?("/"), "default_path must be absolute"
   end
 
+  # @behavior RT-059
   def test_from_path_raises_module_not_built_for_missing_path
     err = assert_raises(Kobako::ModuleNotBuiltError) do
       Kobako::Runtime.from_path("/nonexistent/kobako.wasm", nil, nil, nil, nil, :hermetic, :hold)
@@ -58,6 +59,7 @@ class TestRuntime < Minitest::Test
   # invocation runs, so it sits outside the invocation attribution pipeline;
   # a single +rescue Kobako::SetupError+ covers every unconstructable-runtime
   # cause — unreadable bytes, an invalid module, or instantiation failure.
+  # @behavior RT-060
   def test_from_path_raises_setup_error_for_corrupt_wasm_payload
     # Any present file whose bytes are not a valid wasm module reaches
     # the WtModule::new compile path and trips +setup_err+. Pick a small
