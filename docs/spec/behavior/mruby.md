@@ -50,7 +50,7 @@ A raise inside a guest-defined JSON serialization hook during generation is a gu
 | Given | guest source defining a class whose `to_s` raises |
 | Given | an instance of it passed to `$stdout.puts` |
 | When | the invocation runs |
-| Then | `Kobako::SandboxError` is raised rather than `Kobako::TrapError` |
+| Then | it fails as a Sandbox failure rather than as a trap |
 
 ## `MR-004` The guest's own message survives the coercion frame
 
@@ -68,7 +68,7 @@ A raise inside a guest-defined JSON serialization hook during generation is a gu
 | Given | guest source defining a class whose `inspect` raises |
 | Given | an instance of it passed to `p` |
 | When | the invocation runs |
-| Then | `Kobako::SandboxError` is raised rather than `Kobako::TrapError` |
+| Then | it fails as a Sandbox failure rather than as a trap |
 
 ## `MR-006` The guest's own message survives the inspect frame too
 

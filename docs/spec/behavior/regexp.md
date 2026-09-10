@@ -684,7 +684,7 @@ Where the language reaches an answer, a match reaches the same answer or fails w
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code builds a pattern from unbalanced source and leaves the failure unrescued |
-| Then | `Kobako::SandboxError` is raised |
+| Then | it fails as a Sandbox failure |
 
 ## `RX-077` A shape that costs dearly still answers where the language answers
 
@@ -700,7 +700,7 @@ Where the language reaches an answer, a match reaches the same answer or fails w
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code runs a match past the engine's bound and leaves the failure unrescued |
-| Then | `Kobako::SandboxError` is raised |
+| Then | it fails as a Sandbox failure |
 
 ## `RX-079` The diagnostic names the pattern
 

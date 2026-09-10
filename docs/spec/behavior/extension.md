@@ -13,7 +13,7 @@ What installing a guest idiom with an optional host backend composes, and what s
 
 ### Why these scenarios
 
-Installing an Extension is observable in two places: what the composition leaves behind — a snippet under one name, a Service under another — and what stands behind that path once an invocation begins, which the backend's declared keyword decides. The dependency scenarios cover the third: when that composition is checked, and how little the check asks.
+Installing an Extension is observable in two places: what the composition leaves behind — a snippet under one name, a Service under another — and what stands behind that path once an invocation begins, which the kind the backend declares decides. The dependency scenarios cover the third: when that composition is checked, and how little the check asks.
 
 Installing after the seal, an unmet dependency, and a malformed Extension all raise rather than compose, and each is settled here by what the refusal names — the dependency ones twice over, because when the check fires and what it can say are separate observations.
 
@@ -93,35 +93,35 @@ An Extension whose name is not a constant name is refused as a snippet name is, 
 | When | guest code calls a method the idiom routes to a backend |
 | Then | it fails as a Service failure |
 
-## `EX-009` A backend declaring `object:` is bound at install
+## `EX-009` A backend declaring a fixed object is bound at install
 
 | Step | Statement |
 | --- | --- |
-| Given | an Extension whose backend declares `object:` |
+| Given | an Extension whose backend declares a fixed object |
 | When | `install` runs |
 | Then | that object is bound at the backend's path |
 
-## `EX-010` A backend declaring `object:` takes no part in per-invocation resolution
+## `EX-010` A backend declaring a fixed object takes no part in per-invocation resolution
 
 | Step | Statement |
 | --- | --- |
-| Given | an installed Extension whose backend declares `object:` |
+| Given | an installed Extension whose backend declares a fixed object |
 | When | an invocation resolves its backends |
 | Then | the resolution carries no entry for that path |
 
-## `EX-011` A backend declaring `provider:` holds its path before the first resolution
+## `EX-011` A backend declaring a provider holds its path before the first resolution
 
 | Step | Statement |
 | --- | --- |
-| Given | an Extension whose backend declares `provider:` |
+| Given | an Extension whose backend declares a provider |
 | When | `install` runs |
 | Then | the path is bound to the sentinel that stands for nothing yet |
 
-## `EX-012` A backend declaring `provider:` yields a fresh object per invocation
+## `EX-012` A backend declaring a provider yields a fresh object per invocation
 
 | Step | Statement |
 | --- | --- |
-| Given | an installed Extension whose backend declares `provider:` |
+| Given | an installed Extension whose backend declares a provider |
 | When | a second invocation resolves its backends |
 | Then | the path carries a different object than the first resolution gave it |
 
@@ -129,15 +129,15 @@ An Extension whose name is not a constant name is refused as a snippet name is, 
 
 | Step | Statement |
 | --- | --- |
-| Given | a backend declaration carrying both `object:` and `provider:` |
+| Given | a backend declaration carrying both a fixed object and a provider |
 | When | the backend is constructed |
 | Then | the construction is refused |
 
-## `EX-014` A backend declaring neither keyword is a fillable
+## `EX-014` A backend declaring neither kind is a fillable
 
 | Step | Statement |
 | --- | --- |
-| Given | an Extension whose backend declares neither `object:` nor `provider:` |
+| Given | an Extension whose backend declares neither a fixed object nor a provider |
 | When | `install` runs |
 | Then | the path is bound to the sentinel that stands for nothing yet |
 
@@ -145,7 +145,7 @@ An Extension whose name is not a constant name is refused as a snippet name is, 
 
 | Step | Statement |
 | --- | --- |
-| Given | an installed Extension whose backend declares neither keyword |
+| Given | an installed Extension whose backend declares neither kind |
 | When | an invocation resolves its backends |
 | Then | the resolution carries no entry for that path |
 
@@ -153,7 +153,7 @@ An Extension whose name is not a constant name is refused as a snippet name is, 
 
 | Step | Statement |
 | --- | --- |
-| Given | two installed Extensions whose backends declare the same `provider:` value |
+| Given | two installed Extensions whose backends declare the same provider |
 | When | an invocation resolves its backends |
 | Then | the provider has been called once |
 
@@ -161,7 +161,7 @@ An Extension whose name is not a constant name is refused as a snippet name is, 
 
 | Step | Statement |
 | --- | --- |
-| Given | two installed Extensions whose backends declare the same `provider:` value |
+| Given | two installed Extensions whose backends declare the same provider |
 | When | an invocation resolves its backends |
 | Then | both paths carry the same object |
 
@@ -169,7 +169,7 @@ An Extension whose name is not a constant name is refused as a snippet name is, 
 
 | Step | Statement |
 | --- | --- |
-| Given | two installed Extensions whose backends declare different `provider:` values |
+| Given | two installed Extensions whose backends declare different providers |
 | When | an invocation resolves its backends |
 | Then | the two paths carry different objects |
 
@@ -177,7 +177,7 @@ An Extension whose name is not a constant name is refused as a snippet name is, 
 
 | Step | Statement |
 | --- | --- |
-| Given | an installed Extension whose `provider:` raises |
+| Given | an installed Extension whose provider raises |
 | When | an invocation resolves its backends |
 | Then | the provider's own exception reaches the caller unwrapped |
 
@@ -185,7 +185,7 @@ An Extension whose name is not a constant name is refused as a snippet name is, 
 
 | Step | Statement |
 | --- | --- |
-| Given | an installed Extension whose `provider:` raised on its first call and succeeds afterward |
+| Given | an installed Extension whose provider raised on its first call and succeeds afterward |
 | Given | an invocation that failed on that resolution |
 | When | a later invocation resolves its backends |
 | Then | the path carries the object the provider yielded |
@@ -194,7 +194,7 @@ An Extension whose name is not a constant name is refused as a snippet name is, 
 
 | Step | Statement |
 | --- | --- |
-| Given | an installed Extension whose backend declares `object:` over a stateful host object |
+| Given | an installed Extension whose backend declares a stateful host object as its fixed object |
 | Given | an invocation that wrote to it through the guest idiom |
 | When | a later invocation reads that value through the same idiom |
 | Then | the written value comes back |
@@ -203,7 +203,7 @@ An Extension whose name is not a constant name is refused as a snippet name is, 
 
 | Step | Statement |
 | --- | --- |
-| Given | an installed Extension whose backend declares `provider:` over a stateful host object |
+| Given | an installed Extension whose backend declares a provider yielding a stateful host object |
 | Given | an invocation that wrote to it through the guest idiom |
 | When | a later invocation reads that value through the same idiom |
 | Then | the value is absent |
@@ -343,7 +343,7 @@ An Extension whose name is not a constant name is refused as a snippet name is, 
 
 | Step | Statement |
 | --- | --- |
-| Given | an installed Extension whose backend declares `provider:` over a callable that raises |
+| Given | an installed Extension whose backend declares a provider that raises |
 | When | an invocation runs guest code that never names the backend's path |
 | Then | the provider's own exception reaches the caller |
 
