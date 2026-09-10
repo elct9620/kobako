@@ -39,7 +39,7 @@ class TestE2EHandleProxy < Minitest::Test
   # method forwards to the host. KV::Lookup exercises the bound-constant
   # (class-level) registration; the Greeter Handle exercises the Handle
   # (instance-level) registration — one assertion pins both paths.
-  # @behavior T-108
+  # @behavior T-108 T-190
   def test_b36_respond_to_probe_succeeds_on_bound_constant_and_handle
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("KV::Lookup", ->(key) { "value:#{key}" })
@@ -84,7 +84,7 @@ class TestE2EHandleProxy < Minitest::Test
   # does not change the outcome — the raise fires ahead of any arity check
   # (the reason the bridge registers `mrb_args_any()`); `.allocate` covers
   # mruby's other construction entry.
-  # @behavior T-110
+  # @behavior T-110 T-191
   def test_b39_handle_proxy_is_not_constructible
     ["Kobako::Handle.new(1)", "Kobako::Handle.allocate"].each do |code|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)

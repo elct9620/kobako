@@ -21,6 +21,20 @@ The boundary scenarios are the reason this surface can be offered at all. Parsin
 
 The depth bound is witnessed on both directions at the same depth, because a reader and a writer that disagree about it would let a document in that cannot be written back out.
 
+### Behaviors without a witness
+
+Only a JSON-capable Guest Binary defines the JSON surface; the default Guest Binary has none.
+
+`JSON::ParserError` and `JSON::GeneratorError` both descend from `JSON::JSONError`, itself a `StandardError`.
+
+Generating from a bound constant raises a generator error without reaching the host.
+
+Calling the serialization hook on a bound constant raises in the guest without reaching the host.
+
+An object answering `respond_to?` or the array or hash conversion methods is still refused unless it opts in through the serialization hook.
+
+What the serialization hook answers is held to the same depth bound as any other value.
+
 ## `JS-001` Every JSON value reads as its native counterpart
 
 | Step | Statement |

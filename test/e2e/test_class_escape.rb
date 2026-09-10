@@ -90,7 +90,7 @@ class TestE2EClassEscape < Minitest::Test
 
   # --- B-42: a directly-bound Class / Module has class-level methods denied ---
 
-  # @behavior T-133
+  # @behavior T-133 T-194
   def test_directly_bound_module_refuses_a_class_level_command
     sandbox = real_sandbox
     sandbox.bind("App::Kernel", Kernel)
@@ -103,7 +103,7 @@ class TestE2EClassEscape < Minitest::Test
                  "no command output may reach the guest — the process must never spawn")
   end
 
-  # @behavior T-133
+  # @behavior T-133 T-194
   def test_directly_bound_class_refuses_popen
     sandbox = real_sandbox
     sandbox.bind("App::File", File)
@@ -116,7 +116,7 @@ class TestE2EClassEscape < Minitest::Test
                  "no command output may reach the guest — the process must never spawn")
   end
 
-  # @behavior T-133
+  # @behavior T-133 T-194
   def test_directly_bound_class_refuses_file_read
     with_secret_file do |path|
       sandbox = real_sandbox

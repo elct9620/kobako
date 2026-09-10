@@ -29,12 +29,12 @@ class TestDispatchGadgetReturn < Minitest::Test
     DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
   end
 
-  # @behavior T-122
+  # @behavior T-122 T-195
   def test_reflective_gadget_return_is_refused_not_wrapped
     %w[a_method a_binding an_unbound].each { |meth| assert_gadget_refused(meth) }
   end
 
-  # @behavior T-132
+  # @behavior T-132 T-195
   def test_class_or_module_return_is_refused_not_wrapped
     # A bare Class / Module used as a type tag must not mint a Handle: its
     # class-level API (File.popen / Kernel.system) is owned by a singleton

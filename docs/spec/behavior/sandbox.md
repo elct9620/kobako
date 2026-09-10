@@ -1252,3 +1252,11 @@ Bound Service names are already in place when preloaded snippets replay.
 | Given | a Sandbox holding preloaded bytecode stamped with a format version the guest does not read |
 | When | the first invocation runs |
 | Then | it fails as a bytecode failure |
+
+## `S-149` A deadline still fires under the strongest posture
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox at the strongest posture with a deadline |
+| When | guest code loops without end |
+| Then | the deadline cuts it short |

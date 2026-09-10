@@ -19,7 +19,7 @@ class TestE2EReflectionBlock < Minitest::Test
     sandbox
   end
 
-  # @behavior T-114
+  # @behavior T-114 T-196
   def test_reflection_name_is_refused_by_the_guest_proxy
     # A gadget-invoker name reaches the bound-constant proxy's method_missing (it is
     # not a real method on the proxy) and is refused before any wire Call;

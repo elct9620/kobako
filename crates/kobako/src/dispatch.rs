@@ -452,7 +452,7 @@ mod tests {
     // body fails as a *runtime* fault when it runs: only the fault
     // type can tell "rejected before running" (undefined) apart from
     // "ran and failed" (runtime).
-    // @behavior T-126
+    // @behavior T-126 T-197
     #[test]
     fn narrowing_predicate_rejects_an_unexposed_method_before_it_runs() {
         let mut catalog = Catalog::default();
@@ -478,7 +478,7 @@ mod tests {
         );
     }
 
-    // @behavior T-125
+    // @behavior T-125 T-197
     #[test]
     fn narrowing_predicate_applies_to_a_handle_target() {
         let handles: Arc<Mutex<HandleTable>> = Arc::default();

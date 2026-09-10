@@ -50,6 +50,10 @@ A reference from an earlier invocation resolves to nothing whether the Sandbox r
 
 An invocation that fails, fails the same way whether its Sandbox releases the lock or holds it.
 
+At either posture the guest reaches no filesystem, environment variable, or network through the WASI layer.
+
+At either posture the Guest Binary's only host import is the dispatch entry.
+
 ## `RT-001` Threads holding their own Sandboxes hold their own guest state
 
 | Step | Statement |

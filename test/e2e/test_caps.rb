@@ -14,7 +14,7 @@ class TestE2ECaps < Minitest::Test
   # cap raises `Kobako::TimeoutError`, which is a `Kobako::TrapError`
   # subclass — callers that only care about the unrecoverable outcome
   # can rescue the base class.
-  # @behavior OC-032
+  # @behavior OC-032 S-149
   def test_timeout_cap_traps_infinite_loop
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
 

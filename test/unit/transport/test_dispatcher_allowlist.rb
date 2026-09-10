@@ -44,7 +44,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
     end
   end
 
-  # @behavior T-117
+  # @behavior T-117 T-193
   def test_gadget_reflection_methods_are_rejected
     # A Proc / Method bound as a Service exposes reflection on its own type:
     # Proc#binding -> Binding#eval was the reproduced host RCE, and
@@ -84,7 +84,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
     assert_equal "blue", resp.payload
   end
 
-  # @behavior T-120
+  # @behavior T-120 T-193
   def test_rejection_decides_on_owner_not_method_name
     # The guard is owner-based, not a static name list: a Service that defines
     # its own public method named `tap` (owned by the Service, not Kernel) stays

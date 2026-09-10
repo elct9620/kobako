@@ -29,7 +29,7 @@ class TestE2EHandleImmutable < Minitest::Test
     [g.greet, repoint, g.frozen?, g.dup.frozen?]
   RUBY
 
-  # @behavior T-111 T-112
+  # @behavior T-111 T-112 T-199 T-200
   def test_b60_held_handle_is_frozen_and_still_dispatches
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })

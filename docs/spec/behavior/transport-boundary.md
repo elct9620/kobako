@@ -27,13 +27,47 @@ Refusal turns on who owns the method rather than on how it is spelled, so a boun
 
 Narrowing sits beneath the boundary, never above it: an object may close its surface as far as it likes and may not open what the boundary closed. Both directions are witnessed, along with the predicate staying unreachable — a narrowing an object could be asked to describe would be a surface of its own.
 
+### Behaviors without a witness
+
+Constructing an instance of a bound proxy, by either construction entry, succeeds in the guest without reaching the host.
+
+A method called on such an instance raises `NoMethodError` in the guest.
+
+A reflective gadget bound as a Service answers none of its own reflective methods, evaluation included.
+
+Every name on the callable allowlist reaches a bound callable, not only the name that calls it.
+
+An ordinary object bound as a Service keeps the singleton methods defined on it reachable; only a bound class or module loses its class-level surface.
+
+A reflective gadget nested inside a container that crossed as a capability reference is refused when the guest extracts it.
+
+A reflective name on a capability reference to a callable is refused like one on a bound callable.
+
+The guest's proxy refuses a reflective name on a capability reference just as it does on a bound constant.
+
+The guest proxy's refusal is a `NoMethodError` the guest may rescue.
+
+A name the narrowing predicate permits but the object has no method for is still refused as an undefined target.
+
+An object narrowed to nothing can still be held by the guest, passed as a dispatch argument, and returned across the boundary.
+
+A narrowed name left unrescued fails as a Service failure.
+
+A subclass of the reference type, or a guest module mixing in the forwarding seam, is refused in the guest before the host is asked.
+
+Reassigning a held reference's identifier through instance evaluation raises `FrozenError`.
+
+A clone of a held reference is frozen too.
+
+A copy of a held reference keeps its identifier and dispatches to the same host object.
+
 ## `T-108` A guest may ask whether a name is reachable
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a bound Service and a capability reference in guest hands |
-| When | guest code probes each for a method it defines |
-| Then | both report that they respond to it |
+| Given | a Sandbox with a capability reference in guest hands |
+| When | guest code probes it for a method its object defines |
+| Then | it reports that it responds to it |
 
 ## `T-109` Constructing a proxy is not acquiring a capability
 
@@ -274,3 +308,91 @@ Narrowing sits beneath the boundary, never above it: an object may close its sur
 | Given | the names by which a bound callable is invoked |
 | When | the guest's denylist is read |
 | Then | none of them is on it |
+
+## `T-190` A probe answers yes even for a name the host object lacks
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service bound |
+| When | guest code probes the bound proxy for a name the bound object does not define |
+| Then | it reports that it responds to it |
+
+## `T-191` Refusing to construct a reference is a `NoMethodError`
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code tries to construct a reference directly, with an identifier or by allocation |
+| Then | `NoMethodError` is raised in the guest |
+
+## `T-192` An object that only looks like a reference is refused as a `NoMethodError`
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose guest built an object carrying the reference's shape |
+| When | guest code dispatches through it |
+| Then | `NoMethodError` is raised in the guest |
+
+## `T-193` A refused reflective name answers as an undefined target
+
+| Step | Statement |
+| --- | --- |
+| Given | a dispatch naming a reflective method on a bound target |
+| When | the host reads it |
+| Then | it answers as an undefined target |
+
+## `T-194` A refused class-level call left unrescued is the Service's failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a class or module bound directly as a Service |
+| When | guest code calls one of its class-level methods and leaves the refusal unrescued |
+| Then | it fails as a Service failure |
+
+## `T-195` A refused answer is the Service's runtime failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound Service whose method answers a reflective gadget or a bare class |
+| When | the guest calls it |
+| Then | it answers on the fault arm as a runtime failure |
+
+## `T-196` The guest proxy's refusal is the Sandbox's failure, not the Service's
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service |
+| When | guest code calls a reflective name on the bound proxy and leaves the refusal unrescued |
+| Then | it fails as a Sandbox failure |
+
+## `T-197` A narrowed name answers as an undefined target
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object whose narrowing predicate denies a name |
+| When | the guest calls that name |
+| Then | it answers as an undefined target |
+
+## `T-198` A permitted name that fails while running is a runtime failure, not a narrowing
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object permitting a name it handles dynamically but cannot satisfy |
+| When | the guest calls that name |
+| Then | it answers on the fault arm as a runtime failure |
+
+## `T-199` Re-pointing a held reference is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Service answered a stateful object |
+| When | guest code reflectively reassigns the reference's identifier |
+| Then | `FrozenError` is raised in the guest |
+
+## `T-200` A copy of a held reference is frozen too
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Service answered a stateful object |
+| When | guest code asks a duplicate of the reference whether it is frozen |
+| Then | it is |

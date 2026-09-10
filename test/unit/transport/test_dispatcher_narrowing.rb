@@ -80,7 +80,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
 
   # The undefined fault discloses nothing about which methods the object
   # defines — opacity must not leak its surface through a distinct error.
-  # @behavior T-124
+  # @behavior T-124 T-197
   def test_opaque_object_rejects_every_method
     %w[token decrypt].each do |meth|
       resp = dispatch("Cfg::Cred", meth)
@@ -94,7 +94,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
   # The headline credential path: an opaque object handed back as a Capability
   # Handle (B-14) and reached by the guest as a Handle target (B-17) is narrowed
   # by the same chokepoint as a bound constant — the guest holds it but calls nothing.
-  # @behavior T-125
+  # @behavior T-125 T-197
   def test_opaque_object_is_narrowed_through_a_handle_target
     id = @handler.alloc(Opaque.new).id
     resp = dispatch(Kobako::Handle.restore(id), "token")
@@ -104,7 +104,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
                  "the Handle-target rejection must surface as the undefined fault (E-48)"
   end
 
-  # @behavior T-126
+  # @behavior T-126 T-197
   def test_allow_list_exposes_only_the_permitted_subset
     permitted = dispatch("Cfg::Report", "headers")
     assert_equal true, permitted.ok?,
@@ -138,7 +138,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
   # Service that cannot satisfy the name fails as a runtime fault (E-11), never
   # as the undefined narrowing fault — so a truthy predicate never disguises a
   # failed dispatch as a narrowing rejection.
-  # @behavior T-128
+  # @behavior T-128 T-198
   def test_permitted_dynamic_name_runs_rather_than_being_narrowed
     handled = dispatch("Cfg::Dyn", "known")
     assert_equal true, handled.ok?,

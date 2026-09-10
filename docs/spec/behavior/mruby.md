@@ -19,6 +19,14 @@ That the boot state may be computed at build time, and that per-invocation resou
 
 Two invocations begin from the same interpreter state under the permissive posture as under the hermetic one.
 
+The default Guest Binary defines no time, sleep, or randomness surface for guest code.
+
+A raise inside an output coercion can be rescued by the guest code that called the output method.
+
+A raise inside a Hash replacement's lookup during substitution is a guest exception the caller may rescue, never a trap.
+
+A raise inside a guest-defined JSON serialization hook during generation is a guest exception, never a trap.
+
 ## `MR-001` Two invocations begin from the same state, not merely a clean one
 
 | Step | Statement |

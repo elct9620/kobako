@@ -52,6 +52,10 @@ A dispatch refused for a stale reference fails only that call; the invocation's 
 
 No host object referenced by a Sandbox's invocations outlives that Sandbox; discarding it releases them all.
 
+A reflective gadget passed as an entrypoint argument fails the run as a Sandbox failure before the guest runs.
+
+An id enters an invocation's Handle table only by delivering its object to the guest, so every id the table holds names an object the guest was handed.
+
 ## `T-001` An answer the wire cannot carry becomes a reference to it
 
 | Step | Statement |
