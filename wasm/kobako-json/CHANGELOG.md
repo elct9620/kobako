@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/elct9620/kobako/compare/kobako-json-v0.14.0...kobako-json-v0.15.0) (2026-09-10)
+
+
+### Features
+
+* **mruby:** upgrade beni to 0.14 and locate a parse failure ([586c910](https://github.com/elct9620/kobako/commit/586c910873710169c0dfce1fe7edb21f9e91cdea))
+
 ## [0.14.0](https://github.com/elct9620/kobako/compare/kobako-json-v0.13.1...kobako-json-v0.14.0) (2026-08-06)
 
 

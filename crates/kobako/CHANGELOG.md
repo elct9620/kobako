@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.15.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.14.0...kobako-sdk-v0.15.0) (2026-09-10)
+
+
+### Features
+
+* **spec:** account for every boundary and isolation behavior ([226a563](https://github.com/elct9620/kobako/commit/226a5637350f3561e93b56d2acc5571c75447fb6))
+* **spec:** account for every registration and Extension behavior ([8750cba](https://github.com/elct9620/kobako/commit/8750cbae0901d8f1e4b6a22b90a70cc5bc6fff79))
+* **spec:** account for every yield, runtime, and pool behavior ([29a7824](https://github.com/elct9620/kobako/commit/29a7824abcaa539b451d4b38a0bb6a2876c32f75))
+* **spec:** bring the Rust frontend under the behaviors it answers ([b62243f](https://github.com/elct9620/kobako/commit/b62243f68b338fd219136d60c9cf760d0be03fc0))
+
+
+### Bug Fixes
+
+* **sdk:** refuse a Service path that is already a name ([8362f46](https://github.com/elct9620/kobako/commit/8362f46d80791baab23c86996d42bb80b9a2186a))
+* **spec:** claim the scenario each test actually witnesses ([ab92e8b](https://github.com/elct9620/kobako/commit/ab92e8b9f5948f16fb86e517b9501598d76e4b89))
+
 ## [0.14.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.13.1...kobako-sdk-v0.14.0) (2026-08-06)
 
 

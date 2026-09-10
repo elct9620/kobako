@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/elct9620/kobako/compare/kobako-transport-v0.14.0...kobako-transport-v0.15.0) (2026-09-10)
+
+
+### Features
+
+* **spec:** declare the bytes both sides must already agree on ([3875755](https://github.com/elct9620/kobako/commit/3875755999550511837808dcd24a25086bedc926))
+
 ## [0.14.0](https://github.com/elct9620/kobako/compare/kobako-transport-v0.13.1...kobako-transport-v0.14.0) (2026-08-06)
 
 

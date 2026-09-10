@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/elct9620/kobako/compare/kobako-runtime-v0.14.0...kobako-runtime-v0.15.0) (2026-09-10)
+
+
+### Features
+
+* **spec:** declare what the guest answers when a value will not cross ([886a16f](https://github.com/elct9620/kobako/commit/886a16f173efe44766dd9884ac8bfed61113728a))
+
 ## [0.14.0](https://github.com/elct9620/kobako/compare/kobako-runtime-v0.13.1...kobako-runtime-v0.14.0) (2026-08-06)
 
 

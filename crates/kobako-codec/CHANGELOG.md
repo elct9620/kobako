@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.15.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.14.0...kobako-codec-v0.15.0) (2026-09-10)
+
+
+### Features
+
+* **spec:** let both payload implementations answer for one table ([5368ee7](https://github.com/elct9620/kobako/commit/5368ee790d0e8fc0c8e7d6b6222d55da11a7f05c))
+
+
+### Bug Fixes
+
+* **spec:** claim the scenario each test actually witnesses ([ab92e8b](https://github.com/elct9620/kobako/commit/ab92e8b9f5948f16fb86e517b9501598d76e4b89))
+
 ## [0.14.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.13.1...kobako-codec-v0.14.0) (2026-08-06)
 
 
