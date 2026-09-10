@@ -24,6 +24,20 @@ The block-failure scenarios are about what a failure leaves behind. A Service th
 
 A block's answer is restored on its way in and a break's value is not, which is the one asymmetry here. The exits that raise are followed too: an unwind aimed past the boundary, an answer the wire cannot carry, and a Yielder reached after its frame returned each end the conversation somewhere the ordinary closes cannot reach. That last exit has no parity scenario: one frontend lends its Yielder for the frame alone, so holding it past the frame does not compile there, and the refusal is witnessed on the frontend that can reach it.
 
+### Behaviors without a witness
+
+A block yielded more arguments than it declares drops the extras, and one yielded fewer receives nothing for the missing ones.
+
+A lambda the guest passed as the block refuses a yield whose argument count it does not accept.
+
+Time spent in a yielded block, and in the Service around it, counts against the invocation's deadline.
+
+Memory a yielded block grows counts against the same per-invocation budget as the rest of the invocation.
+
+A block that ends with `next` answers the yield with that value, as falling through does.
+
+Nested yields carry no depth limit of their own; only the guest's stack bounds them.
+
 ## `T-083` A Service can tell that the guest passed it a block
 
 | Step | Statement |
@@ -337,3 +351,27 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | Given | each way a yield can end badly |
 | When | the failure is categorised |
 | Then | each names the side it belongs to, carrying what a guest needs to continue |
+
+## `T-187` An unrescued block raise reaches the Host App as the guest's own failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that yields and lets its block's failure through |
+| When | guest code's block raises and nothing in the guest rescues it |
+| Then | it fails as a Sandbox failure under the class the guest raised |
+
+## `T-188` A break from a nested block ends only the Service that yielded to it
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with bound Services yielding into one another |
+| When | the inner block breaks with a value |
+| Then | the outer block resumes with that value as the inner call's answer |
+
+## `T-189` A Service's answer is its own, not its block's
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that yields several times and answers a value of its own |
+| When | guest code calls it with a block |
+| Then | the call answers the Service's value rather than the block's last one |

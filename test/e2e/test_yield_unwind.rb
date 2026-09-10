@@ -90,7 +90,7 @@ class TestE2EYieldUnwind < Minitest::Test
     end
   RUBY
 
-  # @behavior T-092
+  # @behavior T-092 T-188
   def test_b28_nested_dispatch_frames_each_carry_their_own_block
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Outer", ->(items, &blk) { items.map(&blk) })

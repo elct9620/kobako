@@ -22,7 +22,7 @@ class TestSandbox < Minitest::Test
     require_fixture!(FIXTURE_PATH)
   end
 
-  # @behavior S-001
+  # @behavior S-001 RT-056
   def test_default_construction_exposes_wasm_path
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
 

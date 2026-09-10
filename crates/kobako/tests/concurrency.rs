@@ -42,7 +42,7 @@ fn decode(bytes: &[u8]) -> Value {
         .expect("the guest answers in the schema it was built with")
 }
 
-// @behavior RT-002
+// @behavior RT-057
 #[test]
 fn arc_sandbox_drives_concurrent_evals_shared_nothing() {
     let Some(sandbox) = real_sandbox() else {

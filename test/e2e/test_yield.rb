@@ -52,7 +52,7 @@ class TestE2EYield < Minitest::Test
                  "last-expression value as the +yield+ expression's value"
   end
 
-  # @behavior T-086
+  # @behavior T-086 T-189
   def test_b29_multi_yield_runs_block_once_per_iteration
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::MapEach", ->(items, &blk) { items.map(&blk) })

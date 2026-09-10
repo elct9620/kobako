@@ -15,6 +15,10 @@ A capability gem servicing one guest operation calls back into guest code, and t
 
 That the boot state may be computed at build time, and that per-invocation resources may be provisioned ahead of demand, are both stated to be unobservable, so neither is a scenario. The reproducible-build check holds the baking end. Leak-freedom between invocations is per-invocation isolation and belongs with the Sandbox behaviors, whose witnesses cite it alongside this one.
 
+### Behaviors without a witness
+
+Two invocations begin from the same interpreter state under the permissive posture as under the hermetic one.
+
 ## `MR-001` Two invocations begin from the same state, not merely a clean one
 
 | Step | Statement |

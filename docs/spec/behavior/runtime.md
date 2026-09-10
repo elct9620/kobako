@@ -36,6 +36,20 @@ What the runtime hands an invocation back is read here rather than through the S
 
 An artifact that satisfies the whole invocation ABI while doing no guest work is what makes the host's own per-invocation cost measurable as a total. That is a claim about the artifact, so it is held to both verbs and to the capture it leaves — the ways it could satisfy the loader without satisfying the ABI.
 
+### Behaviors without a witness
+
+Invocations running at once, on one Sandbox or on several, each capture only what they wrote.
+
+A Service bound once on a Sandbox shared across Threads may be called by several invocations at once; kobako does not serialize those calls.
+
+Guest code on distinct Threads, each invoking a Sandbox constructed to release the lock, runs in parallel rather than one at a time.
+
+A Sandbox that holds the lock runs no other host Thread while its guest code does.
+
+A reference from an earlier invocation resolves to nothing whether the Sandbox releases the lock or holds it.
+
+An invocation that fails, fails the same way whether its Sandbox releases the lock or holds it.
+
 ## `RT-001` Threads holding their own Sandboxes hold their own guest state
 
 | Step | Statement |
@@ -463,3 +477,28 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Given | a Sandbox over a supplied engine that has bound a path |
 | When | an invocation runs |
 | Then | the engine is handed the sealed bindings |
+
+## `RT-055` Threads sharing one Sandbox all reach the Services it bound
+
+| Step | Statement |
+| --- | --- |
+| Given | several Threads invoking one shared Sandbox |
+| Given | a Service bound on it before its first invocation |
+| When | each Thread's guest code calls that Service at once |
+| Then | every call answers |
+
+## `RT-056` A guest stating the host's ABI version is accepted
+
+| Step | Statement |
+| --- | --- |
+| Given | a Guest Binary other than the bundled one, reporting the ABI version the host implements |
+| When | a Sandbox is constructed over it |
+| Then | construction completes |
+
+## `RT-057` Threads sharing one Sandbox each receive their own result
+
+| Step | Statement |
+| --- | --- |
+| Given | several Threads evaluating on one shared Sandbox, each with its own input |
+| When | every Thread evaluates guest source computing from its input |
+| Then | each Thread receives the result of its own input |

@@ -45,6 +45,12 @@ Everything that raises is a behavior too, settling on the class a Host App rescu
 
 The guest-side output surface — how `IO` and the Kernel writers behave inside the guest — belongs to the capability gem that implements it. What is here is the host end: which channel bytes land in, where they stop, and what survives a failure.
 
+### Behaviors without a witness
+
+What a failed invocation left in guest state is gone at the next entry.
+
+Bound Service names are already in place when preloaded snippets replay.
+
 ## `S-001` A Sandbox names the artifact it was built over
 
 | Step | Statement |

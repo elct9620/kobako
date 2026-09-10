@@ -74,7 +74,7 @@ class TestE2EGvlHandleIsolation < Minitest::Test
       end
   end
 
-  # @behavior RT-002
+  # @behavior RT-002 RT-055
   # Threads sharing ONE :release Sandbox, each #eval supplying its own
   # identity through the per-invocation ctx.bind override, must each resolve
   # only their own Tokens (shared-Sandbox shape, B-22 / B-63).
