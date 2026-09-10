@@ -1,26 +1,15 @@
 # frozen_string_literal: true
 
 module Kobako
-  # Host-side captured prefix of guest stdout / stderr produced during a
-  # single +Kobako::Sandbox+ invocation, paired with the truncation flag
-  # the WASI pipe sets when the guest wrote past the configured per-channel
-  # cap.
-  #
-  # Immutable value object: the captured bytes and the truncation flag
-  # always travel together and the instance is frozen on construction.
-  # Construct via +Capture.new(bytes:, truncated:)+ for the ext-provided
-  # binary bytes (the constructor handles the UTF-8 / ASCII-8BIT fallback)
-  # or reach +Capture::EMPTY+ for the pre-invocation sentinel that
-  # +Sandbox+ uses before any invocation has executed.
+  # What one invocation wrote to stdout or stderr, up to that channel's
+  # cap, together with whether it wrote past the cap. Frozen, so the bytes
+  # and the flag always travel together.
   class Capture
     attr_reader :bytes
 
-    # Build a Capture wrapping +bytes+ (the captured prefix as a String) and
-    # +truncated+ (whether the originating WASI pipe reported the cap was
-    # hit). Coerces +bytes+ to UTF-8 when they are valid UTF-8, otherwise
-    # falls back to ASCII-8BIT so invalid sequences remain inspectable
-    # without raising; +bytes+ is duplicated, never mutated. Freezes the
-    # instance so callers cannot mutate the pair.
+    # The bytes read as UTF-8 when they are valid UTF-8, and as binary
+    # otherwise, so output that is not text stays inspectable instead of
+    # raising. The caller's String is copied, never changed.
     def initialize(bytes:, truncated:)
       copy = bytes.dup.force_encoding(Encoding::UTF_8)
       copy.force_encoding(Encoding::ASCII_8BIT) unless copy.valid_encoding?
@@ -29,13 +18,10 @@ module Kobako
       freeze
     end
 
-    # Returns +true+ iff the underlying capture channel exceeded its
-    # configured cap during the originating +Sandbox+ invocation.
+    # Whether the invocation wrote past this channel's cap.
     def truncated? = @truncated
 
-    # Pre-invocation sentinel. Empty UTF-8 bytes and +truncated? == false+;
-    # reused by every fresh +Sandbox+ and by +Sandbox+ between invocations
-    # to denote "no capture yet".
+    # The capture before any invocation has written anything.
     EMPTY = new(bytes: "", truncated: false)
   end
 end

@@ -1,30 +1,19 @@
 # frozen_string_literal: true
 
 module Kobako
-  # Per-last-invocation resource accounting for a +Kobako::Sandbox+.
-  # Carries two readers populated by every +#eval+ / +#run+ invocation:
+  # What one invocation spent against its caps, measured the way the caps
+  # measure it:
   #
-  #   * +wall_time+ — the Float number of seconds the guest export call
-  #     spent inside wasmtime during the most recent invocation. The
-  #     measurement bracket aligns with the +timeout+ deadline; time spent
-  #     in host Service callbacks is included, but everything that runs
-  #     after the guest export returns — the post-export
-  #     +OUTCOME_BUFFER+ fetch and decode, plus stdout / stderr capture
-  #     readout — is excluded.
-  #   * +memory_peak+ — the Integer high-water mark, in bytes, of the
-  #     per-invocation +memory.grow+ delta past the linear-memory size
-  #     captured at invocation entry. Same baseline accounting as
-  #     +memory_limit+: the mruby image's initial allocation and any
-  #     prior-invocation watermark sit outside the measurement. On
-  #     +MemoryLimitError+ +memory_peak+ never exceeds the configured
-  #     cap because the rejected +desired+ value is not promoted into
-  #     the high-water.
+  #   * +wall_time+ — Float seconds inside the guest, the span the
+  #     +timeout+ deadline governs; Service callbacks count, reading the
+  #     result and the captures afterwards does not.
+  #   * +memory_peak+ — Integer bytes of memory the invocation grew,
+  #     against the same baseline as +memory_limit+; it never exceeds the
+  #     cap, even when the cap was hit.
   #
-  # Both readers are populated on every outcome, including +TrapError+
-  # branches, so the Host App can read +#usage+ off the run's
-  # +Kobako::Execution+ — the one a raised error carries on +#execution+ —
-  # after rescuing a trap to diagnose how much of the budget the failing
-  # invocation consumed.
+  # Filled on every outcome, traps included, so a Host App that rescues a
+  # trap can read from the error's +#execution+ how much of the budget the
+  # invocation used.
   #
   # Built on the +class X < Data.define(...)+ subclass form (the
   # Steep-friendly shape — see +.rubocop.yml+ for the rationale).
