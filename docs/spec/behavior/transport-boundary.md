@@ -404,3 +404,19 @@ A copy of a held reference keeps its identifier and dispatches to the same host 
 | Given | a bound Service whose method answers a reflective gadget |
 | When | the guest reads the failure's message |
 | Then | it does not wear the shape a Service's own exception crosses in |
+
+## `T-206` A transparent forwarder is refused as a reference
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound Service that answers, or a run that receives as an argument, an object that transparently forwards unknown calls to a wrapped object |
+| When | it would cross as a capability reference |
+| Then | it is refused rather than given a reference |
+
+## `T-207` A forwarder's dynamic-dispatch hook is not Service behaviour
+
+| Step | Statement |
+| --- | --- |
+| Given | a transparent forwarder bound directly as a Service |
+| When | guest code calls its dynamic-dispatch hook explicitly |
+| Then | the call is refused rather than forwarded |

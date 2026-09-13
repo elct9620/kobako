@@ -9,4 +9,5 @@ target :lib do
 
   library "singleton"
   library "forwardable"
+  library "delegate"
 end

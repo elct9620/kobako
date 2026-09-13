@@ -55,7 +55,17 @@ module Kobako
       # only when the target opts into it via +respond_to?+ (dynamic
       # +method_missing+ Services), since the dangerous methods are all
       # concretely defined and therefore never reach that branch.
+      #
+      # +method_missing+ named explicitly is refused whatever its owner:
+      # it is Ruby's dynamic-dispatch hook, and a public override (a
+      # +Delegator+) binds and calls the private method the guest passes as
+      # its first argument (+Kernel#system+). A dynamic +method_missing+
+      # Service is untouched — the guest reaches it by the virtual name,
+      # which resolves through the +NameError+ branch below, never by
+      # naming +method_missing+.
       def ambient_refusal(target, name)
+        return "method #{name.inspect} is not a Service method" if name == :method_missing
+
         owner = target.public_method(name).owner
         return nil unless ambient_owner?(owner, target)
         return nil if GADGET_OWNERS.include?(owner) && CALLABLE_ALLOW.include?(name)

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "delegate"
 
 # Regression: a Service returning a reflective gadget must not mint a
 # Capability Handle. Otherwise the guest would receive a callable proxy onto
@@ -14,6 +15,7 @@ class TestDispatchGadgetReturn < Minitest::Test
     def a_proc = -> { 1 }
     def a_class = File
     def a_module = Kernel
+    def a_forwarder = SimpleDelegator.new(Object.new)
   end
 
   def setup
@@ -49,6 +51,22 @@ class TestDispatchGadgetReturn < Minitest::Test
       assert_equal 0, @handler.size,
                    "##{meth} must allocate no Handle entry"
     end
+  end
+
+  # @behavior T-206
+  def test_transparent_forwarder_return_is_refused_not_wrapped
+    # A transparent forwarder (SimpleDelegator / WeakRef / Tempfile) must not
+    # mint a Handle: its public method_missing binds and calls the private
+    # method the guest names (Kernel#system), which the dispatch floor reads
+    # as ordinary Service behaviour, so the mint point refuses it.
+    resp = dispatch("a_forwarder")
+
+    assert_equal false, resp.ok?,
+                 "a Service returning a transparent forwarder must not mint a Handle onto its forwarding surface"
+    assert_equal "runtime", resp.payload.type,
+                 "a forwarder return must surface as the runtime fault"
+    assert_equal 0, @handler.size,
+                 "a forwarder return must allocate no Handle entry"
   end
 
   # @behavior T-123

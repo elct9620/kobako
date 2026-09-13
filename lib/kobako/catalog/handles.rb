@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "delegate"
+
 require_relative "../handle"
 
 module Kobako
@@ -79,13 +81,20 @@ module Kobako
       # reflection (a returned +Binding+ reaches +Binding#eval+); a +Class+
       # or +Module+ hands over its class-level API (+File.popen+ / +read+,
       # +Kernel.system+), which the owner-based dispatch floor cannot see
-      # because a singleton-class owner matches no core-module list. Raising
-      # here keeps the rule at the single mint point, so it holds on both the
+      # because a singleton-class owner matches no core-module list; a
+      # +Delegator+ (+SimpleDelegator+, +DelegateClass+, +WeakRef+,
+      # +Tempfile+) is a transparent forwarder whose public +method_missing+
+      # binds and calls the private method the guest names (+Kernel#system+),
+      # a surface the floor reads as ordinary Service behaviour. Raising here
+      # keeps the rule at the single mint point, so it holds on both the
       # Service-return and the +#run+ host→guest auto-wrap paths.
       def reject_unwrappable!(object)
         case object
-        when Binding, Method, UnboundMethod, Module
-          raise SandboxError, "a #{object.class} cannot cross as a Capability Handle"
+        when Binding, Method, UnboundMethod, Module, Delegator
+          # Delegator < BasicObject exposes no static +#class+, so name the
+          # rejected object's class through Object's own.
+          kind = Object.instance_method(:class).bind_call(object)
+          raise SandboxError, "a #{kind} cannot cross as a Capability Handle"
         end
       end
 

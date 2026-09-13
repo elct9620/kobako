@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "delegate"
 
 # Regression: a guest-supplied method name must not reach Ruby's ambient
 # reflection surface.
@@ -23,7 +24,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
     @handler = Kobako::Catalog::Handles.new
     @services = Kobako::Catalog::Services.new
     { Theme: Service.new, Fn: ->(x) { x * 2 }, Meth: "abc".method(:upcase), Own: Tappable.new,
-      Klass: File, Mod: Kernel }
+      Klass: File, Mod: Kernel, Wrap: SimpleDelegator.new(Object.new) }
       .each { |name, service| @services.bind("Cfg::#{name}", service) }
     @services.seal!
     @yield = ->(_bytes) { raise "no block" }
@@ -120,6 +121,20 @@ class TestDispatchMethodAllowlist < Minitest::Test
                      "#{target}.#{meth} rejection must surface as the undefined Service-method fault"
       end
     end
+  end
+
+  # @behavior T-207
+  def test_explicit_method_missing_on_a_forwarder_is_refused
+    # A transparent forwarder's public method_missing binds and calls the
+    # private method it is handed (Kernel#system), a surface the owner-based
+    # floor reads as Service behaviour. Naming method_missing explicitly is
+    # refused whatever its owner, so a directly-bound forwarder cannot be
+    # driven into the private host surface.
+    resp = dispatch("Cfg::Wrap", "method_missing", [:system, "echo hi"])
+    assert_equal false, resp.ok?,
+                 "an explicit method_missing on a bound forwarder must be refused, not invoked on the host"
+    assert_equal "undefined", resp.payload.type,
+                 "the method_missing rejection must surface as the undefined Service-method fault"
   end
 
   # @behavior T-121
