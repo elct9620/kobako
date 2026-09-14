@@ -74,7 +74,7 @@ When the override block raises, the guest does not run and no Execution is produ
 | When | each is resolved by its text form |
 | Then | each answers the object bound under it |
 
-## `SV-005` A Service is whatever answers the call
+## `SV-005` A class, an instance, or a module can stand at a path
 
 | Step | Statement |
 | --- | --- |

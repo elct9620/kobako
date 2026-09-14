@@ -66,6 +66,11 @@ module Kobako
     # (+"MyService::KV"+ or a top-level +"File"+). Returns +self+ for
     # chaining.
     #
+    # The guest reaches the public methods +object+'s own class and +object+
+    # itself define in source, fixed at this call — nothing inherited, mixed
+    # in, or built into the platform. An +object+ defining a private
+    # +respond_to_guest?(name)+ decides instead, asked on every call.
+    #
     # Called with only a +path+, it declares a fillable Service:
     # +bind(path)+ reserves the path for +Kobako::Unresolved+, so the guest
     # sees the constant while the host defers the object it stands for. A
