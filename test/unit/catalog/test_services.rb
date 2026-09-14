@@ -23,22 +23,22 @@ module Kobako
 
       chain = @services.bind(:"Logger::Info", logger)
       assert_same @services, chain, "bind through the registry must return self for chaining"
-      assert_same logger, @services.lookup("Logger::Info")
+      assert_same logger, bound_object("Logger::Info")
     end
 
     # @behavior SV-003
     def test_bind_resolves_a_single_segment_top_level_path
       fs = Object.new
       @services.bind("File", fs)
-      assert_same fs, @services.lookup("File")
+      assert_same fs, bound_object("File")
     end
 
     # @behavior SV-004
     def test_bind_accepts_symbol_and_string_paths
       @services.bind(:"Logger::Info", :sym)
       @services.bind("Auth::Token", :str)
-      assert_equal :sym, @services.lookup("Logger::Info")
-      assert_equal :str, @services.lookup("Auth::Token")
+      assert_equal :sym, bound_object("Logger::Info")
+      assert_equal :str, bound_object("Auth::Token")
     end
 
     # @behavior SV-030
@@ -61,9 +61,9 @@ module Kobako
       klass, instance, mod = class_instance_module_triple
       @services.bind("Mixed::K", klass).bind("Mixed::I", instance).bind("Mixed::M", mod)
 
-      assert_same klass,    @services.lookup("Mixed::K")
-      assert_same instance, @services.lookup("Mixed::I")
-      assert_same mod,      @services.lookup("Mixed::M")
+      assert_same klass,    bound_object("Mixed::K")
+      assert_same instance, bound_object("Mixed::I")
+      assert_same mod,      bound_object("Mixed::M")
     end
 
     def class_instance_module_triple
@@ -85,16 +85,16 @@ module Kobako
       @services.bind("Auth::Token", "tk")
       @services.bind("Logger::Info", "lg")
 
-      assert_equal "tk", @services.lookup("Auth::Token")
-      assert_equal "lg", @services.lookup("Logger::Info")
+      assert_equal "tk", bound_object("Auth::Token")
+      assert_equal "lg", bound_object("Logger::Info")
     end
 
     # @behavior SV-011
     def test_sibling_paths_under_a_shared_prefix_coexist
       @services.bind("KV::Get", :get)
       @services.bind("KV::Set", :set)
-      assert_equal :get, @services.lookup("KV::Get")
-      assert_equal :set, @services.lookup("KV::Set")
+      assert_equal :get, bound_object("KV::Get")
+      assert_equal :set, bound_object("KV::Set")
     end
 
     # ---------- duplicate / prefix collision raises ----------
@@ -103,14 +103,14 @@ module Kobako
     def test_bind_rejects_an_exact_duplicate_path
       @services.bind("KV::Get", :first)
       assert_raises(ArgumentError) { @services.bind("KV::Get", :second) }
-      assert_equal :first, @services.lookup("KV::Get"), "the existing binding must be preserved"
+      assert_equal :first, bound_object("KV::Get"), "the existing binding must be preserved"
     end
 
     # @behavior SV-013 SV-015
     def test_bind_rejects_a_path_that_extends_an_existing_leaf
       @services.bind("KV", :leaf)
       assert_raises(ArgumentError) { @services.bind("KV::Get", :under) }
-      assert_equal :leaf, @services.lookup("KV"),
+      assert_equal :leaf, bound_object("KV"),
                    "a rejected prefix-extending bind must leave the existing leaf binding intact"
     end
 
@@ -118,7 +118,7 @@ module Kobako
     def test_bind_rejects_a_path_that_is_a_prefix_of_an_existing_binding
       @services.bind("KV::Get", :under)
       assert_raises(ArgumentError) { @services.bind("KV", :leaf) }
-      assert_equal :under, @services.lookup("KV::Get"),
+      assert_equal :under, bound_object("KV::Get"),
                    "a rejected prefix-of-existing bind must leave the existing deeper binding intact"
     end
 
@@ -140,6 +140,12 @@ module Kobako
       err = assert_raises(KeyError) { @services.lookup("Logger::Missing") }
       assert_match(/Logger::Missing/, err.message)
     end
+
+    private
+
+    # The object behind the Exposure bound at +path+ — what a dispatch
+    # through that path runs on.
+    def bound_object(path) = @services.lookup(path).object
   end
 
   # The declared path set every invocation ships on Frame 1, including the

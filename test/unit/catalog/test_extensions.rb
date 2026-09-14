@@ -69,7 +69,7 @@ module Kobako
 
       assert_equal ["File"], snippet_names,
                    "install must register the Extension source as a snippet named by #name"
-      assert_same fs, @services.lookup("Vfs"),
+      assert_same fs, @services.lookup("Vfs").object,
                   "install must bind the backend at backend.path, independent of #name"
     end
 
@@ -186,17 +186,17 @@ module Kobako
       fs = Object.new
       install(extension(name: :File, source: "1", backend: static_backend("File", fs)))
 
-      assert_same fs, @services.lookup("File"), "a fixed provider is bound directly at install"
+      assert_same fs, @services.lookup("File").object, "a fixed provider is bound directly at install"
       refute @extensions.resolve.key?("File"),
              "a fixed provider is never per-invocation resolved; it stays the install-bound object"
-      assert_same fs, @services.lookup("File"),
+      assert_same fs, @services.lookup("File").object,
                   "a fixed provider stays the same object across invocations"
     end
 
     # @behavior EX-011 EX-012
     def test_provider_backend_resolves_a_fresh_object_each_invocation
       install(extension(name: :File, source: "1", backend: provider_backend("File", -> { Object.new })))
-      assert_same Kobako::Unresolved, @services.lookup("File"),
+      assert_same Kobako::Unresolved, @services.lookup("File").object,
                   "a provider: backend reserves the base path with the Unresolved placeholder until resolve"
 
       first = @extensions.resolve.fetch("File")
@@ -209,7 +209,7 @@ module Kobako
     def test_fillable_backend_binds_the_unresolved_sentinel
       install(extension(name: :File, source: "1", backend: Kobako::Extension::Backend.new(path: "File")))
 
-      assert_same Kobako::Unresolved, @services.lookup("File"),
+      assert_same Kobako::Unresolved, @services.lookup("File").object,
                   "a backend declaring neither object: nor provider: is fillable, binding Kobako::Unresolved"
       refute @extensions.resolve.key?("File"),
              "a fillable backend is never per-invocation resolved; it stays Unresolved until filled"

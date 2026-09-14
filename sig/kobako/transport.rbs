@@ -20,7 +20,17 @@ module Kobako
     # production conformer; modelled structurally so the Transport
     # layer needs no upward dependency on Catalog.
     interface _ServiceRegistry
-      def lookup: (String target) -> untyped
+      def lookup: (String target) -> Exposure
+    end
+
+    # The per-invocation Handle table as a dispatch reads it: the codec's
+    # allocate / restore pair, plus the Exposure a Handle was minted with,
+    # which authorizes a call made through it. Kobako::Catalog::Handles is
+    # the production conformer.
+    interface _HandleTable
+      include Kobako::Codec::_HandleTable
+
+      def exposure: (Integer id) -> Exposure
     end
   end
 end

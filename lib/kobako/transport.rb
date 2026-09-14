@@ -4,6 +4,7 @@ require_relative "transport/call"
 require_relative "transport/run"
 require_relative "transport/yielder"
 require_relative "transport/error"
+require_relative "transport/exposure"
 require_relative "transport/reflection"
 require_relative "transport/dispatcher"
 
@@ -12,8 +13,9 @@ module Kobako
   # host side of one Call/Reply exchange: the call value objects +Call+
   # (guest→host, as the native side decoded it) and +Run+ (host→guest), the
   # +Dispatcher+ that answers a routed Call, the +Yielder+ that re-enters
-  # the guest for a block, the +Reflection+ floor a dispatch must clear, and
-  # +Error+ for a wire violation the host detects. Each invocation's
+  # the guest for a block, the +Reflection+ floor a dispatch must clear, the
+  # +Exposure+ each reference authorizes a call against, and +Error+ for a
+  # wire violation the host detects. Each invocation's
   # +Context+ composes them into the dispatch +Proc+ it passes +Runtime+ for
   # that run.
   #

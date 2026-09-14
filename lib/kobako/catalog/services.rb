@@ -1,12 +1,13 @@
 # frozen_string_literal: true
 
 require_relative "../errors"
+require_relative "../transport/exposure"
 
 module Kobako
   module Catalog
     # Kobako::Catalog::Services — per-Sandbox registry of Service
     # bindings keyed by their constant-path name. Holds the flat
-    # path→object table and the declared path set every invocation
+    # path→Exposure table and the declared path set every invocation
     # announces on Frame 1.
     #
     # Public API:
@@ -14,7 +15,7 @@ module Kobako
     #   services = Kobako::Catalog::Services.new
     #   services.bind("MyService::KV", kv_object)  # => services (chainable)
     #   services.paths                             # => ["MyService::KV"]
-    #   services.lookup("MyService::KV")           # => kv_object
+    #   services.lookup("MyService::KV").object    # => kv_object
     #
     # Per-dispatch routing is +Kobako::Transport::Dispatcher+'s
     # responsibility — the Dispatcher resolves a path against the invocation's
@@ -29,7 +30,7 @@ module Kobako
 
       # Build a fresh registry.
       def initialize
-        @bindings = {} # : Hash[String, untyped]
+        @bindings = {} # : Hash[String, Kobako::Transport::Exposure]
         @sealed = false
       end
 
@@ -39,14 +40,15 @@ module Kobako
       # chaining. Raises +ArgumentError+ when a segment is malformed, when
       # +path+ collides with an existing binding (a name is a bound Service
       # or a grouping prefix, never both), or when the owning Sandbox has
-      # been sealed by its first invocation.
+      # been sealed by its first invocation. The binding records +object+'s
+      # Exposure as it stands now.
       def bind(path, object)
         raise ArgumentError, "cannot bind after first Sandbox invocation" if @sealed
 
         path_str = validate_path!(path)
         raise ArgumentError, "Service path #{path_str} conflicts with an existing binding" if collision?(path_str)
 
-        @bindings[path_str] = object
+        @bindings[path_str] = Kobako::Transport::Exposure.new(object: object)
         self
       end
 
@@ -56,8 +58,8 @@ module Kobako
         @bindings.key?(path.to_s)
       end
 
-      # Resolve a +target+ constant path to the bound Service. Raises
-      # +KeyError+ when no Service is bound at +target+.
+      # Resolve a +target+ constant path to the bound Service's Exposure.
+      # Raises +KeyError+ when no Service is bound at +target+.
       def lookup(target)
         target_str = target.to_s
         raise KeyError, "no service bound at #{target_str.inspect}" unless @bindings.key?(target_str)

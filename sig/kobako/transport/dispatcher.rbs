@@ -14,9 +14,9 @@ module Kobako
 
 
 
-      def self?.dispatch: (Kobako::Transport::Call call, Kobako::Transport::_ServiceRegistry resolver, Kobako::Codec::_HandleTable handler, Kobako::Transport::_GuestYielder yield_to_guest) -> [bool, String, String?]
+      def self?.dispatch: (Kobako::Transport::Call call, Kobako::Transport::_ServiceRegistry resolver, Kobako::Transport::_HandleTable handler, Kobako::Transport::_GuestYielder yield_to_guest) -> [bool, String, String?]
 
-      def self?.run: (Kobako::Transport::Call call, Kobako::Transport::_ServiceRegistry resolver, Kobako::Codec::_HandleTable handler, Kobako::Transport::Yielder? yielder) -> untyped
+      def self?.run: (Kobako::Transport::Call call, Kobako::Transport::_ServiceRegistry resolver, Kobako::Transport::_HandleTable handler, Kobako::Transport::Yielder? yielder) -> untyped
 
       def self?.resolve_call_args: (Kobako::Payload::Arguments arguments, Kobako::Codec::_HandleTable handler, bool carried_handle) -> [Array[untyped], Hash[Symbol, untyped]]
 
@@ -24,18 +24,18 @@ module Kobako
 
       def self?.caught_fault: (StandardError error, Kobako::Transport::Yielder? yielder) -> [String, String]
 
-      def self?.invoke: (untyped target, String method, Array[untyped] args, Hash[Symbol, untyped] kwargs, ?Kobako::Transport::Yielder? yielder) -> untyped
+      def self?.invoke: (Kobako::Transport::Exposure exposure, String method, Array[untyped] args, Hash[Symbol, untyped] kwargs, ?Kobako::Transport::Yielder? yielder) -> untyped
 
-      def self?.reject_unreachable!: (untyped target, Symbol name) -> void
+      def self?.reject_unreachable!: (Kobako::Transport::Exposure exposure, Symbol name) -> void
 
 
       def self?.resolve_arg: (untyped value, Kobako::Codec::_HandleTable handler) -> untyped
 
-      def self?.resolve_target: (String | Integer target, Kobako::Transport::_ServiceRegistry resolver, Kobako::Codec::_HandleTable handler) -> untyped
+      def self?.resolve_target: (String | Integer target, Kobako::Transport::_ServiceRegistry resolver, Kobako::Transport::_HandleTable handler) -> Kobako::Transport::Exposure
 
-      def self?.resolve_path: (String path, Kobako::Transport::_ServiceRegistry resolver) -> untyped
+      def self?.resolve_path: (String path, Kobako::Transport::_ServiceRegistry resolver) -> Kobako::Transport::Exposure
 
-      def self?.require_live_object!: (Integer id, Kobako::Codec::_HandleTable handler) -> untyped
+      def self?.resolve_handle: (Integer id, Kobako::Transport::_HandleTable handler) -> Kobako::Transport::Exposure
 
       def self?.encode_ok: (untyped value, Kobako::Codec::_HandleTable handler) -> String
 

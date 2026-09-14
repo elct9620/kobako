@@ -9,7 +9,7 @@ module Kobako
 
     def bind: (Symbol | String path, untyped object) -> self
 
-    def lookup: (Symbol | String path) -> untyped
+    def lookup: (Symbol | String path) -> Kobako::Transport::Exposure
 
     def eval: (String code) ?{ (Kobako::Context) -> void } -> Kobako::Execution
 

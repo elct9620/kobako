@@ -38,12 +38,13 @@ module Kobako
 
       module_function
 
-      # The reason +name+ is unreachable on +target+, or +nil+ when the
-      # dispatch may proceed. Composes the ambient-surface floor with the
-      # target's own opt-in narrowing, in that order: the predicate only
-      # narrows and can never re-open what the floor rejects.
-      def refusal(target, name)
-        ambient_refusal(target, name) || narrowing_refusal(target, name)
+      # The reason +name+ is unreachable through +exposure+, or +nil+ when
+      # the dispatch may proceed. Composes the ambient-surface floor with the
+      # reference's Exposure, in that order: the Exposure only narrows and
+      # can never re-open what the floor rejects.
+      def refusal(exposure, name)
+        ambient_refusal(exposure.object, name) ||
+          (exposure.exposes?(name) ? nil : "method #{name.inspect} is not exposed to the guest")
       end
 
       # Guard against ambient reflection methods. A public method whose
@@ -88,18 +89,6 @@ module Kobako
         META_OWNERS.include?(owner) ||
           GADGET_OWNERS.include?(owner) ||
           (target.is_a?(Module) && owner.singleton_class?)
-      end
-
-      # Consult the target's opt-in narrowing predicate. A bound object may
-      # define a private +respond_to_guest?(name)+ to restrict which of its
-      # methods the guest reaches; a falsy answer refuses the dispatch. It
-      # is consulted with the private surface included so the guest's
-      # +public_send+ dispatch can never reach +respond_to_guest?+ itself.
-      def narrowing_refusal(target, name)
-        return nil unless target.respond_to?(:respond_to_guest?, true)
-        return nil if target.__send__(:respond_to_guest?, name)
-
-        "method #{name.inspect} is not exposed to the guest"
       end
     end
   end

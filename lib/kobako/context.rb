@@ -30,8 +30,8 @@ module Kobako
       @services = services
       @snippets = snippets
       @extensions = extensions
-      @resolved = {} # : Hash[String, untyped]
-      @overrides = {} # : Hash[String, untyped]
+      @resolved = {} # : Hash[String, Transport::Exposure]
+      @overrides = {} # : Hash[String, Transport::Exposure]
       @spent = false
       @handler = Catalog::Handles.new
       @stdout_capture = @stderr_capture = Capture::EMPTY
@@ -52,11 +52,11 @@ module Kobako
       key = path.to_s
       raise ArgumentError, "cannot override undeclared path #{key.inspect}" unless @services.bound?(key)
 
-      @overrides[key] = object
+      @overrides[key] = Transport::Exposure.new(object: object)
       self
     end
 
-    # Resolve a Service +path+ to the object backing it this invocation,
+    # Resolve a Service +path+ to the Exposure backing it this invocation,
     # layering the per-eval +ctx.bind+ overrides over this Context's
     # per-invocation provider results over the Sandbox's static base bindings.
     # An unbound path raises +KeyError+; a fillable left unfilled resolves to
@@ -67,10 +67,10 @@ module Kobako
     # handler is the sole caller.
     def lookup(path)
       key = path.to_s
-      object = @overrides.fetch(key) { @resolved.fetch(key) { @services.lookup(path) } }
-      raise KeyError, "service #{path} is declared but unresolved this invocation" if Unresolved.equal?(object)
+      exposure = @overrides.fetch(key) { @resolved.fetch(key) { @services.lookup(path) } }
+      raise KeyError, "service #{path} is declared but unresolved this invocation" if Unresolved.equal?(exposure.object)
 
-      object
+      exposure
     end
 
     # Execute a guest mruby source string in a fresh +mrb_state+ and return the
@@ -193,7 +193,7 @@ module Kobako
     # return value. A could-not-start fault ran no invocation at all, so it
     # carries no Execution and gains only the verb prefix.
     def invoke!(verb, entrypoint: nil)
-      @resolved = @extensions.resolve
+      @resolved = @extensions.resolve.transform_values { |object| Transport::Exposure.new(object: object) }
       begin
         snapshot = yield
       rescue Kobako::TrapError => e

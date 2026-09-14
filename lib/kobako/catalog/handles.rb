@@ -3,6 +3,7 @@
 require "delegate"
 
 require_relative "../handle"
+require_relative "../transport/exposure"
 
 module Kobako
   module Catalog
@@ -31,7 +32,7 @@ module Kobako
       # tests pass a value near +Kobako::Handle::MAX_ID+ to exercise
       # the cap-exhaustion path without 2³¹ allocations.
       def initialize(next_id: 1)
-        @entries = {} # : Hash[Integer, untyped]
+        @entries = {} # : Hash[Integer, Kobako::Transport::Exposure]
         @next_id = next_id
       end
 
@@ -47,19 +48,31 @@ module Kobako
       # allocator's output a domain entity. An id is the Handle's only
       # content, so the same internal +Kobako::Handle.restore+ constructor
       # serves both this allocator and the codec's wire-decode path.
+      #
+      # The entry records the object's Exposure as it stands at mint, so a
+      # call made through this Handle is authorized against the reference
+      # the guest was given.
       def alloc(object)
         reject_unwrappable!(object)
         ensure_capacity!
         id = @next_id
-        @entries[id] = object
+        @entries[id] = Kobako::Transport::Exposure.new(object: object)
         @next_id = id + 1
         Kobako::Handle.restore(id)
       end
 
-      # Resolve a Handle ID to its bound object. +id+ is a Handle ID previously
-      # returned by +#alloc+. Returns the bound object. Raises
-      # +Kobako::SandboxError+ if +id+ is not currently bound.
+      # Resolve a Handle ID to its bound object — the very object +#alloc+
+      # received, so a Handle crossing back restores to it. +id+ is a Handle
+      # ID previously returned by +#alloc+. Raises +Kobako::SandboxError+ if
+      # +id+ is not currently bound.
       def fetch(id)
+        exposure(id).object
+      end
+
+      # The Exposure +id+ was minted with, which authorizes a call the guest
+      # makes through that Handle. Raises +Kobako::SandboxError+ if +id+ is
+      # not currently bound.
+      def exposure(id)
         require_bound!(id)
         @entries[id]
       end

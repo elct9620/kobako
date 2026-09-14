@@ -31,7 +31,7 @@ module Kobako
       kv = Object.new
       @services.bind("Store::KV", kv)
 
-      assert_same kv, context.lookup("Store::KV"),
+      assert_same kv, context.lookup("Store::KV").object,
                   "lookup through a Context must resolve a statically-bound path to its base object"
     end
 
@@ -69,7 +69,7 @@ module Kobako
       ctx = context
       ctx.bind("Store", override)
 
-      assert_same override, ctx.lookup("Store"),
+      assert_same override, ctx.lookup("Store").object,
                   "a ctx.bind override must shadow the base binding in lookup priority"
     end
 
@@ -82,7 +82,7 @@ module Kobako
       filled = Object.new
       ctx.bind("Store", filled)
 
-      assert_same filled, ctx.lookup("Store"),
+      assert_same filled, ctx.lookup("Store").object,
                   "ctx.bind must fill a fillable so lookup returns the override, not KeyError"
     end
 

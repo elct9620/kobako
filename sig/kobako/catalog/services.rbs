@@ -9,7 +9,7 @@ module Kobako
 
       def bound?: (Symbol | String path) -> bool
 
-      def lookup: (Symbol | String target) -> untyped
+      def lookup: (Symbol | String target) -> Kobako::Transport::Exposure
 
       def paths: () -> Array[String]
 

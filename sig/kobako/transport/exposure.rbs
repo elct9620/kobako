@@ -1,0 +1,20 @@
+module Kobako
+  module Transport
+    class Exposure < Data
+      attr_reader object: untyped
+
+      def self.new: (object: untyped) -> Exposure
+                  | (untyped) -> Exposure
+
+      def initialize: (object: untyped) -> void
+
+      def with: (?object: untyped) -> Exposure
+
+      def ==: (untyped other) -> bool
+
+      def hash: () -> Integer
+
+      def exposes?: (Symbol name) -> bool
+    end
+  end
+end

@@ -95,9 +95,9 @@ module Kobako
       # so the reply-shaping and the failure boundary stay one glance wide.
       def run(call, resolver, handler, yielder)
         arguments, carried_handle = decode_arguments(call.payload)
-        receiver = resolve_target(call.target, resolver, handler)
+        exposure = resolve_target(call.target, resolver, handler)
         args, kwargs = resolve_call_args(arguments, handler, carried_handle)
-        catch(BREAK_THROW) { invoke(receiver, call.method_name, args, kwargs, yielder) }
+        catch(BREAK_THROW) { invoke(exposure, call.method_name, args, kwargs, yielder) }
       end
 
       # Decode the Call's payload into its arguments, reporting whether any
@@ -150,20 +150,22 @@ module Kobako
         fault("runtime", "#{error.class}: #{error.message}")
       end
 
-      # Dispatch +method+ on +target+. +kwargs+ is already Symbol-keyed
-      # (the +Payload::Arguments+ invariant pins it). The empty-kwargs branch omits
-      # the +**+ splat so Ruby 3.x's strict kwargs separation does not
-      # reject calls to no-kwarg methods when the wire carries the
-      # uniform empty-map shape.
+      # Dispatch +method+ on the object behind +exposure+, once the Exposure
+      # the guest's reference carries permits it. +kwargs+ is already
+      # Symbol-keyed (the +Payload::Arguments+ invariant pins it). The
+      # empty-kwargs branch omits the +**+ splat so Ruby 3.x's strict kwargs
+      # separation does not reject calls to no-kwarg methods when the wire
+      # carries the uniform empty-map shape.
       #
       # +yielder+ is the host-side Yielder materialised when the guest
       # call site supplied a block; its Yielder#to_proc
       # rides the +&block+ slot. +&nil+ is a no-op block argument in Ruby,
       # so the same call site handles both cases without an explicit
       # conditional.
-      def invoke(target, method, args, kwargs, yielder = nil)
+      def invoke(exposure, method, args, kwargs, yielder = nil)
         name = method.to_sym
-        reject_unreachable!(target, name)
+        reject_unreachable!(exposure, name)
+        target = exposure.object
         block = yielder&.to_proc
         if kwargs.empty?
           target.public_send(name, *args, &block)
@@ -173,12 +175,12 @@ module Kobako
       end
 
       # Guard the +public_send+ below: Reflection decides what counts as
-      # Service behaviour on this target, and its refusal reason becomes
-      # the guest's +undefined+ fault. Both the ambient-surface floor and
-      # the target's own narrowing predicate answer through it, so a
-      # rejected name discloses nothing about which of the two refused.
-      def reject_unreachable!(target, name)
-        reason = Reflection.refusal(target, name)
+      # Service behaviour through this reference, and its refusal reason
+      # becomes the guest's +undefined+ fault. Both the ambient-surface
+      # floor and the reference's Exposure answer through it, so a rejected
+      # name discloses nothing about which of the two refused.
+      def reject_unreachable!(exposure, name)
+        reason = Reflection.refusal(exposure, name)
         raise UndefinedTargetError, reason if reason
       end
 
@@ -192,18 +194,18 @@ module Kobako
         raise UndefinedTargetError, e.message
       end
 
-      # Resolve a Call target to the Ruby object the path +resolver+ (or
-      # Catalog::Handles) holds. The native side already discriminated the
-      # two forms off the core envelope's +kind+ tag: a String is a bound
-      # constant's path, an Integer is a Capability Handle id. No
-      # else-branch is needed — the envelope layer is the system boundary
-      # that enforces the invariant.
+      # Resolve a Call target to the Exposure the path +resolver+ (or
+      # Catalog::Handles) holds for it. The native side already
+      # discriminated the two forms off the core envelope's +kind+ tag: a
+      # String is a bound constant's path, an Integer is a Capability Handle
+      # id. No else-branch is needed — the envelope layer is the system
+      # boundary that enforces the invariant.
       def resolve_target(target, resolver, handler)
         case target
         when String
           resolve_path(target, resolver)
         when Integer
-          require_live_object!(target, handler)
+          resolve_handle(target, handler)
         end
       end
 
@@ -213,10 +215,10 @@ module Kobako
         raise UndefinedTargetError, e.message
       end
 
-      # Resolve +id+ through the Catalog::Handles. An unknown id
-      # surfaces as UndefinedTargetError.
-      def require_live_object!(id, handler)
-        handler.fetch(id)
+      # Resolve +id+ to the Exposure its Handle was minted with. An unknown
+      # id surfaces as UndefinedTargetError.
+      def resolve_handle(id, handler)
+        handler.exposure(id)
       rescue Kobako::SandboxError => e
         raise UndefinedTargetError, e.message
       end
