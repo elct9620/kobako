@@ -36,6 +36,14 @@ A host object the guest reaches by name. It is the only route from guest code to
 
 - `adapter` - Names a translation role. What distinguishes a Service is that the guest can name it at all.
 
+### Exposure
+
+The methods a host object lets the guest call through a reference to it, whether the guest names it or holds it as a Handle. The object may declare it itself; otherwise it is derived from what the object's own class and the object itself define, fixed when the reference is made. It only narrows: nothing it permits reopens what the boundary refuses.
+
+#### Rejected
+
+- `allow-list` - Names the list rather than what it governs: the subset an object permits is its Exposure, not a second concept beside it.
+
 ### Wire Spec
 
 The contract every message crossing the boundary answers to. Each side implements it independently, so it is an agreement rather than a shared component.

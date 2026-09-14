@@ -111,7 +111,7 @@ decide for itself. A bound object — a Service, or anything that crosses back a
 name, whether the guest may call it. Return `false` for every name and the object is
 **opaque**: the guest holds it and forwards it to another Service, but can call nothing on
 it — the bearer-token shape a credential or Vault handle wants, without hand-building a
-wrapper that exposes nothing. Return `true` for a chosen subset and it is an allow-list. The
+wrapper that exposes nothing. Return `true` for a chosen subset and it exposes exactly those. The
 predicate composes beneath the reflection floor and can only narrow, so even a buggy
 predicate can never re-open `send` / `eval`; keep it private so the guest cannot probe it
 ([`T-130`](spec/behavior/transport-boundary.md)).

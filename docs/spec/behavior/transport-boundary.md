@@ -1,6 +1,6 @@
 # Dispatch boundary
 
-What the host refuses to dispatch, and how narrow a bound object can make its own reachable surface.
+What the host refuses to dispatch, and which methods a host object's Exposure lets the guest reach.
 
 ## Includes
 
@@ -25,7 +25,9 @@ The host is the boundary. Every refusal here is witnessed where the host decides
 
 Refusal turns on who owns the method rather than on how it is spelled, so a bound object defining a method whose name matches a refused one is answered by its own. Without that scenario the rule would read as a list of forbidden words.
 
-Narrowing sits beneath the boundary, never above it: an object may close its surface as far as it likes and may not open what the boundary closed. Both directions are witnessed, along with the predicate staying unreachable — a narrowing an object could be asked to describe would be a surface of its own.
+An Exposure sits beneath the boundary, never above it: an object may close its surface as far as it likes and may not open what the boundary closed. Both directions are witnessed, along with the predicate staying unreachable — a narrowing an object could be asked to describe would be a surface of its own.
+
+An object carrying no narrowing predicate exposes what its own class and the object itself define, and nothing it acquired from elsewhere. The methods a Host App cannot foresee handing over are the ones it never wrote — inherited, mixed in, built into the platform, or forwarded — so the default is drawn around authorship rather than around a list of what is dangerous, and a new source of ambient methods needs no new refusal.
 
 ### Behaviors without a witness
 
@@ -60,6 +62,20 @@ Reassigning a held reference's identifier through instance evaluation raises `Fr
 A clone of a held reference is frozen too.
 
 A copy of a held reference keeps its identifier and dispatches to the same host object.
+
+An object carrying no narrowing predicate refuses a method its class inherits from a superclass, as an undefined target.
+
+An object carrying no narrowing predicate refuses a method its class gains by mixing in a module.
+
+An object carrying no narrowing predicate refuses a method built into the platform, so a core object reached through a reference exposes nothing.
+
+An object of a record class declaring named members exposes a reader for each member, though the platform builds it, and no built-in writer.
+
+A method defined on a bound object's class after the binding is made is not reachable through that binding.
+
+A transparent forwarder bound directly answers none of the names it would forward.
+
+An object answering names dynamically exposes none of them unless its narrowing predicate permits them.
 
 ## `T-108` A guest may ask whether a name is reachable
 
@@ -229,13 +245,13 @@ A copy of a held reference keeps its identifier and dispatches to the same host 
 | When | the guest calls that name |
 | Then | the object answers |
 
-## `T-129` An object that narrows nothing keeps its whole surface
+## `T-129` An object that narrows nothing exposes the methods it defines itself
 
 | Step | Statement |
 | --- | --- |
 | Given | a bound object carrying no narrowing predicate |
-| When | the guest calls its methods |
-| Then | they answer as an ordinary Service's would |
+| When | the guest calls a method its own class defines |
+| Then | it answers as an ordinary Service's would |
 
 ## `T-130` The narrowing predicate is not itself reachable
 

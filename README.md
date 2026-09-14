@@ -483,7 +483,7 @@ sandbox.eval('Cfg::Settings.color').value  # => "#3366ff"  — every other metho
 When a purpose-built wrapper is more than you need, an object can gate its own surface in
 place: a private `respond_to_guest?(name)` answers, per method, whether the guest may call
 it. Returning `false` for every name makes the object opaque — a credential the guest
-forwards to another Service but never reads — while a named subset becomes an allow-list.
+forwards to another Service but never reads — while permitting a named subset exposes exactly those.
 
 Guest code can name any `MyService::KV` path, but a forged name only resolves to
 something you bound — the real authorization gate is this host-side allowlist. Give each
