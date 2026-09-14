@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "stringio"
 
 # GC-safety regression coverage for the host-side dispatch Proc.
 #
@@ -30,6 +29,12 @@ require "stringio"
 class TestE2EDispatchGcSafety < Minitest::Test
   include E2eGuestHelper
 
+  # A host object with a +#read+ of its own, crossing as a Handle argument.
+  class Body
+    def initialize(text) = @text = text
+    def read = @text
+  end
+
   def teardown
     GC.stress = false
     GC.auto_compact = false if GC.respond_to?(:auto_compact=)
@@ -48,7 +53,7 @@ class TestE2EDispatchGcSafety < Minitest::Test
       sandbox = Kobako::Sandbox.new
       sandbox.preload(code: "Echo = ->(body) { body.read.upcase }", name: :Echo)
 
-      assert_equal "HELLO WORLD", sandbox.run(:Echo, StringIO.new("hello world")).value,
+      assert_equal "HELLO WORLD", sandbox.run(:Echo, Body.new("hello world")).value,
                    "a Handle-proxy #run under GC.stress must round-trip the " \
                    "dispatched call without the dispatch Proc being garbage collected"
     end

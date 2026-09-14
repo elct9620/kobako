@@ -13,25 +13,32 @@ require "test_helper"
 class TestSandboxRunAutoWrap < Minitest::Test
   include E2eGuestHelper
 
-  # A StringIO arrives as a positional argument. The host wraps it as
+  # A request body the Host App wrote: no wire representation, and a
+  # +#read+ of its own for the guest to call back through.
+  class Body
+    def initialize(text) = @text = text
+    def read = @text
+  end
+
+  # A host object arrives as a positional argument. The host wraps it as
   # a Handle; the guest receives a proxy at the same arg position and
-  # +#read+ on the proxy round-trips to the host StringIO.
+  # +#read+ on the proxy round-trips to the host object.
   # @behavior T-066
-  def test_positional_stringio_round_trips_via_handle_proxy
+  def test_positional_host_object_round_trips_via_handle_proxy
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "Echo = ->(body) { body.read.upcase }", name: :Echo)
 
-    assert_equal "HELLO WORLD", sandbox.run(:Echo, StringIO.new("hello world")).value
+    assert_equal "HELLO WORLD", sandbox.run(:Echo, Body.new("hello world")).value
   end
 
   # Same auto-wrap path through the kwargs branch — exercises the
   # symmetric deep_wrap walk over Hash values.
   # @behavior T-067
-  def test_kwargs_value_stringio_round_trips_via_handle_proxy
+  def test_kwargs_value_host_object_round_trips_via_handle_proxy
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "App = ->(opts) { opts[:body].read }", name: :App)
 
-    assert_equal "payload", sandbox.run(:App, body: StringIO.new("payload")).value
+    assert_equal "payload", sandbox.run(:App, body: Body.new("payload")).value
   end
 
   # Auto-wrap applies to Hash values, not keys: a non-wire-representable

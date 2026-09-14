@@ -1,20 +1,43 @@
 module Kobako
   module Transport
     class Exposure < Data
+      PREDICATE: Symbol
+      CLASS_OF: UnboundMethod
+      SINGLETON_CLASS_OF: UnboundMethod
+      SINGLETON_METHODS: UnboundMethod
+      PRIVATE_METHODS: UnboundMethod
+      CALLABLE: Set[Symbol]
+      NOTHING: Set[Symbol]
+
       attr_reader object: untyped
+      attr_reader names: Set[Symbol]?
 
-      def self.new: (object: untyped) -> Exposure
-                  | (untyped) -> Exposure
+      def self.new: (object: untyped, names: Set[Symbol]?) -> Exposure
+                  | (untyped, Set[Symbol]?) -> Exposure
 
-      def initialize: (object: untyped) -> void
+      def self.of: (untyped object, ?Hash[Module, Set[Symbol]] surfaces) -> Exposure
 
-      def with: (?object: untyped) -> Exposure
+      def initialize: (object: untyped, names: Set[Symbol]?) -> void
+
+      def with: (?object: untyped, ?names: Set[Symbol]?) -> Exposure
 
       def ==: (untyped other) -> bool
 
       def hash: () -> Integer
 
       def exposes?: (Symbol name) -> bool
+
+      private
+
+      def self.narrows_itself?: (untyped object, Module klass) -> bool
+
+      def self.default_names: (untyped object, Module klass, Hash[Module, Set[Symbol]] surfaces) -> Set[Symbol]
+
+      def self.class_names: (untyped object, Module klass) -> Set[Symbol]
+
+      def self.with_singleton: (untyped object, Set[Symbol] names) -> Set[Symbol]
+
+      def self.authored: (Module owner) -> Array[Symbol]
     end
   end
 end

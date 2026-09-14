@@ -9,6 +9,8 @@ What the host refuses to dispatch, and which methods a host object's Exposure le
 - `test/e2e/test_proxy_target.rb`
 - `test/e2e/test_reflection_block.rb`
 - `test/e2e/test_class_escape.rb`
+- `test/e2e/test_delegator_escape.rb`
+- `test/e2e/test_own_surface.rb`
 - `test/unit/transport/test_dispatcher_allowlist.rb`
 - `test/unit/transport/test_dispatcher_gadget_return.rb`
 - `test/unit/transport/test_dispatcher_permissive_return.rb`
@@ -62,20 +64,6 @@ Reassigning a held reference's identifier through instance evaluation raises `Fr
 A clone of a held reference is frozen too.
 
 A copy of a held reference keeps its identifier and dispatches to the same host object.
-
-An object carrying no narrowing predicate refuses a method its class inherits from a superclass, as an undefined target.
-
-An object carrying no narrowing predicate refuses a method its class gains by mixing in a module.
-
-An object carrying no narrowing predicate refuses a method built into the platform, so a core object reached through a reference exposes nothing.
-
-An object of a record class declaring named members exposes a reader for each member, though the platform builds it, and no built-in writer.
-
-A method defined on a bound object's class after the binding is made is not reachable through that binding.
-
-A transparent forwarder bound directly answers none of the names it would forward.
-
-An object answering names dynamically exposes none of them unless its narrowing predicate permits them.
 
 ## `T-108` A guest may ask whether a name is reachable
 
@@ -436,3 +424,68 @@ An object answering names dynamically exposes none of them unless its narrowing 
 | Given | a transparent forwarder bound directly as a Service |
 | When | guest code calls its dynamic-dispatch hook explicitly |
 | Then | the call is refused rather than forwarded |
+
+## `T-208` A method inherited from a superclass is not exposed
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object carrying no narrowing predicate |
+| When | the guest calls a method its class inherits from a superclass |
+| Then | it answers as an undefined target |
+
+## `T-209` A method mixed in from a module is not exposed
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object carrying no narrowing predicate |
+| When | the guest calls a method its class gains by mixing in a module |
+| Then | it answers as an undefined target |
+
+## `T-210` A core object reached through a reference exposes nothing
+
+| Step | Statement |
+| --- | --- |
+| Given | a run receiving a core object as an argument |
+| When | the guest calls a method the platform builds into it |
+| Then | it answers as an undefined target |
+
+## `T-211` A record exposes the reader of each member
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object of a record class declaring named members |
+| When | the guest calls a member's reader |
+| Then | the member's value answers |
+
+## `T-212` A record exposes no built-in writer
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object of a record class whose platform builds a writer for each member |
+| When | the guest calls a member's writer |
+| Then | it answers as an undefined target |
+
+## `T-213` A method defined after the binding is not reachable through it
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object carrying no narrowing predicate |
+| Given | a method defined on it after the binding was made |
+| When | the guest calls that method |
+| Then | it answers as an undefined target |
+
+## `T-214` A forwarder bound directly answers none of its forwarded names
+
+| Step | Statement |
+| --- | --- |
+| Given | a transparent forwarder bound directly, wrapping an object that permits every name |
+| When | the guest calls a name the forwarder would forward |
+| Then | it answers as an undefined target |
+
+## `T-215` A dynamically answered name needs the object's own predicate
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object answering every name dynamically and carrying no narrowing predicate |
+| When | the guest calls a name it would answer |
+| Then | it answers as an undefined target |

@@ -48,7 +48,7 @@ module Kobako
         path_str = validate_path!(path)
         raise ArgumentError, "Service path #{path_str} conflicts with an existing binding" if collision?(path_str)
 
-        @bindings[path_str] = Kobako::Transport::Exposure.new(object: object)
+        @bindings[path_str] = Kobako::Transport::Exposure.of(object)
         self
       end
 

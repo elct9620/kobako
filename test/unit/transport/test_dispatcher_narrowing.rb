@@ -40,7 +40,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
     def respond_to_guest?(_name) = true
   end
 
-  # No predicate: the default full Service surface stays reachable.
+  # No predicate: the methods its own class defines stay reachable.
   class Plain
     def hello = "hi"
   end
@@ -153,10 +153,11 @@ class TestDispatchGuestNarrowing < Minitest::Test
   end
 
   # @behavior T-129
-  def test_object_without_predicate_keeps_full_service_surface
+  def test_object_without_predicate_exposes_the_methods_it_defines_itself
     resp = dispatch("Cfg::Open", "hello")
     assert_equal true, resp.ok?,
-                 "an object without respond_to_guest? must keep its full Service surface through guest dispatch"
+                 "a method its own class defines on an object without respond_to_guest? through guest dispatch " \
+                 "must answer"
     assert_equal "hi", resp.payload
   end
 

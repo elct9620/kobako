@@ -33,6 +33,8 @@ module Kobako
       # the cap-exhaustion path without 2³¹ allocations.
       def initialize(next_id: 1)
         @entries = {} # : Hash[Integer, Kobako::Transport::Exposure]
+        surfaces = {} # : Hash[Module, Set[Symbol]]
+        @surfaces = surfaces.compare_by_identity
         @next_id = next_id
       end
 
@@ -56,7 +58,7 @@ module Kobako
         reject_unwrappable!(object)
         ensure_capacity!
         id = @next_id
-        @entries[id] = Kobako::Transport::Exposure.new(object: object)
+        @entries[id] = Kobako::Transport::Exposure.of(object, @surfaces)
         @next_id = id + 1
         Kobako::Handle.restore(id)
       end

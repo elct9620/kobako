@@ -32,9 +32,9 @@ module Kobako
 
       # The sole methods reachable on a GADGET_OWNERS target: invoking it
       # (+call+ / +[]+ / +yield+) and the harmless +arity+ / +lambda?+
-      # describers that aid guest-side debugging.
+      # describers that aid guest-side debugging. Also the whole of what a
+      # callable exposes by default, so the floor and the Exposure agree.
       CALLABLE_ALLOW = %i[call [] yield arity lambda?].freeze
-      private_constant :CALLABLE_ALLOW
 
       module_function
 

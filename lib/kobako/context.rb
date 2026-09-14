@@ -52,7 +52,7 @@ module Kobako
       key = path.to_s
       raise ArgumentError, "cannot override undeclared path #{key.inspect}" unless @services.bound?(key)
 
-      @overrides[key] = Transport::Exposure.new(object: object)
+      @overrides[key] = Transport::Exposure.of(object)
       self
     end
 
@@ -193,7 +193,7 @@ module Kobako
     # return value. A could-not-start fault ran no invocation at all, so it
     # carries no Execution and gains only the verb prefix.
     def invoke!(verb, entrypoint: nil)
-      @resolved = @extensions.resolve.transform_values { |object| Transport::Exposure.new(object: object) }
+      @resolved = @extensions.resolve.transform_values { |object| Transport::Exposure.of(object) }
       begin
         snapshot = yield
       rescue Kobako::TrapError => e
