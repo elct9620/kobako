@@ -71,6 +71,19 @@ jobs:
         with:
           ruby-version: ${{ env.RUBY_VERSION }}
           bundler-cache: true
+      # A gem built at any version but its tag's is one the publish step
+      # reads as already live and skips, so the release would report success
+      # while shipping nothing. Every gem job needs this one, so stop here.
+      - name: Check the gem version matches the release tag
+        if: ${{ github.event.release.tag_name || inputs.tag }}
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          version="$(ruby -r ./lib/kobako/version -e 'print Kobako::VERSION')"
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::lib/kobako/version.rb builds $version but the release tag is $TAG"
+            exit 1
+          fi
       - name: Set up Rust toolchain
         uses: ./.github/actions/setup-rust
         with:
