@@ -14,12 +14,11 @@
 #        the Handle as target. Exercises Catalog::Handles#alloc on the
 #        return path and Catalog::Handles#fetch on the call path within
 #        a single invocation.
-#   2f — Allow-list narrowing: a Service that defines a private
-#        respond_to_guest? predicate pays the opt-in narrowing path
-#        (respond_to? probe + predicate __send__) on every call. Parallels
-#        2d so the 2d↔2f delta isolates the per-call dispatch cost the
-#        respond_to_guest? check adds; predicate-free Services (2a..2e)
-#        skip it entirely.
+#   2f — Predicate narrowing: a Service that defines a private
+#        respond_to_guest? predicate is asked on every call. Parallels
+#        2d so the 2d↔2f delta isolates what asking the object costs
+#        over reading the Exposure fixed at bind, which predicate-free
+#        Services (2a..2e) use instead.
 #
 # Every case wraps one #eval per iteration; the absolute number
 # therefore includes a constant per-invocation overhead term (see
@@ -39,7 +38,7 @@ greeter = Class.new do
   def greet = "hi"
 end
 
-# An allow-list Service: its private respond_to_guest? permits exactly the
+# A narrowing Service: its private respond_to_guest? permits exactly the
 # +ping+ name, so each guest call to it runs the opt-in narrowing path. +ping+
 # returns nil to match 2d's empty-call encode cost, leaving the predicate the
 # only difference between the two cases.

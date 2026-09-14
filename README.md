@@ -151,7 +151,7 @@ Build the crate as a `cdylib` for `wasm32-wasip1`, then bake the canonical boot 
 
 ### Services
 
-`bind` any Ruby object as a Service at a constant-path name; the guest reaches it as a `MyService::KV` (or top-level `File`) proxy and invokes its public methods through the Transport wire. See [`SV-006`](docs/spec/behavior/services.md) and [`SV-007`](docs/spec/behavior/services.md).
+`bind` any Ruby object as a Service at a constant-path name; the guest reaches it as a `MyService::KV` (or top-level `File`) proxy and invokes the public methods its own class defines through the Transport wire. See [`SV-006`](docs/spec/behavior/services.md) and [`SV-007`](docs/spec/behavior/services.md).
 
 ```ruby
 class User
@@ -466,8 +466,9 @@ kobako ships no concrete Extension; the idiom and backend are yours. The [overla
 ## Security
 
 kobako isolates the guest, but **what it may reach is whatever you `bind`** — and `bind`
-exposes *every* public method of the object. So bind a purpose-built object scoped to the
-task, not a capable one whose other methods leak more than you intend.
+exposes every public method the object's own class defines. Inherited, mixed-in, and built-in
+methods stay out of reach, but the class's own surface does not, so bind a purpose-built
+object scoped to the task, not a capable one whose other methods leak more than you intend.
 
 ```ruby
 class ThemeReader          # only #color is reachable; AppConfig.secret_key is not

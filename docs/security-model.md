@@ -29,7 +29,7 @@ These hold without any host effort — do not re-implement them.
 
 | Guarantee | Scenario |
 |-----------|----------|
-| Only a bound object's own Service methods are reachable; Ruby's ambient reflection / eval surface is rejected host-side, and reflective objects never cross as Handles — a bound lambda keeps only the callable allowlist (`call` / `[]` / `yield` / `arity` / `lambda?`). What counts as reflection is [`transport-boundary.md`](spec/behavior/transport-boundary.md)'s to define. | [`T-117`](spec/behavior/transport-boundary.md), [`T-122`](spec/behavior/transport-boundary.md) |
+| A bound object or Handle exposes only what its own class and the object itself define — nothing inherited, mixed in, forwarded, or built into the platform — unless it defines its own `respond_to_guest?`, which then decides. Ruby's ambient reflection / eval surface is rejected host-side regardless, and reflective objects never cross as Handles — a bound lambda keeps only the callable allowlist (`call` / `[]` / `yield` / `arity` / `lambda?`). What counts as reflection is [`transport-boundary.md`](spec/behavior/transport-boundary.md)'s to define. | [`T-208`](spec/behavior/transport-boundary.md), [`T-117`](spec/behavior/transport-boundary.md), [`T-122`](spec/behavior/transport-boundary.md) |
 | The guest cannot construct a `Kobako::Handle` ([`T-110`](spec/behavior/transport-boundary.md)); a bound-constant proxy it constructs is capability-inert; neither can be dereferenced to a value — the host's `Catalog::Handles` membership and path resolution gate every dispatch. | [`T-109`](spec/behavior/transport-boundary.md), [`T-042`](spec/behavior/transport-dispatch.md) |
 | Each invocation starts from the canonical boot state; Handles, stdout / stderr, and memory delta reset between calls. Monkeypatching and globals do not persist. | [`MR-001`](spec/behavior/mruby.md), [`S-013`](spec/behavior/sandbox.md) |
 | Services and state on different Sandbox instances are fully isolated. | [`S-017`](spec/behavior/sandbox.md), [`T-039`](spec/behavior/transport-dispatch.md) |
@@ -82,21 +82,27 @@ end
 
 ### Least privilege — expose the smallest method surface
 
-`bind` exposes *every* public method the object answers to — not the one you had in mind,
-and not only the ones defined in its class body: public methods it inherits or gains from an
-included module (`Comparable`, `Enumerable`, or a concern module of your own) are reachable
-too. Private / protected are already unreachable, so the public surface is the only lever.
-Bind a purpose-built object rather than a capable one whose other methods leak more than
-you intend.
+`bind` exposes the public methods the object's own class and the object itself define — not
+the one you had in mind, but every one of them. What it inherits from a superclass, mixes in
+(`Comparable`, `Enumerable`, or a concern module of your own), or gets from the platform stays
+unreachable, and a class, module, or forwarder bound directly exposes nothing ([`T-208`](spec/behavior/transport-boundary.md), [`T-214`](spec/behavior/transport-boundary.md)).
+Bind a purpose-built object rather than a capable one whose other methods leak more than you
+intend.
 
 ```ruby
-sandbox.bind("Cfg::Settings", AppConfig)        # reachable: secret_key, database_url, writers, ...
+sandbox.bind("Cfg::Settings", AppConfig.current)  # reachable: secret_key, database_url, writers, ...
 
 class ThemeReader
-  def color = AppConfig.theme.color
+  def color = AppConfig.current.theme.color
 end
-sandbox.bind("Cfg::Settings", ThemeReader.new)  # reachable: only #color
+sandbox.bind("Cfg::Settings", ThemeReader.new)    # reachable: only #color
 ```
+
+> **Gotcha — a class you did not write still exposes what it defines.** The default is drawn
+> around whoever wrote the object's class, and kobako cannot tell your classes from a gem's or
+> the standard library's: a `Pathname` handed to the guest exposes `#rmtree`, `#mkpath`,
+> `#children`, and the rest of what `Pathname` defines in Ruby. Hand over objects of classes you
+> wrote, return a terminal value, or narrow the object with `respond_to_guest?` (below).
 
 > **Gotcha:** a Service method named after Ruby's reflection / eval surface (`send`, `eval`,
 > `binding`, `instance_eval`, `method`, …) is rejected rather than dispatched — the guest
@@ -111,9 +117,11 @@ decide for itself. A bound object — a Service, or anything that crosses back a
 name, whether the guest may call it. Return `false` for every name and the object is
 **opaque**: the guest holds it and forwards it to another Service, but can call nothing on
 it — the bearer-token shape a credential or Vault handle wants, without hand-building a
-wrapper that exposes nothing. Return `true` for a chosen subset and it exposes exactly those. The
-predicate composes beneath the reflection floor and can only narrow, so even a buggy
-predicate can never re-open `send` / `eval`; keep it private so the guest cannot probe it
+wrapper that exposes nothing. Return `true` for a chosen subset and it exposes exactly those.
+The predicate replaces the default rather than trimming it, so a name it permits is reachable
+even when the object inherits that method — answer `true` for everything and the whole public
+surface is back. It still composes beneath the reflection floor, so even a buggy predicate can
+never re-open `send` / `eval`; keep it private so the guest cannot probe it
 ([`T-130`](spec/behavior/transport-boundary.md)).
 
 ```ruby
@@ -140,12 +148,11 @@ sandbox.bind("Secret::Issue", -> { ApiCredential.new })
 > expose a safe subset instead, answer `true` only for those names:
 > `def respond_to_guest?(name) = name == :public_id`.
 
-> **Gotcha — a `method_missing` backend has no vocabulary ceiling until you draw one.** The
-> floor lets an unknown method name through when the bound object answers `respond_to?` truthy
-> for it — the escape hatch dynamic Services need. An object whose `respond_to?` answers
-> *everything* (a builder or proxy routing through `method_missing`) thus takes every
-> non-reflection name straight to `method_missing`. Bind it behind a `respond_to_guest?` that
-> names the callable methods, or make its `respond_to?` answer honestly.
+> **Gotcha — a `method_missing` backend reaches nothing until it draws its own vocabulary.** A
+> name it answers dynamically is not one its class defines, so the default leaves it out
+> ([`T-215`](spec/behavior/transport-boundary.md)). Define a private `respond_to_guest?` that names the callable methods — and
+> keep it that narrow: a predicate answering `true` for everything takes every
+> non-reflection name straight to `method_missing`.
 
 ### Untrusted input — validate at the boundary
 
@@ -181,16 +188,16 @@ sandbox.bind("Net::Get", ->(url) {
 
 ### Minimal disclosure — control the return surface
 
-A non-wire-representable return crosses as a `Kobako::Handle`, which makes the object's
-*entire* public surface reachable and mints a fresh Handle at each hop with no identity
-dedup ([`T-007`](spec/behavior/transport-dispatch.md)). Return the data the guest needs as a terminal value, not a host object it can
-keep calling into. When the guest must hold the object itself — a capability it forwards to
-another Service rather than reads — give it a `respond_to_guest?` that seals or narrows that
-surface (above) instead of leaving every method reachable.
+A non-wire-representable return crosses as a `Kobako::Handle`, which makes every public
+method the object's own class defines reachable and mints a fresh Handle at each hop with no
+identity dedup ([`T-007`](spec/behavior/transport-dispatch.md)). Return the data the guest needs as a terminal value, not a host object it
+can keep calling into. When the guest must hold the object itself — a capability it forwards
+to another Service rather than reads — give it a `respond_to_guest?` that seals or narrows that
+surface (above) instead of leaving its own methods reachable.
 
 ```ruby
 sandbox.bind("Search::Docs", ->(q) { index.query(q).map(&:title) })  # => ["...", "..."]
-#                                            index.query(q)                 # => a Handle whose every method dispatches back
+#                                            index.query(q)                 # => a Handle whose own methods dispatch back
 ```
 
 The same applies to failures: an exception a Service raises crosses to the guest as
