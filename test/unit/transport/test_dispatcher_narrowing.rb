@@ -96,7 +96,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
   # @behavior T-125 T-197
   def test_opaque_object_is_narrowed_through_a_handle_target
     id = @handler.alloc(Opaque.new).id
-    resp = dispatch(Kobako::Handle.restore(id), "token")
+    resp = dispatch(id, "token")
     assert_equal false, resp.ok?,
                  "an opaque object reached as a Handle target must be narrowed identically to a bound constant"
     assert_equal "undefined", resp.payload.type,
