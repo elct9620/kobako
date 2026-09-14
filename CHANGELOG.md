@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.25.0](https://github.com/elct9620/kobako/compare/v0.24.0...v0.25.0) (2026-09-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* **gem:** a bound object or Capability Handle now exposes to the guest only the public methods its own class and the object itself define in source. Methods inherited from a superclass, mixed in from a module, or built into Ruby (a StringIO's #read, a Struct's member writers) are refused as undefined targets, as are names a method_missing Service answers dynamically, and a class, module, or forwarder bound directly exposes nothing. To keep a method reachable, define it on the bound object's own class, or give the object a private respond_to_guest?(name) that answers true for the names the guest may call — it replaces the default rather than narrowing it.
+
+### Features
+
+* **spec:** expose only what an object defines itself unless it narrows ([e199479](https://github.com/elct9620/kobako/commit/e1994798cbb06902a1073faa38acd60e15e28da7))
+* **transport:** expose only what a bound object defines itself ([3086d5b](https://github.com/elct9620/kobako/commit/3086d5b88a7f3a984fb5e93571d1ff66a8e55c2d))
+
+
+### Bug Fixes
+
+* **release:** name the gem's version file so a release bumps it ([6df0467](https://github.com/elct9620/kobako/commit/6df0467e71332c24e30973c37a7e12e71929c07c))
+
+
+### Documentation
+
+* **gem:** state what a bound object exposes to the guest ([d9c5de8](https://github.com/elct9620/kobako/commit/d9c5de813ce9a970fb9b14e4401d3db752ea39f4))
+
 ## [0.24.0](https://github.com/elct9620/kobako/compare/v0.23.0...v0.24.0) (2026-09-13)
 
 
