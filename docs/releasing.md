@@ -7,7 +7,7 @@ Two independent release tracks run off one `release-please` config:
 | Gem | `.` (componentless) | `vX.Y.Z` | RubyGems |
 | Linked crate group | `wasm/*` + `crates/*` (11 components, versions locked together) | `<component>-vX.Y.Z` | crates.io |
 
-The gem `.` package carries **no `component`** on purpose: with `include-component-in-tag: false` its release-PR section is componentless, and release-please tags a standalone (gem-only) release only when the configured component matches that — naming the component makes a gem-only release silently create no tag.
+The gem `.` package carries **no `component`** on purpose: with `include-component-in-tag: false` its release-PR section is componentless, and release-please tags a standalone (gem-only) release only when the configured component matches that — naming the component makes a gem-only release silently create no tag. Without a component the Ruby strategy cannot derive where `VERSION` lives, so the package names `version-file` itself; dropping it leaves `lib/kobako/version.rb` behind while the tag and CHANGELOG move on, and the release builds the previous version. `package-name` would locate the file too, but it sets the component and brings back the missing tag.
 
 `release-please` reads the conventional-commit history since each track's last release and opens a release PR. **Which track a commit drives is decided by the paths it touches**, and the version bump by its type and its breaking marker. Merging the release PR is the only irreversible step (RubyGems has no repush; crates.io is yank-only).
 
