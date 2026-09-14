@@ -59,6 +59,31 @@ class TestE2EOwnSurface < Minitest::Test
     end
   end
 
+  # The per-invocation override is a reference of its own, made when the
+  # block binds it, so it is held to the same default as a setup binding.
+  # @behavior T-208
+  def test_a_ctx_bind_override_refuses_an_inherited_method
+    sandbox = Kobako::Sandbox.new
+    sandbox.bind("App::Store")
+
+    assert_raises(Kobako::NoServiceError, "an inherited method through a ctx.bind override must be refused") do
+      sandbox.eval("App::Store.helper") { |ctx| ctx.bind("App::Store", Store.new) }
+    end
+  end
+
+  # A provider's object is resolved afresh each invocation, and each
+  # resolution is held to the same default as a setup binding.
+  # @behavior T-208
+  def test_a_provided_backend_refuses_an_inherited_method
+    backend = Kobako::Extension::Backend.new(path: "App::Store", provider: -> { Store.new })
+    sandbox = Kobako::Sandbox.new.install(Kobako::Extension.new(name: :Probe, source: "nil", backend: backend))
+
+    assert_equal "own", sandbox.eval("App::Store.get").value
+    assert_raises(Kobako::NoServiceError, "an inherited method through a provided backend must be refused") do
+      sandbox.eval("App::Store.helper")
+    end
+  end
+
   # @behavior T-209
   def test_a_method_mixed_in_from_a_module_is_refused
     sandbox = sandbox_with("App::Mixed", Mixed.new)
