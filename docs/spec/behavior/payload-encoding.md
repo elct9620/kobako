@@ -23,7 +23,7 @@ Every encoding tier is witnessed at its bound and just past it, because a tier c
 
 Round-trips answer for what survives; the refusals answer for what a reader is handed by something that is not this writer. Those are separate observations even where one value reaches both — a reference the writer would never emit with a zero identifier still arrives with one when the bytes were built by hand.
 
-Two asymmetries are declared as they are rather than as they should be. One writer will emit nesting its own reader refuses, because the library beneath it bounds the reader alone; nothing crosses that should not, since the writer at the other end carries the bound and refuses there. And a cyclic map is beyond reach entirely — the walk that would hit the cycle runs in frames carrying no guard, so the process ends before anything here could answer. That case is left without a scenario, since a test that cannot run witnesses nothing.
+Two asymmetries are declared as they are rather than as they should be. One writer carries no bound of its own and will emit nesting its own reader refuses, because the library beneath it bounds the reader alone; nothing crosses that should not, since every position that hands this writer a value measures it against the bound first, and the writer at the other end carries the bound itself. And a value nesting without end — a list or a map holding itself — is beyond this writer's reach entirely, where the writer at the other end refuses it: this writer's walk runs in frames carrying no guard, so it exhausts the stack rather than answering. Those values are left without a scenario here, since a test that cannot run safely witnesses nothing; they are refused where they are handed over.
 
 ## `WP-001` An invocation's arguments cross in both positions
 
@@ -295,14 +295,6 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | --- | --- |
 | Given | bytes nesting deeper than the wire encodes |
 | When | they are read |
-| Then | a wire violation is raised that a caller can rescue |
-
-## `WP-035` Writing a value that nests without end is one too
-
-| Step | Statement |
-| --- | --- |
-| Given | a list holding itself |
-| When | it is written |
 | Then | a wire violation is raised that a caller can rescue |
 
 ## `WP-036` This writer will write nesting its own reader refuses

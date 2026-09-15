@@ -38,6 +38,8 @@ A block that ends with `next` answers the yield with that value, as falling thro
 
 Nested yields carry no depth limit of their own; only the guest's stack bounds them.
 
+A yield whose arguments nest one level past the depth the wire encodes is refused at the yield site, as one nesting without end is.
+
 ## `T-083` A Service can tell that the guest passed it a block
 
 | Step | Statement |
