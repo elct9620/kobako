@@ -88,6 +88,19 @@ class TestE2EAnswerValueRefusal < Minitest::Test
                  "the Host App as the Service's failure to be written, not travel to the guest")
   end
 
+  # A map's keys are measured apart from its values, so the depth must also be
+  # found when a key is what carries it.
+  # @behavior CD-038
+  def test_an_answer_whose_key_nests_past_the_bound_is_the_services_failure
+    error = assert_raises(Kobako::ServiceError) do
+      answering({ nested(Kobako::Codec::MAX_NESTING_DEPTH) => 1 }).eval(CALL_ONCE)
+    end
+
+    assert_match(/could not write the Service's answer/, error.message,
+                 "a Service answer whose map key nests one level past the wire bound through " \
+                 "#eval must reach the Host App as the Service's failure to be written")
+  end
+
   # The packer walks a map through frames that carry no stack guard, so a map
   # holding itself that reached it would end the host process; only a refusal
   # made before the write can answer it.

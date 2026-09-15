@@ -2,6 +2,8 @@ module Kobako
   module Codec
     module Nesting
       def self.assert_within_bound!: (untyped value, ?Integer depth) -> void
+
+      def self.assert_members_within_bound!: (Array[untyped] members, Integer depth) -> void
     end
   end
 end

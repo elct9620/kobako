@@ -25,6 +25,20 @@ class TestTransportDispatchHandles < Minitest::Test
     assert_equal "hi,Alice", bound.greet
   end
 
+  # A BasicObject has no #is_a? to answer, so measuring an answer's nesting
+  # must not ask what the answer holds about itself.
+  # @behavior T-001
+  def test_map_holding_a_basic_object_is_wrapped_as_handle
+    held = { bare: BasicObject.new }
+    @registry.bind("Factory::Bare", -> { held })
+
+    answer = reify(dispatch(build_call("Factory::Bare", "call", [], {})))
+
+    assert_same held, @handler.fetch(answer.payload.id),
+                "a Service answering a map holding a BasicObject through Dispatcher.dispatch must " \
+                "cross as a Handle to that map"
+  end
+
   # @behavior T-002
   def test_primitive_return_value_is_not_wrapped
     @registry.bind("Logger::Echo", ->(arg) { arg })
