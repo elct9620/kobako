@@ -1,8 +1,8 @@
 # Serverless Demo
 
-A self-contained Rack application that dispatches `GET /:name` to an operator-supplied mruby script. Each route's script defines a named entrypoint constant; the app preloads it into a `Kobako::Sandbox` and invokes it via `#run(:Entrypoint, Rack::Request.new(env))`, and the script returns a Rack response triplet `[status, headers, body]` directly. The Sandbox is either built fresh per request (default) or reused from a pool of preloaded Sandboxes (`--pool`).
+A self-contained Rack application that dispatches `GET /:name` to an operator-supplied mruby script. Each route's script defines a named entrypoint constant; the app preloads it into a `Kobako::Sandbox` and invokes it via `#run(:Entrypoint, GuestRequest.new(env))`, and the script returns a Rack response triplet `[status, headers, body]` directly. The Sandbox is either built fresh per request (default) or reused from a pool of preloaded Sandboxes (`--pool`).
 
-This is the canonical demonstration of the `#preload` + `#run(:Entrypoint, ...)` pattern combined with kobako's host→guest auto-wrap ([`T-066`](../../docs/spec/behavior/transport-dispatch.md)): the `Rack::Request` is not wire-representable, so kobako transparently allocates a `Kobako::Handle` for it and the guest interacts with the request through normal Rack API calls that round-trip back to the host as RPC. A fixed set of entrypoints, many user scripts behind them, and a Wasm-isolated mruby interpreter (`mrb_state`) freshly created for every invocation.
+This is the canonical demonstration of the `#preload` + `#run(:Entrypoint, ...)` pattern combined with kobako's host→guest auto-wrap ([`T-066`](../../docs/spec/behavior/transport-dispatch.md)): the request — a `Rack::Request` subclass — is not wire-representable, so kobako transparently allocates a `Kobako::Handle` for it and the guest interacts with the request through the Rack API calls it declares, each round-tripping back to the host as RPC. A fixed set of entrypoints, many user scripts behind them, and a Wasm-isolated mruby interpreter (`mrb_state`) freshly created for every invocation.
 
 ## Running
 
@@ -69,7 +69,7 @@ Edit the `Serverless::ROUTES` Hash in `app.rb`. Each entry's key is the URL segm
 MRUBY
 ```
 
-The guest does not see the Rack env as data — it sees a Handle, and every method call on `req` dispatches back to the host as one RPC round-trip against the real `Rack::Request` instance. That means the full Rack 3 request API is available, but each access pays a guest→host round-trip (~6.8 µs amortised, kobako benchmark `2a-empty-call`):
+The guest does not see the Rack env as data — it sees a Handle, and every method call on `req` dispatches back to the host as one RPC round-trip against the real request object. A Handle exposes only what its object declares ([security model](../../docs/security-model.md)), so `GuestRequest` names the Rack methods a script may call through a private `respond_to_guest?`, and each access pays a guest→host round-trip (~6.8 µs amortised, kobako benchmark `2a-empty-call`):
 
 | Call in guest          | Runs on host                 | Returns                  |
 |------------------------|------------------------------|--------------------------|
@@ -78,7 +78,7 @@ The guest does not see the Rack env as data — it sees a Handle, and every meth
 | `req.params`           | `Rack::Request#params`         | `Hash[String,String]`   |
 | `req.get_header("…")` | `Rack::Request#get_header`     | `String` or `nil`       |
 
-The Handle is invalidated at the end of the invocation ([`T-038`](../../docs/spec/behavior/transport-dispatch.md)), so a script cannot stash `req` for the next request — the host owns the lifecycle. Anything the script does not call is never marshalled, so passing the full `Rack::Request` costs no extra wire bytes upfront; the cost lands at access time. For scripts that touch only one or two fields this is a wash against the older "build a small Hash up front" shape; for scripts that touch the request many times, cache the result of `req.params` (or any other method that returns a wire-representable Hash) in a local to avoid repeated round-trips.
+The Handle is invalidated at the end of the invocation ([`T-038`](../../docs/spec/behavior/transport-dispatch.md)), so a script cannot stash `req` for the next request — the host owns the lifecycle. Anything the script does not call is never marshalled, so passing the request costs no extra wire bytes upfront; the cost lands at access time. For scripts that touch only one or two fields this is a wash against the older "build a small Hash up front" shape; for scripts that touch the request many times, cache the result of `req.params` (or any other method that returns a wire-representable Hash) in a local to avoid repeated round-trips.
 
 The script must return a Rack 3 triplet: an Integer status, a Hash of lowercase-keyed String headers, and an Array of String body parts. Anything else raises on the host side after the guest returns.
 

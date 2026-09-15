@@ -26,7 +26,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.21.0"
+  gem "kobako", "~> 0.25.0"
   gem "line-message-builder", "~> 0.9"
 end
 
@@ -104,12 +104,13 @@ module LineFlex
   # guest to descend into; a non-node result passes straight through.
   #
   # Forwarding is gated on the node *defining* the method (`method_defined?`,
-  # not `respond_to?`) so `Buildable` answers `respond_to?` honestly: a real
-  # builder method forwards, anything else is refused. line-message-builder's
-  # own nodes answer `respond_to?` to everything through their context
-  # delegation, so without the gate the DSL vocabulary would not be bounded by
-  # the gem's method set — the honest-`respond_to?` remedy the security model
-  # recommends for a permissive backend (docs/security-model.md).
+  # not `respond_to?`): a real builder method forwards, anything else is
+  # refused. line-message-builder's own nodes answer `respond_to?` to
+  # everything through their context delegation, so without the gate the DSL
+  # vocabulary would not be bounded by the gem's method set. The builder
+  # methods are answered dynamically, so the same gate is the object's
+  # `respond_to_guest?` — the names a guest may call are the ones it declares
+  # (docs/security-model.md).
   class Buildable
     def initialize(node) = (@node = node)
 
@@ -124,6 +125,10 @@ module LineFlex
     def respond_to_missing?(name, _include_private = false) = @node.class.method_defined?(name)
 
     def to_h = @node.to_h
+
+    private
+
+    def respond_to_guest?(name) = @node.class.method_defined?(name)
   end
 
   # The backend bound at the guest constant `Studio`: it mints fresh root

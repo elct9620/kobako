@@ -3,7 +3,7 @@
 
 # Minimal serverless demo: a Rack app that dispatches GET /:name to an
 # operator-provided mruby script. The script body is preloaded as a named
-# entrypoint constant and invoked via #run(:Entrypoint, Rack::Request.new(env)),
+# entrypoint constant and invoked via #run(:Entrypoint, GuestRequest.new(env)),
 # returning a Rack response triplet [status, headers, body] directly.
 #
 # Two sandbox strategies, selected by --pool:
@@ -17,11 +17,13 @@
 #     every #run still runs a fresh mrb_state — while
 #     Sandbox.new + #preload move off the hot path.
 #
-# The Rack::Request is a non-wire-representable host object, so kobako's
+# The request is a non-wire-representable host object, so kobako's
 # #run host→guest auto-wrap allocates a Handle for
 # it; the guest receives a Kobako::Handle proxy whose method calls
-# (request_method, path, params) round-trip back through RPC. No
-# host-side marshalling step sits between the Rack env and the script.
+# round-trip back through RPC. A Handle exposes only what its object
+# declares, so GuestRequest names the Rack::Request methods a script may
+# call. No host-side marshalling step sits between the Rack env and the
+# script.
 #
 # Usage:
 #   ruby examples/serverless/app.rb                       # Puma, per-request
@@ -61,7 +63,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.21.0"
+  gem "kobako", "~> 0.25.0"
   gem "rack", "~> 3.0"
   gem "rackup", "~> 2.0"
   gem options[:type]
@@ -75,11 +77,22 @@ require "rackup"
 # top-level constant — Rubocop's Style/OneClassPerFile is happy and the
 # example reads top-down without splitting into multiple files.
 module Serverless
+  # The request a script receives. Most of Rack::Request's methods come from
+  # Rack's helper modules, which a guest cannot reach by default, so it
+  # declares the ones a script may call.
+  class GuestRequest < Rack::Request
+    GUEST_METHODS = %i[request_method path params get_header].freeze
+
+    private
+
+    def respond_to_guest?(name) = GUEST_METHODS.include?(name)
+  end
+
   # Operator-managed script table — keys are the route segment after `/`,
   # values are a +[Entrypoint, source]+ pair: +Entrypoint+ is the
   # top-level constant the +source+ defines, used both as the +#preload+
   # name and the +#run+ target. Each entrypoint is a callable accepting
-  # one argument — a +Kobako::Handle+ proxy of a host-side +Rack::Request+
+  # one argument — a +Kobako::Handle+ proxy of a host-side +GuestRequest+
   # whose +req.params+ / +req.request_method+ / +req.path+ calls dispatch
   # back to the host as one RPC round-trip.
   ROUTES = {
@@ -119,7 +132,7 @@ module Serverless
       entrypoint, source = entry
       sandbox = Kobako::Sandbox.new
       sandbox.preload(code: source, name: entrypoint)
-      sandbox.run(entrypoint, Rack::Request.new(rack_env)).value
+      sandbox.run(entrypoint, GuestRequest.new(rack_env)).value
     end
   end
 
@@ -141,7 +154,7 @@ module Serverless
 
     def invoke(entry, rack_env)
       entrypoint, = entry
-      @pool.with { |sandbox| sandbox.run(entrypoint, Rack::Request.new(rack_env)).value }
+      @pool.with { |sandbox| sandbox.run(entrypoint, GuestRequest.new(rack_env)).value }
     end
   end
 
