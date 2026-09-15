@@ -34,12 +34,6 @@ A block answer or break value nested past the depth the wire encodes, or a `Symb
 
 A Run whose envelope does not frame fails under wording distinct from every refusal of its arguments.
 
-A Service answer nested to the deepest level the wire encodes reaches the guest unchanged.
-
-A Service answer nesting one level past the depth the wire encodes is refused as the Service's failure, as any answer nesting without end is.
-
-A Service answering a map that holds itself is refused as the Service's failure, as any answer nesting without end is.
-
 ## `CD-001` A Service answer past the guest's integer width is refused
 
 | Step | Statement |
@@ -327,3 +321,27 @@ A Service answering a map that holds itself is refused as the Service's failure,
 | Given | a codec refusing the block return, the break value or the invocation value as unserved |
 | When | the refusal is made |
 | Then | it carries a message rather than being treated as unreachable |
+
+## `CD-037` An answer at the deepest nesting the wire encodes reaches the guest unchanged
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service answering a value nested to the deepest level the wire encodes |
+| When | guest code calls it and measures what it received |
+| Then | the value arrives nested to that depth |
+
+## `CD-038` One level deeper is the Service's failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service answering a value nested one level past the deepest the wire encodes |
+| When | guest code calls it and leaves the failure unrescued |
+| Then | it reaches the Host App as a Service failure |
+
+## `CD-039` So is an answer that is a map holding itself
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service answering a map that holds itself |
+| When | guest code calls it and leaves the failure unrescued |
+| Then | it reaches the Host App as a Service failure |

@@ -82,7 +82,30 @@ class TestE2EYieldValueRefusal < Minitest::Test
                  "yield site, the way a value outside the wire type set does"
   end
 
+  # The yielded arguments travel as one list, so a value right at the wire
+  # bound already nests one level past it once it is carried.
+  # @behavior T-216
+  def test_yield_arguments_one_level_past_the_bound_refuse_at_the_yield_site
+    at_bound = (1..Kobako::Codec::MAX_NESTING_DEPTH).reduce([]) { |inner, _| [inner] }
+
+    seen = rescuing_yield_of(at_bound).eval(YIELD_ONCE).value
+
+    assert_equal :recovered, seen,
+                 "yield arguments nesting one level past the wire bound through #eval must " \
+                 "reach the Service at its own yield site, the way a value nesting without end does"
+  end
+
   private
+
+  def rescuing_yield_of(value)
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Probe::Yields", lambda do |&blk|
+      blk.call(value)
+    rescue Kobako::YieldValueError
+      :recovered
+    end)
+    sandbox
+  end
 
   # A Service yielding a value with no wire representation, rescuing the
   # refusal and recording it so a test can read what it said.
@@ -107,12 +130,6 @@ class TestE2EYieldValueRefusal < Minitest::Test
   # The same Service again, yielding a value the wire has a type for but no
   # end to.
   def cyclic_yield_sandbox
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.bind("Probe::Yields", lambda do |&blk|
-      blk.call([].tap { |a| a << a })
-    rescue Kobako::YieldValueError
-      :recovered
-    end)
-    sandbox
+    rescuing_yield_of([].tap { |a| a << a })
   end
 end

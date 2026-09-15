@@ -99,6 +99,7 @@ module Kobako
       # the Service reads a refusal of its own argument rather than a codec
       # class it never named.
       def encode_args(args)
+        Kobako::Codec::Nesting.assert_within_bound!(args)
         Kobako::Codec::Encoder.encode(args)
       rescue Kobako::Codec::Error => e
         raise YieldValueError, "Service yielded a value the block cannot receive: #{e.message}"

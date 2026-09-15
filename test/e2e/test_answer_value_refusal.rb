@@ -62,13 +62,69 @@ class TestE2EAnswerValueRefusal < Minitest::Test
                  "finish the invocation, so the failure is the dispatch's rather than the run's"
   end
 
+  # The refusal's pairing: a bound placed one level too shallow would still
+  # refuse everything past it, so only an answer right at the bound shows
+  # that the bound sits where the wire says.
+  MEASURE_DEPTH = <<~RUBY
+    value = Probe::Answer.call
+    depth = 0
+    while value.is_a?(Array) && !value.empty?
+      value = value[0]
+      depth += 1
+    end
+    depth
+  RUBY
+
+  # @behavior CD-037
+  def test_an_answer_at_the_deepest_nesting_reaches_the_guest_unchanged
+    depth = answering(nested(Kobako::Codec::MAX_NESTING_DEPTH)).eval(MEASURE_DEPTH).value
+
+    assert_equal Kobako::Codec::MAX_NESTING_DEPTH, depth,
+                 "a Service answer nested to the wire bound through #eval must reach the guest " \
+                 "nested to that depth"
+  end
+
+  # @behavior CD-038
+  def test_an_answer_one_level_past_the_bound_is_the_services_failure
+    error = assert_raises(Kobako::ServiceError) do
+      answering(nested(Kobako::Codec::MAX_NESTING_DEPTH + 1)).eval(CALL_ONCE)
+    end
+
+    assert_match(/could not write the Service's answer/, error.message,
+                 "a Service answer nested one level past the wire bound through #eval must reach " \
+                 "the Host App as the Service's failure to be written, not travel to the guest")
+  end
+
+  # The packer walks a map through frames that carry no stack guard, so a map
+  # holding itself that reached it would end the host process; only a refusal
+  # made before the write can answer it.
+  # @behavior CD-039
+  def test_an_answer_that_is_a_map_holding_itself_is_the_services_failure
+    cyclic_map = {}.tap { |map| map["self"] = map }
+
+    error = assert_raises(Kobako::ServiceError) { answering(cyclic_map).eval(CALL_ONCE) }
+
+    assert_match(/could not write the Service's answer/, error.message,
+                 "a Service answering a map that holds itself through #eval must reach the Host " \
+                 "App as the Service's failure to be written")
+  end
+
   private
 
   # A Service returning a self-referential Array — representable in type, but
   # nesting without bound, so the host cannot write it.
   def cyclic_sandbox
+    answering([].tap { |a| a << a })
+  end
+
+  def answering(value)
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.bind("Probe::Answer", -> { [].tap { |a| a << a } })
+    sandbox.bind("Probe::Answer", -> { value })
     sandbox
+  end
+
+  # A list nesting +depth+ levels around an empty one.
+  def nested(depth)
+    (1..depth).reduce([]) { |inner, _| [inner] }
   end
 end

@@ -236,6 +236,7 @@ module Kobako
       # known, instead of falling to the boundary's codec floor and reporting
       # as an exchange that produced no Service outcome.
       def encode_ok(value, handler)
+        Kobako::Codec::Nesting.assert_within_bound!(value)
         Kobako::Codec::Encoder.encode(value)
       rescue Kobako::Codec::UnsupportedTypeError
         encode_ok(wrap_as_handle(value, handler), handler)
