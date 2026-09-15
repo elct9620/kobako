@@ -211,6 +211,8 @@ The predictive half of the GVL-impact toolkit; the Multi-Thread suite (#7) is th
 | `10d-small-return-16`         | 2.87 µs          | Service returns a 16-element Array                   |
 | `10e-large-return-256`        | 9.41 µs          | 256-element Array — `G` grows with returned payload  |
 
+`10d` and `10e` now carry a step the anchor predates: a Service answer is measured against the wire's nesting bound before it is encoded, which adds about 15–20 ns per returned element — +0.3 µs on `10d` and +3.9 µs on `10e` against the same code without that check. It is accepted as the cost of refusing a value the packer could not finish, and the next bless absorbs it.
+
 Compose with the full roundtrip (`transport_roundtrip` `2d` ≈ 5.72 µs/call) for the per-dispatch floor of `d`: glue 2.29 µs of a 5.72 µs roundtrip ⇒ `d ≈ 0.40`, since the remaining ~60 % (guest codec + boundary) parallelizes, giving a pure-dispatch workload a ~2.5× multi-core ceiling that rises toward `N×` as compute per invocation grows. The model prices the serialized glue but not the GVL handoff that reaching it costs: the gvl suite measures ~0.5× on a dispatch-heavy shape, so read `d` as a ceiling that a dispatch-bound workload stays well under, and the compute end as where the ceiling is actually approached. `G` is the gem-controlled glue floor only — a Service's own Ruby CPU is the Host App's to measure, so the gem publishes `G` and the method, never a single `d`.
 
 #### Host per-invocation cost ([`host_invocation.rb`](host_invocation.rb))
