@@ -26,7 +26,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.25.0"
+  gem "kobako", "~> 0.26.0"
   gem "line-message-builder", "~> 0.9"
 end
 
