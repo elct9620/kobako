@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.26.0](https://github.com/elct9620/kobako/compare/v0.25.0...v0.26.0) (2026-09-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **transport:** a #run argument or keyword value whose own nesting leaves the Run payload one level past the wire's 128-level bound used to reach the guest and fail there as Kobako::SandboxError "failed to decode the invocation arguments"; it is now refused by the host before the guest runs, still as Kobako::SandboxError, with a message naming the depth bound.
+* **transport:** a Service answer nesting past 128 levels used to cross the host and fail in the guest's decoder, reaching the Host App as Kobako::Transport::Error; it is now refused at the host and reaches the Host App as Kobako::ServiceError, which guest code may rescue. A yield whose arguments nest past the bound — a single yielded value already at the bound does, since the arguments travel as one list — now raises Kobako::YieldValueError inside the Service at the yield instead of failing in the guest.
+
+### Bug Fixes
+
+* **transport:** measure an entrypoint argument from the Run payload that carries it ([8f76912](https://github.com/elct9620/kobako/commit/8f76912f2290ec0d8484e8ac9a64cbb48409bf1d))
+* **transport:** refuse a Service's over-deep value before the host writes it ([5594542](https://github.com/elct9620/kobako/commit/5594542c7160ae2f052025545a20bafabd7e51df))
+
+
+### Performance Improvements
+
+* **codec:** walk into a value's members only where one could be a container ([a965136](https://github.com/elct9620/kobako/commit/a965136c989251b2ed991c2824214a017122430c))
+
 ## [0.25.0](https://github.com/elct9620/kobako/compare/v0.24.0...v0.25.0) (2026-09-14)
 
 

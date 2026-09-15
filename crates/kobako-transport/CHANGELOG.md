@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/elct9620/kobako/compare/kobako-transport-v0.15.0...kobako-transport-v0.16.0) (2026-09-15)
+
+
+### Miscellaneous Chores
+
+* **kobako-transport:** Synchronize kobako crates versions
+
 ## [0.15.0](https://github.com/elct9620/kobako/compare/kobako-transport-v0.14.0...kobako-transport-v0.15.0) (2026-09-13)
 
 

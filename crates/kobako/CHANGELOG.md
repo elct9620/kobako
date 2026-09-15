@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.16.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.15.0...kobako-sdk-v0.16.0) (2026-09-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sdk:** a receiver that propagates the refusal of a yield argument the host cannot write — for this schema, one nesting past the wire's bound — now answers as a Service failure (the runtime category) rather than an internal failure, so the guest sees the Service's exception and the Host App a Service failure. A receiver matching the refusal must match YieldError::Refused instead of YieldError::Aborted.
+
+### Bug Fixes
+
+* **sdk:** answer a refused yield argument as the receiver's own failure ([7e69b09](https://github.com/elct9620/kobako/commit/7e69b09ef09c0e4e7a238ad7738ec2762dbb1c26))
+
 ## [0.15.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.14.0...kobako-sdk-v0.15.0) (2026-09-13)
 
 
