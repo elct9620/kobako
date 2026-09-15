@@ -133,18 +133,18 @@ dependencies = [
 
 [[package]]
 name = "kobako-core"
-version = "0.15.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "943ae1299043c1a27df1331de45d228ed8b43dbd0f49d7a9c1eabd5ce4c2a402"
+checksum = "bcd226dc739d7851bb479d2b2ab242b27522861731146b31541cd9e56551cd0f"
 dependencies = [
  "kobako-transport",
 ]
 
 [[package]]
 name = "kobako-mruby"
-version = "0.15.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86d8f02ea0cc2ab7da74ad27335817ec91a5694a529d806ab8ce5f273f7956c9"
+checksum = "5a5f9ded54b26b150cfbc1b72cb1982058b987a08fdfe753e0f6baf0620eb3a6"
 dependencies = [
  "beni",
  "kobako-core",
@@ -153,9 +153,9 @@ dependencies = [
 
 [[package]]
 name = "kobako-transport"
-version = "0.15.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fa68cb13df200c96418d75ff334826070e6a19ce4b0f40c6fb11b4cb5d9a524"
+checksum = "b9dd96957f71688e74589487d8baa3f2cfa39c806a9fa4add176aef24b8addb4"
 
 [[package]]
 name = "kv"
