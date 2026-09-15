@@ -36,6 +36,10 @@ pub enum YieldError {
     /// The re-entry itself failed — the guest trapped mid-block or
     /// answered with malformed Yield Reply bytes.
     Aborted(String),
+    /// A yield argument the host cannot write, so the round-trip never
+    /// started and the block never ran. The receiver may recover, or
+    /// propagate it as its own failure.
+    Refused(String),
 }
 
 impl fmt::Display for YieldError {
@@ -43,7 +47,7 @@ impl fmt::Display for YieldError {
         match self {
             YieldError::Break => f.write_str("guest block break crossed the receiver"),
             YieldError::Failure { name, message } => write!(f, "{name}: {message}"),
-            YieldError::Aborted(message) => f.write_str(message),
+            YieldError::Aborted(message) | YieldError::Refused(message) => f.write_str(message),
         }
     }
 }
@@ -54,12 +58,15 @@ impl From<YieldError> for Fault {
     /// A propagated `Failure` is the guest's own block failing, so it
     /// answers on the `block` category — the guest continues the
     /// exception it raised rather than hearing that a Service failed.
-    /// The other variants are the exchange itself going wrong: a
-    /// propagated `Break` never reaches the guest at all, since the
-    /// dispatch answers with the break value first.
+    /// A propagated `Refused` is the receiver's own argument failing, so
+    /// it answers on `runtime`, as an answer the receiver cannot write
+    /// does. The rest are the exchange itself going wrong: a propagated
+    /// `Break` never reaches the guest at all, since the dispatch answers
+    /// with the break value first.
     fn from(err: YieldError) -> Self {
         let kind = match err {
             YieldError::Failure { .. } => FaultKind::Block,
+            YieldError::Refused(_) => FaultKind::Runtime,
             _ => FaultKind::Internal,
         };
         Fault::new(kind, err.to_string())

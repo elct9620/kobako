@@ -123,11 +123,12 @@ fn fault_reply(fault: &Fault) -> Reply {
 // against the real guest in `tests/byte_surface.rs`.
 #[cfg(all(test, feature = "msgpack"))]
 mod tests {
-    use kobako_codec::msgpack::codec::{Decoder, Encode, Encoder, Value};
+    use kobako_codec::msgpack::codec::{Decoder, Encode, Encoder, Value, MAX_NESTING_DEPTH};
     use kobako_codec::msgpack::payload::Arguments;
     use kobako_transport::envelope::{ErrorRecord, YieldReply};
 
     use crate::msgpack::ValueReceiver;
+    use crate::yielder::YieldError;
 
     use super::*;
 
@@ -208,6 +209,18 @@ mod tests {
                     Ok(Value::Array(out))
                 }
                 "ignores_block" => Ok(Value::Sym("ok".into())),
+                "yield_too_deep" => {
+                    let block = block.expect("scenario always supplies a block here");
+                    block.call_values(&[too_deep()])?;
+                    Ok(Value::Nil)
+                }
+                "yield_too_deep_recovering" => {
+                    let block = block.expect("scenario always supplies a block here");
+                    match block.call_values(&[too_deep()]) {
+                        Err(YieldError::Refused(_)) => Ok(Value::Sym("recovered".into())),
+                        other => other.map_err(Fault::from),
+                    }
+                }
                 "swallow_break" => {
                     let block = block.expect("scenario always supplies a block here");
                     let _ = block.call_values(&[Value::Int(0)]);
@@ -239,6 +252,12 @@ mod tests {
                 _ => Err(Fault::new(FaultKind::Undefined, "no such method")),
             }
         }
+    }
+
+    /// A value at the wire's depth on its own, one level past it once the
+    /// yield carries it inside the argument list.
+    fn too_deep() -> Value {
+        (0..MAX_NESTING_DEPTH).fold(Value::Nil, |inner, _| Value::Array(vec![inner]))
     }
 
     fn handler() -> CatalogHandler {
@@ -586,6 +605,32 @@ mod tests {
             roundtrip_with(&req, &mut channel),
             Answer::Ok(Value::Sym("stop".into())),
             "the guest must receive the break value even when the receiver discards YieldError::Break"
+        );
+    }
+
+    // The channel panics if yielded to, so each case also shows the block
+    // never ran.
+    // @behavior T-157
+    #[test]
+    fn an_unrecovered_yield_refusal_is_the_receivers_failure() {
+        let req = block_request("yield_too_deep", vec![]);
+        assert_eq!(
+            fault_type(&roundtrip_with(&req, &mut NoYield)),
+            "runtime",
+            "a receiver propagating the refusal of a yield argument the host cannot write \
+             must answer as that receiver's failure, not as an exchange that failed"
+        );
+    }
+
+    // @behavior T-216
+    #[test]
+    fn a_receiver_recovering_its_yield_refusal_answers_what_it_returned() {
+        let req = block_request("yield_too_deep_recovering", vec![]);
+        assert_eq!(
+            roundtrip_with(&req, &mut NoYield),
+            Answer::Ok(Value::Sym("recovered".into())),
+            "a receiver matching the refusal of yield arguments nested past the wire bound \
+             must answer with what it returned"
         );
     }
 

@@ -20,7 +20,7 @@ fn encode_args(args: &[Value]) -> Result<Vec<u8>, YieldError> {
     let mut encoder = Encoder::new();
     encoder
         .write_value(&Value::Array(args.to_vec()))
-        .map_err(|err| YieldError::Aborted(format!("yield arguments are not encodable: {err}")))?;
+        .map_err(|err| YieldError::Refused(format!("yield arguments are not encodable: {err}")))?;
     Ok(encoder.into_bytes())
 }
 
