@@ -321,7 +321,7 @@ For workloads that must be isolated from each other (one Sandbox per tenant, per
 
 For hosts that serve many short invocations, `Kobako::Pool` keeps a bounded set of warm, identically set-up Sandboxes and hands each one to a single exclusive holder at a time ([`PL-003`](docs/spec/behavior/pool.md), [`PL-011`](docs/spec/behavior/pool.md)). Construction forwards every `Sandbox.new` keyword verbatim; the optional block is the per-Sandbox setup window and runs exactly once per constructed Sandbox.
 
-`Kobako::Pool` is experimental today and is best treated as a convenience for warm, pre-configured reuse rather than a throughput optimisation. The build bakes the shared boot state into the artifact ([`mruby.md`](docs/spec/behavior/mruby.md)) and every dynamic script still compiles and runs per invocation, so all a pool actually saves is the host-side `Sandbox.new` — now under 3 µs, an order of magnitude below the invocation that follows it. For the workload kobako is built for — many small, short-lived Sandboxes running dynamic scripts — that is not a gain worth the coupling. What a Pool buys is warm setup and exclusive checkout, not isolation: a Sandbox holds no state from any run, so Threads sharing one are equally safe (see [Concurrency](#concurrency)).
+`Kobako::Pool` is experimental today and is best treated as a convenience for warm, pre-configured reuse rather than a throughput optimisation. The build bakes the shared boot state into the artifact ([`mruby.md`](docs/spec/behavior/mruby.md)) and every dynamic script still compiles and runs per invocation, so all a pool actually saves is the host-side `Sandbox.new` — now about 3 µs, an order of magnitude below the invocation that follows it. For the workload kobako is built for — many small, short-lived Sandboxes running dynamic scripts — that is not a gain worth the coupling. What a Pool buys is warm setup and exclusive checkout, not isolation: a Sandbox holds no state from any run, so Threads sharing one are equally safe (see [Concurrency](#concurrency)).
 
 ```ruby
 pool = Kobako::Pool.new(slots: 4) do |sandbox|
@@ -499,17 +499,17 @@ Order-of-magnitude figures on macOS arm64, Ruby 3.4.7, YJIT off. Absolute values
 | Phase                                                        | Cost                  |
 |--------------------------------------------------------------|-----------------------|
 | First `Sandbox.new` ever for a Guest Binary (Module JIT, then disk-cached) | ~500 ms once per machine |
-| First `Sandbox.new` in a fresh process (`.cwasm` cache warm) | ~1.3 ms one-time      |
+| First `Sandbox.new` in a fresh process (`.cwasm` cache warm) | ~3 ms one-time        |
 | Subsequent `Sandbox.new` (caches warm)                       | ~3 µs                 |
-| Warm `#eval` with one Service call on a reused Sandbox       | ~71 µs                |
-| Warm `#run(:Entrypoint, ...)` dispatch                       | ~81 µs                |
-| Service call amortized inside one invocation                 | ~5.7 µs               |
-| Snippet replay per invocation                                | ~7.5 µs each          |
+| Warm `#eval` with one Service call on a reused Sandbox       | ~70 µs                |
+| Warm `#run(:Entrypoint, ...)` dispatch                       | ~79 µs                |
+| Service call amortized inside one invocation                 | ~5.8 µs               |
+| Snippet replay per invocation                                | ~7.0 µs each          |
 | Per additional idle Sandbox (RSS)                            | ~1 KB                 |
 
-The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance (the canonical boot state is baked into the artifact and instantiated per invocation), which is why a thousand idle tenants cost ~33 MB total. Under the default `gvl: :hold`, wasm work is GVL-serialized: aggregate throughput stays around 16k `#eval`/s regardless of Thread count, though Ruby-side `#eval` setup still overlaps. Opting a Sandbox into `gvl: :release` lifts that ceiling for compute-bound scripts (see [Concurrency](#concurrency)). A +10% regression on any SPEC-mandated benchmark blocks release.
+The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance (the canonical boot state is baked into the artifact and instantiated per invocation), which is why a thousand idle tenants cost ~34 MB total. Under the default `gvl: :hold`, wasm work is GVL-serialized: aggregate throughput stays around 16k `#eval`/s regardless of Thread count, though Ruby-side `#eval` setup still overlaps. Opting a Sandbox into `gvl: :release` lifts that ceiling for compute-bound scripts (see [Concurrency](#concurrency)). A +10% regression on any SPEC-mandated benchmark blocks release.
 
-Regexp is an opt-in capability gem, excluded from the default binary and the gated set; its throughput is tracked in a separate non-gated characterization (`#11` in [`benchmark/README.md`](benchmark/README.md)). There `=~` (~5 µs/match) costs about 4.5× `match?` (~1.1 µs), because `=~` eagerly builds the `MatchData` and match globals — prefer `match?` for boolean tests.
+Regexp is an opt-in capability gem, excluded from the default binary and the gated set; its throughput is tracked in a separate non-gated characterization (`#11` in [`benchmark/README.md`](benchmark/README.md)). There `=~` (~5 µs/match) costs about 5× `match?` (~1.0 µs), because `=~` eagerly builds the `MatchData` and match globals — prefer `match?` for boolean tests.
 
 ```bash
 bundle exec rake bench  # every gated regression benchmark (~5-8 min)
