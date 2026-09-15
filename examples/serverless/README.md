@@ -69,7 +69,7 @@ Edit the `Serverless::ROUTES` Hash in `app.rb`. Each entry's key is the URL segm
 MRUBY
 ```
 
-The guest does not see the Rack env as data — it sees a Handle, and every method call on `req` dispatches back to the host as one RPC round-trip against the real request object. A Handle exposes only what its object declares ([security model](../../docs/security-model.md)), so `GuestRequest` names the Rack methods a script may call through a private `respond_to_guest?`, and each access pays a guest→host round-trip (~6.8 µs amortised, kobako benchmark `2a-empty-call`):
+The guest does not see the Rack env as data — it sees a Handle, and every method call on `req` dispatches back to the host as one RPC round-trip against the real request object. A Handle exposes only what its object declares ([security model](../../docs/security-model.md)), so `GuestRequest` names the Rack methods a script may call through a private `respond_to_guest?`, and each access pays a guest→host round-trip (~5.8 µs amortised, kobako benchmark `2d-1000-calls-in-one-eval`):
 
 | Call in guest          | Runs on host                 | Returns                  |
 |------------------------|------------------------------|--------------------------|
@@ -95,9 +95,9 @@ The same `Serverless::App` and the same wire path serve both — switching handl
 
 ## Per-request vs pooled sandboxes
 
-By default each `GET /:name` constructs a fresh `Kobako::Sandbox`, preloads exactly one snippet, and invokes it once. The canonical boot state ([`MR-001`](../../docs/spec/behavior/mruby.md)) is baked into the artifact, so warm construction is only ~30 µs (`Sandbox.new` steady state, root [`benchmark/README.md`](../../benchmark/README.md)) and the per-request `#preload` (one-snippet compile) plus `#run` dispatch adds ~100 µs on top. Each `req.params` / `req.request_method` / `req.path` call is a guest→host Handle round-trip — a few µs amortised — the trade kobako's auto-wrap makes in exchange for not marshalling the Rack env into a wire-friendly Hash up front. Scripts that read the request once and cache locally pay that cost once; scripts that re-read repeatedly should hoist the result into a local variable.
+By default each `GET /:name` constructs a fresh `Kobako::Sandbox`, preloads exactly one snippet, and invokes it once. The canonical boot state ([`MR-001`](../../docs/spec/behavior/mruby.md)) is baked into the artifact, so warm construction is only ~3 µs (`Sandbox.new` steady state, root [`benchmark/README.md`](../../benchmark/README.md)) and the per-request `#preload` plus the `#run` that replays that one snippet and dispatches into it adds ~80 µs on top. Each `req.params` / `req.request_method` / `req.path` call is a guest→host Handle round-trip — a few µs amortised — the trade kobako's auto-wrap makes in exchange for not marshalling the Rack env into a wire-friendly Hash up front. Scripts that read the request once and cache locally pay that cost once; scripts that re-read repeatedly should hoist the result into a local variable.
 
-When the script set is fixed and the process serves many requests, rebuilding the Sandbox every time is wasted work. `--pool` builds a `Kobako::Pool` of long-lived Sandboxes — each constructed lazily on first checkout and preloaded with *every* route's entrypoint in the Pool's setup block — and a request checks one out and dispatches `#run` on it, leaving construction and preload off the hot path. The dispatch and RPC costs are unchanged; only the ~30 µs construction plus the per-snippet compile disappear from each request — a much thinner slice than the ~125 µs paid before the boot state was baked, which is why the measured pooling win is now single-digit percent (see the appendix) rather than the large gap that design showed.
+When the script set is fixed and the process serves many requests, rebuilding the Sandbox every time looks like wasted work. `--pool` builds a `Kobako::Pool` of long-lived Sandboxes — each constructed lazily on first checkout and preloaded with *every* route's entrypoint in the Pool's setup block — and a request checks one out and dispatches `#run` on it, leaving construction and registration off the hot path. What pooling cannot move off it is snippet replay: every invocation replays each snippet its Sandbox preloaded against a fresh boot state, so a pooled Sandbox holding all four routes replays four snippets per request where a per-request Sandbox replays one. At ~7 µs per snippet that outweighs the ~4 µs of construction and registration the pool saves, which is why the appendix measures the pool *slower* here.
 
 Pooling does not weaken isolation. Every `#run` executes against a fresh `mrb_state` whether the Sandbox is new or reused, so a script's globals, instance variables, and class-level mutation never survive into the next invocation on the same Sandbox ([`S-014`](../../docs/spec/behavior/sandbox.md)). What the pool reuses is the *host-side* Sandbox object, which holds no state from any run — each invocation owns its captures and Handle table ([`RT-002`](../../docs/spec/behavior/runtime.md)), so threads sharing one Sandbox would be isolated just as well. Exclusive checkout is the Pool's own contract, and what it buys here is bounded warm reuse: a request holds one Sandbox for the duration of the call, and when all are busy it waits up to the Pool's `checkout_timeout` (5 s by default) before `#with` raises `Kobako::PoolTimeoutError`, which the app renders as `503`. The [multi-tenant demo](../multi-tenant/README.md) takes the other route — one shared Sandbox, each invocation naming its own identity.
 
@@ -119,30 +119,30 @@ ruby examples/serverless/app.rb --pool --pool-size 5 &
 ab -n 2000 -c 10 'http://127.0.0.1:9292/hello?name=alice'
 ```
 
-Measured with `ab -n 2000 -c <conc>` against `GET /hello?name=alice` on macOS arm64, Ruby 3.4.7, YJIT off, single-process Puma (5 threads), pool size 5 — zero failed requests in every cell:
+Measured with `ab -n 2000 -c <conc>` against `GET /hello?name=alice` on macOS arm64, Ruby 3.4.7, YJIT off, kobako 0.26.0, single-process Puma (5 threads), pool size 5. Each server takes a 500-request warm-up first, and each cell is the median of three runs taken in alternating order across the two modes — zero failed requests in every run:
 
 | Concurrency | Per-request req/s | Per-request p99 | Pooled req/s | Pooled p99 |
 |-------------|-------------------|-----------------|--------------|------------|
-| 1           | 3,580             | 1 ms            | 3,720        | 1 ms       |
-| 10          | 3,900             | 3 ms            | 4,080        | 3 ms       |
-| 50          | 3,880             | 18 ms           | 4,060        | 13 ms      |
+| 1           | 4,150             | <1 ms           | 3,750        | 1 ms       |
+| 10          | 5,010             | 2 ms            | 4,460        | 3 ms       |
+| 50          | 4,970             | 12 ms           | 4,300        | 15 ms      |
 
-Both modes run under the default `gvl: :hold`, so the wasm segment is serialised process-wide ([root README §Concurrency](../../README.md#concurrency)) and throughput plateaus once concurrency exceeds the thread count. Pooling raises *where* that plateau sits — ~4-5% here — because `Sandbox.new` plus the per-request snippet compile is itself work done under the GVL: removing it from every request frees serialised time that the process spends serving more requests instead, and p99 stays level or slightly tighter. The win is small because the baked boot state already shrank `Sandbox.new` to ~30 µs, so what pooling removes is a thin slice of each request rather than the dominant cost it was pre-bake. It is a per-request constant, not a concurrency effect, so the small edge persists under load rather than washing out. A pool sized below the server's thread count reintroduces a queue on checkout; sizing it to the thread count (Puma's default is 5) is the sane starting point.
+Both modes run under the default `gvl: :hold`, so the wasm segment is serialised process-wide ([root README §Concurrency](../../README.md#concurrency)) and throughput plateaus once concurrency exceeds the thread count. The pool sits ~10-13% *below* per-request at every concurrency, and its p99 is no tighter: the extra snippet replay each pooled request carries ([above](#per-request-vs-pooled-sandboxes)) is GVL-held work the pool adds rather than removes. It is a per-request constant, not a concurrency effect, so the gap persists under load. In this demo the pool buys bounded warm reuse, not throughput; it pays off only where what it keeps off the hot path outweighs the snippets it replays. A pool sized below the server's thread count reintroduces a queue on checkout; sizing it to the thread count (Puma's default is 5) is the sane starting point.
 
 ## Appendix: Puma vs Falcon under this design
 
-Falcon is a Fiber-based reactor server and Puma is a Thread-pool server, so a natural question is whether the demo gains throughput by switching to Falcon. The short answer for *this* design is no — Puma is ~20% faster at every concurrency, because the bottleneck is not what either server is good at improving and the per-request RPC round-trips amplify Falcon's disadvantage.
+Falcon is a Fiber-based reactor server and Puma is a Thread-pool server, so a natural question is whether the demo gains throughput by switching to Falcon. The short answer for *this* design is no — Puma is ~20-25% faster at every concurrency, because the bottleneck is not what either server is good at improving and the per-request RPC round-trips amplify Falcon's disadvantage.
 
-Measured with `ab -n 3000 -c <conc>` against `GET /hello?name=alice` on macOS arm64, Ruby 3.4.7, YJIT off, both servers single-process, on the `Rack::Request`-as-Handle design (so each request also pays one in-script `req.params` Handle round-trip back to the host):
+Measured with `ab -n 3000 -c <conc>` against `GET /hello?name=alice` on macOS arm64, Ruby 3.4.7, YJIT off, kobako 0.26.0, both servers single-process with a per-request Sandbox, on the `Rack::Request`-as-Handle design (so each request also pays one in-script `req.params` Handle round-trip back to the host). Each server takes a 500-request warm-up first, and each cell is the median of three runs taken in alternating order across the two servers — zero failed requests in every run:
 
 | Concurrency | Puma req/s | Puma p99 | Falcon req/s | Falcon p99 |
 |-------------|------------|----------|--------------|------------|
-| 1           | 3,260      | 1 ms     | 2,750        | 1 ms       |
-| 10          | 3,850      | 3 ms     | 3,120        | 5 ms       |
-| 50          | 3,860      | 15 ms    | 3,170        | 20 ms      |
-| 100         | 3,820      | 30 ms    | 3,150        | 37 ms      |
+| 1           | 4,220      | <1 ms    | 3,560        | 1 ms       |
+| 10          | 4,940      | 2 ms     | 4,040        | 3 ms       |
+| 50          | 4,960      | 17 ms    | 4,050        | 14 ms      |
+| 100         | 4,980      | 22 ms    | 3,980        | 31 ms      |
 
-Puma plateaus at ~3.85k req/s and Falcon at ~3.15k req/s from `c=10` upwards. Beyond that, additional concurrency only lengthens the queue — p99 latency rises roughly linearly with concurrency on both sides — while throughput stays flat. Puma stays ~18-23% faster than Falcon at every concurrency tested; the gap is stable rather than widening or closing under load. Falcon's tail latency is modestly worse — at `c=100` its p99 is ~37 ms against Puma's ~30 ms — but now that the baked boot state keeps each request's time in the GVL-held segment short, the dramatic tail blow-up the pre-bake design showed is gone.
+Puma plateaus at ~4.95k req/s and Falcon at ~4.0k req/s from `c=10` upwards. Beyond that, additional concurrency only lengthens the queue — p99 latency rises roughly linearly with concurrency on both sides — while throughput stays flat. Puma stays ~19-25% faster than Falcon at every concurrency tested; the gap holds roughly steady, widening slightly at `c=100`. Falcon's tail latency is not uniformly worse — at `c=50` the two sit within a few ms of each other — but at `c=100` its p99 is ~31 ms against Puma's ~22 ms.
 
 Two properties of this design suppress Falcon's Fiber advantage:
 
