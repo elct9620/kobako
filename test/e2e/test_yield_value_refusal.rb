@@ -67,9 +67,10 @@ class TestE2EYieldValueRefusal < Minitest::Test
                  "shape a Service exception crosses in")
   end
 
-  # The site refuses two unlike values: one the wire has no type for, and one
-  # it cannot reach the end of. Both are the Service's own outbound value, so
-  # both answer here rather than travelling any further.
+  # The site refuses unlike values: one the wire has no type for, one it
+  # cannot reach the end of, and one nesting past its bound. Each is the
+  # Service's own outbound value, so each answers here rather than
+  # travelling any further.
   # @behavior T-159
   def test_a_yield_argument_that_nests_without_bound_refuses_at_the_same_site
     seen = cyclic_yield_sandbox.eval(YIELD_ONCE).value

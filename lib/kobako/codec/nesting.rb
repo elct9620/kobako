@@ -10,7 +10,7 @@ module Kobako
     # packer. The packer takes no depth limit and walks a list or map in
     # frames that carry no stack guard, so a value it cannot finish — a
     # reference cycle necessarily is one — must be refused before it is
-    # handed over rather than rescued after.
+    # handed over.
     module Nesting
       # Raise InvalidTypeError when +value+ nests past MAX_NESTING_DEPTH.
       # Depth counts as HandleWalk#representable? counts it, so a value

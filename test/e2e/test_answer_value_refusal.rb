@@ -3,10 +3,11 @@
 require "test_helper"
 
 # E2E (Layer 4) — a Service answer the host cannot write. The Service returns
-# whatever host object it holds and the boundary converts it, so a value that
-# nests without bound fails while the dispatch is still being answered. The
-# outbound yield half — what the Service sends into the block — lives in
-# test_yield_value_refusal.rb.
+# whatever host object it holds and the boundary converts it, so a value
+# nesting past the wire's bound — one nesting without end included — fails
+# while the dispatch is still being answered, and one right at the bound
+# still crosses. The outbound yield half — what the Service sends into the
+# block — lives in test_yield_value_refusal.rb.
 class TestE2EAnswerValueRefusal < Minitest::Test
   include E2eGuestHelper
 

@@ -31,9 +31,8 @@ module Kobako
     # The maximum structural nesting depth the wire represents (the
     # MessagePack ecosystem's bound), shared with the guest +kobako_codec+
     # so both sides cap identically. The host refuses a value nesting past
-    # it — a reference cycle necessarily does — wherever it hands one to the
-    # packer: the +#run+ wrap walk, and Nesting at the two outbound dispatch
-    # positions.
+    # it — a reference cycle necessarily does — before handing it to the
+    # packer.
     MAX_NESTING_DEPTH = 128
 
     # Bracket a decode and return the block's result together with whether

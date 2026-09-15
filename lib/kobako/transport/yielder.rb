@@ -94,10 +94,11 @@ module Kobako
 
       private
 
-      # Encode what the Service is yielding. A value outside the wire type
-      # set fails here, before the guest is re-entered, and is restated so
-      # the Service reads a refusal of its own argument rather than a codec
-      # class it never named.
+      # Encode what the Service is yielding. Arguments outside the wire
+      # type set, or nesting past the wire's bound as one list, fail here,
+      # before the guest is re-entered, and are restated so the Service
+      # reads a refusal of its own argument rather than a codec class it
+      # never named.
       def encode_args(args)
         Kobako::Codec::Nesting.assert_within_bound!(args)
         Kobako::Codec::Encoder.encode(args)
