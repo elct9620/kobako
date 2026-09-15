@@ -22,7 +22,7 @@ license = "Apache-2.0"
 # The engine is a separate default this has to ask back for: `wasmtime`
 # carries `Sandbox::new`, and dropping every default would leave this
 # host with no way to load a Guest Binary.
-kobako = { version = "0.13", default-features = false, features = ["wasmtime"] }
+kobako = { version = "0.15", default-features = false, features = ["wasmtime"] }
 
 # The schema's encoder. The messages below are a second, independent
 # definition of what the guest gem declares: the two halves agree by the

@@ -19,18 +19,18 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "beni"
-version = "0.10.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8b05df4ee6b494816a019fdc362caf588c04a79bf4a679d9129c3d808cd8d4c"
+checksum = "b6e3d0e2bd40999d4391056cd4fb41ad66e8f0faf3f857aa7a2e41d5691102a2"
 dependencies = [
  "beni-sys",
 ]
 
 [[package]]
 name = "beni-sys"
-version = "0.10.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d15e51abe93267aacb1917a2de18264005dbda972a258d5e9964907e54ef1d1"
+checksum = "827f16ec364cdf9dad950ab59cf3db8f1b633c4b73d66e0cb37c154495cad427"
 dependencies = [
  "bindgen",
  "cc",
@@ -133,30 +133,29 @@ dependencies = [
 
 [[package]]
 name = "kobako-core"
-version = "0.13.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27951319b8f0f52fd32ae0fbfa9190d347e57aceaef57b1b5c9991dcb1a828c7"
+checksum = "943ae1299043c1a27df1331de45d228ed8b43dbd0f49d7a9c1eabd5ce4c2a402"
 dependencies = [
  "kobako-transport",
 ]
 
 [[package]]
 name = "kobako-mruby"
-version = "0.13.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9d275b319f17e5891aecb513ac5a086c11a00899f93544c4a205187846f8fc0"
+checksum = "86d8f02ea0cc2ab7da74ad27335817ec91a5694a529d806ab8ce5f273f7956c9"
 dependencies = [
  "beni",
- "beni-sys",
  "kobako-core",
  "kobako-transport",
 ]
 
 [[package]]
 name = "kobako-transport"
-version = "0.13.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7178fe40372f96bf32b4585a3c93fed059e0cb4f99c66ddd9ec2d82e6a6562c"
+checksum = "1fa68cb13df200c96418d75ff334826070e6a19ce4b0f40c6fb11b4cb5d9a524"
 
 [[package]]
 name = "kv"

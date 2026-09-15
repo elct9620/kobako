@@ -21,12 +21,12 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # The guest ABI contract — `export_guest!` resolves against it.
-kobako-core = "0.13"
+kobako-core = "0.15"
 
 # The mruby harness. Named without features: the bundled MessagePack
 # codec is behind one, and this shell speaks its own schema instead, so
 # nothing in this build reaches a payload codec it did not write.
-kobako-mruby = "0.13"
+kobako-mruby = "0.15"
 
 # The capability gem this guest grants its scripts, and the only place
 # the fixed schema lives.
@@ -34,4 +34,4 @@ kv = { path = "../kv" }
 
 # The typed mruby wrapper. Semver-compatible with what `kobako-mruby`
 # links — one artifact carries one interpreter, so the two must agree.
-beni = "0.10.0"
+beni = "0.14.1"

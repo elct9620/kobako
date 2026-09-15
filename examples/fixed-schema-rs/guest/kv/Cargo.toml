@@ -22,12 +22,12 @@ license = "Apache-2.0"
 [dependencies]
 # The typed mruby wrapper — the `Gem` trait and the class / value seams
 # the KV surface is defined through.
-beni = "0.10.0"
+beni = "0.14.1"
 
 # The mruby harness, for `dispatch` and the `Target` / `DispatchError` its
 # signature names. Named without features, so the bundled codec stays out:
 # reaching the wire does not mean inheriting a schema.
-kobako-mruby = "0.13"
+kobako-mruby = "0.15"
 
 # The schema's encoder. Hand-annotated structs rather than a `.proto`
 # plus `prost-build`, so building this example needs no `protoc` — the
