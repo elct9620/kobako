@@ -34,8 +34,6 @@ Time spent in a yielded block, and in the Service around it, counts against the 
 
 Memory a yielded block grows counts against the same per-invocation budget as the rest of the invocation.
 
-Yield arguments nested to the deepest level the wire encodes, counted as the one list they travel in, reach the block unchanged.
-
 A block that ends with `next` answers the yield with that value, as falling through does.
 
 Nested yields carry no depth limit of their own; only the guest's stack bounds them.
@@ -419,3 +417,11 @@ Nested yields carry no depth limit of their own; only the guest's stack bounds t
 | Given | the Service rescuing that refusal |
 | When | guest code calls it with a block |
 | Then | the invocation answers what the Service returned |
+
+## `T-217` Yield arguments at the wire's depth reach the block
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service yielding arguments nested to the deepest level the wire encodes, counted as the one list they travel in |
+| When | guest code calls it with a block that measures what it received |
+| Then | the block receives them nested to that depth |

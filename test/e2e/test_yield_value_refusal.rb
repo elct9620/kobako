@@ -4,9 +4,10 @@ require "test_helper"
 
 # E2E (Layer 4) — a yield argument the host cannot write. The
 # Service yields whatever host object it holds and the boundary converts
-# it, so a value outside the wire type set fails at the yield site before
-# the guest is re-entered. The inbound half — what the block sends back —
-# lives in test_yield_block_failure.rb.
+# it, so a value outside the wire type set, or nesting past the wire's
+# bound, fails at the yield site before the guest is re-entered, and
+# arguments right at the bound still reach the block. The inbound half —
+# what the block sends back — lives in test_yield_block_failure.rb.
 class TestE2EYieldValueRefusal < Minitest::Test
   include E2eGuestHelper
 
@@ -91,6 +92,30 @@ class TestE2EYieldValueRefusal < Minitest::Test
     assert_equal :recovered, seen,
                  "yield arguments nesting one level past the wire bound through #eval must " \
                  "reach the Service at its own yield site, the way a value nesting without end does"
+  end
+
+  # The block measures what arrived, so a yield bound placed one level too
+  # shallow — which the answer path's witness cannot see — fails here.
+  MEASURE_IN_BLOCK = <<~RUBY
+    Probe::Yields.call do |value|
+      depth = 0
+      while value.is_a?(Array) && !value.empty?
+        value = value[0]
+        depth += 1
+      end
+      depth
+    end
+  RUBY
+
+  # @behavior T-217
+  def test_yield_arguments_at_the_bound_reach_the_block
+    within_bound = (1...Kobako::Codec::MAX_NESTING_DEPTH).reduce([]) { |inner, _| [inner] }
+
+    depth = rescuing_yield_of(within_bound).eval(MEASURE_IN_BLOCK).value
+
+    assert_equal Kobako::Codec::MAX_NESTING_DEPTH - 1, depth,
+                 "yield arguments nested to the wire bound through #eval must reach the block " \
+                 "nested to that depth"
   end
 
   private
