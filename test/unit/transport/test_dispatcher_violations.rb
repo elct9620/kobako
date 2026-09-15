@@ -10,7 +10,6 @@ require "test_helper"
 # test_dispatcher.rb.
 class TestTransportDispatchViolations < Minitest::Test
   include DispatcherHelpers
-  include StackQuarantine
 
   # Kwargs map keys must be ext 0x00 Symbols (docs/wire/payload-msgpack.md
   # § Ext Types → ext 0x00). Each payload carries both elements so it reaches
@@ -91,14 +90,11 @@ class TestTransportDispatchViolations < Minitest::Test
   # ran and handed over a value the host cannot write, so only the Service can
   # change what it returns — the position an unwrappable gadget refused at the
   # mint occupies one step further along the same path.
-  #
-  # Each case runs on a stack of its own: the refusal costs the thread that
-  # takes it (see StackQuarantine).
   # @behavior T-044
   def test_an_answer_the_host_cannot_write_is_the_services_own_failure
     @registry.bind("Cyclic::Answer", ->(_) { [].tap { |a| a << a } })
 
-    answer = in_a_spendable_stack { reify(dispatch(build_call("Cyclic::Answer", "call", ["x"], {}))) }
+    answer = reify(dispatch(build_call("Cyclic::Answer", "call", ["x"], {})))
 
     assert_predicate answer, :error?
     assert_equal "runtime", answer.payload.type,
@@ -111,7 +107,7 @@ class TestTransportDispatchViolations < Minitest::Test
   def test_an_unwritable_answer_answers_in_kobakos_own_wording
     @registry.bind("Cyclic::Answer", ->(_) { [].tap { |a| a << a } })
 
-    answer = in_a_spendable_stack { reify(dispatch(build_call("Cyclic::Answer", "call", ["x"], {}))) }
+    answer = reify(dispatch(build_call("Cyclic::Answer", "call", ["x"], {})))
 
     refute_match(/Kobako::/, answer.payload.message,
                  "kobako's own refusal must not wear the <class>: <message> shape a Service " \

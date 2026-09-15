@@ -7,12 +7,8 @@ require "test_helper"
 # nests without bound fails while the dispatch is still being answered. The
 # outbound yield half — what the Service sends into the block — lives in
 # test_yield_value_refusal.rb.
-#
-# Each case runs on a stack of its own: refusing the value costs the thread
-# that takes it (see StackQuarantine).
 class TestE2EAnswerValueRefusal < Minitest::Test
   include E2eGuestHelper
-  include StackQuarantine
 
   CALL_ONCE = "Probe::Answer.call"
 
@@ -21,9 +17,7 @@ class TestE2EAnswerValueRefusal < Minitest::Test
   # is neither the guest's nor the runtime's.
   # @behavior CD-018
   def test_an_unwritable_answer_reaches_the_host_app_as_a_service_failure
-    error = in_a_spendable_stack do
-      assert_raises(Kobako::ServiceError) { cyclic_sandbox.eval(CALL_ONCE) }
-    end
+    error = assert_raises(Kobako::ServiceError) { cyclic_sandbox.eval(CALL_ONCE) }
 
     assert_instance_of Kobako::ServiceError, error,
                        "a Service answer the host cannot write through #eval must reach the Host " \
@@ -33,9 +27,7 @@ class TestE2EAnswerValueRefusal < Minitest::Test
 
   # @behavior CD-019
   def test_an_unwritable_answer_answers_in_kobakos_own_wording
-    error = in_a_spendable_stack do
-      assert_raises(Kobako::ServiceError) { cyclic_sandbox.eval(CALL_ONCE) }
-    end
+    error = assert_raises(Kobako::ServiceError) { cyclic_sandbox.eval(CALL_ONCE) }
 
     refute_match(/Kobako::/, error.message,
                  "the refusal is kobako's own, so it must not wear the <class>: <message> " \
@@ -55,7 +47,7 @@ class TestE2EAnswerValueRefusal < Minitest::Test
 
   # @behavior CD-020
   def test_the_guest_may_rescue_an_unwritable_answer_and_carry_on
-    seen = in_a_spendable_stack { cyclic_sandbox.eval(RESCUING).value }
+    seen = cyclic_sandbox.eval(RESCUING).value
 
     assert_equal :rescued, seen,
                  "a guest rescuing a Service answer the host could not write must go on to " \

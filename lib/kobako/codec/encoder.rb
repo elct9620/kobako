@@ -31,23 +31,14 @@ module Kobako
       # same error: an integer outside i64..u64 (+RangeError+) and any
       # packer-internal +NoMethodError+.
       #
-      # A value that nests without bound — a reference cycle necessarily
-      # does — exhausts the packer's own recursion instead, which Ruby
-      # reports outside +StandardError+. Mapping it keeps an unwritable
-      # value a wire violation the dispatch boundary can answer, rather than
-      # one that escapes every caller's rescue and traps the invocation.
-      #
-      # The refusal is spent once per thread: a thread that has absorbed one
-      # such overflow aborts on the next instead of raising, and a Hash cycle
-      # never reaches Ruby at all — the packer walks a Hash through C frames
-      # that carry no stack guard. Bounding the walk before the packer is
-      # handed the value is what would make the refusal repeatable.
+      # The caller bounds +value+'s nesting first (Nesting): the packer takes
+      # no depth limit and walks a list or map in frames that carry no stack
+      # guard, so a value nesting without end — a reference cycle necessarily
+      # does — exhausts the machine stack instead of raising.
       def self.encode(value)
         FACTORY.dump(value)
       rescue ::RangeError, ::NoMethodError => e
         raise UnsupportedTypeError, e.message
-      rescue ::SystemStackError
-        raise InvalidTypeError, "value nests deeper than this host can write (a reference cycle necessarily does)"
       end
     end
   end

@@ -9,7 +9,6 @@ require "test_helper"
 # lives in test_yield_block_failure.rb.
 class TestE2EYieldValueRefusal < Minitest::Test
   include E2eGuestHelper
-  include StackQuarantine
 
   YIELD_ONCE = "Probe::Yields.call { |x| x }"
 
@@ -70,12 +69,10 @@ class TestE2EYieldValueRefusal < Minitest::Test
 
   # The site refuses two unlike values: one the wire has no type for, and one
   # it cannot reach the end of. Both are the Service's own outbound value, so
-  # both answer here rather than travelling any further. This one runs on a
-  # stack of its own — refusing it costs the thread that takes it (see
-  # StackQuarantine).
+  # both answer here rather than travelling any further.
   # @behavior T-159
   def test_a_yield_argument_that_nests_without_bound_refuses_at_the_same_site
-    seen = in_a_spendable_stack { cyclic_yield_sandbox.eval(YIELD_ONCE).value }
+    seen = cyclic_yield_sandbox.eval(YIELD_ONCE).value
 
     assert_equal :recovered, seen,
                  "a yield argument nesting without bound must reach the Service at its own " \
