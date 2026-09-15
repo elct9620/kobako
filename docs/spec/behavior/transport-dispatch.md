@@ -54,6 +54,8 @@ No host object referenced by a Sandbox's invocations outlives that Sandbox; disc
 
 A reflective gadget passed as an entrypoint argument fails the run as a Sandbox failure before the guest runs.
 
+An entrypoint argument is measured within the Run payload that carries it: one nested so the payload reaches the deepest level the wire encodes arrives at the entrypoint unchanged, and one nested a level deeper fails the run as a Sandbox failure before the guest runs.
+
 An id enters an invocation's Handle table only by delivering its object to the guest, so every id the table holds names an object the guest was handed.
 
 A dispatch the host answers as an internal failure raises the wire-level failure at the guest call site, which the guest may rescue and which, unrescued, fails the invocation as a Sandbox failure.

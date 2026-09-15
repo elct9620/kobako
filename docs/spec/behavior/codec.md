@@ -114,7 +114,7 @@ A Run whose envelope does not frame fails under wording distinct from every refu
 | When | guest code passes a keyword whose name is written as a String |
 | Then | the Service received it under that name |
 
-## `CD-011` An argument at the deepest nesting the wire encodes crosses unchanged
+## `CD-011` A value at the deepest nesting the wire encodes comes through the wrap walk unchanged
 
 | Step | Statement |
 | --- | --- |
