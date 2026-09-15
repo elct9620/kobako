@@ -76,4 +76,66 @@ class TestSandboxRunAutoWrap < Minitest::Test
                  "a cyclic #run argument must be refused for its depth, so the refusal " \
                  "is not mistaken for the sibling unwrappable-key one")
   end
+
+  # An argument crosses inside the Run payload, whose document and argument
+  # list sit above it, so the deepest argument that arrives is two levels
+  # shallower than the wire's bound.
+  PAYLOAD_LEVELS = 2
+
+  MEASURE = <<~RUBY
+    Measure = ->(value) do
+      depth = 0
+      while value.is_a?(Array) && !value.empty?
+        value = value[0]
+        depth += 1
+      end
+      depth
+    end
+  RUBY
+
+  # @behavior T-218
+  def test_argument_whose_payload_reaches_the_bound_arrives_unchanged
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(code: MEASURE, name: :Measure)
+    deepest = Kobako::Codec::MAX_NESTING_DEPTH - PAYLOAD_LEVELS
+
+    depth = sandbox.run(:Measure, nested(deepest)).value
+
+    assert_equal deepest, depth,
+                 "a #run argument nested so the Run payload reaches the wire bound must arrive " \
+                 "at the entrypoint nested to that depth"
+  end
+
+  # @behavior T-219
+  def test_argument_a_level_past_the_payload_bound_is_refused_by_the_host
+    too_deep = nested(Kobako::Codec::MAX_NESTING_DEPTH - PAYLOAD_LEVELS + 1)
+
+    err = assert_raises(Kobako::SandboxError) { entry_sandbox.run(:App, too_deep) }
+
+    assert_match(/nests deeper than 128 levels/, err.message,
+                 "a #run argument nested one level past what the Run payload can carry must " \
+                 "be refused by the host before the guest runs")
+  end
+
+  # @behavior T-219
+  def test_keyword_value_a_level_past_the_payload_bound_is_refused_by_the_host
+    too_deep = nested(Kobako::Codec::MAX_NESTING_DEPTH - PAYLOAD_LEVELS + 1)
+
+    err = assert_raises(Kobako::SandboxError) { entry_sandbox.run(:App, value: too_deep) }
+
+    assert_match(/nests deeper than 128 levels/, err.message,
+                 "a #run keyword value nested one level past what the Run payload can carry " \
+                 "must be refused by the host before the guest runs")
+  end
+
+  private
+
+  # A list nesting +depth+ levels around an empty one.
+  def nested(depth)
+    (1..depth).reduce([]) { |inner, _| [inner] }
+  end
+
+  def entry_sandbox
+    Kobako::Sandbox.new.tap { |sandbox| sandbox.preload(code: "App = ->(*, **) { nil }", name: :App) }
+  end
 end

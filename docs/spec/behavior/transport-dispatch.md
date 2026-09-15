@@ -54,8 +54,6 @@ No host object referenced by a Sandbox's invocations outlives that Sandbox; disc
 
 A reflective gadget passed as an entrypoint argument fails the run as a Sandbox failure before the guest runs.
 
-An entrypoint argument is measured within the Run payload that carries it: one nested so the payload reaches the deepest level the wire encodes arrives at the entrypoint unchanged, and one nested a level deeper fails the run as a Sandbox failure before the guest runs.
-
 An id enters an invocation's Handle table only by delivering its object to the guest, so every id the table holds names an object the guest was handed.
 
 A dispatch the host answers as an internal failure raises the wire-level failure at the guest call site, which the guest may rescue and which, unrescued, fails the invocation as a Sandbox failure.
@@ -991,3 +989,19 @@ Guest code rescuing a Service failure by its base class also catches a call that
 | Given | a Sandbox with a Service reading its keyword arguments |
 | When | guest code calls it with an explicit Hash literal as its last argument and no brace-less keyword |
 | Then | the Service receives no keywords |
+
+## `T-218` An entrypoint argument is measured within the Run payload that carries it
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox carrying a preloaded entrypoint that measures its argument |
+| When | it runs with an argument nested so the Run payload reaches the deepest level the wire encodes |
+| Then | the entrypoint receives it nested to that depth |
+
+## `T-219` One nested a level deeper is refused before the guest runs
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox carrying a preloaded entrypoint |
+| When | it runs with an argument or keyword value nested one level past what the Run payload can carry |
+| Then | it fails as a Sandbox failure before the guest runs |

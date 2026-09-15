@@ -95,7 +95,7 @@ module Kobako
         return unless depth > MAX_NESTING_DEPTH
 
         raise Kobako::SandboxError,
-              "a #run argument nests deeper than #{MAX_NESTING_DEPTH} levels and " \
+              "a #run argument nests deeper than #{MAX_NESTING_DEPTH} levels within the Run payload and " \
               "cannot cross the sandbox boundary (possible reference cycle)"
       end
 

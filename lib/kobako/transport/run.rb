@@ -54,10 +54,13 @@ module Kobako
       # invocation's table, sharing the same allocator the guest→host
       # return path uses. A wrapped leaf rides as ext 0x01 in its
       # original position (docs/wire/payload-msgpack.md § ext 0x01).
+      # The walk starts one level down, since +args+ and +kwargs+ ride
+      # inside the payload document the wire's nesting bound is counted
+      # from.
       def payload(handler)
         Payload::Arguments.new(
-          args: Codec::HandleWalk.deep_wrap(args, handler),
-          kwargs: Codec::HandleWalk.deep_wrap(kwargs, handler)
+          args: Codec::HandleWalk.deep_wrap(args, handler, 1),
+          kwargs: Codec::HandleWalk.deep_wrap(kwargs, handler, 1)
         ).encode
       end
 
