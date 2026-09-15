@@ -34,8 +34,6 @@ A block answer or break value nested past the depth the wire encodes, or a `Symb
 
 A Run whose envelope does not frame fails under wording distinct from every refusal of its arguments.
 
-A Service answer nesting past the depth the wire encodes is refused as the Service's failure even where it holds a value the wire cannot represent, rather than crossing as a capability reference.
-
 ## `CD-001` A Service answer past the guest's integer width is refused
 
 | Step | Statement |
@@ -345,5 +343,13 @@ A Service answer nesting past the depth the wire encodes is refused as the Servi
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox with a Service answering a map that holds itself |
+| When | guest code calls it and leaves the failure unrescued |
+| Then | it reaches the Host App as a Service failure |
+
+## `CD-040` Holding a value the wire cannot carry does not make it a reference
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service answering a value nested one level past the deepest the wire encodes and holding a value the wire cannot represent |
 | When | guest code calls it and leaves the failure unrescued |
 | Then | it reaches the Host App as a Service failure |

@@ -88,6 +88,20 @@ class TestE2EAnswerValueRefusal < Minitest::Test
                  "the Host App as the Service's failure to be written, not travel to the guest")
   end
 
+  # The depth is measured before a Handle is considered, so a member the wire
+  # cannot represent does not carry an over-deep answer across as a reference.
+  # @behavior CD-040
+  def test_an_answer_past_the_bound_holding_an_unrepresentable_value_is_the_services_failure
+    error = assert_raises(Kobako::ServiceError) do
+      answering([nested(Kobako::Codec::MAX_NESTING_DEPTH), Object.new]).eval(CALL_ONCE)
+    end
+
+    assert_match(/could not write the Service's answer/, error.message,
+                 "a Service answer nested one level past the wire bound and holding a value the " \
+                 "wire cannot represent through #eval must reach the Host App as the Service's " \
+                 "failure to be written, not cross as a Capability Handle")
+  end
+
   # A map's keys are measured apart from its values, so the depth must also be
   # found when a key is what carries it.
   # @behavior CD-038
