@@ -51,20 +51,23 @@ impl IntegerOutOfRange {
 
 impl Kobako {
     /// Collect the Array-of-String a `recv.method` funcall returns into
-    /// a `Vec<String>`; empty when the call raises or returns a
-    /// non-Array, so the Panic envelope still serialises cleanly under
-    /// guest-class shenanigans. The element count is the C array
-    /// length, not a `.length` dispatch — a hostile subclass cannot
-    /// feed a guest-chosen size into `Vec::with_capacity`.
+    /// a `Vec<String>`; empty when the call raises or answers anything
+    /// else, so the Panic envelope still serialises cleanly under
+    /// guest-class shenanigans. The element count comes from the C array
+    /// rather than a `.length` dispatch, so a guest cannot choose it.
     fn strings_from_funcall(&self, recv: Value, method: &std::ffi::CStr) -> Vec<String> {
+        use beni::FromValue;
         let Ok(val) = recv.funcall(self.mrb(), method, &[]) else {
             return Vec::new();
         };
         if val.classname(self.mrb()) != "Array" {
             return Vec::new();
         }
-        // SAFETY: classname check above proves Array-tagged.
-        let ary = unsafe { beni::Array::from_value_unchecked(val) };
+        // The tag proves the layout the name cannot, as in the codec's own
+        // container arms.
+        let Some(ary) = beni::Array::from_value(val) else {
+            return Vec::new();
+        };
         let entries = ary.entries(self.mrb());
         let mut out = Vec::with_capacity(entries.len());
         for elem in entries {

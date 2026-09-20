@@ -148,12 +148,9 @@ impl Kobako {
     /// single `None` when any element has no wire representation.
     fn array_to_codec(
         &self,
-        val: Value,
+        ary: beni::Array,
         depth: usize,
     ) -> Vec<Option<kobako_codec::msgpack::codec::Value>> {
-        // SAFETY: callers reach this only after a `classname == "Array"`
-        // gate, so the unchecked wrap is sound.
-        let ary = unsafe { beni::Array::from_value_unchecked(val) };
         let entries = ary.entries(self.mrb());
         let mut items = Vec::with_capacity(entries.len());
         for elem in entries {
@@ -169,15 +166,12 @@ impl Kobako {
     /// docs/wire/payload-msgpack.md § Ext Types.
     fn hash_to_codec(
         &self,
-        val: Value,
+        hash: beni::Hash,
         depth: usize,
     ) -> Vec<(
         Option<kobako_codec::msgpack::codec::Value>,
         Option<kobako_codec::msgpack::codec::Value>,
     )> {
-        // SAFETY: callers reach this only after a `classname == "Hash"`
-        // gate, so the unchecked wrap is sound.
-        let hash = unsafe { beni::Hash::from_value_unchecked(val) };
         let keys_ary = hash.keys(self.mrb());
         let entries = keys_ary.entries(self.mrb());
         let mut pairs = Vec::with_capacity(entries.len());
@@ -253,17 +247,23 @@ impl Kobako {
             // (a too-deep structure or a reference cycle) the arm falls
             // through to `None`, so the caller takes the Panic / error
             // Yield Reply path rather than overflowing the wasm stack.
-            "Array" if depth < MAX_NESTING_DEPTH => self
-                .array_to_codec(val, depth)
-                .into_iter()
-                .collect::<Option<Vec<_>>>()
-                .map(CodecValue::Array),
-            "Hash" if depth < MAX_NESTING_DEPTH => self
-                .hash_to_codec(val, depth)
-                .into_iter()
-                .map(|(k, v)| k.zip(v))
-                .collect::<Option<Vec<_>>>()
-                .map(CodecValue::Map),
+            //
+            // The name keeps the read to an exact list or map and the tag
+            // proves the layout — a class takes the name of the constant it
+            // is assigned to, so the name alone is the guest's to choose.
+            "Array" if depth < MAX_NESTING_DEPTH => beni::Array::from_value(val).and_then(|ary| {
+                self.array_to_codec(ary, depth)
+                    .into_iter()
+                    .collect::<Option<Vec<_>>>()
+                    .map(CodecValue::Array)
+            }),
+            "Hash" if depth < MAX_NESTING_DEPTH => beni::Hash::from_value(val).and_then(|hash| {
+                self.hash_to_codec(hash, depth)
+                    .into_iter()
+                    .map(|(k, v)| k.zip(v))
+                    .collect::<Option<Vec<_>>>()
+                    .map(CodecValue::Map)
+            }),
             _ => None,
         }
     }

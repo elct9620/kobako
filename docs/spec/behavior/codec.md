@@ -10,6 +10,7 @@ What the payload codec will carry between host and guest, and what it refuses ra
 - `test/e2e/test_byte_fidelity.rb`
 - `test/e2e/test_integer_range.rb`
 - `test/e2e/test_answer_value_refusal.rb`
+- `test/e2e/test_container_forgery.rb`
 - `test/fuzz/test_roundtrip_fuzz.rb`
 - `test/fuzz/test_guest_value_fuzz.rb`
 - `wasm/kobako-mruby/src/refusal.rs`
@@ -33,8 +34,6 @@ A dispatch argument nested past the depth the wire encodes, a reference cycle in
 A block answer or break value nested past the depth the wire encodes, or a `Symbol` whose name is not text, is refused at the yield site rather than carried across.
 
 A Run whose envelope does not frame fails under wording distinct from every refusal of its arguments.
-
-An object whose class carries a list's or a map's name without being one is refused rather than read as that list or map, both as the invocation's own answer and as a dispatch argument.
 
 ## `CD-001` A Service answer past the guest's integer width is refused
 
@@ -355,3 +354,19 @@ An object whose class carries a list's or a map's name without being one is refu
 | Given | a Sandbox with a Service answering a value nested one level past the deepest the wire encodes and holding a value the wire cannot represent |
 | When | guest code calls it and leaves the failure unrescued |
 | Then | it reaches the Host App as a Service failure |
+
+## `CD-041` A value whose class only bears a list's name is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation answers an object whose class carries a list's name without being one |
+| Then | the invocation fails naming the unsupported type |
+
+## `CD-042` So is one bearing a map's name as a dispatch argument
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service |
+| When | guest code passes an object whose class carries a map's name without being one |
+| Then | the guest sees a `TypeError` before the Service is reached |
