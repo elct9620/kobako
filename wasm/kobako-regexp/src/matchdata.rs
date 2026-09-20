@@ -12,10 +12,11 @@ use crate::regexp;
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::typed_data::Obj;
-use beni::{Array, DataType, Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
+use beni::{Array, Error, IntoValue, Mrb, TryConvert, Value};
 
 /// Owned snapshot of one successful match.
 #[derive(Clone)]
+#[beni::wrap(class = "MatchData", name = "Kobako::MatchData")]
 pub(crate) struct MatchState {
     /// The string the pattern matched against.
     pub subject: String,
@@ -24,21 +25,6 @@ pub(crate) struct MatchState {
     pub groups: Vec<Option<(usize, usize)>>,
     /// Named captures as `(name, group index)` in declaration order.
     pub names: Vec<(String, usize)>,
-}
-
-static MATCH_TYPE: DataType<MatchState> = DataType::new(c"Kobako::MatchData");
-
-// SAFETY: `MatchData` is data-marked at gem init, so a wrap allocates a
-// carrier rather than raising.
-unsafe impl TypedData for MatchState {
-    fn class(mrb: &Mrb) -> RClass {
-        mrb.class_get(c"MatchData")
-            .expect("MatchData is defined at gem init")
-    }
-
-    fn data_type() -> &'static DataType<Self> {
-        &MATCH_TYPE
-    }
 }
 
 /// Borrow the match snapshot a `MatchData` value carries, if it is one, so
