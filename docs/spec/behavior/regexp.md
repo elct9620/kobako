@@ -18,6 +18,7 @@ The pattern object the guest compiles and matches with, and what it refuses to r
 - `test/e2e/regexp/test_utf8.rb`
 - `test/e2e/regexp/test_non_utf8.rb`
 - `test/e2e/regexp/test_unicode_gate.rb`
+- `test/e2e/regexp/test_carrier_class.rb`
 - `wasm/kobako-regexp/src/translate.rs`
 
 ### Why these scenarios
@@ -917,3 +918,19 @@ Where the language reaches an answer, a match reaches the same answer or fails w
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code reaches the fallback with two operands |
 | Then | it is refused for its argument count |
+
+## `RX-182` A match's class is the one the capability registered
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code replaces the constant lookup that names classes, then takes a match |
+| Then | the match's class is the one the capability registered |
+
+## `RX-183` A name bound over the match class leaves the match alone
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code binds a value that is not a class over the name the match class carries, then takes a match |
+| Then | the invocation completes and the match's class is the one the capability registered |
