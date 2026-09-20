@@ -47,6 +47,8 @@ A reflective gadget nested inside a container that crossed as a capability refer
 
 A reflective name on a capability reference to a callable is refused like one on a bound callable.
 
+An object carrying a capability reference's shape is refused when the guest hands it across as a value, as it already is when the guest dispatches through it.
+
 The guest's proxy refuses a reflective name on a capability reference just as it does on a bound constant.
 
 The guest proxy's refusal is a `NoMethodError` the guest may rescue.
