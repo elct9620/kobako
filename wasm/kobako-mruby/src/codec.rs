@@ -119,7 +119,8 @@ pub trait PayloadCodec {
     fn encode_value(kobako: &Kobako, value: beni::Value) -> Result<Vec<u8>, CodecError>;
 
     /// Write the Call payload of a guest→host dispatch — the positional
-    /// `rest` slice and the keyword Hash `mrb_get_args` separated out.
+    /// `rest` slice and the keyword Hash the call frame carried apart
+    /// from it.
     ///
     /// Paired with `decode_reply_value`: a codec that serves one half of
     /// a dispatch owes the other. Nothing enforces that, so a codec that

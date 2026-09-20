@@ -114,8 +114,8 @@ fn reflection_blocked(mrb: &Mrb, method_name: &str) -> beni::Error {
 /// The `Kobako` token supplies only the VM-level primitives (arg/result
 /// conversion, error raising); the dispatch orchestration lives here.
 ///
-/// The helper runs `kobako.mrb().get_args::<NRestKwBlock>()` itself, so
-/// callers must not have already consumed the arglist.
+/// The helper reads the call frame itself, so a caller must not have
+/// consumed the arglist before reaching it.
 fn forward_to_dispatch(
     kobako: super::Kobako,
     target: kobako_transport::envelope::Target<'_>,

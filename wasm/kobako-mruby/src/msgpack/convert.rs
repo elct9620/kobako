@@ -117,8 +117,8 @@ impl Kobako {
     /// keyword `kwargs` Hash into wire args and kwargs. Every element of
     /// `rest` is a positional argument — an explicit `{...}` Hash literal
     /// among them stays positional, matching Ruby 3 call semantics; the
-    /// keyword bucket arrives already separated from `mrb_get_args`, empty
-    /// when the call passed no keywords.
+    /// keyword bucket arrives already separated from the positionals,
+    /// empty when the call passed no keywords.
     ///
     /// `rest` is typed as `&[Value]` even though the underlying buffer
     /// came from mruby's variadic out-param; `Value` is
