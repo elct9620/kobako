@@ -7,22 +7,14 @@ Ruby.
 
 [kobako-core](https://crates.io/crates/kobako-core) turns the Guest
 ABI into a compiler-checked contract; this crate implements that
-contract over mruby:
+contract over mruby.
 
-- `MrbGuest` — the harness trait: one required `init_gems` hook
-  naming the shell-chosen `beni::Gem` set, plus provided `eval` /
-  `run` / `yield_to_block` flows (canonical boot-state acquisition per
-  invocation, frame reading, codec conversion, block-yield re-entry)
-  and the build-time `bake_boot` hook behind the wizer
-  pre-initialization entry
-- `KobakoBridge` — the single built-in gem, installed by the provided
-  flows themselves: the `Kobako` module, Service / Handle dispatch
-  to the host, and the block machinery
-- `BlockFrame` — the block seam a capability gem holds across its own
-  dispatch, so a gem-defined method takes a block the same way the
-  built-in proxy does
-- mruby ↔ wire value conversion between `beni` values and the
-  [kobako-codec](https://crates.io/crates/kobako-codec) codec
+| Item | What it provides |
+|---|---|
+| `MrbGuest` | the harness trait: one required `init_gems` hook naming the shell-chosen `beni::Gem` set, plus provided `eval` / `run` / `yield_to_block` flows (canonical boot-state acquisition per invocation, frame reading, codec conversion, block-yield re-entry) and the build-time `bake_boot` hook behind the wizer pre-initialization entry |
+| `KobakoBridge` | the single built-in gem, installed by the provided flows themselves: the `Kobako` module, Service / Handle dispatch to the host, and the block machinery |
+| `BlockFrame` | the block seam a capability gem holds across its own dispatch, so a gem-defined method takes a block the same way the built-in proxy does |
+| Value conversion | mruby ↔ wire, between `beni` values and the [kobako-codec](https://crates.io/crates/kobako-codec) codec |
 
 ## Usage
 
@@ -93,11 +85,14 @@ the shippable artifact.
 
 ## Building
 
-Every build links the `libmruby.a` archive that `beni-sys` discovers —
-via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` for a wasm32 Guest Binary, or
-through the vendor tree `BENI_VENDOR_DIR` names for a host build; the
-[beni](https://github.com/elct9620/beni) gem's rake tasks vendor the
-toolchain and build the archive.
+Every build links the `libmruby.a` archive that `beni-sys` discovers,
+and the [beni](https://github.com/elct9620/beni) gem's rake tasks vendor
+the toolchain that builds it.
+
+| Target | Where the archive is discovered |
+|---|---|
+| wasm32 Guest Binary | `MRUBY_LIB_DIR` + `WASI_SDK_PATH` |
+| Host build | the vendor tree `BENI_VENDOR_DIR` names |
 
 ## License
 

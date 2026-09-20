@@ -7,6 +7,12 @@ Backs guest `Regexp` and `MatchData` with the pure-Rust
 [`fancy-regex`](https://crates.io/crates/fancy-regex) engine, defined
 entirely through the `beni` typed wrapper — no mrblib, no C mrbgem.
 
+| Class | What the guest gets |
+|---|---|
+| `Regexp` | literals, `new` / `compile` / `escape` / `quote`, `match` / `match?` / `=~` / `===`, `source` / `options` / `casefold?` / `names` / `named_captures`, `inspect` / `to_s` / `==`, `last_match`, and the `$~` / `$1` match globals |
+| `MatchData` | positional and named groups, byte offsets (`begin` / `end` / `offset`), `pre_match` / `post_match` / `string` / `regexp`, `to_a` / `to_s`, `dup` / `clone` |
+| `String` | the pattern-taking methods — `=~`, `match`, `match?`, `sub` / `gsub`, `split`, `scan`, `index`, `[]` / `[]=`, `slice` / `slice!` |
+
 Unlike the always-present `kobako-io`, a guest shell composes this gem
 only when it needs `Regexp` / `MatchData`; it is meant to ship as its own
 Guest Binary variant rather than as part of the default guest.
@@ -17,17 +23,11 @@ objects, and match offsets and substring slices are byte-based.
 
 ## Limitations
 
-- The `unicode` cargo feature gates Unicode property classes (`\p{...}`)
-  **and** case-insensitive matching. fancy-regex's flag is coarse, so with
-  `unicode` off every `(?i)` pattern is rejected — a guest using `/i` needs
-  it on. ASCII `\d` / `\w` / `\s` are rewritten to explicit classes either
-  way.
-- Subjects are matched as UTF-8. A string that is not valid UTF-8 is treated
-  as empty (it never matches and never crashes); byte-oriented matching is
-  out of scope.
-- A fancy pattern (backreferences, look-around) that exceeds the engine's
-  backtracking limit raises `RegexpError` rather than running unbounded; the
-  host sandbox's wall-clock and memory caps remain the ultimate bound.
+| Area | What holds |
+|---|---|
+| The `unicode` feature | gates Unicode property classes (`\p{...}`) **and** case-insensitive matching — fancy-regex's flag is coarse, so with `unicode` off every `(?i)` pattern is rejected, and a guest using `/i` needs it on. ASCII `\d` / `\w` / `\s` are rewritten to explicit classes either way |
+| Subject encoding | subjects match as UTF-8; a string that is not valid UTF-8 is treated as empty, never matching and never crashing. Byte-oriented matching is out of scope |
+| Backtracking | a fancy pattern (backreferences, look-around) exceeding the engine's backtracking limit raises `RegexpError` rather than running unbounded; the host sandbox's wall-clock and memory caps remain the ultimate bound |
 
 ## Usage
 

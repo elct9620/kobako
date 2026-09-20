@@ -8,14 +8,13 @@ Ruby.
 A kobako Guest Binary is any `wasm32-wasip1` module implementing the
 kobako Guest ABI; the bundled guest embeds mruby, but conformance is
 the ABI, not the interpreter. This crate turns that ABI into a
-compiler-checked contract:
+compiler-checked contract.
 
-- `Guest` trait + `export_guest!` — the export enumeration as a trait;
-  the macro emits every `#[no_mangle]` export in the invoking crate
-- `transport::proxy` — the guest dispatch path to the host over
-  `__kobako_dispatch`
-- `abi` / `frames` — outcome buffer, packed-u64 helpers, stdin frame
-  reader, and `ABI_VERSION`
+| Item | What it provides |
+|---|---|
+| `Guest` trait + `export_guest!` | the export enumeration as a trait; the macro emits every `#[no_mangle]` export in the invoking crate |
+| `transport::proxy` | the guest dispatch path to the host over `__kobako_dispatch` |
+| `abi` / `frames` | outcome buffer, packed-u64 helpers, stdin frame reader, and `ABI_VERSION` |
 
 The messages themselves — the Call / Reply / Yield Reply envelopes, the
 Outcome / Panic records, and the ABI's own values — live in
@@ -57,10 +56,11 @@ sandbox = Kobako::Sandbox.new(wasm_path: "path/to/my_guest.wasm")
 
 ## Contract
 
-Behavior contracts live in the repository's
-[SPEC.md](https://github.com/elct9620/kobako/blob/main/SPEC.md); the
-byte-level wire and ABI signatures in
-[docs/wire-codec.md](https://github.com/elct9620/kobako/blob/main/docs/wire-codec.md).
+| What | Where |
+|---|---|
+| Behavior | [SPEC.md](https://github.com/elct9620/kobako/blob/main/SPEC.md) |
+| Byte-level wire and ABI signatures | [docs/wire-codec.md](https://github.com/elct9620/kobako/blob/main/docs/wire-codec.md) |
+
 The crate reports `abi::ABI_VERSION` through the macro-emitted
 `__kobako_abi_version` export; the host validates it by equality at
 Sandbox construction and rejects skew with `Kobako::SetupError`.
