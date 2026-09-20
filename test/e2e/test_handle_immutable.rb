@@ -40,4 +40,29 @@ class TestE2EHandleImmutable < Minitest::Test
                  "re-pointing a held Handle's id must raise FrozenError (immutable), " \
                  "while dup stays frozen and the Handle still dispatches"
   end
+
+  # dup and clone pass exactly one original, so reaching the hook with another
+  # count takes a send. Holding it to that count keeps the hook from reading an
+  # argument list it was never given.
+  COPY_HOOK_ARITY_SCRIPT = <<~RUBY
+    g = Factory::Make.call("Bob")
+    begin
+      g.send(:initialize_copy, g, g)
+      "accepted"
+    rescue => e
+      e.class.to_s
+    end
+  RUBY
+
+  # @behavior T-221
+  def test_the_copy_hook_refuses_a_second_argument
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
+
+    seen = sandbox.eval(COPY_HOOK_ARITY_SCRIPT).value
+
+    assert_equal "ArgumentError", seen,
+                 "a held Handle's copy hook reached with two arguments must be refused for " \
+                 "its argument count"
+  end
 end

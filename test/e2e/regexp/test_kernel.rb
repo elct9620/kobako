@@ -39,4 +39,14 @@ class TestRegexpKernel < Minitest::Test
     assert_nil eval_regexp('"x" =~ 5'),
                "String#=~ dispatches a non-String/Regexp operand to its own =~ (nil)"
   end
+
+  # The operator passes exactly one operand, so reaching the fallback with
+  # another count takes a send. MRI's Object#=~ takes the operand it goes on
+  # to ignore, and a count it never takes is an error rather than a silent nil.
+  # @behavior RX-181
+  def test_kernel_match_operator_refuses_a_second_operand
+    assert_equal "ArgumentError", guard_error("1.send(:=~, 2, 3)", "ArgumentError"),
+                 "the Kernel =~ fallback reached with two operands raises ArgumentError " \
+                 "rather than answering nil for a call MRI never accepts"
+  end
 end

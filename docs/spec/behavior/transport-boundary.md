@@ -497,3 +497,11 @@ A copy of a held reference keeps its identifier and dispatches to the same host 
 | Given | a Sandbox whose guest built an object carrying the reference's shape and naming an identifier the host issued |
 | When | guest code hands it across as a dispatch argument |
 | Then | the guest refuses it and the object that identifier names is never reached |
+
+## `T-221` The copy hook takes the one reference it copies from
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a capability reference in guest hands |
+| When | guest code reaches its copy hook with two arguments |
+| Then | it is refused for its argument count |

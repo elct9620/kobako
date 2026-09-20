@@ -909,3 +909,11 @@ Where the language reaches an answer, a match reaches the same answer or fails w
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code rescues the pattern error around a match past the engine's bound and returns a value |
 | Then | the invocation answers that value |
+
+## `RX-181` The match operator's fallback takes one operand
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reaches the fallback with two operands |
+| Then | it is refused for its argument count |
