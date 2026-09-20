@@ -25,7 +25,7 @@ The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby an
 ## Requirements
 
 - **Ruby ≥ 3.3.0**
-- **Rust / Cargo** at install time — the native extension compiles from source via `rb_sys`
+- **Rust / Cargo** only when your platform has no prebuilt gem — otherwise the native extension installs ready-built
 - **Linux** or **macOS** — Windows is not supported
 
 The precompiled `kobako.wasm` Guest Binary ships inside the gem, so end users do **not** need a WASI toolchain. (The toolchain is only required if you build the gem from a source checkout — see [Development](#development).)
