@@ -23,12 +23,25 @@ class TestJsonParseSymbolize < Minitest::Test
                  "JSON.parse(symbolize_names: false) through the json guest must keep String keys")
   end
 
-  # Only the symbolize_names: keyword is honored, not a String-keyed options
-  # Hash.
+  # The option is read by the name it is written under, so a String spelling
+  # of it is a keyword this parse does not name and stays in the rest.
   # @behavior JS-016
   def test_string_keyed_option_does_not_symbolize
-    assert_equal({ "a" => 1 }, eval_json('JSON.parse(%q({"a":1}), {"symbolize_names" => true})'),
-                 "JSON.parse with a String-keyed symbolize_names option must be ignored, keeping String keys")
+    assert_equal({ "a" => 1 }, eval_json('JSON.parse(%q({"a":1}), **{"symbolize_names" => true})'),
+                 "JSON.parse given the symbolize_names option under a String spelling must " \
+                 "leave it unread, keeping String keys")
+  end
+
+  # The surface takes a document and keywords, so a second positional argument
+  # is a call shape it never had; reading options out of one accepted calls MRI
+  # refuses and swallowed whatever was passed when it was not a Hash.
+  # @behavior JS-046
+  def test_a_second_positional_argument_is_refused
+    err = assert_guest_raises("ArgumentError", 'JSON.parse(%q({"a":1}), {symbolize_names: true})')
+
+    assert_match(/wrong number of arguments/, err.message,
+                 "JSON.parse given its options as a positional Hash must be refused for its " \
+                 "argument count rather than reading them")
   end
 
   # @behavior JS-017

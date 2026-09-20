@@ -35,8 +35,6 @@ An object answering `respond_to?` or the array or hash conversion methods is sti
 
 What the serialization hook answers is held to the same depth bound as any other value.
 
-Parsing takes its options as keywords, so a second positional argument is refused for its argument count.
-
 A `Hash` key that is nothing is written as its string form.
 
 A `Hash` key that is a boolean is written as its string form.
@@ -410,3 +408,11 @@ An object that opted in through the hook is still refused when it stands as a `H
 | Given | guest code holding a capability reference |
 | When | it calls the opt-in hook on that reference |
 | Then | the raise happens in the guest without reaching the host |
+
+## `JS-046` A parse takes its options as keywords
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| When | guest code parses a document passing its options as a second positional argument |
+| Then | the call is refused for its argument count |

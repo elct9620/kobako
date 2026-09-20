@@ -11,8 +11,8 @@
 use crate::convert;
 use crate::errors;
 use beni::prelude::*;
-use beni::scan_args::scan_args;
-use beni::{Error, Hash, Module, Mrb, RString, Symbol, Value};
+use beni::scan_args::{get_kwargs, scan_args};
+use beni::{Error, Hash, Module, Mrb, RString, Value};
 
 /// Define the `JSON` module, its three functions, and the `as_json`
 /// serialization hook on `Object`.
@@ -38,14 +38,13 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
 /// into native mruby values. A non-`String` source is a `TypeError`;
 /// malformed input is a `JSON::ParserError`.
 fn json_parse(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    let args = scan_args::<(Value,), (Option<Value>,), (), (), (), ()>(mrb)?;
+    let args = scan_args::<(Value,), (), (), (), Hash, ()>(mrb)?;
     let (source,) = args.required;
     let rstr = RString::from_value(source)
         .ok_or_else(|| errors::type_error(mrb, "no implicit conversion of argument into String"))?;
     // Read the option before borrowing the source bytes — the lookup is
     // an mruby call that may move the heap.
-    let (opts,) = args.optional;
-    let symbolize = symbolize_names(mrb, opts);
+    let symbolize = symbolize_names(mrb, args.keywords)?;
     // SAFETY: the slice is consumed by `from_slice` before `decode`
     // allocates any mruby value, so the source string cannot move
     // underneath it; `arbitrary_precision` leaves the parsed tree owning
@@ -91,19 +90,12 @@ fn object_as_json(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     ))
 }
 
-/// Read the truthy `symbolize_names:` option from a trailing kwargs Hash.
-/// Absent or non-Hash arguments default to `false`.
-fn symbolize_names(mrb: &Mrb, opts: Option<Value>) -> bool {
-    let Some(opts) = opts else {
-        return false;
-    };
-    let Some(hash) = Hash::from_value(opts) else {
-        return false;
-    };
-    let Ok(key) = Symbol::new(mrb, c"symbolize_names") else {
-        return false;
-    };
-    hash.get(mrb, key.as_value())
-        .map(|v| v.to_bool())
-        .unwrap_or(false)
+/// Whether the keywords ask for symbolized names. Any truthy value asks for
+/// them, as it does in MRI. A keyword this parse does not name is left in the
+/// rest rather than refused, so an option spelled as a String — or one this
+/// build has no use for — reads as absent instead of turning it on.
+fn symbolize_names(mrb: &Mrb, keywords: Hash) -> Result<bool, Error> {
+    let kw = get_kwargs::<_, (), (Option<Value>,), Hash>(mrb, keywords, &[], &["symbolize_names"])?;
+    let (symbolize,) = kw.optional;
+    Ok(symbolize.is_some_and(|value| value.to_bool()))
 }
