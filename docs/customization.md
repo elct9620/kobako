@@ -194,6 +194,27 @@ fn hello(mrb: &Mrb, _self: Value, name: Value) -> Result<Value, beni::Error> {
 That is the whole of a gem: it ships no Ruby source and needs no `mrbc`
 pipeline, so the surface a guest sees is the one the Rust file registers.
 
+### Carrying Rust data
+
+A class that carries Rust data rather than Ruby state is declared with
+`#[beni::wrap]`, and the gem marks its carriers as it installs. Marking
+resolves the class name once, so no name a guest script later binds reaches
+the wrap.
+
+```rust
+#[beni::wrap(class = "Counter", name = "Greeter::Counter")]
+struct Counter {
+    hits: u32,
+}
+
+// inside the gem's init
+mrb.define_class(c"Counter", mrb.object_class())?;
+Counter::mark_carriers(mrb)?;
+```
+
+A class the gem leaves unmarked names no carrier, and wrapping a value into it
+panics rather than handing the guest one.
+
 ### Reaching the host
 
 A gem that reaches the host rather than staying in-guest names one more tier:
