@@ -32,12 +32,13 @@
 //! C-bridges enter on a raw `*mut mrb_state` — the
 //! `beni::sys::mrb_func_t` ABI mandates it — but `beni::method!`
 //! hands each body a borrowed `&Mrb`, which it passes to
-//! `Kobako::resolve_raw` to obtain the same handle without repeating
-//! registration.
+//! `Kobako::resolve_raw` to obtain the same handle, reading the
+//! registrations resolved once for this instance.
 //!
 //! What this file holds is the install side: registering the surface and
-//! raising through it. Reading a value out of the VM or building one into
-//! it is `values`, which is also the surface a payload codec is handed.
+//! naming the errors that cross back out through it. Reading a value out
+//! of the VM or building one into it is `values`, which is also the
+//! surface a payload codec is handed.
 
 pub(crate) mod block_stack;
 pub(crate) mod bridges;
@@ -118,12 +119,60 @@ impl std::error::Error for InstallError {}
 ///     someone writing their own flow reaches for.
 pub struct Kobako {
     mrb: *mut sys::mrb_state,
+    registrations: Registrations,
+}
+
+/// The entities `Kobako::init` registered, resolved once per instance.
+///
+/// Every guest→host dispatch enters a bridge body that needs them, and
+/// resolving them is seven constant lookups — so the first resolution
+/// caches them and the rest of the invocation reads the cache. Each
+/// handle is a plain pointer the mruby GC keeps alive for the VM's
+/// lifetime, which is why they cross into a `static` without a cell.
+///
+/// ## Cross-invocation isolation
+///
+/// Same argument as `block_stack`: the host drives every invocation on a
+/// fresh instance, so this static lives in that instance's own linear
+/// memory and no two invocations share it. A baked artifact carries the
+/// resolution the bake performed, in the same memory the handles live in.
+#[derive(Clone, Copy)]
+struct Registrations {
     /// `Kobako::Proxy` capability module — extended onto every bound
     /// constant installed via `Kobako::install_bindings`.
     proxy_module: beni::RModule,
     handle_class: beni::RClass,
     service_error_class: beni::ExceptionClass,
     transport_error_class: beni::ExceptionClass,
+}
+
+static REGISTRATIONS: std::sync::OnceLock<Registrations> = std::sync::OnceLock::new();
+
+impl Registrations {
+    /// Look each entity up on `mrb`. `mrb_define_module` is idempotent
+    /// (it answers the existing module) and each fetch answers what
+    /// `KobakoBridge::init` registered, so every `expect` here is that
+    /// init precondition restated.
+    fn resolve(mrb: &Mrb) -> Self {
+        use beni::Module;
+
+        const INITIALIZED: &str = "Kobako::init registered this entity";
+        let kobako_mod = mrb.define_module(c"Kobako").expect(INITIALIZED);
+        let transport_mod = kobako_mod
+            .define_module(mrb, c"Transport")
+            .expect(INITIALIZED);
+        let runtime_error_class = mrb.exc_get(c"RuntimeError").expect(INITIALIZED);
+        Self {
+            proxy_module: kobako_mod.define_module(mrb, c"Proxy").expect(INITIALIZED),
+            handle_class: kobako_mod.class_get(mrb, c"Handle").expect(INITIALIZED),
+            service_error_class: kobako_mod
+                .define_error(mrb, c"ServiceError", runtime_error_class)
+                .expect(INITIALIZED),
+            transport_error_class: transport_mod
+                .define_error(mrb, c"Error", runtime_error_class)
+                .expect(INITIALIZED),
+        }
+    }
 }
 
 // The canonical mruby `nil` / `true` / `false` value snapshots no
@@ -166,32 +215,9 @@ impl Kobako {
     /// invocation VM through registrations done at init time. (Missing
     /// init does not corrupt: each `expect` below panics instead.)
     pub unsafe fn resolve_raw(mrb: &Mrb) -> Self {
-        use beni::Module;
-
-        // `mrb_define_module` is idempotent (returns the existing
-        // module if already registered); each `class_get` returns the
-        // already-registered class produced by `init`, so every
-        // `expect` below is the init precondition restated.
-        const INITIALIZED: &str = "Kobako::init registered this entity";
-        let kobako_mod = mrb.define_module(c"Kobako").expect(INITIALIZED);
-        let transport_mod = kobako_mod
-            .define_module(mrb, c"Transport")
-            .expect(INITIALIZED);
-        let proxy_module = kobako_mod.define_module(mrb, c"Proxy").expect(INITIALIZED);
-        let handle_class = kobako_mod.class_get(mrb, c"Handle").expect(INITIALIZED);
-        let runtime_error_class = mrb.exc_get(c"RuntimeError").expect(INITIALIZED);
-        let service_error_class = kobako_mod
-            .define_error(mrb, c"ServiceError", runtime_error_class)
-            .expect(INITIALIZED);
-        let transport_error_class = transport_mod
-            .define_error(mrb, c"Error", runtime_error_class)
-            .expect(INITIALIZED);
         Self {
             mrb: mrb.as_ptr(),
-            proxy_module,
-            handle_class,
-            service_error_class,
-            transport_error_class,
+            registrations: *REGISTRATIONS.get_or_init(|| Registrations::resolve(mrb)),
         }
     }
 
@@ -273,14 +299,14 @@ impl Kobako {
         class
             .as_value()
             .singleton_class(mrb)
-            .and_then(|singleton| singleton.include_module(mrb, self.proxy_module))
+            .and_then(|singleton| singleton.include_module(mrb, self.registrations.proxy_module))
             .map_err(|e| InstallError::Rejected(e.message(mrb)))
     }
 
     /// `Kobako::Transport::Error` carrying `msg` — the wire-level failure a
     /// bridge body hands back, which beni raises at the guest call site.
     pub fn transport_error(&self, msg: &str) -> beni::Error {
-        beni::Error::new(self.mrb(), self.transport_error_class, msg)
+        beni::Error::new(self.mrb(), self.registrations.transport_error_class, msg)
     }
 
     /// The exception this Fault's category names, carrying its message, so
@@ -306,17 +332,17 @@ impl Kobako {
         use kobako_transport::envelope::FaultKind;
 
         let narrowed = match kind {
-            FaultKind::Internal => return self.transport_error_class,
+            FaultKind::Internal => return self.registrations.transport_error_class,
             FaultKind::Undefined => c"NoServiceError",
             FaultKind::Argument => c"ServiceArgumentError",
-            _ => return self.service_error_class,
+            _ => return self.registrations.service_error_class,
         };
         self.mrb()
             .define_module(c"Kobako")
             .and_then(|kobako_mod| kobako_mod.class_get(self.mrb(), narrowed))
             .ok()
             .and_then(|class| beni::ExceptionClass::from_value(class.as_value()))
-            .unwrap_or(self.service_error_class)
+            .unwrap_or(self.registrations.service_error_class)
     }
 
     // ----------------------------------------------------------------

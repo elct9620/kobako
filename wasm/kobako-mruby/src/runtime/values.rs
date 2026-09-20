@@ -151,7 +151,8 @@ impl Kobako {
             return Value::nil();
         }
         let mrb = self.mrb();
-        self.handle_class
+        self.registrations
+            .handle_class
             .obj_new(mrb, &[(id as i32).into_value(mrb)])
             .map(|handle| handle.freeze(mrb))
             .unwrap_or(Value::nil())

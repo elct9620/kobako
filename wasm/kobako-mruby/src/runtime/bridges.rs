@@ -242,7 +242,7 @@ pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Result<Value, ben
     // A path target borrows the name for the Call it rides in, so the
     // name outlives the target rather than the branch that read it.
     let class_name;
-    let target = if self_.is_instance_of(mrb, kobako.handle_class) {
+    let target = if self_.is_instance_of(mrb, kobako.registrations.handle_class) {
         // An exact `Kobako::Handle` instance carrying its id ivar. Exact,
         // not `is_kind_of`: the decoder mints only `Kobako::Handle`, so a
         // guest subclass of it is a fabrication and derives no target.
