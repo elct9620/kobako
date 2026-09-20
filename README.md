@@ -24,11 +24,14 @@ The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby an
 
 ## Requirements
 
-- **Ruby ≥ 3.3.0**
-- **Rust / Cargo** only when your platform has no prebuilt gem — otherwise the native extension installs ready-built
-- **Linux** or **macOS** — Windows is not supported
+| What | Which versions | When you need it |
+|---|---|---|
+| Ruby | ≥ 3.3.0 | always |
+| Platform | Linux or macOS | always — Windows is not supported |
+| Rust / Cargo | current stable | only where no prebuilt gem matches your platform; otherwise the native extension installs ready-built |
+| WASI toolchain | vendored by the build | only when building the gem from a source checkout — see [Development](#development) |
 
-The precompiled `kobako.wasm` Guest Binary ships inside the gem, so end users do **not** need a WASI toolchain. (The toolchain is only required if you build the gem from a source checkout — see [Development](#development).)
+The precompiled `kobako.wasm` Guest Binary ships inside the gem, so end users do **not** need a WASI toolchain.
 
 ## Installation
 
@@ -63,9 +66,16 @@ The gem bundles its Guest Binary; a Rust host loads one explicitly — see [Fron
 
 ## Frontends & Guest Binaries
 
-Embedding kobako is two independent choices: the **host frontend** you build against, and the **Guest Binary** it runs. They compose freely — any frontend loads any Guest Binary, so a Ruby host can run a JSON-enabled guest and a Rust host can run the pure default.
+Embedding kobako is two independent choices: the **host frontend** you build against, and the **Guest Binary** it runs.
 
-How far down those choices go — and which ones a given starting point quietly makes for you — is laid out in [`docs/architecture.md`](docs/architecture.md).
+```text
+host frontend          Guest Binary
+  Ruby gem      ──┐  ┌── kobako.wasm (pure)
+  Rust SDK      ──┼──┼── kobako+regexp.wasm
+  your own      ──┘  └── kobako+json.wasm · your own
+```
+
+They compose freely — any frontend loads any Guest Binary, so a Ruby host can run a JSON-enabled guest and a Rust host can run the pure default. How far down those choices go — and which ones a given starting point quietly makes for you — is laid out in [`docs/architecture.md`](docs/architecture.md).
 
 ### Host frontends
 
@@ -148,6 +158,16 @@ Build the crate as a `cdylib` for `wasm32-wasip1`, then bake the canonical boot 
 | Block | A guest mruby block passed to a Service; each `yield` is a synchronous round-trip into the guest. |
 
 ## Usage
+
+Each section below stands on its own; this is the order they build in.
+
+| If you want to | Read |
+|---|---|
+| let guest code call into your host | [Services](#services), [Per-Invocation Bindings](#per-invocation-bindings), [Service Blocks](#service-blocks) |
+| see what a run produced or why it failed | [Output Capture](#output-capture), [Error Handling](#error-handling), [Invocation Lifecycle](#invocation-lifecycle) |
+| bound what a run may consume | [Resource Limits](#resource-limits), [Concurrency](#concurrency), [Pooling](#pooling) |
+| hand host objects across the boundary | [Handle Management](#handle-management) |
+| ship guest code with the Sandbox | [Snippets & Entrypoints](#snippets--entrypoints), [Extensions](#extensions) |
 
 ### Services
 
@@ -256,7 +276,14 @@ Beyond the four caps, `profile:` requests the Sandbox's isolation posture on the
 
 ### Concurrency
 
-A Sandbox keeps no state from any run, so concurrent Threads may invoke distinct Sandboxes or share a single one; each invocation owns its Handles, captures, and usage either way ([`RT-001`](docs/spec/behavior/runtime.md), [`RT-002`](docs/spec/behavior/runtime.md)). One Thread still runs one invocation at a time. Sharing a Sandbox adds a single obligation: an object bound once at setup is reached by every Thread and must itself be thread-safe, while an object supplied per invocation — `ctx.bind`, or an Extension `provider:` — carries no such requirement.
+A Sandbox keeps no state from any run, so concurrent Threads may invoke distinct Sandboxes or share a single one; each invocation owns its Handles, captures, and usage either way ([`RT-001`](docs/spec/behavior/runtime.md), [`RT-002`](docs/spec/behavior/runtime.md)). One Thread still runs one invocation at a time. Sharing a Sandbox adds a single obligation.
+
+| What you bind | Who reaches it | What it owes |
+|---|---|---|
+| Bound once at setup | every Thread sharing the Sandbox | it must itself be thread-safe |
+| Supplied per invocation — `ctx.bind`, or an Extension `provider:` | that invocation alone | nothing |
+
+#### Choosing a GVL mode
 
 By default an invocation holds Ruby's GVL for its whole span, so guest execution across Threads serializes. `gvl: :release` drops the GVL for the guest span and re-acquires it for each guest→host dispatch, running guest code in parallel across Threads ([`RT-024`](docs/spec/behavior/runtime.md), [`RT-026`](docs/spec/behavior/runtime.md)).
 
@@ -321,8 +348,6 @@ For workloads that must be isolated from each other (one Sandbox per tenant, per
 
 For hosts that serve many short invocations, `Kobako::Pool` keeps a bounded set of warm, identically set-up Sandboxes and hands each one to a single exclusive holder at a time ([`PL-003`](docs/spec/behavior/pool.md), [`PL-011`](docs/spec/behavior/pool.md)). Construction forwards every `Sandbox.new` keyword verbatim; the optional block is the per-Sandbox setup window and runs exactly once per constructed Sandbox.
 
-`Kobako::Pool` is experimental today and is best treated as a convenience for warm, pre-configured reuse rather than a throughput optimisation. The build bakes the shared boot state into the artifact ([`mruby.md`](docs/spec/behavior/mruby.md)) and every dynamic script still compiles and runs per invocation, so all a pool actually saves is the host-side `Sandbox.new` — now about 3 µs, an order of magnitude below the invocation that follows it. For the workload kobako is built for — many small, short-lived Sandboxes running dynamic scripts — that is not a gain worth the coupling. What a Pool buys is warm setup and exclusive checkout, not isolation: a Sandbox holds no state from any run, so Threads sharing one are equally safe (see [Concurrency](#concurrency)).
-
 ```ruby
 pool = Kobako::Pool.new(slots: 4) do |sandbox|
   sandbox.bind("KV::Lookup", ->(key) { redis.get(key) })
@@ -331,12 +356,22 @@ end
 pool.with { |sandbox| sandbox.eval(%(KV::Lookup.call("user_42"))).value }
 ```
 
+#### Options and lifetime
+
 | Option | Meaning | Default |
 |--------|---------|---------|
 | `slots:` | Upper bound on constructed Sandboxes | required |
 | `checkout_timeout:` | Seconds `#with` waits for a free Sandbox; `nil` waits indefinitely | 5.0 |
 
 Sandboxes construct lazily on first demand. `#with` yields a Sandbox and returns the block's value; at block exit the Sandbox returns to the pool, except a block that raises `Kobako::TrapError` discards its Sandbox and the slot refills by a fresh construction on next demand. A checkout that waits past `checkout_timeout` raises `Kobako::PoolTimeoutError`. There is no teardown verb — a Pool releases everything with its own reachability.
+
+#### What a Pool buys
+
+| It gives you | It does not give you |
+|---|---|
+| warm, pre-configured Sandboxes and exclusive checkout | isolation — a Sandbox holds no state from any run, so Threads sharing one are equally safe (see [Concurrency](#concurrency)) |
+
+`Kobako::Pool` is experimental today and is best treated as a convenience for warm, pre-configured reuse rather than a throughput optimisation. The build bakes the shared boot state into the artifact ([`mruby.md`](docs/spec/behavior/mruby.md)) and every dynamic script still compiles and runs per invocation, so all a pool actually saves is the host-side `Sandbox.new` — now about 3 µs, an order of magnitude below the invocation that follows it. For the workload kobako is built for — many small, short-lived Sandboxes running dynamic scripts — that is not a gain worth the coupling.
 
 ### Service Blocks
 
@@ -366,6 +401,8 @@ sandbox.eval('Factory::Make.call("Bob")').value        # => #<Greeter @name="Bob
 ```
 
 A `break` value from a guest block is the one exception: it unwinds back to the guest Service call rather than to host code, so a Handle in it stays a Handle — restoring would just re-wrap the same object into a new id on the return trip.
+
+#### One Handle per dispatch
 
 Each dispatch that hands back a non-wire-representable object allocates a *new* Handle — kobako never deduplicates by object identity ([`T-007`](docs/spec/behavior/transport-dispatch.md), [`T-009`](docs/spec/behavior/transport-dispatch.md)). This is most visible with fluent / builder APIs. An `ActiveRecord::Relation` chain `spawn`s a fresh relation at each step, so every hop is an independent dispatch that binds its own Handle:
 
@@ -416,6 +453,8 @@ A target no snippet defined raises `Kobako::UndefinedEntrypointError`, whose `#a
                        ▼
               return the Execution, then discard the instance
 ```
+
+#### Choosing a payload form
 
 `#preload` accepts two payload forms:
 
@@ -481,10 +520,21 @@ sandbox.bind("Cfg::Settings", ThemeReader.new)  # not: bind("Cfg::Settings", App
 sandbox.eval('Cfg::Settings.color').value  # => "#3366ff"  — every other method raises NoMethodError
 ```
 
+#### Gating an object's own surface
+
 When a purpose-built wrapper is more than you need, an object can gate its own surface in
 place: a private `respond_to_guest?(name)` answers, per method, whether the guest may call
 it. Returning `false` for every name makes the object opaque — a credential the guest
 forwards to another Service but never reads — while permitting a named subset exposes exactly those.
+
+```ruby
+class Credential
+  def initialize(token) = @token = token
+  def to_s = @token
+
+  private def respond_to_guest?(_name) = false  # forwardable, never readable
+end
+```
 
 Guest code can name any `MyService::KV` path, but a forged name only resolves to
 something you bound — the real authorization gate is this host-side allowlist. Give each
@@ -507,9 +557,17 @@ Order-of-magnitude figures on macOS arm64, Ruby 3.4.7, YJIT off. Absolute values
 | Snippet replay per invocation                                | ~7.0 µs each          |
 | Per additional idle Sandbox (RSS)                            | ~1 KB                 |
 
-The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance (the canonical boot state is baked into the artifact and instantiated per invocation), which is why a thousand idle tenants cost ~34 MB total. Under the default `gvl: :hold`, wasm work is GVL-serialized: aggregate throughput stays around 16k `#eval`/s regardless of Thread count, though Ruby-side `#eval` setup still overlaps. Opting a Sandbox into `gvl: :release` lifts that ceiling for compute-bound scripts (see [Concurrency](#concurrency)). A +10% regression on any SPEC-mandated benchmark blocks release.
+The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance (the canonical boot state is baked into the artifact and instantiated per invocation), which is why a thousand idle tenants cost ~34 MB total. A +10% regression on any SPEC-mandated benchmark blocks release.
 
-Regexp is an opt-in capability gem, excluded from the default binary and the gated set; its throughput is tracked in a separate non-gated characterization (`#11` in [`benchmark/README.md`](benchmark/README.md)). There `=~` (~5 µs/match) costs about 5× `match?` (~1.0 µs), because `=~` eagerly builds the `MatchData` and match globals — prefer `match?` for boolean tests.
+#### What moves the ceiling
+
+| Choice | What it changes |
+|---|---|
+| `gvl: :hold` (default) | wasm work is GVL-serialized: aggregate throughput stays around 16k `#eval`/s regardless of Thread count, though Ruby-side `#eval` setup still overlaps |
+| `gvl: :release` | lifts that ceiling for compute-bound scripts (see [Concurrency](#concurrency)) |
+| `match?` over `=~` | `=~` (~5 µs/match) costs about 5× `match?` (~1.0 µs), because it eagerly builds the `MatchData` and match globals — prefer `match?` for boolean tests |
+
+Regexp is an opt-in capability gem, excluded from the default binary and the gated set; its throughput is tracked in a separate non-gated characterization (`#11` in [`benchmark/README.md`](benchmark/README.md)).
 
 ```bash
 bundle exec rake bench  # every gated regression benchmark (~5-8 min)
@@ -530,7 +588,12 @@ Building from source requires a WASI-capable Rust toolchain in addition to the s
 
 Bug reports and pull requests are welcome at <https://github.com/elct9620/kobako>. Please open an issue before starting on non-trivial changes so we can align on scope.
 
-Releases are automated with release-please across two tracks — the gem and the linked guest-crate group. The version rules, commit conventions, and how to cut each release live in [`docs/releasing.md`](docs/releasing.md).
+Releases are automated with release-please across two tracks; the version rules, commit conventions, and how to cut each release live in [`docs/releasing.md`](docs/releasing.md).
+
+| Track | What it ships | Tag |
+|---|---|---|
+| Gem | the Ruby gem, with the bundled `kobako.wasm` | `v*` |
+| Crates | the linked guest-crate group | `<component>-v*` |
 
 ## License
 
