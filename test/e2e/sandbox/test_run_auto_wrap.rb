@@ -128,6 +128,25 @@ class TestSandboxRunAutoWrap < Minitest::Test
                  "must be refused by the host before the guest runs")
   end
 
+  # Refusing a gadget among the arguments is what keeps every id the
+  # invocation's Handle table holds one the guest was handed: the walk stops
+  # at the gadget, and the run it was wrapping never reaches the guest, so no
+  # id the walk had already issued is ever addressable.
+  # @behavior T-222
+  def test_reflective_gadget_argument_is_refused_before_the_guest_runs
+    entered = []
+    sandbox = probe_sandbox(-> { entered << true })
+
+    err = assert_raises(Kobako::SandboxError) { sandbox.run(:App, Body.new("body"), Kernel) }
+
+    assert_match(/a Module cannot cross as a Capability Handle/, err.message,
+                 "a #run argument handing over host reflection must be refused by name, so " \
+                 "the refusal is not mistaken for the sibling unwrappable-key one")
+    assert_empty entered,
+                 "a #run whose arguments hold a reflective gadget must fail before the " \
+                 "entrypoint runs, so no reference the walk had already issued is addressable"
+  end
+
   private
 
   # A list nesting +depth+ levels around an empty one.
@@ -137,5 +156,14 @@ class TestSandboxRunAutoWrap < Minitest::Test
 
   def entry_sandbox
     Kobako::Sandbox.new.tap { |sandbox| sandbox.preload(code: "App = ->(*, **) { nil }", name: :App) }
+  end
+
+  # A Sandbox whose entrypoint reports back to the host before it answers,
+  # so a run that never reaches the guest is told apart from one that did.
+  def probe_sandbox(probe)
+    Kobako::Sandbox.new.tap do |sandbox|
+      sandbox.bind("Probe::Entered", probe)
+      sandbox.preload(code: "App = ->(*args) { Probe::Entered.call; args }", name: :App)
+    end
   end
 end
