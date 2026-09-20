@@ -4,9 +4,9 @@
 //! This is the surface a payload codec is handed. A codec is the shell's
 //! choice and may come from outside this repository, so what it may do to
 //! the interpreter is what this module exposes and no more: mint a
-//! Handle, narrow an integer, and read a class name through
-//! `super::Kobako::mrb`. The dispatch bridge reaches the same surface for
-//! the ivar and funcall readers.
+//! Handle, tell one from a look-alike, narrow an integer, and read a class
+//! name through `super::Kobako::mrb`. The dispatch bridge reaches the same
+//! surface for the ivar and funcall readers.
 //!
 //! The two constructions carrying an invariant of their own — a minted
 //! Handle and a narrowed Integer — are reachable only by calling them.
@@ -111,6 +111,16 @@ impl Kobako {
     /// C bridge.
     pub fn set_handle_id(&self, target: Value, id_val: Value) -> Result<(), beni::Error> {
         target.iv_set(self.mrb(), HANDLE_ID_IVAR, id_val)
+    }
+
+    /// Whether `val` is a `Kobako::Handle` the decoder minted. The class the
+    /// registration holds answers it, never the value's class name: an
+    /// anonymous class takes the name of the constant it is assigned to, so
+    /// the guest can name a class of its own after this one. A codec asks
+    /// this before reading an id, the same question the dispatch seam asks
+    /// of a receiver.
+    pub fn is_handle(&self, val: Value) -> bool {
+        val.is_instance_of(self.mrb(), self.registrations.handle_class)
     }
 
     /// Read the `u32` Handle id stored in a `Kobako::Handle` instance's

@@ -47,8 +47,6 @@ A reflective gadget nested inside a container that crossed as a capability refer
 
 A reflective name on a capability reference to a callable is refused like one on a bound callable.
 
-An object carrying a capability reference's shape is refused when the guest hands it across as a value, as it already is when the guest dispatches through it.
-
 The guest's proxy refuses a reflective name on a capability reference just as it does on a bound constant.
 
 The guest proxy's refusal is a `NoMethodError` the guest may rescue.
@@ -491,3 +489,11 @@ A copy of a held reference keeps its identifier and dispatches to the same host 
 | Given | a bound object answering every name dynamically and carrying no narrowing predicate |
 | When | the guest calls a name it would answer |
 | Then | it answers as an undefined target |
+
+## `T-220` A look-alike reference carries none across as a value
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose guest built an object carrying the reference's shape and naming an identifier the host issued |
+| When | guest code hands it across as a dispatch argument |
+| Then | the guest refuses it and the object that identifier names is never reached |

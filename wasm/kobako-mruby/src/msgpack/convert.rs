@@ -226,21 +226,23 @@ impl Kobako {
         if let Some(f) = f64::from_value(val) {
             return Some(CodecValue::Float(f));
         }
+        // A Capability Handle the guest received earlier this invocation is
+        // wire-representable: re-emit it as ext 0x01 so the host restores the
+        // original object. Asked by identity ahead of the name table, as the
+        // dispatch seam asks it of a receiver; id 0 means a missing or forged
+        // ivar, so it is unrepresentable rather than a wire-violation Handle.
+        if self.is_handle(val) {
+            return match self.extract_handle_id(val) {
+                0 => None,
+                id => Some(CodecValue::Handle(id)),
+            };
+        }
         match val.classname(self.mrb()).as_str() {
             "NilClass" => Some(CodecValue::Nil),
             "TrueClass" => Some(CodecValue::Bool(true)),
             "FalseClass" => Some(CodecValue::Bool(false)),
             "String" => string_to_codec(val),
             "Symbol" => symbol_to_codec(self, val),
-            // A Capability Handle the guest received earlier this
-            // invocation is wire-representable: re-emit it as ext 0x01 so
-            // the host restores the original object.
-            // id 0 means a missing or forged ivar — treat as
-            // unrepresentable rather than emit a wire-violation Handle.
-            "Kobako::Handle" => match self.extract_handle_id(val) {
-                0 => None,
-                id => Some(CodecValue::Handle(id)),
-            },
             // A single unrepresentable element collapses the whole
             // collection to `None` — `collect::<Option<Vec<_>>>()`
             // short-circuits on the first `None`. Past `MAX_NESTING_DEPTH`
