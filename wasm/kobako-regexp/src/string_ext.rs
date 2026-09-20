@@ -6,9 +6,11 @@
 //! `slice!` / `index` / `split` keep their non-regexp behaviour by delegating
 //! back to the preserved core methods whenever the argument is not a `Regexp`.
 
+use crate::args::{rest, rest_block};
 use crate::errors::{argument_error, index_error, type_error};
 use crate::regexp;
-use beni::{format, Error, FromValue, Module, Mrb, Proc, Value};
+use beni::prelude::*;
+use beni::{Error, IntoValue, Mrb, Proc, Value};
 use core::ffi::CStr;
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
@@ -21,7 +23,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.alias_method(mrb, c"__kobako_index", c"index")?;
     cls.alias_method(mrb, c"__kobako_split", c"split")?;
 
-    cls.define_method(mrb, c"=~", beni::method!(str_eqtilde, -1))?;
+    cls.define_method(mrb, c"=~", beni::method!(str_eqtilde, 1))?;
     cls.define_method(mrb, c"match", beni::method!(str_match, -1))?;
     cls.define_method(mrb, c"match?", beni::method!(str_match_p, -1))?;
     cls.define_method(mrb, c"scan", beni::method!(str_scan, -1))?;
@@ -39,8 +41,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 /// `String#=~` (MRI semantics): a `Regexp` operand matches; a `String`
 /// operand is a type error (a literal is not a pattern); any other operand is
 /// dispatched to its own `=~`, which falls through to `Kernel#=~` (nil).
-fn str_eqtilde(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let arg = mrb.get_args::<format::O>();
+fn str_eqtilde(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, Error> {
     if arg.is_string() {
         return Err(type_error(mrb, "type mismatch: String given"));
     }
@@ -48,7 +49,7 @@ fn str_eqtilde(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 fn str_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (args, block) = mrb.get_args::<format::RestBlock>();
+    let (args, block) = rest_block(mrb)?;
     if args.is_empty() {
         return Ok(Value::nil());
     }
@@ -61,7 +62,7 @@ fn str_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 fn str_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = mrb.get_args::<format::Rest>();
+    let args = rest(mrb)?;
     if args.is_empty() {
         return Ok(Value::false_());
     }
@@ -73,7 +74,7 @@ fn str_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 fn str_scan(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (args, block) = mrb.get_args::<format::RestBlock>();
+    let (args, block) = rest_block(mrb)?;
     let result = mrb.ary_new();
     if args.is_empty() {
         return Ok(result.as_value());
@@ -81,7 +82,6 @@ fn str_scan(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let re = regexp::coerce_regexp(mrb, args[0])?;
     let subject = regexp::text_of(mrb, self_)?;
     let spans = regexp::match_spans(mrb, re, &subject)?;
-    let block = Proc::from_value(block);
     for span in &spans {
         let item = scan_item(mrb, &subject, span)?;
         match block {
@@ -114,11 +114,10 @@ fn scan_item(mrb: &Mrb, subject: &str, span: &regexp::MatchSpan) -> Result<Value
 }
 
 fn str_gsub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (args, block) = mrb.get_args::<format::RestBlock>();
+    let (args, block) = rest_block(mrb)?;
     if args.is_empty() {
         return Ok(self_);
     }
-    let block = Proc::from_value(block);
     let replacement = args.get(1).copied();
     // With neither a block nor a replacement, gsub yields an Enumerator over
     // the matches (as MRI does); the guest must provide Enumerator for it.
@@ -141,11 +140,10 @@ fn str_gsub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 fn str_sub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (args, block) = mrb.get_args::<format::RestBlock>();
+    let (args, block) = rest_block(mrb)?;
     if args.is_empty() {
         return Ok(self_);
     }
-    let block = Proc::from_value(block);
     let replacement = args.get(1).copied();
     // Unlike gsub, sub has no Enumerator form: a block or a replacement is
     // required.
@@ -218,9 +216,9 @@ fn enum_for(mrb: &Mrb, self_: Value, method: &CStr, pattern: Value) -> Result<Va
 /// empty fields; a negative limit keeps them. A non-`Regexp` argument delegates
 /// to the core method, which handles its own limit.
 fn str_split(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = mrb.get_args::<format::Rest>();
+    let args = rest(mrb)?;
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
-        return self_.funcall(mrb, c"__kobako_split", args);
+        return self_.funcall(mrb, c"__kobako_split", &args);
     }
     let subject = regexp::text_of(mrb, self_)?;
     let limit = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0);
@@ -263,9 +261,9 @@ fn str_split(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// or `nil`. A non-`Regexp` argument delegates to the core method, which
 /// handles its own `pos`.
 fn str_index(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = mrb.get_args::<format::Rest>();
+    let args = rest(mrb)?;
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
-        return self_.funcall(mrb, c"__kobako_index", args);
+        return self_.funcall(mrb, c"__kobako_index", &args);
     }
     let subject = regexp::text_of(mrb, self_)?;
     let pos = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0);
@@ -275,25 +273,22 @@ fn str_index(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let tail = mrb.str_new(&subject.as_bytes()[start..]).as_value();
     Ok(
         match i32::from_value(args[0].funcall(mrb, c"=~", &[tail])?) {
-            Some(offset) => Value::from_int(mrb, (i64::from(offset) + start as i64) as _),
+            Some(offset) => ((i64::from(offset) + start as i64) as i32).into_value(mrb),
             None => Value::nil(),
         },
     )
 }
 
 fn str_aref(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = mrb.get_args::<format::Rest>();
+    let args = rest(mrb)?;
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
-        return self_.funcall(mrb, c"__kobako_aref", args);
+        return self_.funcall(mrb, c"__kobako_aref", &args);
     }
     let md = args[0].funcall(mrb, c"match", &[self_])?;
     if md.is_nil() {
         return Ok(Value::nil());
     }
-    let group = args
-        .get(1)
-        .copied()
-        .unwrap_or_else(|| Value::from_int(mrb, 0));
+    let group = args.get(1).copied().unwrap_or_else(|| 0i32.into_value(mrb));
     md.funcall(mrb, c"[]", &[group])
 }
 
@@ -303,12 +298,12 @@ fn str_aref(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// argument delegates to the core method. A non-matching pattern raises
 /// `IndexError`, as `str[regexp] = x` does in MRI.
 fn str_aset(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = mrb.get_args::<format::Rest>();
+    let args = rest(mrb)?;
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
-        return self_.funcall(mrb, c"__kobako_aset", args);
+        return self_.funcall(mrb, c"__kobako_aset", &args);
     }
     let (group, replacement) = match args.len() {
-        2 => (Value::from_int(mrb, 0), args[1]),
+        2 => (0i32.into_value(mrb), args[1]),
         3 => (args[1], args[2]),
         n => {
             return Err(argument_error(
@@ -326,7 +321,7 @@ fn str_aset(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let (Some(b), Some(e)) = (i32::from_value(begin), i32::from_value(end)) else {
         return Err(index_error(mrb, "regexp not matched"));
     };
-    let len = Value::from_int(mrb, (e - b) as _);
+    let len = (e - b).into_value(mrb);
     self_.funcall(mrb, c"__kobako_aset", &[begin, len, replacement])?;
     Ok(self_)
 }
@@ -338,17 +333,17 @@ fn str_aset(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// form deletes through the core `[]=`. Returns `nil`, leaving the string
 /// untouched, when nothing matched.
 fn str_slice_bang(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = mrb.get_args::<format::Rest>();
+    let args = rest(mrb)?;
     let Some(&nth) = args.first() else {
         return Err(argument_error(
             mrb,
             "wrong number of arguments (given 0, expected 1..2)",
         ));
     };
-    let result = self_.funcall(mrb, c"slice", args)?;
+    let result = self_.funcall(mrb, c"slice", &args)?;
     let regexp_form = regexp::is_regexp(mrb, nth);
-    let saved = regexp_form.then(|| mrb.gv_get(mrb.intern_cstr(c"$~")));
-    if !result.is_nil() && slice_bang_should_delete(mrb, self_, args, regexp_form)? {
+    let saved = regexp_form.then(|| mrb.gv_get(c"$~"));
+    if !result.is_nil() && slice_bang_should_delete(mrb, self_, &args, regexp_form)? {
         let empty = mrb.str_new(b"").as_value();
         match args.get(1) {
             Some(&len) => self_.funcall(mrb, c"[]=", &[nth, len, empty])?,
@@ -356,7 +351,7 @@ fn str_slice_bang(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         };
     }
     if let Some(last_match) = saved {
-        mrb.gv_set(mrb.intern_cstr(c"$~"), last_match);
+        let _ = mrb.gv_set(c"$~", last_match);
     }
     Ok(result)
 }

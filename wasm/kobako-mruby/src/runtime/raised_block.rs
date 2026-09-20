@@ -26,6 +26,7 @@
 //! owns its own `wasmtime::Instance` and therefore its own copy of this
 //! module-level static.
 
+use beni::sys::AsRawValue;
 use beni::Value;
 
 use core::cell::UnsafeCell;

@@ -7,6 +7,7 @@
 //! Coverage tracks the curated regexp engine's
 //! surface, not the full CRuby API; match offsets are byte-based.
 
+mod args;
 mod errors;
 mod kernel_ext;
 mod matchdata;

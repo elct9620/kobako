@@ -10,18 +10,20 @@
 
 use crate::convert;
 use crate::errors;
-use beni::{format, Error, FromValue, Hash, Module, Mrb, RString, Symbol, Value};
+use beni::prelude::*;
+use beni::scan_args::scan_args;
+use beni::{Error, Hash, Module, Mrb, RString, Symbol, Value};
 
 /// Define the `JSON` module, its three functions, and the `as_json`
 /// serialization hook on `Object`.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     let json = mrb.define_module(c"JSON")?;
     json.define_module_function(mrb, c"parse", beni::method!(json_parse, -1))?;
-    json.define_module_function(mrb, c"generate", beni::method!(json_generate, -1))?;
+    json.define_module_function(mrb, c"generate", beni::method!(json_generate, 1))?;
     json.define_module_function(
         mrb,
         c"pretty_generate",
-        beni::method!(json_pretty_generate, -1),
+        beni::method!(json_pretty_generate, 1),
     )?;
 
     // An object joins `generate` by overriding this; the `Object`-rooted
@@ -36,13 +38,14 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
 /// into native mruby values. A non-`String` source is a `TypeError`;
 /// malformed input is a `JSON::ParserError`.
 fn json_parse(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    let args = mrb.get_args::<format::Rest>();
-    let source = args.first().copied().unwrap_or(Value::nil());
+    let args = scan_args::<(Value,), (Option<Value>,), (), (), (), ()>(mrb)?;
+    let (source,) = args.required;
     let rstr = RString::from_value(source)
         .ok_or_else(|| errors::type_error(mrb, "no implicit conversion of argument into String"))?;
     // Read the option before borrowing the source bytes — the lookup is
     // an mruby call that may move the heap.
-    let symbolize = symbolize_names(mrb, args.get(1).copied());
+    let (opts,) = args.optional;
+    let symbolize = symbolize_names(mrb, opts);
     // SAFETY: the slice is consumed by `from_slice` before `decode`
     // allocates any mruby value, so the source string cannot move
     // underneath it; `arbitrary_precision` leaves the parsed tree owning
@@ -54,14 +57,12 @@ fn json_parse(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
 }
 
 /// `JSON.generate(obj)` — a compact JSON `String`.
-fn json_generate(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    let obj = mrb.get_args::<format::O>();
+fn json_generate(mrb: &Mrb, _self: Value, obj: Value) -> Result<Value, Error> {
     emit(mrb, obj, false)
 }
 
 /// `JSON.pretty_generate(obj)` — an indented JSON `String`.
-fn json_pretty_generate(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    let obj = mrb.get_args::<format::O>();
+fn json_pretty_generate(mrb: &Mrb, _self: Value, obj: Value) -> Result<Value, Error> {
     emit(mrb, obj, true)
 }
 
@@ -99,6 +100,10 @@ fn symbolize_names(mrb: &Mrb, opts: Option<Value>) -> bool {
     let Some(hash) = Hash::from_value(opts) else {
         return false;
     };
-    let key = Symbol::new(mrb, c"symbolize_names").as_value();
-    hash.get(mrb, key).map(|v| v.to_bool()).unwrap_or(false)
+    let Ok(key) = Symbol::new(mrb, c"symbolize_names") else {
+        return false;
+    };
+    hash.get(mrb, key.as_value())
+        .map(|v| v.to_bool())
+        .unwrap_or(false)
 }

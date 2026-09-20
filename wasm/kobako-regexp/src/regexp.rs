@@ -22,7 +22,8 @@ pub(crate) use replace::{expand_replacement, match_spans, MatchSpan};
 
 use crate::errors::{argument_error, regexp_error, type_error};
 use crate::translate;
-use beni::{format, DataType, Error, FromValue, Module, Mrb, Object, Proc, Value};
+use beni::prelude::*;
+use beni::{DataType, Error, IntoValue, Mrb, Proc, RClass, TryConvert, TypedData, Value};
 use lru::LruCache;
 use std::cell::RefCell;
 use std::num::NonZeroUsize;
@@ -30,13 +31,19 @@ use std::sync::Arc;
 
 /// Compiled pattern plus the metadata `#source` / `#options` / `#casefold?`
 /// report without an engine getter.
+#[derive(Clone)]
+#[beni::wrap(class = "Regexp", name = "Kobako::Regexp")]
 pub(crate) struct RegexpState {
     regex: Arc<fancy_regex::Regex>,
     source: String,
     options: i64,
 }
 
-static REGEXP_TYPE: DataType<RegexpState> = DataType::new(c"Kobako::Regexp");
+/// The compiled pattern a value carries, if it is a `Regexp` — the read
+/// every site that holds a bare `Value` rather than a typed receiver makes.
+pub(crate) fn state_of(mrb: &Mrb, value: Value) -> Option<&RegexpState> {
+    <&RegexpState>::try_convert(value, mrb).ok()
+}
 
 /// Per-invocation memoization of compiled patterns, keyed by
 /// `(source, options)`. Bounded so it cannot grow without limit within
@@ -47,6 +54,18 @@ struct CompileCache {
 }
 
 static COMPILE_CACHE_TYPE: DataType<CompileCache> = DataType::new(c"Kobako::RegexpCompileCache");
+
+// SAFETY: the cache wraps as `Object`, which mruby exempts from the
+// data-mark requirement.
+unsafe impl TypedData for CompileCache {
+    fn class(mrb: &Mrb) -> RClass {
+        mrb.object_class()
+    }
+
+    fn data_type() -> &'static DataType<Self> {
+        &COMPILE_CACHE_TYPE
+    }
+}
 
 /// The interpreter global the compile cache hangs from, keeping it reachable
 /// for the GC until the interpreter closes.
@@ -76,22 +95,24 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     mrb.define_class(c"RegexpError", mrb.class_get(c"StandardError")?)?;
 
     let cls = mrb.define_class(c"Regexp", mrb.object_class())?;
-    cls.set_instance_data_tt(mrb);
+    cls.set_instance_data_tt(mrb)?;
 
+    // The archive is built MRB_INT32, so an option flag crosses into the
+    // value domain as the width mruby actually carries.
     cls.define_const(
         mrb,
         c"IGNORECASE",
-        Value::from_int(mrb, translate::IGNORECASE as _),
+        (translate::IGNORECASE as i32).into_value(mrb),
     )?;
     cls.define_const(
         mrb,
         c"EXTENDED",
-        Value::from_int(mrb, translate::EXTENDED as _),
+        (translate::EXTENDED as i32).into_value(mrb),
     )?;
     cls.define_const(
         mrb,
         c"MULTILINE",
-        Value::from_int(mrb, translate::MULTILINE as _),
+        (translate::MULTILINE as i32).into_value(mrb),
     )?;
 
     cls.define_singleton_method(mrb, c"new", beni::method!(rx_compile, -1))?;
@@ -99,12 +120,12 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.define_singleton_method(mrb, c"escape", beni::method!(rx_escape, -1))?;
     cls.define_singleton_method(mrb, c"quote", beni::method!(rx_escape, -1))?;
     cls.define_singleton_method(mrb, c"last_match", beni::method!(rx_last_match, 0))?;
-    cls.define_singleton_method(mrb, c"last_match=", beni::method!(rx_set_last_match, -1))?;
+    cls.define_singleton_method(mrb, c"last_match=", beni::method!(rx_set_last_match, 1))?;
 
     cls.define_method(mrb, c"match", beni::method!(rx_match, -1))?;
     cls.define_method(mrb, c"match?", beni::method!(rx_match_p, -1))?;
-    cls.define_method(mrb, c"=~", beni::method!(rx_eqtilde, -1))?;
-    cls.define_method(mrb, c"===", beni::method!(rx_eqq, -1))?;
+    cls.define_method(mrb, c"=~", beni::method!(rx_eqtilde, 1))?;
+    cls.define_method(mrb, c"===", beni::method!(rx_eqq, 1))?;
     cls.define_method(mrb, c"source", beni::method!(rx_source, 0))?;
     cls.define_method(mrb, c"options", beni::method!(rx_options, 0))?;
     cls.define_method(mrb, c"casefold?", beni::method!(rx_casefold, 0))?;
@@ -112,41 +133,26 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.define_method(mrb, c"names", beni::method!(rx_names, 0))?;
     cls.define_method(mrb, c"inspect", beni::method!(rx_inspect, 0))?;
     cls.define_method(mrb, c"to_s", beni::method!(rx_to_s, 0))?;
-    cls.define_method(mrb, c"==", beni::method!(rx_eq, -1))?;
+    cls.define_method(mrb, c"==", beni::method!(rx_eq, 1))?;
+    // A copy carries a clone of the compiled pattern rather than
+    // recompiling it; a carrier's payload cannot be replaced after the
+    // fact, so the copy is made where it is allocated.
     cls.define_method(
         mrb,
-        c"initialize_copy",
-        beni::method!(rx_initialize_copy, -1),
+        c"dup",
+        beni::method!(<RegexpState as beni::typed_data::Dup>::dup, 0),
+    )?;
+    cls.define_method(
+        mrb,
+        c"clone",
+        beni::method!(<RegexpState as beni::typed_data::Dup>::clone, -1),
     )?;
 
     // Install the per-invocation compile cache, rooted on an interpreter
     // global so the GC keeps it alive for the invocation and frees it at close.
-    let cache = mrb
-        .object_class()
-        .data_wrap(mrb, CompileCache::new(), &COMPILE_CACHE_TYPE)
-        .expect("Object carries a CDATA payload by mruby's object_class exemption");
-    mrb.gv_set(mrb.intern_cstr(COMPILE_CACHE_GVAR), cache);
+    let cache = mrb.wrap(CompileCache::new()).as_value();
+    mrb.gv_set(COMPILE_CACHE_GVAR, cache)?;
     Ok(())
-}
-
-/// `initialize_copy` — the body mruby's `dup` / `clone` run on the freshly
-/// allocated bare copy. The copy reuses `other`'s compiled
-/// pattern instead of recompiling; without this the copy would carry no payload
-/// and every accessor would fail.
-fn rx_initialize_copy(mrb: &Mrb, self_: Value) -> Value {
-    let other = mrb.get_args::<format::O>();
-    if let Some(state) = other.data_get(mrb, &REGEXP_TYPE) {
-        self_.data_reinit(
-            mrb,
-            RegexpState {
-                regex: state.regex.clone(),
-                source: state.source.clone(),
-                options: state.options,
-            },
-            &REGEXP_TYPE,
-        );
-    }
-    self_
 }
 
 /// Fancy-mode backtracking ceiling. A pattern that exceeds it fails with
@@ -159,7 +165,7 @@ const BACKTRACK_LIMIT: usize = 1_000_000;
 /// `Regexp.new` / `Regexp.compile` / literal compilation. The flags
 /// argument is an Integer option mask, a letter String (`"im"`), or nil.
 fn rx_compile(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    let args = mrb.get_args::<format::Rest>();
+    let args = crate::args::rest(mrb)?;
     if args.is_empty() {
         return Err(argument_error(
             mrb,
@@ -198,25 +204,18 @@ fn compile(mrb: &Mrb, source: String, options: i64) -> Result<Value, Error> {
 /// Wrap a compiled pattern — freshly built or shared from the cache — as a new
 /// `Regexp` object carrying its own `source` and `options`.
 fn wrap_regexp(mrb: &Mrb, regex: Arc<fancy_regex::Regex>, source: String, options: i64) -> Value {
-    let cls = mrb
-        .class_get(c"Regexp")
-        .expect("Regexp is defined at gem init");
-    cls.data_wrap(
-        mrb,
-        RegexpState {
-            regex,
-            source,
-            options,
-        },
-        &REGEXP_TYPE,
-    )
-    .expect("Regexp is data-marked at gem init")
+    mrb.wrap(RegexpState {
+        regex,
+        source,
+        options,
+    })
+    .as_value()
 }
 
 /// Run `f` against the per-invocation compile cache when it is installed.
 fn with_compile_cache<R>(mrb: &Mrb, f: impl FnOnce(&CompileCache) -> R) -> Option<R> {
-    let value = mrb.gv_get(mrb.intern_cstr(COMPILE_CACHE_GVAR));
-    value.data_get(mrb, &COMPILE_CACHE_TYPE).map(f)
+    let value = mrb.gv_get(COMPILE_CACHE_GVAR);
+    <&CompileCache>::try_convert(value, mrb).ok().map(f)
 }
 
 /// The engine cached for `(source, options)`, if present.
@@ -278,7 +277,7 @@ fn match_pos(subject: &str, args: &[Value]) -> Option<usize> {
 }
 
 fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (args, block) = mrb.get_args::<format::RestBlock>();
+    let (args, block) = crate::args::rest_block(mrb)?;
     let Some(&arg) = args.first() else {
         return Ok(Value::nil());
     };
@@ -286,7 +285,7 @@ fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         return Ok(Value::nil());
     }
     let subject = subject_string(mrb, arg)?;
-    let Some(pos) = match_pos(&subject, args) else {
+    let Some(pos) = match_pos(&subject, &args) else {
         return Ok(Value::nil());
     };
     let md = do_match(mrb, self_, subject, pos)?;
@@ -296,15 +295,15 @@ fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// On a hit, yield the `MatchData` to a given block and return its result
 /// (mirroring `Regexp#match`'s block form); on a miss, or with no block,
 /// return the `MatchData`/`nil` directly. The block is never called on a miss.
-pub(crate) fn yield_match(mrb: &Mrb, md: Value, block: Value) -> Result<Value, Error> {
-    match Proc::from_value(block) {
+pub(crate) fn yield_match(mrb: &Mrb, md: Value, block: Option<Proc>) -> Result<Value, Error> {
+    match block {
         Some(b) if !md.is_nil() => b.call(mrb, &[md]),
         _ => Ok(md),
     }
 }
 
 fn rx_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = mrb.get_args::<format::Rest>();
+    let args = crate::args::rest(mrb)?;
     let Some(&arg) = args.first() else {
         return Ok(Value::false_());
     };
@@ -312,10 +311,10 @@ fn rx_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         return Ok(Value::false_());
     }
     let subject = subject_string(mrb, arg)?;
-    let Some(pos) = match_pos(&subject, args) else {
+    let Some(pos) = match_pos(&subject, &args) else {
         return Ok(Value::false_());
     };
-    let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
+    let Some(state) = state_of(mrb, self_) else {
         return Ok(Value::false_());
     };
     match state.regex.find_from_pos(&subject, pos) {
@@ -325,8 +324,7 @@ fn rx_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     }
 }
 
-fn rx_eqtilde(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let arg = mrb.get_args::<format::O>();
+fn rx_eqtilde(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, Error> {
     if arg.is_nil() {
         return Ok(Value::nil());
     }
@@ -335,12 +333,11 @@ fn rx_eqtilde(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     if md.is_nil() {
         Ok(Value::nil())
     } else {
-        md.funcall(mrb, c"begin", &[Value::from_int(mrb, 0)])
+        md.funcall(mrb, c"begin", &[0i32.into_value(mrb)])
     }
 }
 
-fn rx_eqq(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let arg = mrb.get_args::<format::O>();
+fn rx_eqq(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, Error> {
     if arg.is_nil() {
         return Ok(Value::false_());
     }
@@ -354,39 +351,31 @@ fn rx_eqq(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     }
 }
 
-fn rx_source(mrb: &Mrb, self_: Value) -> Value {
-    match self_.data_get(mrb, &REGEXP_TYPE) {
-        Some(state) => mrb.str_new(state.source.as_bytes()).as_value(),
-        None => Value::nil(),
-    }
+fn rx_source(mrb: &Mrb, state: &RegexpState) -> Value {
+    mrb.str_new(state.source.as_bytes()).as_value()
 }
 
-fn rx_options(mrb: &Mrb, self_: Value) -> Value {
-    match self_.data_get(mrb, &REGEXP_TYPE) {
-        Some(state) => Value::from_int(mrb, state.options as _),
-        None => Value::from_int(mrb, 0),
-    }
+fn rx_options(mrb: &Mrb, state: &RegexpState) -> Value {
+    (state.options as i32).into_value(mrb)
 }
 
-fn rx_casefold(mrb: &Mrb, self_: Value) -> Value {
-    match self_.data_get(mrb, &REGEXP_TYPE) {
-        Some(state) if state.options & translate::IGNORECASE != 0 => Value::true_(),
-        _ => Value::false_(),
+fn rx_casefold(_mrb: &Mrb, state: &RegexpState) -> Value {
+    if state.options & translate::IGNORECASE != 0 {
+        Value::true_()
+    } else {
+        Value::false_()
     }
 }
 
 /// `Regexp#named_captures` — a Hash mapping each capture name to the list of
 /// group numbers carrying it (`{name => [index]}`). Names are listed in
 /// declaration order; a same-named group appends its index.
-fn rx_named_captures(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
-        return Ok(Value::nil());
-    };
+fn rx_named_captures(mrb: &Mrb, state: &RegexpState) -> Result<Value, Error> {
     let map = mrb.hash_new();
     for (name, indexes) in named_groups(state) {
         let array = mrb.ary_new();
         for index in indexes {
-            array.push(mrb, Value::from_int(mrb, index as _))?;
+            array.push(mrb, (index as i32).into_value(mrb))?;
         }
         map.set(
             mrb,
@@ -400,7 +389,7 @@ fn rx_named_captures(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// `Regexp#names` — the capture names in declaration order (the keys of
 /// `#named_captures`).
 fn rx_names(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
+    let Some(state) = state_of(mrb, self_) else {
         return Ok(Value::nil());
     };
     let names = mrb.ary_new();
@@ -425,7 +414,7 @@ fn named_groups(state: &RegexpState) -> Vec<(&str, Vec<usize>)> {
 }
 
 fn rx_inspect(mrb: &Mrb, self_: Value) -> Value {
-    let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
+    let Some(state) = state_of(mrb, self_) else {
         return Value::nil();
     };
     mrb.str_new(
@@ -440,7 +429,7 @@ fn rx_inspect(mrb: &Mrb, self_: Value) -> Value {
 }
 
 fn rx_to_s(mrb: &Mrb, self_: Value) -> Value {
-    let Some(state) = self_.data_get(mrb, &REGEXP_TYPE) else {
+    let Some(state) = state_of(mrb, self_) else {
         return Value::nil();
     };
     let (options, body) = match render::lift_inline_group(&state.source) {
@@ -456,12 +445,8 @@ fn rx_to_s(mrb: &Mrb, self_: Value) -> Value {
     mrb.str_new(rendered.as_bytes()).as_value()
 }
 
-fn rx_eq(mrb: &Mrb, self_: Value) -> Value {
-    let arg = mrb.get_args::<format::O>();
-    let (Some(this), Some(other)) = (
-        self_.data_get(mrb, &REGEXP_TYPE),
-        arg.data_get(mrb, &REGEXP_TYPE),
-    ) else {
+fn rx_eq(mrb: &Mrb, self_: Value, arg: Value) -> Value {
+    let (Some(this), Some(other)) = (state_of(mrb, self_), state_of(mrb, arg)) else {
         return Value::false_();
     };
     if this.source == other.source && this.options == other.options {
@@ -475,20 +460,19 @@ fn rx_eq(mrb: &Mrb, self_: Value) -> Value {
 /// from `$~`. MRI keeps the two in lock-step and the gem refreshes `$~` on
 /// every match, so no separate state is needed.
 fn rx_last_match(mrb: &Mrb, _self: Value) -> Value {
-    mrb.gv_get(mrb.intern_cstr(c"$~"))
+    mrb.gv_get(c"$~")
 }
 
 /// `Regexp.last_match=` — overwrite `$~` and refresh its derived views (the
 /// numbered and special globals) so a caller can save and restore the whole
 /// match set around an inner match (`String#slice!` relies on this).
-fn rx_set_last_match(mrb: &Mrb, _self: Value) -> Value {
-    let value = mrb.get_args::<format::O>();
+fn rx_set_last_match(mrb: &Mrb, _self: Value, value: Value) -> Value {
     globals::set_last_match(mrb, value);
     value
 }
 
 fn rx_escape(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    let args = mrb.get_args::<format::Rest>();
+    let args = crate::args::rest(mrb)?;
     if args.is_empty() {
         return Err(argument_error(
             mrb,
@@ -504,7 +488,7 @@ fn rx_escape(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
 /// `MatchData` and refreshing the match globals on a hit, clearing them on
 /// a miss, and raising `RegexpError` on an engine error.
 fn do_match(mrb: &Mrb, regexp: Value, subject: String, pos: usize) -> Result<Value, Error> {
-    let Some(state) = regexp.data_get(mrb, &REGEXP_TYPE) else {
+    let Some(state) = state_of(mrb, regexp) else {
         return Ok(Value::nil());
     };
     match state.regex.captures_from_pos(&subject, pos) {
@@ -533,7 +517,7 @@ fn do_match(mrb: &Mrb, regexp: Value, subject: String, pos: usize) -> Result<Val
 
 /// True when `value` is a `Regexp` carrier.
 pub(crate) fn is_regexp(mrb: &Mrb, value: Value) -> bool {
-    value.data_get(mrb, &REGEXP_TYPE).is_some()
+    state_of(mrb, value).is_some()
 }
 
 /// Coerce a String method's pattern argument to a `Regexp`: a `Regexp`

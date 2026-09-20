@@ -42,14 +42,13 @@
 //!
 //! ## Safety
 //!
-//! The `method!`-generated bridges hand each body a borrowed `&Mrb`,
-//! so the bodies are safe Rust with explicit `unsafe { ... }` blocks
-//! only at the remaining FFI call sites (`resolve_raw`, the divergent
-//! raises). A divergent raise long-jumps over the macro's bridge
-//! frame, which holds no values needing `Drop` — the same contract
-//! the raw bridges upheld.
+//! The `method!`-generated bridges hand each body a borrowed `&Mrb`, and
+//! a body reports a failure as `Err(beni::Error)` for the macro to raise
+//! at the guest call site. Nothing long-jumps over a Rust frame, so
+//! `resolve_raw` is the one `unsafe` left here.
 
-use beni::{Module, Mrb, Value};
+use beni::prelude::*;
+use beni::{Array, Hash, Mrb, Proc, Symbol, Value};
 
 use crate::codec::CodecError;
 use crate::runtime::codec_slot;
@@ -87,17 +86,17 @@ const REFLECTION_DENYLIST: &[&str] = &[
     "unbind",
 ];
 
-/// Raise `NoMethodError` for a reflection method the guest proxy refuses
-/// to forward, naming the method without leaking host detail.
-fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
-    let nomethod = mrb
-        .exc_get(c"NoMethodError")
-        .expect("NoMethodError is an mruby core class");
-    let message = std::ffi::CString::new(format!("{method_name} is not a Kobako Service method"))
-        .unwrap_or_default();
-    // SAFETY: bridge frame — mruby unwinds through `mrb_raise`, the same
-    // exit path the Service / transport raises in the dispatch body take.
-    unsafe { nomethod.raise(mrb, &message) }
+/// `NoMethodError` for a reflection method the guest proxy refuses to
+/// forward, naming the method without leaking host detail.
+fn reflection_blocked(mrb: &Mrb, method_name: &str) -> beni::Error {
+    match mrb.exc_get(c"NoMethodError") {
+        Ok(nomethod) => beni::Error::new(
+            mrb,
+            nomethod,
+            &format!("{method_name} is not a Kobako Service method"),
+        ),
+        Err(err) => err,
+    }
 }
 
 /// Full guest→host dispatch from the active mruby call frame — the
@@ -120,36 +119,41 @@ fn raise_reflection_blocked(mrb: &Mrb, method_name: &str) -> Value {
 fn forward_to_dispatch(
     kobako: super::Kobako,
     target: kobako_transport::envelope::Target<'_>,
-    sym_err_msg: &core::ffi::CStr,
-    envelope_err_msg: &core::ffi::CStr,
-) -> Value {
+    sym_err_msg: &str,
+    envelope_err_msg: &str,
+) -> Result<Value, beni::Error> {
     use crate::refusal::Position;
 
     use crate::dispatch::{dispatch, DispatchError};
     use kobako_transport::envelope::FaultKind;
 
-    let (method_sym, rest, kwargs_hash, block) =
-        kobako.mrb().get_args::<beni::format::NRestKwBlock>();
+    let args =
+        beni::scan_args::scan_args::<(Symbol,), (), Array, (), Hash, Option<Proc>>(kobako.mrb())?;
+    let (method_sym,) = args.required;
+    let rest = args.splat.to_vec::<Value>(kobako.mrb())?;
+    let kwargs_hash = args.keywords;
+    // A call with no block reaches dispatch as `nil`, the spelling
+    // `BlockFrame::push_if_block` reads to mean none was passed.
+    let block = args.block.map_or_else(Value::nil, Proc::as_value);
 
-    let method_name = match kobako.mrb().sym_name(method_sym) {
+    let method_name = match kobako.mrb().sym_name(method_sym.into()) {
         Some(name) => name,
-        None => unsafe { kobako.raise_transport_error(sym_err_msg) },
+        None => return Err(kobako.transport_error(sym_err_msg)),
     };
 
     // Guest-side mirror of the host's reflection rejection:
     // refuse to forward an ambient reflection / eval name. Non-authoritative
     // — the host re-checks on the resolved method owner.
     if REFLECTION_DENYLIST.contains(&method_name.as_str()) {
-        return raise_reflection_blocked(kobako.mrb(), &method_name);
+        return Err(reflection_blocked(kobako.mrb(), &method_name));
     }
 
     // An argument (or kwargs value) with no representation in this guest's
     // schema is rejected at the dispatch call site rather than coerced to
     // an Object#to_s string, uniform with the return / yield rejection.
-    let payload = match codec_slot::get().encode_call_arguments(&kobako, rest, kwargs_hash) {
+    let payload = match codec_slot::get().encode_call_arguments(&kobako, &rest, kwargs_hash) {
         Ok(payload) => payload,
-        // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-        Err(err) => unsafe { raise_refusal(&kobako, Position::CallArguments, err) },
+        Err(err) => return Err(refusal(&kobako, Position::CallArguments, err)),
     };
 
     // The block parks for the call's duration inside `dispatch`, so every
@@ -164,9 +168,8 @@ fn forward_to_dispatch(
         // A dispatch return value the guest cannot represent raises in the
         // calling guest code (docs/wire/payload-msgpack.md § Integer Range).
         Ok(body) => match codec_slot::get().decode_reply_value(&kobako, &body) {
-            Ok(value) => value,
-            // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-            Err(err) => unsafe { raise_refusal(&kobako, Position::ReplyValue, err) },
+            Ok(value) => Ok(value),
+            Err(err) => Err(refusal(&kobako, Position::ReplyValue, err)),
         },
         // The fault arm is the normal path for a Service raising. The
         // envelope typed it, so there is nothing left to decode and no
@@ -178,21 +181,20 @@ fn forward_to_dispatch(
             // between. A `block` fault with nothing held is a peer
             // reporting a failure this frame did not produce, which has
             // no exception to continue and takes the ordinary path.
-            // SAFETY: bridge frame — mruby unwinds through `mrb_exc_raise`;
-            // `exc` was held live by the GC root the take just released.
-            (FaultKind::Block, Some(exc)) => unsafe { kobako.reraise(exc) },
-            // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-            _ => unsafe { kobako.raise_service_error(&fault) },
+            // The exception continues as itself rather than as a
+            // reconstruction; `exc` was held live by the GC root the take
+            // just released.
+            (FaultKind::Block, Some(exc)) => Err(beni::Error::Exception(exc)),
+            _ => Err(kobako.service_error(&fault)),
         },
         // Anything that is not the Service's own fault means the exchange
         // did not complete, which reaches the guest as a wire fault.
-        // SAFETY: as above.
-        Err(_) => unsafe { kobako.raise_transport_error(envelope_err_msg) },
+        Err(_) => Err(kobako.transport_error(envelope_err_msg)),
     }
 }
 
-/// Raise, in the guest frame that provoked it, the failure a codec
-/// refusal at `position` attributes to. The attribution itself is
+/// The failure a codec refusal at `position` attributes to, as the guest
+/// frame that provoked it will see it. The attribution itself is
 /// `crate::refusal`'s; this is only its delivery into a running script.
 ///
 /// `Kobako::Transport::Error` is kobako's own namespaced constant, which
@@ -201,28 +203,20 @@ fn forward_to_dispatch(
 /// fetched by name. A lookup that fails there means the interpreter is
 /// missing a core class, which is not a condition to raise something else
 /// about.
-///
-/// # Safety
-///
-/// As `Kobako::raise_transport_error`.
-unsafe fn raise_refusal(
+fn refusal(
     kobako: &super::Kobako,
     position: crate::refusal::Position,
     err: CodecError,
-) -> ! {
+) -> beni::Error {
     let refusal = crate::refusal::at(position, err);
-    let msg = std::ffi::CString::new(refusal.message).unwrap_or_default();
     if refusal.class == crate::refusal::TRANSPORT_ERROR {
-        // SAFETY: bridge frame — caller upholds the unwind contract.
-        unsafe { kobako.raise_transport_error(&msg) }
+        return kobako.transport_error(&refusal.message);
     }
     let name = std::ffi::CString::new(refusal.class).expect("a class name carries no interior NUL");
-    let class = kobako
-        .mrb()
-        .exc_get(&*name)
-        .expect("the refusal table names mruby core classes");
-    // SAFETY: bridge frame — caller upholds the unwind contract.
-    unsafe { class.raise(kobako.mrb(), &msg) }
+    match kobako.mrb().exc_get(&*name) {
+        Ok(class) => beni::Error::new(kobako.mrb(), class, &refusal.message),
+        Err(err) => err,
+    }
 }
 
 /// `Kobako::Proxy#method_missing(name, *args)` C bridge — the single
@@ -238,7 +232,7 @@ unsafe fn raise_refusal(
 /// fabricating a proxy holder.
 ///
 /// Forwards to `forward_to_dispatch`.
-pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Value {
+pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Result<Value, beni::Error> {
     use kobako_transport::envelope::Target;
 
     // SAFETY: `mrb` is live for this bridge frame and install has run
@@ -253,22 +247,20 @@ pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Value {
         // not `is_kind_of`: the decoder mints only `Kobako::Handle`, so a
         // guest subclass of it is a fabrication and derives no target.
         Target::Handle(kobako.extract_handle_id(self_))
-    } else if self_.is_class() {
-        // SAFETY: `is_class()` proves `self_` is class-tagged, so
-        // `as_class_ptr` is valid — a bound-Service constant reached
-        // through `Kobako::Proxy` extended onto its singleton class.
-        let class = beni::RClass::from_raw(unsafe { self_.as_class_ptr() });
+    } else if let Some(class) = beni::RClass::from_value(self_) {
+        // A bound-Service constant, reached through `Kobako::Proxy`
+        // extended onto its singleton class.
         class_name = class.name(kobako.mrb());
         Target::Path(&class_name)
     } else {
-        return raise_no_target(mrb, self_);
+        return Err(no_target(mrb, self_));
     };
 
     forward_to_dispatch(
         kobako,
         target,
-        c"proxy method symbol name is null",
-        c"transport envelope error (proxy dispatch)",
+        "proxy method symbol name is null",
+        "transport envelope error (proxy dispatch)",
     )
 }
 
@@ -276,17 +268,15 @@ pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Value {
 /// neither a `Kobako::Handle` nor a class: it carries no dispatch target,
 /// so the call raises `NoMethodError` in-guest and sends no Call rather
 /// than forwarding a target read off arbitrary instance state.
-fn raise_no_target(mrb: &Mrb, self_: Value) -> Value {
-    let nomethod = mrb
-        .exc_get(c"NoMethodError")
-        .expect("NoMethodError is an mruby core class");
-    let message = std::ffi::CString::new(format!(
-        "{} is not a Kobako dispatch target",
-        self_.classname(mrb)
-    ))
-    .unwrap_or_default();
-    // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-    unsafe { nomethod.raise(mrb, &message) }
+fn no_target(mrb: &Mrb, self_: Value) -> beni::Error {
+    match mrb.exc_get(c"NoMethodError") {
+        Ok(nomethod) => beni::Error::new(
+            mrb,
+            nomethod,
+            &format!("{} is not a Kobako dispatch target", self_.classname(mrb)),
+        ),
+        Err(err) => err,
+    }
 }
 
 /// `Kobako::Handle.new` / `.allocate` C bridge — singleton-class level.
@@ -295,27 +285,24 @@ fn raise_no_target(mrb: &Mrb, self_: Value) -> Value {
 /// with guest construction closed, a `Kobako::Handle` receiver in
 /// `proxy_method_missing` is always host-issued. `mrb_args_any()` makes the
 /// raise fire regardless of arguments.
-pub(crate) fn handle_not_constructible(mrb: &Mrb, _self: Value) -> Value {
-    let nomethod = mrb
-        .exc_get(c"NoMethodError")
-        .expect("NoMethodError is an mruby core class");
-    // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-    unsafe {
-        nomethod.raise(
+pub(crate) fn handle_not_constructible(mrb: &Mrb, _self: Value) -> Result<Value, beni::Error> {
+    Err(match mrb.exc_get(c"NoMethodError") {
+        Ok(nomethod) => beni::Error::new(
             mrb,
-            c"Kobako::Handle is a host-issued capability reference, not a constructible class",
-        )
-    }
+            nomethod,
+            "Kobako::Handle is a host-issued capability reference, not a constructible class",
+        ),
+        Err(err) => err,
+    })
 }
 
 /// `Kobako::Handle#initialize(id)` C bridge. Stores the Handle integer
 /// id into the `@__kobako_id__` instance variable via
 /// `super::Kobako::set_handle_id`.
-pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value) -> Result<Value, beni::Error> {
+pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value, id: Value) -> Result<Value, beni::Error> {
     // SAFETY: `mrb` is live for this bridge frame and install has run.
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-    let id_val = mrb.get_args::<beni::format::O>();
-    kobako.set_handle_id(self_, id_val)?;
+    kobako.set_handle_id(self_, id)?;
     Ok(Value::zeroed())
 }
 

@@ -50,6 +50,7 @@ pub use values::IntegerOutOfRange;
 
 use beni::sys;
 use beni::Mrb;
+use beni::ReprValue;
 
 /// Failures returned by `Kobako::install_bindings` when a preamble entry
 /// cannot be registered — a path segment that cannot pass through the
@@ -112,7 +113,7 @@ impl std::error::Error for InstallError {}
 ///     and the integer-range guard.
 ///   * **The invocation flow seam** (`MrbGuest::run` and friends) —
 ///     `init`, `resolve_raw`, `install_bindings`, `top_level_constants`,
-///     `extract_backtrace`, `set_handle_id`, `raise_transport_error`.
+///     `extract_backtrace`, `set_handle_id`, `transport_error`.
 ///     These look internal to the bundled flows, and are exactly what
 ///     someone writing their own flow reaches for.
 pub struct Kobako {
@@ -121,8 +122,8 @@ pub struct Kobako {
     /// constant installed via `Kobako::install_bindings`.
     proxy_module: beni::RModule,
     handle_class: beni::RClass,
-    service_error_class: beni::RClass,
-    transport_error_class: beni::RClass,
+    service_error_class: beni::ExceptionClass,
+    transport_error_class: beni::ExceptionClass,
 }
 
 // The canonical mruby `nil` / `true` / `false` value snapshots no
@@ -178,10 +179,13 @@ impl Kobako {
             .expect(INITIALIZED);
         let proxy_module = kobako_mod.define_module(mrb, c"Proxy").expect(INITIALIZED);
         let handle_class = kobako_mod.class_get(mrb, c"Handle").expect(INITIALIZED);
+        let runtime_error_class = mrb.exc_get(c"RuntimeError").expect(INITIALIZED);
         let service_error_class = kobako_mod
-            .class_get(mrb, c"ServiceError")
+            .define_error(mrb, c"ServiceError", runtime_error_class)
             .expect(INITIALIZED);
-        let transport_error_class = transport_mod.class_get(mrb, c"Error").expect(INITIALIZED);
+        let transport_error_class = transport_mod
+            .define_error(mrb, c"Error", runtime_error_class)
+            .expect(INITIALIZED);
         Self {
             mrb: mrb.as_ptr(),
             proxy_module,
@@ -266,58 +270,24 @@ impl Kobako {
     fn extend_proxy(&self, mrb: &Mrb, class: beni::RClass) -> Result<(), InstallError> {
         use beni::Module;
 
-        // SAFETY: `class` is a live handle from `define_class` on this VM,
-        // so reifying it names the object whose singleton class receives
-        // the mixin.
-        let class_val = unsafe { class.to_value(mrb) };
-        class_val
+        class
+            .as_value()
             .singleton_class(mrb)
             .and_then(|singleton| singleton.include_module(mrb, self.proxy_module))
             .map_err(|e| InstallError::Rejected(e.message(mrb)))
     }
 
-    /// Raise `Kobako::Transport::Error` with `msg`. Diverges — `mrb_raise` does
-    /// not return.
-    ///
-    /// # Safety
-    ///
-    /// Only callable from contexts that mruby may unwind from (C
-    /// bridges, mrb_funcall handlers). Calling from arbitrary Rust code
-    /// would jump through mruby's exception machinery in a way the Rust
-    /// stack does not anticipate.
-    pub unsafe fn raise_transport_error(&self, msg: &core::ffi::CStr) -> ! {
-        // SAFETY: bridge frame — caller upholds the unwind contract.
-        unsafe { self.transport_error_class.raise(self.mrb(), msg) };
+    /// `Kobako::Transport::Error` carrying `msg` — the wire-level failure a
+    /// bridge body hands back, which beni raises at the guest call site.
+    pub fn transport_error(&self, msg: &str) -> beni::Error {
+        beni::Error::new(self.mrb(), self.transport_error_class, msg)
     }
 
-    /// Re-raise `exc` — an exception this invocation already raised, held
-    /// across a host round-trip — so it continues from where it was
-    /// raised instead of being rebuilt from a class name and a message.
-    /// Diverges — `mrb_exc_raise` does not return.
-    ///
-    /// # Safety
-    ///
-    /// As `Kobako::raise_transport_error`, and `exc` must be a live
-    /// exception value on this VM.
-    pub(crate) unsafe fn reraise(&self, exc: beni::Value) -> ! {
-        // SAFETY: bridge frame — caller upholds the unwind contract and
-        // the liveness of `exc`.
-        unsafe { beni::sys::mrb_exc_raise(self.mrb, exc.as_raw()) }
-    }
-
-    /// Raise, at the guest call site, the exception this Fault's category
-    /// names. Diverges — `mrb_raise` does not return.
-    ///
-    /// # Safety
-    ///
-    /// As `Kobako::raise_transport_error`.
-    pub(crate) unsafe fn raise_service_error(
-        &self,
-        fault: &kobako_transport::envelope::Fault,
-    ) -> ! {
-        let msg = std::ffi::CString::new(fault.message.as_str()).unwrap_or_default();
-        // SAFETY: bridge frame — caller upholds the unwind contract.
-        unsafe { self.class_for(fault.kind).raise(self.mrb(), &msg) };
+    /// The exception this Fault's category names, carrying its message, so
+    /// guest code branches on the class with `rescue` rather than by
+    /// reading the text.
+    pub(crate) fn service_error(&self, fault: &kobako_transport::envelope::Fault) -> beni::Error {
+        beni::Error::new(self.mrb(), self.class_for(fault.kind), &fault.message)
     }
 
     /// The class a Fault category raises under, so guest code branches
@@ -330,7 +300,8 @@ impl Kobako {
     /// pays nothing for it. A category this build predates, or a class an
     /// alternative shell did not register, falls back to the base — the
     /// same posture the wire takes when it meets a category it predates.
-    fn class_for(&self, kind: kobako_transport::envelope::FaultKind) -> beni::RClass {
+    fn class_for(&self, kind: kobako_transport::envelope::FaultKind) -> beni::ExceptionClass {
+        use beni::FromValue;
         use beni::Module;
         use kobako_transport::envelope::FaultKind;
 
@@ -343,6 +314,8 @@ impl Kobako {
         self.mrb()
             .define_module(c"Kobako")
             .and_then(|kobako_mod| kobako_mod.class_get(self.mrb(), narrowed))
+            .ok()
+            .and_then(|class| beni::ExceptionClass::from_value(class.as_value()))
             .unwrap_or(self.service_error_class)
     }
 

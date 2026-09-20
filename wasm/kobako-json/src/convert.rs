@@ -19,7 +19,8 @@
 //! round-trip.
 
 use crate::errors::{generator_error, parser_error};
-use beni::{Array, Error, FromValue, Hash, IntoValue, Mrb, RString, Symbol, Value};
+use beni::prelude::*;
+use beni::{Array, Error, Hash, IntoValue, Mrb, RString, Symbol, Value};
 use serde_json::{Map, Number, Value as JsonValue};
 
 /// The maximum container nesting `generate` accepts. serde_json's parse
@@ -174,7 +175,7 @@ fn encode_array(mrb: &Mrb, ary: Array, depth: usize) -> Result<JsonValue, Error>
     if depth >= MAX_NESTING_DEPTH {
         return Err(too_deep(mrb));
     }
-    let entries = ary.entries();
+    let entries = ary.entries(mrb);
     let mut items = Vec::with_capacity(entries.len());
     for elem in entries {
         items.push(encode(mrb, elem, depth + 1)?);
@@ -187,7 +188,7 @@ fn encode_hash(mrb: &Mrb, hash: Hash, depth: usize) -> Result<JsonValue, Error> 
         return Err(too_deep(mrb));
     }
     let keys = hash.keys(mrb);
-    let entries = keys.entries();
+    let entries = keys.entries(mrb);
     let mut map = Map::with_capacity(entries.len());
     for key in entries {
         // `hash.get` is the C hash lookup, not a Ruby `[]` dispatch, so a key
@@ -249,7 +250,9 @@ fn encode_via_as_json(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, 
 /// Read a `String` value's bytes as a Rust `String`. JSON text is UTF-8,
 /// so a non-UTF-8 byte sequence is refused rather than lossily transcoded.
 fn utf8_string(mrb: &Mrb, s: RString) -> Result<String, Error> {
-    String::from_utf8(s.to_bytes()).map_err(|_| generator_error(mrb, "string is not valid UTF-8"))
+    let bytes = Vec::<u8>::from_value(s.as_value())
+        .ok_or_else(|| generator_error(mrb, "string is not valid UTF-8"))?;
+    String::from_utf8(bytes).map_err(|_| generator_error(mrb, "string is not valid UTF-8"))
 }
 
 /// Read a Symbol's name as a Rust `String`, holding it to the same rule

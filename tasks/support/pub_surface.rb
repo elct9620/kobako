@@ -52,7 +52,7 @@ module KobakoPubSurface
       "take_outcome" => "reached via export_guest! expansion ($crate::abi::take_outcome)"
     },
     "wasm/kobako-mruby" => %w[
-      InstallError install_bindings Kobako init resolve_raw raise_transport_error
+      InstallError install_bindings Kobako init resolve_raw transport_error
       extract_backtrace top_level_constants set_handle_id
     ].to_h { |name| [name, FLOW_REASON] }
                            .merge(%w[

@@ -39,6 +39,7 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::boot;
     use crate::codec::PayloadCodec;
+    use beni::ReprValue;
     use kobako_core::abi::write_panic;
     use kobako_transport::envelope::{ErrorRecord, Origin, Panic, Run};
 
@@ -91,10 +92,14 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // and the `target.call(*args, **kwargs)` invocation —
     // runs through the mruby C API. No Ruby trampoline, no global
     // variable injection.
-    let target_sym = mrb.intern_str(mrb.str_new(run.entrypoint.as_bytes()).as_value());
-    // SAFETY: the cached `object_class` pointer was produced by the
-    // same `mrb_state` and is GC-stable for the VM's lifetime.
-    let object_value = unsafe { mrb.object_class().to_value(mrb) };
+    // Interned once and reused for both the gate and the fetch: a name
+    // too long for the symbol table fails the invocation here rather
+    // than at either of them.
+    let target_sym = match mrb.intern(run.entrypoint.as_bytes()) {
+        Ok(sym) => sym,
+        Err(err) => return write_panic(boot::panic_from_error(&kobako, err)),
+    };
+    let object_value = mrb.object_class().as_value();
 
     if !object_value.const_defined(mrb, target_sym) {
         let available = super::boot_constants::snippet_constants(&kobako, &preamble);
@@ -118,8 +123,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         Err(err) => return write_panic(boot::panic_from_error(&kobako, err)),
     };
 
-    let call_sym = mrb.intern_cstr(c"call");
-    if !target_val.respond_to(mrb, call_sym) {
+    if !target_val.respond_to(mrb, c"call") {
         return write_panic(Panic {
             origin: Origin::Sandbox,
             error: ErrorRecord {
@@ -152,7 +156,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         argv.push(kwargs.as_value());
     }
 
-    let result_val = match target_val.funcall_argv(mrb, call_sym, &argv) {
+    let result_val = match target_val.funcall(mrb, c"call", &argv) {
         Ok(v) => v,
         Err(err) => return write_panic(boot::panic_from_error(&kobako, err)),
     };

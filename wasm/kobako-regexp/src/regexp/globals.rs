@@ -2,6 +2,7 @@
 //! refreshed on every successful match and cleared on a miss.
 
 use crate::matchdata::{self, MatchState};
+use beni::prelude::*;
 use beni::{Mrb, Value};
 use core::ffi::CStr;
 
@@ -34,7 +35,7 @@ pub(super) fn finalize(
             names,
         },
     );
-    mrb.gv_set(mrb.intern_cstr(c"$~"), md);
+    let _ = mrb.gv_set(c"$~", md);
     md
 }
 
@@ -82,7 +83,7 @@ fn set_derived(mrb: &Mrb, subject: &str, groups: &[Option<(usize, usize)>]) {
 /// own spans; `nil` or any non-`MatchData` leaves no captures to view, so the
 /// derived globals clear.
 pub(super) fn set_last_match(mrb: &Mrb, value: Value) {
-    mrb.gv_set(mrb.intern_cstr(c"$~"), value);
+    let _ = mrb.gv_set(c"$~", value);
     match matchdata::state_of(mrb, value) {
         Some(state) => set_derived(mrb, &state.subject, &state.groups),
         None => clear_derived(mrb),
@@ -102,7 +103,7 @@ pub(crate) fn set_span_globals(mrb: &Mrb, regexp: Value, subject: &str, span: &M
 
 /// Reset every match global to nil after a failed match.
 pub(super) fn clear_globals(mrb: &Mrb) {
-    mrb.gv_set(mrb.intern_cstr(c"$~"), Value::nil());
+    let _ = mrb.gv_set(c"$~", Value::nil());
     clear_derived(mrb);
 }
 
@@ -116,5 +117,5 @@ fn clear_derived(mrb: &Mrb) {
 }
 
 fn set_global(mrb: &Mrb, name: &CStr, value: Option<Value>) {
-    mrb.gv_set(mrb.intern_cstr(name), value.unwrap_or_else(Value::nil));
+    let _ = mrb.gv_set(name, value.unwrap_or_else(Value::nil));
 }

@@ -70,15 +70,12 @@ impl Gem for KobakoBridge {
         // `proxy_method_missing`'s exact-identity check relies on.
         let handle_class = kobako_mod.define_class(mrb, c"Handle", object_class)?;
         handle_class.include_module(mrb, proxy_module)?;
-        // Any-arity like the other bridge bodies: the body reads its one
-        // argument through `format::O` itself (`FromValue` has no `Value`
-        // identity impl to ride `method!`'s typed-parameter form), and the
-        // only caller is the wire decoder's `mrb_obj_new`, which always
-        // passes exactly the Handle id.
+        // One argument, the Handle id — the wire decoder's `mrb_obj_new` is
+        // the only caller and always passes exactly it.
         handle_class.define_method(
             mrb,
             c"initialize",
-            beni::method!(bridges::handle_initialize, -1),
+            beni::method!(bridges::handle_initialize, 1),
         )?;
         // Freeze a `dup`/`clone` copy so no duplication yields a re-pointable
         // Handle; see `bridges::handle_initialize_copy`.
@@ -103,21 +100,21 @@ impl Gem for KobakoBridge {
         // ServiceError and BytecodeError stay at the Kobako top level
         // (public API); Error lives under Transport since it is a
         // transport-layer fault.
-        let runtime_error_class = mrb.class_get(c"RuntimeError")?;
+        let runtime_error_class = mrb.exc_get(c"RuntimeError")?;
         let service_error_class =
-            kobako_mod.define_class(mrb, c"ServiceError", runtime_error_class)?;
+            kobako_mod.define_error(mrb, c"ServiceError", runtime_error_class)?;
         // A Fault's category picks one of these, so guest code branches on
         // why a Service call failed with `rescue` instead of by reading the
         // message. Both stay under `ServiceError` so rescuing the base
         // still catches every Service failure.
-        kobako_mod.define_class(mrb, c"NoServiceError", service_error_class)?;
-        kobako_mod.define_class(mrb, c"ServiceArgumentError", service_error_class)?;
-        transport_mod.define_class(mrb, c"Error", runtime_error_class)?;
+        kobako_mod.define_error(mrb, c"NoServiceError", service_error_class)?;
+        kobako_mod.define_error(mrb, c"ServiceArgumentError", service_error_class)?;
+        transport_mod.define_error(mrb, c"Error", runtime_error_class)?;
         // `Kobako::BytecodeError` is registered here so guest code can
         // raise it by name; like every handle this gem registers, call
         // sites re-resolve it lazily (`super::Kobako::resolve_raw`, the
         // snippet-replay bytecode structural-failure path).
-        kobako_mod.define_class(mrb, c"BytecodeError", runtime_error_class)?;
+        kobako_mod.define_error(mrb, c"BytecodeError", runtime_error_class)?;
 
         Ok(())
     }

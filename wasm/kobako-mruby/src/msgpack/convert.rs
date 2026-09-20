@@ -26,7 +26,8 @@
 
 use crate::codec::CodecError;
 use crate::runtime::{IntegerOutOfRange, Kobako};
-use beni::{FromValue, Symbol, Value};
+use beni::prelude::*;
+use beni::{Symbol, Value};
 use kobako_codec::msgpack::codec::Value as CodecValue;
 // The encode-side walk caps at the same depth the decoder enforces; the
 // constant lives in `kobako-codec` so the two guest walks share one bound
@@ -82,7 +83,7 @@ impl Kobako {
         out: &mut Vec<(String, kobako_codec::msgpack::codec::Value)>,
     ) -> Result<(), CodecError> {
         let keys_ary = hash.keys(self.mrb());
-        for key_val in keys_ary.entries() {
+        for key_val in keys_ary.entries(self.mrb()) {
             // A hostile Hash subclass whose `[]` raises reads as `nil`
             // for that key rather than faulting this marshalling helper.
             let val = hash.get(self.mrb(), key_val).unwrap_or(Value::nil());
@@ -153,7 +154,7 @@ impl Kobako {
         // SAFETY: callers reach this only after a `classname == "Array"`
         // gate, so the unchecked wrap is sound.
         let ary = unsafe { beni::Array::from_value_unchecked(val) };
-        let entries = ary.entries();
+        let entries = ary.entries(self.mrb());
         let mut items = Vec::with_capacity(entries.len());
         for elem in entries {
             items.push(self.try_codec_value_at(elem, depth + 1));
@@ -178,7 +179,7 @@ impl Kobako {
         // gate, so the unchecked wrap is sound.
         let hash = unsafe { beni::Hash::from_value_unchecked(val) };
         let keys_ary = hash.keys(self.mrb());
-        let entries = keys_ary.entries();
+        let entries = keys_ary.entries(self.mrb());
         let mut pairs = Vec::with_capacity(entries.len());
         for key in entries {
             // As in `extract_hash_kwargs`: a raising `[]` reads as `nil`

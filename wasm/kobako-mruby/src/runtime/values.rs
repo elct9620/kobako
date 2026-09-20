@@ -14,6 +14,7 @@
 //! Handle it can re-point or an Integer that is not the number the wire
 //! carried.
 
+use beni::ReprValue;
 use beni::Value;
 
 use super::Kobako;
@@ -64,7 +65,7 @@ impl Kobako {
         }
         // SAFETY: classname check above proves Array-tagged.
         let ary = unsafe { beni::Array::from_value_unchecked(val) };
-        let entries = ary.entries();
+        let entries = ary.entries(self.mrb());
         let mut out = Vec::with_capacity(entries.len());
         for elem in entries {
             // Rendered, not read as bytes: a backtrace line lands in the
@@ -98,10 +99,7 @@ impl Kobako {
     /// `crate::flows::boot_constants`, which records one at boot and takes
     /// the other only when an entrypoint went missing.
     pub fn top_level_constants(&self) -> Vec<String> {
-        // SAFETY: `mrb->object_class` lives until `mrb_close`; the
-        // shim behind `RClass::to_value` reuses mruby's own boxing
-        // logic.
-        let object_value = unsafe { self.mrb().object_class().to_value(self.mrb()) };
+        let object_value = self.mrb().object_class().as_value();
         self.strings_from_funcall(object_value, c"constants")
     }
 
@@ -109,8 +107,7 @@ impl Kobako {
     /// `@__kobako_id__` ivar. Used by the `Kobako::Handle#initialize`
     /// C bridge.
     pub fn set_handle_id(&self, target: Value, id_val: Value) -> Result<(), beni::Error> {
-        let sym = self.mrb().intern_cstr(HANDLE_ID_IVAR);
-        target.iv_set(self.mrb(), sym, id_val)
+        target.iv_set(self.mrb(), HANDLE_ID_IVAR, id_val)
     }
 
     /// Read the `u32` Handle id stored in a `Kobako::Handle` instance's
@@ -122,9 +119,8 @@ impl Kobako {
     /// silently truncate above `i32::MAX` and cost a string allocation
     /// on every dispatch.
     pub fn extract_handle_id(&self, handle_val: Value) -> u32 {
-        let id_sym = self.mrb().intern_cstr(HANDLE_ID_IVAR);
         use beni::FromValue;
-        let id_val = handle_val.iv_get(self.mrb(), id_sym);
+        let id_val = handle_val.iv_get(self.mrb(), HANDLE_ID_IVAR);
         let Some(id) = i32::from_value(id_val) else {
             return 0;
         };

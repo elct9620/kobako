@@ -26,7 +26,17 @@
 //! `ArgumentError` immediately; the sandbox has no other captured fds
 //! to route to.
 
-use beni::{format, Error, FromValue, IntoValue, Mrb, RString, Value};
+use beni::prelude::*;
+use beni::scan_args::scan_args;
+use beni::{Array, Error, IntoValue, Mrb, RString, Value};
+
+/// The positional arguments of a call registered for any arity — the
+/// splat every variadic body here reads, as an owned `Vec`.
+fn rest(mrb: &Mrb) -> Result<Vec<Value>, Error> {
+    scan_args::<(), (), Array, (), (), ()>(mrb)?
+        .splat
+        .to_vec(mrb)
+}
 
 /// Install the IO surface on `mrb` — the top-level `::IO` class with
 /// its full instance-method surface, then the `STDOUT` / `STDERR`
@@ -44,26 +54,22 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     // every install, leaking onto the guest `stderr` capture pipe.
     let io = mrb.define_class(c"IO", mrb.object_class())?;
 
-    // `initialize` registers any-arity because its body reads the
-    // call frame itself through `format::Io` — mruby's `"i"` integer
-    // coercion for the fd has no typed-parameter equivalent. The
-    // other multi-arg bodies read `format::Rest` / `format::O`
-    // themselves for the same reason (`FromValue` has no `Value`
-    // identity impl to ride `method!`'s typed-parameter form).
-    io.define_method(mrb, c"initialize", beni::method!(io_initialize, -1))?;
+    // A body with a fixed argument list takes them as typed parameters;
+    // only the variadic ones read the call frame themselves.
+    io.define_method(mrb, c"initialize", beni::method!(io_initialize, 2))?;
     io.define_method(mrb, c"write", beni::method!(io_write, -1))?;
     io.define_method(mrb, c"fileno", beni::method!(io_fileno, 0))?;
     io.define_method(mrb, c"to_i", beni::method!(io_fileno, 0))?;
     io.define_method(mrb, c"print", beni::method!(io_print, -1))?;
     io.define_method(mrb, c"puts", beni::method!(io_puts, -1))?;
     io.define_method(mrb, c"printf", beni::method!(io_printf, -1))?;
-    io.define_method(mrb, c"putc", beni::method!(io_putc, -1))?;
+    io.define_method(mrb, c"putc", beni::method!(io_putc, 1))?;
     io.define_method(mrb, c"p", beni::method!(io_p, -1))?;
-    io.define_method(mrb, c"<<", beni::method!(io_lshift, -1))?;
+    io.define_method(mrb, c"<<", beni::method!(io_lshift, 1))?;
     io.define_method(mrb, c"tty?", beni::method!(io_tty_p, 0))?;
     io.define_method(mrb, c"isatty", beni::method!(io_tty_p, 0))?;
     io.define_method(mrb, c"sync", beni::method!(io_sync, 0))?;
-    io.define_method(mrb, c"sync=", beni::method!(io_sync_set, -1))?;
+    io.define_method(mrb, c"sync=", beni::method!(io_sync_set, 1))?;
     io.define_method(mrb, c"flush", beni::method!(io_flush, 0))?;
     io.define_method(mrb, c"closed?", beni::method!(io_closed_p, 0))?;
 
@@ -75,11 +81,11 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     let stdout_val = io.obj_new(mrb, &[1i32.into_value(mrb), mode_str])?;
     let stderr_val = io.obj_new(mrb, &[2i32.into_value(mrb), mode_str])?;
 
-    mrb.define_global_const(c"STDOUT", stdout_val);
-    mrb.define_global_const(c"STDERR", stderr_val);
+    mrb.define_global_const(c"STDOUT", stdout_val)?;
+    mrb.define_global_const(c"STDERR", stderr_val)?;
 
-    mrb.gv_set(mrb.intern_cstr(c"$stdout"), stdout_val);
-    mrb.gv_set(mrb.intern_cstr(c"$stderr"), stderr_val);
+    mrb.gv_set(c"$stdout", stdout_val)?;
+    mrb.gv_set(c"$stderr", stderr_val)?;
     Ok(())
 }
 
@@ -91,9 +97,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 ///     route any other descriptor to the host capture pipe.
 ///   * `mode` is anything other than `"w"` — only the write-path is
 ///     implemented.
-fn io_initialize(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (fd, mode_val) = mrb.get_args::<format::Io>();
-
+fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode_val: Value) -> Result<Value, Error> {
     if fd != 1 && fd != 2 {
         return Err(argument_error(
             mrb,
@@ -106,11 +110,7 @@ fn io_initialize(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         return Err(argument_error(mrb, "kobako IO only supports mode \"w\""));
     }
 
-    // `fd` carries mruby's own `mrb_int` width, which follows the
-    // target; `Value::from_int` takes it as-is on every width.
-    let fd_val = Value::from_int(mrb, fd);
-    let sym = mrb.intern_cstr(c"@__kobako_fd__");
-    self_.iv_set(mrb, sym, fd_val)?;
+    self_.iv_set(mrb, c"@__kobako_fd__", fd.into_value(mrb))?;
     Ok(Value::zeroed())
 }
 
@@ -136,13 +136,12 @@ fn io_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
             "kobako IO writes only to fd 1 (stdout) or fd 2 (stderr)",
         ));
     }
-    // `format::Rest` yields an arena-rooted copy of the rest slot, so the
-    // borrow survives the `obj_as_string` funcalls below — no defensive
-    // copy needed (raw `Mrb::argv` is the read that cannot cross re-entry).
-    let argv = mrb.get_args::<format::Rest>();
+    // An owned copy, so the values outlive the `obj_as_string` funcalls
+    // below — a borrow of the frame's own slots would not cross re-entry.
+    let argv = rest(mrb)?;
 
     let mut total: i32 = 0;
-    for &val in argv {
+    for &val in &argv {
         // A guest-defined `to_s` that raises propagates as an ordinary
         // guest exception instead of unwinding past this Rust frame.
         let s = val.obj_as_string(mrb)?;
@@ -185,8 +184,8 @@ fn io_fileno(mrb: &Mrb, self_: Value) -> Value {
 /// `IO#print(*args)` — write each argument's `to_s` form, nothing
 /// between or after. Returns `nil`.
 fn io_print(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let argv = mrb.get_args::<format::Rest>();
-    for &val in argv {
+    let argv = rest(mrb)?;
+    for &val in &argv {
         let _scope = mrb.arena_scope();
         let s = val.obj_as_string(mrb)?;
         write_one(mrb, self_, s)?;
@@ -198,12 +197,12 @@ fn io_print(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// recursing into Arrays element-wise; no arguments writes a bare
 /// newline. Returns `nil`.
 fn io_puts(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let argv = mrb.get_args::<format::Rest>();
+    let argv = rest(mrb)?;
     if argv.is_empty() {
         write_newline(mrb, self_)?;
         return Ok(Value::nil());
     }
-    for &val in argv {
+    for &val in &argv {
         puts_one(mrb, self_, val)?;
     }
     Ok(Value::nil())
@@ -220,7 +219,7 @@ fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
         // Walk the C-level slots, never a Ruby `#each`: a hostile Array
         // subclass cannot override iteration to drive the recursion past the
         // real elements.
-        for elem in ary.entries() {
+        for elem in ary.entries(mrb) {
             puts_one(mrb, self_, elem)?;
         }
         return Ok(());
@@ -245,8 +244,8 @@ fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
 /// `MRB_METHOD_PRIVATE_FL`) — the same implicit-self call the
 /// previous mrblib body made.
 fn io_printf(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let argv = mrb.get_args::<format::Rest>();
-    let formatted = self_.funcall(mrb, c"sprintf", argv)?;
+    let argv = rest(mrb)?;
+    let formatted = self_.funcall(mrb, c"sprintf", &argv)?;
     write_one(mrb, self_, formatted)?;
     Ok(Value::nil())
 }
@@ -256,8 +255,7 @@ fn io_printf(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// String writes its first character (first byte in our non-UTF8
 /// build); other objects coerce via `to_s`. Empty string is a no-op
 /// write. Always returns the original argument.
-fn io_putc(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let obj = mrb.get_args::<format::O>();
+fn io_putc(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
     if let Some(n) = i32::from_value(obj) {
         let byte = [(n & 0xff) as u8];
         let s = mrb.str_new(&byte).as_value();
@@ -281,8 +279,8 @@ fn io_putc(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// newline. Returns `nil` for no arguments, the argument itself for
 /// one, and the argument Array for several — mirroring `Kernel#p`.
 fn io_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let argv = mrb.get_args::<format::Rest>();
-    for &val in argv {
+    let argv = rest(mrb)?;
+    for &val in &argv {
         let _scope = mrb.arena_scope();
         let insp = val.funcall(mrb, c"inspect", &[])?;
         let nl = mrb.str_new(b"\n").as_value();
@@ -293,7 +291,7 @@ fn io_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         1 => argv[0],
         _ => {
             let ary = mrb.ary_new();
-            for &val in argv {
+            for &val in &argv {
                 ary.push(mrb, val)?;
             }
             ary.as_value()
@@ -302,8 +300,7 @@ fn io_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 /// `IO#<<(obj)` — write `obj` and return `self` for chaining.
-fn io_lshift(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let obj = mrb.get_args::<format::O>();
+fn io_lshift(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
     write_one(mrb, self_, obj)?;
     Ok(self_)
 }
@@ -316,8 +313,7 @@ fn io_tty_p(_mrb: &Mrb, _self: Value) -> Value {
 /// `IO#sync` — reports whatever the guest last assigned via `#sync=`,
 /// defaulting to `true` (the capture pipe is effectively unbuffered).
 fn io_sync(mrb: &Mrb, self_: Value) -> Value {
-    let sym = mrb.intern_cstr(c"@__kobako_sync");
-    let v = self_.iv_get(mrb, sym);
+    let v = self_.iv_get(mrb, c"@__kobako_sync");
     if v.is_nil() {
         Value::true_()
     } else {
@@ -327,10 +323,8 @@ fn io_sync(mrb: &Mrb, self_: Value) -> Value {
 
 /// `IO#sync=(value)` — store the flag; a no-op for the write path,
 /// kept for mruby-io surface compatibility.
-fn io_sync_set(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let v = mrb.get_args::<format::O>();
-    let sym = mrb.intern_cstr(c"@__kobako_sync");
-    self_.iv_set(mrb, sym, v)?;
+fn io_sync_set(mrb: &Mrb, self_: Value, v: Value) -> Result<Value, Error> {
+    self_.iv_set(mrb, c"@__kobako_sync", v)?;
     Ok(v)
 }
 
@@ -376,7 +370,6 @@ fn argument_error(mrb: &Mrb, msg: &str) -> Error {
 /// syscall must re-validate the descriptor first — `io_write` does, refusing
 /// anything outside {1, 2} before reaching `write(2)`.
 fn read_fd(mrb: &Mrb, self_: Value) -> i32 {
-    let sym = mrb.intern_cstr(c"@__kobako_fd__");
-    let val = self_.iv_get(mrb, sym);
+    let val = self_.iv_get(mrb, c"@__kobako_fd__");
     i32::from_value(val).unwrap_or(0)
 }

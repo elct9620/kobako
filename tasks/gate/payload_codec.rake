@@ -25,7 +25,9 @@
 # without moving it out of the code, and only a third party would find
 # out. Reaching a payload codec from a +[dev-dependencies]+ entry stays
 # fine — +cargo tree -e normal+ does not see one, and neither does anyone
-# installing the crate.
+# installing the crate. A proc macro is outside the measure for the same
+# reason: it expands at compile time and reaches no shipped graph, so a
+# wrapper's own macros are not a schema the guest carries.
 #
 # The probes compile on the host, and the mruby-linked tier builds
 # +beni-sys+, which needs the host archive Stage B stages — hence the
@@ -61,7 +63,7 @@ end
 # tiers, as a violation string, or +nil+ when it resolves to nothing else.
 # Runs inside the crate's workspace directory.
 def codec_free_tree_violation(crate)
-  tree = `cargo tree -p #{crate} -e normal 2>/dev/null`
+  tree = `cargo tree -p #{crate} -e normal,no-proc-macro 2>/dev/null`
   pulled = tree.lines.drop(1).filter_map { |line| line[/[a-z0-9-]+(?= v[0-9])/] }
   external = pulled.reject { |dep| CODEC_FREE_ALLOWED.include?(dep) }
   return if external.empty?

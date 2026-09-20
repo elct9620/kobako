@@ -4,7 +4,7 @@
 use crate::errors::{index_error, regexp_error, replace_expression_error};
 use beni::{Error, Mrb, Value};
 
-use super::{RegexpState, REGEXP_TYPE};
+use super::{state_of, RegexpState};
 
 /// Byte spans of one match: the whole match plus each numbered group.
 pub(crate) struct MatchSpan {
@@ -20,7 +20,7 @@ pub(crate) fn match_spans(
     regexp: Value,
     subject: &str,
 ) -> Result<Vec<MatchSpan>, Error> {
-    let Some(state) = regexp.data_get(mrb, &REGEXP_TYPE) else {
+    let Some(state) = state_of(mrb, regexp) else {
         return Ok(Vec::new());
     };
     let count = state.regex.captures_len();
@@ -62,7 +62,7 @@ pub(crate) fn expand_replacement(
     span: &MatchSpan,
     replacement: &str,
 ) -> Result<String, Error> {
-    let state = regexp.data_get(mrb, &REGEXP_TYPE);
+    let state = state_of(mrb, regexp);
     let mut out = String::with_capacity(replacement.len());
     let mut chars = replacement.chars();
     while let Some(c) = chars.next() {

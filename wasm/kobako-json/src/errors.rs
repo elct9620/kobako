@@ -3,7 +3,8 @@
 //! `Err(errors::parser_error(mrb, "..."))` without re-deriving the class
 //! lookup.
 
-use beni::{Error, Module, Mrb};
+use beni::prelude::*;
+use beni::{Error, Mrb};
 use core::ffi::CStr;
 
 /// Define the `JSON` error tree: `JSON::JSONError < StandardError`, with
@@ -12,9 +13,9 @@ use core::ffi::CStr;
 /// `json::init`'s ordering.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     let json = mrb.define_module(c"JSON")?;
-    let json_error = json.define_class(mrb, c"JSONError", mrb.class_get(c"StandardError")?)?;
-    json.define_class(mrb, c"ParserError", json_error)?;
-    json.define_class(mrb, c"GeneratorError", json_error)?;
+    let json_error = json.define_error(mrb, c"JSONError", mrb.exc_get(c"StandardError")?)?;
+    json.define_error(mrb, c"ParserError", json_error)?;
+    json.define_error(mrb, c"GeneratorError", json_error)?;
     Ok(())
 }
 
@@ -48,6 +49,8 @@ fn json_exception(mrb: &Mrb, member: &CStr, message: &str) -> Error {
         .expect("JSON module is defined at gem init");
     let cls = json
         .class_get(mrb, member)
+        .ok()
+        .and_then(|cls| beni::ExceptionClass::from_value(cls.as_value()))
         .expect("JSON error class is defined at gem init");
     Error::new(mrb, cls, message)
 }
