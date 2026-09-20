@@ -136,6 +136,16 @@ pub struct Kobako {
 /// fresh instance, so this static lives in that instance's own linear
 /// memory and no two invocations share it. A baked artifact carries the
 /// resolution the bake performed, in the same memory the handles live in.
+///
+/// ## The VM it answers for
+///
+/// These handles name objects in one `mrb_state`, so the cache is only
+/// sound while the slot holds that same VM. What keeps it so is where it
+/// is filled: `resolve_raw` sets it, and `Kobako::init` reaches
+/// `resolve_raw` only once every registration succeeded — a boot that
+/// fails returns before the cache is touched, having cleared the slot. A
+/// path that discarded a *booted* VM and opened another would break that,
+/// leaving these handles naming objects the new VM never had.
 #[derive(Clone, Copy)]
 struct Registrations {
     /// `Kobako::Proxy` capability module — extended onto every bound
