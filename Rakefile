@@ -81,7 +81,8 @@ task test: ["wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode", "was
 desc "Run every gate:* verification check (the release gate's verification tier)."
 task gate: %w[gate:rbs:lock gate:rbs:orphans gate:anchors gate:wire:symmetry
               gate:payload:optional gate:engine:optional gate:surface
-              gate:gvl:isolation gate:bench:smoke gate:release:wiring]
+              gate:gvl:isolation gate:bench:smoke gate:release:wiring
+              gate:readme:pins]
 
 # `crates:test` joins the canonical gate because the core envelope's only
 # pin lives there: the envelope has one implementation, so the golden
