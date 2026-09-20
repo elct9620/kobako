@@ -35,6 +35,8 @@ An object answering `respond_to?` or the array or hash conversion methods is sti
 
 What the serialization hook answers is held to the same depth bound as any other value.
 
+Parsing takes its options as keywords, so a second positional argument is refused for its argument count.
+
 A `Hash` key that is nothing is written as its string form.
 
 A `Hash` key that is a boolean is written as its string form.
