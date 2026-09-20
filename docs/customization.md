@@ -172,6 +172,30 @@ the worked examples, and each is free of any dependency on `kobako-mruby`.
 Returning `Ok(())` yields a bridge-only guest — the wire-tied `KobakoBridge`
 installs itself before the hook runs.
 
+```rust
+struct Greeter;
+
+impl beni::Gem for Greeter {
+    fn init(mrb: &Mrb) -> Result<(), beni::Error> {
+        let class = mrb.define_class(c"Greeter", mrb.object_class())?;
+        class.define_method(mrb, c"hello", beni::method!(hello, 1))?;
+        Ok(())
+    }
+}
+
+// A fixed argument list arrives as typed parameters; a failure goes back
+// as `Err`, which beni raises at the guest call site.
+fn hello(mrb: &Mrb, _self: Value, name: Value) -> Result<Value, beni::Error> {
+    let who = String::try_convert(name, mrb)?;
+    Ok(mrb.str_new(format!("hello {who}").as_bytes()).as_value())
+}
+```
+
+That is the whole of a gem: it ships no Ruby source and needs no `mrbc`
+pipeline, so the surface a guest sees is the one the Rust file registers.
+
+### Reaching the host
+
 A gem that reaches the host rather than staying in-guest names one more tier:
 `kobako-mruby`, whose `dispatch` rounds one Call through the host. A method
 that takes a block hands it to the same call — the block parks for the call's
@@ -179,6 +203,14 @@ duration there, because the host's yield re-enters through a separate export
 while the dispatch frame is still on the stack. Passing it is the whole
 obligation; a guest that is not mruby reaches `kobako-core`'s
 `transport::proxy::dispatch` directly and states the `block_given` bit itself.
+
+```text
+  gem ──► dispatch(target, method, block, payload) ──► Service
+           │                                              │
+           └─ block parks for the call ◄── yield ─────────┘
+              (a separate export re-enters while the dispatch
+               frame is still on the stack)
+```
 
 That tier carries no payload codec, so a gem that reaches the wire still names
 its own schema. It encodes the payload before calling and decodes the answer
