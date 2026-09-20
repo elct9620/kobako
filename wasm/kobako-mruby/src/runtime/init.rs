@@ -82,7 +82,7 @@ impl Gem for KobakoBridge {
         handle_class.define_method(
             mrb,
             c"initialize_copy",
-            beni::method!(bridges::handle_initialize_copy, -1),
+            beni::method!(bridges::handle_initialize_copy, 1),
         )?;
         handle_class.define_singleton_method(
             mrb,

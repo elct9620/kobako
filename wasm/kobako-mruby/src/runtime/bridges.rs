@@ -311,7 +311,7 @@ pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value, id: Value) -> Result<Va
 /// copy — making a `dup` (which otherwise yields an unfrozen copy) immutable
 /// like the decoder-minted original, so the guest cannot mint a re-pointable
 /// Handle by duplicating one. A `clone` already inherits the frozen flag.
-pub(crate) fn handle_initialize_copy(mrb: &Mrb, self_: Value) -> Value {
+pub(crate) fn handle_initialize_copy(mrb: &Mrb, self_: Value, _orig: Value) -> Value {
     self_.freeze(mrb)
 }
 
