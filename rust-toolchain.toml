@@ -3,9 +3,13 @@
 # vendored wasi-sdk 33's libc.a supplies that symbol, so the two move together.
 # Bump this in lockstep with the wasi-sdk toolchain beni vendors
 # (`rake beni:build`, wired in the Rakefile's Beni::Tasks block).
+# The floor is 1.98: rustc strips an Apple binary with its own Mach-O writer,
+# and only from that release does the stripped string pool keep the alignment
+# dyld requires from macOS 26 onward — below it, `strip = true` in the release
+# profile yields an ext no dlopen accepts.
 # This file is the single source of the channel; the CI workflows read it.
 [toolchain]
-channel = "1.96.0"
+channel = "1.98.0"
 components = ["clippy", "rustfmt"]
 targets = ["wasm32-wasip1"]
 profile = "minimal"
