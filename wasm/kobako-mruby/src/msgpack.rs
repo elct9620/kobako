@@ -12,7 +12,7 @@
 
 mod convert;
 
-use beni::Value;
+use beni::{FromValue, Value};
 use kobako_codec::msgpack::codec::{Decoder, Encode, Encoder, Value as CodecValue};
 use kobako_codec::msgpack::payload;
 
@@ -53,9 +53,7 @@ impl PayloadCodec for MsgpackCodec {
                 .map(|(name, value)| (CodecValue::Sym(name), value))
                 .collect();
             let hash = kobako.to_mrb_value(CodecValue::Map(pairs))?;
-            // SAFETY: `to_mrb_value` builds a `CodecValue::Map` through
-            // `mrb_hash_new`, so the value is Hash-tagged by construction.
-            Some(unsafe { beni::Hash::from_value_unchecked(hash) })
+            beni::Hash::from_value(hash)
         };
         Ok(Arguments { args, kwargs })
     }
