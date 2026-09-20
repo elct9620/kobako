@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.17.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.16.0...kobako-io-v0.17.0) (2026-09-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **guest:** a pattern's allocator is undefined from the moment the capability installs rather than from its first wrap, so allocating one is refused for the missing allocator throughout an invocation, where before the first statement could still reach an uninitialized carrier.
+* **guest:** `Kobako::raise_transport_error`, `raise_service_error` and `reraise` are gone. A flow of its own builds `Kobako::transport_error` or `service_error` and hands the result back as `Err`, which beni raises at the guest call site.
+
+### Features
+
+* **guest:** rebuild the guest crates on beni 0.17 ([b397701](https://github.com/elct9620/kobako/commit/b397701231c7d8718503d24f73b175676d0d1be3))
+* **guest:** rebuild the guest crates on beni 0.18 ([ae232eb](https://github.com/elct9620/kobako/commit/ae232ebbf708419ff0672172fbf8627363fb02da))
+
 ## [0.16.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.15.0...kobako-io-v0.16.0) (2026-09-15)
 
 

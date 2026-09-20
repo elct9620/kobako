@@ -30,7 +30,7 @@ reading one, so a guest speaking its own schema builds on it unchanged.
 crate-type = ["cdylib"]
 
 [dependencies]
-kobako-core = "0.16.0" # x-release-please-version
+kobako-core = "0.17.0" # x-release-please-version
 ```
 
 ```rust
