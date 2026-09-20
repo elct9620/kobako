@@ -49,4 +49,24 @@ class TestJsonParse < Minitest::Test
     assert_equal "rescued", result,
                  "a guest must be able to rescue JSON::ParserError raised by a malformed JSON.parse"
   end
+
+  # The constant naming the error class is the guest's to reassign, so the
+  # failure path has to answer for a name that no longer holds an exception
+  # class. Reported as the lookup's own error, it stays inside the invocation.
+  REPLACED_ERROR_CLASS = <<~RUBY
+    JSON.const_set(:ParserError, 1)
+    begin
+      JSON.parse("{bad}")
+      "no-error"
+    rescue => e
+      e.class.to_s
+    end
+  RUBY
+
+  # @behavior JS-047
+  def test_a_replaced_error_class_is_reported_not_fatal
+    assert_equal "TypeError", eval_json(REPLACED_ERROR_CLASS),
+                 "a parse failure whose error class the guest replaced must reach the guest as " \
+                 "the lookup's own error rather than ending the invocation"
+  end
 end

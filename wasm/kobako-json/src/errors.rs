@@ -4,7 +4,7 @@
 //! lookup.
 
 use beni::prelude::*;
-use beni::{Error, Mrb};
+use beni::{Error, Mrb, TryConvert};
 use core::ffi::CStr;
 
 /// Define the `JSON` error tree: `JSON::JSONError < StandardError`, with
@@ -41,16 +41,17 @@ pub(crate) fn type_error(mrb: &Mrb, message: &str) -> Error {
     }
 }
 
-/// Resolve the class named `member` nested under `JSON`. `init` defines
-/// each member before any path raises one, so the lookup cannot miss.
+/// Build an exception of the class named `member` under `JSON`. `init` defines
+/// each member, but the constant holding it is the guest's to reassign, so a
+/// miss surfaces mruby's own lookup error rather than degrading the raise to a
+/// different class — the same rule the Regexp surface's builders follow.
 fn json_exception(mrb: &Mrb, member: &CStr, message: &str) -> Error {
-    let json = mrb
+    let resolved = mrb
         .define_module(c"JSON")
-        .expect("JSON module is defined at gem init");
-    let cls = json
-        .class_get(mrb, member)
-        .ok()
-        .and_then(|cls| beni::ExceptionClass::from_value(cls.as_value()))
-        .expect("JSON error class is defined at gem init");
-    Error::new(mrb, cls, message)
+        .and_then(|json| json.class_get(mrb, member))
+        .and_then(|cls| beni::ExceptionClass::try_convert(cls.as_value(), mrb));
+    match resolved {
+        Ok(cls) => Error::new(mrb, cls, message),
+        Err(err) => err,
+    }
 }

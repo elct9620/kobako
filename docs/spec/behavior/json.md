@@ -416,3 +416,11 @@ An object that opted in through the hook is still refused when it stands as a `H
 | Given | a Sandbox over the JSON-capable Guest Binary |
 | When | guest code parses a document passing its options as a second positional argument |
 | Then | the call is refused for its argument count |
+
+## `JS-047` A replaced error class is reported rather than fatal
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary whose guest replaced a JSON error class |
+| When | guest code reaches a failure that would raise it |
+| Then | the guest sees the lookup's own error and the invocation goes on |
