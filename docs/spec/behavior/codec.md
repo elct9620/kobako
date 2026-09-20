@@ -34,6 +34,8 @@ A block answer or break value nested past the depth the wire encodes, or a `Symb
 
 A Run whose envelope does not frame fails under wording distinct from every refusal of its arguments.
 
+An object whose class carries a list's or a map's name without being one is refused rather than read as that list or map, both as the invocation's own answer and as a dispatch argument.
+
 ## `CD-001` A Service answer past the guest's integer width is refused
 
 | Step | Statement |
