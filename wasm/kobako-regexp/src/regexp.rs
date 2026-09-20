@@ -56,9 +56,10 @@ struct CompileCache {
 static COMPILE_CACHE_TYPE: DataType<CompileCache> = DataType::new(c"Kobako::RegexpCompileCache");
 
 // Written out rather than declared with `#[beni::wrap]`, unlike the two
-// carriers above: the macro marks and un-allocates the class it names,
-// and this one wraps as `Object` — which mruby exempts from the data
-// mark, and whose allocator every other object still needs.
+// carriers above: the macro prepares each class it names when a gem marks
+// its carriers, and this one wraps as `Object` — which mruby exempts from
+// the data mark, and whose allocator every other object still needs. Its
+// carriers are therefore never marked.
 //
 // SAFETY: as above, the exemption is what lets the wrap allocate a
 // carrier rather than raise.
@@ -100,7 +101,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     mrb.define_error(c"RegexpError", mrb.exc_get(c"StandardError")?)?;
 
     let cls = mrb.define_class(c"Regexp", mrb.object_class())?;
-    cls.set_instance_data_tt(mrb)?;
+    RegexpState::mark_carriers(mrb)?;
 
     // The archive is built MRB_INT32, so an option flag crosses into the
     // value domain as the width mruby actually carries.

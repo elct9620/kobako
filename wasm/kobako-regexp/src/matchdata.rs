@@ -12,7 +12,7 @@ use crate::regexp;
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::typed_data::Obj;
-use beni::{Array, Error, IntoValue, Mrb, TryConvert, Value};
+use beni::{Array, Error, IntoValue, Mrb, TryConvert, TypedData, Value};
 
 /// Owned snapshot of one successful match.
 #[derive(Clone)]
@@ -46,7 +46,7 @@ pub(crate) fn build(mrb: &Mrb, regexp: Value, state: MatchState) -> Value {
 /// Define the `MatchData` class and its accessors on `mrb`.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     let cls = mrb.define_class(c"MatchData", mrb.object_class())?;
-    cls.set_instance_data_tt(mrb)?;
+    MatchState::mark_carriers(mrb)?;
     cls.define_singleton_method(mrb, c"new", beni::method!(md_new_forbidden, -1))?;
     cls.define_method(mrb, c"[]", beni::method!(md_aref, -1))?;
     cls.define_method(mrb, c"begin", beni::method!(md_begin, 1))?;
