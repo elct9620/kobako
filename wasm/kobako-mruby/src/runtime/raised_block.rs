@@ -27,14 +27,14 @@
 //! module-level static.
 
 use beni::sys::AsRawValue;
-use beni::Value;
+use beni::{Proc, ReprValue, Value};
 
 use core::cell::UnsafeCell;
 
 /// One block's failure, waiting for the answer that says whether the
 /// Service rescued it.
 struct Held {
-    block: Value,
+    block: Proc,
     exception: Value,
 }
 
@@ -50,7 +50,7 @@ impl RaisedBlock {
     /// Record `exception` as what `block` raised, rooting it against GC:
     /// the mruby frame that raised has already unwound by the time the
     /// host sees the failure, so nothing else keeps it alive.
-    pub(crate) fn set(&self, mrb: &beni::Mrb, block: Value, exception: Value) {
+    pub(crate) fn set(&self, mrb: &beni::Mrb, block: Proc, exception: Value) {
         self.clear(mrb);
         // SAFETY: see type doc.
         unsafe { *self.0.get() = Some(Held { block, exception }) };
@@ -71,10 +71,15 @@ impl RaisedBlock {
     /// either re-raises it — which roots it again through mruby's own
     /// exception slot — or drops it, having answered on an arm that is
     /// not the block's failure.
-    pub(crate) fn take_for(&self, mrb: &beni::Mrb, block: Value) -> Option<Value> {
+    pub(crate) fn take_for(&self, mrb: &beni::Mrb, block: Proc) -> Option<Value> {
         // SAFETY: see type doc.
         let slot = unsafe { &mut *self.0.get() };
-        if !slot.as_ref()?.block.obj_equal(mrb, block) {
+        if !slot
+            .as_ref()?
+            .block
+            .as_value()
+            .obj_equal(mrb, block.as_value())
+        {
             return None;
         }
         let exception = slot.as_ref()?.exception;

@@ -42,7 +42,7 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     use crate::codec::PayloadCodec;
     use crate::runtime::block_stack::BLOCK_STACK;
     use crate::runtime::Kobako;
-    use beni::{sys, FromValue, Proc};
+    use beni::sys;
 
     // Step 1: resolve the active VM + Kobako runtime + bound block. The
     // codec needs the VM to build values, so the buffer is read after it.
@@ -62,7 +62,7 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     // arguments are read so a refusal there — which holds no exception of
     // its own — cannot be answered with the spent one.
     crate::runtime::raised_block::RAISED_BLOCK.clear(mrb);
-    let Some(block) = BLOCK_STACK.last().and_then(Proc::from_value) else {
+    let Some(block) = BLOCK_STACK.last() else {
         return write_error_response("LocalJumpError", "no block given (yield)", Vec::new());
     };
 

@@ -132,9 +132,7 @@ fn forward_to_dispatch(
     let (method_sym,) = args.required;
     let rest = args.splat.to_vec::<Value>(kobako.mrb())?;
     let kwargs_hash = args.keywords;
-    // A call with no block reaches dispatch as `nil`, the spelling
-    // `BlockFrame::push_if_block` reads to mean none was passed.
-    let block = args.block.map_or_else(Value::nil, Proc::as_value);
+    let block = args.block;
 
     let method_name = match kobako.mrb().sym_name(method_sym.into()) {
         Some(name) => name,
@@ -163,7 +161,8 @@ fn forward_to_dispatch(
     // Asked on every arm, and only for this call's own block: a failure
     // the Service rescued is spent, and one still held for another block
     // belongs to the dispatch that parked it.
-    let raised = super::raised_block::RAISED_BLOCK.take_for(kobako.mrb(), block);
+    let raised =
+        block.and_then(|one| super::raised_block::RAISED_BLOCK.take_for(kobako.mrb(), one));
     match answer {
         // A dispatch return value the guest cannot represent raises in the
         // calling guest code (docs/wire/payload-msgpack.md § Integer Range).

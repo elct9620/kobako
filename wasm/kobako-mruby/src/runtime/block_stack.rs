@@ -19,15 +19,15 @@
 //! inside any one Instance licenses the `UnsafeCell` interior
 //! mutability used here.
 
-use beni::Value;
+use beni::Proc;
 
 use core::cell::UnsafeCell;
 
-/// Single-threaded interior-mutability stack of guest-supplied block
-/// `mrb_value`s. Modelled after `crate::flows::mrb_slot::MrbSlot`
+/// Single-threaded interior-mutability stack of guest-supplied blocks.
+/// Modelled after `crate::flows::mrb_slot::MrbSlot`
 /// — the wasm Instance's single-threaded execution model is what
 /// licenses the `UnsafeCell` interior mutation here.
-pub(crate) struct BlockStack(UnsafeCell<Vec<Value>>);
+pub(crate) struct BlockStack(UnsafeCell<Vec<Proc>>);
 
 impl BlockStack {
     const fn new() -> Self {
@@ -35,7 +35,7 @@ impl BlockStack {
     }
 
     /// Push `block` onto the top of the stack.
-    pub(crate) fn push(&self, block: Value) {
+    pub(crate) fn push(&self, block: Proc) {
         // SAFETY: see type doc.
         unsafe { (*self.0.get()).push(block) };
     }
@@ -51,20 +51,19 @@ impl BlockStack {
 
     /// Return the topmost block, or `None` when the stack is empty.
     /// Consumed by `__kobako_yield_to_block` to identify the block
-    /// bound to the active dispatch frame. The returned `Value`
-    /// is a copy of the `mrb_value` stored on the stack — `Value` is
-    /// `Copy` and the underlying `mrb_value` slot keeps the mruby GC
-    /// rooting argument intact for the duration of the dispatch
-    /// frame, so reading the top is safe inside the same single-
-    /// threaded invocation that pushed it.
-    pub(crate) fn last(&self) -> Option<Value> {
+    /// bound to the active dispatch frame. The returned handle is a copy
+    /// of the one stored on the stack — it is `Copy` and the underlying
+    /// `mrb_value` slot keeps the mruby GC rooting argument intact for
+    /// the duration of the dispatch frame, so reading the top is safe
+    /// inside the same single-threaded invocation that pushed it.
+    pub(crate) fn last(&self) -> Option<Proc> {
         // SAFETY: see type doc.
         unsafe { (*self.0.get()).last().copied() }
     }
 }
 
 // SAFETY: identical argument to `crate::flows::mrb_slot::MrbSlot` — wasm32
-// is single-threaded inside any one Instance; the inner `Value` is
+// is single-threaded inside any one Instance; the inner handle is
 // `!Send + !Sync` but the surrounding Instance gives the same
 // guarantee operationally. `static` requires `Sync` regardless.
 unsafe impl Sync for BlockStack {}
@@ -73,10 +72,9 @@ unsafe impl Sync for BlockStack {}
 pub(crate) static BLOCK_STACK: BlockStack = BlockStack::new();
 
 /// RAII drop-guard that owns one push/pop pair on `BLOCK_STACK`.
-/// Constructed via `BlockFrame::push_if_block` — a no-op when `block` is
-/// `nil` (the caller passed no block). Drop pops the block when the
-/// dispatch bridge frame returns, so its several return points need no
-/// manual pop.
+/// Constructed via `BlockFrame::park` — inert when the caller passed no
+/// block. Drop pops the block when the dispatch bridge frame returns, so
+/// its several return points need no manual pop.
 ///
 /// Internal because holding it is only half of taking a block, and the
 /// other half is a bit on the wire: `crate::dispatch` owns both so the
@@ -86,12 +84,12 @@ pub(crate) struct BlockFrame {
 }
 
 impl BlockFrame {
-    /// Push `block` onto `BLOCK_STACK` when it is non-nil and return
-    /// a guard whose drop pops the same frame. When `block` is nil the
-    /// guard is inert — `Drop` is a no-op.
-    pub(crate) fn push_if_block(block: Value) -> Self {
-        let active = !block.is_nil();
-        if active {
+    /// Push `block` onto `BLOCK_STACK` when there is one and return a guard
+    /// whose drop pops the same frame. With no block the guard is inert —
+    /// `Drop` is a no-op.
+    pub(crate) fn park(block: Option<Proc>) -> Self {
+        let active = block.is_some();
+        if let Some(block) = block {
             BLOCK_STACK.push(block);
         }
         Self { active }

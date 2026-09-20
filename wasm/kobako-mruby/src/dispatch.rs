@@ -13,7 +13,7 @@
 //! calling and decodes the answer after, which is also what keeps every
 //! raise it might do outside the parked block's lifetime.
 
-use beni::Value;
+use beni::Proc;
 use kobako_core::proxy;
 
 pub use kobako_core::DispatchError;
@@ -25,10 +25,9 @@ use crate::runtime::block_stack::BlockFrame;
 /// tagged, with `block` reachable by the host's yields for as long as the
 /// call is out.
 ///
-/// `block` is the value an mruby method received — `Value::nil()` when the
-/// caller passed none, which is what an any-arity method reads off its
-/// call frame. A nil block parks nothing and tells the host there is
-/// nothing to yield to.
+/// `block` is the block an mruby method received, `None` when the caller
+/// passed none — which parks nothing and tells the host there is nothing to
+/// yield to.
 ///
 /// A refusal arrives typed on the envelope rather than as payload bytes,
 /// so a gem reads the host's reason for saying no without owning a
@@ -36,10 +35,10 @@ use crate::runtime::block_stack::BlockFrame;
 pub fn dispatch(
     target: Target<'_>,
     method: &str,
-    block: Value,
+    block: Option<Proc>,
     payload: &[u8],
 ) -> Result<Vec<u8>, DispatchError> {
-    let frame = BlockFrame::push_if_block(block);
+    let frame = BlockFrame::park(block);
     let answer = proxy::dispatch(target, method, frame.block_given(), payload);
     drop(frame);
     answer
