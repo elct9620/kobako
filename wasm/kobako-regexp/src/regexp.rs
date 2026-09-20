@@ -55,8 +55,13 @@ struct CompileCache {
 
 static COMPILE_CACHE_TYPE: DataType<CompileCache> = DataType::new(c"Kobako::RegexpCompileCache");
 
-// SAFETY: the cache wraps as `Object`, which mruby exempts from the
-// data-mark requirement.
+// Written out rather than declared with `#[beni::wrap]`, unlike the two
+// carriers above: the macro marks and un-allocates the class it names,
+// and this one wraps as `Object` — which mruby exempts from the data
+// mark, and whose allocator every other object still needs.
+//
+// SAFETY: as above, the exemption is what lets the wrap allocate a
+// carrier rather than raise.
 unsafe impl TypedData for CompileCache {
     fn class(mrb: &Mrb) -> RClass {
         mrb.object_class()
