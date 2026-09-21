@@ -33,7 +33,7 @@ end
 ## Installation
 
 ```toml
-kobako-json = "0.16.0" # x-release-please-version
+kobako-json = "0.17.0" # x-release-please-version
 ```
 
 ## License

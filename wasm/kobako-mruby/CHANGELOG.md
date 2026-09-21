@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.17.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.16.0...kobako-mruby-v0.17.0) (2026-09-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **guest:** a pattern's allocator is undefined from the moment the capability installs rather than from its first wrap, so allocating one is refused for the missing allocator throughout an invocation, where before the first statement could still reach an uninitialized carrier.
+* **mruby:** `kobako_mruby::dispatch` takes `Option<Proc>` where it took a `Value` that could be nil. A gem passes the block its method read off its own frame; `None` says there is none.
+* **mruby:** an object bearing a capability reference's class name without being one is refused as a value the wire cannot carry, where it previously crossed as a reference to whatever identifier it held.
+* **mruby:** an object whose class carries a list's or a map's name without being one is refused rather than read as that container, both as the invocation's own answer and as a dispatch argument.
+* **mruby:** `Kobako::Handle#initialize_copy` answers an ArgumentError for any count but one. The name is private, as it is in MRI, so reaching it at all takes a `send`; `dup` and `clone` pass their one argument and are unaffected.
+* **guest:** `Kobako::raise_transport_error`, `raise_service_error` and `reraise` are gone. A flow of its own builds `Kobako::transport_error` or `service_error` and hands the result back as `Err`, which beni raises at the guest call site.
+
+### Features
+
+* **guest:** rebuild the guest crates on beni 0.17 ([b397701](https://github.com/elct9620/kobako/commit/b397701231c7d8718503d24f73b175676d0d1be3))
+* **guest:** rebuild the guest crates on beni 0.18 ([ae232eb](https://github.com/elct9620/kobako/commit/ae232ebbf708419ff0672172fbf8627363fb02da))
+
+
+### Bug Fixes
+
+* **mruby:** hold the Handle copy hook to the one argument it takes ([e46da94](https://github.com/elct9620/kobako/commit/e46da944243a51291ddb1f398fc254b44fa6fab0))
+* **mruby:** prove a container's layout by its tag, not its class name ([5ee8c59](https://github.com/elct9620/kobako/commit/5ee8c59db90cee27f356028ff466860afe89e06e))
+* **mruby:** read a reference's identity from the class the bridge registered ([0f24102](https://github.com/elct9620/kobako/commit/0f24102b75f771548cbc39256690e59d6df1f9e4))
+
+
+### Code Refactoring
+
+* **mruby:** carry a dispatch's block as the block it is ([01d8831](https://github.com/elct9620/kobako/commit/01d8831dff173e80c10d965af8615acb4de2498b))
+
 ## [0.16.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.15.0...kobako-mruby-v0.16.0) (2026-09-15)
 
 

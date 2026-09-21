@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/elct9620/kobako/compare/kobako-wasmtime-v0.16.0...kobako-wasmtime-v0.17.0) (2026-09-20)
+
+
+### Miscellaneous Chores
+
+* **kobako-wasmtime:** Synchronize kobako crates versions
+
 ## [0.16.0](https://github.com/elct9620/kobako/compare/kobako-wasmtime-v0.15.0...kobako-wasmtime-v0.16.0) (2026-09-15)
 
 
