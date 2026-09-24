@@ -44,7 +44,7 @@ jobs:
     outputs:
       result: ${{ steps.fetch.outputs.result }}
     steps:
-      - uses: oxidize-rb/actions/fetch-ci-data@e5f9a49a7812a078584072f6e3f657ad247c8771 # v1
+      - uses: oxidize-rb/actions/fetch-ci-data@ec90b4aa48795518d79be3f5cc478d1d7ccd02a8 # v1
         id: fetch
         with:
           # arm-linux and arm-linux-musl are 32-bit ARM; wasmtime's Cranelift
@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+      - uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073 # v1.324.0
         with:
           ruby-version: ${{ env.RUBY_VERSION }}
           bundler-cache: true
@@ -113,7 +113,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+      - uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073 # v1.324.0
         with:
           ruby-version: ${{ env.RUBY_VERSION }}
           bundler-cache: false
@@ -144,7 +144,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+      - uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073 # v1.324.0
         with:
           ruby-version: ${{ env.RUBY_VERSION }}
           bundler-cache: false
@@ -159,7 +159,7 @@ jobs:
       # which already carries this platform's cross-target std.
       - name: Build the host ext with the container's stable toolchain
         run: sed -i 's/^channel = .*/channel = "stable"/' rust-toolchain.toml
-      - uses: oxidize-rb/actions/cross-gem@e5f9a49a7812a078584072f6e3f657ad247c8771 # v1
+      - uses: oxidize-rb/actions/cross-gem@ec90b4aa48795518d79be3f5cc478d1d7ccd02a8 # v1
         id: cross-gem
         with:
           platform: ${{ matrix.platform }}
@@ -179,7 +179,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+      - uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073 # v1.324.0
         with:
           ruby-version: ${{ env.RUBY_VERSION }}
           bundler-cache: false
