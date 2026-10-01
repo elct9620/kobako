@@ -42,7 +42,7 @@ the golden vectors in this crate are derived from that document.
 
 ```toml
 [dependencies]
-kobako-transport = "0.17.0" # x-release-please-version
+kobako-transport = "0.18.0" # x-release-please-version
 ```
 
 ## License
