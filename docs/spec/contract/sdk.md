@@ -1,8 +1,9 @@
 # Rust SDK interface
 
-What a Rust embedder reads off a finished invocation, and how a Receiver
-hands the guest a stateful host object. The Ruby frontend answers the same
-behaviors; this registers the shape the Rust caller writes for them.
+What a Rust embedder reads off a finished invocation, what it shapes one
+invocation through, and how a Receiver hands the guest a stateful host object
+and learns how a yield ended. The Ruby frontend answers the same behaviors;
+this registers the shape the Rust caller writes for them.
 
 ## Includes
 
@@ -57,4 +58,22 @@ Recover the live host object a Handle id stands for.
 impl<'a> Handles<'a> {
     pub fn resolve(&self, id: u32) -> Option<Arc<dyn Receiver>> {}
 }
+```
+
+## `Context`
+
+The one invocation an override closure shapes, by overriding what a path
+resolves to for that invocation alone.
+
+```rust
+pub struct Context<'a> {}
+```
+
+## `YieldError`
+
+How a yield into the guest block ended short of a value, which a Receiver
+matches to recover or hands up to stop.
+
+```rust
+pub enum YieldError {}
 ```
