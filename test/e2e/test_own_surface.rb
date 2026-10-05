@@ -45,6 +45,26 @@ class TestE2EOwnSurface < Minitest::Test
     def respond_to_guest?(_name) = true
   end
 
+  # Defines one method of each visibility, each answering on its own.
+  class Guarded
+    def open = "public"
+
+    protected
+
+    def kin = "protected"
+
+    private
+
+    def secret = "private"
+  end
+
+  # Permits an inherited name through its own predicate.
+  class Opened < Base
+    private
+
+    def respond_to_guest?(name) = name == :helper
+  end
+
   def sandbox_with(path, object)
     Kobako::Sandbox.new.tap { |sandbox| sandbox.bind(path, object) }
   end
@@ -147,5 +167,26 @@ class TestE2EOwnSurface < Minitest::Test
                   "a dynamically answered name through an object without a predicate must be refused") do
       sandbox.eval("App::Dynamic.anything")
     end
+  end
+
+  # @behavior T-251
+  def test_a_method_its_own_class_keeps_private_or_protected_is_refused
+    sandbox = sandbox_with("App::Guarded", Guarded.new)
+
+    assert_equal "public", sandbox.eval("App::Guarded.open").value
+    assert_raises(Kobako::NoServiceError, "a protected method through a bound object must be refused") do
+      sandbox.eval("App::Guarded.kin")
+    end
+    assert_raises(Kobako::NoServiceError, "a private method through a bound object must be refused") do
+      sandbox.eval("App::Guarded.secret")
+    end
+  end
+
+  # @behavior T-252
+  def test_a_name_the_predicate_permits_reaches_even_an_inherited_method
+    sandbox = sandbox_with("App::Opened", Opened.new)
+
+    assert_equal "inherited", sandbox.eval("App::Opened.helper").value,
+                 "a name the predicate permits through a bound object must reach the method it inherits"
   end
 end

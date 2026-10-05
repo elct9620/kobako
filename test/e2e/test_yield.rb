@@ -28,6 +28,23 @@ class TestE2EYield < Minitest::Test
                  "non-nil &block on the host Service method"
   end
 
+  # @behavior T-253
+  # The Service hands the block on to core methods that know nothing of
+  # kobako, which only an ordinary Proc survives.
+  def test_the_block_reaches_the_service_as_an_ordinary_proc
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    observed = []
+    sandbox.bind("Probe::Maps", lambda { |items, &block|
+      observed << block.class
+      items.map(&block)
+    })
+
+    value = sandbox.eval("Probe::Maps.call([1, 2]) { |x| x * 10 }").value
+
+    assert_equal [Proc], observed, "a guest block through a Service call must reach the Service as a Proc"
+    assert_equal [10, 20], value, "the Proc a Service receives must run the guest block when handed to Array#map"
+  end
+
   # @behavior T-084
   def test_no_block_means_block_given_false_on_host
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)

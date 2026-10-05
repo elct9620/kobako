@@ -112,6 +112,14 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | several references are allocated in turn |
 | Then | their ids run upward from one |
 
+## `T-254` An object crossing twice is referenced twice
+
+| Step | Statement |
+| --- | --- |
+| Given | a Handle table |
+| When | the same object is allocated a reference twice |
+| Then | the two references differ and both resolve to that object |
+
 ## `T-010` A reference answers with the object it was made for
 
 | Step | Statement |

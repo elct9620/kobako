@@ -107,12 +107,4 @@ class TestParityYield < Parity::Case
       invocations: BLOCK_RAISE_INVOCATIONS
     )
   end
-
-  # The SDK's +Yielder+ borrows its dispatch frame, so a Service stashing
-  # it for a later dispatch is a compile error on the Rust side — no
-  # scenario can express the escape there. The Ruby frontend's runtime
-  # refusal is pinned by test/e2e/test_yield_unwind.rb.
-  def test_escaped_yielder_pending
-    skip "an escaped Yielder is compile-time-prevented on the SDK seam; no differential scenario exists"
-  end
 end

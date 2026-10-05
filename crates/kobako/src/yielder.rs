@@ -73,7 +73,36 @@ impl From<YieldError> for Fault {
     }
 }
 
+// @behavior T-255
 /// Host-side stand-in for the guest block of one dispatch frame.
+///
+/// It is lent for that frame alone, so a Service cannot keep it for a
+/// later dispatch:
+///
+/// ```compile_fail
+/// use std::cell::RefCell;
+///
+/// use kobako::{Fault, Handles, Receiver, Yielder};
+///
+/// thread_local! {
+///     static KEPT: RefCell<Option<&'static mut Yielder<'static>>> = const { RefCell::new(None) };
+/// }
+///
+/// struct Keeper;
+///
+/// impl Receiver for Keeper {
+///     fn call(
+///         &self,
+///         _method: &str,
+///         _payload: &[u8],
+///         block: Option<&mut Yielder<'_>>,
+///         _handles: &Handles<'_>,
+///     ) -> Result<Vec<u8>, Fault> {
+///         KEPT.with(|kept| *kept.borrow_mut() = block);
+///         Ok(Vec::new())
+///     }
+/// }
+/// ```
 pub struct Yielder<'y> {
     channel: &'y mut dyn RawYielder,
     broke: Option<Vec<u8>>,

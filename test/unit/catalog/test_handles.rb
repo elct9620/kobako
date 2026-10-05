@@ -28,6 +28,19 @@ module Kobako
       assert_equal 3, table.alloc(c).id
     end
 
+    # @behavior T-254
+    def test_alloc_mints_a_fresh_reference_each_time_the_same_object_crosses
+      table = Table.new
+      object = Object.new
+
+      first = table.alloc(object)
+      second = table.alloc(object)
+
+      refute_equal first.id, second.id, "the same object through #alloc twice must mint two references"
+      assert_same table.fetch(first.id), table.fetch(second.id),
+                  "both references through #fetch must resolve to the one object they were minted for"
+    end
+
     # @behavior T-010
     def test_fetch_returns_the_same_object_that_was_bound
       table = Table.new

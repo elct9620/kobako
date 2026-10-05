@@ -3,8 +3,7 @@
 require "test_helper"
 
 # Differential parity — reflection denial: ambient reflection on a
-# dispatch target must be refused as undefined on both frontends;
-# reflective gadgets must never become Handles.
+# dispatch target must be refused as undefined on both frontends.
 class TestParityReflection < Parity::Case
   ECHO_SERVICE = [
     { name: "MyService::KV", methods: { echo: { behavior: "echo" } } }
@@ -22,15 +21,5 @@ class TestParityReflection < Parity::Case
         { verb: "eval", source: 'MyService::KV.instance_eval("1")' }
       ]
     )
-  end
-
-  # A Service returning a reflective gadget (Method / Binding) is refused
-  # rather than wrapped into a Handle.
-  # Reflective gadgets are Ruby surface with no Rust counterpart, so no
-  # stub behavior can express a gadget return from the SDK; the Ruby
-  # refusal is pinned by test/unit/transport/test_dispatcher_gadget_return.rb
-  # and test/unit/catalog/test_handles.rb.
-  def test_gadget_return_pending
-    skip "reflective gadgets have no Rust counterpart; the refusal is pinned on the Ruby side"
   end
 end

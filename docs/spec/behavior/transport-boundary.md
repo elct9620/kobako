@@ -602,3 +602,19 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | Given | a Sandbox with a bound Service |
 | When | guest code reaches for it through a subclass of the reference type, or a guest module mixing in the forwarding seam |
 | Then | it raises `NoMethodError` in the guest and the Service is never asked |
+
+## `T-251` A method its own class keeps non-public is not exposed
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object whose class defines a private and a protected method |
+| When | the guest calls either name |
+| Then | it answers as an undefined target |
+
+## `T-252` A name the predicate permits reaches an inherited method
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object whose narrowing predicate permits a name it inherits |
+| When | the guest calls that name |
+| Then | the inherited method answers |

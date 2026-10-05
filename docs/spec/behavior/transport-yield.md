@@ -8,7 +8,7 @@ A yield turns one dispatch into a conversation: the guest calls out, the host ca
 
 The block-failure scenarios are about what a failure leaves behind. A Service that rescues one raise, holds it, and yields again must not answer the second block with the first block's failure, and a failure already rescued must not reappear as a later refusal. Both are witnessed because neither shows up in the single-yield case.
 
-A block's answer is restored on its way in and a break's value is not, which is the one asymmetry here. The exits that raise are followed too: an unwind aimed past the boundary, an answer the wire cannot carry, and a Yielder reached after its frame returned each end the conversation somewhere the ordinary closes cannot reach. That last exit has no parity scenario: one frontend lends its Yielder for the frame alone, so holding it past the frame does not compile there, and the refusal is witnessed on the frontend that can reach it.
+A block's answer is restored on its way in and a break's value is not, which is the one asymmetry here. The exits that raise are followed too: an unwind aimed past the boundary, an answer the wire cannot carry, and a Yielder reached after its frame returned each end the conversation somewhere the ordinary closes cannot reach. That last exit has no parity scenario, because the frontends close it at different times: one refuses the stored block when it runs, the other lends its Yielder for the frame alone so a Service storing it never builds. Each is witnessed on its own frontend.
 
 ## Includes
 
@@ -27,6 +27,14 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | Given | a Sandbox with a bound Service that reports whether it was given a block |
 | When | guest code calls it with a block |
 | Then | the Service reports that it was |
+
+## `T-253` The block reaches the Service as an ordinary block
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that hands its block on to code knowing nothing of kobako |
+| When | guest code calls it with a block |
+| Then | that code runs the guest block as it would any other |
 
 ## `T-084` And that it was not
 
@@ -244,6 +252,14 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | a later dispatch calls that stored block |
 | Then | the invocation fails naming a local jump |
 
+## `T-255` A frontend lending its Yielder for the frame alone cannot store it
+
+| Step | Statement |
+| --- | --- |
+| Given | a frontend whose Yielder borrows the dispatch frame |
+| When | a Service is written to keep that Yielder for a later dispatch |
+| Then | the Service does not build |
+
 ## `T-154` A yield argument the host cannot write is the Service's to handle
 
 | Step | Statement |
@@ -309,6 +325,14 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | Given | a Service yielding to a block |
 | When | the answer is bytes the envelope cannot frame |
 | Then | the yield is abandoned rather than answered |
+
+## `T-250` An unframeable yield answer fails the Service's yield as a trap
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service yielding to a block |
+| When | the guest answers with no bytes, or with an arm outside the live set |
+| Then | the Service's yield fails as a trap |
 
 ## `T-170` A yield on the byte seam carries the Host App's own bytes
 

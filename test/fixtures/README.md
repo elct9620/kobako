@@ -31,6 +31,10 @@ Hand-written text-format modules that pass the ABI version check yet cannot beco
 (func (export "__kobako_eval") unreachable)
 ```
 
+## `minimal_unframed_yield.wat`
+
+Hand-written text-format module whose one dispatch asks the host to yield, then answers that yield with bytes the envelope cannot frame — which the real Guest Binary never does. `#eval` answers with no bytes, `#run` with a tag outside the live set. Update its `i32.const` ABI version by hand on a bump.
+
 ## `minimal_null_guest.wat`
 
 Hand-written text-format module that satisfies the whole invocation ABI and does nothing else: both entry points ignore their input and `__kobako_take_outcome` answers a constant nil Result (`0x01 0xc0` — the fixed layout's result tag, then the payload codec's nil). Unlike the fixtures above it exists for measurement rather than for a behaviour branch: `benchmark/host_invocation.rb` drives it so the host's per-invocation cost is the total rather than a subtraction of two near-equal numbers. `test/e2e/sandbox/test_null_guest.rb` keeps it honest. Update its `i32.const` ABI version by hand on a bump, same as `minimal_abi_ok.wat`.
