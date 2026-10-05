@@ -57,7 +57,7 @@ module Kobako
       end
 
       # Validate the ext-0x00 payload as UTF-8 and intern. Raises
-      # InvalidEncodingError on invalid bytes — SPEC forbids the
+      # InvalidEncodingError on invalid bytes, refusing the
       # binary-encoding fallback that msgpack-gem's default unpacker
       # would otherwise apply. The re-tag step lives here because the
       # msgpack ext-type unpacker hands us binary bytes; the assertion

@@ -5,10 +5,8 @@
 # Catalog::Handles is pure Ruby and needs no native extension; test_helper's
 # no-ext fallback loads the whole pure-Ruby tree (including the
 # Kobako::SandboxError / Kobako::HandleExhaustedError this test asserts on),
-# so it still runs on a clean checkout.
-#
-# Cross-references:
-#   - SPEC.md "Handle Lifecycle" — no finalizer; lifecycle bound to #run
+# so it still runs on a clean checkout. A Handle has no finalizer; its
+# lifecycle is bound to the #run that minted it.
 
 require "test_helper"
 
@@ -62,7 +60,7 @@ module Kobako
       assert_equal Kobako::Handle::MAX_ID, id
       assert_equal 0x7fff_ffff, id
 
-      # SPEC "Error Classes": cap-exhaustion raises the canonical
+      # Cap exhaustion raises the canonical
       # HandleExhaustedError < SandboxError chain.
       err = assert_raises(Kobako::HandleExhaustedError) { table.alloc(Object.new) }
       assert_kind_of Kobako::SandboxError, err

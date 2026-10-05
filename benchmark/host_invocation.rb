@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# SPEC.md "Regression benchmarks" #12 — the host's per-invocation cost,
+# Regression benchmark #12 — the host's per-invocation cost,
 # read as a total against a guest that does no work.
 #
 # Every other sandbox-driven suite reports a total that bundles host and

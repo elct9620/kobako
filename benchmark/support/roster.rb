@@ -4,9 +4,9 @@ require_relative "paths"
 
 module Kobako
   module Bench
-    # Release-gate benchmark roster — the probes SPEC.md's Regression
-    # benchmarks table names, resolved to absolute probe paths. See
-    # +tasks/bench/+ for the rake DSL that drives them.
+    # Release-gate benchmark roster — the gated probes, resolved to
+    # absolute probe paths. See +tasks/bench/+ for the rake DSL that
+    # drives them.
     RELEASE_BENCHES = %w[
       cold_start
       transport_roundtrip

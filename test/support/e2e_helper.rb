@@ -2,7 +2,7 @@
 
 # Shared setup for classes driving the production pure Guest Binary
 # (`data/kobako.wasm`) through the public API — the end-to-end journeys
-# under test/e2e/ (SPEC.md Testing Style Layer 4) and the pooled
+# under test/e2e/ and the pooled
 # checkouts under test/e2e/pool/. On a clean checkout without the compiled
 # ext or the built guest, each test skips with a pointer at the missing
 # build step.

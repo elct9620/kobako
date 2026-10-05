@@ -12,9 +12,6 @@ module Kobako
   # +Catalog::Snippets+ (preloaded source / bytecode entries),
   # +Catalog::Extensions+ (installed Extensions, composed onto Services /
   # Snippets), and +Catalog::Handles+ (per-invocation Handle ID allocator).
-  #
-  # See {SPEC.md Refinement → Internal Concepts}[link:../../SPEC.md] for
-  # how Catalog fits alongside Transport and Runtime.
   module Catalog
   end
 end

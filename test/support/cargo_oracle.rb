@@ -5,7 +5,7 @@ require "open3"
 
 # Test helper for driving a Rust "oracle" subprocess from a Minitest test.
 #
-# The oracle pattern (used by SPEC items #7 / #8):
+# The oracle pattern:
 #
 #   1. Build a Rust binary in +wasm/kobako-wasm/target/release/+ via
 #      +cargo build --release --manifest-path ...+. The build result is

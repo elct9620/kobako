@@ -2,8 +2,8 @@
 
 # Characterization benchmark (not in release gate) — measures
 # behaviour under multi-Thread Sandbox usage, the typical Sidekiq /
-# Puma cluster shape. SPEC.md does not currently specify a
-# concurrency contract; this benchmark observes the status quo so
+# Puma cluster shape. With no concurrency contract to hold it to,
+# this benchmark observes the status quo so
 # future ext/ changes (e.g. introducing rb_thread_call_without_gvl)
 # can be compared before/after.
 #

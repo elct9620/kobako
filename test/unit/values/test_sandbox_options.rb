@@ -9,7 +9,7 @@ require "test_helper"
 # The profile option is the one non-cap: nil is NOT a disable switch there
 # — the no-floor request is an explicit :permissive.
 class TestSandboxOptions < Minitest::Test
-  # Pins the literal SPEC default values (60 s / 1 MiB), not just the
+  # Pins the literal default values (60 s / 1 MiB), not just the
   # DEFAULT_* constants, so a drift in either direction is caught here.
   # @behavior S-004
   def test_absent_caps_take_their_spec_defaults

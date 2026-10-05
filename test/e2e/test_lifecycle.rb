@@ -2,16 +2,16 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the J-02 / J-03 / J-04 / J-07 journeys (SPEC.md L161-204,
-# L243-254): setup-once / run-many Sandbox reuse, per-submission isolation,
+# E2E — the Sandbox reuse and isolation journeys:
+# setup-once / run-many Sandbox reuse, per-submission isolation,
 # per-request expression evaluation, and the preload + dispatch-many worker
 # pattern through real mruby.
 class TestE2ELifecycle < Minitest::Test
   include E2eGuestHelper
 
-  # ── J-02 — Host App developer integrates kobako into an existing service ──
+  # ── Host App developer integrates kobako into an existing service ──
   #
-  # SPEC.md L161-173: Setup-once / run-many pattern; same Sandbox resets
+  # Setup-once / run-many pattern; same Sandbox resets
   # capability state between #run calls; Service objects bound at setup
   # time remain active across runs without re-registration.
 
@@ -23,8 +23,8 @@ class TestE2ELifecycle < Minitest::Test
     a = sandbox.eval('Data::Fetch.call("a")').value
     b = sandbox.eval('Data::Fetch.call("b")').value
 
-    assert_equal "record:a", a, "J-02: first run sees the binding"
-    assert_equal "record:b", b, "J-02: subsequent run still sees the binding (SPEC.md L173)"
+    assert_equal "record:a", a, "a Service bound at setup must answer the first #eval"
+    assert_equal "record:b", b, "a Service bound at setup must still answer a later #eval without re-binding"
   end
 
   # Each invocation executes against the canonical boot state, so guest
@@ -40,12 +40,12 @@ class TestE2ELifecycle < Minitest::Test
     first = sandbox.run(:Probe).value
     second = sandbox.run(:Probe).value
 
-    assert_nil first, "J-02: first #run on a fresh Sandbox observes an unset guest global"
+    assert_nil first, "the first #run on a fresh Sandbox must observe an unset guest global"
     assert_nil second,
-               "J-02: a reused Sandbox must not surface the prior #run's guest global mutation"
+               "a second #run on a reused Sandbox must not observe the prior #run's guest global mutation"
   end
 
-  # SPEC.md L169: developer reads the run's Execution#stdout for guest
+  # The developer reads the run's Execution#stdout for guest
   # puts/print output AND the script's return value comes through the outcome
   # envelope. Both channels are independently observable.
   # @behavior S-023
@@ -58,14 +58,14 @@ class TestE2ELifecycle < Minitest::Test
     RUBY
 
     assert_equal 42, execution.value,
-                 "J-02: return value comes through outcome envelope, not stdout"
+                 "a script that also prints through #eval must return its last expression as Execution#value"
     assert_includes execution.stdout, "diagnostic",
-                    "J-02: guest puts is captured in the run's Execution#stdout (SPEC.md L169)"
+                    "guest puts through #eval must be captured in the run's Execution#stdout"
   end
 
-  # ── J-03 — Teaching platform evaluates student submissions in isolation ──
+  # ── Teaching platform evaluates student submissions in isolation ──
   #
-  # SPEC.md L177-189: Each submission runs in a fresh Sandbox; a failing
+  # Each submission runs in a fresh Sandbox; a failing
   # submission must not affect another submission. No submission can read
   # another submission's guest output.
 
@@ -81,12 +81,12 @@ class TestE2ELifecycle < Minitest::Test
     result = surviving.eval("1 + 1").value
 
     assert_equal 2, result,
-                 "J-03: a crashed submission Sandbox must not affect another (SPEC.md L187)"
+                 "a script crashing one Sandbox through #eval must not affect #eval on another Sandbox"
   end
 
-  # ── J-04 — No-code platform evaluates user-defined expressions per request ──
+  # ── No-code platform evaluates user-defined expressions per request ──
   #
-  # SPEC.md L193-204: Per-tenant Sandbox; each event triggers a Sandbox#eval
+  # Per-tenant Sandbox; each event triggers a Sandbox#eval
   # with a user expression; expression result drives downstream logic.
 
   # @behavior S-040
@@ -97,13 +97,12 @@ class TestE2ELifecycle < Minitest::Test
     pass_branch = sandbox.eval("Event::Amount.call > 100").value
     fail_branch = sandbox.eval("Event::Amount.call > 1000").value
 
-    assert_equal true,  pass_branch, "J-04: user expression evaluates to true (SPEC.md L201)"
-    assert_equal false, fail_branch, "J-04: user expression evaluates to false (SPEC.md L201)"
+    assert_equal true,  pass_branch, "a satisfied user expression through #eval must return true"
+    assert_equal false, fail_branch, "an unsatisfied user expression through #eval must return false"
   end
 
-  # J-07 — Host App preloads a worker and dispatches many invocations.
-  # SPEC.md L243-254: setup-once / dispatch-many pattern using #preload +
-  # #run. Per-invocation isolation means no state leaks between
+  # Host App preloads a worker and dispatches many invocations: the
+  # setup-once / dispatch-many pattern using #preload + #run. Per-invocation isolation means no state leaks between
   # successive #run calls on the same Sandbox.
   # @behavior S-053 S-140
   def test_j07_preload_worker_and_dispatch_many_requests
@@ -121,7 +120,7 @@ class TestE2ELifecycle < Minitest::Test
     assert_equal 20, sandbox.run(:Worker, 4, multiplier: 5).value
   end
 
-  # J-07 follow-up: #run and #eval interleave freely on the same Sandbox;
+  # #run and #eval interleave freely on the same Sandbox;
   # both verbs replay the snippet table from a fresh mrb_state.
   # @behavior S-015
   def test_j07_eval_and_run_interleave_with_isolated_state

@@ -57,8 +57,8 @@ struct GuestYielder {
 
 // SAFETY: magnus requires `Send + Sync` on wrapped types. The raw pointer
 // is created, used, and invalidated within a single `__kobako_dispatch`
-// frame on the one Ruby thread that owns the active Invocation (SPEC.md
-// Single-Invocation Slot); it is never read from another thread.
+// frame on the one Ruby thread that owns the active Invocation; it is
+// never read from another thread.
 unsafe impl Send for GuestYielder {}
 unsafe impl Sync for GuestYielder {}
 
@@ -163,9 +163,8 @@ impl DispatchHandler for RubyDispatchHandler {
         // mode `reenter` runs the body inline — the GVL is already held.
         super::gvl::reenter(|| {
             // The wasmtime callback runs on the same Ruby thread that called
-            // the active Sandbox invocation (#eval or #run) — the invariant
-            // SPEC Implementation Standards Architecture pins for the host gem
-            // — so `Ruby::get()` is available here once the GVL is held.
+            // the active Sandbox invocation (#eval or #run), so `Ruby::get()`
+            // is available here once the GVL is held.
             // Panicking with `expect` localises the violation rather than
             // letting a nonsense error propagate.
             let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_dispatch");

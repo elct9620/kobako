@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# SPEC.md "Regression benchmarks" #9 — entrypoint dispatch latency for
+# Regression benchmark #9 — entrypoint dispatch latency for
 # the setup-once / dispatch-many path. The other benchmarks all measure
 # inside Sandbox#eval; this file isolates the cost dimensions the
 # #preload + #run verbs add. Only the per-invocation rows are a release
@@ -9,8 +9,8 @@
 #
 # Positioning: #preload and #run are independent features. They are
 # NOT a "faster #eval"; the joint flow (#preload(code:, name:) +
-# #run(target)) is the setup-once / dispatch-many use case from SPEC
-# J-06, and #preload may also be combined with #eval to share helper
+# #run(target)) is the setup-once / dispatch-many use case, and
+# #preload may also be combined with #eval to share helper
 # code across one-shot scripts. The cases below isolate each new
 # verb's contribution.
 #

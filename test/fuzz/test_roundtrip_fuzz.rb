@@ -1,13 +1,12 @@
 # frozen_string_literal: true
 
-# E2E round-trip fuzz harness for the kobako payload codec (SPEC.md F-09).
+# E2E round-trip fuzz harness for the kobako payload codec.
 #
 # This is THE proof that the two host-side payload-codec implementations
 # (the pure-Ruby `Kobako::Codec` under lib/kobako/codec and the Rust one
 # under crates/kobako-codec/src/msgpack) agree on the wire. Fuzz is their
 # whole consistency mechanism — there is no shared codec source — and a
-# passing run is the release gate per SPEC.md Testing Style Layer 1 (any
-# failure blocks release unconditionally).
+# passing run gates release (any failure blocks it unconditionally).
 #
 # A third implementation sits on the payload layer that these two never
 # meet: the guest's mruby-value walk in
@@ -28,7 +27,7 @@
 #        c. Send bytes A to the oracle; receive bytes B (oracle decoded with
 #           the Rust codec, then re-encoded with the Rust encoder).
 #        d. Assert A == B (byte-identical: narrowest-encoding rule means two
-#           SPEC-compliant encoders must agree).
+#           conforming encoders must agree).
 #        e. Decode A with `Kobako::Codec::Decoder` -> recovered_a; assert
 #           recovered_a == original.
 #        f. Decode B with `Kobako::Codec::Decoder` -> recovered_b; assert

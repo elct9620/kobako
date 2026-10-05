@@ -10,7 +10,7 @@ module Kobako
     #
     # The positional-versus-keyword split lives here rather than in the
     # core envelope because it is Ruby's call semantics, not the wire's.
-    # SPEC pins +kwargs+ keys to Symbols; the invariant is enforced at
+    # +kwargs+ keys must be Symbols; the invariant is enforced at
     # construction so the value object is the single source of truth.
     #
     # Built on the +class X < Data.define(...)+ subclass form so the class

@@ -7,7 +7,6 @@
 # layer — the `[args, kwargs]` shape a Call or a Run carries.
 #
 # Cross-references:
-#   - SPEC.md § Wire Codec — Call and Run payloads are a 2-element array
 #   - docs/wire/payload-msgpack.md § Payload Positions
 
 require "test_helper"
@@ -39,8 +38,8 @@ module Kobako
 
     # @behavior WP-003
     def test_a_kwargs_key_that_is_not_a_symbol_is_refused
-      assert_raises(ArgumentError, "a String kwargs key through Arguments.new must be refused — " \
-                                   "SPEC pins keyword names to Symbols on the wire") do
+      assert_raises(ArgumentError, "a String kwargs key through Arguments.new must be refused, " \
+                                   "since keyword names cross the wire as Symbols") do
         Arguments.new(kwargs: { "force" => true })
       end
     end

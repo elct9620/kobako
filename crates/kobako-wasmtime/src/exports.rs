@@ -36,7 +36,7 @@ impl Exports {
     /// Best-effort lookup of the host-driven exports against a freshly
     /// instantiated module. Missing exports are not an error here
     /// (the test fixture is a bare module); the host enforces presence at
-    /// invocation time. Only the SPEC ABI shapes are accepted —
+    /// invocation time. Only the ABI shapes are accepted —
     /// `__kobako_eval` is `() -> ()`, `__kobako_run` is
     /// `(env_ptr, env_len) -> ()`, `__kobako_take_outcome` is `() -> u64`,
     /// `__kobako_alloc` is `(len) -> ptr`

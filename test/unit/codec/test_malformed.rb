@@ -67,7 +67,7 @@ class TestCodecMalformed < Minitest::Test
 
   # @behavior WP-056
   def test_unsupported_ruby_type_at_encode
-    # SPEC's 11-entry mapping is closed; types outside it (Object,
+    # The 11-entry mapping is closed; types outside it (Object,
     # Range, Time, ...) raise UnsupportedTypeError.
     assert_raises(UnsupportedTypeError) { Encoder.encode(Object.new) }
   end

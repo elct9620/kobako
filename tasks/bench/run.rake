@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Rake tasks driving the SPEC.md "Regression benchmarks" suite.
+# Rake tasks driving the regression benchmark suite.
 # Benchmarks live in benchmark/ and are excluded from the published
 # gem; they are quality-pipeline tooling, not gem runtime behaviour.
 #
@@ -11,8 +11,8 @@
 # the seam; the rest are reached by running their script directly.
 #
 # Which suites are gated and which are characterization is the roster's
-# to say (benchmark/support/roster.rb), against SPEC.md's Regression
-# benchmarks table; `rake -T bench` is the task catalog. Each script
+# to say (benchmark/support/roster.rb); `rake -T bench` is the task
+# catalog. Each script
 # writes its suite into benchmark/results/<date>-<short-sha>.json, so
 # multiple Runner instances within one invocation share a file.
 #
@@ -22,7 +22,7 @@
 require_relative "../../benchmark/support/facade"
 
 namespace :bench do
-  desc "Run every gated regression benchmark (SPEC.md Regression benchmarks; <=1 MiB payloads)."
+  desc "Run every gated regression benchmark (<=1 MiB payloads)."
   task :release do
     Kobako::Bench::Lock.hold do
       Kobako::Bench::RELEASE_BENCHES.each { |script| sh "bundle exec ruby #{script}" }
@@ -75,5 +75,5 @@ namespace :bench do
   end
 end
 
-desc "Alias for bench:release — every SPEC-gated regression benchmark."
+desc "Alias for bench:release — every gated regression benchmark."
 task bench: "bench:release"

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the J-01 journey: an LLM agent author runs
+# E2E — the journey in which an LLM agent author runs
 # model-generated code with curated capabilities and reads each failure
 # back. The Host App developer's journeys live in
 # test_journeys_host_app.rb, Sandbox reuse / isolation journeys in
@@ -10,13 +10,13 @@ require "test_helper"
 class TestE2EJourneys < Minitest::Test
   include E2eGuestHelper
 
-  # ── J-01 — LLM agent author runs model-generated code with curated capabilities ──
+  # ── LLM agent author runs model-generated code with curated capabilities ──
   #
-  # SPEC.md L146-158: The Host App declares Services; generated
+  # The Host App declares Services; generated
   # scripts that exceed declared capabilities receive ServiceError; scripts
   # with Ruby errors raise SandboxError; Wasm-level failures raise TrapError.
 
-  # SPEC.md L152-156: model-generated script calls a curated Service
+  # A model-generated script calls a curated Service
   # and the Host App receives a deserialized return value.
   # @behavior J-001
   def test_j01_curated_capability_call_returns_deserialized_result
@@ -28,10 +28,10 @@ class TestE2EJourneys < Minitest::Test
     RUBY
 
     assert_equal "value:user_42", result,
-                 "J-01: model-generated script must receive deserialized Service result (SPEC.md L156)"
+                 "a curated Service call through #eval must return the deserialized Service result"
   end
 
-  # SPEC.md L157: scripts with Ruby errors raise SandboxError.
+  # Scripts with Ruby errors raise SandboxError.
   # @behavior J-002
   def test_j01_script_ruby_error_raises_sandbox_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -79,14 +79,10 @@ class TestE2EJourneys < Minitest::Test
                  "and column the parse stopped at")
   end
 
-  # SPEC.md "Panic Envelope" L876 — the +backtrace+ field is an array of
-  # str carrying the mruby backtrace. The guest must populate it from the
-  # mruby Exception object so the Host App can see where the failure
-  # originated inside the user script; an empty array hides which line the
-  # author needs to fix and forces blind debugging. The host-side decoder
-  # already pins the Array-of-String type invariant via the RBS alias
-  # +Outcome::panic_fields+,
-  # so this E2E only asserts the non-empty contract.
+  # The guest populates the panic backtrace from the mruby Exception so the
+  # Host App sees which line of the user script failed; the host-side
+  # decoder already pins its Array-of-String type, so this asserts only that
+  # it is non-empty.
   # @behavior J-004
   def test_j01_script_ruby_error_exposes_mruby_backtrace
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -98,10 +94,10 @@ class TestE2EJourneys < Minitest::Test
         boom
       RUBY
     end
-    refute_empty err.backtrace_lines, "SPEC L876: guest must populate Panic.backtrace"
+    refute_empty err.backtrace_lines, "an unrescued script error through #eval must carry its mruby backtrace"
   end
 
-  # SPEC.md L157: Service capability call that errors → ServiceError.
+  # A Service capability call that errors raises ServiceError.
   # @behavior J-005
   def test_j01_capability_error_raises_service_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -117,10 +113,8 @@ class TestE2EJourneys < Minitest::Test
     refute_kind_of Kobako::SandboxError, err, "a capability fault through #eval must not surface as SandboxError"
   end
 
-  # SPEC.md L876 again — an unrescued Service call equally flows through
-  # the Panic envelope, so its backtrace must also reach the Host App.
-  # Otherwise an LLM-generated script that calls a misbehaving capability
-  # would surface as ServiceError with no debugging context at all.
+  # An unrescued Service error equally carries its backtrace, so a
+  # misbehaving capability never surfaces with no debugging context.
   # @behavior J-006
   def test_j01_unrescued_service_error_exposes_mruby_backtrace
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)

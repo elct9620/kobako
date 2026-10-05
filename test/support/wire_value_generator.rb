@@ -6,7 +6,7 @@
 require "kobako/handle"
 
 # Seeded random generator for kobako wire-encodable values, used by the
-# round-trip fuzz harness (SPEC.md F-09; Testing Style Layer 1).
+# round-trip fuzz harness.
 #
 # Produces values across all 11 wire types plus both ext types, with
 # explicit length bands so every msgpack format boundary
@@ -51,15 +51,14 @@ class WireValueGenerator
   GUEST_INT_BANDS = %i[pos_fix neg_fix u8 u16 i8 i16 i32].freeze
 
   # Special-value floats indexed 0..5; bucket 6..9 falls through to
-  # +random_general_float+. SPEC.md does not constrain NaN bit patterns;
-  # NaN is deliberately omitted because +f64::from_bits+ round-trip can
+  # +random_general_float+. NaN is deliberately omitted because +f64::from_bits+ round-trip can
   # mutate the bit pattern and break the byte-equality check.
   SPECIAL_FLOATS = [0.0, -0.0, Float::INFINITY, -Float::INFINITY, 1.0, -1.0].freeze
 
   # str-family msgpack length bands: each entry is [upper_bound_exclusive
   # in the 20-bucket pick, coverage key, byte-length range or nil for
   # the empty-string fast path]. We cap +str_16+ below the full u16 range
-  # to keep the fuzz cheap; SPEC's narrowest-encoding rule still gets
+  # to keep the fuzz cheap; the narrowest-encoding rule still gets
   # exercised at the band boundaries.
   STRING_BANDS = [
     [1,  :str_empty, nil],

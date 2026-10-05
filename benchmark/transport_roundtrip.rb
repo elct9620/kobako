@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# SPEC.md "Regression benchmarks" #2 — Transport round-trip latency.
+# Regression benchmark #2 — Transport round-trip latency.
 # Detects regressions in the combined Wire codec, import function
 # dispatch, and Catalog::Handles lookup paths.
 #

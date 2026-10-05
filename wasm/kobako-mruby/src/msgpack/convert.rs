@@ -14,9 +14,8 @@
 //!    with no wire representation yields `None`, never a coerced
 //!    `Object#to_s` string: the outcome caller emits a Panic envelope, the
 //!    yield caller a `0x04` error Yield Reply, and the dispatch caller
-//!    raises at the guest call site. SPEC.md § Behavior pins "no implicit
-//!    inspect / to_h / to_s conversion" across all three guest→host value
-//!    paths.
+//!    raises at the guest call site. No guest→host value path performs an
+//!    implicit `inspect` / `to_h` / `to_s` conversion.
 //! 2. **Args / kwargs unpacking** (`extract_hash_kwargs` /
 //!    `unpack_args_kwargs`) — used by the `method_missing` C bridges to
 //!    convert a dispatch call's positional rest slice and its separate

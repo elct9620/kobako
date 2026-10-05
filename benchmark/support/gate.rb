@@ -15,7 +15,7 @@ module Kobako
     # so the release pipeline fails. The anchor (+benchmark/baseline.json+)
     # is fixed, not the previous run, so sub-threshold drift accumulates
     # against it instead of resetting each release; it advances only by
-    # {bless!}. See the Regression benchmarks section of SPEC.md.
+    # {bless!}. The gated set is the roster's to say (+benchmark/support/roster.rb+).
     module Gate
       ANCHOR_PATH = Paths::BASELINE_ANCHOR
       RESULTS_GLOB = Paths::RESULTS_GLOB

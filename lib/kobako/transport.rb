@@ -21,8 +21,7 @@ module Kobako
   #
   # "RPC" was deliberately not chosen — it implies a cross-process boundary that
   # kobako does not have, since host and guest share one OS thread and
-  # one wasm linear memory. See
-  # {SPEC.md Refinement → Internal Concepts}[link:../../SPEC.md].
+  # one wasm linear memory.
   module Transport
   end
 end

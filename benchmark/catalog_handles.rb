@@ -1,8 +1,7 @@
 # frozen_string_literal: true
 
-# SPEC.md "Regression benchmarks" #5 — Handle allocation and release
-# throughput. SPEC: "Catalog::Handles internal dictionary and counter
-# performance."
+# Regression benchmark #5 — Handle allocation and release throughput:
+# detects regressions in the Catalog::Handles dictionary and counter.
 #
 #   5a — Cumulative cost of allocating N entries from an empty
 #        Catalog::Handles. Each iteration builds a fresh table and runs
@@ -17,8 +16,7 @@
 #        waypoint; the median absorbs the machine transients a
 #        single sub-millisecond window exposes (README noise
 #        section). Flat numbers here mean the underlying Hash stays
-#        O(1) as it grows; SPEC's "approach the 2^31 − 1 cap" intent
-#        reframed as "does the dictionary degrade." The cap guard
+#        O(1) as it grows toward the 2^31 − 1 cap. The cap guard
 #        itself is constant-time and not iterated.
 #   5c — Warm Sandbox#eval("nil") round-trip cost measured WHILE the
 #        1 M-entry Catalog::Handles grown by 5b is still alive in the same

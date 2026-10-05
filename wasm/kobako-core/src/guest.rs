@@ -7,7 +7,7 @@
 //! `#[no_mangle]` symbol (dependency-rlib exports are unreliable —
 //! they get dead-code-GC'd by wasm-ld and break on native ELF).
 
-/// One Guest Binary's invocation surface — the three SPEC entry
+/// One Guest Binary's invocation surface — the three entry
 /// points behind the wasm exports `export_guest!` emits.
 ///
 /// `eval` and `run` are required: each runs one invocation and writes

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# SPEC.md "Regression benchmarks" #1 — Cold start latency.
+# Regression benchmark #1 — Cold start latency.
 #
 #   1a — Sandbox.new alone (steady-state warm Sandbox construction)
 #   1b — Sandbox.new + first #eval("nil") (steady-state warm new +

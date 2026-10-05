@@ -120,8 +120,8 @@ class TestE2EOutcomeValues < Minitest::Test
   end
 
   # outcome path: +try_codec_value+ raises on a type outside the 11-entry
-  # wire type set rather than handing the host a misleading String (SPEC.md
-  # pins "no implicit inspect / to_h / to_s conversion"). The transport
+  # wire type set rather than handing the host a misleading String through
+  # an implicit inspect / to_h / to_s conversion. The transport
   # (dispatch-arg) path rejects the same way — its pin lives in
   # test_dispatch_args.rb.
   UNREPRESENTABLE_OUTCOME_SCRIPT = "Object.new"
@@ -139,13 +139,11 @@ class TestE2EOutcomeValues < Minitest::Test
                  "the Panic path as Kobako::SandboxError, never an implicit inspect String")
   end
 
-  # ── Native Array / Hash round-trips (Type Mapping #7-#8) ─────────────
+  # ── Native Array / Hash round-trips ─────────────
   #
   # The 11-entry Type Mapping (docs/wire/payload-msgpack.md § Type Mapping) maps
   # msgpack array → mruby Array and msgpack map → mruby Hash. Both
-  # directions must travel by value with element-level fidelity (SPEC.md:
-  # "Collections (Array, Hash) whose elements are all
-  # wire-representable are transmitted in full by value").
+  # directions must travel in full by value with element-level fidelity.
 
   # Outcome path: a script whose last expression is an mruby Array must
   # serialize as +Value::Array+ on the wire, not as the +inspect+
@@ -158,14 +156,13 @@ class TestE2EOutcomeValues < Minitest::Test
     result = sandbox.eval('[1, "a", :b]').value
 
     assert_equal [1, "a", :b], result,
-                 "outcome path: mruby Array must arrive as a Ruby Array with " \
-                 "preserved element types (SPEC.md Type Mapping #7)"
+                 "an mruby Array returned through #eval must arrive as a Ruby Array with " \
+                 "preserved element types"
   end
 
   # Outcome path: an mruby Hash must serialize as +Value::Map+ and
   # arrive as a Ruby Hash. Symbol-vs-String key distinction is part of
-  # the wire contract — SPEC.md Ext Types pins that
-  # +"a"+ and +:a+ are not wire-equivalent.
+  # the wire contract: +"a"+ and +:a+ are not wire-equivalent.
   # @behavior S-078
   def test_outcome_hash_returns_native_hash
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -173,8 +170,8 @@ class TestE2EOutcomeValues < Minitest::Test
     result = sandbox.eval('{a: 1, "b" => 2}').value
 
     assert_equal({ a: 1, "b" => 2 }, result,
-                 "outcome path: mruby Hash must arrive as a Ruby Hash preserving " \
-                 "the Symbol-vs-String key distinction (SPEC.md Type Mapping #8 + ext 0x00)")
+                 "an mruby Hash returned through #eval must arrive as a Ruby Hash preserving " \
+                 "the Symbol-vs-String key distinction")
   end
 
   # Empty collection round-trips. These two tests pin the canonical

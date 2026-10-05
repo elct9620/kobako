@@ -26,7 +26,7 @@ pub enum Trap {
 }
 
 /// A failure that yields no invocation outcome. The discriminant records
-/// the runtime's state so a frontend can attribute the failure per SPEC:
+/// the runtime's state so a frontend can attribute the failure:
 /// `ModuleNotBuilt` (the guest artifact is absent), `Dead` (the runtime
 /// could not be constructed), and `Intact` (the runtime is live but a
 /// host-side pre-call step failed, so no discard-and-recreate recovery is

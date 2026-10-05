@@ -56,8 +56,8 @@ require "runner"
 # block so the KOBAKO_BENCH_WASM lookup never lands in the timer.
 GUEST = Kobako::Bench::Guest.path
 
-# 8c payload size — kept well below MRB_STR_LENGTH_MAX (1 MiB; SPEC
-# Invariant) so the guest can construct the String without raising.
+# 8c payload size — kept well below MRB_STR_LENGTH_MAX (1 MiB) so the
+# guest can construct the String without raising.
 PAYLOAD_BYTES = 512 * 1024
 
 # RSS in KB via `ps -o rss=` — macOS and Linux both report in 1024-byte

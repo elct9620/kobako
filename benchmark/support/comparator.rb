@@ -9,8 +9,8 @@ module Kobako
     # payload carries that the other lacks. No IO — {Gate} owns the
     # run/anchor file handling and the abort/exit shell around these.
     #
-    # The floor (+FLOOR_PCT+) is the conservative backstop SPEC.md names;
-    # the noise band (+SIGMA+ combined standard errors) can only WIDEN
+    # The floor (+FLOOR_PCT+) is the conservative backstop; the noise band
+    # (+SIGMA+ combined standard errors) can only WIDEN
     # the bar on high-variance rows, never narrow it below the floor. So
     # the gate never flags more than a bare +10% rule would — it only
     # suppresses flags on demonstrably noisy rows (the 512 KiB guest-return
@@ -30,8 +30,7 @@ module Kobako
     # value. A +seconds+ row carries neither and is outside the gate even
     # inside a gated suite: recording one is how a probe declares the
     # figure is not a release commitment ({OneShot} owns what that
-    # covers; SPEC.md's Regression benchmarks section pins which figures
-    # are commitments).
+    # covers).
     module Comparator
       FLOOR_PCT = 10.0
       SIGMA = 2.0

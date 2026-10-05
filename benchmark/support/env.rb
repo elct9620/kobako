@@ -5,9 +5,8 @@ require "rbconfig"
 
 module Kobako
   # Quality-pipeline tooling — not loaded by the gem itself. The
-  # `benchmark/support/*` helpers exist purely to drive the SPEC.md
-  # "Regression benchmarks" suite. See `benchmark/` for the entry
-  # points.
+  # `benchmark/support/*` helpers exist purely to drive the regression
+  # benchmark suite. See `benchmark/` for the entry points.
   module Bench
     # Captures the execution environment of a benchmark run so two
     # baseline files can be compared without ambiguity. Result JSON

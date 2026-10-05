@@ -5,8 +5,7 @@ require "tmpdir"
 
 require_relative "../../benchmark/support/gate"
 
-# Unit coverage for the release-gate runner ({SPEC.md Regression
-# benchmarks}): path resolution defaulting to the committed anchor, and
+# Unit coverage for the release-gate runner: path resolution defaulting to the committed anchor, and
 # the {Gate.bless!} guards that refuse to overwrite the anchor from an
 # absent or non-results source. The judgment itself lives in
 # Kobako::Bench::Comparator and is covered separately.

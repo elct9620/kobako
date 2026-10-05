@@ -23,7 +23,7 @@ module Kobako
     class InvalidTypeError < Error; end
 
     # A msgpack +str+ payload was not valid UTF-8, or an ext 0x00 Symbol
-    # payload was not valid UTF-8 — both are wire violations per SPEC.
+    # payload was not valid UTF-8 — both are wire violations.
     class InvalidEncodingError < Error; end
 
     # The encoder was handed a Ruby object whose type has no wire

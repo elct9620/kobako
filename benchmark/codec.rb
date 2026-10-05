@@ -1,13 +1,12 @@
 # frozen_string_literal: true
 
-# SPEC.md "Regression benchmarks" #3 — Codec throughput at varying
-# payload sizes and nesting depths. SPEC explicitly requires the two
-# dimensions to be measured independently and host/guest sides
-# separately:
+# Regression benchmark #3 — Codec throughput at varying payload sizes
+# and nesting depths, the two dimensions measured independently and the
+# host/guest sides separately:
 #
 #   3a — fixed depth=1, varying payload size (64 B / 1 KiB / 64 KiB /
-#        1 MiB). 16 MiB is gated under `BENCH_FULL=1` per the
-#        smoke/full split (SPEC: payload upper bound is 16 MiB).
+#        1 MiB). 16 MiB, the payload upper bound, is gated under
+#        `BENCH_FULL=1` per the smoke/full split.
 #   3b — fixed payload, varying nesting depth (1 / 4 / 16 / 64).
 #   3c — per-wire-type micro-bench, one case per entry of
 #        docs/wire/payload-msgpack.md § Type Mapping that carries a

@@ -40,7 +40,7 @@ class TestE2EDelegatorEscape < Minitest::Test
     FileUtils.remove_entry(dir) if dir
   end
 
-  # --- a forwarder answered or passed never crosses as a reference (T-206) ---
+  # --- a forwarder answered or passed never crosses as a reference ---
 
   # @behavior T-206
   def test_returned_forwarder_is_refused_at_the_mint_point
@@ -77,7 +77,7 @@ class TestE2EDelegatorEscape < Minitest::Test
     end
   end
 
-  # --- a forwarder bound directly has its dispatch hook denied (T-207) ---
+  # --- a forwarder bound directly has its dispatch hook denied ---
 
   # @behavior T-207
   def test_directly_bound_forwarder_refuses_its_dispatch_hook

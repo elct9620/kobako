@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-# SPEC.md "Regression benchmarks" #4 — mruby script evaluation
-# time. SPEC: "Impact of build_config/wasi.rb flag changes on VM
-# execution speed." No Transport calls: every case is a self-contained mruby
+# Regression benchmark #4 — mruby script evaluation time: detects the
+# impact of build_config/wasi.rb flag changes on VM execution speed.
+# No Transport calls: every case is a self-contained mruby
 # computation whose only host cost is the constant Sandbox#eval
 # per-invocation overhead.
 #
@@ -10,8 +10,7 @@
 #        overflows the guest's MRB_INT32, see ARITH_SCRIPT below)
 #   4b — string concatenation (1000 appends to a String)
 #   4c — exception raise/rescue 100 times (exercises the
-#        setjmp/longjmp path enforced by SPEC's invariant on
-#        mruby exception unwind)
+#        setjmp/longjmp path mruby exception unwind relies on)
 #   4e — stdout puts loop, well below stdout_limit (exercises the
 #        full guest IO path: kobako-io's Rust IO#write → wasi-libc
 #        write(2) → WASI pipe → host capture buffer; baseline cost

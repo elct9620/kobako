@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # Shared aliases and assertions for the wire-codec coverage classes under
-# test/codec/ (SPEC.md F-09). The codec is pure Ruby and needs no native
+# test/codec/. The codec is pure Ruby and needs no native
 # extension; test_helper's no-ext fallback loads the whole pure-Ruby tree,
 # so these classes still run on a clean checkout.
 module CodecHelpers

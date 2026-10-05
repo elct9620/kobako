@@ -115,7 +115,7 @@ module Kobako
       # Single source of truth for the forged-Handle reject message so the
       # args and kwargs branches stay phrased identically. Message stays in
       # caller vocabulary: it names the affected slot and the reason
-      # without leaking internal SPEC identifiers or self-referential
+      # without leaking internal identifiers or self-referential
       # architecture terms — the error is raised BY kobako, so saying
       # "allocated by the Host Gem" reads as third-person about self.
       def forged_handle_message(slot)

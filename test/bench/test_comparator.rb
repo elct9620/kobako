@@ -4,8 +4,7 @@ require "test_helper"
 
 require_relative "../../benchmark/support/comparator"
 
-# Unit coverage for the pure release-gate judgment
-# ({SPEC.md Regression benchmarks}): regression direction, the quadrature
+# Unit coverage for the pure release-gate judgment: regression direction, the quadrature
 # noise band, anchor-relative flagging, and anchor coverage, against
 # hand-built result payloads so each test states only the field it is
 # about. The payload builders at the bottom carry the two metric shapes

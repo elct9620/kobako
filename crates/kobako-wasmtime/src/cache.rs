@@ -1,8 +1,8 @@
 //! Process-wide caches for the wasmtime `Engine` and compiled
 //! `Module`, plus the on-disk compiled-artifact cache.
 //!
-//! SPEC.md "Code Organization" forbids exposing wasm engine types to
-//! the Host App or downstream gems. To amortise Engine creation and
+//! Wasm engine types stay hidden from the Host App and downstream
+//! gems. To amortise Engine creation and
 //! Module JIT compilation across multiple sandbox constructions, the
 //! driver keeps a process-scope shared Engine and a per-path Module
 //! cache. Both are transparent to frontends, which construct a

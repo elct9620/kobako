@@ -4,8 +4,8 @@ require "test_helper"
 
 require_relative "../../benchmark/support/comparator"
 
-# Unit coverage for the within-run half of the release gate's noise band
-# ({SPEC.md Regression benchmarks}). The figure the gate compares is a
+# Unit coverage for the within-run half of the release gate's noise band.
+# The figure the gate compares is a
 # median, so the band has to be the uncertainty of that median rather than
 # the spread of one sample it was reduced from — these pin the scaling, the
 # count each metric reads it from, and the asymmetric pair a run forms

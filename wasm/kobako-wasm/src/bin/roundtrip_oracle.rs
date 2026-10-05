@@ -87,7 +87,7 @@ fn write_frame<W: Write>(out: &mut W, payload: &[u8], is_error: bool) -> io::Res
 
 /// Decode the payload with the guest codec, then re-encode the resulting
 /// `Value` and return the new bytes. If the input is well-formed and was
-/// produced by SPEC-compliant Ruby encoder, the output bytes must equal the
+/// produced by a conforming Ruby encoder, the output bytes must equal the
 /// input bytes (narrowest-encoding rule).
 fn roundtrip_once(input: &[u8]) -> Result<Vec<u8>, (u8, String)> {
     let mut dec = Decoder::new(input);

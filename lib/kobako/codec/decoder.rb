@@ -13,7 +13,7 @@ module Kobako
     #
     # Translates msgpack gem exceptions into the kobako error taxonomy
     # (TruncatedInputError, InvalidTypeError, InvalidEncodingError, UnsupportedTypeError) so
-    # callers can pattern-match on the SPEC's wire-violation categories
+    # callers can pattern-match on the wire-violation categories
     # without leaking the gem's internal exception classes.
     #
     # Public API is a single function — +.decode+. The decoder is
@@ -21,7 +21,7 @@ module Kobako
     # because callers always decode exactly one wire value at a time.
     module Decoder
       # Decode +bytes+ into one Ruby value and validate transitively
-      # against the SPEC type mapping. Raises TruncatedInputError, InvalidTypeError,
+      # against the wire type mapping. Raises TruncatedInputError, InvalidTypeError,
       # or InvalidEncodingError on wire violations.
       #
       # When a block is given, the decoded value is yielded and the block's
@@ -48,7 +48,7 @@ module Kobako
         raise TruncatedInputError, e.message
       end
 
-      # SPEC pins +str+ family payloads to UTF-8
+      # +str+ family payloads must be UTF-8
       # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § str/bin
       # Encoding Rules). The msgpack gem returns UTF-8-tagged Strings for
       # str family but does not validate the bytes; +bin+ family decodes

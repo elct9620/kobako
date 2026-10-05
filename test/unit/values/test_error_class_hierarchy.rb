@@ -2,8 +2,7 @@
 
 require "test_helper"
 
-# Error class hierarchy assertions (SPEC.md F-07). The canonical SPEC
-# hierarchy anchors every kobako-raised error under `Kobako::Error`: the
+# Error class hierarchy assertions. The canonical hierarchy anchors every kobako-raised error under `Kobako::Error`: the
 # three invocation-outcome classes plus the construction-layer
 # `SetupError` branch.
 class TestErrorClassHierarchy < Minitest::Test

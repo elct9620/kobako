@@ -4,14 +4,12 @@ require "test_helper"
 
 # Wrapper-layer tests for the sole Ruby-visible wasmtime class,
 # +Kobako::Runtime+. The native ext keeps Engine, Module, and Store as
-# internal Rust types — they are not reachable from Ruby (SPEC.md "Code
-# Organization": `ext/` "exposes no Wasm engine types to the Host App or
-# downstream gems").
+# internal Rust types, so no Wasm engine type reaches the Host App.
 #
 # Scope is limited to the from_path pipeline and its error-mapping surface —
 # real-guest export presence is covered transitively by the E2E journeys
 # (test/e2e/), which drive +Sandbox#eval+ end-to-end and would fail
-# fast if any SPEC Wire ABI export went missing; the compiled-artifact
+# fast if any ABI export went missing; the compiled-artifact
 # disk cache has its own class in test_artifact_cache.rb.
 class TestRuntime < Minitest::Test
   include GuestGuard

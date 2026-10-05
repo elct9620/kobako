@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Cross-language payload-codec round-trip (SPEC.md F-05 / F-09).
+# Cross-language payload-codec round-trip.
 #
 # Drives the Rust `payload_oracle` subprocess from the host: each test
 # Ruby-encodes one codec payload, prefixes a single-byte kind tag, and

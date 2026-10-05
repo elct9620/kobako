@@ -7,7 +7,7 @@ module KobakoWasm
   # Stage C bake step: runs the +kobako-baker+ tool over a linked Guest
   # Binary so the shipped artifact embeds the canonical boot state.
   # The bake runs twice and the outputs must be
-  # byte-identical — the F-10 reproducibility gate; a divergence aborts
+  # byte-identical — the reproducibility gate; a divergence aborts
   # the build instead of shipping a nondeterministic image.
   class Baker
     BAKER_DIR      = File.join(WASM_WORKSPACE_DIR, "kobako-baker").freeze
@@ -26,14 +26,14 @@ module KobakoWasm
     private
 
     # Run the bake twice into +dir+ and return the artifact path only
-    # when both runs agree byte-for-byte — the F-10 gate.
+    # when both runs agree byte-for-byte — the reproducibility gate.
     def reproducible_bake(input, dir)
       first  = File.join(dir, "bake-1.wasm")
       second = File.join(dir, "bake-2.wasm")
       run_baker(input, first)
       run_baker(input, second)
       unless FileUtils.identical?(first, second)
-        raise "[wasm:build] bake is not reproducible — two runs over #{input} diverged (F-10)"
+        raise "[wasm:build] bake is not reproducible — two runs over #{input} diverged"
       end
 
       first

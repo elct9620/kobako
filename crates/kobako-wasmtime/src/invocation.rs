@@ -1,6 +1,5 @@
-//! Per-invocation host state — the materialised
-//! [SPEC.md Single-Invocation Slot] (one `Invocation` per OS thread
-//! for the lifetime of one `Driver` invoke call).
+//! Per-invocation host state — one `Invocation` per OS thread for the
+//! lifetime of one `Driver` invoke call.
 //!
 //! Owned as the data of each per-invocation `wasmtime::Store`
 //! and threaded through every host import —
@@ -17,8 +16,6 @@
 //! memory cap measures only the `memory.grow` delta past the linear-
 //! memory size captured at invocation entry — the image's initial
 //! allocation is outside the budget.
-//!
-//! [SPEC.md Single-Invocation Slot]: ../../../SPEC.md
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

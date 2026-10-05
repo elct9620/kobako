@@ -137,8 +137,8 @@ class TestE2EDispatchArgs < Minitest::Test
     result = sandbox.eval("KV::Snapshot.call[:a]").value
 
     assert_equal 1, result,
-                 "transport path: Service-returned Hash must materialize as an mruby Hash " \
-                 "with Symbol keys preserved (SPEC.md Type Mapping #8)"
+                 "a Hash returned by a Service through #eval must materialize as an mruby Hash " \
+                 "with its Symbol keys preserved"
   end
 
   # The Service captures into +seen+ before echoing, so one call shows

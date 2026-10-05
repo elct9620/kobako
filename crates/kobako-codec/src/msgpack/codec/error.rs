@@ -7,9 +7,8 @@ use rmp::decode::{MarkerReadError, NumValueReadError, ValueReadError};
 /// is the wrong msgpack family or truncated; `Malformed` covers a value
 /// that decoded cleanly but whose higher structure is wrong (a message
 /// with the wrong arity, a missing required field, a field of the wrong
-/// type). The host raises both through a single `Codec::Error`, so per
-/// SPEC the host need not distinguish the two when reporting a
-/// wire-contract violation.
+/// type). The host raises both through a single `Codec::Error`, so it
+/// need not distinguish the two when reporting a wire-contract violation.
 ///
 /// Non-exhaustive: an embedder matches this to word its own report, and a
 /// later way these bytes can be wrong must not break the wordings already

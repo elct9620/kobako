@@ -31,8 +31,8 @@ impl Arguments {
 }
 
 impl Encode for Arguments {
-    /// SPEC pins `kwargs` keys to Symbols (ext 0x00), so every key slot is
-    /// emitted as `Value::Sym`.
+    /// `kwargs` keys are Symbols (ext 0x00) on the wire, so every key slot
+    /// is emitted as `Value::Sym`.
     fn encode(&self) -> Result<Vec<u8>, codec::Error> {
         let kwargs = self
             .kwargs

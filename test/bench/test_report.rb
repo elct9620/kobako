@@ -4,8 +4,7 @@ require "test_helper"
 
 require_relative "../../benchmark/support/report"
 
-# Unit coverage for the head-vs-base PR report ({SPEC.md Regression
-# benchmarks}): the per-row verdict (regression / improvement / within
+# Unit coverage for the head-vs-base PR report: the per-row verdict (regression / improvement / within
 # noise) and that the rendered Markdown carries the summary counts and a
 # flagged regression row. Payloads are hand-built so each test states
 # only the field it is about, reusing the gate's two metric shapes —

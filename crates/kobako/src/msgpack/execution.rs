@@ -5,7 +5,7 @@ use kobako_codec::msgpack::codec::{Decoder, Value};
 use crate::error::{Error, Failure};
 use crate::execution::Execution;
 
-/// SPEC-pinned wire-level error class, carried as the attribution of
+/// The wire-level error class, carried as the attribution of
 /// host-detected wire violations on both frontends.
 const WIRE_ERROR_CLASS: &str = "Kobako::Transport::Error";
 

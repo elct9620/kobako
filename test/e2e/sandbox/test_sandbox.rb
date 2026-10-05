@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# SPEC.md F-01 / F-08: Kobako::Sandbox.new construction and option normalization.
+# Kobako::Sandbox.new construction and option normalization.
 #
 # Sandbox.new constructs the wasmtime pipeline (Engine / Module / Store /
 # Instance) against the test fixture wasm and normalizes its caps through

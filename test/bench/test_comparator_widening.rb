@@ -4,8 +4,8 @@ require "test_helper"
 
 require_relative "../../benchmark/support/comparator"
 
-# Unit coverage for the archive half of the release gate's noise band
-# ({SPEC.md Regression benchmarks}). The anchor baseline moves only by a
+# Unit coverage for the archive half of the release gate's noise band.
+# The anchor baseline moves only by a
 # deliberate re-bless, but the archive the band reads grows whenever a run
 # is committed — so an unbounded band would let an ordinary commit raise a
 # row's bar, and a silent one would let it read as a pass the floor still

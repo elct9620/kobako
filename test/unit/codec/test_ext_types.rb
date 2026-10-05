@@ -19,7 +19,7 @@ class TestCodecExtTypes < Minitest::Test
 
   # @behavior WP-039
   def test_symbol_preserved_across_string_distinction
-    # SPEC: a str/bin value carrying the bytes of a symbol's name is
+    # A str/bin value carrying the bytes of a symbol's name is
     # NOT wire-equivalent to that Symbol; both sides must remain
     # distinguishable end-to-end.
     _, decoded_sym = roundtrip(:foo)
@@ -31,8 +31,8 @@ class TestCodecExtTypes < Minitest::Test
 
   # @behavior WP-040
   def test_invalid_utf8_in_symbol_rejected
-    # ext 0x00 payload must decode as UTF-8 — SPEC forbids the
-    # binary-encoded Symbol fallback.
+    # ext 0x00 payload must decode as UTF-8, with no binary-encoded
+    # Symbol fallback.
     bytes = "\xc7\x02\x00\xff\xfe".b
     assert_raises(InvalidEncodingError,
                   "a Symbol (ext 0x00) with non-UTF-8 payload bytes must raise InvalidEncodingError") do

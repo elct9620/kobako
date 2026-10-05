@@ -1,7 +1,7 @@
 //! kobako-wasm — Guest Binary crate root.
 //!
 //! This crate is the source of `kobako.wasm`, the Guest Binary
-//! artifact described in SPEC.md "Core Abstractions". It is the leaf
+//! artifact. It is the leaf
 //! shell over the published guest stack: `kobako-mruby` supplies the
 //! `MrbGuest` harness (provided flows + the built-in `KobakoBridge`
 //! gem), `kobako-io` the IO / Kernel capability gem, and

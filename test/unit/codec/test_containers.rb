@@ -50,7 +50,7 @@ class TestCodecContainers < Minitest::Test
 
   # @behavior WP-031
   def test_map_non_string_keys
-    # SPEC envelope rules forbid this in specific positions, but the
+    # Envelope rules forbid this in specific positions, but the
     # codec itself must handle arbitrary wire-legal keys.
     assert_roundtrip({ 1 => "one", 2 => "two", true => "t" })
   end
