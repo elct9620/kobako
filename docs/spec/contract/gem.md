@@ -1,7 +1,8 @@
 # Gem interface
 
-The calls a host application writes against the Ruby gem. Registered here is
-the way in — that each name exists and takes the shape a caller writes; what
+The names a host application writes against the Ruby gem — the calls it
+makes, the values it reads, and the classes it rescues. Registered here is the
+way in — that each name exists and takes the shape a caller writes; what
 happens behind it is the behavior specification's to say.
 
 The surface a caller reaches through `attr_reader`, `Forwardable`, or a

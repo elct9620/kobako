@@ -165,22 +165,37 @@ Consequently:
 
 ## Wire-Symmetric Peers
 
-The payload codec has two independent implementations; the core envelope has one, shared by both sides. The payload peers cannot share source: the gem's codec loads before its native extension exists, and a `wasm32-wasip1` guest cannot embed Ruby.
+The payload codec has two independent implementations; the core envelope has one, shared by both sides. The payload peers cannot share source: the gem's codec must load without a built native extension, and a `wasm32-wasip1` guest cannot embed Ruby.
 
 | Layer | Host | Guest | Cross-check |
 |-------|------|-------|-------------|
 | Core envelope | `crates/kobako-transport` | `crates/kobako-transport` | Golden vectors against [`wire/envelope.md`](wire/envelope.md) |
 | Payload codec | `lib/kobako/` | `crates/kobako-codec` | Cross-language (Ruby ↔ Rust) |
 
-The two layers differ because ambiguity does. The type mapping — the 11 wire types, the two ext codes, the str/bin rules, the Symbol-keyed `kwargs` — is where two languages' type systems and encoding conventions disagree, so it earns a second implementation and a fuzz harness. The envelope asks its implementers to agree on three routing fields and a byte string, and it is the fixed tier every assembly composes against: one definition is the guarantee there, and the layout document is what holds it honest. Every envelope this document specifies exists as a wire-codable type in `kobako-transport`.
+### Layer Split
 
-The two payload peers are held to each other over bytes by the round-trip fuzz: generated values cross both implementations and the re-encoding must come back byte-identical, so the type mapping and both ext codes are checked one against the other over every shape the harness produces.
+The two layers differ because ambiguity does. Two languages disagree about types, so that layer earns a second implementation; the envelope is the fixed tier every assembly composes against, so one definition is the guarantee.
 
-The guest's own value walk — mruby values to and from the payload codec's types — sits below both peers rather than beside them, naming no payload type of its own. What it can get wrong is therefore a value's fidelity, not a type's shape, and it has no peer to differ against; it is held instead to an identity law, driving the real Guest Binary so that a value the host puts on the wire comes back the value it went in as.
+| Layer | What its peers must agree on | Guarantee |
+|-------|------------------------------|-----------|
+| Payload codec | 11 wire types, 2 ext codes, str/bin, Symbol `kwargs` | a second implementation |
+| Core envelope | three routing fields and a byte string | one definition, held to its layout document |
 
-A shape the harness never produces sits outside that reach: a payload type one peer grows and the other does not stays invisible until a generated case reaches it. `rake gate:wire:symmetry` closes that by comparing the two peers' wire-codable type names. A name present on one side only must hold an entry under Accepted asymmetries, each carrying the reason the divergence is the contract's own shape rather than drift; an entry the inventories no longer diverge on is itself a violation to drop. An empty block is the target state.
+Every envelope this document specifies exists as a wire-codable type in `kobako-transport`.
 
-One standing divergence lives outside the inventory comparison: success and failure are a value on the guest (`Outcome`) but return-or-raise on the host. It is a difference in what each side's language makes idiomatic, not in what the wire carries, so the inventories stay comparable without it.
+### Peer Checks
+
+Each check reaches what the one before it cannot. The guest's value walk sits below both peers and names no payload type, so it can only lose a value's fidelity, never a type's shape.
+
+| Check | Holds | Reaches |
+|-------|-------|---------|
+| Round-trip fuzz | the payload peers, byte for byte | every shape the harness generates |
+| Identity law | the guest's value walk | a value through the real Guest Binary |
+| `rake gate:wire:symmetry` | the peers' wire-codable type names | a type no generated case reaches |
+
+A name on one side only must hold an entry under Accepted asymmetries, giving why the divergence is the contract's own shape. An entry the inventories no longer diverge on is a violation to drop, and an empty block is the target state.
+
+Success and failure are a value on the guest (`Outcome`) but return-or-raise on the host. That is each language's idiom, not a wire difference, so it stays outside the comparison.
 
 ### Accepted asymmetries
 
