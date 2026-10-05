@@ -66,6 +66,21 @@ class TestE2EGvlScheduling < Minitest::Test
                  "release changes scheduling only"
   end
 
+  # @behavior RT-062
+  # Releasing the lock changes scheduling only, so a failure keeps its
+  # class, guest class and message across the modes.
+  def test_release_fails_a_failing_invocation_the_same_way_as_hold
+    failures = Kobako::SandboxOptions::GVL_MODES.map do |mode|
+      err = assert_raises(Kobako::SandboxError) do
+        Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode).eval("raise ArgumentError, 'bad input'")
+      end
+      [err.class, err.klass, err.message]
+    end
+
+    assert_equal failures.first, failures.last,
+                 "an invocation failing through #eval must fail the same way under :hold and :release"
+  end
+
   # @behavior RT-026
   # The journey the feature exists for: a Host App runs guest code on
   # distinct :release Sandboxes across distinct Threads and every thread

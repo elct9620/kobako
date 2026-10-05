@@ -66,6 +66,42 @@ class TestE2EHandleProxy < Minitest::Test
                  "a constructed bound-constant proxy must forward nothing (inert), while the constant forwards"
   end
 
+  # A Service that counts every call it receives, so a test can show the
+  # host was never asked.
+  class Counter
+    attr_reader :calls
+
+    def initialize = (@calls = 0)
+    def greet = (@calls += 1)
+  end
+
+  # Construction is the guest's own business: neither entry asks the host,
+  # and what it builds forwards nothing, so a method on it is missing.
+  INERT_INSTANCES = <<~RUBY
+    %w[new allocate].map do |entry|
+      instance = Models::User.public_send(entry)
+      begin
+        instance.greet
+        :forwarded
+      rescue NoMethodError
+        :no_method
+      end
+    end
+  RUBY
+
+  # @behavior T-234 T-235
+  def test_a_bound_proxy_instance_is_built_in_the_guest_and_forwards_nothing
+    counter = Counter.new
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Models::User", counter)
+
+    result = sandbox.eval(INERT_INSTANCES).value
+
+    assert_equal [%i[no_method no_method], 0], [result, counter.calls],
+                 "constructing a bound proxy by new or allocate through #eval must succeed without " \
+                 "reaching the host, and a method on the instance must raise NoMethodError in the guest"
+  end
+
   # A proxy minted from a bare id would dispatch against an arbitrary
   # Catalog::Handles entry. The `.new(1)` case pins that an integer argument
   # does not change the outcome — the raise fires ahead of any arity check

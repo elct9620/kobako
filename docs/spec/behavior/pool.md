@@ -236,3 +236,37 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | Given | a Pool constructed with a Sandbox option the Sandbox refuses |
 | When | a checkout first builds a Sandbox |
 | Then | that checkout raises the Sandbox's own refusal, unchanged |
+
+## `PL-027` A nested checkout holds a slot like any other holder
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool of one slot with a bounded checkout wait |
+| When | a checkout runs inside another checkout's block |
+| Then | it waits and times out |
+
+## `PL-028` A checkout timeout is none of the invocation outcomes
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool whose every slot is held |
+| When | a checkout waits past its bound |
+| Then | its failure is neither a trap, a Sandbox failure, nor a Service failure |
+
+## `PL-029` A timed-out checkout disturbs no held Sandbox
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool of one slot whose holder has bound a Service |
+| When | another checkout times out |
+| Then | the holder still drives its Sandbox and the next checkout receives it |
+
+## `PL-030` A slot a trap emptied is refilled on demand
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool of one slot whose holder met a trap |
+| When | the holder's block returns |
+| Then | no Sandbox has been built yet |
+| When | a checkout next needs the slot |
+| Then | it builds one |

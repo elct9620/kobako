@@ -21,6 +21,7 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 - `test/e2e/test_class_escape.rb`
 - `test/e2e/test_delegator_escape.rb`
 - `test/e2e/test_own_surface.rb`
+- `test/e2e/test_narrowed_reference.rb`
 - `test/unit/transport/test_dispatcher_allowlist.rb`
 - `test/unit/transport/test_dispatcher_gadget_return.rb`
 - `test/unit/transport/test_dispatcher_permissive_return.rb`
@@ -521,3 +522,83 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | Given | a bound object whose narrowing predicate permits every name, and which has no fallback for missing methods |
 | When | the guest calls a name the object has no method for |
 | Then | it is refused as an undefined target |
+
+## `T-234` Building an instance of a bound constant stays in the guest
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with an object bound at a path |
+| When | guest code builds an instance of the bound constant by either construction entry |
+| Then | it succeeds and the object is never called |
+
+## `T-235` Such an instance has no methods
+
+| Step | Statement |
+| --- | --- |
+| Given | an instance guest code built from a bound constant |
+| When | guest code calls a method on it |
+| Then | it raises `NoMethodError` in the guest |
+
+## `T-236` A reference refuses a reflective name as a bound constant does
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose guest holds a reference to a callable |
+| When | guest code calls a reflective name on the reference |
+| Then | the guest's proxy refuses it, while `call` still forwards |
+
+## `T-237` The proxy's refusal is one the guest may rescue
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest proxy refusing a reflective name |
+| When | guest code rescues `NoMethodError` around the call |
+| Then | the rescue receives the refusal |
+
+## `T-238` A reference narrowed to nothing still travels
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Service answers an object whose predicate permits no name |
+| When | guest code holds it, passes it to another Service, and answers it |
+| Then | the Service and the Host App each receive the original object |
+
+## `T-239` A narrowed name left unrescued is a Service failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose guest holds an object whose predicate permits no name |
+| When | guest code calls a name on it without rescuing |
+| Then | the invocation fails as a Service failure |
+
+## `T-240` Rewriting a held reference by instance evaluation is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose guest holds a reference |
+| When | guest code reassigns its identifier through instance evaluation |
+| Then | it raises `FrozenError` |
+
+## `T-241` A clone of a held reference is frozen
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose guest holds a reference |
+| When | guest code clones it |
+| Then | the clone is frozen |
+
+## `T-242` A copy of a held reference is the same reference
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose guest holds a reference |
+| When | guest code copies it |
+| Then | the copy keeps its identifier and dispatches to the same host object |
+
+## `T-243` An impostor of the reference type is refused in the guest
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service |
+| When | guest code reaches for it through a subclass of the reference type, or a guest module mixing in the forwarding seam |
+| Then | it raises `NoMethodError` in the guest and the Service is never asked |

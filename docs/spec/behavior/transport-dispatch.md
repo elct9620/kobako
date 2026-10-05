@@ -28,6 +28,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 - `test/e2e/test_dispatch*.rb`
 - `test/e2e/test_dsl_composition.rb`
 - `test/e2e/sandbox/test_run_auto_wrap.rb`
+- `test/e2e/sandbox/test_run_references.rb`
 - `test/parity/test_dispatch.rb`
 - `test/parity/test_handles.rb`
 - `crates/kobako/src/dispatch.rs`
@@ -1006,3 +1007,36 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a bound Service that raises an argument error from inside its own body |
 | When | the guest calls it |
 | Then | it answers as an argument failure, as a binding mismatch does |
+
+## `T-244` An internal failure reaches the guest as the wire-level failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Service the host answers as an internal failure |
+| When | guest code calls it |
+| Then | the call raises `Kobako::Transport::Error`, which the guest may rescue |
+| Then | left unrescued, the invocation fails as a Sandbox failure |
+
+## `T-245` The Service failure base class covers every failed call
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service that raises, a path left unfilled, and a Service given an argument it does not take |
+| When | guest code calls each and rescues `Kobako::ServiceError` |
+| Then | every one of them is rescued |
+
+## `T-246` A wrapped argument comes back as itself
+
+| Step | Statement |
+| --- | --- |
+| Given | an entrypoint passing its argument on to a bound Service |
+| When | the entrypoint verb runs it with an object the wire cannot carry |
+| Then | the Service receives the original object |
+
+## `T-247` An entrypoint answering a reference hands back the original
+
+| Step | Statement |
+| --- | --- |
+| Given | an entrypoint answering a reference a Service handed it, or one wrapped from its own argument |
+| When | the entrypoint verb runs it |
+| Then | the Host App receives the original object |

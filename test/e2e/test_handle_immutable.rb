@@ -41,6 +41,34 @@ class TestE2EHandleImmutable < Minitest::Test
                  "while dup stays frozen and the Handle still dispatches"
   end
 
+  # The other reflective writer, the clone entry, and a copy that keeps its
+  # identity: each would be a way round the freeze if it were missing.
+  COPY_AND_REWRITE_SCRIPT = <<~RUBY
+    g = Factory::Make.call("Bob")
+    rewrite = begin
+      g.instance_eval { @__kobako_id__ = 999 }
+      "mutated"
+    rescue => e
+      e.class.to_s
+    end
+    copy = g.dup
+    same_id = copy.instance_variable_get(:@__kobako_id__) == g.instance_variable_get(:@__kobako_id__)
+    [rewrite, g.clone.frozen?, same_id, copy.greet]
+  RUBY
+
+  # @behavior T-240 T-241 T-242
+  def test_a_held_reference_resists_rewriting_and_its_copies_stay_the_same_reference
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
+
+    result = sandbox.eval(COPY_AND_REWRITE_SCRIPT).value
+
+    assert_equal ["FrozenError", true, true, "hi,Bob"], result,
+                 "rewriting a held reference's identifier by instance_eval must raise FrozenError, " \
+                 "its clone must be frozen, and its copy must keep the identifier and dispatch to " \
+                 "the same host object"
+  end
+
   # dup and clone pass exactly one original, so reaching the hook with another
   # count takes a send. Holding it to that count keeps the hook from reading an
   # argument list it was never given.

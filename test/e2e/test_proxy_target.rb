@@ -29,6 +29,35 @@ class TestE2EProxyTarget < Minitest::Test
                  "the in-guest refusal must name the missing-target reason")
   end
 
+  # Neither is the exact reference type nor a class the host bound: a
+  # subclass inherits the closed construction entries, so no instance of it
+  # ever exists, and a module answers no dispatch target. The Service
+  # records whether it was asked.
+  FORWARDING_IMPOSTORS = {
+    "a subclass of the reference type" => <<~RUBY,
+      class SubHandle < Kobako::Handle; end
+      SubHandle.allocate.lookup(:x)
+    RUBY
+    "a guest module mixing in the forwarding seam" => <<~RUBY
+      module Rogue; extend Kobako::Proxy; end
+      Rogue.lookup(:x)
+    RUBY
+  }.freeze
+
+  # @behavior T-243
+  def test_an_impostor_of_the_reference_type_is_refused_before_the_host_is_asked
+    FORWARDING_IMPOSTORS.each do |shape, script|
+      asked = []
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+      sandbox.bind("KV::Lookup", ->(key) { asked << key })
+
+      err = assert_raises(Kobako::SandboxError) { sandbox.eval(script) }
+
+      assert_equal ["NoMethodError", []], [err.klass, asked],
+                   "#{shape} must be refused in the guest through #eval before the host is asked"
+    end
+  end
+
   # A class of the guest's own bound to Kobako::Handle answers that name to
   # every name-based reading, so only the class the bridge registered can say
   # what a reference is. The id it carries is one the host really issued, so

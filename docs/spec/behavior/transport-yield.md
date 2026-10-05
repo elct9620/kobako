@@ -407,3 +407,27 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | Given | a Sandbox with a Service yielding arguments nested to the deepest level the wire encodes, counted as the one list they travel in |
 | When | guest code calls it with a block that measures what it received |
 | Then | the block receives them nested to that depth |
+
+## `T-231` A block takes a yield as a block takes arguments
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service yielding whatever it was called with |
+| When | its block declares fewer arguments than it is yielded, or more |
+| Then | the extras are dropped and the missing ones are nil |
+
+## `T-232` A lambda block refuses a yield of the wrong count
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service yielding two arguments |
+| When | guest code passes it a lambda taking one as the block |
+| Then | the Service's yield fails with the guest's `ArgumentError` |
+
+## `T-233` `next` answers the yield as falling through does
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service yielding twice |
+| When | the block ends once with `next` and a value and once by falling through |
+| Then | each yield receives the value its block ended with |
