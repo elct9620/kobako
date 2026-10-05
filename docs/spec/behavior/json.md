@@ -481,3 +481,11 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 | Given | a Sandbox over the JSON-capable Guest Binary and one over the default Guest Binary |
 | When | guest code looks for `JSON` on each |
 | Then | only the JSON-capable one defines it |
+
+## `JS-059` A member naming a class is parsed as plain data
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary, with a guest class ready to build itself from a document |
+| When | guest code parses a document whose class-naming member names that class |
+| Then | it answers a plain Hash and the class is never asked to build |

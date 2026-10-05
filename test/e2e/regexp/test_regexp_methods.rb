@@ -90,6 +90,16 @@ class TestRegexpMethods < Minitest::Test
                  "Regexp#options reports MRI's IGNORECASE bit (1)"
   end
 
+  # The flag is read where it changes an answer: only under it does the
+  # wildcard cross a line break, whether written as /m or passed to new.
+  # @behavior RX-214
+  def test_multiline_lets_the_wildcard_cross_a_line_break
+    assert_equal [4, true, false, true],
+                 eval_regexp('s = "a\nb"; [Regexp::MULTILINE, /a.b/m.match?(s), /a.b/.match?(s), ' \
+                             'Regexp.new("a.b", Regexp::MULTILINE).match?(s)]'),
+                 "Regexp::MULTILINE through /m and Regexp.new must be 4 and let . match a newline"
+  end
+
   # @behavior RX-015
   def test_options_combines_mri_bits
     assert_equal 5, eval_regexp("/x/im.options"),

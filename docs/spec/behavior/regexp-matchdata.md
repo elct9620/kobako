@@ -247,6 +247,14 @@ A match cannot be constructed. It exists because a pattern matched, which is wha
 | When | guest code asks a match for its String |
 | Then | it answers the subject the pattern was matched against |
 
+## `RX-213` A match answers the pattern that made it
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code asks a match for its pattern |
+| Then | it answers that pattern, its flags included |
+
 ## `RX-205` A clone carries the same snapshot as a copy
 
 | Step | Statement |

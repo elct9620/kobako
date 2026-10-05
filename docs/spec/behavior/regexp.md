@@ -1020,3 +1020,27 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code quotes and escapes the same text |
 | Then | both answer the same |
+
+## `RX-214` The multiline flag lets the wildcard cross a line break
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a wildcard across a line break, with the multiline flag written or passed by its constant, and without it |
+| Then | only the flagged patterns match, and the constant carries the language's value |
+
+## `RX-215` Only a regexp-capable Guest Binary defines the surface
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary and one over the default Guest Binary |
+| When | guest code looks for `Regexp` and `MatchData` on each |
+| Then | only the regexp-capable one defines them |
+
+## `RX-216` The variant composing JSON refuses case-insensitive patterns too
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the Guest Binary composing JSON beside the regexp capability without Unicode |
+| When | guest code uses a case-insensitive pattern |
+| Then | it raises `RegexpError` |

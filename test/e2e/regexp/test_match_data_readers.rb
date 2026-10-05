@@ -21,6 +21,12 @@ class TestRegexpMatchDataReaders < Minitest::Test
                  "MatchData#length must count the same as #size"
   end
 
+  # @behavior RX-213
+  def test_regexp_answers_the_pattern_that_matched
+    assert_equal ["(b)(c)", 4], eval_regexp('m = /(b)(c)/m.match("abcd"); [m.regexp.source, m.regexp.options]'),
+                 "MatchData#regexp must answer the pattern that matched, flags included"
+  end
+
   # @behavior RX-204
   def test_string_answers_the_subject
     assert_equal "abcd", eval_regexp("#{MATCH}; m.string"),

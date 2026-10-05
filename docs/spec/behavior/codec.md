@@ -403,3 +403,19 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | Given | a Run whose envelope does not frame |
 | When | the guest reports it |
 | Then | the wording differs from every refusal of a Run's arguments |
+
+## `CD-048` A binary host String of text bytes comes back as text
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service answering a String tagged binary whose bytes are valid UTF-8 |
+| When | guest code returns that answer to the host |
+| Then | it arrives with the same bytes, tagged as text |
+
+## `CD-049` A host String claiming text it does not hold fails the invocation
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service answering a String tagged UTF-8 whose bytes are not UTF-8 |
+| When | guest code calls it |
+| Then | the invocation fails as a malformed payload does, rather than delivering the bytes |

@@ -25,6 +25,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 - `test/e2e/sandbox/test_preload.rb`
 - `test/e2e/sandbox/test_usage.rb`
 - `test/e2e/test_caps.rb`
+- `test/e2e/test_reference_memory.rb`
 - `test/e2e/test_lifecycle.rb`
 - `test/e2e/test_preload*.rb`
 - `test/e2e/test_io_streams.rb`
@@ -1398,3 +1399,11 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a Sandbox whose Service takes a measurable time |
 | When | guest code calls it |
 | Then | that time counts toward the deadline and toward the wall time the run reports |
+
+## `S-171` An object held by reference costs the guest only the reference
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose memory budget is smaller than the host objects a Service hands out |
+| When | guest code holds references to them all |
+| Then | the invocation completes within the budget |

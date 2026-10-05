@@ -18,6 +18,23 @@ class TestJsonParse < Minitest::Test
                  "JSON.parse through the json guest must map each JSON value to its native mruby type with String keys")
   end
 
+  # The class-naming key is what lets a document build objects of its
+  # choosing, so a class standing ready to answer it must not be asked.
+  # @behavior JS-059
+  def test_parse_answers_a_class_naming_member_as_plain_data
+    result = eval_json(<<~RUBY)
+      $built = false
+      class Widget
+        def self.json_create(_object) = ($built = true)
+      end
+      [JSON.parse('{"json_class":"Widget","v":1}'), $built]
+    RUBY
+
+    assert_equal [{ "json_class" => "Widget", "v" => 1 }, false], result,
+                 "JSON.parse through the json guest must answer a json_class member as a plain Hash " \
+                 "without building the class it names"
+  end
+
   # @behavior JS-002
   def test_parse_accepts_a_top_level_scalar
     assert_equal 42, eval_json('JSON.parse("42")'),

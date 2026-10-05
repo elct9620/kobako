@@ -373,3 +373,56 @@ impl Kobako {
         unsafe { Mrb::borrow_raw(&self.mrb) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! A shell whose hook installs nothing still boots: the harness puts
+    //! its own bridge in place before the hook runs, so a bridge-only
+    //! guest is what `Ok(())` asks for.
+    use std::cell::Cell;
+
+    use beni::{Error, Mrb};
+
+    use super::Kobako;
+    use crate::codec::{CodecError, PayloadCodec};
+
+    thread_local! {
+        static BRIDGE_SEEN_BY_HOOK: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// The capability floor alone; booting never reaches it.
+    struct FloorCodec;
+
+    impl PayloadCodec for FloorCodec {
+        fn encode_value(_kobako: &Kobako, _value: beni::Value) -> Result<Vec<u8>, CodecError> {
+            Err(CodecError::Unsupported)
+        }
+    }
+
+    struct BridgeOnly;
+
+    impl crate::MrbGuest for BridgeOnly {
+        type Codec = FloorCodec;
+
+        fn init_gems(mrb: &Mrb) -> Result<(), Error> {
+            let bridged = mrb.module_get(c"Kobako").is_ok();
+            BRIDGE_SEEN_BY_HOOK.with(|seen| seen.set(bridged));
+            Ok(())
+        }
+    }
+
+    // @behavior MR-014
+    #[test]
+    fn a_hook_installing_nothing_boots_a_guest_already_carrying_the_bridge() {
+        let mrb = Mrb::open().expect("the interpreter must open");
+
+        assert!(
+            Kobako::init::<BridgeOnly>(&mrb).is_ok(),
+            "a shell whose init_gems installs nothing must still boot"
+        );
+        assert!(
+            BRIDGE_SEEN_BY_HOOK.with(Cell::get),
+            "the bridge must already be installed when init_gems runs"
+        );
+    }
+}

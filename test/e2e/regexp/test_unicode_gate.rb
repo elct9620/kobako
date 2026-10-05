@@ -40,6 +40,22 @@ class TestRegexpUnicodeGate < Minitest::Test
                  "an ASCII \\d pattern through #eval on the no-unicode variant must still match"
   end
 
+  # The full variant composes JSON beside the no-unicode Regexp, so the
+  # gate closes there too; JSON being defined shows it is that variant.
+  # @behavior RX-216
+  def test_case_insensitive_pattern_is_rejected_on_the_full_variant
+    full = TestPaths.data("kobako+full.wasm")
+    require_guest_binary!(full, build: "bundle exec rake wasm:build:full")
+
+    result = Kobako::Sandbox.new(wasm_path: full).eval(
+      "begin; /foo/i.match('x'); [Object.const_defined?(:JSON), 'no-error']; " \
+      "rescue RegexpError; [Object.const_defined?(:JSON), 'RegexpError']; end"
+    ).value
+
+    assert_equal [true, "RegexpError"], result,
+                 "a /i pattern through #eval on the full variant must raise RegexpError beside JSON"
+  end
+
   private
 
   def eval_no_unicode(code)

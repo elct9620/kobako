@@ -17,6 +17,7 @@ That the boot state may be computed at build time, and that per-invocation resou
 - `test/e2e/test_guest_string_cap.rb`
 - `test/e2e/regexp/test_raising_lookup.rb`
 - `test/e2e/json/test_raising_hook.rb`
+- `wasm/kobako-mruby/src/runtime.rs`
 
 ## `MR-001` Two invocations begin from the same state, not merely a clean one
 
@@ -127,3 +128,11 @@ That the boot state may be computed at build time, and that per-invocation resou
 | Given | a Sandbox over the JSON-capable Guest Binary |
 | When | guest code rescues around a generation whose serialization hook raises |
 | Then | the rescue receives that raise and the invocation answers normally |
+
+## `MR-014` A shell installing no gems boots a bridge-only guest
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest shell whose gem hook installs nothing |
+| When | the interpreter boots |
+| Then | it boots, and the bridge was in place before the hook ran |

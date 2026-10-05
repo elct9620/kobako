@@ -108,6 +108,32 @@ class TestE2EByteFidelity < Minitest::Test
                  "Symbol key, so the refusal beside it is about the bytes and nothing else")
   end
 
+  # @behavior CD-048
+  # The guest keeps no encoding tag, so a binary String whose bytes happen
+  # to be text comes back as text: the bytes survive, the tag does not.
+  def test_a_binary_host_string_of_text_bytes_returns_as_text
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Probe::Bytes", -> { "plain".b })
+
+    result = sandbox.eval("Probe::Bytes.call").value
+
+    assert_equal ["plain", Encoding::UTF_8], [result, result.encoding],
+                 "a binary-tagged String of UTF-8 bytes through a Service answer and #eval must " \
+                 "come back with its bytes as UTF-8 text"
+  end
+
+  # @behavior CD-049
+  def test_a_utf8_tagged_host_string_of_invalid_bytes_fails_the_invocation
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Probe::Bytes", -> { NON_UTF8.dup.force_encoding(Encoding::UTF_8) })
+
+    assert_raises(Kobako::Transport::Error,
+                  "a UTF-8-tagged String whose bytes are not UTF-8 through a Service answer must " \
+                  "fail the invocation rather than deliver bytes the wire family forbids") do
+      sandbox.eval("Probe::Bytes.call")
+    end
+  end
+
   private
 
   # The Service reports what the dispatch handed it. The refusal cases
