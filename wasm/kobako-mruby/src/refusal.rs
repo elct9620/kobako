@@ -299,6 +299,26 @@ mod tests {
         );
     }
 
+    // @behavior CD-047
+    #[test]
+    fn an_unframed_run_is_worded_apart_from_every_argument_refusal() {
+        let argument_refusals = [
+            CodecError::Interpreter(IntegerOutOfRange(1 << 40)),
+            CodecError::Malformed,
+            CodecError::Unsupported,
+            unrepresentable(),
+        ]
+        .map(|err| at(Position::RunArguments, err).message);
+
+        assert!(
+            !argument_refusals
+                .iter()
+                .any(|message| message == UNFRAMED_RUN),
+            "a Run whose envelope does not frame must fail under wording distinct from every \
+             refusal of its arguments: {argument_refusals:?}"
+        );
+    }
+
     // A script asked for a position this schema does not serve. That is
     // not the value's fault and not the wire's — the capability is simply
     // absent, which is the one thing a bare `rescue` should not swallow.

@@ -14,6 +14,15 @@ Hand-written text-format modules around the construction-time ABI version check;
 
 Hand-written text-format module that passes the ABI version check but whose `__kobako_alloc` always returns `0` — the frozen stand-in for a failed guest allocation: the host cannot reserve guest memory for the Run envelope, a runtime-intact failure surfacing as `Kobako::SandboxError` (never a trap; the guest entry point is never reached). Update its `i32.const` ABI version by hand on a bump, same as `minimal_abi_ok.wat`.
 
+## `minimal_unlinkable.wat` / `minimal_uninstantiable.wat`
+
+Hand-written text-format modules that pass the ABI version check yet cannot become a runtime. Each refuses at one step, so construction failing there is what a test observes.
+
+| Fixture | Refused at |
+|---|---|
+| `minimal_unlinkable.wat` | link — it imports a function no host provides |
+| `minimal_uninstantiable.wat` | instantiation — its start function traps |
+
 ## `minimal_null_guest.wat`
 
 Hand-written text-format module that satisfies the whole invocation ABI and does nothing else: both entry points ignore their input and `__kobako_take_outcome` answers a constant nil Result (`0x01 0xc0` — the fixed layout's result tag, then the payload codec's nil). Unlike the fixtures above it exists for measurement rather than for a behaviour branch: `benchmark/host_invocation.rb` drives it so the host's per-invocation cost is the total rather than a subtraction of two near-equal numbers. `test/e2e/sandbox/test_null_guest.rb` keeps it honest. Update its `i32.const` ABI version by hand on a bump, same as `minimal_abi_ok.wat`.

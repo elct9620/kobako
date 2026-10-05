@@ -524,3 +524,11 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Given | guest code that raises |
 | When | it is evaluated once under each lock mode |
 | Then | both fail with the same class, guest class and message |
+
+## `RT-063` An artifact that cannot become a runtime fails construction
+
+| Step | Statement |
+| --- | --- |
+| Given | an artifact that cannot be read, one the engine cannot link, and one it cannot instantiate |
+| When | a Sandbox is built over each |
+| Then | each fails as a construction failure at the step it cannot pass |

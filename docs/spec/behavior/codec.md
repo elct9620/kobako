@@ -395,3 +395,11 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | Given | a Sandbox with a bound Service that yields |
 | When | the block answers a Symbol whose name is not text |
 | Then | the Service's yield fails with the guest's `TypeError` rather than receiving it |
+
+## `CD-047` An unframed Run is worded apart from its argument refusals
+
+| Step | Statement |
+| --- | --- |
+| Given | a Run whose envelope does not frame |
+| When | the guest reports it |
+| Then | the wording differs from every refusal of a Run's arguments |
