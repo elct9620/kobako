@@ -3,7 +3,7 @@
 //! The `kobako` SDK crate wraps all of this behind `Sandbox`; here the
 //! wire is exposed on purpose. This is the seam the SDK is built on, and
 //! the reference a non-Rust frontend author follows to drive the same
-//! SPEC wire in another language. Four published crates are the whole
+//! wire in another language. Four published crates are the whole
 //! toolkit, and the split between the last two is the point:
 //!
 //!   * `kobako-wasmtime` gives the `Driver` that runs a prebuilt Guest

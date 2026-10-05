@@ -10,7 +10,7 @@ its own Sandbox, this one shows why it no longer has to.
 
 A Sandbox holds no state from any run — every invocation owns its Handles,
 captures, and usage — so Threads may invoke one shared Sandbox
-concurrently ([`RT-002`](../../docs/spec/behavior/runtime.md)). What each invocation still needs is its own
+concurrently. What each invocation still needs is its own
 identity, and that is the split between the two binding forms:
 
 ```
@@ -23,9 +23,9 @@ per run sandbox.eval(source) { |ctx| ctx.bind("Tenant::Store", store) }
 `bind(path)` with no object declares a **fillable** path: the guest sees
 the constant while the host defers the object it stands for, and an
 invocation that never fills it is refused as a `Kobako::ServiceError`
-rather than served a stale one ([`SV-017`](../../docs/spec/behavior/services.md)).
+rather than served a stale one.
 The `#eval` / `#run` block fills it for that one invocation through
-`ctx.bind` ([`SV-022`](../../docs/spec/behavior/services.md)).
+`ctx.bind`.
 
 The guest source is identical for every tenant and names none of them.
 Which ledger a run reaches is entirely the host's decision, made per
@@ -88,7 +88,7 @@ the previous run bound.
 
 The Sandbox is constructed with `gvl: :release`, which drops Ruby's GVL
 for the guest span so the three Threads run their guest code in parallel.
-It changes scheduling only ([`RT-022`](../../docs/spec/behavior/runtime.md)) — every line this demo prints is
+It changes scheduling only — every line this demo prints is
 identical under the default `:hold`. Releasing pays a handoff cost at
 every guest→host dispatch, so it earns its keep on compute-heavy guest
 work and can cost more than it saves on dispatch-heavy work;

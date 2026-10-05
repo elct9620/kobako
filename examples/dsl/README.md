@@ -21,15 +21,14 @@ Build.new(handle) { ... }->  a guest-LOCAL instance_eval descends into each chil
 ```
 
 The reflection denial is scoped to guest→host dispatch and to
-`Kobako::Proxy` / Handle proxies ([`T-117`](../../docs/spec/behavior/transport-boundary.md),
-[`T-114`](../../docs/spec/behavior/transport-boundary.md)), so `instance_eval` on a
+`Kobako::Proxy` / Handle proxies, so `instance_eval` on a
 plain guest-local object — the `Build` wrapper — is permitted. That is
 the whole trick: the wrapper rebinds `self` to each returned child, so
 the guest writes a receiver-less DSL, while the vocabulary at each level
 is exactly what the host object at that level defines.
 
 Because the host resolves every forwarded call, a method no dialect
-defines is refused host-side ([`T-121`](../../docs/spec/behavior/transport-boundary.md)). The wrapper can never widen the
+defines is refused host-side. The wrapper can never widen the
 reachable surface — the DSL's vocabulary is bounded by the host's method
 set, not by the wrapper.
 
@@ -51,9 +50,9 @@ end
 That rule is what lets a value object travel as an argument. A leaf like
 an image is fetched block-lessly (`logo = Studio.image(...)`) and then
 passed on (`image logo`), where it crosses as a Handle and is restored to
-the real host `Image` ([`T-003`](../../docs/spec/behavior/transport-dispatch.md)).
+the real host `Image`.
 A guest wrapper object has no wire representation, so passing one as an
-argument is refused ([`T-148`](../../docs/spec/behavior/transport-dispatch.md)) — keeping
+argument is refused — keeping
 leaves raw is what keeps them passable.
 
 ## Running
@@ -98,7 +97,7 @@ boundary.
 
 Nothing about the DSL widens the guest's authority. Every builder call is
 an ordinary guest→host dispatch, resolved and reflection-checked host-side
-([`T-117`](../../docs/spec/behavior/transport-boundary.md)) exactly like a plain Service call; the generic wrapper only adds
+exactly like a plain Service call; the generic wrapper only adds
 block-scoped `self`-rebinding in the guest, which touches no host state.
 The host holds the growing tree in its own memory for the invocation — so
 a Service exposing a builder should bound its own accumulation the way it

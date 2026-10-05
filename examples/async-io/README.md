@@ -4,7 +4,7 @@ A self-contained script that overlaps many Sandboxes' external I/O on a **single
 
 ## The shape, and why it has to be this shape
 
-kobako's wasm dispatch is synchronous, and a Runtime holds at most one active Invocation per OS thread (`SPEC.md` lists async / yield-resume execution as out of scope). So you cannot do blocking I/O *inside* a Service dispatch and then yield the fiber around it — the wasm frame is still on the native stack, and suspending it would corrupt the per-thread invocation state.
+kobako's wasm dispatch is synchronous, and a Runtime holds at most one active Invocation per OS thread; kobako does not provide async or yield-resume execution. So you cannot do blocking I/O *inside* a Service dispatch and then yield the fiber around it — the wasm frame is still on the native stack, and suspending it would corrupt the per-thread invocation state.
 
 The safe arrangement is host-orchestrated continuation: the guest stays a pure function, and every external fetch happens in host Ruby *between* invocations, where no wasm frame sits on the stack. At that point the fiber scheduler is free to suspend the waiting request and run a peer's compute.
 

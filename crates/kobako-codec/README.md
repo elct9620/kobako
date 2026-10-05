@@ -43,7 +43,6 @@ let decoded = Arguments::decode(&payload_from_the_wire)?;
 
 | What | Where |
 |---|---|
-| Behavior | [SPEC.md](https://github.com/elct9620/kobako/blob/main/SPEC.md) |
 | Byte-level payload format | [docs/wire/payload-msgpack.md](https://github.com/elct9620/kobako/blob/main/docs/wire/payload-msgpack.md) |
 | What a replacement codec owes | [docs/customization.md](https://github.com/elct9620/kobako/blob/main/docs/customization.md) |
 

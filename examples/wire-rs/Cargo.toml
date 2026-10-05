@@ -1,7 +1,7 @@
 # wire-rs — a kobako host assembled by hand from the published wire
 # crates, without the `kobako` SDK. It is the seam the SDK is built on,
 # and the reference for a non-Rust frontend author who must drive the
-# same SPEC wire in another language: `kobako-wasmtime` runs a prebuilt
+# same wire in another language: `kobako-wasmtime` runs a prebuilt
 # Guest Binary behind the engine-neutral `kobako-runtime` contract, and
 # `kobako-codec` encodes and decodes the stdin frames going in and the
 # Outcome bytes coming back.

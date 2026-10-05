@@ -58,7 +58,6 @@ sandbox = Kobako::Sandbox.new(wasm_path: "path/to/my_guest.wasm")
 
 | What | Where |
 |---|---|
-| Behavior | [SPEC.md](https://github.com/elct9620/kobako/blob/main/SPEC.md) |
 | Byte-level wire and ABI signatures | [docs/wire-codec.md](https://github.com/elct9620/kobako/blob/main/docs/wire-codec.md) |
 
 The crate reports `abi::ABI_VERSION` through the macro-emitted

@@ -7,8 +7,8 @@
 # The lesson this example encodes
 # -------------------------------
 # kobako's wasm dispatch is synchronous and Runtime holds at most one
-# active Invocation per OS thread; SPEC lists async / yield-resume
-# execution as out of scope. So you CANNOT do blocking I/O inside a Service
+# active Invocation per OS thread; kobako does not provide async or
+# yield-resume execution. So you CANNOT do blocking I/O inside a Service
 # dispatch and then Fiber.yield around it — the wasm frame is still on the
 # native stack, and suspending it would corrupt the per-thread invocation
 # state.
