@@ -23,6 +23,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 - `test/e2e/test_integer_range.rb`
 - `test/e2e/test_answer_value_refusal.rb`
 - `test/e2e/test_container_forgery.rb`
+- `test/e2e/test_guest_value_refusal.rb`
 - `test/fuzz/test_roundtrip_fuzz.rb`
 - `test/fuzz/test_guest_value_fuzz.rb`
 - `wasm/kobako-mruby/src/refusal.rs`
@@ -362,3 +363,35 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | Given | a Sandbox with a bound Service |
 | When | guest code passes an object whose class carries a map's name without being one |
 | Then | the guest sees a `TypeError` before the Service is reached |
+
+## `CD-043` A dispatch argument the wire cannot nest is refused at the call site
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service |
+| When | guest code passes it a value nesting past the wire's bound, or one referring to itself |
+| Then | the guest can rescue the refusal at its call and the Service is never reached |
+
+## `CD-044` A block answer the wire cannot nest is refused at the yield
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that yields |
+| When | the block answers a value nesting past the wire's bound, or one referring to itself |
+| Then | the Service's yield fails with the guest's `TypeError` rather than receiving it |
+
+## `CD-045` So is a break value
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that yields |
+| When | the block breaks with a value nesting past the wire's bound, or one referring to itself |
+| Then | the Service's yield fails with the guest's `TypeError` rather than receiving it |
+
+## `CD-046` A block answering a Symbol whose name is not text is refused at the yield
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that yields |
+| When | the block answers a Symbol whose name is not text |
+| Then | the Service's yield fails with the guest's `TypeError` rather than receiving it |

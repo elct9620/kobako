@@ -69,6 +69,17 @@ class TestErrorClassHierarchy < Minitest::Test
     end
   end
 
+  # @behavior OC-049
+  # A yield-site failure is rescued inside the Service, before any run has
+  # settled, so it has no run to report on.
+  def test_a_yield_site_failure_carries_no_execution
+    YIELD_SITE_CLASSES.each do |yield_site|
+      refute_respond_to yield_site.new("refused"), :execution,
+                        "#{yield_site} raised at a Service's yield site must carry no " \
+                        "Execution, since no invocation has settled when it is raised"
+    end
+  end
+
   # @behavior OC-022
   # The two configured per-run caps are the named trap subclasses, so a
   # Host App can tell a cap apart from an engine trap without losing the

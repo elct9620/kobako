@@ -356,3 +356,11 @@ One block here is deliberately written in one frontend's own names: the ancestry
 | Given | `Kobako::ModuleNotBuiltError` |
 | When | its ancestry is read |
 | Then | it descends from `Kobako::SetupError` |
+
+## `OC-049` A yield-site failure carries no Execution
+
+| Step | Statement |
+| --- | --- |
+| Given | each class a yield site can fail as |
+| When | one is raised |
+| Then | it carries no Execution, since no invocation has settled |

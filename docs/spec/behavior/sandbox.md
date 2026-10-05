@@ -27,6 +27,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 - `test/e2e/test_lifecycle.rb`
 - `test/e2e/test_preload*.rb`
 - `test/e2e/test_io_streams.rb`
+- `test/e2e/test_io_dispatch.rb`
 - `test/e2e/test_execution.rb`
 - `test/e2e/test_outcome_values.rb`
 - `test/e2e/test_canonical_boot.rb`
@@ -1250,3 +1251,11 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | Services bound at single- and multi-segment paths |
 | When | the entrypoint verb names a constant that is not there |
 | Then | the names the failure offers are exactly those the snippets defined |
+
+## `S-153` A dispatch leaves no bytes on either capture
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service |
+| When | guest code writes to both channels around a call to it |
+| Then | each capture holds exactly what guest code wrote |

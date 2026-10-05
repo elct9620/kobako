@@ -14,6 +14,7 @@ That the boot state may be computed at build time, and that per-invocation resou
 
 - `test/e2e/test_canonical_boot.rb`
 - `test/e2e/test_capability_exception_safety.rb`
+- `test/e2e/test_guest_string_cap.rb`
 
 ## `MR-001` Two invocations begin from the same state, not merely a clean one
 
@@ -74,3 +75,13 @@ That the boot state may be computed at build time, and that per-invocation resou
 | Given | a Sandbox whose invocation failed on a raising output coercion |
 | When | a later invocation evaluates ordinary guest source |
 | Then | it answers its value |
+
+## `MR-008` The interpreter bounds a String below the message cap
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose memory budget is far above 1 MiB |
+| When | guest code builds a String of 1 MiB |
+| Then | an `ArgumentError` the guest can rescue is raised, though the message cap is 16 MiB |
+| When | guest code builds one a byte shorter |
+| Then | it is built in full |
