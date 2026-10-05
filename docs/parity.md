@@ -1,126 +1,160 @@
-# Ruby ↔ Rust Host Parity
+# Host Parity
 
 The Ruby gem (`lib/`) and the Rust host SDK (`crates/kobako`) are two
-frontends over the same wire, contract, and Guest Binary. Their API
-shapes are deliberately idiomatic per language; what must never drift
-is the **host-observable behavior** — which value comes back, which
-error origin is attributed, what the captures and usage readers show.
-The differential parity harness mechanizes that check so a behavior
-change on one side surfaces as a failing comparison, not as a report
-from an embedder.
+frontends over one wire, contract, and Guest Binary. Their APIs stay
+idiomatic per language, while their host-observable behavior must never
+drift. The differential parity harness turns drift on either side into a
+failing comparison rather than a report from an embedder.
 
-## Mechanism
+```
+                 scenario (pure data)
+                 /                  \
+     Ruby executor                  Rust runner
+     Kobako::Sandbox                kobako::Sandbox
+                 \                  /
+          same data/kobako.wasm, same invocations
+                 \                  /
+       raw observables -> normalize -> assert equal
+```
 
-One declarative scenario — caps, Service stubs, invocations, all pure
-data — is executed by both frontends against the same
-`data/kobako.wasm`:
+## Harness Mechanism
 
-- the Ruby executor (`test/support/parity/ruby_executor.rb`) assembles
-  a `Kobako::Sandbox`;
-- the Rust runner (`crates/kobako-parity`) assembles a `kobako::Sandbox`
-  and answers over the CargoOracle framed protocol.
+One declarative scenario of caps, Service stubs, and invocations runs
+through both frontends against the same `data/kobako.wasm`.
 
-Both emit raw observables per invocation — neutral status, tagged
-value, capture bytes and truncation predicates, usage — and the test
-asserts equality after normalization (`test/support/parity/case.rb`:
-host-generated `message` wording and raw usage numbers are
-diagnostic-only). Stub behaviors (`echo` / `echo_positional` / `value`
-/ `raise` / `yield_each` / `opaque` / `read_label`), invocation verbs
-(`eval` / `run` / `late_bind`), and preload kinds (`source` /
-`bytecode`) are closed sets that grow append-only with the corpus;
-`undefined` / `argument` faults must arise from the scenario's shape
-on both sides, never from a stub declaration (`echo_positional`
-declares a positional-only signature, so kwargs on the wire fail its
-binding on both sides). A service's optional `exposed` list declares
-the `respond_to_guest?` narrowing both stubs enforce; the scenarios
-narrow bound Services only — both dispatchers run the same narrowing
-check for Handle targets, but opaque stubs expose just `label`, so
-that rejection path stays pinned by each frontend's dispatch unit
-tests.
+| Side | Lives in | Assembles |
+|---|---|---|
+| Ruby executor | `test/support/parity/ruby_executor.rb` | `Kobako::Sandbox` |
+| Rust runner | `crates/kobako-parity` | `kobako::Sandbox`, over the CargoOracle framed protocol |
 
-Capability Handles compare by **identity, not id**: an `opaque` stub
-(or `run` argument — the `run` verb carries tagged `args` and
-`kwargs`, exercising the auto-wrap in both positions) is a labeled
-non-wire host object, and a crossed
-object tags as `{"t": "opaque", "label": …}` on both sides — the Ruby
-executor reads the label off the restored object, the Rust runner
-resolves the result Handle against the Sandbox's table and recovers
-the label by object identity. A raw Handle id never appears in an
-observable.
+Each side emits raw observables per invocation: neutral status, tagged
+value, capture bytes and truncation predicates, and usage. The test
+asserts equality after normalization in `test/support/parity/case.rb`,
+where host-generated `message` wording and raw usage numbers are
+diagnostic-only. The suite rides `rake test`; on a checkout without
+cargo the families skip.
 
-The suite rides `rake test`; on a checkout without cargo the families
-skip. A compared behavior with no guest-expressible differential
-scenario is pinned per-frontend instead — see What the harness compares.
+## Scenario Vocabulary
 
-## Frontend vocabulary
+A scenario draws on closed sets that grow append-only with the corpus.
 
-The [glossary](spec/glossary.md) names each concept once; each frontend
-reifies it under its own language's names. One rule
-keeps the two surfaces coherent: the surface a Service author touches
-keeps the guest-visible word (`block`), while the reified machinery
-carries the concept's own name.
+| Set | Members |
+|---|---|
+| Stub behaviors | `echo`, `echo_positional`, `value`, `raise`, `yield_each`, `opaque`, `read_label` |
+| Invocation verbs | `eval`, `run`, `late_bind` |
+| Preload kinds | `source`, `bytecode` |
+| Service option | `exposed`, the `respond_to_guest?` narrowing both stubs enforce |
+
+An `undefined` or `argument` fault must arise from the scenario's shape
+on both sides, never from a stub declaration. `echo_positional` declares
+a positional-only signature, so kwargs on the wire fail its binding on
+both sides. Scenarios narrow bound Services only: opaque stubs expose
+just `label`, so the Handle-target narrowing stays pinned by each
+frontend's dispatch unit tests.
+
+## Handle Comparison
+
+Capability Handles compare by identity, not id, so a raw Handle id never
+appears in an observable.
+
+```
+opaque stub / run argument ──> crosses as a Handle
+  Ruby: label read off the restored object        ─┐
+  Rust: Handle -> Sandbox table -> object's label ─┴─> {"t": "opaque", "label": …}
+```
+
+An `opaque` stub or a `run` argument is a labeled non-wire host object.
+The `run` verb carries tagged `args` and `kwargs`, exercising the
+auto-wrap in both positions.
+
+## Frontend Vocabulary
+
+The [glossary](spec/glossary.md) names each concept once, and each
+frontend reifies it under its own language's names. The surface a
+Service author touches keeps the guest-visible word (`block`), while the
+reified machinery carries the concept's own name.
 
 | Concept | Ruby frontend | Rust SDK |
 |---|---|---|
-| Receiver — the host object a dispatch resolves its target to | any Ruby object, reached through the methods its own class defines under the reflection floor | the `Receiver` trait — one dispatch contract covering bound Services and Handle-allocated objects; a Receiver whose `respond_to_guest` denies every name is opaque |
-| Service — the host object bound at a constant-path name | any Ruby object bound via `bind` (duck-typed) | a `Receiver` bound via `Sandbox::bind` |
-| Bound constant — the leaf name of a constant path | `bind(path, object)` on the `Sandbox` | `Sandbox::bind(path, object)` |
-| Yielder — the host-side stand-in for a guest Block | `Kobako::Transport::Yielder`, internal: it rides the `&block` slot, so the Service method sees an ordinary Proc | `kobako::Yielder`, public: it rides the `block` parameter of `Receiver::call`, so the yield site still reads `block.call(args)` |
-| Block — the guest-side block body | never crosses the wire; only the Call's `block_given` flag travels | same — the wire contract is shared |
-| Invocation result — the value a run produced with its captures and usage | `Kobako::Execution`, returned from `#eval` / `#run` | `kobako::Execution`, returned from `eval` / `run` |
+| Receiver | any object, through methods its class defines under the reflection floor | the `Receiver` trait, one contract for Services and Handle objects |
+| Service | any object bound via `bind`, duck-typed | a `Receiver` bound via `Sandbox::bind` |
+| Bound constant | `bind(path, object)` on the `Sandbox` | `Sandbox::bind(path, object)` |
+| Yielder | `Kobako::Transport::Yielder`, internal, in the `&block` slot | `kobako::Yielder`, public, the `block` parameter of `Receiver::call` |
+| Block | never crosses; only the Call's `block_given` flag travels | same; the wire contract is shared |
+| Execution | `Kobako::Execution`, from `#eval` / `#run` | `kobako::Execution`, from `eval` / `run` |
 
-The result surface carries the frontends' one lasting asymmetry, the
-error model. The guest reports success or failure as a value (its
-`Outcome`); the Ruby host raises a taxonomy error carrying the frozen
-`Execution` on `#execution`, while the SDK keeps failure a value — a run
-that reached the guest is `Ok(Execution)`, and its outcome (the value or a
-failure `Error`) rides `Execution::value` as a `Result`, so a caller cannot
-pass over a guest failure unnoticed. Ruby's
-`Execution#failed?` is the mirror of the SDK's `Err` arm: both let a
-caller tell a failed run from a success whose value was legitimately
-`nil`, on either side of the raise-versus-return split. A run that never
-started raises without an Execution on Ruby and is the outer `Err` on the
-SDK. The harness compares the observables both carry —
-value, captures, usage, failure attribution — after normalization, so
-this raise-versus-return spelling never surfaces as drift.
+An SDK `Receiver` whose `respond_to_guest` denies every name is opaque.
+The Ruby Yielder stays internal so a Service method takes an ordinary
+block ([transport-yield](spec/behavior/transport-yield.md)); the SDK
+yield site still reads `block.call(args)`.
 
-## What the harness compares
+## Error Model
 
-The compared set is declared in the behavior specification: every
-scenario whose operation reads *both frontends run it* can be witnessed only by a
-parity case, so `sumi verify` fails when one loses the case that
-claims it. A behavior joins the set by declaring such a scenario and
-claiming it from the case that runs it.
+The error model is the frontends' one lasting asymmetry: the Ruby host
+raises a taxonomy error, while the SDK keeps failure a value.
 
-Where a compared behavior has no guest-expressible differential
-scenario, the feature that owns it says why and each frontend pins it
-on its own: an engine trap no cap caused ([`outcome.md`](spec/behavior/outcome.md)),
-a Yielder held past its frame ([`transport-yield.md`](spec/behavior/transport-yield.md)),
-a stale reference ([`transport-dispatch.md`](spec/behavior/transport-dispatch.md)),
-and a reflective object returned from a host method ([`transport-boundary.md`](spec/behavior/transport-boundary.md)).
+| Run | Ruby frontend | Rust SDK |
+|---|---|---|
+| reached the guest, succeeded | returns the `Execution` | `Ok(Execution)`, `value` is `Ok` |
+| reached the guest, failed | raises a taxonomy error | `Ok(Execution)`, `value` is `Err` |
+| never started | raises | the outer `Err` |
 
-## Outside the compared set
+What each run produces is specified in
+[sandbox](spec/behavior/sandbox.md). The harness compares value,
+captures, usage, and failure attribution after normalization, so the
+raise-versus-return spelling never surfaces as drift.
 
-- **Language surface** — setup-time validation, host pre-flight
-  refusals, `Kobako::Pool`, option readers, construction failures, and
-  the shape of the result object: each frontend spells these in its own
-  idiom. The seal's *timing* is compared
-  while its spelling is not; Extension composition and backend
-  resolution are compared while the dependency assertion and the
-  install-error shapes are not; a requested isolation posture is
-  compared while its
-  floor-refusal spelling is not.
-- **Guest-internal** — behavior the shared Guest Binary fixes regardless
-  of frontend (Regexp, JSON, guest-side proxy construction and probing,
-  capability callbacks, the guest-entry refusal of an unrepresentable
-  integer): pinned by the guest E2E suites and the codec oracles.
-- **Reachable only through a codec kobako does not ship** — a payload
-  position the guest's own codec does not serve. Nothing about the
-  refusal is frontend-specific, but every codec kobako ships serves
-  every position, so its attribution is pinned a tier below both
-  frontends, in `wasm/kobako-mruby`'s refusal table. A refusing codec shipping
-  here moves it into the compared set.
-- **Hard-to-trigger wire corners** — malformed envelopes and outcome
-  bytes with no deterministic trigger through the real guest: revisit
-  if a legitimate trigger appears; parallel fixture guests stay off the
-  table.
+## Compared Set
+
+The behavior specification declares the compared set, so a behavior
+joins it by declaring a scenario and claiming it from the case that runs
+it.
+
+```
+scenario  When: "both frontends run it"
+   └─ witnessed only by a parity case in test/parity/
+        └─ sumi verify fails once that case stops claiming it
+```
+
+## Per-Frontend Pins
+
+A compared behavior with no guest-expressible differential scenario is
+pinned by each frontend on its own, and the owning feature says why.
+
+| Behavior | Owner |
+|---|---|
+| an engine trap no cap caused | [outcome](spec/behavior/outcome.md) |
+| a Yielder held past its frame | [transport-yield](spec/behavior/transport-yield.md) |
+| a stale reference | [transport-dispatch](spec/behavior/transport-dispatch.md) |
+| a reflective object a host method returns | [transport-boundary](spec/behavior/transport-boundary.md) |
+
+The engine trap and the stale reference keep a skipped placeholder in
+`test/parity/`.
+
+## Excluded Behavior
+
+These categories stay outside the compared set, each pinned where its
+behavior is decided.
+
+| Category | Covers | Pinned by |
+|---|---|---|
+| Language surface | setup validation, pre-flight refusals, `Kobako::Pool`, option readers, construction failures, result shape | each frontend, in its own idiom |
+| Guest-internal | Regexp, JSON, guest proxies, capability callbacks, unrepresentable-integer guest entry | guest E2E suites and codec oracles |
+| Unshipped codec | a payload position the guest's own codec does not serve | `wasm/kobako-mruby`'s refusal table |
+| Wire corners | malformed envelopes and outcome bytes with no deterministic trigger | nothing yet |
+
+Every codec kobako ships serves every position, so a refusing codec
+shipping here moves that row into the compared set. Wire corners are
+revisited if a legitimate trigger appears; parallel fixture guests stay
+off the table.
+
+## Split Features
+
+Some features are compared in part, with only their spelling left to
+each frontend.
+
+| Feature | Compared | Left to each frontend |
+|---|---|---|
+| Seal | its timing | its spelling |
+| Extensions | composition, backend resolution | the dependency assertion, install-error shapes |
+| Isolation posture | the requested posture | the floor-refusal spelling |

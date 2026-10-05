@@ -1,64 +1,90 @@
-# Guest Binary Variants — capability composition and packaging
+# Guest Binary Variants
 
-The Guest Binary ships in named variants that compose optional capability gems
-onto a common base. This file is the per-variant reference for the matrix,
-the naming convention, and the packaging policy.
+The Guest Binary ships in named variants that compose optional
+capability gems onto a common base. Variants are the artifacts we ship;
+the interfaces a third party replaces are in
+[customization](customization.md).
 
-Variants are the artifacts **we ship**. The interfaces **a third party
-replaces** — payload codec, capability set, invocation flows, the whole guest,
-the engine — are in [`customization.md`](customization.md).
+```
+base ─┬─ alone ──────────── kobako.wasm
+      ├─ + regexp ───────── kobako+regexp.wasm
+      ├─ + regexp-unicode ─ kobako+regexp-unicode.wasm
+      ├─ + json ─────────── kobako+json.wasm
+      └─ + regexp + json ── kobako+full.wasm
+```
 
-## The base surface
+## Base Surface
 
-Every variant — including the default — links the mruby core, the curated
-mrbgem allowlist, and the IO / Kernel write capability ([`io.md`](spec/behavior/io.md)). IO / Kernel is
-not an opt-in axis; it is the base of every Guest Binary. The opt-in axes are
-the Regexp capability ([`regexp.md`](spec/behavior/regexp.md)) and the JSON capability ([`json.md`](spec/behavior/json.md)).
+Every variant, including the default, links the same base. The opt-in
+axes are the Regexp capability ([regexp](spec/behavior/regexp.md)) and
+the JSON capability ([json](spec/behavior/json.md)).
 
-## Variant matrix
+| Part | Role |
+|---|---|
+| mruby core | the interpreter |
+| curated mrbgem allowlist | the standard-library subset |
+| IO / Kernel write ([io](spec/behavior/io.md)) | the base capability, never an opt-in axis |
+
+## Variant Matrix
+
+Each variant names the capabilities it adds beyond the base.
 
 | Variant | Artifact | Capabilities beyond the base |
 |---------|----------|------------------------------|
 | default | `kobako.wasm` | none — pure compute |
-| regexp | `kobako+regexp.wasm` | ASCII Regexp / MatchData ([`regexp.md`](spec/behavior/regexp.md)) |
+| regexp | `kobako+regexp.wasm` | ASCII Regexp / MatchData |
 | regexp-unicode | `kobako+regexp-unicode.wasm` | Regexp / MatchData with Unicode case-insensitive matching |
-| json | `kobako+json.wasm` | JSON parse / generate ([`json.md`](spec/behavior/json.md)) |
+| json | `kobako+json.wasm` | JSON parse / generate |
 | full | `kobako+full.wasm` | ASCII Regexp + JSON |
 
-The `regexp` and `regexp-unicode` variants differ by one behavior:
-case-insensitive matching (`IGNORECASE` / `/i`) requires `regexp-unicode`; on
-the plain `regexp` variant a case-insensitive pattern raises `RegexpError` at
-compile, while the ASCII shorthand classes work on both. The `full` variant
-composes the ASCII `regexp` capability with `json`.
+Choose `regexp-unicode` when guest code needs case-insensitive patterns.
+[regexp](spec/behavior/regexp.md) states what each ASCII variant
+refuses.
 
-## Naming
+## Artifact Naming
 
-The default artifact name is fixed: `kobako.wasm`. A capability variant
-adds a `+<cap>` suffix — `kobako+<cap>.wasm` — where `<cap>` names the opt-in
-capability axis (`regexp`, `regexp-unicode`, `json`) or a composition shorthand
-(`full` = ASCII regexp + JSON). The suffix encodes capability composition, not a
-version; when a variant ships as a Release asset the version follows in the asset
-filename (`kobako+<cap>-<version>.wasm`).
+The suffix encodes capability composition, not a version.
 
-## Packaging policy
+```
+kobako.wasm                    the default, fixed name
+kobako+<cap>.wasm              a capability variant
+kobako+<cap>-<version>.wasm    that variant as a Release asset
+```
 
-The published gem bundles exactly one Guest Binary: the pure default
-`data/kobako.wasm`, by the gemspec's file allowlist. Capability variants are not bundled — they ship as GitHub
-Release assets, or a developer builds one locally. This keeps the install
-footprint minimal; a Host App that needs a capability downloads the matching
-variant.
+`<cap>` names an opt-in capability axis (`regexp`, `regexp-unicode`,
+`json`) or a composition shorthand (`full` = ASCII regexp + JSON).
 
-## Opt-in
+## Packaging Policy
 
-A Host App selects a variant per Sandbox by constructing
-`Kobako::Sandbox.new(wasm_path:)` pointed at the chosen binary. The capability
-surface a guest sees is fixed by the binary it runs in; there is no runtime
-capability negotiation.
+The published gem bundles exactly one Guest Binary, by the gemspec's
+file allowlist. This keeps the install footprint minimal; a Host App
+that needs a capability downloads the matching variant.
 
-## Build
+| Guest Binary | Ships as |
+|---|---|
+| `data/kobako.wasm` | bundled in the gem |
+| capability variants | GitHub Release assets, or a local build |
 
-`rake wasm:build` produces the default; `rake wasm:build:regexp`,
-`wasm:build:regexp_unicode`, `wasm:build:json`, and `wasm:build:full` produce the
-variants. Every variant — default and capability — passes through the canonical
-boot bake ([`mruby.md`](spec/behavior/mruby.md)); re-baking the same inputs yields a byte-identical artifact,
-gated by the reproducible-build pipeline.
+## Variant Selection
+
+A Host App selects a variant per Sandbox by pointing `wasm_path:` at the
+chosen binary. The binary fixes the capability surface a guest sees;
+there is no runtime capability negotiation.
+
+```ruby
+Kobako::Sandbox.new(wasm_path: "path/to/kobako+json.wasm")
+```
+
+## Build Tasks
+
+Every variant passes through the canonical boot bake
+([mruby](spec/behavior/mruby.md)). Re-baking the same inputs yields a
+byte-identical artifact, gated by the reproducible-build pipeline.
+
+| Task | Produces |
+|---|---|
+| `rake wasm:build` | `kobako.wasm` |
+| `rake wasm:build:regexp` | `kobako+regexp.wasm` |
+| `rake wasm:build:regexp_unicode` | `kobako+regexp-unicode.wasm` |
+| `rake wasm:build:json` | `kobako+json.wasm` |
+| `rake wasm:build:full` | `kobako+full.wasm` |

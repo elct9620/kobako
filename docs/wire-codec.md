@@ -1,102 +1,145 @@
 # Wire Codec
 
-This document is the anchor for the binary encoding of the [Wire Contract](wire-contract.md). It states how the two encoding layers relate, and holds the ABI surface that carries them. The byte-level references live in the two layer documents:
+This document anchors the binary encoding of the [Wire Contract](wire-contract.md). It relates the two encoding layers and holds the ABI surface that carries them.
 
-| Layer | Document | What it encodes | Who implements it |
-|-------|----------|-----------------|-------------------|
-| **Core envelope** | [`wire/envelope.md`](wire/envelope.md) | Fixed-layout frames — routing fields, ok-versus-fault, outcome attribution | `crates/kobako-transport`, shared by both sides |
-| **Payload codec** | [`wire/payload-msgpack.md`](wire/payload-msgpack.md) | The opaque `payload` bytes each frame hands through — the type mapping and ext codes | `lib/kobako/` (host) ↔ `crates/kobako-codec` (guest) |
+| Layer | Byte reference | Encodes | Implemented in |
+|-------|----------------|---------|----------------|
+| Core envelope | [`wire/envelope.md`](wire/envelope.md) | routing, ok-versus-fault, attribution | `crates/kobako-transport`, both sides |
+| Payload codec | [`wire/payload-msgpack.md`](wire/payload-msgpack.md) | the opaque `payload` bytes | `lib/kobako/` ↔ `crates/kobako-codec` |
 
-ABI function names, packed return conventions, and the byte values stated in either layer document are fixed for the life of an ABI version and may only change together with an ABI version increment (→ § ABI Version). A field or a closed-set value the contract *adds* is not such a change: a reader degrades what it predates rather than failing (→ [`wire-contract.md`](wire-contract.md) § Fault), so the two sides stay usable across the addition.
+ABI function names, packed return conventions, and the byte values in either layer document change only with an ABI version increment (→ § ABI Version). A field or closed-set value the contract adds is not such a change: a reader degrades what it predates (→ [`wire-contract.md`](wire-contract.md) § Fault).
 
 ---
 
 ## How the Two Layers Relate
 
-The core envelope carries what routing and attribution need, and nothing else: a side resolves a Call's target, names its method, learns whether a Reply succeeded, and attributes a failed invocation — all without decoding a payload byte. Everything the resolved method actually consumes rides in an opaque `payload` field the codec owns.
+The core envelope carries only what routing and attribution need, so a side reaches a decision without decoding a payload byte. Everything the resolved method consumes rides in the opaque `payload` the codec owns.
 
-Two properties follow, and they are the reason for the split:
+```
+┌───────────── core envelope ─────────────┐
+│ routing fields │ tag │ payload (opaque) │
+└──────────────────────────────┬──────────┘
+                               └── payload codec
+```
 
-- **The codec is replaceable.** A host and guest that agree on another schema swap [`wire/payload-msgpack.md`](wire/payload-msgpack.md) for their own and carry no MessagePack dependency. MessagePack is kobako's default payload codec, not the wire's only one. Each side names its choice where it assembles — a guest shell at `MrbGuest::Codec`, a Rust host by building the SDK without its `msgpack` feature — and the tiers beneath route messages without reading a payload byte, which `rake gate:payload:optional` holds them to by checking that no codec appears in either side's codec-free graph.
-- **The two decodes are separable.** Decoding an envelope requires nothing from the codec, and decoding a payload requires nothing from the envelope beyond its bytes and length. A frontend may split the two across its own internal boundaries, and an endpoint that only routes messages needs no codec at all.
+| Property | Consequence |
+|----------|-------------|
+| Replaceable codec | a shared schema swaps out MessagePack entirely |
+| Separable decodes | a routing-only endpoint needs no codec |
 
-A codec substitution changes neither the ABI surface below nor the envelope layout; a change to either of those is an ABI version increment.
+MessagePack is the default codec, not the only one. A guest shell names its codec at `MrbGuest::Codec`; a Rust host builds the SDK without its `msgpack` feature. `rake gate:payload:optional` checks that no codec appears in either side's codec-free graph. A codec substitution changes neither the ABI surface nor the envelope layout.
 
 ### What a replacement codec must provide
 
-The obligations are positions to fill, not an encoding to use. One position is unconditional and the rest are capabilities: a codec serves the ones it chooses and refuses at the others, and the refusal says the position is unserved rather than that a message was unreadable — so a host can tell a guest that never offered a feature from one that is broken.
+A codec fills positions, not an encoding. The floor is unconditional. Each other position is a capability the codec serves or refuses as unserved, so a missing feature reads apart from a broken guest (→ [`spec/behavior/codec.md`](spec/behavior/codec.md)).
 
-| Position | What serving it obliges | Why the contract needs it |
-|----------|-------------------------|---------------------------|
-| An Outcome ok body and a Yield Reply ok or break body | one value | **The floor.** Every invocation ends by writing an Outcome, so a codec that cannot write a value completes nothing. These are single-value positions; a codec needs no framing beyond its own value encoding |
-| A Call payload | positional and keyword arguments, distinguishably | The host dispatches through `public_send`, where the two are not interchangeable — and the guest hands the codec the two already separated, so folding them together loses the keywords silently |
-| A Run payload and a Yield Call | the arguments alone | Neither position has keywords: a `#run` payload's ride as a trailing Hash the entrypoint reads positionally, and a Yield Call's arguments are a plain list |
+| Position | Serving it obliges | Why |
+|----------|--------------------|-----|
+| Outcome ok; Yield Reply ok or break | one value | the floor: every invocation writes an Outcome |
+| Call payload | positional and keyword arguments, apart | `public_send` does not interchange them |
+| Run payload; Yield Call | the arguments alone | neither position has keywords |
 
-A Call payload and the Reply value it is answered with are two halves of one exchange, so a codec that serves either owes the other. Nothing enforces the pairing; a codec that writes a Call it cannot read the answer to leaves the exchange half-served at the Reply.
+A Call payload and its Reply value are two halves of one exchange, so a codec serving either owes the other. A Fault is kobako's own, so it rides the envelope and no codec encodes one (→ [`wire/envelope.md`](wire/envelope.md) § Fault).
 
-A Reply's fault body is not among them. Every byte of a Fault is kobako's — a category and a message — so it rides the envelope (→ [`wire/envelope.md`](wire/envelope.md) § Fault) and a replacement codec neither encodes nor reads one. A guest that speaks another schema still reads a refusal, and reads it without a codec at all.
-
-A codec without a Handle representation is legal. Handles then ride only the envelope's `target` field, so a guest still reaches a stateful receiver and only forgoes passing Handles as arguments or receiving them as values.
+A codec without a Handle representation is legal. Handles then ride only the envelope's `target` field, so a guest still reaches a stateful receiver and only forgoes Handles as arguments or values.
 
 ---
 
 ## ABI Signatures
 
-The following function names and byte-level signatures are fixed cross-implementer contracts. Implementers must not rename these functions or change their parameter or return types within an ABI version.
-
 ### Host-provided import
+
+The host provides one import; its name and signature are fixed within an ABI version.
 
 | Function name | Wasm signature | Return convention |
 |---|---|---|
-| `__kobako_dispatch` | `(req_ptr: i32, req_len: i32) -> i64` | Packed u64: high 32 bits = reply buffer ptr (zero-extended u32 wasm linear memory offset); low 32 bits = reply byte length (u32) |
+| `__kobako_dispatch` | `(req_ptr: i32, req_len: i32) -> i64` | packed Reply ptr and length (§ Packed u64 return layout) |
 
-The Guest Binary calls `__kobako_dispatch` after writing a Call envelope into linear memory at `[req_ptr, req_ptr + req_len)`. The Host Gem reads the envelope, dispatches it, serializes the Reply, allocates a buffer via `__kobako_alloc`, writes the Reply bytes into that buffer, and returns the packed i64. On any unrecoverable failure (allocation trap, serialization error, or an error outside the Reply fault arm), the import function returns an error to the Wasm engine, which surfaces as a Wasm trap and maps to `Kobako::TrapError`.
+1. The Guest Binary writes a Call envelope at `[req_ptr, req_ptr + req_len)` and calls the import.
+2. The host decodes and dispatches the Call, then serializes the Reply.
+3. The host allocates a guest buffer via `__kobako_alloc` and writes the Reply into it.
+4. The host returns the packed i64.
 
-Single message size limit: 16 MiB in either direction, applied to the whole envelope rather than the payload alone, and to an invocation-channel frame as much as to a dispatch. Messages exceeding this limit are a wire violation; the Host Gem walks the trap path. A `memory_limit` below 16 MiB binds first, since the guest grows linear memory to hold what it reads.
+On a wire-layer fault, such as a failed allocation, the host answers an empty packed answer. The guest refuses it as an envelope failure (→ [`spec/behavior/envelope.md`](spec/behavior/envelope.md)). Every message obeys the 16 MiB bound (→ [`wire/envelope.md`](wire/envelope.md) § Size and Depth Bounds).
 
 ### Guest-provided exports
 
-The ABI is a closed enumerated set: exactly six guest exports are permitted, listed below. An export added, removed, or renamed is an ABI version increment.
+The guest exports a closed set of six functions; adding, removing, or renaming one is an ABI version increment (→ [`spec/behavior/runtime.md`](spec/behavior/runtime.md)).
 
 | Export name | Wasm signature | Return convention |
 |---|---|---|
-| `__kobako_eval` | `() -> ()` | None — outcome is written to OUTCOME_BUFFER before return. Entry point for `Sandbox#eval`. |
-| `__kobako_run` | `(env_ptr: i32, env_len: i32) -> ()` | None — outcome is written to OUTCOME_BUFFER before return. Entry point for `Sandbox#run`. `env_ptr` / `env_len` locate the Run envelope on the command buffer. |
-| `__kobako_alloc` | `(size: i32) -> i32` | wasm linear memory offset (u32, unsigned); 0 indicates allocation failure (trap path) |
-| `__kobako_take_outcome` | `() -> i64` | Packed u64: high 32 bits = OUTCOME_BUFFER ptr; low 32 bits = byte length. `len == 0` is a wire violation. |
-| `__kobako_yield_to_block` | `(req_ptr: i32, req_len: i32) -> i64` | Packed u64: high 32 bits = Yield Reply buffer ptr; low 32 bits = Yield Reply byte length. `len == 0` is a wire violation. |
-| `__kobako_abi_version` | `() -> i32` | u32 ABI version the Guest Binary was built against (→ § ABI Version) |
+| `__kobako_eval` | `() -> ()` | none; `Sandbox#eval` entry |
+| `__kobako_run` | `(env_ptr: i32, env_len: i32) -> ()` | none; `Sandbox#run` entry, Run envelope location |
+| `__kobako_alloc` | `(size: i32) -> i32` | linear-memory offset (u32); `0` on failure |
+| `__kobako_take_outcome` | `() -> i64` | packed OUTCOME_BUFFER ptr and length |
+| `__kobako_yield_to_block` | `(req_ptr: i32, req_len: i32) -> i64` | packed Yield Reply ptr and length |
+| `__kobako_abi_version` | `() -> i32` | u32 ABI version (§ ABI Version) |
 
-`__kobako_eval` and `__kobako_run` are the two invocation entry points. Both clear OUTCOME_BUFFER at entry, install the preamble (Frame 1), replay preloaded snippets (Frame 3), execute their verb-specific logic, and write a single Outcome envelope to OUTCOME_BUFFER before returning. The host then reads the envelope via `__kobako_take_outcome` and applies the two-step attribution decision: a trap first, then the envelope's tag.
+An empty answer from either packed export is refused (→ [`spec/behavior/outcome.md`](spec/behavior/outcome.md), [`spec/behavior/transport-yield.md`](spec/behavior/transport-yield.md)).
 
-The Host Gem calls `__kobako_yield_to_block` from inside a `__kobako_dispatch` callback when the Service method invokes its Yielder. The host writes the Yield Call — the yield arguments as a codec-encoded payload — into linear memory at `[req_ptr, req_ptr + req_len)`. The Guest Binary executes the block body within the active dispatch frame, allocates a buffer via `__kobako_alloc`, writes the Yield Reply bytes (→ [`wire/envelope.md`](wire/envelope.md) § Yield Call and Yield Reply), and returns the packed i64. The 16 MiB size limit applies in both directions.
+### Invocation entry points
+
+`__kobako_eval` and `__kobako_run` each write exactly one Outcome envelope before returning. Each export runs these steps:
+
+1. Clear OUTCOME_BUFFER.
+2. Install the preamble (Frame 1).
+3. Replay preloaded snippets (Frame 3).
+4. Run the verb-specific logic.
+5. Write the Outcome to OUTCOME_BUFFER.
+
+The host drains the Outcome through `__kobako_take_outcome`, and a trap outranks any Outcome written (→ [`spec/behavior/outcome.md`](spec/behavior/outcome.md)).
+
+### Block yields
+
+The host calls `__kobako_yield_to_block` from inside a `__kobako_dispatch` callback when a Service invokes its Yielder. The call nests inside the dispatch frame the host is still answering:
+
+```
+guest ──__kobako_dispatch──▶ host Service
+guest ◀─__kobako_yield_to_block── Yielder   (Yield Call at req_ptr)
+guest runs block, writes Yield Reply via __kobako_alloc
+guest ──packed i64──▶ host
+```
+
+The Yield Reply layout is in [`wire/envelope.md`](wire/envelope.md) § Yield Call and Yield Reply.
 
 ### ABI Version
 
-The ABI version is a single u32 defined once in `kobako-transport`, independent of every package version (the kobako gem, any published crate). The current version is `3`.
+The ABI version is a single u32 defined once in `kobako-transport`, independent of every package version. The current version is `3`.
 
-`__kobako_abi_version` is a pure constant function: it takes no input, performs no I/O, touches no invocation state, and is callable before any invocation entry point runs. The Host Gem calls it at Sandbox construction and compares the returned value against the version it implements by equality; because the answer is a property of the artifact, one call may serve every Sandbox built from that artifact in a process. An absent export or a non-equal value fails construction with `Kobako::SetupError`.
+`__kobako_abi_version` is a pure constant function, callable before any invocation entry point runs. The host compares it by equality at Sandbox construction (→ [`spec/behavior/runtime.md`](spec/behavior/runtime.md)). The answer is a property of the artifact, so one call may serve every Sandbox built from it.
 
-The version tracks what the two sides must already agree on before either can read the other's bytes: the ABI surface (function set, names, signatures), the packed return conventions, and any redefinition of an existing field or byte value. A host implements exactly one ABI version and loads only Guest Binaries reporting that version, so an increment is what a change no reader can survive costs. Two kinds of change are outside it: an *additive* contract change, which the receiver degrades rather than fails (→ [`wire-contract.md`](wire-contract.md) § Fault), and swapping the payload codec, which is a choice the two endpoints share.
+| Inside the version | Outside the version |
+|--------------------|---------------------|
+| the export and import set, names, signatures | an additive contract change |
+| the packed return conventions | a payload codec swap |
+| any redefined field or byte value | |
 
-Version `3` carries the two-layer wire: a fixed-layout core envelope with an opaque payload, and MessagePack as the default codec. It draws the line between the two by whose data a field is: a Reply's fault arm is kobako's own, so it rides the envelope, where a guest reads a refusal with no codec at all. It also carries the per-invocation instance discipline: the host drives every invocation entry on a fresh instance of the module and discards it after draining the outcome, so the Guest Binary may leave its interpreter state dirty at exit and may arrive with the canonical boot state pre-initialized in its data segments.
+A host implements exactly one ABI version, so an increment is the cost of a change no reader survives.
+
+### Version 3
+
+Version `3` is the two-layer wire with MessagePack as the default codec. It also carries the per-invocation instance discipline.
+
+| Decision | Consequence |
+|----------|-------------|
+| field placement follows whose data it is | a Fault rides the envelope, readable without a codec |
+| a fresh instance per invocation entry | the guest may exit with dirty interpreter state |
+| boot state may live in data segments | the guest may arrive pre-initialized |
 
 ### Invocation channels
 
-Each invocation entry point consumes a fixed sequence of inputs across two host→guest channels: WASI stdin (length-prefixed frames `[u32 be][bytes]`) and the command buffer (a Run envelope at `(ptr, len)` reachable via `__kobako_alloc` plus a linear-memory write, then surfaced as typed export arguments).
+Each invocation entry point reads a fixed sequence of inputs across two host→guest channels.
 
 | Export | WASI stdin frames | Command buffer |
 |---|---|---|
 | `__kobako_eval` | Frame 1 preamble · Frame 2 user source · Frame 3 snippets | — |
 | `__kobako_run` | Frame 1 preamble · Frame 3 snippets | Run envelope at `(env_ptr, env_len)` |
 
-Frame 1 and Frame 3 are **mandatory-presence** even when empty: a Sandbox with no bindings sends an empty path list, and one with no preloads sends a zero-count snippet table, rather than an absent frame. That plus explicit empty payloads removes the `read_exact` EOF / partial-read ambiguity from each export's per-invocation contract. Frame 2 — the `#eval` user source — is raw UTF-8 bytes, read only by `__kobako_eval`, and loads with backtrace filename `(eval)`.
-
-Layouts for Frame 1, Frame 3, and the Run envelope are in [`wire/envelope.md`](wire/envelope.md).
+A stdin frame is `[u32 be][bytes]`. The Run envelope reaches the command buffer through `__kobako_alloc` and a linear-memory write. Frame 1 and Frame 3 are always sent, even empty, so no export meets an EOF or partial-read ambiguity. Frame 2 is raw UTF-8 source read only by `__kobako_eval`. Frame layouts are in [`wire/envelope.md`](wire/envelope.md).
 
 ### Packed u64 return layout
 
-`__kobako_dispatch`, `__kobako_take_outcome`, and `__kobako_yield_to_block` all return a packed i64 (Wasm type) carrying two u32 values:
+`__kobako_dispatch`, `__kobako_take_outcome`, and `__kobako_yield_to_block` each return an i64 packing two u32 values:
 
 ```
  63        32 31         0
@@ -106,26 +149,26 @@ Layouts for Frame 1, Frame 3, and the Run envelope are in [`wire/envelope.md`](w
  high 32 bits  low 32 bits
 ```
 
-Extraction: `ptr = (result >> 32) & 0xffff_ffff`; `len = result & 0xffff_ffff`. The Wasm i64 is little-endian; the bit-shift extraction is portable across host environments.
+Extract with `ptr = (result >> 32) & 0xffff_ffff` and `len = result & 0xffff_ffff`; the shift is portable across hosts.
 
-Memory ownership: all buffer pointers refer to wasm linear memory owned by the Guest Binary Wasm instance. The Host Gem reads through a memory view provided by the Wasm engine during the call frame. After the call frame exits, the Host Gem holds no references to guest memory. Buffers are not individually freed; the entire wasm linear memory is released when the Wasm instance is dropped at the end of the invocation.
+Every pointer refers to guest linear memory. The host reads it only during the call frame and keeps no reference afterwards. Buffers are never freed one by one; the whole memory goes when the instance drops after the invocation.
 
 ---
 
 ## Consistency Guarantee
 
-Each layer is held to a second source that was not derived from its implementation. No layer's output is its own definition of correct.
+Each layer is held to a second source not derived from its implementation, so no layer's output defines its own correctness.
 
 | Layer | Second source | Mechanism |
 |-------|---------------|-----------|
-| Core envelope | [`wire/envelope.md`](wire/envelope.md) | Golden vectors for every frame and every `kind` and `tag` byte |
-| Payload codec | A second implementation in another language | Bidirectional round-trip fuzz between `lib/kobako/` (Ruby) and `crates/kobako-codec` (Rust) |
+| Core envelope | [`wire/envelope.md`](wire/envelope.md) | golden vectors per frame, `kind` and `tag` byte |
+| Payload codec | an implementation in another language | round-trip fuzz, Ruby ↔ Rust |
 
-The split follows where ambiguity lives. The type mapping — the 11 wire types, the two ext codes, the str/bin rules, the Symbol-keyed `kwargs` — is where two languages' conventions disagree, so that layer earns a second implementation. The envelope's peers are both Rust and agree on three routing fields and a byte string, so the layout document is its second source. Any failure at either layer is a wire regression that blocks release.
+The split follows where ambiguity lives. The type mapping is where two languages' conventions disagree, so that layer earns a second implementation. The envelope's peers are both Rust and share a few routing fields, so its layout document is its second source. A failure at either layer is a wire regression that blocks release.
 
 ### Golden Vectors
 
-A golden vector spells each discriminant as the literal byte the layout document fixes. One written from the encoder's constant would move whenever the constant does, restating the implementation instead of holding it to anything.
+A golden vector spells each discriminant as the literal byte the layout document fixes. A vector written from the encoder's constant would only restate the implementation.
 
 ```
 wire/envelope.md --hand-derived--> golden vector <--compared-- kobako-transport
@@ -133,7 +176,7 @@ wire/envelope.md --hand-derived--> golden vector <--compared-- kobako-transport
 
 ### Round-Trip Fuzz
 
-The payload codec's fuzz harness holds both peers to each other over bytes. Its contract does not depend on how the two peers are connected:
+The payload codec's fuzz harness holds both peers to each other over bytes, however they are connected:
 
 1. Run Host → Guest → Host and Guest → Host → Guest; each ends in deep equality with the original.
 2. Cover all 11 wire types, both ext types, and nested compositions such as an array of Handles.

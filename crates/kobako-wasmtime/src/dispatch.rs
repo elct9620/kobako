@@ -16,7 +16,7 @@
 //! Returns 0 on any step failure. `Kobako::Sandbox#initialize` always
 //! installs the dispatch handler before any invocation, so reaching the
 //! dispatcher with no handler bound is itself a wire-layer fault; the
-//! guest maps a 0 return to a trap. Failures during normal dispatch
+//! guest refuses a 0 return as an envelope error. Failures during normal dispatch
 //! take the Reply's fault arm from
 //! `Kobako::Transport::Dispatcher.dispatch` itself — they never reach
 //! this 0-return path.
@@ -27,7 +27,7 @@
 //! through `eprintln!`. The host normally surfaces faults through the
 //! contract's error channels; the dispatcher contract is the exception
 //! — it must return a packed `i64` to the guest and cannot fail, so a
-//! 0 return is the only signal the wasm side receives. The guest collapses every 0 into the same trap, so the
+//! 0 return is the only signal the wasm side receives. The guest collapses every 0 into the same envelope error, so the
 //! Ruby host has no way to attribute the failure to a specific step
 //! (missing `memory` export vs. no dispatch handler bound vs. the
 //! handler raised vs. `__kobako_alloc` returned 0 vs. `memory.write`
@@ -35,7 +35,7 @@
 //!
 //! `handle` writes a single `[kobako-dispatch] <reason>` line to
 //! `stderr` on each failure path so operators have a breadcrumb to
-//! correlate the trap with the actual cause. The line is emitted in
+//! correlate the failure with the actual cause. The line is emitted in
 //! both debug and release builds on purpose: dispatcher failures are
 //! wire-layer faults rather than expected error paths (`Kobako::Sandbox`
 //! always installs the handler, the handler is contracted never to

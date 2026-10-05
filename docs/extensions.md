@@ -1,91 +1,84 @@
-# Extensions — installing a guest idiom with an optional host backend
+# Extensions
 
-An **Extension** teaches guest code a native-style constant. It bundles
-a guest idiom (mruby `source`) with an optional host `backend`, and
-`Sandbox#install` composes the two onto a Sandbox through the existing
-`#preload` and `#bind` verbs. Pure operations (`File.join`) run in-guest
-with no round-trip; privileged operations (`File.read`) dispatch to the
-host backend under the same isolation and reflection guarantees as any
-bound Service.
+An **Extension** teaches guest code a native-style constant. It bundles a guest idiom
+(mruby `source`) with an optional host `backend`. Pure operations such as `File.join`
+stay in-guest; privileged ones such as `File.read` dispatch to the host backend like
+any bound Service.
 
-The behavior is governed by the scenarios in
-[`spec/behavior/extension.md`](spec/behavior/extension.md), its setup
-refusals included. This document is the
-contract-in-use and a worked example; the scenarios are the authority.
+| Part | Lives in |
+|---|---|
+| behavior, setup refusals included | [`spec/behavior/extension.md`](spec/behavior/extension.md) |
+| the contract in use, a worked example | this document |
+| a concrete Extension | the Host App or a third-party gem |
 
-kobako ships **no concrete Extension** — only the contract and the
-`#install` consumer. A guest idiom such as `File` is authored by the
-Host App or a third-party gem. The `File` used below is illustrative.
+kobako ships no concrete Extension, only the contract and the `#install` consumer.
+The `File` used below is illustrative.
 
-## The contract
+## Extension Contract
 
-An Extension is any object exposing four readers. `Kobako::Extension`
-is the bundled value type; a conforming object of your own is equally
-valid.
+An Extension is any object exposing four readers. `Kobako::Extension` is the bundled
+value type; a conforming object of your own is equally valid.
 
 | Reader | Type | Meaning |
-|--------|------|---------|
-| `name` | Symbol matching `/\A[A-Z]\w*\z/` | Identity: the preloaded snippet's canonical name (its `(snippet:Name)` backtrace label) and the `depends_on` match key. Independent of any bound path. |
-| `source` | String (mandatory) | The mruby idiom, preloaded as a snippet. Its methods that are defined locally run in-guest; the rest fall through to the host backend. |
-| `backend` | `Kobako::Extension::Backend` or `nil` | The host attachment — a `path` the backend binds at plus a `provider`. `nil` for a pure-guest Extension. |
-| `depends_on` | Array of Symbol | Names of Extensions that must also be installed; presence-checked at the first invocation. |
+|---|---|---|
+| `name` | Symbol matching `/\A[A-Z]\w*\z/` | snippet name and `depends_on` key |
+| `source` | String, mandatory | the mruby idiom, preloaded as a snippet |
+| `backend` | `Kobako::Extension::Backend` or `nil` | the host attachment; `nil` stays pure-guest |
+| `depends_on` | Array of Symbol | Extensions that must also be installed |
 
-The `backend` pairs a `path` (the constant path the backend binds at —
-single-segment `"File"` or nested `"MyApp::Store"`, spelling the guest
-constant the idiom routes to) with a `provider`. `Kobako::Extension::Backend`
-is the bundled value type; `install` duck-types on `path` / `object` / `provider`,
-so a conforming object of your own is equally valid.
+The idiom's locally defined methods run in the guest, and the rest fall through to
+the backend. The `name` is the Extension's identity, independent of any bound path.
 
-| Declaration | Bound object | Lifetime |
-|-------------|--------------|----------|
-| `object:` (static) | The object itself | Resolved once; identical across every invocation |
-| `provider:` (a no-argument callable) | The callable's return value | Invoked once per invocation; a fresh object backs the path each invocation |
-| neither (fillable) | `Kobako::Unresolved` | Stays unresolved until a per-eval `ctx.bind` fills it; a dispatch to an unfilled fillable fails closed as an undefined target |
+## Backend Kinds
 
-The kind is chosen by keyword, never inferred from whether the value is
-callable, so a static object that is itself callable is expressed directly
-with `object:`; giving both `object:` and `provider:` raises `ArgumentError`.
-The Rust SDK spells the same choice through its `Provider` enum.
+A backend pairs a `path`, the guest constant the idiom routes to, with how the object
+behind it is found. `Kobako::Extension::Backend` is the bundled type; `install`
+duck-types on `path`, `object`, and `provider`.
 
-Provider identity is resource identity: pass the **same** `provider:` to
-several Extensions and it resolves once per invocation to one object
-shared by their paths; pass distinct providers for distinct objects.
+| Declaration | Bound object | Choose it for |
+|---|---|---|
+| `object:` | the object itself | a shared read-only backend |
+| `provider:` | a no-argument callable's return value | writable state, fresh each invocation |
+| neither | `Kobako::Unresolved` | a per-eval `ctx.bind` to fill |
 
-## Composition and lifecycle
+The kind is a keyword, never inferred from whether the value is callable, so a
+callable static object is simply `object:`. Per-invocation freshness is a correctness
+tool: a writable backend uses `provider:` so its state cannot leak across
+invocations. Pass one `provider:` to several Extensions to share one resource
+across their paths.
 
-`install` decomposes each Extension into the two existing verbs and adds
-no wire, codec, or Guest Binary surface:
+## Composition
 
-- `preload(code: source, name: name)` registers the idiom.
-- When `backend` is present, `backend.path` enters the sealed Service
-  registry (Frame 1); the object behind it is chosen per invocation by the
-  backend's declared kind — static `object:`, per-invocation `provider:`,
-  or fillable.
+`install` decomposes each Extension into the two existing verbs. It adds no wire,
+codec, or Guest Binary surface.
 
-The first invocation seals installation (as it seals `#bind` / `#preload`):
-a later `install` raises `ArgumentError`. At the seal, every installed
-Extension's `depends_on` must be present among the installed names — an
-unmet dependency raises `ArgumentError` before the guest runs. The check
-is presence-only, so dependency cycles are permitted; cross-Extension
-references resolve at guest call time, after every snippet has replayed.
+```text
+install(ext) ──► preload(code: ext.source, name: ext.name)
+             └─► ext.backend.path joins the Service registry   (backend only)
+```
 
-## Boundaries
+Install every Extension before the first invocation, which seals installation along
+with `#bind` and `#preload` and checks each `depends_on`. The seal and the dependency
+check are specified in [extension](spec/behavior/extension.md).
 
-- **`source` is mandatory** — this is the `install` / `bind` divide. A
-  host object with no guest idiom is bound with `#bind` directly.
-- **At most one backend per Extension.** A capability spanning several
-  host-backed constants composes as several Extensions linked by
-  `depends_on` — one idiom + one backend each, joined by reference, not
-  a single aggregate.
-- **Per-invocation freshness is a correctness tool.** A writable backend
-  must use a `provider:` callable so its state cannot leak across
-  invocations; a shared read-only backend is a static `object:`.
+## Design Boundaries
 
-## Worked example — a native `File`
+Two rules keep an Extension one idiom over at most one host object.
 
-The guest idiom `extend`s `Kobako::Proxy` for host-forwarding — a capability
-mixed in rather than inherited, so `File` keeps its own superclass free — runs
-path arithmetic locally, and routes I/O to the host:
+| Rule | Otherwise |
+|---|---|
+| `source` is mandatory | bind a host object with `#bind` directly |
+| at most one backend per Extension | link several Extensions by `depends_on` |
+
+The first rule is the `install` / `bind` divide. A capability spanning several
+host-backed constants composes as one idiom and one backend each, joined by
+reference rather than a single aggregate.
+
+## Native File Example
+
+The guest idiom `extend`s `Kobako::Proxy` for host-forwarding. The capability is
+mixed in rather than inherited, so `File` keeps its own superclass free. It runs path
+arithmetic locally and routes I/O to the host.
 
 ```ruby
 FILE_SOURCE = <<~RUBY
@@ -112,8 +105,8 @@ FILE_SOURCE = <<~RUBY
 RUBY
 ```
 
-The host backend is an ordinary duck-typed object — here a fresh
-in-memory store per invocation, so writes never leak:
+The host backend is an ordinary duck-typed object, here a fresh in-memory store per
+invocation so writes never leak.
 
 ```ruby
 file_ext = Kobako::Extension.new(
@@ -133,8 +126,7 @@ sandbox.eval(<<~RUBY)
 RUBY
 ```
 
-A read-only, shared backend supplies a static object with `object:`
-instead of a `provider:` callable:
+A read-only, shared backend supplies a static object with `object:` instead.
 
 ```ruby
 backend: Kobako::Extension::Backend.new(path: "File", object: read_only_store)
@@ -142,9 +134,8 @@ backend: Kobako::Extension::Backend.new(path: "File", object: read_only_store)
 
 ## Rust SDK
 
-The `crates/kobako` host SDK reifies the same contract idiomatically;
-behavior is parity-pinned to the Ruby frontend, only the API shape
-differs.
+The `crates/kobako` host SDK reifies the same contract idiomatically. Behavior is
+parity-pinned to the Ruby frontend; only the API shape differs.
 
 ```rust
 pub trait Extension {
@@ -165,6 +156,4 @@ pub enum Provider {
 // sandbox.install(ext: Arc<dyn Extension>) -> Result<(), Error>
 ```
 
-Provider identity maps to `Arc::ptr_eq`: the same `Arc` shared by
-several Extensions resolves once per invocation to one object, mirroring
-the Ruby object-identity rule.
+Provider identity maps to `Arc::ptr_eq`, mirroring the Ruby object-identity rule.

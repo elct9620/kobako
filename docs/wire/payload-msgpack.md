@@ -1,12 +1,15 @@
 # MessagePack Payload Codec
 
-This document pins the byte encoding of the **payload** — the opaque `bytes` field every core envelope hands through (→ [`envelope.md`](envelope.md)). MessagePack is kobako's default payload codec: it is what the bundled Guest Binary and the Ruby frontend speak, and what a host gets without choosing anything.
+This document pins the byte encoding of the payload, the opaque `bytes` field every core envelope hands through. MessagePack is kobako's default payload codec: the bundled Guest Binary and the Ruby frontend speak it.
 
-It is not the only codec the wire admits. The core envelope routes and attributes without reading a payload byte, so a host and guest that agree on another schema replace this document with their own and carry no MessagePack dependency. What is fixed for every codec is the envelope, not this encoding.
+| Document | Holds |
+|----------|-------|
+| [`../wire-codec.md`](../wire-codec.md) | how the two layers relate; the fuzz checks |
+| [`envelope.md`](envelope.md) | the envelope that carries each payload |
+| [`../wire-contract.md`](../wire-contract.md) | the abstract shape encoded here |
+| [`../spec/behavior/payload-encoding.md`](../spec/behavior/payload-encoding.md) | this encoding's behavior |
 
-`docs/wire-codec.md` is the anchor that relates the two layers; this document is the default codec's byte-level reference. The abstract shape it encodes is specified in [`../wire-contract.md`](../wire-contract.md).
-
-The Host Gem (`lib/kobako/`) and the Guest Binary (`crates/kobako-codec`) implement this codec independently in different languages; byte-level round-trips between them are pinned by the oracle fuzz checks (→ `docs/wire-codec.md` § Consistency Guarantee).
+Another codec may replace this one, since the envelope never reads a payload byte. The Host Gem (`lib/kobako/`) and the Guest Binary (`crates/kobako-codec`) implement it independently, in different languages.
 
 ---
 
@@ -16,93 +19,92 @@ A codec owns exactly these positions. Everything else in a message belongs to th
 
 | Position | Content |
 |----------|---------|
-| Call `payload` | The invocation arguments — `args` (ordered list) and `kwargs` (Symbol-keyed map) |
-| Reply `body`, `tag=0` | The Service method's return value |
-| Yield Call | The block's yield arguments as an ordered list |
-| Yield Reply `body`, `tag` `0x01` / `0x02` | The block's value, or the `break` value |
-| Outcome `body`, `tag=0x01` | The invocation's value |
-| Run `payload` | The entrypoint's `args` and `kwargs` |
-| Frame 3 entry `body` | Not codec-encoded — raw UTF-8 source or RITE bytecode |
+| Call `payload` | `args` (ordered list) and `kwargs` (Symbol-keyed map) |
+| Reply `body`, `tag=0` | the Service method's return value |
+| Yield Call | the block's yield arguments as an ordered list |
+| Yield Reply `body`, `tag` `0x01` / `0x02` | the block's value, or the `break` value |
+| Outcome `body`, `tag=0x01` | the invocation's value |
+| Run `payload` | the entrypoint's `args` and `kwargs` |
+| Frame 3 entry `body` | not codec-encoded: raw source or RITE bytecode |
 
-A payload is exactly one MessagePack value. Bytes remaining after that value are a wire violation; the receiving side rejects the payload instead of ignoring the excess.
+A payload is exactly one MessagePack value. The envelope's own text fields, such as `method` or `origin`, never reach this codec.
 
-### Call and Run payload shape
+### Argument Shape
 
-Both carry a 2-element MessagePack array with fixed positions:
+Both carry a 2-element MessagePack array with fixed positions.
 
 | Index | Field | Type |
 |-------|-------|------|
-| 0 | `args` | array (elements may include ext 0x01 Handles) |
-| 1 | `kwargs` | map (Symbol keys as ext 0x00; values may include ext 0x01 Handles) |
+| 0 | `args` | array; elements may be ext 0x01 Handles |
+| 1 | `kwargs` | map; Symbol keys as ext 0x00, values may be Handles |
 
-Both elements are always present. An empty `args` is the empty array; an empty `kwargs` is the empty map (`0x80`) — never absent, so field positions stay stable.
-
-Positional-versus-keyword partition is a codec concern: a schema without Ruby's call semantics carries whatever shape its own language needs, and the core envelope is unchanged.
+Both elements are always present, an empty `kwargs` being the empty map (`0x80`), so positions stay stable. The positional-versus-keyword split is this codec's concern; another schema carries whatever shape its language needs.
 
 ---
 
 ## Type Mapping
 
-The following 11 entries constitute the complete set of MessagePack types this codec recognizes. Any msgpack type or ext code not listed here is a wire violation; both sides reject it without attempting to decode further.
+These 11 entries are the complete, closed set of types this codec recognizes (→ [`../spec/behavior/payload-encoding.md`](../spec/behavior/payload-encoding.md)).
 
-| # | msgpack family | Wire use | Host Gem Ruby type | Guest Binary mruby / Rust type |
-|---|----------------|----------|--------------------|-------------------------------|
-| 1 | nil | Absent optional fields; explicit `nil` values | `nil` | `nil` (mruby) / `Option::None` |
-| 2 | bool | Boolean values | `true` / `false` | `TrueClass` / `FalseClass` (mruby) / `bool` |
-| 3 | int (all widths: fixint, int 8/16/32/64, uint 8/16/32/64) | Integer values | `Integer` | `Integer` (mruby) / `i64` or `u64` |
-| 4 | float (float 32 / float 64) | Floating-point values | `Float` | `Float` (mruby) / `f64` |
-| 5 | str (fixstr / str 8 / str 16 / str 32) | UTF-8 text strings (see str/bin rules below) | `String` (UTF-8 encoding) | `String` (mruby) / `&str` / `String` |
-| 6 | bin (bin 8 / bin 16 / bin 32) | Arbitrary byte sequences (see str/bin rules below) | `String` (binary / ASCII-8BIT encoding) | `String` (mruby, binary) / `&[u8]` / `Vec<u8>` |
-| 7 | array (fixarray / array 16 / array 32) | Ordered sequences; the `args` / `kwargs` payload framing | `Array` | `Array` (mruby) / `Vec<T>` |
-| 8 | map (fixmap / map 16 / map 32) | Associative maps; `kwargs` | `Hash` | `Hash` (mruby) / struct or `HashMap` |
-| 9 | ext (general channel) | Dispatch point; this codec uses ext codes 0x00 and 0x01; all other ext codes are wire violations | — (dispatch by code) | — (dispatch by code) |
-| 10 | ext 0x00 | Symbol (see Ext Types below) | `Symbol` | `Symbol` (mruby `mrb_sym`) / `Sym(String)` |
-| 11 | ext 0x01 | Capability Handle (see Ext Types below) | `Kobako::Handle` | `Kobako::Handle` (mruby) / `Handle(u32)` |
+| msgpack family | Wire use | Host Gem Ruby type | Guest mruby / Rust type |
+|----------------|----------|--------------------|-------------------------|
+| nil | absent or explicit `nil` | `nil` | `nil` / `Option::None` |
+| bool | booleans | `true` / `false` | `TrueClass`, `FalseClass` / `bool` |
+| int (fixint, int 8–64, uint 8–64) | integers | `Integer` | `Integer` / `i64` or `u64` |
+| float (32 / 64) | floating point | `Float` | `Float` / `f64` |
+| str (fixstr, str 8/16/32) | UTF-8 text | `String` (UTF-8) | `String` / `&str`, `String` |
+| bin (bin 8/16/32) | arbitrary bytes | `String` (ASCII-8BIT) | binary `String` / `&[u8]`, `Vec<u8>` |
+| array (fixarray, array 16/32) | sequences; argument framing | `Array` | `Array` / `Vec<T>` |
+| map (fixmap, map 16/32) | maps; `kwargs` | `Hash` | `Hash` / struct or `HashMap` |
+| ext (general channel) | dispatch by code; only 0x00 and 0x01 | — | — |
+| ext 0x00 | Symbol (§ Ext Types) | `Symbol` | `Symbol` (`mrb_sym`) / `Sym(String)` |
+| ext 0x01 | Capability Handle (§ Ext Types) | `Kobako::Handle` | `Kobako::Handle` / `Handle(u32)` |
 
 ---
 
 ## Integer Range
 
-The Host Gem represents `Integer` at arbitrary precision; the Guest Binary represents it as a signed 32-bit value. An inbound integer outside the guest's signed 32-bit range therefore has no faithful guest representation. On every host→guest path — a `#run` / `#eval` argument, a yield-block argument, or a dispatch return value — the guest refuses such a value rather than saturating it to the nearest bound, so neither side ever sees a different number than the wire carried. The refusal travels each path the way that path already reports a malformed payload: a `#run` / `#eval` argument fails the invocation as a guest-entry envelope rejection; a yield-block argument fails the yield round-trip; and a dispatch return value raises in the guest code that made the call. The reverse direction never overflows: a guest `Integer` always fits the host's arbitrary-precision `Integer`.
+The two sides represent `Integer` at different widths, so only the host→guest direction can overflow.
+
+| Side | `Integer` width |
+|------|-----------------|
+| Host Gem | arbitrary precision |
+| Guest Binary | signed 32-bit |
+
+The guest refuses an inbound integer outside its range rather than saturating it, so neither side sees a number the wire did not carry. This holds on every host→guest path: a `#run` argument, a yield-block argument, and a dispatch return value. Each path reports the refusal the way it reports a malformed payload (→ [`../spec/behavior/codec.md`](../spec/behavior/codec.md)).
 
 ---
 
 ## Text and Bytes
 
-The Host Gem tags a `String` with an encoding; the Guest Binary's mruby `String` is a byte array carrying no encoding tag. So where the host chooses a family by what the value claims to be, the guest has only one rule available: bytes decide. A guest `String` whose bytes are valid UTF-8 rides as `str`, and any other byte sequence rides as `bin`. Both families are legal at every payload position a value reaches, so the bytes cross intact either way — the guest never renders a `String` into text it is not, which would answer with the bytes a `str` can hold and drop the rest in silence.
+The host tags a `String` with an encoding; a guest mruby `String` is bytes with no tag. So each side picks the family by what it has.
 
-**The bytes are preserved; the tag is not.** A host `String` that rode out as `bin` and comes back through the guest arrives as `str` whenever its bytes happen to be valid UTF-8, because the guest had no tag to carry and re-derives one from the bytes. A value whose encoding matters carries it in the value, not in the family.
+| Value | Rides as |
+|-------|----------|
+| host `String` tagged binary | `bin` |
+| any other host `String` | `str` |
+| guest `String` of valid UTF-8 | `str` |
+| any other guest `String` | `bin` |
+| `Symbol` | ext 0x00, UTF-8 only |
 
-Choosing by tag lets the two disagree: a host `String` tagged UTF-8 whose bytes are not rides as `str`, which the family does not allow. The guest's decoder rejects it as the wire violation it is, so the invocation fails the way that path already fails on a malformed payload rather than delivering bytes under a family that promises otherwise.
-
-A `Symbol` has no second family: its name rides as ext 0x00, which requires UTF-8. A guest `Symbol` whose name is not UTF-8 therefore has no wire representation at all, and the guest refuses it on each guest→host path the way that path already refuses an unrepresentable value — a return value, a dispatch argument or keyword name, a yield-block result. The reverse direction does not arise: a host `Symbol` is UTF-8 by construction.
+Both families are legal at every value position, so the bytes always cross intact. The tag is not preserved: a value whose encoding matters carries it in the value. A host `String` whose tag claims text it does not hold, and a guest `Symbol` whose name is not UTF-8, have no representation (→ [`../spec/behavior/codec.md`](../spec/behavior/codec.md)).
 
 ---
 
 ## Structural Nesting Depth
 
-Encoded values nest to at most 128 levels — the MessagePack ecosystem's established limit.
+Encoded values nest to at most 128 levels, the MessagePack ecosystem's established limit. The budget is per document: each payload is decoded with its own budget (→ [`envelope.md`](envelope.md) § Size and Depth Bounds).
 
-**The budget is per document.** The core envelope carries no nesting of its own (→ [`envelope.md`](envelope.md) § Size and Depth Bounds), and each payload it hands through is decoded as its own document with its own 128-level budget.
+| Where | Enforced by |
+|-------|-------------|
+| every decode | each side's decoder |
+| guest return, yield result, dispatch argument | the Guest Binary encoder's capped walk |
+| `#run` argument | the host, while encoding the payload |
+| Service answer, yield arguments | the host, measured before its library writes |
 
-Every decoder enforces the bound: the Host Gem's codec library on its decode path, and the Guest Binary's decoder on every inbound payload, so a host→guest value nesting deeper than the bound fails as a clean wire error rather than overflowing the wasm stack. The Guest Binary encoder caps its recursive walk at the same depth: a guest return or yield-block result nesting deeper than the bound — which a reference cycle necessarily does — has no wire representation and surfaces as a clean error rather than a hard trap. The host rejects a `#run` argument nesting deeper — as a reference cycle necessarily does — while encoding the payload, raising `Kobako::SandboxError`. The guest likewise rejects a dispatch argument nesting deeper — and, more broadly, any dispatch argument or kwargs value outside the wire type set — at the dispatch call site rather than coercing it to a string. Wherever a bound is carried, the guest cap and the host's bound sit at the same depth, so a value right at the boundary is rejected as a clean error by whichever side reaches its limit first, never as a trap.
+Wherever a bound is carried, both sides sit at the same depth. A value past it, a reference cycle included, fails as a clean error rather than a trap (→ [`../spec/behavior/codec.md`](../spec/behavior/codec.md)).
 
-**The host's two outbound dispatch positions carry the bound themselves.** The Host Gem's codec library offers no depth limit on its encoder, so a Service's dispatch answer and the arguments it yields to a block are measured against the bound before that library writes them: a value nesting deeper — as a reference cycle, list or map, necessarily does — is refused where the Service hands it over, since the Service is the only side that can change it: an answer as the Service's own failure under fault `runtime`, a yield's arguments at the yield site, where the Service may rescue the refusal and, leaving it unrescued, fails the same way. The measure comes before any other handling of the value, so — as the `#run` wrap walk does — a value past the bound is refused even where a leaf the wire cannot represent would otherwise have the answer cross as a Capability Handle. Nothing past the bound reaches the library's walk, whose frames carry no stack guard, so the refusal is the same on every occurrence, on any thread.
-
----
-
-## str / bin Encoding Rules
-
-msgpack distinguishes `str` (UTF-8 text) from `bin` (raw bytes). The following rules govern which family is used at each payload position. A violation of a "str only" rule is a wire violation and the receiving side rejects the payload.
-
-| Payload position | Accepted family | Violation handling |
-|---|---|---|
-| `args` elements and `kwargs` values | str or bin (context-determined) | both are legal |
-| Reply ok body, Yield Reply ok / break body, Outcome ok body | str or bin (context-determined) | both are legal |
-
-The core envelope's own text fields — `target`, `method`, `entrypoint`, `origin`, `name`, `message`, backtrace lines, snippet names — are length-prefixed UTF-8 byte strings at that layer and never reach this codec (→ [`envelope.md`](envelope.md)).
-
-Symbols travel as ext 0x00. A Symbol encoded on one side and decoded on the other arrives as a Symbol with the same UTF-8 name; symbol identity across the wire is established by name equality, not by interned-id sharing. A `str` or `bin` value carrying the bytes of a symbol name is **not** wire-equivalent to that Symbol; the two are distinguishable on the wire and must remain distinguishable end-to-end.
+The host's codec library has no encoder depth limit and no stack guard, so the host measures the two outbound dispatch positions itself. The refusal lands where the Service hands the value over, since only the Service can change it.
 
 ---
 
@@ -110,25 +112,25 @@ Symbols travel as ext 0x00. A Symbol encoded on one side and decoded on the othe
 
 ### ext 0x00 — Symbol
 
-**Binary layout:** variable-length ext; framing is `ext 8` (format byte `0xc7`, 1-byte length, type byte `0x00`, payload) or `ext 16` (format byte `0xc8`, 2-byte big-endian length, type byte `0x00`, payload) depending on payload size. The payload is zero or more UTF-8 bytes — the symbol's name. An empty payload (`0xc7 0x00 0x00`) decodes as the empty Symbol (`:""`); this is wire-legal.
+A Symbol is a variable-length ext whose payload is its UTF-8 name, framed `ext 8` or `ext 16` by size.
 
 | Byte offset | Content |
 |-------------|---------|
 | 0 | `0xc7` or `0xc8` — msgpack `ext 8` / `ext 16` marker |
-| 1 | length byte(s) — 1 byte for `ext 8`, 2 big-endian bytes for `ext 16` |
+| 1 | length: 1 byte for `ext 8`, 2 big-endian bytes for `ext 16` |
 | n | `0x00` — kobako ext type code |
 | n+1.. | UTF-8 bytes of the symbol name |
 
-The payload bytes MUST decode as UTF-8. A non-UTF-8 payload is a wire violation: encoders MUST validate UTF-8 before emitting — a name that fails leaves the Symbol with no representation, not with a substitute one (→ § Text and Bytes) — and decoders MUST reject the payload rather than fall back to a binary-encoded Symbol. The payload length is bounded only by msgpack's natural ext-family limits; kobako does not impose an additional cap.
+| Position | Rule |
+|----------|------|
+| `kwargs` map keys | must be ext 0x00 |
+| any other value position, at any depth | may be ext 0x00 |
 
-Position rules for ext 0x00:
-
-- **MUST be ext 0x00** at: `kwargs` map keys (no other wire type is accepted at this position; a `str`, `bin`, or other-type key is a wire violation).
-- **MAY appear** at: `args` elements, `kwargs` values, any value payload, and as elements / keys / values of any nested array or map within those positions (other wire types are also permitted).
+An empty payload (`0xc7 0x00 0x00`) is the empty Symbol `:""`. The length has no cap beyond msgpack's own. Identity across the wire is by name, and a Symbol stays distinct from text spelling its name (→ [`../spec/behavior/payload-encoding.md`](../spec/behavior/payload-encoding.md)).
 
 ### ext 0x01 — Capability Handle
 
-**Binary layout:** fixed 4-byte payload, big-endian u32 Handle ID. The msgpack framing is `fixext 4`: format byte `0xd6`, type byte `0x01`, followed by 4 bytes of big-endian u32 data. Total wire size: 6 bytes.
+A Handle is a `fixext 4`: format byte `0xd6`, type byte `0x01`, then a big-endian u32 Handle ID, 6 bytes in all.
 
 | Byte offset | Content |
 |-------------|---------|
@@ -136,10 +138,8 @@ Position rules for ext 0x00:
 | 1 | `0x01` — kobako ext type code |
 | 2–5 | Handle ID as big-endian u32 |
 
-The Handle ID field carries the opaque identifier allocated by `Catalog::Handles` (→ [`../wire-contract.md`](../wire-contract.md) § Capability Handle). ID 0 is reserved as the invalid sentinel. The maximum valid ID is `0x7fff_ffff` (2³¹ − 1); any ID above this cap is a wire violation.
+The ID is the opaque identifier `Catalog::Handles` allocates (→ [`../wire-contract.md`](../wire-contract.md) § Capability Handle). ID `0` is the invalid sentinel, and `0x7fff_ffff` is the maximum. A Handle may appear at any payload position and depth, in both directions; in a Run payload it comes from host-side auto-wrap.
 
-ext 0x01 may appear in any payload position, at any nesting depth, in both directions: `args` elements and `kwargs` values of a Call or a Run alike, a Reply's success value, the Outcome's value, and a Yield Reply's ok or break value. Run payload positions carry Handles produced by host-side auto-wrap; the framing and ID semantics are identical in every position.
+A Handle in the `target` position is an envelope field, not an ext value (→ [`envelope.md`](envelope.md) § Call). A codec without a Handle representation is legal: it still reaches a Handle target and forgoes only Handles as arguments or values.
 
-**A Handle in the `target` position is a core-envelope field, not an ext value** (→ [`envelope.md`](envelope.md) § Call): the envelope's `kind` byte carries the discrimination and the ID rides as a bare `u32`. A codec that carries no Handle representation at all still reaches a Handle target — which is the common case for a stateful receiver — and only forgoes passing Handles as arguments.
-
-A Fault has no ext code here. Every byte of one is kobako's — a category and a message — so it rides the envelope's own fault arm (→ [`envelope.md`](envelope.md) § Fault), where a guest reads it with no codec at all and a replacement codec owes it nothing.
+A Fault has no ext code here. It rides the envelope's own fault arm (→ [`envelope.md`](envelope.md) § Fault), so a replacement codec owes it nothing.
