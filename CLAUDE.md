@@ -1,229 +1,220 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code in this repository. It keeps only the decisions no tool, file, or convention already states; everything else is left where it lives.
+
+| Section | Answers |
+|---|---|
+| Project | what kobako is made of |
+| How we work | the decisions every change follows |
+| Architecture | the rules the crate map does not show |
+| Build and commands | what `rake -T` cannot tell you |
+| Entry points | where each topic starts |
 
 ## Project
 
-kobako is a Ruby gem that provides an in-process Wasm sandbox for running untrusted mruby scripts. The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing the mruby interpreter; host and guest communicate over a MessagePack-based Transport wire defined in `SPEC.md`.
+kobako is a Ruby gem that runs untrusted mruby scripts in an in-process Wasm sandbox. The host drives a precompiled Guest Binary over a MessagePack-based wire.
 
-## Principles
+| Part | Lives in | Role |
+|---|---|---|
+| Host gem | `lib/`, `ext/` | Ruby API and the magnus shim |
+| Native driver | `crates/` | wasmtime driver and the Rust SDK |
+| Guest Binary | `wasm/` → `data/kobako.wasm` | the mruby interpreter |
+| Specification | `docs/spec/`, `SPEC.md` | the source of truth |
 
-Apply these in order — earlier principles override later ones on conflict.
+## How we work
 
-1. **The specification is the source of truth — sumi's corpus under `docs/spec/`, with SPEC.md holding only what sumi does not yet.** Concepts are declared in `docs/spec/glossary.md`, which is both the declaration and the page a reader opens — sumi reads Markdown, so there is nothing to regenerate. The glossary carries concepts alone: how one is spelled in Ruby or Rust, and which scenarios govern what it does, are statements about an implementation and belong where those are specified. A name it rules out is reported by `sumi verify` at every line that uses it, so ruling one out is a claim about wording to be fixed rather than a fact about the corpus to be waited for; two words that both name concepts of ours (`Execution` and `Invocation`) are still told apart by their definitions, since rejecting either would flag every legitimate use of the other. Behaviors live as sumi scenarios in `docs/spec/behavior/<feature>.md`, indexed by the feature table in `SPEC.md` § Behavior, and `sumi verify` holds every scenario to a test that claims it. A behavior is specification only as a scenario: prose never restates one, and a decided behavior no test witnesses yet stays out of the corpus until a test claims it. **Traceability has one channel: a test claims the scenario it verifies with `@behavior`.** Docs, READMEs, examples, and comments state intent and cite no scenario id or SPEC.md anchor. When the specification is silent, extend it first — a scenario, the glossary, or the relevant `docs/<topic>.md` — and let SPEC.md shrink as sumi takes over what it holds.
+Apply these in order; an earlier one wins on conflict.
 
-2. **One thing per file; keep files small.** Split a growing module into a façade plus per-responsibility files in a sibling directory — `Kobako::Transport` and `Kobako::Snippet` are the worked examples. In guest capability gems, a file extending an existing core class takes the `_ext` suffix (`string_ext.rs`, `kernel_ext.rs`); a file defining a new class takes the class name.
+| # | Area | The decision in one line |
+|---|---|---|
+| 1 | Specification | sumi holds behavior; `@behavior` is the only link |
+| 2 | Structure | one thing per file; types nest under a Module |
+| 3 | Simplicity | build what the spec asks; converge while polishing |
+| 4 | Tooling | shrink the code to fit the tool |
+| 5 | Documentation | state intent, never mechanism |
+| 6 | Tests | drive the real guest; messages are contracts |
 
-   **Types nest under a Module, not a Class.** Place new types at the top level (`Kobako::Capture`, `Kobako::Usage`) or under a Module (`Kobako::Payload::Arguments`, `Kobako::Outcome::Panic`); a stateful Class is per-instance and should not double as the namespace for sibling types.
+### 1. Specification
 
-3. **Keep it simple — in both directions.** Building: model exactly what SPEC requires — no speculative interfaces, parallel hierarchies, or defensive layers; three similar lines beats a premature abstraction; avoid feature flags and back-compat shims when the code can just change. Polishing: the feature set has converged, so actively converge the implementation — the ideal change keeps behavior identical with less implementation, zero external-surface change, and existing tests pinning it.
+The specification is sumi's corpus under `docs/spec/`. SPEC.md holds only what sumi does not yet, and shrinks as sumi takes it over.
 
-   **To prune safely, lock external interfaces first, then prune what sits behind them.** Worked example: the `Kobako::Outcome` migration (decode-boundary rename + lift → wire-format simplification → internal absorption), each step kept the previous step's external surface intact.
+| Statement | Lives in |
+|---|---|
+| a concept and its name | `docs/spec/glossary.md` |
+| a behavior | a scenario in `docs/spec/behavior/<feature>.md` |
+| an interface | `docs/spec/contract/` |
+| the rest, until moved | `SPEC.md` |
 
-4. **Follow language community conventions via tooling.** Ruby: Rubocop + Steep. Rust: `cargo fmt` + `cargo clippy -D warnings` (also under `--target wasm32-wasip1`). Quality gating is two-stage, defined in `.claude/settings.json`: every Edit/Write runs the fast checks (rubocop autocorrect, cargo fmt, whole-project steep) and a failure blocks the edit; every Stop runs the full gate (clippy and rustdoc across all workspaces, then `bundle exec rake`). When a cop or lint fires, **shrink the code to fit the tool** — don't widen `.rubocop.yml` exclusions or add `#[allow]` / `# steep:ignore`.
+A behavior is specification only as a scenario. Prose never restates one, and a decided behavior no test witnesses stays out of the corpus until a test claims it. A test claims its scenario with `@behavior`, the one traceability link; docs, examples, and comments cite no scenario id or SPEC.md anchor.
 
-   **Tool-vs-tool conflicts are the one justified widening.** When Rubocop and Steep / RBS upstream disagree on the same code shape, prefer the type-system guidance and disable the cop at the `.rubocop.yml` level with a comment citing the upstream source — worked example: `Style/DataInheritance` there.
+The glossary carries concepts, not their Ruby or Rust spelling. Never rule out a word that also names a concept of ours, such as `Execution` beside `Invocation`. Keep `Includes` off append-only files, whose shifting lines would strand an `ignore`. When the specification is silent, extend it first.
 
-5. **Document Ruby in RDoc prose.** Match the existing style — wrap identifiers in `+code+`, state intent rather than citing scenarios (Principle 1), no YARD tags (`@param` / `@return` / `@raise`); migrate stale tags when touching nearby code. Cross-references to another documented class or method are written bare (`TrapError`, `#stdout_truncated?`, `ExtTypes#unpack_handle`) — RDoc auto-links resolvable names, and `{Ref}` braces or Markdown backticks suppress that linking and render literally, so neither is used; `+code+` marks identifiers that are not link targets (a bare lowercase `word?` does not auto-link — spell it `#word?`). `lib/kobako/catalog/handles.rb` is the worked example.
+### 2. Structure
 
-   **In Rust, wrap identifiers in backtick code spans (`` `Invocation` ``); do not use rustdoc intra-doc links (`` [`Invocation`] ``)** — they rot silently on renames and cannot target private items. The Stop hook gates this (`cargo doc -D warnings --document-private-items`, every workspace); reference-style file links to a format/contract doc (e.g. `[wire codec]: ../wire-codec.md`) are not intra-doc links and stay, but per Principle 1 these are doc pointers, not scenario citations.
+A growing module splits into a façade plus per-responsibility files in a sibling directory.
 
-6. **Docs and comments state intent in 1–2 sentences; don't explain mechanism.** A doc or comment block answers "what + why" — mechanism is what the code already shows. Drop chained rationale, generic SE narration, and grep-discoverable enumerations; in implementation comments a worked-example pointer (file path, named migration) replaces enumerated cases — scenario citations belong in test claims alone (Principle 1). Applies to RDoc, Rust doc comments, `docs/*.md`, and CLAUDE.md itself: a list that will drift as the project evolves is written as intent plus a pointer to the gate or source that owns it; only SPEC-pinned, stable facts are enumerated. Human-facing Markdown follows the concise-docs rules — every section anchored by a diagram, table, code block, or step list, within its length caps; a section rewritten is brought to zero lint errors, and `docs/spec/**` keeps sumi's own form instead.
+| Rule | Worked example |
+|---|---|
+| façade plus sibling directory | `Kobako::Transport`, `Kobako::Snippet` |
+| new types at the top level | `Kobako::Capture`, `Kobako::Usage` |
+| or nested under a Module | `Kobako::Payload::Arguments` |
 
-7. **Route end-to-end coverage through the real mruby guest** (`data/kobako.wasm`). Do not introduce parallel fixture-driven wasm crates; if a behavior cannot be exercised through mruby, prefer a host-side unit test against `Kobako::Outcome` / `Kobako::Transport::Dispatcher` or a hand-rolled minimal wasm module (see `test/fixtures/minimal.wasm`).
+A stateful Class is per-instance, so it never doubles as the namespace for sibling types. Where a type sits in `lib/` follows the placement rules under Architecture.
 
-8. **`test/` holds every Ruby test; `tasks/` holds no tests.** The top level groups by test kind — `unit/` (host-side, no guest binary), `e2e/` (drives the real `data/kobako.wasm`), `parity/` (Ruby↔Rust differential), `fuzz/` (property / cross-language oracle) — with `unit/` and `e2e/` nesting by subject beneath that; a new test's home follows what it needs (real guest binary → `e2e/`, host-only → `unit/`, else its named kind). The suite's subject is gem runtime behavior — including cross-language integration (host↔guest fuzz, ABI invariants) — plus the tooling unit suites: `test/tasks/` covers the `tasks/support/` readers, `test/bench/` the `benchmark/support/` gate logic (grouped runs: `rake test:tasks` / `test:bench`). Build/packaging/lint/static-check *wrapper tasks* stay in `tasks/*.rake` or top-level scripts and never move into `test/`.
+### 3. Simplicity
 
-9. **Commit lock files.** Every workspace's `Cargo.lock` (root, `crates/`, `wasm/`) and `Gemfile.lock` ship alongside the dependency changes that produced them.
+The feature set has converged, so the ideal change keeps behavior identical with less implementation.
 
-10. **Test assertion messages are contract statements, not implementation narrative.** Phrase each `assert_*` message as "<input shape> through <public API> must <observable behaviour>"; keep witness rationale in the comment block above the test method. The IO write coverage tests in `test/e2e/test_io_write.rb` are the worked correction example.
+| Situation | Do |
+|---|---|
+| building | model exactly what the spec requires |
+| polishing | same behavior, less code, no surface change |
+| pruning | lock external interfaces first, then prune behind them |
+| changing | change the code; no feature flags or back-compat shims |
 
-## Build Pipeline
+No speculative interfaces, parallel hierarchies, or defensive layers. Existing tests pin the behavior a pruning step must keep.
 
-The Guest Binary (`data/kobako.wasm`) is gitignored and built via a two-stage rake chain: `beni:build` (Stages A+B, owned by the beni gem against `build_config/wasi.rb` — mrbgem allowlist policy and toolchain rules are commented there) then `wasm:build` (Stage C, `tasks/wasm/build.rake` — including the non-obvious linker choice). Stage C ends with the `kobako-baker` bake (`wasm/kobako-baker`, host-side standalone crate): the canonical boot state is pre-initialized into every shipped artifact, gated by a double-bake byte-identity check. `rake compile` from a clean clone walks the full chain and separately builds the native ext (`ext/kobako/` plus its `crates/` path dependencies — host-side `wasmtime` via `rb_sys`, not the guest).
+### 4. Tooling
 
-The default `data/kobako.wasm` is pure (mruby + `kobako-io`); Regexp and JSON are opt-in capability variants built by `wasm:build:<variant>` and shipped as downloadable Release assets — composition rules and the variant matrix live in `docs/variants.md`. The gem bundles only the pure default.
+Every edit and every stop runs the checks in `.claude/settings.json`. When one fires, shrink the code to fit it.
 
-CI (`.github/workflows/main.yml`) runs `bundle exec rake` — the default task (`compile + test + crates:test + rubocop + steep + gate`) is the canonical gate, where `rake gate` runs the `gate:*` verification checks in `tasks/gate/`. `crates:test` is in it because the core envelope's golden vectors are that layer's only pin, and they live there; `wasm:test` stays a separate CI step. `gate` enumerates them in one place so membership stays deliberate; the default and CI reference `gate`, never the list.
+| Situation | Do |
+|---|---|
+| a cop or lint fires | change the code |
+| tempted to widen | never add exclusions, `#[allow]`, or `# steep:ignore` |
+| RuboCop and RBS disagree | disable the cop in `.rubocop.yml`, citing upstream |
+| a dependency changes | commit every workspace's lock file with it |
 
-## Common Commands
+The tool-vs-tool case is the one justified widening, and the type system wins it. Lock files ship even for the gem, unlike the usual gem convention.
 
-Non-obvious entry points only — `rake -T` is the full catalog.
+### 5. Documentation
 
-| Task | Command |
-|------|---------|
-| Default CI gate (compile + test + crates:test + rubocop + steep + gate) | `bundle exec rake` |
-| Run the release gate's `gate:*` verification checks | `rake gate` |
-| Run one Ruby test file | `bundle exec ruby -Ilib -Itest test/e2e/sandbox/test_sandbox.rb` |
-| Run one Ruby test by name | `bundle exec ruby -Ilib -Itest test/e2e/sandbox/test_sandbox.rb -n /pattern/` |
-| Build native ext (`lib/kobako/kobako.bundle`) | `bundle exec rake compile` |
-| Build Guest Binary (pure default, full chain) | `bundle exec rake wasm:build` |
-| Build a capability variant (`regexp`, `regexp_unicode`, `json`, `full`) | `bundle exec rake wasm:build:<variant>` |
-| Guest crate tests on the host (wasm32 has no test runner) | `bundle exec rake wasm:test` |
-| Host crate unit tests (`crates/` workspace) | `bundle exec rake crates:test` |
-| Clean Stage B / Stage C | `rake beni:clean` / `rake wasm:clean` |
-| Clean vendor toolchains (keeps tarball cache) | `rake beni:vendor:clean` |
-| Interactive REPL with gem loaded | `bin/console` |
-| SPEC regression benchmarks (the gated set) | `bundle exec rake bench`; `rake -T bench` lists the characterization and gate tasks, whose workflow lives in `benchmark/README.md` |
-| Code statistics (polish signal): per tier / per module / one module by language | `rake stats` · `rake stats:all` · `rake stats:<module>` (e.g. `stats:gem`, `stats:kobako-codec`; per-module tasks stay out of `rake -T`) |
-| Line coverage, per language — Ruby `lib/` (stdlib Coverage), host + guest crates (`cargo llvm-cov`) | `rake coverage:ruby` · `coverage:crates` · `coverage:wasm` |
-| Check the source against the specification in `docs/spec/` | `sumi verify` |
-| One verification check on its own (`rake gate` runs them all) | `rake -T gate`; each `tasks/gate/*.rake` states what it reads — `gate:rbs:lock` drift is cleared by `rbs collection update` |
-| Polish signals: churn hotspots / unconsumed pub surface (ledger consistency gated by `gate:surface`) | `rake stats:hotspots` / `rake stats:surface` |
+A doc or comment answers what and why in one or two sentences; mechanism is what the code already shows.
 
-## Layering
+| Where | Rule |
+|---|---|
+| Ruby | RDoc prose, identifiers in `+code+`, no YARD tags |
+| Ruby cross-references | written bare, so RDoc links them |
+| Rust | identifiers in backticks, no intra-doc links |
+| a list that will drift | intent plus a pointer to its owner |
+| human-facing Markdown | concise-docs rules; `docs/spec/**` keeps sumi's form |
 
-### The source trees across the wasm boundary
+Braces or backticks stop RDoc from linking a name, so neither is used; `lib/kobako/catalog/handles.rb` is the worked example. Intra-doc links rot silently and cannot reach private items. A rewritten Markdown section is brought to zero lint errors.
 
-A host, a payload codec, and a guest are chosen independently; what makes that possible is `crates/kobako-transport`, the fixed tier both sides compose against. `crates/kobako-wasmtime` is the driver that connects them, behind the `crates/kobako-runtime` contract, with `ext/` as the magnus shim on top.
+### 6. Tests
+
+Every Ruby test lives under `test/`, grouped by kind, and `tasks/` holds none.
+
+| Rule | Instead of |
+|---|---|
+| end-to-end through the real `data/kobako.wasm` | a parallel fixture wasm crate |
+| host-side unit test, or `test/fixtures/minimal.wasm` | a behavior mruby cannot reach |
+| a test's home follows what it needs | a home picked by subject alone |
+| paths and skips via `TestPaths` and `GuestGuard` | hand-rolled `__dir__` paths or guards |
+
+An assertion message is a contract: "<input> through <public API> must <behaviour>". Witness rationale goes in the comment above the test; `test/e2e/test_io_write.rb` is the worked example.
+
+## Architecture
+
+The crate map, each crate's role, and its dependencies are drawn in `docs/architecture.md`. This section keeps the rules that map leaves out.
+
+| Rule | Why |
+|---|---|
+| guest crates link libmruby on every build | no code hides behind a linked-only `cfg` |
+| wrapper changes go to `beni` upstream | kobako takes them by a dependency bump |
+| `Kobako::Codec` has no schema namespace | Ruby is fixed to MessagePack and has no seam |
+
+### Ruby tiers
+
+Inside `lib/`, a tier may use the tiers below it and never one above.
 
 ```
-HOST (process)                                  │  GUEST (wasm32, one Sandbox)
-────────────────────────────────────────────── │ ──────────────────────────────────────
-lib/  — Ruby gem, the user-facing API           │  wasm/kobako-wasm   — leaf shell (cdylib),
-       ▲  owns the host payload codec           │    composes the guest crates into
-       │  MessagePack, fixed — no codec seam    │    data/kobako.wasm
-       │                                        │  wasm/kobako-mruby  — mruby implementation
-       │                                        │  wasm/kobako-{io,regexp,json}
-       │                                        │                     — capability gems
-       │                                        │  wasm/kobako-core   — guest ABI contract
-       │                                        │  crates/kobako-codec — payload codecs
-       │                                        │       ▲  the guest's schema half
-       ▼                                        │       │  (codec::{Encode,Decode} trait)
-ext/  — magnus shim over the crates/ driver     │  beni / beni-sys    — typed wrapper + FFI
-crates/ — kobako-transport + kobako-runtime     │    (crates.io) → libmruby.a (mruby C API)
-  + kobako-wasmtime + kobako-codec              │
-  (+ kobako, the Rust SDK)                      │
-       └─────────── drives the ABI ─── wasm ────┼───────┘
-                    (alloc / eval / run / take_outcome / dispatch / yield)
-
-       both sides read one crates/kobako-transport — core envelope + ABI values
-```
-
-- **`crates/kobako-transport` is the fixed tier, and the only one with a single implementation.** The core envelope and the ABI's values are the same in every assembly, so each is defined once there; the crate depends on nothing and every other tier depends on it. Its second source is `docs/wire/envelope.md`, hand-derived into golden vectors — not a second implementation.
-- **`lib/` ↔ `crates/kobako-codec` are wire-symmetric peers at the payload layer only.** Each independently implements the same schema so payloads round-trip byte-for-byte (the `*_oracle` fuzz checks pin this). Two asymmetries stay: the error model, where success/failure is a value on the guest (`Outcome` enum) and return-or-raise on the host; and replaceability, where the guest reaches its schema through a `Codec` seam under one namespace per schema, while the Ruby frontend is fixed to MessagePack and offers no seam at all (`docs/customization.md`). `Kobako::Codec` therefore carries no schema namespace, and giving it one to match the Rust side would model a choice Ruby does not have. Both crates live in `crates/` because neither is wasm-only: the guest crates consume them across the workspace boundary, and a Rust embedder consumes them directly.
-- **Five publishable guest crates, one shell, one bake tool.** Crate roles live in the stack diagram below; `wasm/kobako-wasm` is the unpublished cdylib-only shell composing them into `data/kobako.wasm`, the same path any third-party guest takes. `wasm/kobako-baker` (publishable, host-side, standalone `[workspace]` — wizer/wasmtime must never enter the wasm32 graph) bakes the canonical boot state into any kobako guest artifact. Every build of the guest crates links a libmruby archive — the wasi one for wasm32, the host one Stage B also stages for the host-target unit tests — so no code sits behind a linked-only cfg.
-- **The host's wasmtime driver is `crates/kobako-wasmtime`, not a payload endpoint.** It implements the `crates/kobako-runtime` contract, drives the ABI exports, and decodes the core envelope so Ruby receives a Call already routed — but never reads a payload byte, which stays Ruby's. `ext/` is the magnus shim over it; the gem ships `kobako-transport`, `kobako-runtime`, and `kobako-wasmtime` as the ext's path-dependency closure (see the gemspec allowlist).
-- **The typed mruby wrapper is the published `beni` crate** ([elct9620/beni](https://github.com/elct9620/beni)), consumed directly (`use beni::...`) by the guest crates; its `beni-sys` FFI layer discovers `libmruby.a` via `MRUBY_LIB_DIR` + `WASI_SDK_PATH` for wasm32 (exported by `rake wasm:build`) and via `BENI_VENDOR_DIR` for a host build (`KobakoWasm::HOST_CARGO_ENV`). Wrapper-tier changes are beni contributions consumed here by a dependency bump — see beni's own CLAUDE.md for its layering and API surface.
-
-### `lib/` tier stack
-
-Dependencies point downward — a tier may use the tiers below it, never above. A tier maps to its directory (`lib/kobako/{codec,payload,transport,catalog}/`); the flat `lib/kobako/*.rb` files split between Orchestration and Root by state and dependencies, not by a membership list.
-
-```
-Orchestration   coordinators — Sandbox, Pool, Runtime (+ ext), Context
+Orchestration   Sandbox, Pool, Runtime (+ ext), Context
       │
 Catalog         setup-time registries + the per-invocation Handle table
-                (lib/kobako/catalog/)
       │
-Transport ──┐   host-side call value objects + dispatch (lib/kobako/transport/)
-Outcome ────┤   guest-result attribution (outcome.rb)
+Transport ──┐   call value objects + dispatch
+Outcome ────┤   guest-result attribution
       │     │
 Payload ◄───┤   the [args, kwargs] shape a Call or Run carries
-      │     │   (lib/kobako/payload/)
       │     │
-Codec ◄─────┘   byte-level payload wire (lib/kobako/codec/)
+Codec ◄─────┘   byte-level payload wire
       │
-Root            dependency-free value objects and error classes at Kobako::* —
-                pure data / invariants, depend on nothing
+Root            dependency-free value objects and error classes
 ```
 
-The core envelope has no tier here: the native side frames and decodes it, so Ruby receives a Call with its routing fields already read and answers with the arm it chose plus that arm's bytes.
+The core envelope has no tier here, because the native side frames and decodes it.
 
-**Placement rule (a `Codec → Transport` cycle bit us once):** a type's namespace follows **dependency direction, not which layer reads it most**. `Kobako::Handle` (ext 0x01) is consumed almost entirely by Transport, yet sits at the root because `Codec` — below Transport — must register it; nesting it under `Transport` would force `Codec` to depend upward. When unsure, put the type at the **lowest tier that needs it**.
+### Placement rules
 
-**Accepted lateral edge:** `Outcome` requires `transport/error.rb`. The `Kobako::Transport::Error` name is SPEC-pinned (SPEC.md "Wire-level error class"), so the class stays at its namespace path; the file itself depends only on root `errors.rb`, so the edge cannot close into a cycle. Do not relocate the definition to "fix" this.
+These three rules keep the tiers acyclic; each was learned from a cycle or a leak.
 
-**Per-operation codec state:** `Codec.track_handles` is a bracket over the Codec tier's private `State`, letting a Handle-free decode skip the downstream resolution walk. A bracket wraps **only the decode call**: one spanning guest re-entry would leak its flag into nested operations.
+| Rule | Example |
+|---|---|
+| a type sits at the lowest tier that needs it | `Kobako::Handle` at the root, for `Codec` |
+| `Outcome` may require `transport/error.rb` | the class name is fixed by SPEC.md |
+| `Codec.track_handles` wraps only the decode call | wider leaks its flag into re-entry |
 
-### Host native stack (`ext/` + `crates/`)
+Namespace follows dependency direction, not which tier reads a type most. Do not move `Kobako::Transport::Error` to remove the lateral edge; its file depends only on root `errors.rb`.
 
-The magnus surface lives only in `ext/kobako`; the engine mechanics live in `crates/kobako-wasmtime` behind the engine-free `crates/kobako-runtime` contract — the surface a non-Ruby host consumes. Those two plus `crates/kobako-transport`, whose envelope both of them speak, ship inside the gem as the ext's path-dependency closure (the `crates/` workspace manifest never ships, so member manifests use no `workspace = true` inheritance). `kobako-codec` stays outside it: Ruby owns the host payload codec, so nothing in the native stack reads a payload byte.
+## Build and commands
 
-**`crates/kobako` is the second frontend**: the bare-name Rust host SDK (`Sandbox` / `Receiver` glue over the same driver; released with the linked crate group under the `kobako-sdk` component). Its behavior alignment with `lib/` is pinned by the differential parity harness — `docs/parity.md` holds the mechanism, the compared set is every `docs/spec/` scenario that both frontends run (so `sumi verify` holds each to its parity case), and the unpublished `crates/kobako-parity` runner is the Rust executor. Ruby-parity is behavioral only; the SDK's API shape stays idiomatic Rust.
+### Build chain
 
-```
-Ruby shim       ext/kobako — magnus surface only: the Kobako::Runtime class,
-      │           dispatch-Proc GC root, neutral error channels → Kobako::* classes
-Rust SDK        crates/kobako — idiomatic Rust host frontend over the same driver
-      │           (Sandbox / Receiver / Yielder / Catalog; outcome parity-pinned)
-Driver          crates/kobako-wasmtime — implements the Runtime contract, drives the
-      │           ABI exports, decodes the envelope and shuttles payload bytes;
-      │           process-wide Engine + Module cache, per-path InstancePre
-Contract        crates/kobako-runtime — trait Runtime · DispatchHandler · Yielder
-      │           · Profile(declared isolation ladder) · Snapshot{Completion,
-      │           Capture, Usage} · Trap · SetupError  (engine-free, frontend-free)
-Fixed tier      crates/kobako-transport — envelope{Call, Reply, YieldReply, Outcome,
-                  Panic, Origin, ErrorRecord, Run, Bindings, Snippets} ·
-                  abi{ABI_VERSION, pack_ptr_len, frame prefix, size cap}
-                  (depends on nothing)
-```
+The Guest Binary is gitignored and built in three stages.
 
-Inside `kobako-wasmtime`, sibling modules reference each other as `crate::dispatch` / `crate::trap` (not `super::`).
+1. Run `rake beni:build` for Stages A and B, driven by `build_config/wasi.rb`.
+2. Run `rake wasm:build` for Stage C, which ends with the `kobako-baker` bake.
+3. Run `rake compile` from a clean clone to walk the chain and build the native ext.
 
-### Guest crate stack (`wasm/`)
+The gem bundles only the pure default; capability variants are Release assets described in `docs/variants.md`.
 
-Mirrors `lib/` tier-for-tier — `crates/kobako-codec` is the payload layer's wire-symmetric peer and `kobako-core` adds the guest-ABI machinery over the fixed tier; `kobako-mruby` implements the contract over mruby; the cdylib-only `kobako-wasm` shell composes the published crates into `data/kobako.wasm`.
+### Release gate
 
-```
-kobako-wasm     unpublished leaf shell (cdylib-only) — KobakoGuest names the
-      │           payload codec (asking kobako-mruby for `msgpack`) and wires
-      │           the capability gems via init_gems; export_guest! emits the
-      │           __kobako_* ABI exports
-kobako-mruby    assembled mruby implementation (publishable rlib) — MrbGuest trait
-      │           (required init_gems hook + MrbGuest::Codec choice; provided
-      │           eval / run / yield flows), per-invocation entry flows, Kobako
-      │           runtime bridge, and the default MessagePack codec behind the
-      │           off-by-default `msgpack` feature the shell opts into
-kobako-io / kobako-regexp / kobako-json
-      │         capability gems (publishable rlibs, kobako-mruby-free) — pure-Rust
-      │           beni::Gem impls over wasi-libc write(2) / fancy-regex / serde_json
-kobako-core     guest ABI contract (publishable rlib, mruby-free) — Guest trait +
-      │           export_guest!, ABI machinery (outcome buffer, frames),
-      │           proxy driving __kobako_dispatch. Depends on the
-      │           fixed tier alone, so it reaches no payload codec at all
-kobako-transport  the fixed tier (publishable rlib in crates/, mruby- and
-                  engine-free, dependency-free) — the core envelope and the
-                  ABI's values, one definition each, shared with the host
+`bundle exec rake` is the gate CI runs, and the Stop hook runs it too.
 
-kobako-codec    the payload codecs (publishable rlib in crates/), one namespace
-                per schema; the msgpack one is the wire-symmetric peer of lib/.
-                Reached only by the tiers that read a payload — kobako-mruby
-                under its `msgpack` feature, and the oracle bins
+| Part | Rule |
+|---|---|
+| default task | compile, test, `crates:test`, rubocop, steep, `gate` |
+| `gate` | lists every `gate:*` check, in one place |
+| `crates:test` | in the default; it holds the envelope's only pin |
+| `wasm:test` | a separate CI step |
 
-(mruby)         beni (typed wrapper) → beni-sys (bindgen FFI) — crates.io;
-                consumed by the mruby-linked guest crates
-```
+The default task and CI reference `gate`, never its members, so joining it stays deliberate.
 
-## Where to Look
+### Commands
 
-Entry points only — siblings are reachable from there. Notes carry only what reading the entry-point file won't tell you.
+`rake -T` is the catalog; these are the entry points it does not show.
 
-| Topic | Entry points | Notes |
-|-------|--------------|-------|
-| Wire format / codec | core envelope + ABI values `crates/kobako-transport/src/{envelope/,abi.rs}` (one implementation, both sides); payload host `lib/kobako/{codec,payload}/`, guest `crates/kobako-codec/src/msgpack/` | Envelope shapes: `docs/wire-contract.md`. Byte-level: `docs/wire-codec.md` is the anchor over two layers — `docs/wire/envelope.md` (fixed-layout core) and `docs/wire/payload-msgpack.md` (default payload codec). The one ext-type leaf is root-level: `Kobako::Handle` (0x01). A Fault rides the envelope, not the payload. |
-| Vocabulary / what a concept is called | `docs/spec/glossary.md` | Every `##` section scopes its own definitions to its `Includes` globs, and a later term replaces an earlier one of the same name outright — so the section a file falls back to is written first. sumi reports rejected names against comments in `.rb` / `.rs` and against any other file entire — so `Includes` stays off append-only files, whose shifting line numbers would strand an ignore. It also refuses a term or a section declared twice under one name, and a rejection whose word is itself one of our terms is set aside line by line with an `ignore` — which is the cost that argues against writing one, not a second checker's job. Whether a word the corpus uses is a missing concept is a reading, not a gate — no lexical rule separates `Fault` from `Symbol`. |
-| Error taxonomy / outcome | `lib/kobako/errors.rb`, `lib/kobako/outcome.rb` | Scenarios in `docs/spec/behavior/outcome.md`. |
-| Sandbox lifecycle | host `lib/kobako/sandbox.rb`, `crates/kobako-wasmtime/src/driver.rs` (magnus shim: `ext/kobako/src/runtime.rs`); guest `wasm/kobako-mruby/src/flows.rs` | `Kobako::Transport::Run` carries the `#run` host→guest envelope; guest→host dispatch arrives via the Proc `Kobako::Context` passes to `Runtime#eval` / `#run` per invocation (`lib/kobako/transport/dispatcher.rb`). Every invocation settles into a frozen `Kobako::Execution` (`lib/kobako/execution.rb`), returned on success and carried on a failed run's error. Scenarios in `docs/spec/behavior/sandbox.md`. |
-| Guest IO / `$stdout` / `$stderr` | `wasm/kobako-io/src/{io,kernel_ext}.rs` | Pure-Rust `beni::Gem` (no mrblib / mrbc pipeline, no `beni::sys`); Kernel delegators registered private via `Module::define_private_method`. Scenarios in `docs/spec/behavior/io.md`. |
-| Guest Regexp / MatchData | `wasm/kobako-regexp/src/{regexp,matchdata,translate}.rs` | Pure-Rust `beni::Gem` over `fancy-regex`; byte-based offsets; `translate.rs` rewrites Ruby `\d\w\s`→ASCII + flag mapping. Scenarios in `docs/spec/behavior/regexp*.md`; the capability's intent and scope in `docs/regexp.md`. |
-| Guest JSON | `wasm/kobako-json/src/{json,convert,errors}.rs` | Pure-Rust `beni::Gem` over `serde_json`; `Object#as_json` opt-in that parse can't use to forge a Handle. Scenarios in `docs/spec/behavior/json.md`; the capability's intent and scope in `docs/json.md`. |
-| Transport dispatch | host `lib/kobako/transport/dispatcher.rb`; guest `wasm/kobako-core/src/transport/` | Host dispatcher **never raises** — it answers `[ok, bytes]` and every failure takes the fault arm. The core envelope is decoded natively, so Ruby sees the routing fields already decoded and parses only the payload. |
-| Catalog::Handles / capability handles | `lib/kobako/catalog/handles.rb` | Scenarios in `docs/spec/behavior/transport-dispatch.md`. Minted fresh by each invocation's `Kobako::Context` and passed to the dispatcher alongside it, so guest→host dispatch and host→guest wire encoding share one allocator scoped to that run. |
-| Service registration | `lib/kobako/catalog/services.rb` | Scenarios in `docs/spec/behavior/services.md`. Per-Sandbox `Catalog::Services` holds the flat path→Service bindings; a Service is bound at a constant-path name (`"MyService::KV"`, a deeper `"MyService::Nested::KV"`, or a top-level `"File"`). |
-| Extension installation (`#install`) | host `lib/kobako/extension.rb`, `lib/kobako/catalog/extensions.rb`; SDK `crates/kobako/src/extension.rs` | Scenarios in `docs/spec/behavior/extension.md`; contract + File example in `docs/extensions.md`. Composes a guest idiom (`source`) with an optional host backend over `#preload` + `#bind`. A backend declares its kind by keyword, never by inference: `object:` is fixed for the Sandbox's life, `provider:` refreshes per invocation (Ruby `Catalog::Extensions#resolve` into the `Context`, Rust the per-invocation resolution the dispatch handler layers on), and neither is a fillable awaiting `ctx.bind`. kobako ships no concrete Extension. |
-| Security model / reflection denial | `docs/security-model.md` (host guidance, not a SPEC contract); scenarios in `docs/spec/behavior/transport-boundary.md` | Guest-side rejection mirrors are non-authoritative; the host is the boundary. |
-| Guest Binary variants | `docs/variants.md`, `tasks/wasm/build.rake` | Variant matrix and composition rules. |
-| Third-party customization points | `docs/customization.md` | The interfaces someone outside this repo implements — payload codec, capability set, invocation flows, whole guest, engine — with each one's obligations. `variants.md` is what we ship; this is what they replace. Grades are commitments. |
-| Which assembly level an outside consumer stands on | `docs/architecture.md` | The four-level ladder and what each level fixes for you. Reader-facing navigation, not a contract — obligations stay in `customization.md`, scenarios in `docs/spec/`, and this file's Layering section keeps the in-repo view. |
-| ABI surface (host ↔ guest exports) | contract `wasm/kobako-core/src/guest.rs` (`Guest` + `export_guest!`); entry bodies `wasm/kobako-mruby/src/flows.rs` ↔ `crates/kobako-wasmtime/src/driver.rs` | — |
-| E2E coverage | `test/e2e/` (`#eval`, one file per behaviour group), `test/e2e/sandbox/test_run.rb` (`#run`) | Both drive real `data/kobako.wasm`. Wrapper-tier (`test/e2e/runtime/test_runtime.rb`) covers only `from_path`. |
-| Ruby↔Rust parity harness | `docs/parity.md`, `test/parity/` + `test/support/parity/`, `crates/kobako` + `crates/kobako-parity` | Differential: one scenario, two frontends, normalized observables compared. The compared set is declared as `docs/spec/` scenarios both frontends run. |
-| mruby typed wrapper / FFI | `beni` + `beni-sys` crates ([elct9620/beni](https://github.com/elct9620/beni)) | Consumed directly by the guest crates (`use beni::...`; raw FFI via the `beni::sys` re-export). Wrapper changes are beni contributions, pulled in by a dependency bump. |
-| RBS signatures | `sig/kobako/` (mirrors `lib/kobako/` 1:1) | Three sources stack: `sig/_external/` (hand-rolled), `rbs_collection.{yaml,lock.yaml}` (gem), `library "<name>"` in `Steepfile` (stdlib — reach for first). PostToolUse steep hook blocks Ruby edits without matching `.rbs`. |
-| Regression benchmarks | `tasks/bench/`, `benchmark/` | Which suites are gated (+10% regression blocks release) and which are characterization is `benchmark/support/roster.rb`'s to say, against SPEC's Regression benchmarks table. Results: `benchmark/results/<date>-<short-sha>.json`. |
-| Build / toolchain | Rakefile (`Beni::Tasks` block), `build_config/wasi.rb`, `tasks/wasm/` | Stages A+B live in the beni gem (`rake beni:build`); kobako keeps only the build config and Stage C. |
-| Runnable examples | `examples/<name>/{app.rb,README.md}`; the Rust hosts are `examples/{plugin-rs,wire-rs,fixed-schema-rs}`, the last carrying a guest build of its own | Each pins the **released** gem / crates, so an example tracks the last release, never `main`: update them after the release that ships the idiom, then bump the pin (`docs/releasing.md`). CI does not run them — running each one is the only check. |
-| Release / versioning | `docs/releasing.md`; `release-please-config.json`, `.github/workflows/release-please.yml` | Two `release-please` tracks — gem (`v*`) and the linked crate group (`<component>-v*`); the paths a commit touches pick the track, its type + `!` the bump. `bump-minor-pre-major` keeps a breaking change inside 0.x — a temporary pre-1.0 device removed at 1.0. Read this before any `Release-As`, dual-track, or breaking-marker commit. |
+| Task | Command |
+|---|---|
+| one test file | `bundle exec ruby -Ilib -Itest <file>` |
+| one test by name | append `-n /pattern/` |
+| check against the specification | `sumi verify` |
+| one module's statistics | `rake stats:<module>`, hidden from `rake -T` |
+| clear `gate:rbs:lock` drift | `rbs collection update` |
 
-`test/test_helper.rb` rescues `LoadError` when `lib/kobako/kobako.bundle` is missing and stubs `Kobako::Error`, so the suite still loads on a clean checkout; individual tests `skip` themselves when the native ext is absent. Tests resolve fixtures and build artifacts through `TestPaths` (repo-root-anchored, so a moved test keeps its paths) and gate on the ext / Guest Binary through `GuestGuard` — reach for those rather than hand-rolling `__dir__` paths or skip guards.
+## Entry points
+
+Each row names an entry point and only what reading it will not tell you.
+
+| Topic | Entry point | Note |
+|---|---|---|
+| wire format | `docs/wire-codec.md` | anchors the envelope and payload layers |
+| core envelope | `crates/kobako-transport/src/` | one implementation for both sides |
+| host payload codec | `lib/kobako/{codec,payload}/` | a Fault rides the envelope instead |
+| guest payload codec | `crates/kobako-codec/src/msgpack/` | wire-symmetric peer of `lib/` |
+| vocabulary | `docs/spec/glossary.md` | a later term replaces an earlier one |
+| sandbox lifecycle | `lib/kobako/sandbox.rb` | each run settles into an `Execution` |
+| dispatch | `lib/kobako/transport/dispatcher.rb` | answers `[ok, bytes]`, never raises |
+| Handles | `lib/kobako/catalog/handles.rb` | minted per invocation by `Context` |
+| Extensions | `docs/extensions.md` | a backend's kind is a keyword |
+| guest capabilities | `wasm/kobako-{io,regexp,json}/src/` | pure-Rust `beni::Gem`, no mrblib |
+| ABI surface | `wasm/kobako-core/src/guest.rs` | bodies in `flows.rs` and `driver.rs` |
+| security | `docs/security-model.md` | the host is the boundary |
+| customization | `docs/customization.md` | grades are commitments |
+| parity | `docs/parity.md` | behavior aligns; APIs stay idiomatic |
+| RBS | `sig/kobako/` | reach for a stdlib `library` first |
+| benchmarks | `benchmark/README.md` | `support/roster.rb` names the gated set |
+| examples | `examples/` | pin the released gem, not `main` |
+| releases | `docs/releasing.md` | read before `Release-As` or `!` |
