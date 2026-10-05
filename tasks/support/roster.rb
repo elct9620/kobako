@@ -1,13 +1,11 @@
 # frozen_string_literal: true
 
-# The architectural-tier roster shared by the size, churn, and
-# pub-surface instruments — one table, so the instruments cannot drift
-# apart on what the repo's tiers are. +paths+ feeds +git ls-files+, so
-# gitignored build products and vendored trees never enter a scan;
-# +kind+ places the tier — +:code+ / +:test+ weigh the stats ratio,
-# +:code+ / +:tooling+ enter the hotspot scan, +:code+ carries the
-# Rust crate trees the pub-surface scan reads, +:other+ is reported
-# only. The table is pinned to the repo from both sides: the
+# The architectural-tier roster shared by the size and churn
+# instruments — one table, so the instruments cannot drift apart on
+# what the repo's tiers are. +paths+ feeds +git ls-files+, so gitignored
+# build products and vendored trees never enter a scan; +kind+ places
+# the tier — +:code+ / +:test+ weigh the stats ratio, +:code+ /
+# +:tooling+ enter the hotspot scan, +:other+ is reported only. The table is pinned to the repo from both sides: the
 # completeness guard flags an unplaced top-level tree, the staleness
 # guard flags a tier the repo no longer holds.
 module KobakoRoster

@@ -5,8 +5,8 @@ require "test_helper"
 require_relative "../../tasks/support/roster"
 require_relative "../../tasks/support/stats"
 
-# Unit coverage for the tier roster shared by the size, churn, and
-# pub-surface instruments: kind-based path selection and the
+# Unit coverage for the tier roster shared by the size and churn
+# instruments: kind-based path selection and the
 # completeness guard that holds the table to the repo's top-level
 # trees. Fixture rosters keep the rule tests about the rule; the live
 # tests then pin the real table to the real repo inside the gated

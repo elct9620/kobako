@@ -6,7 +6,7 @@ require_relative "../../tasks/support/rust_source"
 
 # Unit coverage for the shared Rust source-shape rule: the inline
 # +#[cfg(test)]+ tail module is test weight, and the instruments that
-# read implementation (pub-surface inventory, hotspot sizing) must
+# read implementation (code size, hotspot sizing) must
 # agree on where it starts.
 class KobakoRustSourceTest < Minitest::Test
   Source = KobakoRustSource

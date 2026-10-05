@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# The Rust source-shape rule shared by the pub-surface and hotspot
+# The Rust source-shape rule shared by the size and hotspot
 # instruments — one definition of where a file's implementation ends,
 # so the two scans cannot drift apart on what a test tail is.
 module KobakoRustSource
