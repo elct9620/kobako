@@ -345,3 +345,43 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | Given | a Sandbox that declared a path with no object |
 | When | a path colliding with it is bound |
 | Then | the bind is refused |
+
+## `SV-044` A name never declared fails in the guest as a missing constant
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with one Service path declared |
+| When | guest code names a constant no path declared |
+| Then | the invocation fails as a Sandbox failure whose guest class is `NameError` |
+
+## `SV-045` An override outranks what a provider yields
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose installed Extension resolves a path through a provider |
+| When | an invocation's block overrides that path |
+| Then | the guest reaches the override, not the provider's object |
+
+## `SV-046` A raising override block reaches the caller unchanged
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an invocation's block raises |
+| Then | the caller receives that same exception |
+
+## `SV-047` A raising override block leaves no run behind
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service |
+| When | an invocation whose guest code would call it has a block that raises |
+| Then | the guest never runs and the invocation answers no Execution |
+
+## `SV-048` A binding belongs to its own Sandbox
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service bound at a path |
+| When | guest code on another Sandbox over the same artifact names that path |
+| Then | the name is not there |

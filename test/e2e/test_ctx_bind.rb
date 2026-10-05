@@ -78,6 +78,37 @@ class TestE2ECtxBind < Minitest::Test
     end
   end
 
+  # @behavior SV-045
+  # The override is the narrower statement, written for this one invocation,
+  # so it wins over what the provider resolves for every invocation.
+  def test_an_override_outranks_the_object_a_provider_yields
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    backend = Kobako::Extension::Backend.new(path: "Store", provider: -> { Kv.new("provided") })
+    sandbox.install(Kobako::Extension.new(name: :Store, source: "", backend: backend))
+
+    result = sandbox.eval("Store.get(1)") { |ctx| ctx.bind("Store", Kv.new("override")) }.value
+
+    assert_equal "override", result,
+                 "ctx.bind through #eval must outrank the object a per-invocation provider yields " \
+                 "for the same path"
+  end
+
+  # @behavior SV-046 SV-047
+  # The block is Host App code, so what it raises is the Host App's own and
+  # reaches the caller as raised; the guest never starts.
+  def test_a_raising_override_block_reaches_the_caller_and_the_guest_never_runs
+    ran = []
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Probe::Ran", -> { ran << true })
+    raised = KeyError.new("override unavailable")
+
+    caught = assert_raises(KeyError) { sandbox.eval("Probe::Ran.call") { |_ctx| raise raised } }
+
+    assert_same raised, caught,
+                "an exception raised inside the #eval override block must reach the caller unchanged"
+    assert_empty ran, "when the override block raises, the guest must not run"
+  end
+
   # @behavior SV-023
   # Raising inside the block keeps the Frame 1 key set fixed; the guest never
   # runs.

@@ -38,6 +38,14 @@ Source: [`snippet_raise_boom.rb`](snippet_raise_boom.rb) (`raise "boom from snip
 vendor/mruby/build/host/bin/mrbc -g -o test/fixtures/snippet_raise_boom.mrb test/fixtures/snippet_raise_boom.rb
 ```
 
+### `snippet_raise_boom_no_debug.mrb` — a raise with no frames to report
+
+Same source as `snippet_raise_boom.mrb`, compiled **without** `-g`, so the failure keeps its class, message and origin while the snippet's frames are absent.
+
+```sh
+vendor/mruby/build/host/bin/mrbc -o test/fixtures/snippet_raise_boom_no_debug.mrb test/fixtures/snippet_raise_boom.rb
+```
+
 ### `snippet_raise_script_error.mrb` / `snippet_raise_not_implemented.mrb` — the class a structural failure carries
 
 Sources: [`snippet_raise_script_error.rb`](snippet_raise_script_error.rb) raises `ScriptError` itself — the class a load answers for a blob that fails its structural check, so it reads as a structural failure; [`snippet_raise_not_implemented.rb`](snippet_raise_not_implemented.rb) raises the `NotImplementedError` subclass, which keeps its own name. Both compiled with `-g`.

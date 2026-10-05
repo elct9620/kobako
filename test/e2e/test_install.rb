@@ -66,6 +66,18 @@ class TestE2EInstall < Minitest::Test
                  "per-invocation resolution must let the next invocation run once the provider succeeds"
   end
 
+  # @behavior EX-047
+  # Backends resolve before the guest starts, so a provider failure leaves
+  # the guest's first statement unreached.
+  def test_a_raising_provider_stops_the_invocation_before_guest_code_runs
+    ran = []
+    sandbox = install_file(provider: -> { raise "backend unavailable" })
+    sandbox.bind("Probe::Ran", -> { ran << true })
+
+    assert_raises(RuntimeError) { sandbox.eval("Probe::Ran.call") }
+    assert_empty ran, "a provider raising through #eval must stop the invocation before any guest code runs"
+  end
+
   # @behavior EX-028
   # Composition is fixed at setup so every invocation ships the same
   # idioms; the refusal names the invocation that closed it rather than

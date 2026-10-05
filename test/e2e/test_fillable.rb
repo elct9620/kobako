@@ -38,7 +38,7 @@ class TestE2EFillable < Minitest::Test
     end
   end
 
-  # @behavior SV-019
+  # @behavior SV-019 SV-044
   # The fillable's constant exists (dispatch reaches the host → ServiceError),
   # whereas an undeclared name raises a guest NameError that never reaches a
   # Service dispatch.
@@ -46,11 +46,13 @@ class TestE2EFillable < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Store")
 
-    assert_raises(Kobako::SandboxError,
-                  "a guest reference to a never-declared constant must surface as a guest-side " \
-                  "SandboxError, distinct from a declared-but-unfilled fillable's ServiceError") do
+    err = assert_raises(Kobako::SandboxError,
+                        "a guest reference to a never-declared constant must surface as a guest-side " \
+                        "SandboxError, distinct from a declared-but-unfilled fillable's ServiceError") do
       sandbox.eval("Undeclared.get(1)")
     end
+    assert_equal "NameError", err.klass,
+                 "a never-declared constant through #eval must fail in the guest as NameError"
   end
 
   # @behavior SV-020

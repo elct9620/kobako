@@ -47,6 +47,20 @@ class TestE2EBindPaths < Minitest::Test
                  "proxy under the shared module"
   end
 
+  # @behavior SV-048
+  # The guest's constants are materialized from its own Sandbox's bindings,
+  # so a second Sandbox over the same artifact has no name to reach.
+  def test_a_service_bound_on_one_sandbox_is_unreachable_from_another
+    Kobako::Sandbox.new(wasm_path: REAL_WASM).bind("Clock", -> { 42 })
+    other = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    result = other.eval("begin; Clock.call; rescue NameError; :unreachable; end").value
+
+    assert_equal :unreachable, result,
+                 "a Service bound on one Sandbox must not be reachable from guest code running " \
+                 "through #eval on another Sandbox"
+  end
+
   # @behavior SV-009
   # A namespace is the whole prefix, not the root segment. The two shapes a
   # single-segment prefix cannot tell apart are both here — leaves sharing a

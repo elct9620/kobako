@@ -19,6 +19,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 - `test/unit/catalog/test_snippets.rb`
 - `test/e2e/sandbox/test_sandbox.rb`
 - `test/e2e/sandbox/test_run.rb`
+- `test/e2e/sandbox/test_run_as_eval.rb`
 - `test/e2e/sandbox/test_run_preflight.rb`
 - `test/e2e/sandbox/test_run_envelope.rb`
 - `test/e2e/sandbox/test_preload.rb`
@@ -1259,3 +1260,124 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a Sandbox with a bound Service |
 | When | guest code writes to both channels around a call to it |
 | Then | each capture holds exactly what guest code wrote |
+
+## `S-154` A failed invocation leaves nothing for the next entry
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose invocation wrote guest state and then failed |
+| When | the next invocation reads that state |
+| Then | it is gone, as after a successful invocation |
+
+## `S-155` Bytecode frames carry the filename its compiler embedded
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a preloaded bytecode snippet that raises, compiled with debug information |
+| When | an invocation replays it |
+| Then | the backtrace names the filename the compiler embedded |
+
+## `S-156` A snippet that never loaded fails with an empty backtrace
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a preloaded snippet that will not compile, names another bytecode format version, or has a corrupt body |
+| When | an invocation replays it |
+| Then | the failure carries an empty backtrace |
+
+## `S-157` A structural bytecode failure repeats unchanged
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with preloaded bytecode that fails its structural check |
+| When | two invocations replay it |
+| Then | both fail the same way |
+
+## `S-158` Bytecode without debug information keeps everything but its frames
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a preloaded bytecode snippet that raises, compiled without debug information |
+| When | an invocation replays it |
+| Then | the failure keeps its class, message and origin |
+| Then | the backtrace carries none of the snippet's frames |
+
+## `S-159` An evaluation failure names its source as `(eval)`
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | evaluated source raises |
+| Then | the backtrace names that source as `(eval)` |
+
+## `S-160` An entrypoint failure ends on the entrypoint's snippet
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose preloaded entrypoint raises |
+| When | the entrypoint verb runs it |
+| Then | the backtrace carries no `(eval)` frame and its last frame names the entrypoint's snippet |
+
+## `S-161` The caps bound an entrypoint run as they bound an evaluation
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a deadline and a memory budget and an entrypoint that exceeds one |
+| When | the entrypoint verb runs it |
+| Then | it fails with the cap's own failure |
+
+## `S-162` An entrypoint run captures both channels
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose entrypoint writes to both channels |
+| When | the entrypoint verb runs it |
+| Then | each capture holds what was written to it |
+
+## `S-163` A module or an instance answering call is an entrypoint
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose entrypoint is a module, or an instance, answering `call` |
+| When | the entrypoint verb runs it |
+| Then | it answers what its `call` returned |
+
+## `S-164` An entrypoint run as the first invocation seals registration
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose first invocation was an entrypoint run |
+| When | a Service is bound |
+| Then | the bind is refused |
+
+## `S-165` An entrypoint answer the wire cannot carry is a Sandbox failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose entrypoint returns a value with no wire representation |
+| When | the entrypoint verb runs it |
+| Then | it fails as a Sandbox failure |
+
+## `S-166` Source with no expression answers nothing
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | empty source is evaluated |
+| Then | the value is nil |
+
+## `S-167` A refused late preload leaves the sealed table replaying
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a preloaded snippet whose first invocation has run |
+| When | another snippet is preloaded and refused |
+| Then | the earlier snippet still replays unchanged |
+
+## `S-168` Bound Service names are in place when snippets replay
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service and a preloaded snippet calling it at its top level |
+| When | an invocation replays the snippet |
+| Then | the call reaches the Service |

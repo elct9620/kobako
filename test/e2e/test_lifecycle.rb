@@ -181,4 +181,10 @@ class TestE2ELifecycle < Minitest::Test
     refute_predicate execution, :stdout_truncated?
     refute_predicate execution, :stderr_truncated?
   end
+
+  # @behavior S-166
+  def test_evaluating_source_with_no_expression_answers_nothing
+    assert_nil Kobako::Sandbox.new(wasm_path: REAL_WASM).eval("").value,
+               "source with no expression through #eval must answer nil"
+  end
 end

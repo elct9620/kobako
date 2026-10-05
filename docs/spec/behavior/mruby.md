@@ -85,3 +85,27 @@ That the boot state may be computed at build time, and that per-invocation resou
 | Then | an `ArgumentError` the guest can rescue is raised, though the message cap is 16 MiB |
 | When | guest code builds one a byte shorter |
 | Then | it is built in full |
+
+## `MR-009` The permissive profile starts from the same state too
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox built under the permissive profile |
+| When | two invocations each allocate their first object |
+| Then | both land on the same heap slot, as under the hermetic profile |
+
+## `MR-010` The default Guest Binary reaches no clock or entropy
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the default Guest Binary |
+| When | guest code looks for time, sleep, or randomness |
+| Then | none of them is defined |
+
+## `MR-011` The caller of an output method can rescue a raising coercion
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code rescues around an output call whose argument's coercion raises |
+| Then | the rescue receives that raise and the invocation answers normally |

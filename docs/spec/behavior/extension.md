@@ -368,3 +368,12 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | Given | a backend whose path carries a segment that is not a constant name |
 | When | its Extension is installed |
 | Then | it is refused with the refusal a bind at that path receives |
+
+## `EX-047` A raising provider stops the invocation before the guest runs
+
+| Step | Statement |
+| --- | --- |
+| Given | an installed Extension whose provider raises |
+| Given | a bound Service the guest code calls first |
+| When | an invocation runs |
+| Then | the Service is never called |

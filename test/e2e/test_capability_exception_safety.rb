@@ -39,6 +39,30 @@ class TestE2ECapabilityExceptionSafety < Minitest::Test
                     "Kobako::SandboxError carrying the guest exception message, not a TrapError"
   end
 
+  RESCUED_TO_S_SCRIPT = <<~RUBY
+    class Boom
+      def to_s
+        raise "boom from to_s"
+      end
+    end
+    begin
+      $stdout.puts(Boom.new)
+    rescue RuntimeError => e
+      e.message
+    end
+  RUBY
+
+  # @behavior MR-011
+  # The raise stays a guest exception through the gem's frame, so the guest
+  # code that called the output method is the first place able to rescue it.
+  def test_the_caller_of_an_output_method_rescues_a_raising_coercion
+    result = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(RESCUED_TO_S_SCRIPT).value
+
+    assert_equal "boom from to_s", result,
+                 "a raise inside $stdout.puts coercion through #eval must be rescuable by the " \
+                 "guest code that called the output method"
+  end
+
   RAISING_INSPECT_SCRIPT = <<~RUBY
     class Boom
       def inspect

@@ -37,6 +37,31 @@ class TestE2EPreload < Minitest::Test
     assert_equal 20, sandbox.eval("EXTENDED").value
   end
 
+  # @behavior S-167
+  # The refusal concerns the late snippet only; the table the seal closed
+  # keeps replaying as it stood.
+  def test_a_preload_refused_after_the_seal_leaves_earlier_snippets_replaying
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(code: "ANSWER = 42", name: :Answers)
+    sandbox.eval("nil")
+
+    assert_raises(ArgumentError) { sandbox.preload(code: "ANSWER = 0", name: :Late) }
+    assert_equal 42, sandbox.eval("ANSWER").value,
+                 "a #preload refused after the seal must leave the snippets already preloaded replaying unchanged"
+  end
+
+  # @behavior S-168
+  # A snippet may call a Service at its top level, so the names it calls
+  # have to exist before it replays.
+  def test_bound_service_names_are_in_place_when_snippets_replay
+    sandbox = Kobako::Sandbox.new
+    sandbox.bind("Config::Base", -> { 10 })
+    sandbox.preload(code: "BASE = Config::Base.call", name: :Answers)
+
+    assert_equal 10, sandbox.eval("BASE").value,
+                 "a preloaded snippet replayed before #eval must reach a bound Service by its name"
+  end
+
   # @behavior S-083 S-084
   # Accepting the snippet keeps the detection timing uniform with the
   # binary: form, which cannot be compiled at preload at all. Compilation
