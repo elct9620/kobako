@@ -8,7 +8,7 @@ The runtime is what stands between a request and a guest that runs. Three checks
 
 The scheduling scenarios pair off deliberately. Releasing the lock is a scheduling change and nothing else, so each witness runs one scenario under both modes and compares — a value, a dispatch, a nested dispatch, a capture. The host-parallel run is the one that shows what the mode is for.
 
-The ambient denial the hermetic posture rests on has no scenario of its own: the default Guest Binary exposes no time or entropy surface for guest code to read, which is the posture itself, so there is nothing to observe from inside. What the determinism buys is witnessed where it shows — two invocations beginning from the same interpreter state — and what is checked here is the seam the request travels along.
+Ambient denial is read at the WASI layer rather than through guest code, because the default Guest Binary gives scripts no surface to reach it from. "Reaches nothing" cannot be witnessed whole, so it is held as what the host grants: no posture preopens a directory, sets a variable, or holds a socket, and the guest exports only the invocation entry points. What the determinism buys is witnessed where it shows — two invocations beginning from the same interpreter state.
 
 Compiling an artifact is expensive enough to keep on disk, and a cache is a second way in. So each of its refusals is witnessed twice over: that construction still succeeds, and what the cache directory holds afterwards. A cache that quietly loaded a planted artifact would pass the first observation alone.
 
@@ -28,6 +28,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 - `test/parity/test_hermetic.rb`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/frames.rs`
+- `crates/kobako-wasmtime/src/exports.rs`
 - `crates/kobako/tests/concurrency.rs`
 - `crates/kobako/tests/runtime_injection.rs`
 - `crates/kobako-runtime/src/profile.rs`
@@ -556,3 +557,19 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Given | a Sandbox shared across Threads with one Service bound |
 | When | two invocations call it at once |
 | Then | both are inside the Service at the same time |
+
+## `RT-067` No posture grants a filesystem, an environment, or a socket
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest running at either posture |
+| When | it asks for a preopened directory, its environment, or a connection |
+| Then | it finds no directory, no variable, and no socket |
+
+## `RT-068` The Guest Binary exports the invocation entry points and nothing else
+
+| Step | Statement |
+| --- | --- |
+| Given | the bundled Guest Binary |
+| When | its exports are read |
+| Then | it exports exactly the six functions the invocation ABI names |

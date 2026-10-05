@@ -181,36 +181,56 @@ where
 
 #[cfg(test)]
 mod tests {
-    //! Witness the profile rung split at the WASI boundary: one probe
-    //! module reads `wasi:clocks` / `wasi:random` through the context
-    //! `install_wasi_frames` builds — frozen under `Hermetic`, live
-    //! under `Permissive`.
+    //! Witness what the context `install_wasi_frames` builds grants at
+    //! each profile rung: `wasi:clocks` / `wasi:random` frozen under
+    //! `Hermetic` and live under `Permissive`, and no filesystem,
+    //! environment, or socket under either.
     use wasmtime::{Linker, Module};
     use wasmtime_wasi::p1;
 
     use super::*;
     use crate::cache::shared_engine;
 
+    /// Preview1 `errno` for a descriptor the context does not hold.
+    const ERRNO_BADF: i64 = 8;
+
     /// Preview1 probe with one export per ambient source: `clock_ns`
-    /// reads the realtime clock, `random_word` reads eight entropy bytes.
-    const AMBIENT_PROBE_WAT: &str = r#"
+    /// reads the realtime clock, `random_word` reads eight entropy bytes,
+    /// `environ_count` counts environment variables, and `prestat_errno`
+    /// / `accept_errno` ask descriptor 3 for a directory and a
+    /// connection. Preview1 numbers preopens from 3, so nothing there
+    /// means no directory and no socket was granted.
+    const PROBE_WAT: &str = r#"
         (module
           (import "wasi_snapshot_preview1" "clock_time_get"
             (func $clock (param i32 i64 i32) (result i32)))
           (import "wasi_snapshot_preview1" "random_get"
             (func $random (param i32 i32) (result i32)))
+          (import "wasi_snapshot_preview1" "environ_sizes_get"
+            (func $environ (param i32 i32) (result i32)))
+          (import "wasi_snapshot_preview1" "fd_prestat_get"
+            (func $prestat (param i32 i32) (result i32)))
+          (import "wasi_snapshot_preview1" "sock_accept"
+            (func $accept (param i32 i32 i32) (result i32)))
           (memory (export "memory") 1)
           (func (export "clock_ns") (result i64)
             (drop (call $clock (i32.const 0) (i64.const 1) (i32.const 0)))
             (i64.load (i32.const 0)))
           (func (export "random_word") (result i64)
             (drop (call $random (i32.const 8) (i32.const 8)))
-            (i64.load (i32.const 8))))
+            (i64.load (i32.const 8)))
+          (func (export "environ_count") (result i64)
+            (drop (call $environ (i32.const 16) (i32.const 20)))
+            (i64.extend_i32_u (i32.load (i32.const 16))))
+          (func (export "prestat_errno") (result i64)
+            (i64.extend_i32_u (call $prestat (i32.const 3) (i32.const 24))))
+          (func (export "accept_errno") (result i64)
+            (i64.extend_i32_u (call $accept (i32.const 3) (i32.const 0) (i32.const 24)))))
     "#;
 
     /// Instantiate the probe over a WASI context built at `profile` and
-    /// return the `(clock, random)` readings it observes.
-    fn probe_ambient(profile: Profile) -> (i64, i64) {
+    /// return a reader for its exports.
+    fn probe(profile: Profile) -> impl FnMut(&str) -> i64 {
         let engine = shared_engine().expect("shared engine must be constructible");
         let config = Config {
             timeout: None,
@@ -226,33 +246,53 @@ mod tests {
         let mut linker: Linker<Invocation> = Linker::new(engine);
         p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| state.wasi_mut())
             .expect("WASI imports must link");
-        let module = Module::new(engine, AMBIENT_PROBE_WAT).expect("probe module must compile");
+        let module = Module::new(engine, PROBE_WAT).expect("probe module must compile");
         let instance = linker
             .instantiate(&mut store, &module)
             .expect("probe module must instantiate");
 
-        let read = |store: &mut WtStore<Invocation>, name: &str| -> i64 {
+        move |name| {
             instance
                 .get_typed_func::<(), i64>(store.as_context_mut(), name)
                 .expect("probe export must resolve")
                 .call(store.as_context_mut(), ())
                 .expect("probe export must run")
-        };
-        let clock = read(&mut store, "clock_ns");
-        let random = read(&mut store, "random_word");
-        (clock, random)
+        }
+    }
+
+    /// Assert that the context built at `profile` grants no directory,
+    /// environment variable, or socket.
+    fn assert_grants_no_resource(profile: Profile) {
+        let mut read = probe(profile);
+        assert_eq!(
+            read("prestat_errno"),
+            ERRNO_BADF,
+            "a {profile:?} guest's WASI context must preopen no directory"
+        );
+        assert_eq!(
+            read("environ_count"),
+            0,
+            "a {profile:?} guest's WASI context must carry no environment variable"
+        );
+        assert_eq!(
+            read("accept_errno"),
+            ERRNO_BADF,
+            "a {profile:?} guest's WASI context must hold no socket"
+        );
     }
 
     // @behavior RT-047 RT-048
     #[test]
     fn hermetic_denies_ambient_time_and_entropy() {
-        let (clock, random) = probe_ambient(Profile::Hermetic);
+        let mut read = probe(Profile::Hermetic);
         assert_eq!(
-            clock, 0,
+            read("clock_ns"),
+            0,
             "a hermetic guest's wasi:clocks must read the Unix epoch, not host time"
         );
         assert_eq!(
-            random, 0,
+            read("random_word"),
+            0,
             "a hermetic guest's wasi:random must yield the constant stream, not host entropy"
         );
     }
@@ -260,14 +300,27 @@ mod tests {
     // @behavior RT-049 RT-050
     #[test]
     fn permissive_grants_live_ambient_time_and_entropy() {
-        let (clock, random) = probe_ambient(Profile::Permissive);
+        let mut read = probe(Profile::Permissive);
         assert!(
-            clock > 0,
+            read("clock_ns") > 0,
             "a permissive guest's wasi:clocks must read live host time"
         );
         assert_ne!(
-            random, 0,
+            read("random_word"),
+            0,
             "a permissive guest's wasi:random must yield host entropy"
         );
+    }
+
+    // @behavior RT-067
+    #[test]
+    fn hermetic_grants_no_filesystem_environment_or_socket() {
+        assert_grants_no_resource(Profile::Hermetic);
+    }
+
+    // @behavior RT-067
+    #[test]
+    fn permissive_grants_no_filesystem_environment_or_socket() {
+        assert_grants_no_resource(Profile::Permissive);
     }
 }

@@ -59,3 +59,54 @@ impl Exports {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! The invocation ABI is a closed set of guest exports, so the bundled
+    //! Guest Binary is read for what it exports rather than only for
+    //! whether `resolve` finds what it looks up — an extra entry point
+    //! would pass every lookup. A missing binary is a hard failure under
+    //! CI (which always builds it) and a silent skip locally.
+    use std::path::Path;
+
+    use wasmtime::ExternType;
+
+    use crate::cache::cached_module;
+
+    const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
+
+    const ABI_EXPORTS: [&str; 6] = [
+        "__kobako_abi_version",
+        "__kobako_alloc",
+        "__kobako_eval",
+        "__kobako_run",
+        "__kobako_take_outcome",
+        "__kobako_yield_to_block",
+    ];
+
+    // @behavior RT-068
+    #[test]
+    fn the_guest_binary_exports_the_six_abi_functions_and_nothing_else() {
+        let path = Path::new(WASM);
+        if !path.exists() {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "data/kobako.wasm missing under CI — run `bundle exec rake wasm:build`"
+            );
+            return;
+        }
+        let module = cached_module(path).expect("the Guest Binary must load");
+
+        let mut functions: Vec<&str> = module
+            .exports()
+            .filter(|export| matches!(export.ty(), ExternType::Func(_)))
+            .map(|export| export.name())
+            .collect();
+        functions.sort_unstable();
+
+        assert_eq!(
+            functions, ABI_EXPORTS,
+            "data/kobako.wasm read through its export section must export exactly the six ABI functions"
+        );
+    }
+}
