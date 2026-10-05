@@ -2,44 +2,7 @@
 
 ## Intent
 
-### Purpose
-
-kobako provides Ruby applications with an in-process, low-cold-start sandbox for executing untrusted mruby code, filling a gap in the Ruby ecosystem where no embeddable, self-hostable isolation runtime exists comparable to V8 isolates in JavaScript.
-
-### Users
-
-| User | Goal |
-|------|------|
-| Host App developer (Rails / Rack / Sidekiq / CLI) | Execute untrusted or third-party Ruby logic inside their application without risking process integrity or data leakage |
-| LLM agent framework author | Run dynamically generated Ruby code produced by a model in a safe, in-process environment and retrieve structured results |
-| Teaching platform / CI system operator | Evaluate user-submitted Ruby scripts in isolation without provisioning full containers |
-| No-code / low-code tool builder | Evaluate untrusted Ruby expressions (e.g., formula fields, webhook filter rules) safely within their platform |
-
-### Impacts
-
-kobako delivers the following observable behaviors:
-
-| Impact | Observable behavior |
-|--------|---------------------|
-| One-shot execution | A Host App executes arbitrary mruby source supplied at runtime (`Sandbox#eval`) and receives a structured result or a categorized error — without any guest code affecting host memory, I/O, or credentials |
-| Preload + dispatch | A Host App registers named snippets — mruby source or pre-compiled RITE bytecode — at setup time (`Sandbox#preload`), then dispatches into a named entrypoint constant defined by those snippets (`Sandbox#run`) for setup-once / dispatch-many workloads |
-| Service injection | A Host App injects named Ruby service objects that guest code calls through the Transport layer; those objects are the only mechanism by which guest code can interact with external resources |
-| Block yield | A Service method accepts a guest-supplied block and synchronously yields to it; the block body executes inside the Wasm guest with the same isolation guarantees as the rest of the guest code, and `break` / exception outcomes from the block flow into the same three-class error taxonomy |
-| Error attribution | Errors produced during guest execution are attributable to one of three distinct origins (Wasm trap, sandbox/wire fault, or guest application error), enabling the Host App to handle each case differently |
-| Output capture | Guest stdout and stderr are captured and exposed separately from the Transport channel, allowing Host Apps to surface guest logs without confusing them with protocol messages |
-| Extension installation | A Host App installs an Extension — a guest idiom (mruby source) paired with an optional host backend — via `Sandbox#install`, so guest code sees a native-style constant (e.g. `File`) whose pure operations run in-guest and whose privileged operations dispatch to the host backend |
-| Host-parallel execution | A Host App runs guest code on distinct Sandboxes across distinct Threads without serializing on Ruby's GVL, opting each Sandbox into a per-Sandbox `gvl:` mode (`:hold` — the default that holds the GVL — or `:release` — drop it for the guest span); releasing changes scheduling only, so every isolation and outcome guarantee is unchanged |
-
-### Non-Goals
-
-The following are explicitly outside the scope of kobako:
-
-- LLM integration, agent frameworks, or prompt engineering
-- A general-purpose wasmtime Ruby gem
-- mruby upstream development or distribution
-- Multi-tenant billing, SLA management, or deployment/operations tooling
-- Multi-tenant quota / billing logic, cross-Sandbox fairness scheduling, or cross-invocation aggregate resource metrics (the in-Sandbox per-invocation wall-clock timeout and linear memory cap, the per-invocation usage observability that mirrors those caps, the bounded warm-pool checkout from [`pool.md`](docs/spec/behavior/pool.md), and the per-Sandbox `gvl:` GVL-release mode are in scope; fairness ordering among waiting checkouts, cross-Sandbox aggregation, and any adaptive or per-invocation scheduling observability are not)
-- Async or yield-resume execution models and interpreter state snapshot/resume
+Purpose, users, impacts, and non-goals are stated in [`docs/intent.md`](docs/intent.md).
 
 ### Core Abstractions
 
