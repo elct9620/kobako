@@ -85,4 +85,40 @@ class TestJsonCapabilityBoundary < Minitest::Test
     assert_equal "JSON::GeneratorError", err.klass,
                  "as_json on a Handle must raise the Object-rooted default locally, not dispatch to the host"
   end
+
+  # A bound Service answering every serialization name, counting each call:
+  # a count above zero is the host having been reached.
+  class CountingService
+    attr_reader :calls
+
+    def initialize = @calls = 0
+    def as_json(*) = (@calls += 1) && "host"
+    def to_json(*) = (@calls += 1) && '"host"'
+    def to_s = (@calls += 1) && "host"
+  end
+
+  # The bound constant itself, not a Handle, is the reference here: it
+  # extends the same forwarding seam, so each serialization name it
+  # answers locally is one the host never sees.
+  BOUND_CONSTANT_SOURCES = [
+    "JSON.generate(Source::Svc)",
+    "Source::Svc.as_json",
+    "JSON.generate({ Source::Svc => 1 })"
+  ].freeze
+
+  # @behavior JS-048 JS-049 JS-050
+  def test_a_bound_constant_is_refused_without_reaching_the_host
+    BOUND_CONSTANT_SOURCES.each do |source|
+      service = CountingService.new
+      sandbox = Kobako::Sandbox.new(wasm_path: JsonGuestHelper::JSON_WASM)
+      sandbox.bind("Source::Svc", service)
+
+      err = assert_raises(Kobako::SandboxError) { sandbox.eval(source) }
+
+      assert_equal "JSON::GeneratorError", err.klass,
+                   "#{source} through the json guest must raise GeneratorError in the guest"
+      assert_equal 0, service.calls,
+                   "#{source} through the json guest must not dispatch any serialization name to the host"
+    end
+  end
 end

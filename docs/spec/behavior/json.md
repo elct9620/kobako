@@ -393,3 +393,27 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 | Given | a Sandbox over the JSON-capable Guest Binary whose guest replaced a JSON error class |
 | When | guest code reaches a failure that would raise it |
 | Then | the guest sees the lookup's own error and the invocation goes on |
+
+## `JS-048` A bound constant has no JSON form, and the host never hears of it
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary with a Service bound at a name |
+| When | guest code generates from that bound constant |
+| Then | a generator error is raised without the Service being called |
+
+## `JS-049` Asking a bound constant to serialize itself stays in the guest
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary with a Service bound at a name |
+| When | guest code calls the opt-in hook on that bound constant |
+| Then | the guest raises without the Service being called |
+
+## `JS-050` A bound constant used as a key is refused, never stringified by the host
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary with a Service bound at a name |
+| When | guest code generates from a Hash keyed by that bound constant |
+| Then | a generator error is raised without the Service being called |
