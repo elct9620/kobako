@@ -49,7 +49,7 @@ An **unmarked** `refactor`/`docs`/`test` commit never releases: a change shipped
 
 ## Marking a breaking change
 
-The marker is the whole of what a reader upgrading across the release is handed, so these three rules decide whether that reader has a migration path at all. A wire change that breaks round-trip compatibility, and a raised MSRV, are breaking changes and carry the marker too.
+kobako counts a wire change that breaks round-trip compatibility, and a raised MSRV, as breaking. The marker is the whole of what a reader upgrading across the release is handed, so these three rules decide whether that reader has a migration path at all.
 
 | Rule | Why |
 |------|-----|
