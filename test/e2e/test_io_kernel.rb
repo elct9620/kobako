@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —the kobako-io Kernel delegators through real mruby:
+# E2E — the kobako-io Kernel delegators through real mruby:
 # putc byte semantics, private registration, p's inspect form, and puts'
 # Array flattening / GC-arena behaviour. Channel routing lives in
 # test_io_streams.rb; IO write byte paths in test_io_write.rb.

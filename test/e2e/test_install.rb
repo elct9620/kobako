@@ -4,7 +4,7 @@ require "test_helper"
 require "support/in_memory_file_system"
 require "support/extension_fixtures"
 
-# E2E —the #install mechanism through real mruby. A guest `File`
+# E2E — the #install mechanism through real mruby. A guest `File`
 # idiom whose pure methods run in-guest and whose I/O dispatches to a host
 # backend, the backend resolved either fixed or fresh-per-invocation,
 # install refused after the seal, and I/O failing closed when no backend is

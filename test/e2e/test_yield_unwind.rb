@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —break / lambda-break / Proc-return discrimination at the
+# E2E — break / lambda-break / Proc-return discrimination at the
 # yield boundary. The guest yield export classifies the post-protect RBreak by comparing its
 # `ci_break_index` against the pre-yield baseline: an index ≥ baseline lands
 # on the yielder's frame (a real `break`, tag 0x02); an index < baseline

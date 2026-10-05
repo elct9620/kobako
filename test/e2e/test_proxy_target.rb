@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —what identifies a capability reference to the guest→host
+# E2E — what identifies a capability reference to the guest→host
 # paths, through real mruby. The Kobako::Proxy seam derives a Call target from
 # the receiver's exact identity: an exact Kobako::Handle by its id, a class by
 # its constant path. A receiver that mixed in the module without being either

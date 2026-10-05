@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —the canonical boot state through real mruby: every
+# E2E — the canonical boot state through real mruby: every
 # invocation observes the deterministic post-boot interpreter state,
 # identical across invocations and carrying no artifact of prior ones. The
 # heap-layout witness below is what distinguishes it from plain invocation

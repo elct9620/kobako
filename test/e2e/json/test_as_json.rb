@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —the Object#as_json serialization opt-in through the real
+# E2E — the Object#as_json serialization opt-in through the real
 # json guest.
 class TestJsonAsJson < Minitest::Test
   include JsonGuestHelper

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —the outcome (#eval return) value path through real mruby:
+# E2E — the outcome (#eval return) value path through real mruby:
 # embedded-NUL fidelity, the 128-level structural depth guard, Float /
 # Integer bit-fidelity, native Array / Hash round-trips, and the
 # +try_codec_value+ raise-on-unrepresentable contract. The transport

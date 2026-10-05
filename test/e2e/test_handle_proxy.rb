@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —the guest-side Capability Handle / bound-constant proxy
+# E2E — the guest-side Capability Handle / bound-constant proxy
 # surface through real mruby: chaining a Service-returned Handle as the next
 # dispatch target, respond_to? probing before dispatch, the capability-inert
 # result of constructing a bound-constant proxy, and the blocked construction

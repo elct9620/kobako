@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —what happens to the exception a guest block raises. The
+# E2E — what happens to the exception a guest block raises. The
 # block runs inside the guest, so the failure is the guest's own: the Service gets a chance to rescue it at
 # its yield site, and if it does not, the exception continues in the frame
 # that raised it rather than being rebuilt as a Service failure. What a

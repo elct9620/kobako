@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —the shared nesting bound through the real json guest.
+# E2E — the shared nesting bound through the real json guest.
 # parse and generate reject at the same depth, so a generated structure
 # always re-parses.
 class TestJsonNestingDepth < Minitest::Test

@@ -4,7 +4,7 @@ require "test_helper"
 require "delegate"
 require "stringio"
 
-# E2E —the default Exposure, driven through the real mruby guest
+# E2E — the default Exposure, driven through the real mruby guest
 # (`data/kobako.wasm`). An object carrying no narrowing predicate exposes
 # what its own class and the object itself define in source; everything it
 # acquired elsewhere — a superclass, a mixed-in module, the platform, a

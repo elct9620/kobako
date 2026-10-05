@@ -3,7 +3,7 @@
 require "test_helper"
 require "delegate"
 
-# E2E —sandbox-escape regression for GHSA-5jxx-2336-22p8,
+# E2E — sandbox-escape regression for GHSA-5jxx-2336-22p8,
 # driven through the real mruby guest (`data/kobako.wasm`).
 #
 # A transparent forwarder (`SimpleDelegator` / `DelegateClass` / `WeakRef` /

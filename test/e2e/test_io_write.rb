@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —the kobako-io ::IO class surface through real mruby:
+# E2E — the kobako-io ::IO class surface through real mruby:
 # construction validation, fileno, the mruby-io-compatible supplementary
 # surface, IO#write byte-pumping fidelity, and the
 # mruby-sprintf formatting capability. Kernel delegators live in

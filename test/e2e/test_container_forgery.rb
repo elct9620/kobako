@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —a guest value whose class carries a container's name
+# E2E — a guest value whose class carries a container's name
 # without being one, across the two guest→host value paths: the outcome
 # (#eval return) and a dispatch argument.
 #

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —how long a guest block's failure stays available to be
+# E2E — how long a guest block's failure stays available to be
 # continued. The guest holds the exception
 # only until it learns whether the Service rescued it; once the Service
 # runs the block again or the dispatch answers, the failure is spent and

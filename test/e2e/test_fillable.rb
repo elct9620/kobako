@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —a fillable Service path declared with bind(path) and no
+# E2E — a fillable Service path declared with bind(path) and no
 # object, driven through real mruby. The path enters Frame 1 like any bound
 # Service, so it materializes as a guest proxy constant, but it is
 # backed by Kobako::Unresolved until the host supplies an object. A guest

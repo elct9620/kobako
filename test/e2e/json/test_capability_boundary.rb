@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —the JSON capability-reference boundary through the real
+# E2E — the JSON capability-reference boundary through the real
 # json guest. parse cannot fabricate a host capability, and
 # generate refuses one rather than dispatching to the host.
 class TestJsonCapabilityBoundary < Minitest::Test

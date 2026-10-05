@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —JSON.parse integer-range policy through the real json
+# E2E — JSON.parse integer-range policy through the real json
 # guest. The guest Integer is 32-bit, so the policy keeps an in-range
 # integer as Integer, widens an exactly-representable magnitude to Float,
 # and refuses anything beyond exact Float range rather than silently

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —the transport (guest→host dispatch) value path through
+# E2E — the transport (guest→host dispatch) value path through
 # real mruby: kwargs symbolization at the dispatch boundary, rejection of a
 # dispatch argument with no wire representation, Symbol fidelity (ext 0x00),
 # and native Array / Hash argument and return fidelity (Type

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E —host-object DSL composition through real mruby. A guest-side
+# E2E — host-object DSL composition through real mruby. A guest-side
 # builder idiom (a generic wrapper over Capability Handles) composes existing
 # behaviors into a nested-structure builder whose dialects live entirely on the
 # host: a Service returns child Handles, the guest chains method calls onto
