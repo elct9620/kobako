@@ -58,6 +58,26 @@ class TestRegexpMatchOperand < Minitest::Test
                  "a Regexp pattern through String#match must match and return its MatchData"
   end
 
+  SYMBOL_SUBJECT = "[/b/.match(:abc).to_a, /b/.match?(:abc), /b/ =~ :abc, /b/ === :abc]"
+
+  # @behavior RX-190
+  def test_the_match_family_reads_a_symbol_subject_as_its_name
+    assert_equal [%w[b], true, 1, true], eval_regexp(SYMBOL_SUBJECT),
+                 "Regexp#match, #match? and #=~ must read a Symbol subject as its name, as #=== does"
+  end
+
+  # @behavior RX-191 RX-192
+  def test_a_nil_subject_is_no_match
+    assert_equal [nil, false], eval_regexp("[/b/ =~ nil, /b/ === nil]"),
+                 "Regexp#=~ must answer nil and Regexp#=== must answer false for a nil subject"
+  end
+
+  # @behavior RX-193
+  def test_string_match_raises_type_error_on_string_pattern_through_the_match_form
+    assert_equal "TypeError", guard_error('"abc".match("b")', "TypeError"),
+                 "a String pattern through String#match, not only #match?, must raise TypeError"
+  end
+
   # @behavior RX-028
   def test_string_match_raises_type_error_on_string_pattern
     assert_equal "TypeError", guard_error('"axc".match?(".")', "TypeError"),

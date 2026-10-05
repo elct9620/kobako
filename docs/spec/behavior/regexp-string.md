@@ -430,3 +430,59 @@ Replacement text is a small language of its own, so its scenarios cover what exp
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code slices a String with a start and a length |
 | Then | it answers what the language's own slice answers |
+
+## `RX-206` Single substitution with a Hash replaces the first match
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code substitutes once with a Hash replacement |
+| Then | the first match is replaced with the value it maps to |
+
+## `RX-207` A doubled backslash writes one backslash
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code substitutes with a replacement holding a doubled backslash |
+| Then | one literal backslash is written |
+
+## `RX-208` Splitting without a limit drops trailing empty fields
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code splits on a pattern with no limit, or a limit of zero |
+| Then | the trailing empty fields are dropped |
+
+## `RX-209` Scanning never overlaps its matches
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code scans a String where matches could overlap |
+| Then | scanning resumes after each match |
+
+## `RX-210` Scanning with a block answers the String
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code scans a String with a block |
+| Then | it answers the String it scanned |
+
+## `RX-211` A String's match predicate answers true or false
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code asks a String whether it matches a pattern |
+| Then | it answers true or false, as the pattern's predicate does |
+
+## `RX-212` Slicing by a pattern answers as indexing does
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code slices a String by a pattern that matches and by one that does not |
+| Then | each answers what indexing by that pattern answers |

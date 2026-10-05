@@ -38,6 +38,15 @@ class TestRegexpMatchPosition < Minitest::Test
                  "Regexp#match allows pos equal to the length, matching empty at the end"
   end
 
+  # Offsets are bytes, so a position can fall inside a character; the
+  # search starts at that character rather than splitting it.
+  # @behavior RX-189
+  def test_match_from_inside_a_multibyte_character_starts_at_its_boundary
+    assert_equal ["é"], eval_regexp('/./.match("aéb", 2).to_a'),
+                 "Regexp#match from a byte position inside a multibyte character must start at " \
+                 "that character's boundary"
+  end
+
   # @behavior RX-047
   def test_match_p_returns_false_when_position_past_end
     assert_equal false, eval_regexp('//.match?("abc", 5)'),

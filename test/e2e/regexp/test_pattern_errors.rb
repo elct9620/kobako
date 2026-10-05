@@ -18,6 +18,13 @@ class TestRegexpPatternErrors < Minitest::Test
     end
   end
 
+  # @behavior RX-186
+  def test_a_pattern_that_cannot_compile_is_rescuable_in_the_guest
+    assert_equal "RegexpError", guard_error('Regexp.new("(")', "RegexpError"),
+                 "a pattern that cannot compile through Regexp.new must raise RegexpError where " \
+                 "guest code can rescue it"
+  end
+
   # A catastrophic-backtracking shape the engine can bound answers as MRI does.
   # The backtracking ceiling guards the invocation's wall-clock budget, so it
   # must not turn an answer MRI reaches into an error.

@@ -46,6 +46,16 @@ class TestRegexpMatchGlobals < Minitest::Test
                "$+ is nil when the pattern has no capture groups"
   end
 
+  # @behavior RX-187 RX-188
+  # The miss comes after a hit, so a global the miss forgot to clear would
+  # still hold the hit's value.
+  def test_a_match_that_finds_nothing_clears_every_match_global
+    assert_equal [nil, nil, nil, nil, nil],
+                 eval_regexp('"abc" =~ /(b)/; "xyz" =~ /(b)/; [$~, $1, $&, $`, $\']'),
+                 "a match finding nothing after one that found something must clear $~, the " \
+                 "numbered globals and the special globals"
+  end
+
   # $1 inside a gsub block refreshes to each iteration's capture rather than
   # staying pinned to the first match.
   # @behavior RX-036

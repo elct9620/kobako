@@ -34,6 +34,13 @@ class TestRegexpToS < Minitest::Test
                  "a whole-source (?i:abc) through Regexp#to_s must lift the inline flag"
   end
 
+  # @behavior RX-185
+  def test_lifts_the_disabled_flags_of_a_whole_source_group
+    assert_equal "(?i-mx:a)", eval_regexp('Regexp.new("(?i-m:a)").to_s'),
+                 "a whole-source (?i-m:a) through Regexp#to_s must carry its disabled m into the " \
+                 "outer flags alongside the enabled i (MRI)"
+  end
+
   # @behavior RX-069
   def test_lifts_flagless_group
     assert_equal "(?-mix:abc)", eval_regexp('Regexp.new("(?:abc)").to_s'),

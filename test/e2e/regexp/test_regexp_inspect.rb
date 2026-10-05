@@ -27,6 +27,13 @@ class TestRegexpInspect < Minitest::Test
                  "a newline in the source through Regexp#inspect must stay literal (MRI)"
   end
 
+  # @behavior RX-184
+  def test_keeps_every_whitespace_control_literal
+    assert_equal "/a\tb\vc\fd\re\nf/", eval_regexp('Regexp.new("a\tb\vc\fd\re\nf").inspect'),
+                 "tab, vertical tab, form feed, carriage return and newline through " \
+                 "Regexp#inspect must each stay literal (MRI)"
+  end
+
   # @behavior RX-063
   def test_escapes_other_control_characters_as_hex
     assert_equal "/a\\x1Bb/", eval_regexp('Regexp.new("a\x1bb").inspect'),

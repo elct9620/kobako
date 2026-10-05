@@ -892,3 +892,131 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code binds a value that is not a class over the name the match class carries, then takes a match |
 | Then | the invocation completes and the match's class is the one the capability registered |
+
+## `RX-184` Inspecting keeps every whitespace control literal
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code inspects a pattern whose source holds a tab, vertical tab, form feed, carriage return and newline |
+| Then | each renders literally, as the language renders it |
+
+## `RX-185` A whole-source flag group lifts its disabled flags too
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code renders a pattern whose whole source is a group enabling one flag and disabling another |
+| Then | the outer flags carry both, as the language renders them |
+
+## `RX-186` A pattern that cannot compile is rescuable in the guest
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compiles a pattern that cannot compile and rescues `RegexpError` |
+| Then | the rescue receives it |
+
+## `RX-187` A match that finds nothing clears the match global
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code takes a match that finds nothing after one that found something |
+| Then | the match global holds nothing |
+
+## `RX-188` So are the numbered and special globals
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code takes a match that finds nothing after one that found something |
+| Then | the numbered globals and the whole, before and after globals hold nothing |
+
+## `RX-189` A position inside a character starts at its boundary
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches from a byte position inside a multibyte character |
+| Then | the search starts at that character's boundary |
+
+## `RX-190` The match family reads a Symbol subject as its name
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches, asks the predicate and uses the match operator on a Symbol subject |
+| Then | each reads the Symbol as its name, as case equality does |
+
+## `RX-191` The match operator answers nothing for a nil subject
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code uses the match operator on nil |
+| Then | it answers nil |
+
+## `RX-192` Case equality answers false for a nil subject
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code uses case equality on nil |
+| Then | it answers false |
+
+## `RX-193` A String pattern is refused by the match form too
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a String against another String through the match form |
+| Then | it raises `TypeError` |
+
+## `RX-194` A String coerced into a pattern must be text
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code substitutes using a String pattern whose bytes are not UTF-8 |
+| Then | it raises `ArgumentError` |
+
+## `RX-195` A substitution block's answer must be text
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | a substitution block answers a String whose bytes are not UTF-8 |
+| Then | it raises `ArgumentError` |
+
+## `RX-196` A capture name must be text
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code indexes a match by a capture name whose bytes are not UTF-8 |
+| Then | it raises `ArgumentError` |
+
+## `RX-197` The extended flag reports its bit
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads the options of a pattern carrying the extended flag |
+| Then | they report 2 |
+
+## `RX-198` Two patterns are equal when source and options are
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compares patterns differing in source, in options, or in neither |
+| Then | only the pair differing in neither is equal |
+
+## `RX-199` Quoting escapes as escaping does
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code quotes and escapes the same text |
+| Then | both answer the same |

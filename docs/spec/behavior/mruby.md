@@ -15,6 +15,7 @@ That the boot state may be computed at build time, and that per-invocation resou
 - `test/e2e/test_canonical_boot.rb`
 - `test/e2e/test_capability_exception_safety.rb`
 - `test/e2e/test_guest_string_cap.rb`
+- `test/e2e/regexp/test_raising_lookup.rb`
 
 ## `MR-001` Two invocations begin from the same state, not merely a clean one
 
@@ -108,4 +109,12 @@ That the boot state may be computed at build time, and that per-invocation resou
 | --- | --- |
 | Given | a Sandbox |
 | When | guest code rescues around an output call whose argument's coercion raises |
+| Then | the rescue receives that raise and the invocation answers normally |
+
+## `MR-012` A raising Hash lookup during substitution stays a guest exception
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code rescues around a substitution whose Hash replacement's lookup raises |
 | Then | the rescue receives that raise and the invocation answers normally |

@@ -38,4 +38,18 @@ class TestRegexpMatchDataBounds < Minitest::Test
     assert_nil eval_regexp('/(a)?(b)/.match("b").begin(1)'),
                "MatchData#begin is nil for a valid index whose group did not participate"
   end
+
+  # @behavior RX-200
+  def test_end_and_offset_of_non_participating_group_are_nil
+    assert_equal [nil, [nil, nil]], eval_regexp('m = /(a)?(b)/.match("b"); [m.end(1), m.offset(1)]'),
+                 "MatchData#end and #offset must be nil for a group that did not participate, as #begin is"
+  end
+
+  # @behavior RX-201
+  def test_an_undeclared_name_is_an_index_error
+    %w[begin end offset].each do |reader|
+      assert_equal "IndexError", guard_error("/(?<y>\\d)/.match(\"a1\").#{reader}(:zz)", "IndexError"),
+                   "MatchData##{reader} by a name the pattern never declared must raise IndexError"
+    end
+  end
 end

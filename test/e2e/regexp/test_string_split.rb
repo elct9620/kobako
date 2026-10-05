@@ -37,4 +37,10 @@ class TestRegexpStringSplit < Minitest::Test
     assert_equal ["a", "", "b"], eval_regexp('"a,,b".split(/,/)'),
                  "an empty field between two non-zero-width matches must be kept"
   end
+
+  # @behavior RX-208
+  def test_no_limit_or_a_zero_limit_drops_trailing_empty_fields
+    assert_equal [%w[a b], %w[a b]], eval_regexp('["a,b,,".split(/,/), "a,b,,".split(/,/, 0)]'),
+                 "String#split on a pattern with no limit or a limit of zero must drop the trailing empty fields"
+  end
 end

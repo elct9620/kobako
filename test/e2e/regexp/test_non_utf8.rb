@@ -46,6 +46,23 @@ class TestRegexpNonUtf8 < Minitest::Test
                  "not answer an empty pattern source"
   end
 
+  # The same refusal on the three texts a pattern takes in besides its
+  # subject and source: a String coerced into a pattern, what a
+  # substitution block answers, and a capture name read off a match.
+  FURTHER_TEXTS = {
+    "a String coerced into a pattern" => "\"abc\".sub(#{NON_UTF8}, \"x\")",
+    "a substitution block's answer" => "\"abc\".sub(/b/) { #{NON_UTF8} }",
+    "a capture name" => "/(?<a>b)/.match(\"b\")[#{NON_UTF8}]"
+  }.freeze
+
+  # @behavior RX-194 RX-195 RX-196
+  def test_non_utf8_text_is_refused_wherever_a_pattern_reads_it
+    FURTHER_TEXTS.each do |text, code|
+      assert_equal "ArgumentError", guard_error(code, "ArgumentError"),
+                   "#{text} whose bytes are not UTF-8 must be refused with ArgumentError"
+    end
+  end
+
   # The refusal must not reach past the bytes that provoke it: ordinary
   # text still matches, so this is a boundary and not a regression.
   # @behavior RX-092

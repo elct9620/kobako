@@ -62,4 +62,22 @@ class TestRegexpStringSubstitution < Minitest::Test
     assert_equal "aX", eval_regexp('"a1".gsub(/\d/, "X"){ "Y" }'),
                  "a replacement argument takes precedence over a block, as MRI does"
   end
+
+  # @behavior RX-206
+  def test_sub_with_hash_replacement_replaces_only_the_first_match
+    assert_equal "h3llo", eval_regexp('"hello".sub(/[el]/, { "e" => "3", "l" => "1" })'),
+                 "String#sub with a Hash replacement must replace the first match with the value it maps to"
+  end
+
+  # The replacement below is two backslashes in guest source, which a
+  # replacement reads as one escaped backslash.
+  DOUBLED_BACKSLASH = <<~'RUBY'
+    "a-b".sub(/-/, "\\\\")
+  RUBY
+
+  # @behavior RX-207
+  def test_a_doubled_backslash_writes_one_literal_backslash
+    assert_equal "a\\b", eval_regexp(DOUBLED_BACKSLASH),
+                 "a doubled backslash in a String#sub replacement must write one literal backslash"
+  end
 end

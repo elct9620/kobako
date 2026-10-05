@@ -206,3 +206,51 @@ A match cannot be constructed. It exists because a pattern matched, which is wha
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code indexes a match by a group number |
 | Then | it answers that group's capture |
+
+## `RX-200` A group that did not participate has no end or offset
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads the end and the offset of a group that did not participate |
+| Then | both answer nothing, as its beginning does |
+
+## `RX-201` An undeclared name is an index error
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads a match's beginning, end or offset by a name the pattern never declared |
+| Then | it raises `IndexError` |
+
+## `RX-202` A match as a String is the whole match
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code converts a match to a String |
+| Then | it answers the whole match |
+
+## `RX-203` Length counts as size does
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads a match's length and size |
+| Then | both answer the same |
+
+## `RX-204` A match answers its subject
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code asks a match for its String |
+| Then | it answers the subject the pattern was matched against |
+
+## `RX-205` A clone carries the same snapshot as a copy
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code clones a match and duplicates it |
+| Then | both carry the same captures and offsets |
