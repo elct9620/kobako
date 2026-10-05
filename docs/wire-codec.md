@@ -1,13 +1,11 @@
 # Wire Codec
 
-This document is the anchor for the binary encoding of the Wire Contract (→ `SPEC.md` § Wire Contract). It states how the two encoding layers relate, and holds the ABI surface that carries them. The byte-level references live in the two layer documents:
+This document is the anchor for the binary encoding of the [Wire Contract](wire-contract.md). It states how the two encoding layers relate, and holds the ABI surface that carries them. The byte-level references live in the two layer documents:
 
 | Layer | Document | What it encodes | Who implements it |
 |-------|----------|-----------------|-------------------|
 | **Core envelope** | [`wire/envelope.md`](wire/envelope.md) | Fixed-layout frames — routing fields, ok-versus-fault, outcome attribution | `crates/kobako-transport`, shared by both sides |
 | **Payload codec** | [`wire/payload-msgpack.md`](wire/payload-msgpack.md) | The opaque `payload` bytes each frame hands through — the type mapping and ext codes | `lib/kobako/` (host) ↔ `crates/kobako-codec` (guest) |
-
-The governing summary of this codec lives in `SPEC.md` § Wire Codec; the abstract shape both layers encode is in [`wire-contract.md`](wire-contract.md).
 
 ABI function names, packed return conventions, and the byte values stated in either layer document are fixed for the life of an ABI version and may only change together with an ABI version increment (→ § ABI Version). A field or a closed-set value the contract *adds* is not such a change: a reader degrades what it predates rather than failing (→ [`wire-contract.md`](wire-contract.md) § Fault), so the two sides stay usable across the addition.
 
@@ -54,11 +52,11 @@ The following function names and byte-level signatures are fixed cross-implement
 
 The Guest Binary calls `__kobako_dispatch` after writing a Call envelope into linear memory at `[req_ptr, req_ptr + req_len)`. The Host Gem reads the envelope, dispatches it, serializes the Reply, allocates a buffer via `__kobako_alloc`, writes the Reply bytes into that buffer, and returns the packed i64. On any unrecoverable failure (allocation trap, serialization error, or an error outside the Reply fault arm), the import function returns an error to the Wasm engine, which surfaces as a Wasm trap and maps to `Kobako::TrapError`.
 
-Single dispatch size limit: 16 MiB in either direction, applied to the whole envelope rather than the payload alone. Messages exceeding this limit are a wire violation; the Host Gem walks the trap path.
+Single message size limit: 16 MiB in either direction, applied to the whole envelope rather than the payload alone, and to an invocation-channel frame as much as to a dispatch. Messages exceeding this limit are a wire violation; the Host Gem walks the trap path. A `memory_limit` below 16 MiB binds first, since the guest grows linear memory to hold what it reads.
 
 ### Guest-provided exports
 
-The ABI is a closed enumerated set: exactly six guest exports are permitted, listed below. No additional exports may be added without a SPEC change that lifts the count.
+The ABI is a closed enumerated set: exactly six guest exports are permitted, listed below. An export added, removed, or renamed is an ABI version increment.
 
 | Export name | Wasm signature | Return convention |
 |---|---|---|
@@ -75,7 +73,7 @@ The Host Gem calls `__kobako_yield_to_block` from inside a `__kobako_dispatch` c
 
 ### ABI Version
 
-The ABI version is a single u32 owned by the SPEC corpus, independent of every package version (the kobako gem, any published crate). The current version is `3`.
+The ABI version is a single u32 defined once in `kobako-transport`, independent of every package version (the kobako gem, any published crate). The current version is `3`.
 
 `__kobako_abi_version` is a pure constant function: it takes no input, performs no I/O, touches no invocation state, and is callable before any invocation entry point runs. The Host Gem calls it at Sandbox construction and compares the returned value against the version it implements by equality; because the answer is a property of the artifact, one call may serve every Sandbox built from that artifact in a process. An absent export or a non-equal value fails construction with `Kobako::SetupError`.
 
@@ -120,20 +118,27 @@ Each layer is held to a second source that was not derived from its implementati
 
 | Layer | Second source | Mechanism |
 |-------|---------------|-----------|
-| Core envelope | [`wire/envelope.md`](wire/envelope.md) | Golden vectors, hand-derived from the layout document rather than from the code, pinning every frame it defines and every discriminant — each `kind` and `tag` byte — it fixes |
+| Core envelope | [`wire/envelope.md`](wire/envelope.md) | Golden vectors for every frame and every `kind` and `tag` byte |
 | Payload codec | A second implementation in another language | Bidirectional round-trip fuzz between `lib/kobako/` (Ruby) and `crates/kobako-codec` (Rust) |
 
-The split follows where ambiguity lives. The type mapping — the 11 wire types, the two ext codes, the str/bin rules, the Symbol-keyed `kwargs` — is where two languages' conventions disagree, so that layer earns a second implementation. The envelope asks its implementers to agree on three routing fields and a byte string, and it is the fixed tier every assembly composes against, so the layout document is its second source and one definition is the guarantee.
+The split follows where ambiguity lives. The type mapping — the 11 wire types, the two ext codes, the str/bin rules, the Symbol-keyed `kwargs` — is where two languages' conventions disagree, so that layer earns a second implementation. The envelope's peers are both Rust and agree on three routing fields and a byte string, so the layout document is its second source. Any failure at either layer is a wire regression that blocks release.
 
-A golden vector spells each discriminant as the literal byte [`wire/envelope.md`](wire/envelope.md) fixes, never as the constant the encoder reads it from: a vector written from that constant moves whenever the constant does, restating the implementation instead of holding it to anything.
+### Golden Vectors
 
-The payload codec's fuzz contract is bidirectional and both directions are required:
+A golden vector spells each discriminant as the literal byte the layout document fixes. One written from the encoder's constant would move whenever the constant does, restating the implementation instead of holding it to anything.
 
-- **Host → Guest → Host**: Host Gem encodes a payload → Guest Binary decodes and re-encodes → Host Gem decodes → deep equality with original.
-- **Guest → Host → Guest**: Guest Binary encodes a payload → Host Gem decodes and re-encodes → Guest Binary decodes → deep equality with original.
+```
+wire/envelope.md --hand-derived--> golden vector <--compared-- kobako-transport
+```
 
-Coverage must include all 11 wire types (→ [`wire/payload-msgpack.md`](wire/payload-msgpack.md) § Type Mapping), both ext types, and nested compositions (e.g., array of Handles, map with symbol keys, map containing bin values). Coverage must also pin the maximum nesting depth: a structure nested within the bound round-trips, and one beyond it — including a reference cycle — fails cleanly rather than hard-trapping.
+### Round-Trip Fuzz
 
-The core envelope's peers are both written in Rust, so this layer's cross-check is cross-implementation rather than cross-language. That is a deliberate trade: the type-mapping complexity that two languages disagree about lives entirely in the payload codec, where the Ruby↔Rust independence is retained in full, and the envelope is three routing fields plus a byte string.
+The payload codec's fuzz harness holds both peers to each other over bytes. Its contract does not depend on how the two peers are connected:
 
-Any failure at either layer is a wire regression that blocks release. The harness contract is specified in `SPEC.md` § Implementation Standards → Testing Style.
+1. Run Host → Guest → Host and Guest → Host → Guest; each ends in deep equality with the original.
+2. Cover all 11 wire types, both ext types, and nested compositions such as an array of Handles.
+3. Round-trip a structure at the nesting bound, and fail cleanly — never trap — one past it, a reference cycle included.
+4. Take the seed from an environment variable, and print it in every failure so the seed alone reproduces the run.
+5. Fail the run when any wire type or ext type went unobserved, independent of byte equality.
+
+Iteration count is the implementer's choice. The type mapping lives in [`wire/payload-msgpack.md`](wire/payload-msgpack.md) § Type Mapping.

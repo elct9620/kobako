@@ -86,7 +86,7 @@ task gate: %w[gate:rbs:lock gate:rbs:orphans gate:wire:symmetry
 
 # `crates:test` joins the canonical gate because the core envelope's only
 # pin lives there: the envelope has one implementation, so the golden
-# vectors in `crates/kobako-transport` are what SPEC's Consistency
+# vectors in `crates/kobako-transport` are what the wire's consistency
 # guarantee rests on for that layer, and a default run that skipped them
 # would report green on an unverified wire. The guest crates' own units
 # stay in `wasm:test`, which carries no such claim.

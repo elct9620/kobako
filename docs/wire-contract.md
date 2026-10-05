@@ -4,8 +4,6 @@ This document specifies the abstract logical shape of every message exchanged be
 
 Every message splits into two parts, and the split governs this whole document: the **envelope** carries what routing and outcome attribution need, and the **payload** carries what the resolved method consumes. A side reads an envelope without interpreting a payload byte, which is what lets the payload's encoding be chosen by the two endpoints rather than fixed here. Byte-level encoding of both parts is specified in [`docs/wire-codec.md`](wire-codec.md) and the two layer documents it anchors.
 
-The governing summary of this contract lives in `SPEC.md` § Wire Contract; this document is its abstract reference.
-
 ---
 
 ## Transport Role
