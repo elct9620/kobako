@@ -31,8 +31,7 @@ module Kobako
       # never emitted (the guard's packer always raises) and never decoded
       # (no unpacker is registered, so the id stays an UnknownExtTypeError on
       # the wire), so it is not a wire ext type: deliberately not named
-      # +EXT_*+ like the two real ext codes, since it has no Rust-side mirror
-      # and must stay outside the wire-symmetry inventory.
+      # +EXT_*+ like the two real ext codes, since it has no Rust-side mirror.
       UNREPRESENTABLE_GUARD_ID = 0x7F
       private_constant :UNREPRESENTABLE_GUARD_ID
 

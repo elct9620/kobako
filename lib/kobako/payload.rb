@@ -13,7 +13,7 @@ module Kobako
   # a routing field.
   #
   # +Kobako::Payload::Arguments+ is the wire-symmetric peer of
-  # +kobako_codec::payload::Arguments+.
+  # +kobako_codec::msgpack::Arguments+.
   module Payload
   end
 end
