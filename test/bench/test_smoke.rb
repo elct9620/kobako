@@ -50,6 +50,40 @@ class KobakoBenchSmokeTest < Minitest::Test
                  "its eleven-sample floor would cost more than the smoke pass it rides on"
   end
 
+  def test_a_one_shot_median_under_smoke_prepares_and_runs_once
+    setups = calls = 0
+    runner = smoking do
+      Runner.new("t").tap do |r|
+        r.one_shot_median("a", rounds: 5, setup: -> { setups += 1 }) { calls += 1 }
+      end
+    end
+
+    assert_equal [1, 1, "smoke"], [setups, calls, runner.results.last[:mode]],
+                 "one_shot_median under KOBAKO_BENCH_SMOKE must prepare and run its body once and " \
+                 "record a smoke row, so per-round setup costs the gate nothing beyond one pass"
+  end
+
+  def test_a_one_shot_median_outside_smoke_prepares_every_round
+    prepared = []
+    runner = silently do
+      Runner.new("t").tap do |r|
+        r.one_shot_median("a", rounds: 3, setup: -> { Object.new }) { |state| prepared << state }
+      end
+    end
+
+    assert_equal [3, "one_shot", 3], [prepared.uniq.size, *runner.results.last.values_at(:mode, :rounds)],
+                 "one_shot_median with no KOBAKO_BENCH_SMOKE must run every round on its own fresh setup " \
+                 "and record the median as a one-shot row"
+  end
+
+  def test_a_one_shot_under_smoke_records_no_measurement
+    runner = smoking { Runner.new("t").tap { |r| r.one_shot("a") { nil } } }
+
+    assert_nil runner.results.last[:seconds],
+               "a one_shot under KOBAKO_BENCH_SMOKE must record no seconds, so a smoked row cannot " \
+               "be read as a measurement"
+  end
+
   def test_a_smoked_run_writes_no_results_file
     written = Dir.mktmpdir do |dir|
       smoked_write_into(dir)

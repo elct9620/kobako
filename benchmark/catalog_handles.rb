@@ -51,12 +51,14 @@ end
 batch_table = nil
 batch_obj = Object.new
 [1_000, 10_000, 100_000, 1_000_000].each do |target|
-  samples = Array.new(5) do
+  grow = lambda do
     batch_table = Kobako::Catalog::Handles.new
     (target - 1000).times { batch_table.alloc(batch_obj) }
-    runner.time_once { 1000.times { batch_table.alloc(batch_obj) } }
+    batch_table
   end
-  runner.record_one_shot("5b-alloc-1000-at-size-#{target}", Kobako::Bench::Stats.median(samples), rounds: 5)
+  runner.one_shot_median("5b-alloc-1000-at-size-#{target}", rounds: 5, setup: grow) do |table|
+    1000.times { table.alloc(batch_obj) }
+  end
 end
 
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
