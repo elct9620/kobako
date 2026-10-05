@@ -18,7 +18,7 @@ class TestPoolRecovery < Minitest::Test
     assert_raises(Kobako::TimeoutError) { pool.with { |sandbox| sandbox.eval("loop do end") } }
     pool.with do |sandbox|
       refute_same constructed.first, sandbox,
-                  "a checkout after a TrapError must never receive the unrecoverable Sandbox"
+                  "a checkout after a TrapError through Pool#with must never receive the Sandbox that trapped"
       assert_equal 1, sandbox.eval("1").value, "the refilled Sandbox must invoke normally"
     end
     assert_equal 2, constructed.size, "the discarded slot must refill via a fresh construction"

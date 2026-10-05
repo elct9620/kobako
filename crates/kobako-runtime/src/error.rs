@@ -29,8 +29,7 @@ pub enum Trap {
 /// the runtime's state so a frontend can attribute the failure:
 /// `ModuleNotBuilt` (the guest artifact is absent), `Dead` (the runtime
 /// could not be constructed), and `Intact` (the runtime is live but a
-/// host-side pre-call step failed, so no discard-and-recreate recovery is
-/// owed).
+/// host-side pre-call step failed before the engine ran).
 ///
 /// Non-exhaustive, as `Trap`: a frontend maps each state onto its own
 /// class, and a later state must not break that match.

@@ -11,8 +11,8 @@ module Kobako
   # and holds the optional block as the per-Sandbox setup hook; a
   # checkout prefers an idle Sandbox and constructs a new one only when
   # none is idle and fewer than +slots+ exist. +#with+ blocks up
-  # to +checkout_timeout+ seconds when every slot is held, applies
-  # the +TrapError+ discard-and-recreate contract at checkin, and
+  # to +checkout_timeout+ seconds when every slot is held, discards at
+  # checkin a Sandbox whose holder raised +TrapError+, and
   # the Pool releases everything with its own reachability — there is no
   # teardown verb.
   class Pool
@@ -43,9 +43,8 @@ module Kobako
     # block's value. Blocks while every slot is held; raises
     # +Kobako::PoolTimeoutError+ once the wait exceeds +checkout_timeout+.
     # The Sandbox returns to the pool at block exit — unless the block raised
-    # +Kobako::TrapError+, in which case the unrecoverable Sandbox is
-    # discarded and its slot refills by a fresh construction on next
-    # demand.
+    # +Kobako::TrapError+, in which case that Sandbox is discarded and its
+    # slot refills by a fresh construction on next demand.
     def with
       sandbox = acquire
       begin

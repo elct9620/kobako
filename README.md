@@ -229,7 +229,7 @@ Every invocation either returns an Execution or raises exactly one of three clas
 begin
   sandbox.eval(script)
 rescue Kobako::TrapError
-  # Wasm engine fault or cap exhaustion. Discard the Sandbox.
+  # Wasm engine fault or cap exhaustion. The invocation is over.
 rescue Kobako::ServiceError
   # A host Service call failed and the script did not rescue it.
 rescue Kobako::SandboxError => e

@@ -77,8 +77,8 @@ pub(super) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {
         SetupError::ModuleNotBuilt(msg) => error_in(ruby, &MODULE_NOT_BUILT_ERROR, msg),
         SetupError::Dead(msg) => error_in(ruby, &SETUP_ERROR, msg),
         // Runtime intact means a host-side pre-call fault attributed to
-        // the sandbox / wire layer, not the engine — no
-        // discard-and-recreate recovery is owed, so never a TrapError.
+        // the sandbox / wire layer: the engine never ran, so never a
+        // TrapError.
         SetupError::Intact(msg) => error_in(ruby, &SANDBOX_ERROR, msg),
         // An unrecognised state is one this frontend cannot promise is
         // recoverable, so it takes the same class as `Dead`.

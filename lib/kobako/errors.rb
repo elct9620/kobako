@@ -45,24 +45,22 @@ module Kobako
   #   * MemoryLimitError — guest +memory.grow+ would exceed
   #                          +memory_limit+.
   #
-  # Host Apps that only care about "guest is unrecoverable, discard the
-  # Sandbox" can rescue +TrapError+ and ignore the subclass; Host Apps that
-  # want to surface a specific reason to operators can rescue the subclass
-  # first.
+  # Host Apps that only care that the engine stopped the guest rescue
+  # +TrapError+ and ignore the subclass; Host Apps that surface a specific
+  # reason to operators rescue the subclass first.
   class TrapError < Error
     include CarriesExecution
   end
 
   # Wall-clock timeout cap exhausted: the absolute deadline
   # +entry_time + timeout+ passed and the next guest wasm safepoint
-  # trapped. The Sandbox is unrecoverable after this point; discard and
-  # recreate before another execution.
+  # trapped. The next invocation on the same Sandbox runs under a fresh
+  # deadline.
   class TimeoutError < TrapError; end
 
   # Linear-memory cap exhausted: a guest +memory.grow+ would have pushed
-  # linear memory past the configured +memory_limit+. The Sandbox is
-  # unrecoverable after this point; discard and recreate before another
-  # execution.
+  # linear memory past the configured +memory_limit+. The next invocation
+  # on the same Sandbox measures its budget afresh.
   class MemoryLimitError < TrapError; end
 
   # Construction-layer error raised by +Kobako::Sandbox.new+ /
@@ -72,8 +70,7 @@ module Kobako
   # engine / linker / instantiation setup failure. Construction
   # is not an invocation, so +SetupError+ sits beside the invocation
   # taxonomy under +Kobako::Error+ rather than under +TrapError+: no
-  # Sandbox is produced, so the +TrapError+ "discard and recreate"
-  # recovery contract does not apply.
+  # Sandbox is produced.
   class SetupError < Error; end
 
   # The named +SetupError+ subclass for the common, actionable case:
