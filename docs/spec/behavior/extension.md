@@ -14,6 +14,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 
 - `test/unit/catalog/test_extensions.rb`
 - `test/e2e/test_install.rb`
+- `test/e2e/test_install_concurrency.rb`
 - `test/parity/test_install.rb`
 - `crates/kobako/src/extension.rs`
 - `crates/kobako/tests/install.rs`
@@ -377,3 +378,11 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | Given | a bound Service the guest code calls first |
 | When | an invocation runs |
 | Then | the Service is never called |
+
+## `EX-048` Concurrent invocations each receive their own provider object
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose installed Extension resolves its backend through a provider |
+| When | several invocations hold their backend at once |
+| Then | each keeps its own object and none sees another's |

@@ -23,6 +23,14 @@ Hand-written text-format modules that pass the ABI version check yet cannot beco
 | `minimal_unlinkable.wat` | link — it imports a function no host provides |
 | `minimal_uninstantiable.wat` | instantiation — its start function traps |
 
+## `minimal_trap_after_result.wat`
+
+`minimal_null_guest.wat` with both entry points replaced by `unreachable`. Its Outcome buffer still holds a well-formed nil Result, so a host that read the buffer after a trap would answer nil where the invocation trapped. Update its `i32.const` ABI version by hand on a bump.
+
+```wat
+(func (export "__kobako_eval") unreachable)
+```
+
 ## `minimal_null_guest.wat`
 
 Hand-written text-format module that satisfies the whole invocation ABI and does nothing else: both entry points ignore their input and `__kobako_take_outcome` answers a constant nil Result (`0x01 0xc0` — the fixed layout's result tag, then the payload codec's nil). Unlike the fixtures above it exists for measurement rather than for a behaviour branch: `benchmark/host_invocation.rb` drives it so the host's per-invocation cost is the total rather than a subtraction of two near-equal numbers. `test/e2e/sandbox/test_null_guest.rb` keeps it honest. Update its `i32.const` ABI version by hand on a bump, same as `minimal_abi_ok.wat`.

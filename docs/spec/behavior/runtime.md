@@ -532,3 +532,27 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Given | an artifact that cannot be read, one the engine cannot link, and one it cannot instantiate |
 | When | a Sandbox is built over each |
 | Then | each fails as a construction failure at the step it cannot pass |
+
+## `RT-064` The host links nothing beyond the dispatch entry
+
+| Step | Statement |
+| --- | --- |
+| Given | an artifact importing one host function besides the dispatch entry |
+| When | a Sandbox is built over it at either posture |
+| Then | the import is unknown and construction fails |
+
+## `RT-065` Invocations at once each capture only their own output
+
+| Step | Statement |
+| --- | --- |
+| Given | several Threads each writing a marker of its own to both channels |
+| When | they invoke at once, on one shared Sandbox or on one each |
+| Then | each capture holds only its own invocation's marker |
+
+## `RT-066` A shared Service is not serialized
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox shared across Threads with one Service bound |
+| When | two invocations call it at once |
+| Then | both are inside the Service at the same time |

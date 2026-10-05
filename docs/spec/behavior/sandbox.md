@@ -29,6 +29,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 - `test/e2e/test_preload*.rb`
 - `test/e2e/test_io_streams.rb`
 - `test/e2e/test_io_dispatch.rb`
+- `test/e2e/sandbox/test_deadline_host_time.rb`
 - `test/e2e/test_execution.rb`
 - `test/e2e/test_outcome_values.rb`
 - `test/e2e/test_canonical_boot.rb`
@@ -1381,3 +1382,19 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a Sandbox with a bound Service and a preloaded snippet calling it at its top level |
 | When | an invocation replays the snippet |
 | Then | the call reaches the Service |
+
+## `S-169` The deadline never interrupts host code
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Service runs past the deadline |
+| When | guest code calls it |
+| Then | the Service completes and the run is cut short once control returns to the guest |
+
+## `S-170` A Service's time counts against the deadline
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Service takes a measurable time |
+| When | guest code calls it |
+| Then | that time counts toward the deadline and toward the wall time the run reports |

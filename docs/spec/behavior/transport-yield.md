@@ -431,3 +431,19 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | Given | a Sandbox with a Service yielding twice |
 | When | the block ends once with `next` and a value and once by falling through |
 | Then | each yield receives the value its block ended with |
+
+## `T-248` Time around a yield counts against the deadline
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Service spends past the deadline before yielding |
+| When | guest code calls it with a block that does nothing |
+| Then | the invocation ends at the deadline |
+
+## `T-249` Memory a yielded block grows counts against the budget
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Service yields to a block that grows memory |
+| When | the budget is too small for what the block grows |
+| Then | the invocation ends as a trap, though a larger budget lets the same block finish |

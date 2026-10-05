@@ -22,6 +22,7 @@ One block here is deliberately written in one frontend's own names: the ancestry
 - `test/unit/values/test_error_class_hierarchy.rb`
 - `test/parity/test_errors.rb`
 - `test/e2e/test_caps.rb`
+- `test/e2e/sandbox/test_trap_over_result.rb`
 - `crates/kobako-wasmtime/src/invocation.rs`
 - `crates/kobako-wasmtime/src/trap.rs`
 - `crates/kobako/src/execution.rs`
@@ -364,3 +365,11 @@ One block here is deliberately written in one frontend's own names: the ancestry
 | Given | each class a yield site can fail as |
 | When | one is raised |
 | Then | it carries no Execution, since no invocation has settled |
+
+## `OC-050` A trap outranks a result already written
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest that wrote a well-formed result and then trapped |
+| When | either invocation verb runs it |
+| Then | the invocation settles as a trap |
