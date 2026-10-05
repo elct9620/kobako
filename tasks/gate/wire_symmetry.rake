@@ -16,11 +16,9 @@
 # round-trip fuzz (+test/fuzz/test_guest_value_fuzz.rb+). The comparator's
 # unit coverage rides the test suite (+test/tasks/test_wire_symmetry.rb+).
 
-require_relative "../support/anchors"
 require_relative "../support/wire_symmetry"
 require_relative "../support/report"
 
-WIRE_SYMMETRY_ROOT = File.expand_path("../..", __dir__)
 WIRE_SYMMETRY_DOC = "docs/wire-contract.md"
 # Every inventory scans its whole tier — façade file plus the recursive
 # subtree — so a codec-bearing type that moves within the tier cannot
@@ -37,8 +35,8 @@ WIRE_RUST_TRANSPORT = FileList["crates/kobako-codec/src/**/transport*.rs",
 # Both sides' inventories, keyed for +KobakoWireSymmetry.violations+.
 def wire_symmetry_inventories
   {
-    ruby_types: KobakoWireSymmetry.ruby_types(KobakoAnchors.read_sources(WIRE_RUBY_TRANSPORT, WIRE_SYMMETRY_ROOT)),
-    rust_types: KobakoWireSymmetry.rust_types(KobakoAnchors.read_sources(WIRE_RUST_TRANSPORT, WIRE_SYMMETRY_ROOT))
+    ruby_types: KobakoWireSymmetry.ruby_types(WIRE_RUBY_TRANSPORT.to_h { |path| [path, File.read(path)] }),
+    rust_types: KobakoWireSymmetry.rust_types(WIRE_RUST_TRANSPORT.to_h { |path| [path, File.read(path)] })
   }
 end
 
