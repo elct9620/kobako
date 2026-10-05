@@ -17,6 +17,11 @@ use crate::codec::CodecError;
 /// a guest frame reaches it through `Kobako` instead of by name.
 pub(crate) const TRANSPORT_ERROR: &str = "Kobako::Transport::Error";
 
+/// The wording a Run whose envelope does not frame fails under. It differs
+/// from every refusal of the Run's arguments, so a host reading the Panic
+/// can tell a framing desync from a payload the codec could not read.
+pub(crate) const UNFRAMED_RUN: &str = "failed to decode the invocation request";
+
 /// A place a payload codec is asked to carry a value across.
 ///
 /// Two of these — a block's return and its `break` value — share one

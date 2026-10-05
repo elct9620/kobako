@@ -74,9 +74,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     let run = match Run::decode(env) {
         Ok(run) => run,
         Err(_) => {
-            return write_panic(boot::transport_panic(
-                "failed to decode the invocation request",
-            ));
+            return write_panic(boot::transport_panic(crate::refusal::UNFRAMED_RUN));
         }
     };
     let arguments = match G::Codec::decode_run_arguments(&kobako, &run.payload) {
