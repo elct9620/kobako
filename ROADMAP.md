@@ -1,12 +1,8 @@
 # Roadmap
 
-kobako is a Ruby gem providing an in-process Wasm sandbox for untrusted mruby
-code: a wasmtime host runs a precompiled `kobako.wasm` guest, with host↔guest
-Transport over a MessagePack wire. Features cover one-shot `#eval`, preload +
-`#run` dispatch, Service injection at constant-path names, opaque
-Capability Handles, block yield re-entry, three-class error attribution,
-output capture, a warm Sandbox pool, Extension installation, and
-host-parallel execution.
+kobako runs untrusted mruby code in an in-process Wasm sandbox. A wasmtime
+host drives a precompiled `kobako.wasm` guest over a MessagePack wire. Each
+row below links a feature to its scenarios and to where its code starts.
 
 | Feature | Entry Points | Notes |
 |---------|-------------|-------|
@@ -15,11 +11,11 @@ host-parallel execution.
 | ✅ [Synchronous mruby source execution (`#eval`)](docs/spec/behavior/sandbox.md) | [lib/kobako/sandbox.rb](lib/kobako/sandbox.rb) | — |
 | ✅ [Guest-initiated Transport dispatch](docs/spec/behavior/transport-dispatch.md) | [lib/kobako/transport/dispatcher.rb](lib/kobako/transport/dispatcher.rb) | — |
 | ✅ [Capability Handle encoding and referencing](docs/spec/behavior/transport-dispatch.md) | [lib/kobako/catalog/handles.rb](lib/kobako/catalog/handles.rb) | — |
-| ✅ [Three-class error attribution and raising](docs/spec/behavior/outcome.md) | [lib/kobako/outcome.rb](lib/kobako/outcome.rb) | A guest-entry decode failure is exercised only through its payload half; a Run envelope that does not frame is not reachable through the public API |
+| ✅ [Three-class error attribution and raising](docs/spec/behavior/outcome.md) | [lib/kobako/outcome.rb](lib/kobako/outcome.rb) | Run decode failure witnessed on its payload half only |
 | ✅ [Guest output capture](docs/spec/behavior/sandbox.md) | [lib/kobako/capture.rb](lib/kobako/capture.rb) | — |
-| ✅ [Host–guest message codec](docs/wire-codec.md) | [crates/kobako-transport/](crates/kobako-transport/) (core envelope + ABI, one implementation), [lib/kobako/codec/](lib/kobako/codec/) (host payload codec) | The payload layer has a second implementation in `crates/kobako-codec`; the envelope layer is pinned by golden vectors instead |
+| ✅ [Host–guest message codec](docs/wire-codec.md) | [crates/kobako-transport/](crates/kobako-transport/) (core envelope + ABI, one implementation), [lib/kobako/codec/](lib/kobako/codec/) (host payload codec) | Payload has a second peer in `crates/kobako-codec`; envelope pinned by golden vectors |
 | ✅ [Reproducible build pipeline](SPEC.md#code-organization) | [tasks/wasm/build.rake](tasks/wasm/build.rake) | Verified by build-time gates (double-bake byte-identity, gemspec whitelist), not `test/` |
-| ✅ [Multi-layer test and benchmark suite](SPEC.md#testing-style) | [test/](test/) | Benchmarks live in [benchmark/](benchmark/) with the gate in `tasks/bench/`; the anchor baseline advances only by deliberate re-bless |
+| ✅ [Multi-layer test and benchmark suite](SPEC.md#testing-style) | [test/](test/), [benchmark/](benchmark/) | Bench gate in `tasks/bench/`; anchor moves only by re-bless |
 | ✅ [Guest block reception and yield re-entry](docs/spec/behavior/transport-yield.md) | [lib/kobako/transport/yielder.rb](lib/kobako/transport/yielder.rb) | — |
 | ✅ [Snippet preloading (`#preload`)](docs/spec/behavior/sandbox.md) | [lib/kobako/catalog/snippets.rb](lib/kobako/catalog/snippets.rb) | — |
 | ✅ [Synchronous entrypoint dispatch (`#run`)](docs/spec/behavior/sandbox.md) | [lib/kobako/sandbox.rb](lib/kobako/sandbox.rb) | — |
