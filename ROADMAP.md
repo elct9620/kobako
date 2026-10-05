@@ -15,7 +15,7 @@ row below links a feature to its scenarios and to where its code starts.
 | ✅ [Guest output capture](docs/spec/behavior/sandbox.md) | [lib/kobako/capture.rb](lib/kobako/capture.rb) | — |
 | ✅ [Host–guest message codec](docs/wire-codec.md) | [crates/kobako-transport/](crates/kobako-transport/) (core envelope + ABI, one implementation), [lib/kobako/codec/](lib/kobako/codec/) (host payload codec) | Payload has a second peer in `crates/kobako-codec`; envelope pinned by golden vectors |
 | ✅ [Reproducible build pipeline](SPEC.md#code-organization) | [tasks/wasm/build.rake](tasks/wasm/build.rake) | Verified by build-time gates (double-bake byte-identity, gemspec whitelist), not `test/` |
-| ✅ [Multi-layer test and benchmark suite](SPEC.md#testing-style) | [test/](test/), [benchmark/](benchmark/) | Bench gate in `tasks/bench/`; anchor moves only by re-bless |
+| ✅ [Test and benchmark suite](benchmark/README.md) | [test/](test/), [benchmark/](benchmark/) | Bench gate in `tasks/bench/`; anchor moves only by re-bless |
 | ✅ [Guest block reception and yield re-entry](docs/spec/behavior/transport-yield.md) | [lib/kobako/transport/yielder.rb](lib/kobako/transport/yielder.rb) | — |
 | ✅ [Snippet preloading (`#preload`)](docs/spec/behavior/sandbox.md) | [lib/kobako/catalog/snippets.rb](lib/kobako/catalog/snippets.rb) | — |
 | ✅ [Synchronous entrypoint dispatch (`#run`)](docs/spec/behavior/sandbox.md) | [lib/kobako/sandbox.rb](lib/kobako/sandbox.rb) | — |
