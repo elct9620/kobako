@@ -417,3 +417,67 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 | Given | a Sandbox over the JSON-capable Guest Binary with a Service bound at a name |
 | When | guest code generates from a Hash keyed by that bound constant |
 | Then | a generator error is raised without the Service being called |
+
+## `JS-051` A nil key is written as its string form
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| When | guest code generates from a Hash keyed by nil |
+| Then | the key is written as its string form |
+
+## `JS-052` A boolean key is written as its string form
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| When | guest code generates from a Hash keyed by true and false |
+| Then | each key is written as its string form |
+
+## `JS-053` A plain object key is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| When | guest code generates from a Hash keyed by a plain object |
+| Then | a generator error is raised |
+
+## `JS-054` An opted-in object is still refused as a key
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| When | guest code generates from a Hash keyed by an object that opted in through the serialization hook |
+| Then | a generator error is raised |
+
+## `JS-055` Looking serializable is not opting in
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| When | guest code generates from an object answering `respond_to?`, or the array or hash conversion, without the hook |
+| Then | a generator error is raised |
+
+## `JS-056` What the hook answers is held to the depth bound
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| When | guest code generates from an object whose hook answers a value nested past the bound |
+| Then | a generator error is raised |
+
+## `JS-057` Both error classes share one root
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| When | guest code reads the ancestry of the parser and generator errors |
+| Then | both descend from `JSON::JSONError`, itself a `StandardError` |
+
+## `JS-058` Only a JSON-capable Guest Binary defines the surface
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary and one over the default Guest Binary |
+| When | guest code looks for `JSON` on each |
+| Then | only the JSON-capable one defines it |
