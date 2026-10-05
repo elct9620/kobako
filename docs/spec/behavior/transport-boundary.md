@@ -28,6 +28,7 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 - `test/unit/transport/test_dispatcher_narrowing.rb`
 - `test/unit/transport/test_dispatcher_callables.rb`
 - `test/unit/transport/test_dispatcher_singletons.rb`
+- `test/unit/transport/test_exposure.rb`
 - `test/parity/test_reflection.rb`
 - `test/unit/values/test_handle.rb`
 - `crates/kobako/src/dispatch.rs`
@@ -618,3 +619,27 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | Given | a bound object whose narrowing predicate permits a name it inherits |
 | When | the guest calls that name |
 | Then | the inherited method answers |
+
+## `T-256` A forwarder that narrows itself is asked rather than emptied
+
+| Step | Statement |
+| --- | --- |
+| Given | a transparent forwarder defining its own narrowing predicate |
+| When | the guest calls a name that predicate permits |
+| Then | the name is exposed |
+
+## `T-257` An object without reflection of its own still exposes what it defines
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object whose class defines none of the reflection the language usually provides |
+| When | the guest calls a method that class defines |
+| Then | the name is exposed |
+
+## `T-258` A method defined on one object stays with it
+
+| Step | Statement |
+| --- | --- |
+| Given | two objects of one class, one carrying a method defined on the object itself |
+| When | the guest calls that name on each |
+| Then | only the object carrying it exposes the name |

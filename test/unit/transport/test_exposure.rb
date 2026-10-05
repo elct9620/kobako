@@ -42,6 +42,7 @@ class TestExposure < Minitest::Test
 
   def exposes?(object, name) = Kobako::Transport::Exposure.of(object).exposes?(name)
 
+  # @behavior T-129 T-208
   def test_a_subclass_exposes_its_own_methods_and_accessors_but_not_its_parents
     store = Store.new
 
@@ -51,6 +52,7 @@ class TestExposure < Minitest::Test
     refute exposes?(store, :helper), "a superclass method through Exposure.of must not be exposed"
   end
 
+  # @behavior T-210
   def test_a_platform_method_written_in_ruby_is_built_in_too
     queue = Thread::Queue.new
 
@@ -58,6 +60,7 @@ class TestExposure < Minitest::Test
            "a core method whose source is the platform's own through Exposure.of must not be exposed"
   end
 
+  # @behavior T-227
   def test_only_public_singleton_methods_join_the_surface
     object = Object.new
     def object.ping = :pong
@@ -67,6 +70,7 @@ class TestExposure < Minitest::Test
     refute exposes?(object, :hidden), "a protected singleton method through Exposure.of must not be exposed"
   end
 
+  # @behavior T-126
   def test_a_private_singleton_predicate_narrows_the_object
     object = Store.new
     object.define_singleton_method(:respond_to_guest?) { |name| name == :name }
@@ -76,11 +80,13 @@ class TestExposure < Minitest::Test
     refute exposes?(object, :get), "a name a singleton predicate denies through Exposure.of must not be exposed"
   end
 
+  # @behavior T-215
   def test_answering_every_name_is_not_a_predicate
     refute exposes?(CatchAll.new, :anything),
            "an object whose respond_to_missing? answers every name through Exposure.of must not expose dynamic names"
   end
 
+  # @behavior T-214
   def test_a_forwarder_does_not_borrow_its_targets_predicate
     forwarder = SimpleDelegator.new(Permissive.new)
 
@@ -88,6 +94,7 @@ class TestExposure < Minitest::Test
            "a forwarder in front of a permissive predicate through Exposure.of must expose nothing"
   end
 
+  # @behavior T-256
   def test_a_forwarder_that_narrows_itself_is_asked
     guarded = Class.new(SimpleDelegator) { private def respond_to_guest?(name) = name == :secret }
                    .new(Permissive.new)
@@ -96,10 +103,12 @@ class TestExposure < Minitest::Test
            "a forwarder defining its own predicate through Exposure.of must be asked rather than emptied"
   end
 
+  # @behavior T-257
   def test_a_basic_object_derives_without_its_own_reflection
     assert exposes?(Bare.new, :ping), "a BasicObject's own method through Exposure.of must be exposed"
   end
 
+  # @behavior T-258
   def test_one_table_enumerates_a_class_once_and_still_adds_singletons
     surfaces = {}.compare_by_identity
     plain = Store.new
