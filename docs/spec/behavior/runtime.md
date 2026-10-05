@@ -2,26 +2,6 @@
 
 What the host checks before a guest runs, which posture it builds, and how invocations share a process.
 
-## Includes
-
-- `test/unit/values/test_sandbox_options.rb`
-- `test/e2e/test_threading.rb`
-- `test/e2e/sandbox/test_sandbox.rb`
-- `test/e2e/sandbox/test_sandbox_profile.rb`
-- `test/e2e/sandbox/test_gvl_scheduling.rb`
-- `test/e2e/sandbox/test_gvl_handle_isolation.rb`
-- `test/e2e/runtime/test_runtime.rb`
-- `test/e2e/runtime/test_artifact_cache.rb`
-- `test/e2e/runtime/test_snapshot.rb`
-- `test/e2e/sandbox/test_null_guest.rb`
-- `test/fuzz/test_dispatch_scheduling_fuzz.rb`
-- `test/parity/test_hermetic.rb`
-- `crates/kobako-wasmtime/src/ambient.rs`
-- `crates/kobako-wasmtime/src/frames.rs`
-- `crates/kobako/tests/concurrency.rs`
-- `crates/kobako/tests/runtime_injection.rs`
-- `crates/kobako-runtime/src/profile.rs`
-
 ### Why these scenarios
 
 The runtime is what stands between a request and a guest that runs. Three checks happen before any guest does: the artifact states an ABI version the host implements, the requested isolation posture is one the ladder names, and the posture actually built is not weaker than the one accepted.
@@ -36,27 +16,21 @@ What the runtime hands an invocation back is read here rather than through the S
 
 An artifact that satisfies the whole invocation ABI while doing no guest work is what makes the host's own per-invocation cost measurable as a total. That is a claim about the artifact, so it is held to both verbs and to the capture it leaves — the ways it could satisfy the loader without satisfying the ABI.
 
-### Behaviors without a witness
+## Includes
 
-Invocations running at once, on one Sandbox or on several, each capture only what they wrote.
-
-A Service bound once on a Sandbox shared across Threads may be called by several invocations at once; kobako does not serialize those calls.
-
-Guest code on distinct Threads, each invoking a Sandbox constructed to release the lock, runs in parallel rather than one at a time.
-
-A Sandbox that holds the lock runs no other host Thread while its guest code does.
-
-A reference from an earlier invocation resolves to nothing whether the Sandbox releases the lock or holds it.
-
-An invocation that fails, fails the same way whether its Sandbox releases the lock or holds it.
-
-At either posture the guest reaches no filesystem, environment variable, or network through the WASI layer.
-
-At either posture the Guest Binary's only host import is the dispatch entry.
-
-A deadline that is not finite is refused.
-
-A Guest Binary that cannot be read, or over which the engine cannot link or instantiate, is a construction failure.
+- `test/unit/values/test_sandbox_options.rb`
+- `test/e2e/test_threading.rb`
+- `test/e2e/sandbox/test_sandbox*.rb`
+- `test/e2e/sandbox/test_gvl*.rb`
+- `test/e2e/runtime/*.rb`
+- `test/e2e/sandbox/test_null_guest.rb`
+- `test/fuzz/test_dispatch_scheduling_fuzz.rb`
+- `test/parity/test_hermetic.rb`
+- `crates/kobako-wasmtime/src/ambient.rs`
+- `crates/kobako-wasmtime/src/frames.rs`
+- `crates/kobako/tests/concurrency.rs`
+- `crates/kobako/tests/runtime_injection.rs`
+- `crates/kobako-runtime/src/profile.rs`
 
 ## `RT-001` Threads holding their own Sandboxes hold their own guest state
 

@@ -2,17 +2,6 @@
 
 Which form each value takes on the payload wire, and what a frame that is not one answers.
 
-## Includes
-
-- `test/unit/payload/test_arguments.rb`
-- `test/unit/payload/test_arguments_roundtrip.rb`
-- `test/unit/codec/test_scalars.rb`
-- `test/unit/codec/test_containers.rb`
-- `test/unit/codec/test_ext_types.rb`
-- `test/unit/codec/test_malformed.rb`
-- `test/unit/codec/test_golden_vectors.rb`
-- `crates/kobako-codec/src/msgpack/**/*.rs`
-
 ### Why these scenarios
 
 The boundary this codec keeps — which values it refuses rather than change — is specified with the codec itself. What is here is the other half: the form each accepted value takes, and what a frame that is not a value answers. A caller never sees this half directly, which is exactly why it is declared: the two independent implementations agree only if both read the same table, and a table nobody wrote down is one each side is free to drift from.
@@ -24,6 +13,16 @@ Every encoding tier is witnessed at its bound and just past it, because a tier c
 Round-trips answer for what survives; the refusals answer for what a reader is handed by something that is not this writer. Those are separate observations even where one value reaches both — a reference the writer would never emit with a zero identifier still arrives with one when the bytes were built by hand.
 
 Two asymmetries are declared as they are rather than as they should be. One writer carries no bound of its own and will emit nesting its own reader refuses, because the library beneath it bounds the reader alone; nothing crosses that should not, since every position that hands this writer a value measures it against the bound first, and the writer at the other end carries the bound itself. And a value nesting without end — a list or a map holding itself — is beyond this writer's reach entirely, where the writer at the other end refuses it: this writer's walk runs in frames carrying no guard, so it exhausts the stack rather than answering. Those values are left without a scenario here, since a test that cannot run safely witnesses nothing; they are refused where they are handed over.
+
+## Includes
+
+- `test/unit/payload/*.rb`
+- `test/unit/codec/test_scalars.rb`
+- `test/unit/codec/test_containers.rb`
+- `test/unit/codec/test_ext_types.rb`
+- `test/unit/codec/test_malformed.rb`
+- `test/unit/codec/test_golden_vectors.rb`
+- `crates/kobako-codec/src/msgpack/**/*.rs`
 
 ## `WP-001` An invocation's arguments cross in both positions
 

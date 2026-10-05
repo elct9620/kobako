@@ -2,6 +2,16 @@
 
 How a guest call reaches a host object, what crosses in each direction, and how long a capability reference lasts.
 
+### Why these scenarios
+
+A guest call reaching a host object is the only route outward, so what it carries is witnessed in both directions and at three depths: the walk that decides what the wire can hold, the table that hands out references for what it cannot, and the dispatch that puts them back together.
+
+A reference lasts one invocation and belongs to one Sandbox. Both bounds are witnessed as a receiver and as an argument, because a table consulted on one path and not the other would pass either witness alone. A stale reference has no parity scenario: every invocation begins in a fresh guest, so nothing a scenario runs can present one, and each frontend's table is witnessed on its own.
+
+The two argument kinds are separated by how the guest wrote the call and not by what the value is, so a Hash appears on both sides of that line — as a positional literal, as a splatted keyword map, and as a keyword's value — and each is witnessed.
+
+Everything that answers on the fault arm rather than raising is here, since the dispatcher never raises; what a Host App finally rescues is the error taxonomy's to state.
+
 ## Includes
 
 - `test/unit/transport/test_dispatcher.rb`
@@ -14,9 +24,7 @@ How a guest call reaches a host object, what crosses in each direction, and how 
 - `test/e2e/test_handle_arguments.rb`
 - `test/e2e/test_handle_restoration.rb`
 - `test/e2e/test_handle_proxy.rb`
-- `test/e2e/test_dispatch_args.rb`
-- `test/e2e/test_dispatch_kwargs_partition.rb`
-- `test/e2e/test_dispatch_gc_safety.rb`
+- `test/e2e/test_dispatch*.rb`
 - `test/e2e/test_dsl_composition.rb`
 - `test/e2e/sandbox/test_run_auto_wrap.rb`
 - `test/parity/test_dispatch.rb`
@@ -29,36 +37,6 @@ How a guest call reaches a host object, what crosses in each direction, and how 
 - `crates/kobako/tests/byte_surface.rs`
 - `wasm/kobako-core/src/proxy.rs`
 - `wasm/kobako-core/src/guest.rs`
-
-### Why these scenarios
-
-A guest call reaching a host object is the only route outward, so what it carries is witnessed in both directions and at three depths: the walk that decides what the wire can hold, the table that hands out references for what it cannot, and the dispatch that puts them back together.
-
-A reference lasts one invocation and belongs to one Sandbox. Both bounds are witnessed as a receiver and as an argument, because a table consulted on one path and not the other would pass either witness alone. A stale reference has no parity scenario: every invocation begins in a fresh guest, so nothing a scenario runs can present one, and each frontend's table is witnessed on its own.
-
-The two argument kinds are separated by how the guest wrote the call and not by what the value is, so a Hash appears on both sides of that line — as a positional literal, as a splatted keyword map, and as a keyword's value — and each is witnessed.
-
-Everything that answers on the fault arm rather than raising is here, since the dispatcher never raises; what a Host App finally rescues is the error taxonomy's to state.
-
-### Behaviors without a witness
-
-A reference wrapped from an entrypoint's argument, passed back to a Service as an argument, arrives as the original host object.
-
-An entrypoint that returns a reference — including one wrapped from its own arguments — hands the Host App the original host object.
-
-Running out of references while wrapping an entrypoint's arguments fails the run as a Sandbox failure before the guest runs.
-
-A dispatch refused for a stale reference fails only that call; the invocation's other dispatches still answer.
-
-No host object referenced by a Sandbox's invocations outlives that Sandbox; discarding it releases them all.
-
-An id enters an invocation's Handle table only by delivering its object to the guest, so every id the table holds names an object the guest was handed.
-
-A dispatch the host answers as an internal failure raises the wire-level failure at the guest call site, which the guest may rescue and which, unrescued, fails the invocation as a Sandbox failure.
-
-An argument error a Service raises from inside its own body is reported as an argument failure, the same as a binding mismatch.
-
-Guest code rescuing a Service failure by its base class also catches a call that reached no Service and one whose arguments did not fit.
 
 ## `T-001` An answer the wire cannot carry becomes a reference to it
 

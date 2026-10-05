@@ -2,21 +2,6 @@
 
 What one invocation's result settles into, which side it is attributed to, and which class a Host App rescues it as.
 
-## Includes
-
-- `test/unit/outcome/test_attribution.rb`
-- `test/unit/outcome/test_decoding.rb`
-- `test/unit/outcome/test_value_sharing.rb`
-- `test/unit/values/test_error_class_hierarchy.rb`
-- `test/parity/test_errors.rb`
-- `test/e2e/test_caps.rb`
-- `crates/kobako-wasmtime/src/invocation.rs`
-- `crates/kobako-wasmtime/src/trap.rs`
-- `crates/kobako/src/execution.rs`
-- `crates/kobako/src/error.rs`
-- `crates/kobako/src/msgpack/execution.rs`
-- `wasm/kobako-mruby/src/flows/boot.rs`
-
 ### Why these scenarios
 
 Every invocation writes exactly one Outcome, so what a Host App can do about a failure is decided entirely here: whether the Sandbox is still usable, whose mistake it was, and which class the rescue has to name. The scenarios follow that decision in the order it is made — the arm, then the origin, then the class the guest named.
@@ -27,13 +12,22 @@ Two arms carry no record at all — nothing written, and bytes the envelope cann
 
 The class hierarchy is asserted as relations rather than through failures. A Host App writes one rescue and expects it to cover a family; what makes that true is the shape of the tree, which no single failure shows.
 
-The parity scenarios settle that both frontends attribute the same origin, not that either is right — what is right is stated by the scenarios above. The one trap they cannot stage is an engine trap no cap caused: the guest turns runaway recursion into an exception of its own, so no scenario either frontend can run reaches one, and each frontend routes it under its own witness.
+The parity scenarios settle that both frontends attribute the same origin, not that either is right — what is right is stated by the attribution scenarios. The one trap they cannot stage is an engine trap no cap caused: the guest turns runaway recursion into an exception of its own, so no scenario either frontend can run reaches one, and each frontend routes it under its own witness.
 
 One block here is deliberately written in one frontend's own names: the ancestry scenarios say what the Ruby gem's error classes descend from, which is a promise that frontend makes and no other can answer for. Everything else states the attribution itself, so either frontend's tests witness it in its own spelling.
 
-### Behaviors without a witness
+## Includes
 
-A trap settles the invocation as a trap even when the guest had already written a result.
+- `test/unit/outcome/*.rb`
+- `test/unit/values/test_error_class_hierarchy.rb`
+- `test/parity/test_errors.rb`
+- `test/e2e/test_caps.rb`
+- `crates/kobako-wasmtime/src/invocation.rs`
+- `crates/kobako-wasmtime/src/trap.rs`
+- `crates/kobako/src/execution.rs`
+- `crates/kobako/src/error.rs`
+- `crates/kobako/src/msgpack/execution.rs`
+- `wasm/kobako-mruby/src/flows/boot.rs`
 
 ## `OC-001` A guest that wrote nothing costs the Sandbox
 

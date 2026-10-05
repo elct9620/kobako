@@ -2,14 +2,6 @@
 
 What a String does when a pattern is handed to it — searching, splitting, substituting, and rewriting in place.
 
-## Includes
-
-- `test/e2e/regexp/test_string_methods.rb`
-- `test/e2e/regexp/test_string_split.rb`
-- `test/e2e/regexp/test_string_substitution.rb`
-- `test/e2e/regexp/test_string_mutation.rb`
-- `test/e2e/regexp/test_substitution_errors.rb`
-
 ### Why these scenarios
 
 A String handed a pattern searches, splits, substitutes or rewrites itself. Each of those takes the same pattern and answers differently, so each is witnessed separately, and where a String argument reaches the same method the scenario says the ordinary behavior still stands — the pattern surface layers over the language's own rather than replacing it.
@@ -18,23 +10,10 @@ Splitting and scanning disagree deliberately about a group that did not take par
 
 Replacement text is a small language of its own, so its scenarios cover what expands, what stays literal, and what is refused — a name no group carries, and a name marker with no name behind it.
 
-### Behaviors without a witness
+## Includes
 
-Single substitution with a Hash replacement replaces the first match with the value it maps to.
-
-A doubled backslash in a replacement writes one literal backslash.
-
-Where the guest composes Enumerator support, global substitution with neither a block nor a replacement answers an Enumerator over the matches.
-
-Scanning resumes after each match, so the matches it collects never overlap.
-
-Scanning with a block answers the String it scanned.
-
-Splitting on a pattern with no limit, or a limit of zero, drops the trailing empty fields.
-
-Asking a String whether it matches a pattern answers true or false, as the pattern's predicate does.
-
-The slice alias answers as indexing does when handed a pattern.
+- `test/e2e/regexp/test_string*.rb`
+- `test/e2e/regexp/test_substitution_errors.rb`
 
 ## `RX-118` Matching a String answers a match with its captures
 

@@ -2,19 +2,6 @@
 
 What the payload codec will carry between host and guest, and what it refuses rather than change on the way.
 
-## Includes
-
-- `test/unit/codec/test_handle_walk_nesting.rb`
-- `test/unit/codec/test_unrepresentable_guard.rb`
-- `test/unit/codec/test_track_handles.rb`
-- `test/e2e/test_byte_fidelity.rb`
-- `test/e2e/test_integer_range.rb`
-- `test/e2e/test_answer_value_refusal.rb`
-- `test/e2e/test_container_forgery.rb`
-- `test/fuzz/test_roundtrip_fuzz.rb`
-- `test/fuzz/test_guest_value_fuzz.rb`
-- `wasm/kobako-mruby/src/refusal.rs`
-
 ### Why these scenarios
 
 A codec that changes a value on the way is worse than one that refuses it, because the caller reads a plausible answer and never learns it was not the one sent. So every refusal here is paired against the value just inside the bound it refuses: an integer at the guest's widest, nesting at the deepest the wire encodes, a keyword name that is text after all.
@@ -27,13 +14,18 @@ Whether a decode carried a capability reference only decides whether a later wal
 
 What the codec does with a value it accepts — which of the eleven type mappings each shape takes, how a length is framed, what a malformed frame answers — is the encoding table rather than the boundary. It is specified with the wire format, and its scenarios are the payload encoding feature's.
 
-### Behaviors without a witness
+## Includes
 
-A dispatch argument nested past the depth the wire encodes, a reference cycle included, is refused at the guest call site.
-
-A block answer or break value nested past the depth the wire encodes, or a `Symbol` whose name is not text, is refused at the yield site rather than carried across.
-
-A Run whose envelope does not frame fails under wording distinct from every refusal of its arguments.
+- `test/unit/codec/test_handle_walk_nesting.rb`
+- `test/unit/codec/test_unrepresentable_guard.rb`
+- `test/unit/codec/test_track_handles.rb`
+- `test/e2e/test_byte_fidelity.rb`
+- `test/e2e/test_integer_range.rb`
+- `test/e2e/test_answer_value_refusal.rb`
+- `test/e2e/test_container_forgery.rb`
+- `test/fuzz/test_roundtrip_fuzz.rb`
+- `test/fuzz/test_guest_value_fuzz.rb`
+- `wasm/kobako-mruby/src/refusal.rs`
 
 ## `CD-001` A Service answer past the guest's integer width is refused
 

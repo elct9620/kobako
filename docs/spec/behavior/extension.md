@@ -2,15 +2,6 @@
 
 What installing a guest idiom with an optional host backend composes, and what stands behind its path.
 
-## Includes
-
-- `test/unit/catalog/test_extensions.rb`
-- `test/e2e/test_install.rb`
-- `test/parity/test_install.rb`
-- `crates/kobako/src/extension.rs`
-- `crates/kobako/tests/install.rs`
-- `crates/kobako/tests/fillable.rs`
-
 ### Why these scenarios
 
 Installing an Extension is observable in two places: what the composition leaves behind — a snippet under one name, a Service under another — and what stands behind that path once an invocation begins, which the kind the backend declares decides. The dependency scenarios cover the third: when that composition is checked, and how little the check asks.
@@ -19,15 +10,14 @@ Installing after the seal, an unmet dependency, and a malformed Extension all ra
 
 The `File` idiom the end-to-end witnesses install is an illustrative fixture — kobako ships no concrete Extension — so no scenario here states what that idiom does, only what installing one produces.
 
-### Behaviors without a witness
+## Includes
 
-A backend declaring a callable as its fixed object binds that callable itself; it is never called as a provider.
-
-Concurrent invocations on one Sandbox each receive their own provider object; none sees another's.
-
-A provider that raises stops its invocation before any guest code runs.
-
-An Extension whose name is not a constant name is refused as a snippet name is, and one whose backend path carries a segment that is not a constant name is refused as a bind is.
+- `test/unit/catalog/test_extensions.rb`
+- `test/e2e/test_install.rb`
+- `test/parity/test_install.rb`
+- `crates/kobako/src/extension.rs`
+- `crates/kobako/tests/install.rs`
+- `crates/kobako/tests/fillable.rs`
 
 ## `EX-001` The idiom becomes a snippet under the Extension's name
 

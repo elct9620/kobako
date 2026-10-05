@@ -2,25 +2,6 @@
 
 The pattern object the guest compiles and matches with, and what it refuses to read.
 
-## Includes
-
-- `test/e2e/regexp/test_regexp_methods.rb`
-- `test/e2e/regexp/test_match_operand.rb`
-- `test/e2e/regexp/test_match_globals.rb`
-- `test/e2e/regexp/test_match_position.rb`
-- `test/e2e/regexp/test_match_block.rb`
-- `test/e2e/regexp/test_kernel.rb`
-- `test/e2e/regexp/test_compile_cache.rb`
-- `test/e2e/regexp/test_regexp_inspect.rb`
-- `test/e2e/regexp/test_regexp_to_s.rb`
-- `test/e2e/regexp/test_object_copy.rb`
-- `test/e2e/regexp/test_pattern_errors.rb`
-- `test/e2e/regexp/test_utf8.rb`
-- `test/e2e/regexp/test_non_utf8.rb`
-- `test/e2e/regexp/test_unicode_gate.rb`
-- `test/e2e/regexp/test_carrier_class.rb`
-- `wasm/kobako-regexp/src/translate.rs`
-
 ### Why these scenarios
 
 Matching happens entirely inside the guest, so what is observable is what a pattern answers and what it refuses. Offsets are bytes throughout, and the scenarios say so wherever a character count would read the same on ASCII and differently on anything else.
@@ -29,45 +10,22 @@ Text that is not text is refused rather than read as empty. An empty subject rep
 
 Memoizing a compiled pattern is meant to be invisible, so its scenarios assert results rather than timings: distinct objects, options as part of the identity, and correct matching past the memo's capacity.
 
-### Behaviors without a witness
+## Includes
 
-A pattern that cannot compile raises `RegexpError` inside the guest, where guest code can rescue it.
-
-A pattern carrying the extended flag reports the extended bit, 2, among its options.
-
-Every whitespace control — tab, vertical tab, form feed and carriage return as well as newline — renders literally when a pattern is inspected.
-
-An inline-flag group spanning the whole source carries its disabled flags into the outer flags as well as its enabled ones.
-
-Two patterns are equal when their source and options are equal, and unequal when either differs.
-
-The quoting alias escapes exactly as escaping does.
-
-Matching, the predicate and the match operator read a `Symbol` subject as its name, as case equality does.
-
-The match operator answers nothing for a subject that is nothing.
-
-Case equality answers false for a subject that is nothing.
-
-Matching from a byte position inside a multibyte character starts at that character's boundary.
-
-A match that finds nothing clears the match global.
-
-After a match that finds nothing, the numbered and special globals hold nothing.
-
-Matching a String against another String through the match form, not only the predicate, is a type error.
-
-A non-pattern argument coerced into a pattern is refused with an argument error when its bytes are not text.
-
-A substitution block answering a String whose bytes are not text is refused with an argument error.
-
-A capture name whose bytes are not text is refused with an argument error.
-
-A pattern with no backreference and no look-around never reaches the backtracking bound, whatever the subject.
-
-A deadline interrupts a match still running, ending the invocation as a trap rather than a pattern error.
-
-Where the language reaches an answer, a match reaches the same answer or fails with the pattern error — never a different answer.
+- `test/e2e/regexp/test_regexp*.rb`
+- `test/e2e/regexp/test_match_operand.rb`
+- `test/e2e/regexp/test_match_globals.rb`
+- `test/e2e/regexp/test_match_position.rb`
+- `test/e2e/regexp/test_match_block.rb`
+- `test/e2e/regexp/test_kernel.rb`
+- `test/e2e/regexp/test_compile_cache.rb`
+- `test/e2e/regexp/test_object_copy.rb`
+- `test/e2e/regexp/test_pattern_errors.rb`
+- `test/e2e/regexp/test_utf8.rb`
+- `test/e2e/regexp/test_non_utf8.rb`
+- `test/e2e/regexp/test_unicode_gate.rb`
+- `test/e2e/regexp/test_carrier_class.rb`
+- `wasm/kobako-regexp/src/translate.rs`
 
 ## `RX-001` The match operator answers where the match starts
 

@@ -2,6 +2,16 @@
 
 What the host refuses to dispatch, and which methods a host object's Exposure lets the guest reach.
 
+### Why these scenarios
+
+The host is the boundary. Every refusal here is witnessed where the host decides it, and the guest-side mirror is witnessed separately as a convenience rather than as the thing that holds — a guest that skipped its own check would still be refused. A reflective object returned from a host method has no parity scenario: only one frontend has such objects to return, so that refusal is witnessed on that frontend alone.
+
+Refusal turns on who owns the method rather than on how it is spelled, so a bound object defining a method whose name matches a refused one is answered by its own. Without that scenario the rule would read as a list of forbidden words.
+
+An Exposure sits beneath the boundary, never above it: an object may close its surface as far as it likes and may not open what the boundary closed. Both directions are witnessed, along with the predicate staying unreachable — a narrowing an object could be asked to describe would be a surface of its own.
+
+An object carrying no narrowing predicate exposes what its own class and the object itself define, and nothing it acquired from elsewhere. The methods a Host App cannot foresee handing over are the ones it never wrote — inherited, mixed in, built into the platform, or forwarded — so the default is drawn around authorship rather than around a list of what is dangerous, and a new source of ambient methods needs no new refusal.
+
 ## Includes
 
 - `test/e2e/test_handle_proxy.rb`
@@ -20,50 +30,6 @@ What the host refuses to dispatch, and which methods a host object's Exposure le
 - `crates/kobako/src/dispatch.rs`
 - `crates/kobako/src/msgpack/receiver.rs`
 - `wasm/kobako-mruby/src/runtime/bridges.rs`
-
-### Why these scenarios
-
-The host is the boundary. Every refusal here is witnessed where the host decides it, and the guest-side mirror is witnessed separately as a convenience rather than as the thing that holds — a guest that skipped its own check would still be refused. A reflective object returned from a host method has no parity scenario: only one frontend has such objects to return, so that refusal is witnessed on that frontend alone.
-
-Refusal turns on who owns the method rather than on how it is spelled, so a bound object defining a method whose name matches a refused one is answered by its own. Without that scenario the rule would read as a list of forbidden words.
-
-An Exposure sits beneath the boundary, never above it: an object may close its surface as far as it likes and may not open what the boundary closed. Both directions are witnessed, along with the predicate staying unreachable — a narrowing an object could be asked to describe would be a surface of its own.
-
-An object carrying no narrowing predicate exposes what its own class and the object itself define, and nothing it acquired from elsewhere. The methods a Host App cannot foresee handing over are the ones it never wrote — inherited, mixed in, built into the platform, or forwarded — so the default is drawn around authorship rather than around a list of what is dangerous, and a new source of ambient methods needs no new refusal.
-
-### Behaviors without a witness
-
-Constructing an instance of a bound proxy, by either construction entry, succeeds in the guest without reaching the host.
-
-A method called on such an instance raises `NoMethodError` in the guest.
-
-A reflective gadget bound as a Service answers none of its own reflective methods, evaluation included.
-
-Every name on the callable allowlist reaches a bound callable, not only the name that calls it.
-
-An ordinary object bound as a Service keeps the singleton methods defined on it reachable; only a bound class or module loses its class-level surface.
-
-A reflective gadget nested inside a container that crossed as a capability reference is refused when the guest extracts it.
-
-A reflective name on a capability reference to a callable is refused like one on a bound callable.
-
-The guest's proxy refuses a reflective name on a capability reference just as it does on a bound constant.
-
-The guest proxy's refusal is a `NoMethodError` the guest may rescue.
-
-A name the narrowing predicate permits but the object has no method for is still refused as an undefined target.
-
-An object narrowed to nothing can still be held by the guest, passed as a dispatch argument, and returned across the boundary.
-
-A narrowed name left unrescued fails as a Service failure.
-
-A subclass of the reference type, or a guest module mixing in the forwarding seam, is refused in the guest before the host is asked.
-
-Reassigning a held reference's identifier through instance evaluation raises `FrozenError`.
-
-A clone of a held reference is frozen too.
-
-A copy of a held reference keeps its identifier and dispatches to the same host object.
 
 ## `T-108` A guest may ask whether a name is reachable
 

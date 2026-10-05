@@ -2,11 +2,6 @@
 
 The walks a Host App takes end to end, each one reaching what it set out for.
 
-## Includes
-
-- `test/e2e/test_journeys.rb`
-- `test/e2e/test_journeys_host_app.rb`
-
 ### Why these scenarios
 
 Every step in these walks is declared somewhere else, and that is the point: what a journey settles is that the steps compose, which no scenario about one step can say. A dispatch that works, a taxonomy that separates, a yield that unwinds and a pool that hands out warm Sandboxes are four correct pieces that still leave a Host App unable to run model-generated code, because composing them is its own thing to get wrong.
@@ -14,6 +9,10 @@ Every step in these walks is declared somewhere else, and that is the point: wha
 So each journey is written as one walk with one destination, and the observation is arrival rather than mechanism. Where a walk has more than one thing to reach — a failure that must both carry a class and carry a backtrace — each is its own scenario, since a walk arriving half way is what a single observation would hide.
 
 The reuse and isolation walks are not here. They are what a Sandbox does between invocations, so they are declared with the Sandbox and witnessed by the lifecycle tests.
+
+## Includes
+
+- `test/e2e/test_journeys*.rb`
 
 ## `J-001` A curated capability answers a generated script
 

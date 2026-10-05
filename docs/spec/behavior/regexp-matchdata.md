@@ -2,13 +2,6 @@
 
 What a successful match hands the guest, and how it is read.
 
-## Includes
-
-- `test/e2e/regexp/test_match_data.rb`
-- `test/e2e/regexp/test_match_data_aref.rb`
-- `test/e2e/regexp/test_match_data_bounds.rb`
-- `test/e2e/regexp/test_regexp_methods.rb`
-
 ### Why these scenarios
 
 A match is a snapshot the guest reads several ways — as a list, by number, by name, and as offsets into the subject. Each reading is witnessed on its own because they are separate accessors over one state, and one of them drifting would not disturb the others.
@@ -17,19 +10,10 @@ The out-of-range readings are errors rather than absences, while a group that wa
 
 A match cannot be constructed. It exists because a pattern matched, which is what makes the offsets it carries mean anything about the subject it names.
 
-### Behaviors without a witness
+## Includes
 
-The end and the offset of a group that did not participate answer nothing, as its beginning does.
-
-Reading a match's beginning, end or offset by a name the pattern never declared is an index error.
-
-A match converted to a String answers the whole match.
-
-A match's length counts the same as its size.
-
-A match answers the subject it was matched against.
-
-Cloning a match carries the same snapshot as duplicating it.
+- `test/e2e/regexp/test_match_data*.rb`
+- `test/e2e/regexp/test_regexp_methods.rb`
 
 ## `RX-095` A match lists the whole match before its captures
 

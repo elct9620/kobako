@@ -2,11 +2,6 @@
 
 The state every invocation starts from, and what a raise inside a capability gem's frame costs.
 
-## Includes
-
-- `test/e2e/test_canonical_boot.rb`
-- `test/e2e/test_capability_exception_safety.rb`
-
 ### Why these scenarios
 
 Two invocations of one artifact begin from the same interpreter state, not merely from a clean one. The heap-slot replay is what settles the difference: an interpreter that reset everything correctly but started somewhere new each time would pass every leak test and fail this one.
@@ -15,17 +10,10 @@ A capability gem servicing one guest operation calls back into guest code, and t
 
 That the boot state may be computed at build time, and that per-invocation resources may be provisioned ahead of demand, are both stated to be unobservable, so neither is a scenario. The reproducible-build check holds the baking end. Leak-freedom between invocations is per-invocation isolation and belongs with the Sandbox behaviors, whose witnesses cite it alongside this one.
 
-### Behaviors without a witness
+## Includes
 
-Two invocations begin from the same interpreter state under the permissive posture as under the hermetic one.
-
-The default Guest Binary defines no time, sleep, or randomness surface for guest code.
-
-A raise inside an output coercion can be rescued by the guest code that called the output method.
-
-A raise inside a Hash replacement's lookup during substitution is a guest exception the caller may rescue, never a trap.
-
-A raise inside a guest-defined JSON serialization hook during generation is a guest exception, never a trap.
+- `test/e2e/test_canonical_boot.rb`
+- `test/e2e/test_capability_exception_safety.rb`
 
 ## `MR-001` Two invocations begin from the same state, not merely a clean one
 

@@ -2,33 +2,19 @@
 
 How a Pool hands out warm Sandboxes, and what a checkout leaves behind.
 
-## Includes
-
-- `test/unit/pool/**/*.rb`
-- `test/e2e/pool/**/*.rb`
-- `test/e2e/test_journeys_host_app.rb`
-
 ### Why these scenarios
 
 A Pool is observable in three places: which Sandbox a checkout receives, how many times the setup block has prepared one, and whether a slot survives what its holder did with it. Each scenario settles one of those and stops.
 
 A rejected constructor argument and an exhausted pool raise rather than answer, so what each settles is the class a Host App rescues.
 
-That a pooled Sandbox satisfies every other behavior identically to a directly constructed one is a claim about the whole corpus rather than a difference one observation settles; the isolation scenarios above are its pool-side witnesses.
+That a pooled Sandbox satisfies every other behavior identically to a directly constructed one is a claim about the whole corpus rather than a difference one observation settles; this feature's isolation scenarios are its pool-side witnesses.
 
-### Behaviors without a witness
+## Includes
 
-A Pool whose checkout bound is nothing waits for a slot however long it takes.
-
-A Sandbox option the Sandbox refuses surfaces unchanged at the checkout whose construction it failed, not when the Pool is built.
-
-A nested checkout counts against the slots like any other holder, so on a Pool whose every slot is held it waits.
-
-A slot a trap emptied is refilled when a checkout next needs it, not when the trapped holder returns.
-
-A checkout that waited past its bound fails as none of the invocation outcomes.
-
-A checkout that timed out leaves every pooled Sandbox as its holder left it.
+- `test/unit/pool/**/*.rb`
+- `test/e2e/pool/**/*.rb`
+- `test/e2e/test_journeys_host_app.rb`
 
 ## `PL-001` Construction builds no Sandbox
 

@@ -2,17 +2,6 @@
 
 What the guest's JSON surface reads, what it writes, and what it refuses to let across.
 
-## Includes
-
-- `test/e2e/json/test_parse.rb`
-- `test/e2e/json/test_parse_integer.rb`
-- `test/e2e/json/test_parse_symbolize.rb`
-- `test/e2e/json/test_generate.rb`
-- `test/e2e/json/test_pretty_generate.rb`
-- `test/e2e/json/test_as_json.rb`
-- `test/e2e/json/test_nesting_depth.rb`
-- `test/e2e/json/test_capability_boundary.rb`
-
 ### Why these scenarios
 
 Reading and writing JSON is compute the guest does on its own, so the scenarios follow what each direction produces and, more importantly, what each refuses. A value with no JSON form is refused rather than approximated: an integer too large to represent exactly, a number that is not finite, bytes that are not text, a key that is not a scalar.
@@ -21,29 +10,9 @@ The boundary scenarios are the reason this surface can be offered at all. Parsin
 
 The depth bound is witnessed on both directions at the same depth, because a reader and a writer that disagree about it would let a document in that cannot be written back out.
 
-### Behaviors without a witness
+## Includes
 
-Only a JSON-capable Guest Binary defines the JSON surface; the default Guest Binary has none.
-
-`JSON::ParserError` and `JSON::GeneratorError` both descend from `JSON::JSONError`, itself a `StandardError`.
-
-Generating from a bound constant raises a generator error without reaching the host.
-
-Calling the serialization hook on a bound constant raises in the guest without reaching the host.
-
-An object answering `respond_to?` or the array or hash conversion methods is still refused unless it opts in through the serialization hook.
-
-What the serialization hook answers is held to the same depth bound as any other value.
-
-A `Hash` key that is nothing is written as its string form.
-
-A `Hash` key that is a boolean is written as its string form.
-
-A bound constant used as a `Hash` key is refused with a generator error, never stringified through the host.
-
-A plain object used as a `Hash` key is refused with a generator error.
-
-An object that opted in through the hook is still refused when it stands as a `Hash` key.
+- `test/e2e/json/*.rb`
 
 ## `JS-001` Every JSON value reads as its native counterpart
 

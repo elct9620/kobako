@@ -2,14 +2,6 @@
 
 The bytes that say where a message goes and how it turned out, and the fixed values both sides must already agree on to read them.
 
-## Includes
-
-- `crates/kobako-transport/src/**/*.rs`
-- `crates/kobako-wasmtime/src/guest_mem.rs`
-- `wasm/kobako-core/src/frames.rs`
-- `crates/kobako/src/snippet.rs`
-- `crates/kobako/src/catalog.rs`
-
 ### Why these scenarios
 
 This is the one tier with a single implementation: the envelope and the ABI's values are defined once and both sides read that definition, so nothing here is witnessed by a second implementation the way the payload wire is. What answers for it instead is the byte layout itself — a fixed-layout field order pinned to specific bytes, so a change that would leave one peer reading a different message cannot pass as a refactor.
@@ -19,6 +11,14 @@ The envelope is readable without a Codec, and the scenarios are written to keep 
 Every field is refused rather than repaired. A length that overruns the message, a count larger than what follows it, a tag outside the set, a flag that is neither of its two values — each is a wire violation, because a reader that repaired one would leave the two peers disagreeing about what was sent. The refusals are declared beside the round-trips because a shape that only round-trips says nothing about what a reader does with bytes this writer would never emit.
 
 Two forward-compatibility rules are declared as behavior rather than left to a version bump: a Fault kind this reader predates still delivers its message, and a field it predates is skipped. They are what lets the reserved and unknown tags elsewhere be refusals — the extension point is named, so everything outside it can be closed.
+
+## Includes
+
+- `crates/kobako-transport/src/**/*.rs`
+- `crates/kobako-wasmtime/src/guest_mem.rs`
+- `wasm/kobako-core/src/frames.rs`
+- `crates/kobako/src/snippet.rs`
+- `crates/kobako/src/catalog.rs`
 
 ## `WE-001` The packed answer carries the pointer high and the length low
 

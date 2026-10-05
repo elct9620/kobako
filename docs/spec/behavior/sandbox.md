@@ -2,6 +2,16 @@
 
 What a Sandbox is built with, what one invocation leaves for the next, and what a run hands back.
 
+### Why these scenarios
+
+A Sandbox is set up once and run many times, so the scenarios fall into what construction fixes, what an invocation may not carry into the next, and what a run hands back. The isolation half is witnessed on both verbs and on their interleaving, because a mechanism that clears state on one entry and not the other passes either single-verb witness.
+
+Captures are read after failures as often as after successes, so the trap paths carry their own scenarios rather than resting on the success ones. What a run wrote before it was cut short is exactly what a Host App triaging the failure has to read.
+
+Everything that raises is a behavior too, settling on the class a Host App rescues and where the failure is attributed. The option checks belong to the runtime that performs them and are specified there; the entrypoint, snippet and preload refusals are here, each witnessed at whatever level shows it. What the registries do internally — how a name is normalized, what order entries keep — no public surface shows, so it is pinned by unit tests and is not a behavior.
+
+The guest-side output surface — how `IO` and the Kernel writers behave inside the guest — belongs to the capability gem that implements it. What is here is the host end: which channel bytes land in, where they stop, and what survives a failure.
+
 ## Includes
 
 - `test/unit/values/test_sandbox_options.rb`
@@ -15,8 +25,7 @@ What a Sandbox is built with, what one invocation leaves for the next, and what 
 - `test/e2e/sandbox/test_usage.rb`
 - `test/e2e/test_caps.rb`
 - `test/e2e/test_lifecycle.rb`
-- `test/e2e/test_preload.rb`
-- `test/e2e/test_preload_bytecode.rb`
+- `test/e2e/test_preload*.rb`
 - `test/e2e/test_io_streams.rb`
 - `test/e2e/test_execution.rb`
 - `test/e2e/test_outcome_values.rb`
@@ -35,54 +44,6 @@ What a Sandbox is built with, what one invocation leaves for the next, and what 
 - `crates/kobako/src/sandbox.rs`
 - `crates/kobako/src/snippet.rs`
 - `crates/kobako/src/catalog.rs`
-
-### Why these scenarios
-
-A Sandbox is set up once and run many times, so the scenarios fall into what construction fixes, what an invocation may not carry into the next, and what a run hands back. The isolation half is witnessed on both verbs and on their interleaving, because a mechanism that clears state on one entry and not the other passes either single-verb witness.
-
-Captures are read after failures as often as after successes, so the trap paths carry their own scenarios rather than resting on the success ones. What a run wrote before it was cut short is exactly what a Host App triaging the failure has to read.
-
-Everything that raises is a behavior too, settling on the class a Host App rescues and where the failure is attributed. The option checks belong to the runtime that performs them and are specified there; the entrypoint, snippet and preload refusals are here, each witnessed at whatever level shows it. What the registries do internally — how a name is normalized, what order entries keep — no public surface shows, so it is pinned by unit tests and is not a behavior.
-
-The guest-side output surface — how `IO` and the Kernel writers behave inside the guest — belongs to the capability gem that implements it. What is here is the host end: which channel bytes land in, where they stop, and what survives a failure.
-
-### Behaviors without a witness
-
-Constructing a Sandbox runs no guest code; nothing is evaluated until the first invocation.
-
-The deadline never interrupts host code: a Service callback running past the deadline completes, and the run is cut short once control returns to the guest.
-
-A Service callback's wall-clock time counts against the invocation's deadline, and the wall time a run reports includes it.
-
-A failure raised by evaluated source names that source as `(eval)` in its backtrace.
-
-The deadline and the memory budget bound an entrypoint run exactly as they bound an evaluation.
-
-What a failed invocation left in guest state is gone at the next entry, as after a successful one.
-
-Evaluating source that has no expression answers nothing.
-
-An entrypoint run captures output on both channels exactly as an evaluation does.
-
-A module, or an instance, that answers `call` is as valid an entrypoint as a `Proc` or a class.
-
-An entrypoint run as the first invocation seals registration exactly as an evaluation does.
-
-A failure raised under an entrypoint run carries no `(eval)` frame; its trailing frame names the entrypoint's snippet.
-
-Frames raised from a bytecode snippet carry whatever filename its producing tool embedded.
-
-A snippet that fails to load at all — source that will not compile, bytecode for another format version, a corrupt body — fails with an empty backtrace, since none of it ran.
-
-Bytecode that fails its structural check fails every later invocation the same way.
-
-An entrypoint whose call returns a value the wire cannot carry fails as a Sandbox failure.
-
-A failure raised by bytecode carrying no debug information keeps its class, message and origin; only the snippet's frames are absent from the backtrace.
-
-A preload refused after the seal leaves the snippets already preloaded replaying unchanged.
-
-Bound Service names are already in place when preloaded snippets replay.
 
 ## `S-001` A Sandbox names the artifact it was built over
 

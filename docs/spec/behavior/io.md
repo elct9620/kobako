@@ -2,11 +2,6 @@
 
 The two descriptors guest code may write to, and the writing surface it reaches them through.
 
-## Includes
-
-- `test/e2e/test_io_write.rb`
-- `test/e2e/test_io_kernel.rb`
-
 ### Why these scenarios
 
 Guest code can write to two descriptors and no others. The constraint is witnessed twice — where a stream is opened and where it is written through — because the descriptor a stream carries is guest-mutable, which makes the opening check a courtesy on its own.
@@ -14,6 +9,11 @@ Guest code can write to two descriptors and no others. The constraint is witness
 The rest is fidelity. Bytes go out as bytes: inline and heap strings alike, zero bytes included, a String unchanged and anything else through its string form. The supplementary surface is spelled out one member at a time because a script written against the mruby IO it mirrors expects each of them, and a single collective assertion would let any one of them drift.
 
 Which channel bytes land in, where they stop, and what survives a failed run are the host end of this surface and belong with the Sandbox behaviors.
+
+## Includes
+
+- `test/e2e/test_io_write.rb`
+- `test/e2e/test_io_kernel.rb`
 
 ## `IO-001` Only the captured descriptors may be opened
 

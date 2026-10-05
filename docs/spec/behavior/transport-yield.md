@@ -2,20 +2,6 @@
 
 What happens when a host Service calls back into the block the guest handed it.
 
-## Includes
-
-- `test/e2e/test_yield.rb`
-- `test/e2e/test_yield_unwind.rb`
-- `test/e2e/test_yield_block_failure.rb`
-- `test/e2e/test_yield_block_spent.rb`
-- `test/e2e/test_yield_value_refusal.rb`
-- `test/unit/transport/test_yielder.rb`
-- `test/parity/test_yield.rb`
-- `crates/kobako/src/dispatch.rs`
-- `crates/kobako/src/yielder.rs`
-- `crates/kobako/src/msgpack/yielder.rs`
-- `crates/kobako/tests/byte_surface.rs`
-
 ### Why these scenarios
 
 A yield turns one dispatch into a conversation: the guest calls out, the host calls back, and either side may end it. The scenarios follow every way that conversation can close — a value, a break, a fall-through, a raise — because each unwinds a different distance.
@@ -24,19 +10,15 @@ The block-failure scenarios are about what a failure leaves behind. A Service th
 
 A block's answer is restored on its way in and a break's value is not, which is the one asymmetry here. The exits that raise are followed too: an unwind aimed past the boundary, an answer the wire cannot carry, and a Yielder reached after its frame returned each end the conversation somewhere the ordinary closes cannot reach. That last exit has no parity scenario: one frontend lends its Yielder for the frame alone, so holding it past the frame does not compile there, and the refusal is witnessed on the frontend that can reach it.
 
-### Behaviors without a witness
+## Includes
 
-A block yielded more arguments than it declares drops the extras, and one yielded fewer receives nothing for the missing ones.
-
-A lambda the guest passed as the block refuses a yield whose argument count it does not accept.
-
-Time spent in a yielded block, and in the Service around it, counts against the invocation's deadline.
-
-Memory a yielded block grows counts against the same per-invocation budget as the rest of the invocation.
-
-A block that ends with `next` answers the yield with that value, as falling through does.
-
-Nested yields carry no depth limit of their own; only the guest's stack bounds them.
+- `test/e2e/test_yield*.rb`
+- `test/unit/transport/test_yielder.rb`
+- `test/parity/test_yield.rb`
+- `crates/kobako/src/dispatch.rs`
+- `crates/kobako/src/yielder.rs`
+- `crates/kobako/src/msgpack/yielder.rs`
+- `crates/kobako/tests/byte_surface.rs`
 
 ## `T-083` A Service can tell that the guest passed it a block
 
