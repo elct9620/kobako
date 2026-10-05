@@ -54,13 +54,13 @@ scenario is pinned per-frontend instead — see What the harness compares.
 
 ## Frontend vocabulary
 
-SPEC's Internal Concepts glossary words each concept against the Ruby
-frontend; the SDK reifies the same concepts under Rust names. One rule
+The [glossary](spec/glossary.md) names each concept once; each frontend
+reifies it under its own language's names. One rule
 keeps the two surfaces coherent: the surface a Service author touches
 keeps the guest-visible word (`block`), while the reified machinery
 carries the concept's own name.
 
-| SPEC concept | Ruby frontend | Rust SDK |
+| Concept | Ruby frontend | Rust SDK |
 |---|---|---|
 | Receiver — the host object a dispatch resolves its target to | any Ruby object, reached through the methods its own class defines under the reflection floor | the `Receiver` trait — one dispatch contract covering bound Services and Handle-allocated objects; a Receiver whose `respond_to_guest` denies every name is opaque |
 | Service — the host object bound at a constant-path name | any Ruby object bound via `bind` (duck-typed) | a `Receiver` bound via `Sandbox::bind` |
