@@ -1,116 +1,16 @@
 ---
 path: ".gem_rbs_collection"
 gems:
-- name: ast
-  version: '2.4'
-  source:
-    type: git
-    name: ruby/gem_rbs_collection
-    revision: 3913b7dffb65bdffdfe5cb9095108f932e85433b
-    remote: https://github.com/ruby/gem_rbs_collection.git
-    repo_dir: gems
 - name: fileutils
   version: '0'
   source:
     type: stdlib
-- name: io-console
-  version: '0'
-  source:
-    type: stdlib
-- name: json
-  version: '0'
-  source:
-    type: stdlib
-- name: language_server-protocol
-  version: 3.17.0.6
-  source:
-    type: rubygems
-- name: lint_roller
-  version: '1.1'
-  source:
-    type: git
-    name: ruby/gem_rbs_collection
-    revision: 3913b7dffb65bdffdfe5cb9095108f932e85433b
-    remote: https://github.com/ruby/gem_rbs_collection.git
-    repo_dir: gems
-- name: minitest
-  version: '5.25'
-  source:
-    type: git
-    name: ruby/gem_rbs_collection
-    revision: 3913b7dffb65bdffdfe5cb9095108f932e85433b
-    remote: https://github.com/ruby/gem_rbs_collection.git
-    repo_dir: gems
-- name: parallel
-  version: '1.20'
-  source:
-    type: git
-    name: ruby/gem_rbs_collection
-    revision: 3913b7dffb65bdffdfe5cb9095108f932e85433b
-    remote: https://github.com/ruby/gem_rbs_collection.git
-    repo_dir: gems
-- name: parser
-  version: '3.2'
-  source:
-    type: git
-    name: ruby/gem_rbs_collection
-    revision: 3913b7dffb65bdffdfe5cb9095108f932e85433b
-    remote: https://github.com/ruby/gem_rbs_collection.git
-    repo_dir: gems
-- name: pp
-  version: '0'
-  source:
-    type: stdlib
-- name: prettyprint
-  version: '0'
-  source:
-    type: stdlib
-- name: prism
-  version: 1.9.0
-  source:
-    type: rubygems
-- name: rainbow
-  version: '3.0'
-  source:
-    type: git
-    name: ruby/gem_rbs_collection
-    revision: 3913b7dffb65bdffdfe5cb9095108f932e85433b
-    remote: https://github.com/ruby/gem_rbs_collection.git
-    repo_dir: gems
 - name: rake
   version: '13.0'
   source:
     type: git
     name: ruby/gem_rbs_collection
-    revision: 3913b7dffb65bdffdfe5cb9095108f932e85433b
-    remote: https://github.com/ruby/gem_rbs_collection.git
-    repo_dir: gems
-- name: rdoc
-  version: '0'
-  source:
-    type: stdlib
-- name: regexp_parser
-  version: '2.8'
-  source:
-    type: git
-    name: ruby/gem_rbs_collection
-    revision: 3913b7dffb65bdffdfe5cb9095108f932e85433b
-    remote: https://github.com/ruby/gem_rbs_collection.git
-    repo_dir: gems
-- name: rubocop
-  version: '1.57'
-  source:
-    type: git
-    name: ruby/gem_rbs_collection
-    revision: 3913b7dffb65bdffdfe5cb9095108f932e85433b
-    remote: https://github.com/ruby/gem_rbs_collection.git
-    repo_dir: gems
-- name: rubocop-ast
-  version: '1.46'
-  source:
-    type: git
-    name: ruby/gem_rbs_collection
-    revision: 3913b7dffb65bdffdfe5cb9095108f932e85433b
+    revision: 33602f9e883980d74ae05833ce76d818a8269f09
     remote: https://github.com/ruby/gem_rbs_collection.git
     repo_dir: gems
 gemfile_lock_path: Gemfile.lock

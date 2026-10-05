@@ -5,8 +5,10 @@ source "https://rubygems.org"
 # Specify your gem's dependencies in kobako.gemspec
 gemspec
 
+# Tooling the Rakefile and tests require by name carries require: false,
+# which is what keeps its signatures out of the RBS collection Steep loads.
 gem "rake", "~> 13.0"
-gem "rake-compiler"
+gem "rake-compiler", require: false
 
 # Vendors the pinned mruby + wasi-sdk toolchains and builds libmruby.a
 # (rake beni:build) against build_config/wasi.rb. Top-level rather than
@@ -14,21 +16,21 @@ gem "rake-compiler"
 # unconditionally, same as rake-compiler above. The gem and the wasm/
 # workspace's `beni` crate release in lockstep, so the two sides pin the
 # same series and move together.
-gem "beni", "~> 0.18.0"
+gem "beni", "~> 0.18.0", require: false
 
 # Dev-only tooling, grouped so a constrained environment can exclude it
 # via BUNDLE_WITHOUT=development. The rb-sys-dock cross-compile container
 # currently resolves the full Gemfile (rake-compiler-dock 1.12 ships
 # Ruby 4.0), so the group is a boundary, not a workaround.
 group :development do
-  gem "irb"
-  gem "minitest", "~> 6.0"
-  gem "rubocop", "~> 1.90"
+  gem "irb", require: false
+  gem "minitest", "~> 6.0", require: false
+  gem "rubocop", "~> 1.90", require: false
 
   # Static type checker. Signatures live in sig/.
   gem "steep", "~> 2.1", require: false
 
   # benchmark-ips drives the regression benchmarks in benchmark/.
   # Dev-only — the gem itself does not depend on it.
-  gem "benchmark-ips", "~> 2.15"
+  gem "benchmark-ips", "~> 2.15", require: false
 end

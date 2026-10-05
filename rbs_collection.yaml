@@ -12,9 +12,3 @@ sources:
 
 # A directory to install the downloaded RBSs
 path: .gem_rbs_collection
-
-gems:
-  # Build tooling the Rakefile drives; nothing Steep checks names it, and
-  # its signatures would pin the collection lock to every release.
-  - name: beni
-    ignore: true
