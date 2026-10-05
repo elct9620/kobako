@@ -124,7 +124,7 @@ fn forward_to_dispatch(
 ) -> Result<Value, beni::Error> {
     use crate::refusal::Position;
 
-    use crate::dispatch::{dispatch, DispatchError};
+    use crate::call::{dispatch, DispatchError};
     use kobako_transport::envelope::FaultKind;
 
     let args =

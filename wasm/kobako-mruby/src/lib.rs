@@ -19,16 +19,16 @@
 //! provided flow stays overridable by implementing it in the `Guest`
 //! impl instead of forwarding.
 
+mod call;
 mod codec;
-mod dispatch;
 mod flows;
 #[cfg(feature = "msgpack")]
 mod msgpack;
 mod refusal;
 mod runtime;
 
+pub use call::{dispatch, DispatchError, Target};
 pub use codec::{Arguments, CodecError, PayloadCodec};
-pub use dispatch::{dispatch, DispatchError, Target};
 #[cfg(feature = "msgpack")]
 pub use msgpack::MsgpackCodec;
 pub use runtime::{InstallError, IntegerOutOfRange, Kobako};
