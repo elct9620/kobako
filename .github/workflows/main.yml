@@ -16,8 +16,8 @@ jobs:
     env:
       # Pinned by hand: nothing watches a release asset fetched over curl.
       # The digest is pinned alongside the tag because an asset can be replaced.
-      SUMI_VERSION: 0.1.0-preview9
-      SUMI_SHA256: b2a8eb702c281527b87733491de71c129340c6a1dd63ea6873adf6be6467e200
+      SUMI_VERSION: 0.1.0-preview10
+      SUMI_SHA256: 8a5749dd80e9ae46e5005f2d14bcd2e69b3fa9537a606df0da97e55300a67efb
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
