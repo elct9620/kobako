@@ -1,11 +1,14 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "support/in_memory_file_system"
+require "support/extension_fixtures"
 
-# E2E — the Host App developer's journeys: routing failures through the
-# three-class error taxonomy, exposing a block-yielding Service, and
-# serving concurrent requests from a warm Sandbox pool. The agent author's
-# walk is test_journeys.rb.
+# E2E — the Host App's journeys: routing failures through the three-class
+# error taxonomy, exposing a block-yielding Service, serving concurrent
+# requests from a warm Sandbox pool, installing a native idiom, and
+# evaluating submissions under a deadline. The agent author's walk is
+# test_journeys.rb.
 class TestE2EHostAppJourneys < Minitest::Test
   include E2eGuestHelper
 
@@ -77,5 +80,47 @@ class TestE2EHostAppJourneys < Minitest::Test
     assert_equal %w[done:req0 done:req1 done:req2 done:req3], results.sort,
                  "every concurrent request through Pool#with must receive its own " \
                  "request's worker result"
+  end
+
+  # ── Host App installs an Extension so guest code uses a native idiom ──
+  #
+  # One script needs both halves of the idiom: the path is built in the
+  # guest and the read crosses to the backend. Each half alone is pinned in
+  # test_install.rb.
+
+  # @behavior J-011
+  def test_j09_installed_idiom_answers_a_script_needing_guest_and_host
+    store = InMemoryFileSystem.new
+    store.write("notes/today.txt", "ship it")
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.install(Kobako::Extension.new(name: :File, source: ExtensionFixtures::FILE_SOURCE,
+                                          backend: Kobako::Extension::Backend.new(path: "File", object: store)))
+
+    result = sandbox.eval('File.read(File.join("notes", "today.txt"))').value
+
+    assert_equal "ship it", result,
+                 "a script building a path in the guest and reading it through an installed idiom " \
+                 "must reach the Host App with what the backend held at that path"
+  end
+
+  # ── Teaching platform evaluates submissions under a deadline ──
+  #
+  # The operator evaluates every submission in turn; one never ends. What
+  # the walk reaches is that the others still report, not how the deadline
+  # fires — that is pinned in test_caps.rb.
+
+  SUBMISSIONS = ["1 + 1", "loop { }", '"done"'].freeze
+
+  # @behavior J-012
+  def test_j03_runaway_submission_costs_the_others_nothing
+    results = SUBMISSIONS.map do |source|
+      Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2).eval(source).value
+    rescue Kobako::TimeoutError
+      :timed_out
+    end
+
+    assert_equal [2, :timed_out, "done"], results,
+                 "submissions evaluated in turn under a deadline must each reach the operator with " \
+                 "their own result, the one that never ends included only as cut off"
   end
 end

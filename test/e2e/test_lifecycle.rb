@@ -15,7 +15,7 @@ class TestE2ELifecycle < Minitest::Test
   # capability state between #run calls; Service objects bound at setup
   # time remain active across runs without re-registration.
 
-  # @behavior S-012
+  # @behavior S-012 J-013
   def test_j02_setup_once_run_many_with_persistent_service_bindings
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Data::Fetch", ->(id) { "record:#{id}" })
@@ -48,7 +48,7 @@ class TestE2ELifecycle < Minitest::Test
   # The developer reads the run's Execution#stdout for guest
   # puts/print output AND the script's return value comes through the outcome
   # envelope. Both channels are independently observable.
-  # @behavior S-023
+  # @behavior S-023 J-014
   def test_j02_stdout_and_return_value_independently_observable
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
@@ -89,7 +89,7 @@ class TestE2ELifecycle < Minitest::Test
   # Per-tenant Sandbox; each event triggers a Sandbox#eval
   # with a user expression; expression result drives downstream logic.
 
-  # @behavior S-040
+  # @behavior S-040 J-015
   def test_j04_user_expression_evaluates_to_value_for_filter_logic
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Event::Amount", -> { 150 })
@@ -104,7 +104,7 @@ class TestE2ELifecycle < Minitest::Test
   # Host App preloads a worker and dispatches many invocations: the
   # setup-once / dispatch-many pattern using #preload + #run. Per-invocation isolation means no state leaks between
   # successive #run calls on the same Sandbox.
-  # @behavior S-053 S-140
+  # @behavior S-053 S-140 J-016
   def test_j07_preload_worker_and_dispatch_many_requests
     sandbox = Kobako::Sandbox.new
     # An mruby C API limitation lands kwargs as a trailing positional Hash, so
@@ -115,9 +115,11 @@ class TestE2ELifecycle < Minitest::Test
       name: :Worker
     )
 
-    assert_equal 2, sandbox.run(:Worker, 2).value
-    assert_equal 9, sandbox.run(:Worker, 3, multiplier: 3).value
-    assert_equal 20, sandbox.run(:Worker, 4, multiplier: 5).value
+    assert_equal [2, 9, 20],
+                 [sandbox.run(:Worker, 2), sandbox.run(:Worker, 3, multiplier: 3),
+                  sandbox.run(:Worker, 4, multiplier: 5)].map(&:value),
+                 "a worker preloaded once through #preload must answer each #run for that request's own " \
+                 "arguments and keywords"
   end
 
   # #run and #eval interleave freely on the same Sandbox;

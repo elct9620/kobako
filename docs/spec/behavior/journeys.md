@@ -8,11 +8,12 @@ Every step in these walks is declared somewhere else, and that is the point: wha
 
 So each journey is written as one walk with one destination, and the observation is arrival rather than mechanism. Where a walk has more than one thing to reach — a failure that must both carry a class and carry a backtrace — each is its own scenario, since a walk arriving half way is what a single observation would hide.
 
-The reuse and isolation walks are not here. They are what a Sandbox does between invocations, so they are declared with the Sandbox and witnessed by the lifecycle tests.
+A walk that reuses one Sandbox across requests arrives somewhere a Sandbox scenario also states, so the lifecycle test that walks it claims both: the Sandbox scenario for the step, the journey for the arrival.
 
 ## Includes
 
 - `test/e2e/test_journeys*.rb`
+- `test/e2e/test_lifecycle.rb`
 
 ## `J-001` A curated capability answers a generated script
 
@@ -93,3 +94,51 @@ The reuse and isolation walks are not here. They are what a Sandbox does between
 | Given | a Sandbox |
 | When | generated source that fails to parse is evaluated |
 | Then | the failure's message names the line and column the parse stopped at |
+
+## `J-011` An installed idiom answers a script that needs both sides
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with an Extension whose idiom builds paths in the guest and whose backend reads a host store |
+| When | a script builds a path and reads what the store holds there |
+| Then | the Host App reads what the store held at that path |
+
+## `J-012` A runaway submission costs the others nothing
+
+| Step | Statement |
+| --- | --- |
+| Given | submissions evaluated one after another under a deadline, one of which never ends |
+| When | every submission has been evaluated |
+| Then | each submission that ends reaches the operator with its own result |
+
+## `J-013` A Sandbox set up once serves request after request
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service bound once at setup |
+| When | each request evaluates source calling that Service on the same Sandbox |
+| Then | each request reads its own answer, with nothing bound again |
+
+## `J-014` A request's log reaches the Host App beside its result
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | a request evaluates source that writes a log line and answers a value |
+| Then | the Host App reads the value and the log line apart |
+
+## `J-015` A user expression decides each event
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service exposing the event at hand |
+| When | a user expression over that event is evaluated per event |
+| Then | each evaluation answers the decision the platform branches on |
+
+## `J-016` A preloaded worker serves many requests
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox that preloaded a worker entrypoint once |
+| When | the worker runs per request, each with its own arguments and keywords |
+| Then | each request reads the worker's answer for its own arguments |
