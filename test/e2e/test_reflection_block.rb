@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — guest-side reflection mirror through real mruby
+# E2E —guest-side reflection mirror through real mruby
 # (`data/kobako.wasm`). The guest proxy refuses to forward an ambient
 # reflection / eval method name to the host; the callable allowlist still
 # forwards.

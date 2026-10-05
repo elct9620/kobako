@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the gvl: scheduling mode through real mruby.
+# E2E —the gvl: scheduling mode through real mruby.
 # gvl: :release drops Ruby's GVL for the guest span so distinct Sandboxes
 # on distinct Threads run in parallel; :hold keeps it. Releasing changes scheduling only, so every witness here
 # runs the same scenario under both modes and asserts the observable

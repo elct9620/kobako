@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Layer 3 unit tests for the Kobako::Outcome attribution edge cases that
+# Unit tests for the Kobako::Outcome attribution edge cases that
 # don't need a live wasmtime pipeline. Attribution is a stateless module
 # method, so each test hands it the arm the native side names — no
 # Sandbox.

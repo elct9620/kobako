@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Layer 3 unit tests for the Kobako::Catalog::Services registry. Pure
+# Unit tests for the Kobako::Catalog::Services registry. Pure
 # Ruby — does NOT require the native extension. Behavioural coverage that
 # needs a real Sandbox wiring (seal! triggered by the first invocation)
 # lives in test/e2e/sandbox/test_preload.rb; this file pins the registry

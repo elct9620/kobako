@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the preloaded snippet table through real mruby, binary
+# E2E —the preloaded snippet table through real mruby, binary
 # (RITE bytecode) form: bytecode replays against every fresh mrb_state
 # like a source snippet, a blob that fails its structural check surfaces as
 # BytecodeError, and a program that loads and then raises keeps the class

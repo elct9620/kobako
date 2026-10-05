@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the per-invocation resource caps through real mruby: the
+# E2E —the per-invocation resource caps through real mruby: the
 # wall-clock timeout and linear-memory delta traps, their TrapError
 # taxonomy, per-invocation re-anchoring, and Sandbox reusability after a
 # trap.

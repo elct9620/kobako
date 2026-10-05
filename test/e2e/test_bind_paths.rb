@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — how a bind path materializes into guest proxies through
+# E2E —how a bind path materializes into guest proxies through
 # real mruby. A single-segment path binds a top-level constant; a
 # multi-segment path nests the leaf under a module per prefix segment. The
 # dispatch value path itself lives in test_dispatch_args.rb.

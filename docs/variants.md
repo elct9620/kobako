@@ -1,9 +1,8 @@
 # Guest Binary Variants — capability composition and packaging
 
 The Guest Binary ships in named variants that compose optional capability gems
-onto a common base. The governing summary lives in [`SPEC.md`](../SPEC.md)
-§ Scope; this file is the per-variant reference for the matrix, the naming
-convention, and the packaging policy.
+onto a common base. This file is the per-variant reference for the matrix,
+the naming convention, and the packaging policy.
 
 Variants are the artifacts **we ship**. The interfaces **a third party
 replaces** — payload codec, capability set, invocation flows, the whole guest,
@@ -44,8 +43,7 @@ filename (`kobako+<cap>-<version>.wasm`).
 ## Packaging policy
 
 The published gem bundles exactly one Guest Binary: the pure default
-`data/kobako.wasm` (→ [`SPEC.md`](../SPEC.md) § Code Organization, the gemspec
-files whitelist). Capability variants are not bundled — they ship as GitHub
+`data/kobako.wasm`, by the gemspec's file allowlist. Capability variants are not bundled — they ship as GitHub
 Release assets, or a developer builds one locally. This keeps the install
 footprint minimal; a Host App that needs a capability downloads the matching
 variant.

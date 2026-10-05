@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — JSON.parse value mapping and malformed handling through
+# E2E —JSON.parse value mapping and malformed handling through
 # the real json guest.
 class TestJsonParse < Minitest::Test
   include JsonGuestHelper

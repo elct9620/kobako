@@ -23,7 +23,7 @@ module KobakoRoster
     "Examples (examples/)" => { paths: %w[examples], kind: :other },
     "Build tooling (tasks/ + build_config/ + bin/)" => { paths: %w[tasks build_config bin], kind: :tooling },
     "Benchmarks (benchmark/)" => { paths: %w[benchmark], kind: :tooling },
-    "Docs (docs/ + SPEC.md)" => { paths: %w[docs SPEC.md], kind: :other }
+    "Docs (docs/)" => { paths: %w[docs], kind: :other }
   }.freeze
 
   # The gem's source spans three tiers; a synthetic module groups them

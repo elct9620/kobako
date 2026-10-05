@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run the SPEC regression benchmarks on the PR's base and head on the
+# Run the gated regression benchmarks on the PR's base and head on the
 # same runner, then diff them into the GitHub job summary. Measuring both
 # revisions on one machine cancels the cross-machine variance that
 # comparing against the committed baseline (blessed elsewhere) would fold

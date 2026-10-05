@@ -18,7 +18,7 @@ require "test_helper"
 #     shared across Threads with each invocation supplying its own
 #     identity through the per-invocation ctx.bind override.
 #
-# Fuzz discipline mirrors the Layer 1 codec harness: the seed is sourced
+# Fuzz discipline mirrors the codec round-trip harness: the seed is sourced
 # from KOBAKO_FUZZ_SEED (random otherwise) and printed in every failure so
 # a run reproduces from the seed, and the generator's shape coverage is
 # asserted complete independently of any parity failure.

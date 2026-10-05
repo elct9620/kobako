@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — JSON.pretty_generate layout through the real json guest.
+# E2E —JSON.pretty_generate layout through the real json guest.
 class TestJsonPrettyGenerate < Minitest::Test
   include JsonGuestHelper
 

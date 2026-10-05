@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — concurrent invocations isolate per invocation under
+# E2E —concurrent invocations isolate per invocation under
 # gvl: :release, whether Threads use distinct Sandboxes or share one. Each
 # invocation runs on its own Context, so a Handle minted in one never
 # resolves in another Thread's invocation. Two shapes are witnessed:

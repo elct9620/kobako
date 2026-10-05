@@ -71,7 +71,7 @@ class TestTransportDispatchUnit < Minitest::Test
     assert_equal "argument", answer.payload.type
   end
 
-  # ---------- kwargs dispatch (Testing Layer 4) -------------------
+  # ---------- kwargs dispatch -------------------
 
   # Wire Contract Call kwargs + Ext Types → ext 0x00.
   # Keyword argument names travel on the wire as Symbols; the dispatcher

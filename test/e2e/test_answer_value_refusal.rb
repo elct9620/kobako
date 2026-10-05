@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — a Service answer the host cannot write. The Service returns
+# E2E —a Service answer the host cannot write. The Service returns
 # whatever host object it holds and the boundary converts it, so a value
 # nesting past the wire's bound — one nesting without end included — fails
 # while the dispatch is still being answered, and one right at the bound

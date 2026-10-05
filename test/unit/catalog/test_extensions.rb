@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Layer 3 unit tests for the Kobako::Catalog::Extensions registry. Pure
+# Unit tests for the Kobako::Catalog::Extensions registry. Pure
 # Ruby — does NOT require the native extension: it drives the registry
 # against real Catalog::Snippets / Catalog::Services collaborators. The
 # guest-observable end of the mechanism (File.join local, File.read

@@ -28,7 +28,7 @@ group :development do
   # Static type checker. Signatures live in sig/.
   gem "steep", "~> 2.1", require: false
 
-  # benchmark-ips drives the SPEC.md "Regression benchmarks" suite in
-  # benchmark/. Dev-only — the gem itself does not depend on it.
+  # benchmark-ips drives the regression benchmarks in benchmark/.
+  # Dev-only — the gem itself does not depend on it.
   gem "benchmark-ips", "~> 2.15"
 end

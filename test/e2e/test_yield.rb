@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the block / yield round-trip through real mruby: a guest
+# E2E —the block / yield round-trip through real mruby: a guest
 # call site supplying a block
 # surfaces as a non-nil +&block+ on the host Service method, and each
 # +yield+ / +block.call+ is a synchronous round-trip into the guest via

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the guest→host dispatch partitions positional and keyword
+# E2E —the guest→host dispatch partitions positional and keyword
 # arguments by Ruby 3 call semantics, not the Ruby 2
 # trailing-Hash fold. Each case drives a real dispatch through a sink Service
 # that captures +args+ and +kwargs+ separately into a host-side ivar, so the

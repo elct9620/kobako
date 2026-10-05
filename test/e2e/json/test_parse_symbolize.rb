@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — JSON.parse symbolize_names option through the real json
+# E2E —JSON.parse symbolize_names option through the real json
 # guest.
 class TestJsonParseSymbolize < Minitest::Test
   include JsonGuestHelper

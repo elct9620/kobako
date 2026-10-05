@@ -1,6 +1,6 @@
 name: Benchmark (PR)
 
-# Report-only performance check for pull requests: run the SPEC
+# Report-only performance check for pull requests: run the gated
 # regression benchmarks on the PR head and its base on the same runner,
 # then post the head-vs-base diff to the job summary so a reviewer can
 # confirm a change — including an external contribution — did not

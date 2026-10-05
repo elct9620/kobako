@@ -19,7 +19,7 @@ kobako is a Ruby gem that runs untrusted mruby scripts in an in-process Wasm san
 | Host gem | `lib/`, `ext/` | Ruby API and the magnus shim |
 | Native driver | `crates/` | wasmtime driver and the Rust SDK |
 | Guest Binary | `wasm/` → `data/kobako.wasm` | the mruby interpreter |
-| Specification | `docs/spec/`, `SPEC.md` | the source of truth |
+| Specification | `docs/spec/` | the source of truth |
 
 ## How we work
 
@@ -36,16 +36,16 @@ Apply these in order; an earlier one wins on conflict.
 
 ### 1. Specification
 
-The specification is sumi's corpus under `docs/spec/`. SPEC.md holds only what sumi does not yet, and shrinks as sumi takes it over.
+The specification is sumi's corpus under `docs/spec/`. What it cannot hold is context for readers, kept in the document that owns it.
 
 | Statement | Lives in |
 |---|---|
 | a concept and its name | `docs/spec/glossary.md` |
 | a behavior | a scenario in `docs/spec/behavior/<feature>.md` |
 | an interface | `docs/spec/contract/` |
-| the rest, until moved | `SPEC.md` |
+| why kobako exists, and for whom | `docs/intent.md` |
 
-A behavior is specification only as a scenario. Prose never restates one, and a decided behavior no test witnesses stays out of the corpus until a test claims it. A test claims its scenario with `@behavior`, the one traceability link; docs, examples, and comments cite no scenario id or SPEC.md anchor.
+A behavior is specification only as a scenario. Prose never restates one, and a decided behavior no test witnesses stays out of the corpus until a test claims it. A test claims its scenario with `@behavior`, the one traceability link; docs, examples, and comments cite no scenario id.
 
 The glossary carries concepts, not their Ruby or Rust spelling. Never rule out a word that also names a concept of ours, such as `Execution` beside `Invocation`. Keep `Includes` off append-only files, whose shifting lines would strand an `ignore`. When the specification is silent, extend it first.
 

@@ -31,7 +31,7 @@ Gem::Specification.new do |spec|
   #   * source-tree tooling: bin/ tasks/ build_config/ .github/ .powerloop/
   #     .claude/ Rakefile .rubocop.yml Steepfile rbs_collection.yaml
   #     rbs_collection.lock.yaml — `gem install` uses extconf.rb, not rake
-  #   * non-runtime content: test/ wasm/ docs/ benchmark/ examples/ SPEC.md
+  #   * non-runtime content: test/ wasm/ docs/ benchmark/ examples/
   #     CLAUDE.md .spec/ .sumi.json
   #   * placeholder: data/.keep — superseded by the appended data/kobako.wasm
   #
@@ -56,7 +56,7 @@ Gem::Specification.new do |spec|
         (f.start_with?("crates/") && !f.start_with?(*ext_crates)) ||
         f.start_with?(*%w[bin/ Gemfile Gemfile.lock .gitignore test/ .github/ .rubocop.yml
                           tasks/ build_config/ wasm/ docs/ benchmark/ examples/ .powerloop/
-                          SPEC.md .spec/ .sumi.json .claude/ CLAUDE.md Rakefile Steepfile
+                          .spec/ .sumi.json .claude/ CLAUDE.md Rakefile Steepfile
                           rbs_collection.yaml rbs_collection.lock.yaml sig/_external/ data/.keep])
     end
   end
@@ -75,8 +75,8 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
   spec.extensions = ["ext/kobako/extconf.rb"]
 
-  # MessagePack codec backbone for the host side of the kobako wire (SPEC.md
-  # "Wire Codec"). The Host Gem registers ext type 0x01 (Capability Handle)
+  # MessagePack codec backbone for the host side of the kobako wire
+  # (docs/wire-codec.md). The Host Gem registers ext type 0x01 (Capability Handle)
   # and ext type 0x02 (Exception envelope) on a `MessagePack::Factory`; the
   # gem's hand-written byte-level encoder/decoder has been retired.
   spec.add_dependency "msgpack", "~> 1.7"

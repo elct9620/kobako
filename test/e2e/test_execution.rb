@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the Kobako::Execution value object. #eval / #run
+# E2E —the Kobako::Execution value object. #eval / #run
 # return one on success and carry the same frozen object on a raised error's
 # #execution, and #failed? tells the two apart. Driven through real mruby.
 class TestE2EExecution < Minitest::Test

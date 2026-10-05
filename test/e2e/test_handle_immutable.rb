@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — in-guest Handle immutability through real mruby. A
+# E2E —in-guest Handle immutability through real mruby. A
 # decoder-minted Kobako::Handle is frozen, so the guest cannot re-point its
 # id ivar (reflective mutation raises FrozenError) and a dup stays frozen,
 # closing the forge / guess surface. A frozen Handle still dispatches,

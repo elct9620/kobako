@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the stdout / stderr capture channels through real mruby:
+# E2E —the stdout / stderr capture channels through real mruby:
 # routing, truncation caps, per-run reset, and $stdout reassignment
 # semantics. Kernel-level write primitives live in
 # test_io_kernel.rb; the IO write byte paths in test_io_write.rb.

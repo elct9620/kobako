@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — what a guest String or Symbol's bytes do on the way out,
+# E2E —what a guest String or Symbol's bytes do on the way out,
 # across every guest→host value path: the outcome (#eval return), a
 # dispatch argument, and a dispatch keyword name.
 #

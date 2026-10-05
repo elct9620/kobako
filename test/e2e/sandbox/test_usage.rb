@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Layer 4 — End-to-end coverage for `Kobako::Execution#usage`.
+# E2E — `Kobako::Execution#usage` through real mruby.
 #
 # Drives the real mruby Guest Binary (`data/kobako.wasm`) so the
 # `wall_time` and `memory_peak` readers exercise the same wasmtime path

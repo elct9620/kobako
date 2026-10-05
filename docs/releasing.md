@@ -17,7 +17,7 @@ The gem `.` package is greedy (any root change) but carries `exclude-paths: ["wa
 
 | A commit that touches… | Triggers |
 |------------------------|----------|
-| only root files (`lib/ ext/ sig/ test/ docs/ SPEC.md README.md examples/ …`) | Gem |
+| only root files (`lib/ ext/ sig/ test/ docs/ README.md examples/ …`) | Gem |
 | only `wasm/*` or `crates/*` | Linked crate group (any one component → linked-versions syncs all 11) |
 | both root **and** `wasm/`/`crates/` | **Both** — avoid unless a coordinated dual release is intended |
 

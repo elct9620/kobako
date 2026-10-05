@@ -3,7 +3,7 @@
 require "test_helper"
 require "tempfile"
 
-# E2E (Layer 4) — sandbox-escape regression for GHSA-26f3-4cp2-gg6m,
+# E2E —sandbox-escape regression for GHSA-26f3-4cp2-gg6m,
 # driven through the real mruby guest (`data/kobako.wasm`).
 #
 # A class-level method (`File.popen`, `File.read`, `File.new`,

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — capability-gem FFI exception-safety.
+# E2E —capability-gem FFI exception-safety.
 #
 # A capability gem (here the kobako-io write surface) coerces each
 # argument through a guest-supplied `to_s` / `inspect` inside its Rust

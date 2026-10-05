@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the per-eval override block. #eval / #run yield a Context
+# E2E —the per-eval override block. #eval / #run yield a Context
 # before the guest drives, so `ctx.bind` fills a fillable or shadows any
 # declared binding for that one invocation, without touching Frame 1.
 class TestE2ECtxBind < Minitest::Test

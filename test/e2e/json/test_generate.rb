@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — JSON.generate output through the real json guest.
+# E2E —JSON.generate output through the real json guest.
 class TestJsonGenerate < Minitest::Test
   include JsonGuestHelper
 

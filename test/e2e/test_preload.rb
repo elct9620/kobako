@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — the preloaded snippet table through real mruby, source
+# E2E —the preloaded snippet table through real mruby, source
 # form: snippets replay in insertion order against every fresh mrb_state,
 # and a snippet that will not compile or raises at replay surfaces as
 # SandboxError. The binary form is test/e2e/test_preload_bytecode.rb.

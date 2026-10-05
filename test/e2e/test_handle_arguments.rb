@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — a Capability Handle the guest received earlier
+# E2E —a Capability Handle the guest received earlier
 # in the invocation, passed back to a Service as a dispatch argument, resolves
 # on the host to the original object before the method runs. The positional,
 # keyword-value, and mixed shapes are covered because a real project saw the

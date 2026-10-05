@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — host-object restoration of a Capability Handle returned
+# E2E —host-object restoration of a Capability Handle returned
 # across the boundary through real mruby: a Handle the guest
 # received and then hands back — as the #eval result, nested in a container,
 # in a Hash key, or as a yield-block result — is restored to the original

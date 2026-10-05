@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E (Layer 4) — a yield argument the host cannot write. The
+# E2E —a yield argument the host cannot write. The
 # Service yields whatever host object it holds and the boundary converts
 # it, so a value outside the wire type set, or nesting past the wire's
 # bound, fails at the yield site before the guest is re-entered, and
