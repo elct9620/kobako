@@ -165,7 +165,7 @@ Consequently:
 
 ## Wire-Symmetric Peers
 
-The payload codec has two independent implementations; the core envelope has one, shared by both sides.
+The payload codec has two independent implementations; the core envelope has one, shared by both sides. The payload peers cannot share source: the gem's codec loads before its native extension exists, and a `wasm32-wasip1` guest cannot embed Ruby.
 
 | Layer | Host | Guest | Cross-check |
 |-------|------|-------|-------------|

@@ -113,6 +113,152 @@ module Kobako
 end
 ```
 
+## `Kobako::Execution`
+
+The frozen record one invocation leaves, returned on success and carried on a failure.
+
+```ruby
+module Kobako
+  class Execution
+  end
+end
+```
+
+## `Kobako::Execution#failed?`
+
+Whether the invocation that left this record failed.
+
+```ruby
+module Kobako
+  class Execution
+    def failed?
+    end
+  end
+end
+```
+
+## `Kobako::Execution#stdout`
+
+What the guest wrote to its first descriptor.
+
+```ruby
+module Kobako
+  class Execution
+    def stdout
+    end
+  end
+end
+```
+
+## `Kobako::Execution#stderr`
+
+What the guest wrote to its second descriptor.
+
+```ruby
+module Kobako
+  class Execution
+    def stderr
+    end
+  end
+end
+```
+
+## `Kobako::Execution#stdout_truncated?`
+
+Whether the first descriptor's capture reached its cap.
+
+```ruby
+module Kobako
+  class Execution
+    def stdout_truncated?
+    end
+  end
+end
+```
+
+## `Kobako::Execution#stderr_truncated?`
+
+Whether the second descriptor's capture reached its cap.
+
+```ruby
+module Kobako
+  class Execution
+    def stderr_truncated?
+    end
+  end
+end
+```
+
+## `Kobako::Context`
+
+The invocation an override block is handed, spent once the block returns.
+
+```ruby
+module Kobako
+  class Context
+  end
+end
+```
+
+## `Kobako::Context#bind`
+
+Give a declared path a different object for this one invocation.
+
+```ruby
+module Kobako
+  class Context
+    def bind(path, object)
+    end
+  end
+end
+```
+
+## `Kobako::Handle`
+
+The name a Host App matches a Handle by when one reaches it inside a failure.
+
+```ruby
+module Kobako
+  class Handle
+  end
+end
+```
+
+## `Kobako::Unresolved`
+
+The object a fillable path holds until a Host App fills it.
+
+```ruby
+module Kobako
+  module Unresolved
+  end
+end
+```
+
+## `Kobako::Extension`
+
+A guest idiom and its optional Backend, installed as one unit.
+
+```ruby
+module Kobako
+  class Extension
+  end
+end
+```
+
+## `Kobako::Extension::Backend`
+
+The host side of an Extension, declared by the keyword that names its kind.
+
+```ruby
+module Kobako
+  class Extension
+    class Backend
+    end
+  end
+end
+```
+
 ## `Kobako::Error`
 
 The root a caller rescues to catch every failure kobako raises.

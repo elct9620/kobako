@@ -122,6 +122,7 @@ The crate map, each crate's role, and its dependencies are drawn in `docs/archit
 |---|---|
 | guest crates link libmruby on every build | no code hides behind a linked-only `cfg` |
 | wrapper changes go to `beni` upstream | kobako takes them by a dependency bump |
+| a low-level gap is fixed in that layer | a workaround above leaves it for every other caller |
 | `Kobako::Codec` has no schema namespace | Ruby is fixed to MessagePack and has no seam |
 
 ### Ruby tiers
