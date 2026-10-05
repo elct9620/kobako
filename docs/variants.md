@@ -34,7 +34,7 @@ composes the ASCII `regexp` capability with `json`.
 
 ## Naming
 
-The default artifact name is fixed: `kobako.wasm` (N-4). A capability variant
+The default artifact name is fixed: `kobako.wasm`. A capability variant
 adds a `+<cap>` suffix — `kobako+<cap>.wasm` — where `<cap>` names the opt-in
 capability axis (`regexp`, `regexp-unicode`, `json`) or a composition shorthand
 (`full` = ASCII regexp + JSON). The suffix encodes capability composition, not a
@@ -63,4 +63,4 @@ capability negotiation.
 `wasm:build:regexp_unicode`, `wasm:build:json`, and `wasm:build:full` produce the
 variants. Every variant — default and capability — passes through the canonical
 boot bake ([`mruby.md`](spec/behavior/mruby.md)); re-baking the same inputs yields a byte-identical artifact,
-gated by the reproducible-build pipeline (F-10).
+gated by the reproducible-build pipeline.

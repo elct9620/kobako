@@ -60,7 +60,7 @@ The guest sees exactly these constructs.
 | Guest wants symbol keys | `JSON.parse(body, symbolize_names: true)` | the same tree with `Symbol` keys |
 | Guest holds native mruby values | `JSON.generate(obj)` | a well-formed JSON `String` |
 | Guest defines `as_json` on its own class | `JSON.generate(obj)` | the JSON for the value `as_json` returns |
-| Guest generates a `Kobako::Handle` or un-opted object | `JSON.generate(handle)` | `JSON::GeneratorError`, no host dispatch ([`JS-042`](spec/behavior/json.md), [`JS-035`](spec/behavior/json.md)) |
+| Guest generates a `Kobako::Handle` or un-opted object | `JSON.generate(handle)` | `JSON::GeneratorError`, no host dispatch |
 
 ### Non-goals
 
@@ -68,7 +68,7 @@ The guest sees exactly these constructs.
 |----------|--------------|
 | The full CRuby `JSON` API (`dump` / `load`, `create_additions`, `JSON.stringify`) | only the curated Surface above |
 | `NaN` / `Infinity` generation | `generate` raises `JSON::GeneratorError`, as CRuby does without `allow_nan:` |
-| CRuby's `to_s`-degrade of an un-opted object | a fail-loud `JSON::GeneratorError` ([`JS-035`](spec/behavior/json.md)) |
+| CRuby's `to_s`-degrade of an un-opted object | a fail-loud `JSON::GeneratorError` |
 | A raw `to_json` string-splice customization seam | the value-returning `as_json` hook, so the gem owns escaping and well-formedness |
-| Serializing a host capability reference (`Kobako::Handle` / a bound constant) | refused outbound, unforgeable inbound ([`JS-042`](spec/behavior/json.md), [`JS-041`](spec/behavior/json.md)) |
+| Serializing a host capability reference (`Kobako::Handle` / a bound constant) | refused outbound, unforgeable inbound |
 | A byte-for-byte match of another `JSON` implementation's `pretty_generate` layout | the capability's own committed indented layout |

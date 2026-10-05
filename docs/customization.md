@@ -13,7 +13,7 @@ Which of these interfaces you will meet at all depends on where you build
 from; [`architecture.md`](architecture.md) is that map, and reading it first
 saves implementing a seam your starting point already fixed.
 
-Public names declared here are graded commitments, not guidance (N-9). A grade
+Public names declared here are graded commitments, not guidance. A grade
 says what kobako owes you, and it is set by what you do with the name:
 
 | Grade | What you do with it | What kobako promises |

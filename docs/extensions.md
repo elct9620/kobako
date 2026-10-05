@@ -10,8 +10,7 @@ bound Service.
 
 The behavior is governed by the scenarios in
 [`spec/behavior/extension.md`](spec/behavior/extension.md), its setup
-refusals included ([`EX-029`](spec/behavior/extension.md),
-[`EX-032`](spec/behavior/extension.md)). This document is the
+refusals included. This document is the
 contract-in-use and a worked example; the scenarios are the authority.
 
 kobako ships **no concrete Extension** — only the contract and the

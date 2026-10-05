@@ -1,6 +1,6 @@
 # Benchmarks
 
-Kobako maintains a regression benchmark suite covering the nine performance dimensions [SPEC.md](../SPEC.md) names as release regression gates (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip, `#preload` + `#run` dispatch, dispatch glue, host per-invocation cost) plus four characterization suites (multi-thread, `gvl:` scheduling, per-Sandbox RSS, guest-side setup scaling) and the regexp variant profile.
+Kobako maintains a regression benchmark suite covering the nine performance dimensions gated at release ([`support/roster.rb`](support/roster.rb)) (startup, Transport round-trip, codec, mruby VM, Catalog::Handles, yield round-trip, `#preload` + `#run` dispatch, dispatch glue, host per-invocation cost) plus four characterization suites (multi-thread, `gvl:` scheduling, per-Sandbox RSS, guest-side setup scaling) and the regexp variant profile.
 
 The suite perceives drift against a fixed reference point — the committed anchor `benchmark/baseline.json` — rather than certifying a portable performance standard. Absolute numbers are meaningful only on hardware comparable to the machine that produced them; per-release runs are archived under `benchmark/results/`. A cumulative +10 % regression past the anchor on any gated benchmark blocks release until a maintainer reviews or re-blesses.
 
@@ -23,7 +23,7 @@ The suite perceives drift against a fixed reference point — the committed anch
 | Runner            | When used                              | Records                                                            |
 |-------------------|----------------------------------------|---------------------------------------------------------------------|
 | `ips`             | iterated micro-benches                  | median `ips`, `ips_mean`, `ips_sd` per cycle                        |
-| `case_with_usage` | sandbox-driven `ips` cases              | adds median `wall_time` + `memory_peak` from `Execution#usage` ([`S-058`](../docs/spec/behavior/sandbox.md), [`S-060`](../docs/spec/behavior/sandbox.md)) |
+| `case_with_usage` | sandbox-driven `ips` cases              | adds median `wall_time` + `memory_peak` from `Execution#usage` |
 | `one_shot`        | cold paths, and costs outside the gate  | CPU seconds — a single run (`rounds: 1`) or the median across `rounds` (warm `1c`, `5b`, `9a` windows) |
 | wall-clock helper | multi-thread suite                      | wall seconds — CPU time would hide scheduler overhead               |
 
@@ -101,7 +101,7 @@ One guest→host Service call wrapped in one `#eval`. Each row bundles `#eval` s
 | One Service call with one Integer arg                      | **70.0 µs**                            | 37.8 µs                            |
 | One Service call with one Symbol-keyed keyword arg         | 72.2 µs                                | 39.2 µs                            |
 | 1 000 sequential Service calls inside one `#eval`          | 5.81 ms total → **5.8 µs per call**    | 5.80 ms / 5.8 µs per call          |
-| Handle chain — one call returns object, second targets the Handle ([`T-006`](../docs/spec/behavior/transport-dispatch.md)) | 87.6 µs | 52.1 µs |
+| Handle chain — one call returns object, second targets the Handle | 87.6 µs | 52.1 µs |
 
 #### Wire codec — host side ([`codec.rb`](codec.rb))
 
@@ -139,18 +139,18 @@ Guest builds a value in mruby and returns it from `#eval`. `wall_time` isolates 
 | Array nested 1 deep (1 KiB leaf)              | 58.3 µs  | 24.5 µs             |
 | Array nested 64 deep (1 KiB leaf)             | 92.9 µs  | 45.7 µs             |
 
-Note: mruby caps a single String at 1 MiB ([SPEC Invariant](../SPEC.md)); the largest guest sample here is 512 KiB. Composite values can still approach the 16 MiB wire payload limit.
+Note: mruby caps a single String at 1 MiB; the largest guest sample here is 512 KiB. Composite values can still approach the 16 MiB wire payload limit.
 
 #### Yield round-trip latency ([`yield_roundtrip.rb`](yield_roundtrip.rb))
 
-Host-initiated counterpart of #2 — a Service method `yield`s into a guest-supplied block ([`T-085`](../docs/spec/behavior/transport-yield.md)). The cost lives on a different path (Yield Reply codec, `__kobako_yield_to_block` export, guest `BLOCK_STACK`), so a regression here is invisible to #2. Per-yield steady state is `6c` `wall_time / 1000`.
+Host-initiated counterpart of #2 — a Service method `yield`s into a guest-supplied block. The cost lives on a different path (Yield Reply codec, `__kobako_yield_to_block` export, guest `BLOCK_STACK`), so a regression here is invisible to #2. Per-yield steady state is `6c` `wall_time / 1000`.
 
 | Case                            | What it isolates                                                                          |
 |---------------------------------|--------------------------------------------------------------------------------------------|
 | `6a-single-yield`               | One yield (tag 0x01 ok) above the no-block #2 baseline.                                    |
-| `6b-block-no-yield`             | `block_given` flag travels, Yielder built, never invoked ([`T-088`](../docs/spec/behavior/transport-yield.md)) — re-entry-free floor. |
-| `6c-1000-yields-in-one-call`    | 1 000 yields in one dispatch (J-06 shape) — load-bearing for `each`-style Services.        |
-| `6d-yield-break`                | Block runs `break` on first yield (tag 0x02), unwinding via catch/throw ([`T-089`](../docs/spec/behavior/transport-yield.md)). |
+| `6b-block-no-yield`             | `block_given` flag travels, Yielder built, never invoked — re-entry-free floor. |
+| `6c-1000-yields-in-one-call`    | 1 000 yields in one dispatch — load-bearing for `each`-style Services.        |
+| `6d-yield-break`                | Block runs `break` on first yield (tag 0x02), unwinding via catch/throw. |
 
 | Case                            | Latency                            | `wall_time` (guest)        |
 |---------------------------------|------------------------------------|----------------------------|
@@ -195,7 +195,7 @@ Self-contained mruby computations whose only host cost is the constant `Sandbox#
 | 1 000 allocs against a 1 M-entry table                              | 2.484 ms                 |
 | Warm `#eval("nil")` under sustained heap pressure (1 M-entry table) | 147.4 µs (`wall_time` = 23.7 µs) |
 
-Per-alloc cost holds 1.4–1.7 µs from 1 K to 100 K entries and reaches 2.5 µs at 1 M, so the lookup stays constant-time; most of that level is the Exposure each alloc fixes. Each entry retains its Exposure, so a large table is also a heavier heap — which is what `5c` now shows: its guest `wall_time` holds while the total around it grows. ([`T-012`](../docs/spec/behavior/transport-dispatch.md) caps the counter at `0x7fff_ffff`; the cap guard is constant-time and not iterated here.)
+Per-alloc cost holds 1.4–1.7 µs from 1 K to 100 K entries and reaches 2.5 µs at 1 M, so the lookup stays constant-time; most of that level is the Exposure each alloc fixes. Each entry retains its Exposure, so a large table is also a heavier heap — which is what `5c` now shows: its guest `wall_time` holds while the total around it grows. (The counter is capped at `0x7fff_ffff`; the cap guard is constant-time and not iterated here.)
 
 ### Host side, isolated
 
@@ -268,7 +268,7 @@ Compile cost is roughly linear to 100 statements and steepens past it. Binding m
 | Warm `#run(:Noop)` (1 entrypoint preloaded)                         | 78.6 µs  | 37.9 µs             |
 | Warm `#run(:Echo, 42)` (positional arg)                             | 77.3 µs  | 37.4 µs             |
 | Warm `#run(:Greet, name: :alice)` (Symbol-keyed kwargs)             | 83.6 µs  | 41.5 µs             |
-| Warm `#run(:Wrap, StringIO)` ([`T-066`](../docs/spec/behavior/transport-dispatch.md) host→guest auto-wrap) | 81.5 µs  | 29.5 µs             |
+| Warm `#run(:Wrap, StringIO)` (host→guest auto-wrap) | 81.5 µs  | 29.5 µs             |
 | Warm `#run(:Noop)` with 0 helper snippets preloaded                 | 69.7 µs  | 30.5 µs             |
 | Warm `#run(:Noop)` with 8 helper snippets preloaded                 | 112.5 µs | 71.2 µs             |
 | Warm `#run(:Noop)` with 64 helper snippets preloaded                | 548.6 µs | 479.3 µs            |
@@ -298,7 +298,7 @@ Throughput stays flat across Thread counts, which is the `:hold` signature — t
 
 #### `gvl:` hold vs release ([`concurrent/gvl_scheduling.rb`](concurrent/gvl_scheduling.rb))
 
-What the per-Sandbox `gvl:` mode ([`RT-019`](../docs/spec/behavior/runtime.md)) buys and costs, bracketed by two opposed workloads plus an arm where every Thread shares one Sandbox ([`RT-057`](../docs/spec/behavior/runtime.md)). Weak scaling — each Thread does a fixed amount of work — so under perfect parallelism the `:release` column stays flat as N grows while `:hold` climbs with it. Wall-clock, not CPU time: parallel progress is exactly what a CPU-time sum cannot see.
+What the per-Sandbox `gvl:` mode buys and costs, bracketed by two opposed workloads plus an arm where every Thread shares one Sandbox. Weak scaling — each Thread does a fixed amount of work — so under perfect parallelism the `:release` column stays flat as N grows while `:hold` climbs with it. Wall-clock, not CPU time: parallel progress is exactly what a CPU-time sum cannot see.
 
 | Threads | compute (hold → release) | dispatch (hold → release) | compute, one shared Sandbox |
 |---------|--------------------------|---------------------------|-----------------------------|
@@ -311,7 +311,7 @@ Three readings. The compute `:release` column moves 329 → 350 ms from 1 to 8 T
 
 #### Memory cost ([`memory.rb`](memory.rb))
 
-Two lenses: external RSS sampling (`ps -o rss=`), which never reaches inside the Sandbox's mruby heap, and the `memory_peak` reader ([`S-115`](../docs/spec/behavior/sandbox.md)), which reports the invocation's `memory.grow` delta in guest linear memory. The granularity that capacity planning needs without violating SPEC's Non-Goal on per-invocation instrumentation.
+Two lenses: external RSS sampling (`ps -o rss=`), which never reaches inside the Sandbox's mruby heap, and the `memory_peak` reader, which reports the invocation's `memory.grow` delta in guest linear memory. The granularity that capacity planning needs without per-invocation instrumentation, which kobako does not offer.
 
 | Scenario                                                              | RSS                                                                            | `memory_peak`                |
 |-----------------------------------------------------------------------|--------------------------------------------------------------------------------|------------------------------|
@@ -426,7 +426,7 @@ Every run writes (or merges into) `benchmark/results/<date>-<short-sha>.json`. T
 | `iterations` / `cycles`                              | Total iterations measured and number of samples collected within the time budget.             |
 | `seconds` / `rounds`                                 | `one_shot` CPU seconds (the median across `rounds` when > 1); wall seconds on the multi-thread suite. |
 | `env.load_avg` / `env.power_source` / `env.cpu_probe_spread_pct` | Machine state at capture: 1-minute load, AC vs battery, and the spread between two back-to-back runs of a fixed pure-CPU probe — the session's own noise floor. |
-| `wall_time` / `wall_time_sd` / `wall_time_samples` / `memory_peak` | Sandbox-driven rows only ([`S-058`](../docs/spec/behavior/sandbox.md), [`S-060`](../docs/spec/behavior/sandbox.md)). Median of `Execution#usage` samples, the deviation across them, and how many there were; `memory_peak` is `memory.grow` delta past the per-invocation baseline. A gated row is always sampled: a single observation leaves the noise band nothing to read, so the `+10 %` floor would be its only bar. |
+| `wall_time` / `wall_time_sd` / `wall_time_samples` / `memory_peak` | Sandbox-driven rows only. Median of `Execution#usage` samples, the deviation across them, and how many there were; `memory_peak` is `memory.grow` delta past the per-invocation baseline. A gated row is always sampled: a single observation leaves the noise band nothing to read, so the `+10 %` floor would be its only bar. |
 | `methods`                                            | The measurement-method version each captured suite ran under — the key that says which archived runs a figure may be compared against. |
 
 A run says which release it belongs to through its `git_sha`, and which measurements it may be compared against through its `methods` map — the archive needs no second index.
@@ -468,7 +468,7 @@ Membership is deliberate, so a question sits here until a release looks at it ra
 |---|------|-------------------|
 | R1 | `cold_start` `1c-*` | **Accepted as ungated, in writing.** Recording `seconds` is the whole of why they are skipped; the pair's worth is the ratio between its halves, not either level. Giving the warm row a gate metric is now also foreclosed by magnitude — a warm `Sandbox.new` is ~3 µs against a 1 µs clock, and batching it to recover resolution would fold construction teardown into the window and collapse the cold/warm pair into two numbers of the same order. |
 | R2 | `catalog_handles` `5b-*` | **Accepted as ungated**, on a different ground than R1: these rows are already batched and well clear of the clock, but their content is the *flatness across waypoints*, which a per-row level comparison cannot express. The same allocation path is gated tightly by `5a-*`. |
-| R3 | `codec`'s share of the gate | **Membership unchanged; the false-alarm mechanism fixed instead.** The `3c-*` rows are one encode and one decode per wire type against a SPEC-pinned table, so cutting them would cut coverage, not redundancy. What actually produced a +13 % reading on an unchanged hot path was case order, and that is what changed: the cases run 3c, 3b, guest, then 3a ascending, so no host row is measured downstream of a payload large enough to stir the heap for it (measurement method 2). |
+| R3 | `codec`'s share of the gate | **Membership unchanged; the false-alarm mechanism fixed instead.** The `3c-*` rows are one encode and one decode per wire type against the payload type-mapping table, so cutting them would cut coverage, not redundancy. What actually produced a +13 % reading on an unchanged hot path was case order, and that is what changed: the cases run 3c, 3b, guest, then 3a ascending, so no host row is measured downstream of a payload large enough to stir the heap for it (measurement method 2). |
 | R4 | `guest_setup` (#13) | **Stays characterization, with a trigger rather than a verdict.** Promoting it before it has an archive would gate it on its within-run half alone — the configuration this document already records as a standing false-alarm source. Revisit once it carries four archived runs. |
 | R5 | `9a-*` and `#9`'s single-dispatch rows | **New shape recorded**: `9a` records CPU seconds for a batch of 100, since registration is paid once per Sandbox. The bars are accepted as they stand: what `#9` buys is detection of step changes, not of drift, and narrowing it is a measurement change rather than a gate decision. Recorded here so a green pass on those rows is not read as more than it is. |
 Nothing is open for the next bless; R4's trigger stands at two of the four archived runs it waits for.
@@ -505,7 +505,7 @@ Every probe measures the Ruby frontend — through `Kobako::Sandbox`, or directl
 |---|---|---|
 | The Rust host SDK's path | no probe reaches `crates/kobako`, so neither a Rust host over the mruby guest nor one over a Rust guest has an arm | out until the SDK's performance is a release commitment; today only its behavior is, pinned by the parity harness |
 | The mruby VM's own call cost | no case is a guest-local call, so `2a`–`2f` read against each other and never against a floor | out — detection is on the delta between cases, and an absolute floor moves no gate |
-| Guest-side setup scaling, on the gate | `#13` measures the compile and binding axes, but characterization only, so a regression on either is visible and unblocking | in the suite, out of the gate — promoting it is a SPEC edit to the Regression benchmarks table, deliberate rather than incidental |
+| Guest-side setup scaling, on the gate | `#13` measures the compile and binding axes, but characterization only, so a regression on either is visible and unblocking | in the suite, out of the gate — promoting it is a decision of its own, deliberate rather than incidental |
 | A String in and a String out | `2b` carries an Integer and `3c` encodes a String without dispatching one, so the shape most Service calls take has no arm | the one gap inside the gated suite's own subject — a round-trip arm would sit beside `2b` and gate the same way |
 | Shipped artifact size | no probe reads a `.wasm`'s bytes, and the five variants ship as release assets unmeasured | a threshold rather than a distribution, so it belongs to `rake gate` rather than to a benchmark |
 

@@ -62,7 +62,7 @@ carries the concept's own name.
 
 | SPEC concept | Ruby frontend | Rust SDK |
 |---|---|---|
-| Receiver — the host object a dispatch resolves its target to | any Ruby object, reached through the methods its own class defines under the reflection floor ([`T-117`](spec/behavior/transport-boundary.md), [`T-129`](spec/behavior/transport-boundary.md)) | the `Receiver` trait — one dispatch contract covering bound Services and Handle-allocated objects; a Receiver whose `respond_to_guest` denies every name is opaque ([`T-124`](spec/behavior/transport-boundary.md)) |
+| Receiver — the host object a dispatch resolves its target to | any Ruby object, reached through the methods its own class defines under the reflection floor | the `Receiver` trait — one dispatch contract covering bound Services and Handle-allocated objects; a Receiver whose `respond_to_guest` denies every name is opaque |
 | Service — the host object bound at a constant-path name | any Ruby object bound via `bind` (duck-typed) | a `Receiver` bound via `Sandbox::bind` |
 | Bound constant — the leaf name of a constant path | `bind(path, object)` on the `Sandbox` | `Sandbox::bind(path, object)` |
 | Yielder — the host-side stand-in for a guest Block | `Kobako::Transport::Yielder`, internal: it rides the `&block` slot, so the Service method sees an ordinary Proc | `kobako::Yielder`, public: it rides the `block` parameter of `Receiver::call`, so the yield site still reads `block.call(args)` |
@@ -87,9 +87,7 @@ this raise-versus-return spelling never surfaces as drift.
 ## What the harness compares
 
 The compared set is declared in the behavior specification: every
-scenario whose operation reads *both frontends run it* — for example
-[`S-016`](spec/behavior/sandbox.md), [`T-075`](spec/behavior/transport-dispatch.md),
-[`EX-038`](spec/behavior/extension.md) — can be witnessed only by a
+scenario whose operation reads *both frontends run it* can be witnessed only by a
 parity case, so `sumi verify` fails when one loses the case that
 claims it. A behavior joins the set by declaring such a scenario and
 claiming it from the case that runs it.
@@ -106,11 +104,11 @@ and a reflective object returned from a host method ([`transport-boundary.md`](s
 - **Language surface** — setup-time validation, host pre-flight
   refusals, `Kobako::Pool`, option readers, construction failures, and
   the shape of the result object: each frontend spells these in its own
-  idiom. The seal's *timing* is compared ([`S-099`](spec/behavior/sandbox.md))
+  idiom. The seal's *timing* is compared
   while its spelling is not; Extension composition and backend
   resolution are compared while the dependency assertion and the
   install-error shapes are not; a requested isolation posture is
-  compared ([`RT-027`](spec/behavior/runtime.md)) while its
+  compared while its
   floor-refusal spelling is not.
 - **Guest-internal** — behavior the shared Guest Binary fixes regardless
   of frontend (Regexp, JSON, guest-side proxy construction and probing,
@@ -120,8 +118,7 @@ and a reflective object returned from a host method ([`transport-boundary.md`](s
   position the guest's own codec does not serve. Nothing about the
   refusal is frontend-specific, but every codec kobako ships serves
   every position, so its attribution is pinned a tier below both
-  frontends, in `wasm/kobako-mruby`'s refusal table
-  ([`CD-026`](spec/behavior/codec.md) onward). A refusing codec shipping
+  frontends, in `wasm/kobako-mruby`'s refusal table. A refusing codec shipping
   here moves it into the compared set.
 - **Hard-to-trigger wire corners** — malformed envelopes and outcome
   bytes with no deterministic trigger through the real guest: revisit

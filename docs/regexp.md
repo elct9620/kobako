@@ -74,7 +74,7 @@ The guest sees exactly these constructs.
 | Guest holds a `MatchData` | reads a group by index or name, an offset, or `pre_match` / `post_match` | a captured substring or byte offset |
 | Guest holds a `String` | `gsub` / `sub` with a replacement or block | a new `String` with matches substituted |
 | Guest holds a `String` | `scan` / `split` on a pattern | an `Array` of matches or fields |
-| Guest returns a captured substring | the value crosses the boundary | the host receives a wire `str` ([`RX-084`](spec/behavior/regexp.md)) |
+| Guest returns a captured substring | the value crosses the boundary | the host receives a wire `str` |
 
 ### Non-goals
 
