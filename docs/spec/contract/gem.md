@@ -112,3 +112,192 @@ module Kobako
   end
 end
 ```
+
+## `Kobako::Error`
+
+The root a caller rescues to catch every failure kobako raises.
+
+```ruby
+module Kobako
+  class Error
+  end
+end
+```
+
+## `Kobako::TrapError`
+
+An invocation the Wasm engine stopped.
+
+```ruby
+module Kobako
+  class TrapError
+  end
+end
+```
+
+## `Kobako::TimeoutError`
+
+A trap the invocation's deadline caused.
+
+```ruby
+module Kobako
+  class TimeoutError
+  end
+end
+```
+
+## `Kobako::MemoryLimitError`
+
+A trap the invocation's memory budget caused.
+
+```ruby
+module Kobako
+  class MemoryLimitError
+  end
+end
+```
+
+## `Kobako::SandboxError`
+
+An invocation the guest's own code or the wire failed.
+
+```ruby
+module Kobako
+  class SandboxError
+  end
+end
+```
+
+## `Kobako::HandleExhaustedError`
+
+An invocation that ran out of Handle ids.
+
+```ruby
+module Kobako
+  class HandleExhaustedError
+  end
+end
+```
+
+## `Kobako::BytecodeError`
+
+Preloaded bytecode that will not load.
+
+```ruby
+module Kobako
+  class BytecodeError
+  end
+end
+```
+
+## `Kobako::UndefinedEntrypointError`
+
+A `#run` target the guest does not define.
+
+```ruby
+module Kobako
+  class UndefinedEntrypointError
+  end
+end
+```
+
+## `Kobako::Transport::Error`
+
+A wire violation, raised on either side under the same name.
+
+```ruby
+module Kobako
+  module Transport
+    class Error
+    end
+  end
+end
+```
+
+## `Kobako::ServiceError`
+
+An invocation a Service call failed.
+
+```ruby
+module Kobako
+  class ServiceError
+  end
+end
+```
+
+## `Kobako::NoServiceError`
+
+A dispatch that reached no Service method.
+
+```ruby
+module Kobako
+  class NoServiceError
+  end
+end
+```
+
+## `Kobako::ServiceArgumentError`
+
+Arguments a Service method refused.
+
+```ruby
+module Kobako
+  class ServiceArgumentError
+  end
+end
+```
+
+## `Kobako::SetupError`
+
+A Sandbox that could not be constructed.
+
+```ruby
+module Kobako
+  class SetupError
+  end
+end
+```
+
+## `Kobako::ModuleNotBuiltError`
+
+A Guest Binary not built yet at the configured path.
+
+```ruby
+module Kobako
+  class ModuleNotBuiltError
+  end
+end
+```
+
+## `Kobako::BlockError`
+
+A guest block that failed, raised at the Service's yield site.
+
+```ruby
+module Kobako
+  class BlockError
+  end
+end
+```
+
+## `Kobako::YieldValueError`
+
+A yield argument the wire cannot carry.
+
+```ruby
+module Kobako
+  class YieldValueError
+  end
+end
+```
+
+## `Kobako::PoolTimeoutError`
+
+A Pool checkout that waited past its bound.
+
+```ruby
+module Kobako
+  class PoolTimeoutError
+  end
+end
+```

@@ -290,37 +290,6 @@ The grades above, and the obligations each replaceable interface carries, are de
 
 ---
 
-#### Error Classes
-
-Three error classes cover every failure of a Sandbox invocation, and one covers a failed construction. These class names are stable public API and are never renamed or aliased. When each is raised is stated in [`outcome.md`](docs/spec/behavior/outcome.md).
-
-| Term | Ruby Class | Layer it represents |
-|------|-----------|--------------------|
-| **TrapError** | `Kobako::TrapError` | Wasm engine layer |
-| **SandboxError** | `Kobako::SandboxError` | Sandbox / wire layer |
-| **ServiceError** | `Kobako::ServiceError` | Service / capability layer |
-| **SetupError** | `Kobako::SetupError` | Construction layer |
-
-**Named subclasses (stable public API):**
-
-| Ruby Class | Superclass | Narrows to |
-|-----------|-----------|---------|
-| `Kobako::TimeoutError` | `Kobako::TrapError` | the per-invocation deadline |
-| `Kobako::MemoryLimitError` | `Kobako::TrapError` | the per-invocation memory budget |
-| `Kobako::HandleExhaustedError` | `Kobako::SandboxError` | an invocation out of Handle ids |
-| `Kobako::BytecodeError` | `Kobako::SandboxError` | bytecode that will not load |
-| `Kobako::UndefinedEntrypointError` | `Kobako::SandboxError` | a `#run` target that is not there |
-| `Kobako::Transport::Error` | `Kobako::SandboxError` | a wire violation |
-| `Kobako::NoServiceError` | `Kobako::ServiceError` | a dispatch reaching no Service method |
-| `Kobako::ServiceArgumentError` | `Kobako::ServiceError` | arguments the Service method refuses |
-| `Kobako::ModuleNotBuiltError` | `Kobako::SetupError` | an artifact not yet built |
-| `Kobako::BlockError` | `Kobako::Error` | a failed guest block, at the yield site |
-| `Kobako::YieldValueError` | `Kobako::Error` | a yield argument the wire cannot carry |
-
-**Wire-level error class:** `Kobako::Transport::Error` is the `name` a Panic carries for a wire violation, so the guest raises it and the host raises it back. The two yield-site classes are not invocation outcomes and carry no `Execution`.
-
----
-
 #### Bound Service constants
 
 A Host object bound at a constant-path name via `sandbox.bind(path, service)` is a **Service**, and that Service receives the Transport requests guest code dispatches. Guest code sees it as a constant that `extend`s `Kobako::Proxy` at the path its name spells: a multi-segment path nests the leaf constant under a module named by its prefix (`MyService::KV`), a single-segment path binds it at top level (`File`). A path prefix holds no binding of its own — it exists only as the guest module that groups the bound constants beneath it.

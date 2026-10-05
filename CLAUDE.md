@@ -152,7 +152,7 @@ These three rules keep the tiers acyclic; each was learned from a cycle or a lea
 | Rule | Example |
 |---|---|
 | a type sits at the lowest tier that needs it | `Kobako::Handle` at the root, for `Codec` |
-| `Outcome` may require `transport/error.rb` | the class name is fixed by SPEC.md |
+| `Outcome` may require `transport/error.rb` | the gem contract fixes the class name |
 | `Codec.track_handles` wraps only the decode call | wider leaks its flag into re-entry |
 
 Namespace follows dependency direction, not which tier reads a type most. Do not move `Kobako::Transport::Error` to remove the lateral edge; its file depends only on root `errors.rb`.
