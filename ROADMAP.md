@@ -5,7 +5,8 @@ code: a wasmtime host runs a precompiled `kobako.wasm` guest, with host↔guest
 Transport over a MessagePack wire. Features cover one-shot `#eval`, preload +
 `#run` dispatch, Service injection at constant-path names, opaque
 Capability Handles, block yield re-entry, three-class error attribution,
-output capture, and a warm Sandbox pool.
+output capture, a warm Sandbox pool, Extension installation, and
+host-parallel execution.
 
 | Feature | Entry Points | Notes |
 |---------|-------------|-------|
@@ -23,3 +24,5 @@ output capture, and a warm Sandbox pool.
 | ✅ [Snippet preloading (`#preload`)](docs/spec/behavior/sandbox.md) | [lib/kobako/catalog/snippets.rb](lib/kobako/catalog/snippets.rb) | — |
 | ✅ [Synchronous entrypoint dispatch (`#run`)](docs/spec/behavior/sandbox.md) | [lib/kobako/sandbox.rb](lib/kobako/sandbox.rb) | — |
 | ✅ [Warm Sandbox pool checkout (`Kobako::Pool`)](docs/spec/behavior/pool.md) | [lib/kobako/pool.rb](lib/kobako/pool.rb) | — |
+| ✅ [Extension installation (`Sandbox#install`)](docs/spec/behavior/extension.md) | [lib/kobako/extension.rb](lib/kobako/extension.rb), [lib/kobako/catalog/extensions.rb](lib/kobako/catalog/extensions.rb) | kobako ships the contract only, no concrete Extension ([docs/extensions.md](docs/extensions.md)) |
+| ✅ [Host-parallel execution (`gvl:`)](docs/spec/behavior/runtime.md) | [ext/kobako/src/runtime/gvl.rs](ext/kobako/src/runtime/gvl.rs) | — |

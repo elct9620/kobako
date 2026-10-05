@@ -137,33 +137,6 @@ These five roles describe the system. All design and behavior content in later l
 
 ---
 
-### Feature List
-
-The following features constitute the complete observable surface of the `kobako` gem. Behavior details for each feature are specified in the Behavior layer.
-
-| # | Feature | Role |
-|---|---------|------|
-| F-01 | Sandbox instantiation | Host Gem |
-| F-02 | Service binding (`Sandbox#bind`) | Host Gem |
-| F-04 | Synchronous mruby source execution (`#eval`) | Host Gem + Guest Binary |
-| F-05 | Guest-initiated Transport dispatch | Host Gem + Wire Spec |
-| F-06 | Capability Handle encoding and referencing | Host Gem + Wire Spec |
-| F-07 | Three-class error attribution and raising | Host Gem |
-| F-08 | Guest output capture | Host Gem + Guest Binary |
-| F-09 | Host–guest message codec | Wire Spec (both sides) |
-| F-10 | Reproducible build pipeline | Build tooling |
-| F-11 | Multi-layer test and benchmark suite | Quality pipeline |
-| F-12 | Guest block reception and host-initiated yield re-entry | Host Gem + Guest Binary + Wire Spec |
-| F-13 | Snippet preloading — source or bytecode (`#preload`) | Host Gem + Guest Binary |
-| F-14 | Synchronous entrypoint dispatch (`#run`) | Host Gem + Guest Binary |
-| F-15 | Warm Sandbox pool checkout (`Kobako::Pool`) | Host Gem |
-| F-16 | Extension installation (`Sandbox#install`) | Host Gem |
-| F-17 | Host-parallel guest execution via the per-Sandbox `gvl:` mode | Host Gem |
-
-The Host Gem ships the Extension contract and the `#install` consumer only; it bundles no concrete Extension. A guest idiom such as a native-style `File` is authored by the Host App or a third-party gem as an object satisfying the contract, and used illustratively in this specification. The contract-in-use and a worked example live in [`docs/extensions.md`](docs/extensions.md).
-
----
-
 ### User Journeys
 
 The following journeys describe the primary ways actors use kobako end-to-end. Each journey is a discrete, runnable scenario that covers one or more Impacts stated in Intent.
@@ -308,36 +281,6 @@ The guest resolves `File.join` in-guest with no round-trip and dispatches `File.
 
 ---
 
-## Behavior
-
-Each feature's behaviors are sumi scenarios in its own file under `docs/spec/behavior/`. A test claims a scenario with `@behavior`, and `sumi verify` holds every scenario to a claim. Read the feature file for what a feature does and refuses.
-
-| Feature | File |
-|---------|------|
-| Sandbox | [`sandbox.md`](docs/spec/behavior/sandbox.md) |
-| Service registration | [`services.md`](docs/spec/behavior/services.md) |
-| Extension | [`extension.md`](docs/spec/behavior/extension.md) |
-| Transport dispatch | [`transport-dispatch.md`](docs/spec/behavior/transport-dispatch.md) |
-| Dispatch boundary | [`transport-boundary.md`](docs/spec/behavior/transport-boundary.md) |
-| Yield re-entry | [`transport-yield.md`](docs/spec/behavior/transport-yield.md) |
-| Outcome attribution | [`outcome.md`](docs/spec/behavior/outcome.md) |
-| Runtime | [`runtime.md`](docs/spec/behavior/runtime.md) |
-| Pool | [`pool.md`](docs/spec/behavior/pool.md) |
-| mruby guest | [`mruby.md`](docs/spec/behavior/mruby.md) |
-| Guest IO | [`io.md`](docs/spec/behavior/io.md) |
-| Regexp | [`regexp.md`](docs/spec/behavior/regexp.md) |
-| Regexp over String | [`regexp-string.md`](docs/spec/behavior/regexp-string.md) |
-| MatchData | [`regexp-matchdata.md`](docs/spec/behavior/regexp-matchdata.md) |
-| Guest JSON | [`json.md`](docs/spec/behavior/json.md) |
-| Payload encoding | [`payload-encoding.md`](docs/spec/behavior/payload-encoding.md) |
-| Payload wire | [`codec.md`](docs/spec/behavior/codec.md) |
-| Core envelope | [`envelope.md`](docs/spec/behavior/envelope.md) |
-| Journeys | [`journeys.md`](docs/spec/behavior/journeys.md) |
-
-The Regexp and JSON capabilities keep their intent, surface, and non-goals in [`docs/regexp.md`](docs/regexp.md) and [`docs/json.md`](docs/json.md).
-
----
-
 ## Refinement
 
 ### Terminology
@@ -477,23 +420,6 @@ The byte-level codec that pins the Wire Contract is specified in detail in [`doc
 - **Single-message size cap:** 16 MiB in either direction, applied to the whole envelope rather than the payload alone, and to an invocation-channel frame as much as to a dispatch. Exceeding the cap is a wire violation; the Host Gem walks the trap path. A `memory_limit` below the cap binds first in practice, since the guest grows linear memory to hold what it reads.
 - **Nesting depth is a per-document budget:** the core envelope does not nest — every field is a scalar, a byte string, or a flat list — so the 128-level bound belongs to the payload codec, and the envelope and each payload it carries are separate documents with separate budgets.
 - **Consistency guarantee:** neither layer's implementation is its own definition of correct; each is held to a second source that was not derived from it. The core envelope has one implementation, and its second source is the byte-level layout document expressed as golden vectors — hand-derived from [`docs/wire/envelope.md`](docs/wire/envelope.md) rather than from any code, covering every frame it defines and every discriminant — each `kind` and `tag` byte — it fixes, spelled as the literal byte rather than the name the implementation gives it. The payload codec's second source is a second implementation in another language, checked by bidirectional round-trip fuzz between the Ruby host and the Rust/mruby guest covering all 11 wire types and both ext types in both directions. The split follows where ambiguity lives: the type mapping two languages' conventions disagree about sits entirely in the payload codec, which is why that layer earns a second implementation, while the envelope asks its implementers to agree on three routing fields and a byte string. Any failure at either layer is a wire regression that blocks release. The harness contract is specified in Implementation Standards § Testing Style.
-
----
-
-### Naming Principles
-
-The following principles govern how all names in this specification and in the `kobako` public surface are formed. They are declarative rules, not rationale.
-
-| # | Principle | Applies to |
-|---|----------|-----------|
-| N-1 | Role names are PascalCase with every word capitalized: `Host App`, `Host Gem`, `Guest Binary`, `Wire Spec` | All role names in this document and in code comments |
-| N-2 | All public Ruby classes and modules live under the `Kobako::` namespace | Ruby classes: `Kobako::Sandbox`, `Kobako::TrapError`, `Kobako::SandboxError`, `Kobako::ServiceError`, `Kobako::Handle` |
-| N-3 | The gem name is always lowercase: `kobako` | Gemspec, `require` statements, Bundler references |
-| N-4 | The Wasm artifact name is fixed: `kobako.wasm` for the pure default; a capability variant adds a `+<cap>` suffix (`kobako+<cap>.wasm`, e.g. `kobako+regexp.wasm`), the composition convention detailed in [`docs/variants.md`](docs/variants.md) | Build output, gem packaging, documentation |
-| N-5 | The Guest Binary crate is `kobako-wasm`; the native extension crate package is `kobako`, matching the `lib/kobako/kobako.<ext>` artifact that rb_sys / rake-compiler loads. Neither crate name is exposed to Ruby. | `Cargo.toml` package names |
-| N-6 | A concept has exactly one name; no synonyms appear in the same document or public surface. The names, and the names ruled out, are declared in [`docs/spec/glossary.md`](docs/spec/glossary.md), scoped to the files each governs; every use of a ruled-out name is reported against the line that uses it | All layers of this specification |
-| N-7 | Error class names encode the layer they represent: `TrapError` → Wasm engine layer, `SandboxError` → sandbox/wire layer, `ServiceError` → service/capability layer | `Kobako::TrapError`, `Kobako::SandboxError`, `Kobako::ServiceError` |
-| N-9 | Every name a third party implements against carries a declared grade — stable, append-only, exhaustive, or replaceable — and the declaration lives in [`docs/customization.md`](docs/customization.md). A grade is a commitment: a stable name does not change without a version increment of the crate that owns it, an append-only set only gains members without breaking the matches already written, an exhaustive set breaks them on purpose because every implementer has to answer for a new member, and a replaceable interface states the obligations an implementation is held to. Source compatibility is the owning crate's semantic version; wire compatibility is the ABI version. The two are separate, and only the names of the fixed tier — whose shape *is* the wire — answer to both | The Rust host SDK, the guest assembly points (`Guest`, `MrbGuest`, `export_guest!`, `PayloadCodec`), and the engine contract |
 
 ---
 
