@@ -10,7 +10,8 @@ MessagePack, and a capability gem whose methods reach the host.
 
 ## `Kobako`
 
-The handle to the class registrations an invocation flow works through.
+The handle to the class registrations that an invocation flow and a Codec both
+work through.
 
 ```rust
 pub struct Kobako {}
@@ -18,7 +19,8 @@ pub struct Kobako {}
 
 ## `Kobako::init`
 
-Register the classes the Guest boots with, under the gems the Guest composes.
+Install kobako's own classes on a booted VM, then the gems the Guest composes,
+and return the registrations of kobako's classes.
 
 ```rust
 impl Kobako {
@@ -57,7 +59,8 @@ pub enum InstallError {}
 
 ## `Kobako::transport_error`
 
-The wire-level failure a bridge hands back, raised at the guest call site.
+The wire-level failure a guest method's body hands back, raised at the guest
+call site.
 
 ```rust
 impl Kobako {
@@ -145,7 +148,8 @@ impl IntegerOutOfRange {
 
 ## `PayloadCodec`
 
-The Codec a Guest names for the values a Call and a Run carry.
+The Codec a Guest names for every payload an Envelope carries: the
+Outcome, a Call and its Reply, a Run, and a Yield.
 
 ```rust
 pub trait PayloadCodec {}
@@ -153,7 +157,8 @@ pub trait PayloadCodec {}
 
 ## `Arguments`
 
-The positional and keyword arguments a Codec decodes for the guest.
+A Run's positional and keyword arguments, kept apart, as the Entrypoint is called
+with them.
 
 ```rust
 pub struct Arguments {}
@@ -161,7 +166,8 @@ pub struct Arguments {}
 
 ## `CodecError`
 
-Why a Codec could not carry a value.
+Why a Codec could not do its part: a value with no form, bytes it cannot read, a
+position it does not serve, or the interpreter refusing.
 
 ```rust
 pub enum CodecError {}

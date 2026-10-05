@@ -62,8 +62,8 @@ impl<'a> Handles<'a> {
 
 ## `Context`
 
-The one invocation an override closure shapes, by overriding what a path
-resolves to for that invocation alone.
+What an override closure receives to shape one invocation: it overrides what a
+path resolves to, for that invocation alone.
 
 ```rust
 pub struct Context<'a> {}
