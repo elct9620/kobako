@@ -329,3 +329,19 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | Given | a Sandbox declaring one Service path |
 | When | an invocation's block overrides a path the Sandbox never declared |
 | Then | no Execution is produced |
+
+## `SV-042` Sharing leading characters is not sharing a segment
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service bound at a path |
+| When | another path that shares only its leading characters, not a whole segment, is bound |
+| Then | it binds beside the first without colliding |
+
+## `SV-043` A path declared with no object collides as a bound one does
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox that declared a path with no object |
+| When | a path colliding with it is bound |
+| Then | the bind is refused |

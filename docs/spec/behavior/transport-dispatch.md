@@ -17,6 +17,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 - `test/unit/transport/test_dispatcher.rb`
 - `test/unit/transport/test_dispatcher_handles.rb`
 - `test/unit/transport/test_dispatcher_invalidity.rb`
+- `test/unit/transport/test_dispatcher_argument_fault.rb`
 - `test/unit/transport/test_dispatcher_violations.rb`
 - `test/unit/catalog/test_handles.rb`
 - `test/unit/codec/test_handle_walk.rb`
@@ -989,3 +990,19 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a Sandbox carrying a preloaded entrypoint |
 | When | it runs with a reflective gadget among its arguments |
 | Then | it fails as a Sandbox failure before the guest runs |
+
+## `T-229` A stale reference fails only its own call
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation in which the guest dispatches through a reference that is no longer live |
+| When | it then dispatches to a bound Service |
+| Then | the stale call is refused as an undefined target and the later one still answers |
+
+## `T-230` An argument error from a Service's own body is an argument failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound Service that raises an argument error from inside its own body |
+| When | the guest calls it |
+| Then | it answers as an argument failure, as a binding mismatch does |

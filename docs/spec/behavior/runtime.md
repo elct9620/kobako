@@ -508,3 +508,11 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Given | a file at the path whose bytes are not a Wasm module |
 | When | a runtime is built from that path |
 | Then | construction fails, and not as the artifact that has not been built |
+
+## `RT-061` A deadline that never arrives is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a deadline that is not finite |
+| When | Sandbox options are built with it |
+| Then | they are refused |

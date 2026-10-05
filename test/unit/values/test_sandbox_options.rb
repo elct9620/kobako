@@ -53,15 +53,16 @@ class TestSandboxOptions < Minitest::Test
 
   # timeout accepts any positive finite Numeric; the byte caps demand a
   # positive Integer — the matrix keeps the four caps' reject rules
-  # pinned side by side so an asymmetry cannot creep in unnoticed.
+  # pinned side by side so an asymmetry cannot creep in unnoticed. A deadline
+  # that never arrives is refused too: the way to ask for none is nil.
   INVALID_CAP_VALUES = {
-    timeout: [0, -1.0, "60"],
+    timeout: [0, -1.0, "60", Float::INFINITY, Float::NAN],
     memory_limit: [0, -1, 1.5, "100"],
     stdout_limit: [0, -1, 1.5, "100"],
     stderr_limit: [0, -1, 1.5, "100"]
   }.freeze
 
-  # @behavior RT-058
+  # @behavior RT-058 RT-061
   def test_rejects_invalid_cap_values
     INVALID_CAP_VALUES.each do |cap, values|
       values.each do |bad|

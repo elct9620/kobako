@@ -215,6 +215,41 @@ module Kobako
              "a fillable backend is never per-invocation resolved; it stays Unresolved until filled"
     end
 
+    # The kind is read off the keyword, never off whether the value is
+    # callable: a callable declared as the fixed object is bound as itself.
+    # @behavior EX-044
+    def test_a_callable_declared_as_the_fixed_object_is_bound_rather_than_called
+      callable = -> { flunk "a callable declared with object: must never be called as a provider" }
+      install(extension(name: :File, source: "1", backend: static_backend("File", callable)))
+
+      assert_same callable, @services.lookup("File").object,
+                  "a callable declared with object: through #install must be bound as itself"
+      refute @extensions.resolve.key?("File"),
+             "a callable declared with object: through #install must take no part in per-invocation resolution"
+    end
+
+    # @behavior EX-045
+    def test_a_name_that_is_not_a_constant_name_is_refused_as_a_snippet_name_is
+      expected = assert_raises(ArgumentError) { Kobako::Catalog::Snippets.new.register(code: "1", name: :file) }
+
+      err = assert_raises(ArgumentError) { install(extension(name: :file, source: "1")) }
+
+      assert_equal expected.message, err.message,
+                   "an Extension name that is not a constant name through #install must be refused as a snippet name is"
+    end
+
+    # @behavior EX-046
+    def test_a_backend_path_segment_that_is_not_a_constant_name_is_refused_as_a_bind_is
+      expected = assert_raises(ArgumentError) { Kobako::Catalog::Services.new.bind("Fs::file", Object.new) }
+
+      err = assert_raises(ArgumentError) do
+        install(extension(name: :Fs, source: "1", backend: static_backend("Fs::file", Object.new)))
+      end
+
+      assert_equal expected.message, err.message,
+                   "a backend path segment that is not a constant name through #install must be refused as a bind is"
+    end
+
     # @behavior EX-013
     def test_backend_rejects_object_and_provider_together
       err = assert_raises(ArgumentError) do

@@ -152,6 +152,15 @@ class TestDispatchGuestNarrowing < Minitest::Test
                  "the failed dynamic dispatch must surface as a runtime fault, not the undefined narrowing fault"
   end
 
+  # Permission is not existence: an object with no method_missing that the
+  # predicate permits a name for still has nothing to run under it.
+  # @behavior T-228
+  def test_a_permitted_name_with_no_method_is_refused_as_undefined
+    resp = dispatch("Cfg::Wide", "nothing_here")
+    assert_equal [false, "undefined"], [resp.ok?, resp.payload.type],
+                 "a name the predicate permits but the object lacks through guest dispatch must be refused as undefined"
+  end
+
   # @behavior T-129
   def test_object_without_predicate_exposes_the_methods_it_defines_itself
     resp = dispatch("Cfg::Open", "hello")

@@ -97,7 +97,23 @@ module Kobako
       assert_equal :set, bound_object("KV::Set")
     end
 
+    # @behavior SV-042
+    def test_a_path_sharing_only_leading_characters_binds_beside_it
+      @services.bind("KV", :leaf)
+      @services.bind("KVStore", :other)
+      assert_equal :other, bound_object("KVStore"),
+                   "a path sharing only leading characters with a bound one through bind must not collide with it"
+    end
+
     # ---------- duplicate / prefix collision raises ----------
+
+    # @behavior SV-043
+    def test_a_path_declared_with_no_object_refuses_a_colliding_bind
+      @services.bind("KV", Kobako::Unresolved)
+      assert_raises(ArgumentError, "a declared-only path through bind must refuse a colliding bind") do
+        @services.bind("KV::Get", :under)
+      end
+    end
 
     # @behavior SV-012 SV-015
     def test_bind_rejects_an_exact_duplicate_path

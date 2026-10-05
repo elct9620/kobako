@@ -25,6 +25,8 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 - `test/unit/transport/test_dispatcher_gadget_return.rb`
 - `test/unit/transport/test_dispatcher_permissive_return.rb`
 - `test/unit/transport/test_dispatcher_narrowing.rb`
+- `test/unit/transport/test_dispatcher_callables.rb`
+- `test/unit/transport/test_dispatcher_singletons.rb`
 - `test/parity/test_reflection.rb`
 - `test/unit/values/test_handle.rb`
 - `crates/kobako/src/dispatch.rs`
@@ -471,3 +473,51 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | Given | a Sandbox with a capability reference in guest hands |
 | When | guest code reaches its copy hook with two arguments |
 | Then | it is refused for its argument count |
+
+## `T-223` A reflective gadget bound as a Service answers none of its own methods
+
+| Step | Statement |
+| --- | --- |
+| Given | a reflective gadget bound as a Service |
+| When | the guest calls any of its reflective methods, evaluation included |
+| Then | each is refused as an undefined target |
+
+## `T-224` Every name a bound callable keeps reaches it
+
+| Step | Statement |
+| --- | --- |
+| Given | a callable bound as a Service |
+| When | the guest calls each name the callable keeps |
+| Then | each reaches the callable and answers |
+
+## `T-225` A reference to a callable refuses reflection as a bound one does
+
+| Step | Statement |
+| --- | --- |
+| Given | the guest holding a capability reference to a callable |
+| When | it calls a reflective name on that reference |
+| Then | it is refused as an undefined target |
+
+## `T-226` A gadget pulled out of a container reference is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a container that crossed as a capability reference and holds a reflective gadget |
+| When | the guest extracts the gadget from it |
+| Then | the answer is refused as a runtime failure and no reference is made for it |
+
+## `T-227` An ordinary object keeps its singleton methods
+
+| Step | Statement |
+| --- | --- |
+| Given | an ordinary object bound as a Service with a method defined on the object itself |
+| When | the guest calls that method |
+| Then | it answers |
+
+## `T-228` Permitting a name does not conjure a method for it
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object whose narrowing predicate permits every name, and which has no fallback for missing methods |
+| When | the guest calls a name the object has no method for |
+| Then | it is refused as an undefined target |

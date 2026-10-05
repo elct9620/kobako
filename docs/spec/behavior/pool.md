@@ -228,3 +228,11 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | Given | a Pool of two slots whose setup block preloads an entrypoint |
 | When | four concurrent requests each check out a Sandbox and run that entrypoint |
 | Then | every request is answered by it |
+
+## `PL-026` A Sandbox option the Sandbox refuses surfaces where the Sandbox is built
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool constructed with a Sandbox option the Sandbox refuses |
+| When | a checkout first builds a Sandbox |
+| Then | that checkout raises the Sandbox's own refusal, unchanged |

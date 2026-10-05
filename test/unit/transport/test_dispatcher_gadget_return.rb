@@ -79,6 +79,20 @@ class TestDispatchGadgetReturn < Minitest::Test
     assert_instance_of Kobako::Handle, resp.payload
   end
 
+  # A container the codec cannot carry crosses as a reference; what the
+  # guest pulls out of it later is an answer like any other.
+  # @behavior T-226
+  def test_a_gadget_extracted_from_a_container_reference_is_refused
+    container = Struct.new(:held).new(binding)
+    id = @handler.alloc(container).id
+    call = DispatcherHelpers.call_for(id, "held")
+    resp = DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
+
+    assert_equal [false, "runtime"], [resp.ok?, resp.payload.type],
+                 "a reflective gadget extracted through a container reference must be refused as a runtime fault"
+    assert_equal 1, @handler.size, "extracting the gadget must allocate no Handle beyond the container's own"
+  end
+
   private
 
   def assert_gadget_refused(meth)

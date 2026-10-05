@@ -344,3 +344,27 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | Given | a Sandbox holding an Extension that names a dependency nothing installed |
 | When | the first invocation begins |
 | Then | no Execution is produced |
+
+## `EX-044` A callable declared as the fixed object is bound, never called
+
+| Step | Statement |
+| --- | --- |
+| Given | a backend declaring a callable as its fixed object |
+| When | the Extension is installed and an invocation resolves its backends |
+| Then | the callable itself is bound at the path and is never called |
+
+## `EX-045` An Extension name is refused as a snippet name is
+
+| Step | Statement |
+| --- | --- |
+| Given | an Extension whose name is not a constant name |
+| When | it is installed |
+| Then | it is refused with the refusal a snippet of that name receives |
+
+## `EX-046` A backend path is refused as a bind is
+
+| Step | Statement |
+| --- | --- |
+| Given | a backend whose path carries a segment that is not a constant name |
+| When | its Extension is installed |
+| Then | it is refused with the refusal a bind at that path receives |

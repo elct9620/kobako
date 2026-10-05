@@ -55,6 +55,19 @@ class TestPoolConstruction < Minitest::Test
     assert_equal 0, setup_runs, "Pool.new must not construct any Sandbox before the first checkout"
   end
 
+  # Pool.new forwards Sandbox keywords without reading them, so a value the
+  # Sandbox refuses is refused by the Sandbox, where it is first built.
+  # @behavior PL-026
+  def test_a_refused_sandbox_option_surfaces_unchanged_at_the_checkout_that_built_it
+    expected = assert_raises(ArgumentError) { Kobako::SandboxOptions.new(timeout: -1) }
+
+    pool = Kobako::Pool.new(slots: 1, timeout: -1)
+    err = assert_raises(ArgumentError) { pool.with { |_sandbox| nil } }
+
+    assert_equal expected.message, err.message,
+                 "a Sandbox option the Sandbox refuses through Pool#with must surface unchanged at that checkout"
+  end
+
   # @behavior PL-023
   # A checkout timeout reaches the Host App from a different place than
   # an invocation outcome does, so a single `rescue Kobako::Error` has to
