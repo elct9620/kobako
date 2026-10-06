@@ -92,7 +92,9 @@ impl Encoder {
 /// A wire value object that encodes itself to its kobako-codec bytes.
 /// Implemented by every payload document the codec carries — the
 /// invocation `payload::Arguments` today — which is why the trait
-/// lives here at the codec tier rather than under `payload`. It is the
+/// lives here at the codec tier rather than under `payload`. A schema
+/// built on this codec implements it for its own documents too; the
+/// trait is graded stable in `docs/customization.md`. It is the
 /// Rust-native expression of the contract the Ruby host gets via duck
 /// typing (`#encode` on each value object). The value object's own
 /// invariants are the contract; this does not re-validate the shape.

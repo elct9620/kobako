@@ -52,7 +52,7 @@ The types those seams carry, by grade:
 
 | Grade | Names |
 |---|---|
-| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, Arguments, dispatch}` · `kobako_runtime::{Snapshot, Capture, Usage, Frames}` · `kobako::{Sandbox, Options, Execution, Context, Handles, RunPayload}` |
+| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, Arguments, dispatch}` · `kobako_runtime::{Snapshot, Capture, Usage, Frames}` · `kobako_codec::msgpack::{Encode, Decode}` · `kobako::{Sandbox, Options, Execution, Context, Handles, RunPayload}` |
 | **stable · exhaustive** | `kobako_runtime::{Profile, Entry, Completion}` |
 | **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError}` |
 | **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · `kobako_transport::envelope::*` · `kobako::FaultKind` |

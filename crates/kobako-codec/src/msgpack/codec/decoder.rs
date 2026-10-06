@@ -231,7 +231,8 @@ fn read_ext(cursor: &mut &[u8], len: usize) -> Result<Value, Error> {
 /// as a value but do not match the document's expected shape. The two
 /// halves are separate traits so an implementation carries only the
 /// direction its side needs; this crate serves both sides, which is why
-/// `payload::Arguments` carries both.
+/// `payload::Arguments` carries both. Like `Encode`, it is open to a
+/// schema's own documents.
 pub trait Decode: Sized {
     fn decode(bytes: &[u8]) -> Result<Self, Error>;
 }
