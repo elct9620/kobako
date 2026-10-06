@@ -399,6 +399,15 @@ Replacement text is a small language of its own, so its scenarios cover what exp
 | When | guest code substitutes globally with neither a block nor a replacement |
 | Then | the invocation fails naming the enumerator it could not build |
 
+## `RX-220` Global substitution with nothing to substitute enumerates where the guest can
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over a Guest Binary composing both the regexp capability and Enumerator support |
+| When | guest code substitutes globally with neither a block nor a replacement |
+| Then | it answers an Enumerator over the matches |
+| unverifiable | no shipped Guest Binary composes Enumerator support |
+
 ## `RX-166` Single substitution with nothing to substitute is an error
 
 | Step | Statement |

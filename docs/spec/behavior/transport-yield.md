@@ -310,6 +310,15 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code calls it with a block |
 | Then | the invocation answers what the Service returned |
 
+## `T-262` Nested yields carry no depth limit of their own
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service that yields to a block calling the Service again |
+| When | guest code nests those yields ever deeper |
+| Then | only the guest's stack bounds the depth |
+| unverifiable | no depth is the last, so a finite test cannot show there is no limit |
+
 ## `T-165` A guest that trapped inside a block aborts the yield
 
 | Step | Statement |

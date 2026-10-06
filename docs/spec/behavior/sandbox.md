@@ -57,6 +57,15 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | one is constructed naming no artifact |
 | Then | it reports the bundled Guest Binary's path |
 
+## `S-172` Constructing a Sandbox runs no guest code
+
+| Step | Statement |
+| --- | --- |
+| Given | no Sandbox |
+| When | one is constructed |
+| Then | no guest code runs until its first invocation |
+| unverifiable | guest code that never ran leaves nothing to observe |
+
 ## `S-002` The caps a Sandbox was given are the caps it reports
 
 | Step | Statement |

@@ -192,6 +192,24 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the ids it had minted are presented afterward |
 | Then | they resolve to no object |
 
+## `T-260` Discarding a Sandbox releases every host object its invocations referenced
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose invocations referenced host objects |
+| When | the Sandbox is discarded |
+| Then | none of those objects outlives it |
+| unverifiable | release shows only through garbage collection, whose timing no test controls |
+
+## `T-261` Every id a table holds names an object the guest was handed
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation's Handle table |
+| When | any id it holds is resolved |
+| Then | it names an object that was handed to the guest |
+| unverifiable | it holds for every id of every table, and a test reaches finitely many |
+
 ## `T-019` The wire's own scalars are recognised as themselves
 
 | Step | Statement |
@@ -415,6 +433,15 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | an invocation whose Handle table is exhausted |
 | When | a Service answers a value needing a new reference |
 | Then | the dispatch answers on the fault arm |
+
+## `T-259` Running out of references while wrapping an entrypoint's arguments fails the run
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Handle table cannot issue another reference |
+| When | a run is given an argument needing a new reference |
+| Then | the run fails as a Sandbox failure before the guest runs |
+| unverifiable | exhausting the table takes every id the wire allows, and no public seam lowers that ceiling |
 
 ## `T-047` An allocation past the highest id is a Sandbox failure
 

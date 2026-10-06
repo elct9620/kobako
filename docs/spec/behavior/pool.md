@@ -204,6 +204,15 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | When | a Pool is constructed |
 | Then | a Pool is constructed |
 
+## `PL-031` A Pool with no checkout bound waits however long it takes
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool whose checkout bound is nothing, with every slot held |
+| When | a caller checks out |
+| Then | the caller waits until a slot is returned, however long that takes |
+| unverifiable | a wait without end outlasts every test that observes it |
+
 ## `PL-023` A checkout timeout is one of kobako's own failures
 
 | Step | Statement |

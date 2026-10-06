@@ -869,6 +869,33 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code rescues the pattern error around a match past the engine's bound and returns a value |
 | Then | the invocation answers that value |
 
+## `RX-217` A pattern with nothing to backtrack into never reaches the bound
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern with no backreference and no look-around against any subject |
+| Then | the match never reaches the engine's bound |
+| unverifiable | it holds for every subject, and a test reaches finitely many |
+
+## `RX-218` A deadline interrupts a match still running
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary, under a deadline |
+| When | guest code runs a match that outlasts the deadline without reaching the engine's bound |
+| Then | the invocation ends as the deadline's own trap rather than a pattern error |
+| unverifiable | no match is known to outlast a deadline before it reaches the engine's bound |
+
+## `RX-219` A match answers as the language does or refuses
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code runs a match the language reaches an answer for |
+| Then | it answers what the language answers, or raises the pattern error |
+| unverifiable | it holds for every pattern the language answers, and a test reaches finitely many |
+
 ## `RX-181` The match operator's fallback takes one operand
 
 | Step | Statement |

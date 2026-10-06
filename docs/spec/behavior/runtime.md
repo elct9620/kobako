@@ -74,6 +74,16 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | When | each Thread passes its own Handles back as dispatch arguments |
 | Then | each resolves only its own |
 
+## `RT-071` A reference from an earlier invocation resolves to nothing under either mode
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox under each scheduling mode |
+| Given | a reference an earlier invocation of that Sandbox issued |
+| When | guest code in a later invocation presents it |
+| Then | it resolves to no object |
+| unverifiable | every invocation begins in a fresh guest, so no guest code can present an earlier reference |
+
 ## `RT-006` A guest that cannot state its ABI version does not run
 
 | Step | Statement |
@@ -244,6 +254,25 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | Given | several Threads, each with its own Sandbox constructed to release the lock |
 | When | every Thread evaluates guest source computing from its own input |
 | Then | each Thread receives the result of its own input |
+
+## `RT-069` Released Sandboxes on distinct Threads run in parallel
+
+| Step | Statement |
+| --- | --- |
+| Given | several Threads, each with its own Sandbox constructed to release the lock |
+| When | every Thread evaluates guest source at once |
+| Then | the guest code runs in parallel rather than one Thread at a time |
+| unverifiable | parallelism shows only as wall-clock time, which a shared CI host does not hold steady |
+
+## `RT-070` A Sandbox holding the lock runs no other Thread meanwhile
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox constructed to hold the lock |
+| Given | another Thread ready to run |
+| When | the Sandbox evaluates guest source |
+| Then | the other Thread makes no progress until the guest code finishes |
+| unverifiable | a Service boundary switches Threads, so the other Thread's progress cannot be told apart from the guest's |
 
 ## `RT-027` A requested posture is honored the same way by either frontend
 
