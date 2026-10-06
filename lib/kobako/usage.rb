@@ -12,7 +12,7 @@ module Kobako
   #     cap, even when the cap was hit.
   #
   # Filled on every outcome, traps included, so a Host App that rescues a
-  # trap can read from the error's +#execution+ how much of the budget the
+  # trap reads from the error's +execution+ how much of the budget the
   # invocation used.
   class Usage < Data.define(:wall_time, :memory_peak)
     # The usage of a run that has not started: no time, no memory.

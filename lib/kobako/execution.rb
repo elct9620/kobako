@@ -4,25 +4,20 @@ require_relative "capture"
 require_relative "usage"
 
 module Kobako
-  # Kobako::Execution — the frozen result of one +Sandbox#eval+ / +#run+: the
-  # decoded +#value+ plus the run's output captures and +#usage+. A successful
-  # run returns it; a failed run raises an error carrying the same frozen
-  # Execution on the error's +#execution+, so a rescue reads the captures and
-  # usage exactly as a successful caller reads them off the return value. On a
-  # failed run +#value+ is +nil+ — only the captures and usage are meaningful.
+  # The record of one Sandbox#eval or Sandbox#run: the guest's #value, its
+  # output, and its #usage. A failed run raises instead, and the error carries
+  # the same record on +execution+, where #value is +nil+.
   #
-  # +#failed?+ tells the returned Execution from the carried one even when both
-  # +#value+ are +nil+ (a run whose last expression was +nil+ versus a failed
-  # one). It holds no reference to the raising error, so the error carries the
-  # Execution but not the reverse.
+  # #failed? tells the two apart when both #value are +nil+: a script whose
+  # last expression was +nil+ versus one that failed.
   class Execution
-    # The deserialized guest value the run produced; +nil+ on a failed run.
+    # The guest value the run produced; +nil+ on a failed run.
     attr_reader :value
 
-    # The +Kobako::Usage+ resource accounting for this run.
+    # What the run spent against its caps, as a Usage.
     attr_reader :usage
 
-    def initialize(value:, usage:, stdout:, stderr:, failed:)
+    def initialize(value:, usage:, stdout:, stderr:, failed:) # :nodoc:
       @value = value
       @usage = usage
       @stdout_capture = stdout
@@ -31,22 +26,22 @@ module Kobako
       freeze
     end
 
-    # Returns +true+ iff the run failed — +false+ on the Execution +#eval+ /
-    # +#run+ returned, +true+ on the one a raised error carries.
+    # Whether the run failed: +false+ on the Execution #eval or #run
+    # returned, +true+ on the one a raised error carries.
     def failed? = @failed
 
-    # Bytes the guest wrote to stdout during this run as a UTF-8 String,
-    # clipped at +stdout_limit+; the content carries no truncation sentinel,
-    # so use +#stdout_truncated?+ to observe overflow.
+    # What the guest wrote to stdout, up to +stdout_limit+ bytes: a UTF-8
+    # String, or a binary one when the bytes are not valid UTF-8. The text
+    # carries no sign it was cut; #stdout_truncated? says so.
     def stdout = @stdout_capture.bytes
 
-    # Bytes the guest wrote to stderr during this run. Mirror of #stdout.
+    # What the guest wrote to stderr; see #stdout.
     def stderr = @stderr_capture.bytes
 
-    # Returns +true+ iff stdout capture reached +stdout_limit+ during this run.
+    # Whether stdout reached +stdout_limit+.
     def stdout_truncated? = @stdout_capture.truncated?
 
-    # Returns +true+ iff stderr capture reached +stderr_limit+ during this run.
+    # Whether stderr reached +stderr_limit+.
     def stderr_truncated? = @stderr_capture.truncated?
   end
 end

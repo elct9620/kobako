@@ -8,17 +8,17 @@ module Kobako
   # handed out one exclusive holder at a time. Every Sandbox it builds is
   # kept: an invocation leaves nothing behind, whatever ended it.
   class Pool
-    # The +#with+ wait bound applied when +checkout_timeout+ is not given.
+    # The default +checkout_timeout+: 5 seconds.
     DEFAULT_CHECKOUT_TIMEOUT_SECONDS = 5.0
 
-    # Build a Pool of up to +slots+ Sandboxes. +slots+ is
-    # a positive Integer; +checkout_timeout+ bounds the +#with+ wait in
-    # seconds (+nil+ waits indefinitely); every other keyword is
-    # forwarded verbatim to +Kobako::Sandbox.new+. The optional block
-    # runs exactly once per constructed Sandbox — it is the setup window
-    # for +#bind+ / +#preload+ before that Sandbox's first checkout.
-    # No Sandbox is constructed here. Raises +ArgumentError+ for an
-    # invalid +slots+ / +checkout_timeout+.
+    # Build a Pool of up to +slots+ Sandboxes, built on first demand with the
+    # other keywords as Sandbox.new takes them. +checkout_timeout+ bounds how
+    # many seconds #with waits, and +nil+ waits indefinitely. The block, if
+    # given, sets up each Sandbox once, as with Sandbox#bind and
+    # Sandbox#preload.
+    #
+    # Raises ArgumentError when +slots+ is not a positive Integer or
+    # +checkout_timeout+ is not a positive finite number.
     def initialize(slots:, checkout_timeout: DEFAULT_CHECKOUT_TIMEOUT_SECONDS, **sandbox_options, &setup)
       validate_slots!(slots)
       @slots = slots
@@ -33,8 +33,8 @@ module Kobako
 
     # Yield one exclusively-held Sandbox to the block and return the
     # block's value; the Sandbox returns to the pool however the block
-    # exits. Raises +Kobako::PoolTimeoutError+ once every slot has stayed
-    # held past +checkout_timeout+.
+    # exits. Raises PoolTimeoutError once every slot has stayed held past
+    # +checkout_timeout+.
     def with
       sandbox = acquire
       begin
