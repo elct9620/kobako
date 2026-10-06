@@ -1416,3 +1416,11 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a Sandbox whose memory budget is smaller than the host objects a Service hands out |
 | When | guest code holds references to them all |
 | Then | the invocation completes within the budget |
+
+## `S-173` An answer the budget cannot hold ends the invocation at the budget
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose memory budget is smaller than a value its Service answers |
+| When | guest code calls that Service |
+| Then | the invocation fails as the budget's own trap |

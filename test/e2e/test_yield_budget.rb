@@ -32,13 +32,42 @@ class TestE2EYieldBudget < Minitest::Test
   def test_memory_a_yielded_block_grows_counts_against_the_budget
     assert_equal 4, yielding_sandbox(memory_limit: 64 << 20).eval(GROWING_BLOCK).value,
                  "the block must fit a budget large enough for what it grows"
-    assert_raises(Kobako::TrapError,
-                  "memory a yielded block grows must count against the invocation's budget") do
+    assert_raises(Kobako::MemoryLimitError,
+                  "memory a yielded block grows through #eval must end the invocation as the budget's own trap") do
       yielding_sandbox(memory_limit: 1 << 20).eval(GROWING_BLOCK)
     end
   end
 
+  # A trap leaves the guest mid-step, so a Service that shrugs off the
+  # first failed yield must not resume it with a second.
+  # @behavior T-264
+  def test_a_guest_that_trapped_is_not_entered_again
+    entries = 0
+    sandbox = retrying_sandbox(memory_limit: 1 << 20)
+    sandbox.bind("Probe::Enter", -> { entries += 1 })
+
+    assert_raises(Kobako::MemoryLimitError,
+                  "a Service rescuing a trapped yield through #eval must not hide the trap") do
+      sandbox.eval("Probe::Yields.call { Probe::Enter.call; Array.new(4) { 'a' * 900_000 }.size }")
+    end
+    assert_equal 1, entries, "a second yield after the guest trapped through #eval must not run the block again"
+  end
+
   private
+
+  # A Service that yields twice, shrugging off whatever trap the first
+  # yield raised.
+  def retrying_sandbox(memory_limit:)
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: memory_limit)
+    sandbox.bind("Probe::Yields", lambda do |&blk|
+      2.times do
+        blk.call
+      rescue Kobako::TrapError
+        nil
+      end
+    end)
+    sandbox
+  end
 
   def yielding_sandbox(memory_limit:)
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: memory_limit)

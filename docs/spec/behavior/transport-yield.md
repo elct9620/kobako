@@ -327,6 +327,14 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | the guest traps before answering |
 | Then | the yield is abandoned rather than answered |
 
+## `T-264` A guest that trapped is not entered again
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service that rescues the failure of a yield whose block trapped |
+| When | the Service yields to the block again |
+| Then | the block does not run again, and the invocation fails as the first trap |
+
 ## `T-166` A yield answer the envelope cannot frame aborts the yield
 
 | Step | Statement |
@@ -479,4 +487,4 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | --- | --- |
 | Given | a Sandbox whose Service yields to a block that grows memory |
 | When | the budget is too small for what the block grows |
-| Then | the invocation ends as a trap, though a larger budget lets the same block finish |
+| Then | the invocation fails as the budget's own trap, though a larger budget lets the same block finish |

@@ -45,6 +45,7 @@ pub(crate) struct Invocation {
     limiter: MemoryLimiter,
     wall_entry: Option<Instant>,
     wall_time: Duration,
+    reentry_trap: Option<wasmtime::Error>,
 }
 
 impl Invocation {
@@ -62,7 +63,28 @@ impl Invocation {
             limiter: MemoryLimiter::new(memory_limit),
             wall_entry: None,
             wall_time: Duration::ZERO,
+            reentry_trap: None,
         }
+    }
+
+    /// Keep the first trap the guest raised while the host was calling
+    /// back into it. A host callback cannot raise through the guest, so the
+    /// trap waits here for the dispatch import to end the invocation with
+    /// it, which keeps its kind instead of the callback's flattened reason.
+    pub(crate) fn record_reentry_trap(&mut self, trap: wasmtime::Error) {
+        self.reentry_trap.get_or_insert(trap);
+    }
+
+    /// Whether a callback into the guest has trapped this invocation; the
+    /// guest is past resuming once one has.
+    pub(crate) fn reentry_trapped(&self) -> bool {
+        self.reentry_trap.is_some()
+    }
+
+    /// Hand the recorded trap to the dispatch import that ends the
+    /// invocation with it.
+    pub(crate) fn take_reentry_trap(&mut self) -> Option<wasmtime::Error> {
+        self.reentry_trap.take()
     }
 
     /// Install a freshly-built WASI context plus the matching stdout/stderr

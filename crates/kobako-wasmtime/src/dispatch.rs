@@ -61,14 +61,19 @@ use crate::invocation::Invocation;
 /// raise (it folds Service exceptions onto the Reply's fault arm),
 /// so reaching the failure path is always a wiring bug or wire-layer
 /// fault rather than an expected path.
-pub(crate) fn handle(caller: &mut Caller<'_, Invocation>, req_ptr: i32, req_len: i32) -> i64 {
-    match try_handle(caller, req_ptr, req_len) {
-        Ok(packed) => packed,
-        Err(reason) => {
-            eprintln!("[kobako-dispatch] {reason}");
-            0
-        }
+pub(crate) fn handle(
+    caller: &mut Caller<'_, Invocation>,
+    req_ptr: i32,
+    req_len: i32,
+) -> wasmtime::Result<i64> {
+    let answer = try_handle(caller, req_ptr, req_len);
+    if let Some(trap) = caller.data_mut().take_reentry_trap() {
+        return Err(trap);
     }
+    Ok(answer.unwrap_or_else(|reason| {
+        eprintln!("[kobako-dispatch] {reason}");
+        0
+    }))
 }
 
 /// Result-returning core of `handle`. Pulled out so each early

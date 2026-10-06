@@ -86,7 +86,10 @@ fn build_linker() -> Result<Linker<Invocation>, SetupError> {
         .func_wrap(
             "env",
             "__kobako_dispatch",
-            |mut caller: Caller<'_, Invocation>, req_ptr: i32, req_len: i32| -> i64 {
+            |mut caller: Caller<'_, Invocation>,
+             req_ptr: i32,
+             req_len: i32|
+             -> wasmtime::Result<i64> {
                 dispatch::handle(&mut caller, req_ptr, req_len)
             },
         )

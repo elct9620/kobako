@@ -64,14 +64,28 @@ fn memory_export(caller: &mut Caller<'_, Invocation>) -> Result<Memory, &'static
     }
 }
 
+/// Keep a trap the guest raised under a host callback for the dispatch
+/// import to end the invocation with, and answer the callback's own reason.
+fn trapped(
+    caller: &mut Caller<'_, Invocation>,
+    trap: wasmtime::Error,
+    reason: &'static str,
+) -> &'static str {
+    caller.data_mut().record_reentry_trap(trap);
+    reason
+}
+
 /// Allocate `bytes.len()` bytes in guest memory via `__kobako_alloc` and
 /// copy `bytes` in. Returns the guest pointer. Every failure path carries a
 /// `&'static str` reason so the caller can surface a diagnostic rather than
-/// a silent fault.
+/// a silent fault. A guest that has already trapped is not called again.
 pub(crate) fn alloc_and_write(
     caller: &mut Caller<'_, Invocation>,
     bytes: &[u8],
 ) -> Result<u32, &'static str> {
+    if caller.data().reentry_trapped() {
+        return Err("the Sandbox already trapped during this invocation");
+    }
     let alloc = match caller.get_export("__kobako_alloc") {
         Some(Extern::Func(f)) => f
             .typed::<i32, i32>(&*caller)
@@ -79,9 +93,13 @@ pub(crate) fn alloc_and_write(
         _ => return Err(RUNTIME_INCOMPATIBLE),
     };
     let len = checked_payload_len(bytes.len())?;
-    let ptr = alloc
-        .call(&mut *caller, len)
-        .map_err(|_| "the Sandbox trapped while allocating memory for the request")?;
+    let ptr = alloc.call(&mut *caller, len).map_err(|trap| {
+        trapped(
+            caller,
+            trap,
+            "the Sandbox trapped while allocating memory for the request",
+        )
+    })?;
     if ptr == 0 {
         return Err("the Sandbox ran out of memory while preparing the request");
     }
@@ -176,7 +194,7 @@ pub(crate) fn drive_yield(
     };
     let packed = yield_fn
         .call(&mut *caller, (req_ptr, len_i32))
-        .map_err(|_| "the Sandbox trapped while invoking a block")?;
+        .map_err(|trap| trapped(caller, trap, "the Sandbox trapped while invoking a block"))?;
     let (resp_ptr, resp_len) = unpack_outcome_packed(packed);
     if resp_len == 0 {
         return Err("the Sandbox returned an empty block result");
