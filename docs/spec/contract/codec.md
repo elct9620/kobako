@@ -131,3 +131,12 @@ impl Arguments {
     pub fn new(args: Vec<Value>, kwargs: Vec<(String, Value)>) -> Self {}
 }
 ```
+
+## `MAX_NESTING_DEPTH`
+
+The deepest a value may nest, shared by every walk over the dialect so the
+peers refuse the same boundary.
+
+```rust
+pub const MAX_NESTING_DEPTH: usize;
+```

@@ -39,6 +39,15 @@ impl Execution {
 }
 ```
 
+## `Handles`
+
+The invocation's Handle table as a Receiver sees it, handed to every dispatch
+alongside the call.
+
+```rust
+pub struct Handles {}
+```
+
 ## `Handles::alloc`
 
 Bind a host object into the invocation's table and return the id that stands

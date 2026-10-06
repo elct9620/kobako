@@ -259,3 +259,24 @@ The MessagePack Codec the bundled Guest Binary names.
 ```rust
 pub struct MsgpackCodec {}
 ```
+
+## `Kobako::mrb`
+
+The VM the registrations belong to, for a Codec to work through.
+
+```rust
+impl Kobako {
+    pub fn mrb(&self) -> &Mrb {}
+}
+```
+
+## `Kobako::is_handle`
+
+Whether a guest value is a Handle the decoder minted, asked before a Codec
+reads an id from it.
+
+```rust
+impl Kobako {
+    pub fn is_handle(&self, val: Value) -> bool {}
+}
+```
