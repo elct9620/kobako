@@ -191,3 +191,71 @@ reachable by the host's yields while the Call is out.
 ```rust
 pub fn dispatch(target: Target<'_>, method: &str, block: Option<Proc>, payload: &[u8]) -> Result<Vec<u8>, DispatchError> {}
 ```
+
+## `MrbGuest`
+
+An mruby Guest of its own: the Codec and gem set it names, and the bundled
+invocation flows it keeps or replaces.
+
+```rust
+pub trait MrbGuest {}
+```
+
+## `MrbGuest::init_gems`
+
+Install the gems the Guest's scripts may reach on a freshly booted VM.
+
+```rust
+pub trait MrbGuest {
+    fn init_gems(mrb: &Mrb) -> Result<(), Error>;
+}
+```
+
+## `MrbGuest::eval`
+
+The flow that runs one invocation of a script.
+
+```rust
+pub trait MrbGuest {
+    fn eval();
+}
+```
+
+## `MrbGuest::run`
+
+The flow that calls one Entrypoint from the Run the host wrote.
+
+```rust
+pub trait MrbGuest {
+    fn run(env: &[u8]);
+}
+```
+
+## `MrbGuest::yield_to_block`
+
+The flow that re-enters the guest to run a Block for the host.
+
+```rust
+pub trait MrbGuest {
+    fn yield_to_block(req: &[u8]) -> u64;
+}
+```
+
+## `MrbGuest::bake_boot`
+
+Boot the VM and install the gem set once at build time, so each invocation
+starts from that state.
+
+```rust
+pub trait MrbGuest {
+    fn bake_boot();
+}
+```
+
+## `MsgpackCodec`
+
+The MessagePack Codec the bundled Guest Binary names.
+
+```rust
+pub struct MsgpackCodec {}
+```
