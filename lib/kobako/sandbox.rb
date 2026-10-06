@@ -10,48 +10,29 @@ require_relative "catalog"
 require_relative "context"
 
 module Kobako
-  # Kobako::Sandbox — the user-facing entry point for executing guest mruby
-  # scripts inside a wasmtime-hosted Wasm module.
-  #
-  # The Sandbox owns the reusable configuration — the +Kobako::Runtime+ and
-  # the +Kobako::Catalog::Services+ / +Catalog::Snippets+ / +Catalog::Extensions+
-  # registries. Each +#eval+ / +#run+ seals that config on the first call and
-  # drives one guest invocation through a fresh +Kobako::Context+ — its own
-  # Handle table, dispatch +Proc+, captures, and usage — so the reusable
-  # Sandbox holds no per-invocation state. The underlying wasmtime Engine and
-  # compiled Module are cached at process scope by the native ext and never
-  # surface to Ruby — constructing many Sandboxes amortises both costs
-  # automatically.
-  #
-  # A run's observables — the captured +#stdout+ / +#stderr+ (bounded by
-  # +stdout_limit+ / +stderr_limit+, enforced inside the WASI pipe) with their
-  # +#stdout_truncated?+ / +#stderr_truncated?+ predicates, and +#usage+ — live
-  # on the +Kobako::Execution+ each +#eval+ / +#run+ returns, or on the one its
-  # raised error carries. The Sandbox itself keeps none of them, so nothing a
-  # run observes carries into the next one.
+  # Runs untrusted mruby scripts in an isolated Wasm instance. Configure it
+  # once, binding Services and preloading snippets, then call #eval or #run as
+  # often as needed: each call returns an Execution and leaves nothing behind
+  # for the next.
   class Sandbox
     extend Forwardable
 
-    attr_reader :wasm_path, :options
+    # The Guest Binary this Sandbox runs.
+    attr_reader :wasm_path
 
-    # Per-option accessors forward to the immutable +SandboxOptions+ Value
-    # Object so the Host App still reads them off Sandbox directly.
+    # The SandboxOptions this Sandbox was built with. Each option is also
+    # readable on the Sandbox itself, as in #timeout.
+    attr_reader :options
+
     def_delegators :@options, :timeout, :memory_limit, :stdout_limit, :stderr_limit, :profile, :gvl
 
-    # Build a fresh Sandbox.
+    # Build a Sandbox on the Guest Binary at +wasm_path+, the one bundled
+    # with the gem by default. The other keywords are the options
+    # SandboxOptions describes.
     #
-    # +wasm_path+ is the absolute path to the Guest Binary; defaults to the
-    # gem-bundled +data/kobako.wasm+. Every other keyword — the four caps
-    # (+stdout_limit+, +stderr_limit+, +timeout+, +memory_limit+) and the
-    # requested isolation profile (+profile+) — is forwarded verbatim to
-    # +Kobako::SandboxOptions+, which owns the DEFAULT fallbacks and
-    # normalisation. The constructed +SandboxOptions+ is exposed as
-    # +#options+ and every option remains readable directly on Sandbox via
-    # +Forwardable+ delegation. The runtime builds the requested profile —
-    # +:hermetic+ (the default) denies the guest ambient time and entropy,
-    # +:permissive+ leaves them live — and construction refuses a runtime
-    # whose declared profile falls below the request, raising
-    # +Kobako::SetupError+ before any invocation entry point runs.
+    # Raises ArgumentError for an invalid option, and SetupError when the
+    # runtime cannot be built or provides less isolation than +profile+ asks
+    # for.
     def initialize(wasm_path: nil, **)
       @wasm_path = wasm_path || Kobako::Runtime.default_path
       @options = SandboxOptions.new(**)
@@ -61,40 +42,31 @@ module Kobako
       @runtime = build_runtime!
     end
 
-    # Bind +object+ as the Service reachable at +path+ — a Symbol or
-    # String of one or more +::+-separated constant-form segments
-    # (+"MyService::KV"+ or a top-level +"File"+). Returns +self+ for
-    # chaining.
+    # Make +object+ reachable from the guest as the constant at +path+, a
+    # Symbol or String such as <tt>"MyService::KV"</tt>. Returns +self+.
     #
-    # The guest reaches the public methods +object+'s own class and +object+
-    # itself define in source, fixed at this call — nothing inherited, mixed
-    # in, or built into the platform. An +object+ defining a private
-    # +respond_to_guest?(name)+ decides instead, asked on every call.
+    # The guest reaches the public methods that +object+'s own class and
+    # +object+ itself define in source, nothing inherited or mixed in. An
+    # +object+ defining a private <tt>respond_to_guest?(name)</tt> decides
+    # instead, on every call.
     #
-    # Called with only a +path+, it declares a fillable Service:
-    # +bind(path)+ reserves the path for +Kobako::Unresolved+, so the guest
-    # sees the constant while the host defers the object it stands for. A
-    # guest dispatch to an unfilled fillable surfaces as
-    # +Kobako::ServiceError+ when left unrescued.
+    # Called with only +path+, it declares a fillable Service: the guest sees
+    # the constant, and Context#bind supplies the object for each invocation.
+    # A call to one left unfilled fails as a ServiceError.
     #
-    # Raises +ArgumentError+ when a segment is malformed, when +path+
-    # collides with an existing binding (a name is a bound Service or a
-    # grouping prefix, never both), or when called after the first
-    # invocation has sealed Service registration.
+    # Raises ArgumentError for a malformed path, a path that collides with an
+    # existing binding, or a call after the first invocation.
     def bind(path, object = Unresolved)
       @services.bind(path, object)
       self
     end
 
-    # Install one or more Extensions — each a guest idiom (+source+) paired
-    # with an optional host +backend+, composed onto the Sandbox through
-    # +#preload+ and +#bind+. An Extension is any object exposing
-    # +name+ / +source+ / +backend+ / +depends_on+; +Kobako::Extension+ is
-    # the bundled value type. Returns +self+.
+    # Install Extensions, each guest source paired with an optional host
+    # backend. Any object answering +name+, +source+, +backend+ and
+    # +depends_on+ works; Extension is the bundled one. Returns +self+.
     #
-    # Raises +ArgumentError+ for a malformed Extension, a call after the
-    # first invocation seals registration, or — at that first invocation —
-    # an unmet +depends_on+.
+    # Raises ArgumentError for a malformed Extension, a call after the first
+    # invocation, or, at the first invocation, a missing dependency.
     def install(*extensions)
       raise ArgumentError, "cannot install after first Sandbox invocation" if @services.sealed?
 
@@ -102,34 +74,17 @@ module Kobako
       self
     end
 
-    # Register a snippet on this Sandbox in one of two forms:
+    # Register a snippet that every invocation runs, in the order registered,
+    # before its own code. Returns +self+.
     #
-    #   * +preload(code: source, name: Name)+ — +source+ is mruby source
-    #     as a +String+ and +Name+ matches +/\A[A-Z]\w*\z/+. Compile
-    #     failures surface as +Kobako::SandboxError+ on the first
-    #     invocation's replay. The +name+
-    #     becomes the snippet's +(snippet:Name)+ backtrace filename and
-    #     is the dedupe key that rejects a duplicate +code:+ snippet.
-    #   * +preload(binary: bytes)+ — +bytes+ is precompiled RITE
-    #     bytecode as a +String+. The canonical name, when present,
-    #     lives in the bytecode's embedded +debug_info+ and is resolved
-    #     by the guest at load time; the host treats the bytes as
-    #     opaque. Structural failures surface as +Kobako::BytecodeError+
-    #     on the first invocation.
+    # [<tt>preload(code: source, name: Name)</tt>]
+    #   mruby source, named <tt>(snippet:Name)</tt> in backtraces.
+    # [<tt>preload(binary: bytes)</tt>]
+    #   Precompiled RITE bytecode.
     #
-    # Subsequent invocations (+#eval+ or +#run+) replay every registered
-    # snippet — in insertion order — against the fresh +mrb_state+
-    # before per-invocation source or entrypoint resolution.
-    #
-    # Returns +self+ to allow chaining.
-    #
-    # Raises +ArgumentError+ when neither form's keyword set is
-    # supplied, when both forms are mixed (e.g., +code:+ and +binary:+
-    # together, or +binary:+ paired with +name:+), when +code+ / +bytes+
-    # is not a +String+, when +name+ does not match the constant
-    # pattern, when +name+ duplicates an already-registered +code:+ form
-    # snippet, or when called after the first invocation has sealed the
-    # snippet table.
+    # Raises ArgumentError for a malformed or duplicate snippet, or a call
+    # after the first invocation. A snippet that fails to load fails every
+    # invocation with SandboxError, or BytecodeError for bytecode.
     def preload(code: nil, name: nil, binary: nil)
       raise ArgumentError, "cannot preload after first Sandbox invocation" if @services.sealed?
 
@@ -137,41 +92,26 @@ module Kobako
       self
     end
 
-    # Dispatch into a preloaded entrypoint constant. Delegates host
-    # pre-flight and argument encoding to +Kobako::Transport::Run+ /
-    # +Kobako::Transport::Run#payload+: a non-Symbol/String +target+ raises
-    # +TypeError+, while a +target+ failing the constant pattern, a forged
-    # +Kobako::Handle+ in +args+ / +kwargs+, or a non-Symbol +kwargs+ key
-    # raise +ArgumentError+. The guest resolves +target+ as a top-level
-    # constant, calls +#call+ on it with +args+ / +kwargs+, and returns the
-    # deserialized result. The first invocation seals the Service registry
-    # and snippet table. Runtime errors follow the same three-class
-    # taxonomy as +#eval+.
+    # Call +call+ on the preloaded top-level constant +target+ with +args+
+    # and +kwargs+, and return the Execution. A given block receives the
+    # invocation's Context before the guest runs.
+    #
+    # Raises TypeError when +target+ is not a Symbol or String, and
+    # ArgumentError when it is not a constant name or the arguments carry a
+    # Handle or a non-Symbol keyword. A failed run raises as #eval does.
     def run(target, *args, **kwargs, &block)
       request = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
       new_invocation.run(request, &block)
     end
 
-    # Execute a guest mruby source string in a fresh +mrb_state+. +code+ is
-    # the mruby source as a UTF-8 String. Returns the deserialized last
-    # expression of the source.
+    # Evaluate +code+, mruby source as a String, and return the Execution,
+    # whose +value+ is the last expression. A given block receives the
+    # invocation's Context before the guest runs.
     #
-    # Source delivery uses the WASI stdin three-frame protocol
-    # ({docs/wire-codec.md Invocation channels}[link:../../docs/wire-codec.md]):
-    # Frame 1 carries the preamble (Service registry snapshot), Frame 2 the
-    # user source UTF-8 bytes, and Frame 3 the snippet table registered via
-    # +#preload+. Each frame is prefixed by a 4-byte big-endian u32 length;
-    # Frame 1 and Frame 3 are mandatory-presence — an empty registry sends a
-    # present, empty frame rather than an absent one.
-    #
-    # The first invocation seals the Service registry and snippet table;
-    # subsequent +#bind+ / +#preload+ calls raise +ArgumentError+.
-    #
-    # Raises +Kobako::TrapError+ on a Wasm trap or wire-violation fallback;
-    # +Kobako::SandboxError+ when the guest ran to completion but failed
-    # (including when +code+ is +nil+ or not a String, or when a preloaded
-    # snippet's replay raises); +Kobako::ServiceError+ on an unrescued
-    # Service capability failure.
+    # Raises TrapError when the engine stopped the guest, a deadline or
+    # memory budget included; SandboxError when the guest's code failed,
+    # +code+ not being a String included; and ServiceError when a Service
+    # call failed and the guest left it unrescued.
     def eval(code, &block)
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 

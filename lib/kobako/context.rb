@@ -11,21 +11,13 @@ require_relative "transport"
 require_relative "catalog"
 
 module Kobako
-  # Kobako::Context — the per-invocation driver behind a single +Sandbox#eval+
-  # / +#run+. Each Context owns a fresh +Catalog::Handles+ table and drives one
-  # guest invocation: it builds the dispatch handler, runs the guest, records
-  # the run's captures and usage, and decodes the outcome. One Context per
-  # invocation owns all per-invocation state, so the reusable +Sandbox+ holds
-  # none and overlapping evals never touch each other's state.
+  # One invocation, as the block given to Sandbox#eval or Sandbox#run sees it.
+  # The block runs before the guest does, so it can choose the objects this
+  # invocation alone reaches:
+  #
+  #   sandbox.eval("Req::Current.user_id") { |ctx| ctx.bind("Req::Current", request) }
   class Context
-    # Build a Context over the Sandbox-owned config — the +Runtime+, the
-    # sealed +Catalog::Services+ / +Catalog::Snippets+ registries, and the
-    # +Catalog::Extensions+ whose callable backends this Context resolves for
-    # its own run. The +Catalog::Handles+ table is this invocation's own, so
-    # guest→host dispatch and host→guest auto-wrap share one allocator scoped
-    # to the run; the resolved provider map is likewise per-invocation, so
-    # concurrent invocations never share mutable state.
-    def initialize(runtime:, services:, snippets:, extensions:)
+    def initialize(runtime:, services:, snippets:, extensions:) # :nodoc:
       @runtime = runtime
       @services = services
       @snippets = snippets
@@ -38,14 +30,11 @@ module Kobako
       @usage = Usage::EMPTY
     end
 
-    # Override the object bound at an already-declared +path+ for this
-    # invocation only — the per-eval hook the +#eval+ / +#run+ block uses to
-    # fill a fillable or shadow any static / per-invocation binding. +path+
-    # must name a declared (Frame 1) binding; overriding an undeclared path
-    # raises +ArgumentError+ so the Frame 1 key set stays fixed. Valid only
-    # while the block runs — the Context is spent once the block returns, so a
-    # captured +ctx+ used afterward raises +ArgumentError+ too, putting both
-    # misuses on one rescuable channel. Returns +self+.
+    # Use +object+ for the Service at +path+ during this invocation only,
+    # filling a fillable Service or shadowing a bound one. Returns +self+.
+    #
+    # Raises ArgumentError when +path+ was never bound on the Sandbox, or when
+    # called after the block has returned.
     def bind(path, object)
       raise ArgumentError, "Kobako::Context is spent; ctx.bind is only valid inside the #eval / #run block" if @spent
 
@@ -56,16 +45,9 @@ module Kobako
       self
     end
 
-    # Resolve a Service +path+ to the Exposure backing it this invocation,
-    # layering the per-eval +ctx.bind+ overrides over this Context's
-    # per-invocation provider results over the Sandbox's static base bindings.
-    # An unbound path raises +KeyError+; a fillable left unfilled resolves to
-    # +Kobako::Unresolved+ and is reported the same way, so an unresolved
-    # capability fails closed as an undefined target rather than dispatching to
-    # the sentinel. The Dispatcher maps either +KeyError+ to an
-    # undefined-target wire fault. Internal — the per-invocation dispatch
-    # handler is the sole caller.
-    def lookup(path)
+    # A fillable left unfilled raises like an unbound path, so the guest's
+    # call fails closed instead of reaching the sentinel.
+    def lookup(path) # :nodoc:
       key = path.to_s
       exposure = @overrides.fetch(key) { @resolved.fetch(key) { @services.lookup(path) } }
       raise KeyError, "service #{path} is declared but unresolved this invocation" if Unresolved.equal?(exposure.object)
@@ -73,20 +55,14 @@ module Kobako
       exposure
     end
 
-    # Execute a guest mruby source string in a fresh +mrb_state+ and return the
-    # decoded last expression. A given +block+ runs first, receiving this
-    # Context to collect +ctx.bind+ overrides before the guest drives.
-    def eval(code, &block)
+    def eval(code, &block) # :nodoc:
       collect_overrides(&block) if block
       invoke!(:eval) do
         @runtime.eval(dispatch_handler, @services.paths, code.b, @snippets.entries)
       end
     end
 
-    # Dispatch a +Transport::Run+ into a preloaded entrypoint and return the
-    # decoded result. A given +block+ runs first, receiving this Context to
-    # collect +ctx.bind+ overrides before the guest drives.
-    def run(request, &block)
+    def run(request, &block) # :nodoc:
       collect_overrides(&block) if block
       invoke!(:run, entrypoint: request.entrypoint) do
         @runtime.run(dispatch_handler, @services.paths, @snippets.entries,

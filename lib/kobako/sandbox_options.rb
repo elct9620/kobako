@@ -3,52 +3,42 @@
 require_relative "errors"
 
 module Kobako
-  # Kobako::SandboxOptions — immutable Value Object holding the four
-  # per-Sandbox configuration caps and the requested isolation profile.
-  # Built on the +class X < Data.define(...)+ subclass form (the
-  # Steep-friendly shape — see +.rubocop.yml+ for the rationale).
+  # The options a Sandbox was built with, read through Sandbox#options or
+  # directly on the Sandbox, as in Sandbox#timeout. A cap left out takes its
+  # default, and +nil+ switches it off.
   #
-  # The +initialize+ normalises every option before delegating to Data's
-  # +super+: +timeout+ to Float seconds, +memory_limit+ / +stdout_limit+ /
-  # +stderr_limit+ to positive Integer bytes. Each cap is +nil+-disablable
-  # (an absent argument takes its DEFAULT; an explicit +nil+ leaves the
-  # bound off), so all four behave uniformly. +profile+ is the one
-  # non-cap: a Symbol on the PROFILES ladder naming the posture the
-  # runtime builds, which is also the weakest the Host App accepts —
-  # +nil+ is rejected because the weakest posture is requested as an
-  # explicit +:permissive+. Anything that survives +SandboxOptions.new+
-  # is a wire-ready bundle the +Kobako::Runtime+ constructor consumes
-  # as-is. The options also own the ladder comparison
-  # (+#enforce_floor!+) that +Kobako::Sandbox+ delegates its
-  # construction floor check to.
+  # [+timeout+]       Float seconds one invocation may run.
+  # [+memory_limit+]  Integer bytes one invocation may grow guest memory by.
+  # [+stdout_limit+, +stderr_limit+]
+  #                   Integer bytes kept from each output channel.
+  # [+profile+]       The isolation the runtime must provide, one of PROFILES.
+  # [+gvl+]           How an invocation holds Ruby's GVL, one of GVL_MODES.
+  #
+  # Raises ArgumentError for a value outside these shapes, and SetupError
+  # when the runtime provides less isolation than +profile+ asks for.
   class SandboxOptions < Data.define(:timeout, :memory_limit, :stdout_limit, :stderr_limit, :profile, :gvl)
-    # Default wall-clock timeout for a single invocation: 60 seconds.
+    # The default +timeout+: 60 seconds.
     DEFAULT_TIMEOUT_SECONDS = 60.0
 
-    # Default cap on the per-invocation guest linear-memory delta:
-    # 1 MiB. The mruby image's initial allocation and prior invocations'
-    # watermark sit outside this budget.
+    # The default +memory_limit+: 1 MiB of growth past the guest's starting
+    # memory.
     DEFAULT_MEMORY_LIMIT = 1 << 20
 
-    # Default per-channel capture ceiling: 1 MiB.
+    # The default +stdout_limit+ and +stderr_limit+: 1 MiB each.
     DEFAULT_OUTPUT_LIMIT = 1 << 20
 
-    # The isolation ladder, weakest first — index order is rank order,
-    # so a floor check is an index comparison.
+    # The isolation profiles, weakest first. +:hermetic+ denies the guest the
+    # clock and entropy; +:permissive+ leaves them live.
     PROFILES = %i[permissive hermetic].freeze
 
-    # Default isolation profile: the strictest rung — opting down to
-    # +:permissive+ is the Host App's explicit trade.
+    # The default +profile+, the strictest.
     DEFAULT_PROFILE = :hermetic
 
-    # The GVL scheduling modes: +:hold+ keeps Ruby's GVL for the whole
-    # invocation, +:release+ drops it for the guest span so distinct
-    # Sandboxes on distinct Threads run their guest code in parallel.
+    # +:hold+ keeps the GVL through the invocation; +:release+ drops it while
+    # the guest runs, so Sandboxes on different Threads run in parallel.
     GVL_MODES = %i[hold release].freeze
 
-    # Default GVL mode: +:hold+ — holding the GVL matches single-threaded
-    # execution, so +:release+ is the Host App's explicit opt-in for
-    # host-parallel guest execution.
+    # The default +gvl+, +:hold+.
     DEFAULT_GVL = :hold
 
     def initialize(timeout: DEFAULT_TIMEOUT_SECONDS,
@@ -66,14 +56,9 @@ module Kobako
       super
     end
 
-    # Enforce the requested +profile+ as the floor against +declared+ —
-    # the posture a runtime reports having built — so a runtime that
-    # cannot honor the request fails construction with
-    # +Kobako::SetupError+ instead of weakening the posture silently.
-    # Both fallbacks fail closed: a declaration off the PROFILES ladder
-    # ranks below every request, and a request off the ladder
-    # (unreachable past +initialize+) refuses every declaration.
-    def enforce_floor!(declared)
+    # Both fallbacks fail closed: an unknown declaration ranks below every
+    # request, and an unknown request refuses every declaration.
+    def enforce_floor!(declared) # :nodoc:
       return if (PROFILES.index(declared) || -1) >= (PROFILES.index(profile) || PROFILES.size)
 
       raise Kobako::SetupError, "runtime declares isolation profile #{declared.inspect}, " \
