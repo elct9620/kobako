@@ -45,7 +45,7 @@ The specification is sumi's corpus under `docs/spec/`. What it cannot hold is co
 | an interface | `docs/spec/contract/` |
 | why kobako exists, and for whom | `docs/intent.md` |
 
-A behavior is specification only as a scenario. Prose never restates one, and a decided behavior no test witnesses stays out of the corpus until a test claims it. A test claims its scenario with `@behavior`, the one traceability link; docs, examples, and comments cite no scenario id.
+A behavior is specification only as a scenario. Prose never restates one. A behavior no test can reliably witness carries an `unverifiable` row naming why. One merely untested stays out until a test claims it. A test claims its scenario with `@behavior`, the one traceability link; docs, examples, and comments cite no scenario id.
 
 The glossary carries concepts, not their Ruby or Rust spelling. Never rule out a word that also names a concept of ours, such as `Execution` beside `Invocation`. Keep `Includes` off append-only files, whose shifting lines would strand an `ignore`. When the specification is silent, extend it first.
 
