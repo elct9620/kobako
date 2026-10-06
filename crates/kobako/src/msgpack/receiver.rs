@@ -41,11 +41,6 @@ pub trait ValueReceiver: Any + Send + Sync {
     /// Present this at the byte-level seam — what `Sandbox::bind`,
     /// `Context::bind`, and `Handles::alloc` all take.
     ///
-    /// Hands back an `Arc` rather than the bare wrapper: every binding site
-    /// takes one, and the wrapper holds its receiver behind an `Arc`
-    /// already, so returning the bare form only ever bought a second layer
-    /// at each call site.
-    ///
     /// A type implementing two schemas' receiver traits has two of these
     /// in scope, and the call is ambiguous until one is named
     /// (`ValueReceiver::into_receiver(kv)`). That is the right question to
@@ -73,9 +68,6 @@ pub trait ValueReceiver: Any + Send + Sync {
 pub struct IntoReceiver<V>(Arc<V>);
 
 impl<V> IntoReceiver<V> {
-    /// The shared handle this holds its receiver by, borrowed — what
-    /// `resolve_as` clones out when it walks a resolved receiver back to
-    /// the type that bound it.
     pub(crate) fn shared(&self) -> &Arc<V> {
         &self.0
     }

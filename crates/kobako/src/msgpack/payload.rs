@@ -34,8 +34,6 @@ impl RunPayload<'_> {
     }
 }
 
-/// Auto-wrap each host object into the invocation's Handle table, then
-/// encode the pair.
 fn encode_values(
     handles: &Handles<'_>,
     args: Vec<RunArg>,
@@ -54,9 +52,7 @@ fn encode_values(
         .map_err(|err| Error::Argument(format!("arguments are not wire-encodable: {err}")))
 }
 
-/// Encode one argument, auto-wrapping a host object into the
-/// invocation's Handle table. Exhaustion surfaces pre-call with the Ruby
-/// counterpart's attribution — an outer `Err`, since the guest never ran.
+/// Table exhaustion surfaces as an outer `Err`, since the guest never ran.
 fn wrap(handles: &Handles<'_>, arg: RunArg) -> Result<Value, Error> {
     match arg {
         RunArg::Value(value) => Ok(value),

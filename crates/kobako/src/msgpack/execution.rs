@@ -15,10 +15,8 @@ impl Execution {
     /// an unknown id means a corrupted runtime and fails like a malformed
     /// value.
     ///
-    /// The decode happens here rather than at invocation because it is
-    /// the one step that needs a schema; a host with its own reads
-    /// `payload` instead. It runs per call, so a caller reading the value
-    /// more than once holds onto what it gets.
+    /// It decodes per call, so a caller reading the value more than once
+    /// holds onto what it gets.
     pub fn value(&self) -> Result<Value, Error> {
         let value = decode_value(self.payload().map_err(Clone::clone)?)?;
         self.require_live_handles(&value)?;
@@ -46,10 +44,9 @@ impl Execution {
     }
 }
 
-/// Read the ok arm's payload back. Attribution already framed the
-/// outcome, so a fault here is the schema's: the bytes carry a value this
-/// codec cannot read, which is a sandbox-origin wire violation with the
-/// codec detail preserved for operator triage.
+/// Attribution already framed the outcome, so a fault here is the
+/// schema's: a sandbox-origin wire violation with the codec detail kept for
+/// operator triage.
 fn decode_value(body: &[u8]) -> Result<Value, Error> {
     Decoder::new(body)
         .read_only_value()

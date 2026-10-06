@@ -16,11 +16,6 @@ impl Handles<'_> {
     /// Resolve a Handle id to the receiver bound under it, as the type
     /// that bound it; `None` for an id this invocation never issued, or
     /// one standing for something else.
-    ///
-    /// The byte-level path recovers a concrete type by downcasting what
-    /// `resolve` hands back. A value receiver reaches the table behind
-    /// `into_receiver`'s wrapper, so this walks that step for the caller
-    /// and answers with the same `Arc<V>` the byte-level path would.
     pub fn resolve_as<V: ValueReceiver>(&self, id: u32) -> Option<Arc<V>> {
         resolve_as(self.resolve(id)?)
     }
@@ -35,7 +30,6 @@ impl Execution {
     }
 }
 
-/// Unwrap a resolved receiver back to the value receiver it was bound as.
 fn resolve_as<V: ValueReceiver>(receiver: Arc<dyn crate::receiver::Receiver>) -> Option<Arc<V>> {
     let any: Arc<dyn std::any::Any + Send + Sync> = receiver;
     any.downcast::<IntoReceiver<V>>()

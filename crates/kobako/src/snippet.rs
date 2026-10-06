@@ -20,10 +20,8 @@ pub(crate) struct Snippets {
 }
 
 impl Snippets {
-    /// Register a source-form snippet. The name is the snippet's
-    /// canonical identity — it must be a Ruby constant name and may
-    /// not duplicate an already-registered source entry, so backtrace
-    /// attribution stays unambiguous.
+    /// A duplicate name is refused, so backtrace attribution stays
+    /// unambiguous.
     pub(crate) fn register_source(&mut self, name: &str, body: &str) -> Result<(), Error> {
         if !constant_name(name) {
             return Err(Error::Argument(format!(
@@ -46,15 +44,11 @@ impl Snippets {
         Ok(())
     }
 
-    /// Register a binary-form snippet: RITE bytecode recorded verbatim,
-    /// structurally validated by the guest at first replay.
+    /// Recorded verbatim; the guest validates it at first replay.
     pub(crate) fn register_binary(&mut self, body: Vec<u8>) {
         self.entries.push(Snippet::Bytecode { body });
     }
 
-    /// Encode the Frame 3 snippet-replay payload in insertion order,
-    /// empty but present when nothing is preloaded (docs/wire-codec.md
-    /// § Invocation channels).
     pub(crate) fn frame(&self) -> Vec<u8> {
         Frame {
             entries: self.entries.clone(),
@@ -63,8 +57,6 @@ impl Snippets {
     }
 }
 
-/// Ruby constant-name check (`/\A[A-Z]\w*\z/`), shared by snippet
-/// registration and the `run` entrypoint pre-flight.
 pub(crate) fn constant_name(name: &str) -> bool {
     let mut chars = name.chars();
     chars.next().is_some_and(|c| c.is_ascii_uppercase())

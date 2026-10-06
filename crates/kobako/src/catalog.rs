@@ -17,7 +17,6 @@ use crate::error::Error;
 use crate::receiver::Receiver;
 use crate::snippet::Snippets;
 
-/// Whether `path` is one or more constant-form segments joined by `::`.
 fn is_constant_path(path: &str) -> bool {
     !path.is_empty()
         && path.split("::").all(|segment| {
@@ -35,11 +34,9 @@ pub(crate) struct Catalog {
 }
 
 impl Catalog {
-    /// Bind a host object as the Service reachable at `path`. A path is
-    /// constant-form segments joined by `::`, and one already bound —
-    /// or standing as another's namespace — is refused rather than
-    /// replaced: the guest reaches a Service by that name alone, so a
-    /// name meaning two things is a name the guest cannot resolve.
+    /// A path already bound, or standing as another's namespace, is refused
+    /// rather than replaced: the guest reaches a Service by that name alone,
+    /// so a name meaning two things is one it cannot resolve.
     pub(crate) fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
         if !is_constant_path(path) {
             return Err(Error::Argument(format!(
@@ -55,7 +52,6 @@ impl Catalog {
         Ok(())
     }
 
-    /// Whether `path` names, contains, or sits inside an existing binding.
     fn collides(&self, path: &str) -> bool {
         self.bindings.iter().any(|(existing, _)| {
             existing == path
@@ -64,7 +60,6 @@ impl Catalog {
         })
     }
 
-    /// Resolve a dispatch target path to its bound object.
     pub(crate) fn lookup(&self, path: &str) -> Option<Arc<dyn Receiver>> {
         self.bindings
             .iter()
@@ -72,8 +67,6 @@ impl Catalog {
             .map(|(_, object)| object.clone())
     }
 
-    /// Encode the Frame 1 registration preamble: a flat list of bind
-    /// paths (`["MyService::KV", "File"]`) in bind order.
     pub(crate) fn preamble(&self) -> Vec<u8> {
         Bindings {
             paths: self.bindings.iter().map(|(path, _)| path.clone()).collect(),

@@ -107,10 +107,6 @@ pub(crate) fn unresolved() -> Arc<dyn Receiver> {
     Arc::new(Unresolved)
 }
 
-/// The object bound at install for a backend: a `Static` provider's object
-/// directly, or the `Unresolved` placeholder a `PerInvocation` provider's
-/// per-invocation resolution replaces, or that a `Fillable` keeps until a
-/// `ctx.bind` override fills it.
 pub(crate) fn install_object(provider: &Provider) -> Arc<dyn Receiver> {
     match provider {
         Provider::Static(object) => object.clone(),
@@ -129,18 +125,15 @@ pub(crate) struct Extensions {
 }
 
 impl Extensions {
-    /// Record an installed Extension.
     pub(crate) fn record(&mut self, extension: Arc<dyn Extension>) {
         self.entries.push(extension);
     }
 
-    /// Assert every installed Extension's `depends_on` names a fellow
-    /// installed Extension. Runs once, at the first successful seal; the check
-    /// is presence-only, so dependency cycles are permitted. Takes `&self` so
-    /// the first `eval` can run it — concurrent first invocations may each run
-    /// the check, but it is pure over the sealed entries so they agree. The
-    /// asserted flag flips only on success, so a seal that failed re-checks on
-    /// the next attempt rather than silently passing a broken Sandbox.
+    /// Presence-only, so dependency cycles are permitted. Concurrent first
+    /// invocations may each run it, but it is pure over the sealed entries
+    /// so they agree. The asserted flag flips only on success, so a seal
+    /// that failed re-checks on the next attempt rather than silently
+    /// passing a broken Sandbox.
     pub(crate) fn assert_dependencies(&self) -> Result<(), Error> {
         if self.asserted.load(Ordering::Relaxed) {
             return Ok(());
@@ -161,10 +154,8 @@ impl Extensions {
         Ok(())
     }
 
-    /// Resolve each `PerInvocation` backend to this invocation's object,
-    /// sharing one object per provider identity, and return the
-    /// path→object pairs the dispatch handler resolves ahead of the
-    /// sealed Catalog. Empty when no backend is per-invocation.
+    /// One object per provider identity, so provider identity is resource
+    /// identity.
     pub(crate) fn resolve(&self) -> Vec<(String, Arc<dyn Receiver>)> {
         let mut by_provider: Vec<(ProviderFn, Arc<dyn Receiver>)> = Vec::new();
         let mut resolved = Vec::new();

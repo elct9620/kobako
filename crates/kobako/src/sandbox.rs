@@ -81,7 +81,6 @@ enum Registry {
 }
 
 impl Registry {
-    /// Mutate the open catalog, or refuse once sealed.
     fn open_mut(&mut self) -> Result<&mut Catalog, Error> {
         match self {
             Registry::Open(catalog) => Ok(catalog),
@@ -91,7 +90,6 @@ impl Registry {
         }
     }
 
-    /// Seal on first use and hand out the shared table.
     fn seal(&mut self) -> Arc<Catalog> {
         if let Registry::Open(catalog) = self {
             let sealed = Arc::new(std::mem::take(catalog));
@@ -142,16 +140,12 @@ impl Sandbox {
         Sandbox::with_runtime(driver, options.profile)
     }
 
-    /// Drive a guest through an engine of the caller's own — anything
-    /// satisfying the `kobako-runtime` contract, which is where the
-    /// engine's own caps (its artifact, timeout, and memory limit) are
-    /// configured, since only the isolation floor is this tier's business.
+    /// Drive a guest through an engine of the caller's own, which carries its
+    /// own artifact and caps.
     ///
-    /// `profile` is a request the engine's declaration must meet, not an
-    /// equality: a stricter posture constructs, a weaker one fails with
-    /// `Error::Setup` rather than running untrusted code under less
-    /// isolation than the host asked for — so the request is also the
-    /// floor. Same concept and same name as `Options::profile`.
+    /// `profile` is the floor the engine's declaration must meet: a stricter
+    /// posture constructs, a weaker one fails with `Error::Setup` rather than
+    /// running untrusted code under less isolation than the host asked for.
     pub fn with_runtime(
         runtime: impl Runtime + Send + Sync + 'static,
         profile: Profile,
@@ -170,9 +164,8 @@ impl Sandbox {
         })
     }
 
-    /// The open catalog for a setup mutation; refused once sealed. Setup
-    /// runs on `&mut self`, before the Sandbox is shared, so it reaches the
-    /// registry without locking.
+    /// Setup runs on `&mut self`, before the Sandbox is shared, so it reaches
+    /// the registry without locking.
     fn open_catalog(&mut self) -> Result<&mut Catalog, Error> {
         self.registry
             .get_mut()
@@ -189,22 +182,18 @@ impl Sandbox {
         self.open_catalog()?.bind(path, object)
     }
 
-    /// Declare a fillable Service at `path` with no object — the Rust spelling
-    /// of the Ruby frontend's `bind(path)`. The path enters Frame 1 so the
-    /// guest sees the constant, but is backed by the unresolved sentinel until
-    /// an override fills it; a guest dispatch to an unfilled fillable fails
-    /// closed as an undefined target (a guest `ServiceError`). Refused once
-    /// sealed.
+    /// Declare a Service at `path` with no object, for an override to fill
+    /// per invocation. The guest sees the constant either way; a call to an
+    /// unfilled one fails as a guest `ServiceError`. Refused once sealed.
     pub fn bind_fillable(&mut self, path: &str) -> Result<(), Error> {
         self.open_catalog()?.bind(path, unresolved())
     }
 
     /// Install an Extension — a guest idiom (`source`) paired with an
-    /// optional host backend — composing it over `preload` and `bind`. A
-    /// `Static` provider binds its object directly; a `PerInvocation`
-    /// provider is resolved fresh at every invocation. Refused once the
-    /// first invocation seals registration; an Extension whose `depends_on`
-    /// names one that was not installed surfaces at that first invocation.
+    /// optional host backend. A `PerInvocation` provider is resolved fresh
+    /// at every invocation. Refused once sealed; an Extension whose
+    /// `depends_on` names one that was not installed fails the first
+    /// invocation.
     pub fn install(&mut self, extension: Arc<dyn Extension>) -> Result<(), Error> {
         let catalog = self.open_catalog()?;
         catalog
@@ -250,14 +239,10 @@ impl Sandbox {
         )
     }
 
-    /// `eval` with a per-invocation override closure — the Rust spelling of
-    /// the Ruby frontend's `#eval { |ctx| ctx.bind(...) }`. The closure runs
-    /// before the guest drives, receiving the per-invocation `Context` whose
-    /// `bind` fills a fillable or shadows any declared binding for this
-    /// invocation only; overriding an undeclared path returns `Error::Argument`
-    /// before the guest runs. An override takes priority over that path's
-    /// per-invocation provider result and its static base, and touches
-    /// host-side resolution only — Frame 1 stays fixed.
+    /// `eval` with a closure that overrides declared bindings for this
+    /// invocation only. An override wins over the path's provider and static
+    /// binding; overriding an undeclared path returns `Error::Argument`
+    /// before the guest runs.
     pub fn eval_with<F>(&self, source: &str, overrides: F) -> Result<Execution, Error>
     where
         F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
@@ -277,19 +262,14 @@ impl Sandbox {
     /// Dispatch into a preloaded entrypoint; the guest resolves `target`
     /// as a top-level constant and invokes its `call`.
     ///
-    /// The payload names its own schema — `RunPayload::values` for the
-    /// bundled one, `bytes` or `build` for a host that speaks its own —
-    /// so this verb is the same whichever a Sandbox uses. Host pre-flight
-    /// refuses a non-constant `target` before the invocation seals the
-    /// tables, matching the Ruby frontend's ordering.
+    /// The payload names its own schema, so this verb is the same whichever
+    /// a Sandbox speaks. A non-constant `target` is refused before the
+    /// invocation seals registration.
     pub fn run(&self, target: &str, payload: RunPayload<'_>) -> Result<Execution, Error> {
         self.drive_run(target, payload, |_| Ok(Vec::new()))
     }
 
-    /// `run` with a per-invocation override closure — the Rust spelling of the
-    /// Ruby frontend's `#run(target, ...) { |ctx| ctx.bind(...) }`, the `run`
-    /// counterpart of `eval_with`. The closure runs before the guest drives and
-    /// binds overrides under the same rules `eval_with` documents.
+    /// `run` with an override closure, under the same rules as `eval_with`.
     pub fn run_with<F>(
         &self,
         target: &str,
@@ -304,11 +284,6 @@ impl Sandbox {
         })
     }
 
-    /// Shared `run` / `run_with` core: validate the target before sealing, seal,
-    /// collect any overrides against the sealed catalog, finish the payload
-    /// against this run's Handle table, and drive the entrypoint envelope.
-    /// `collect` yields the per-invocation overrides — empty for `run`, the
-    /// closure's for `run_with`.
     fn drive_run<C>(
         &self,
         target: &str,
@@ -341,15 +316,9 @@ impl Sandbox {
         )
     }
 
-    /// Shared invocation core behind `eval` / `run`: assemble the
-    /// sealed catalog's frames and dispatch handler over this invocation's
-    /// fresh Handle table, drive `entry` through the driver, and cook the
-    /// snapshot into an `Execution` — one owner for the wiring so a handler
-    /// or frame change cannot drift between verbs. `&self` because no
-    /// per-invocation state is written back: the `handles` table and the
-    /// snapshot's observables ride into the returned `Execution`.
-    /// `resolved` starts with the per-invocation `ctx.bind` overrides so the
-    /// dispatch handler answers them before this run's provider results.
+    /// One owner for the wiring, so a handler or frame change cannot drift
+    /// between verbs. `resolved` starts with the overrides, so the handler
+    /// answers them before this run's provider results.
     fn invoke(
         &self,
         catalog: Arc<Catalog>,
@@ -372,12 +341,8 @@ impl Sandbox {
         Ok(build_execution(snapshot, handles))
     }
 
-    /// Per-invocation prologue on `&self`: seal the registration tables and
-    /// assert Extension dependencies on the first invocation, then hand back
-    /// the sealed catalog and a fresh Handle table this invocation owns. The
-    /// seal locks the registry, so concurrent first invocations serialize on
-    /// it and all observe the same sealed catalog. An unmet dependency raises
-    /// before the guest runs.
+    /// The seal locks the registry, so concurrent first invocations serialize
+    /// on it and all observe the same sealed catalog.
     fn begin_invocation(&self) -> Result<(Arc<Catalog>, Arc<Mutex<HandleTable>>), Error> {
         let catalog = self
             .registry
@@ -389,12 +354,8 @@ impl Sandbox {
     }
 }
 
-/// Cook a raw `Snapshot` into the invocation's `Execution`: captures and
-/// usage carry over verbatim, and the completion becomes the guest-level
-/// `outcome` — the ok arm's payload bytes, or the taxonomy `Error` a
-/// trap or guest failure attributes to. The `handles` table rides along
-/// so the result's Handles resolve on the Execution, which is also where
-/// the payload meets a schema.
+/// The `handles` table rides along so the result's Handles resolve on the
+/// Execution, which is also where the payload meets a schema.
 fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>) -> Execution {
     let outcome = match snapshot.completion {
         Completion::Outcome(bytes) => classify(&bytes),
@@ -409,9 +370,6 @@ fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>) -> Exec
     )
 }
 
-/// Run an override closure against a fresh `Context` over `catalog` and hand
-/// back the `ctx.bind` overrides it collected — the step `eval_with` and
-/// `run_with` share so the two verbs bind overrides identically.
 fn collect_overrides<F>(catalog: &Catalog, overrides: F) -> Result<Resolved, Error>
 where
     F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
@@ -438,12 +396,9 @@ pub struct Context<'a> {
 
 impl Context<'_> {
     /// Override the object bound at an already-declared `path` for this
-    /// invocation — filling a fillable or shadowing a static / per-invocation
-    /// binding. Overriding a path that was never declared returns
-    /// `Error::Argument`, so an override can never grow the sealed key set.
-    /// A second override of the same `path` wins over the first, matching the
-    /// Ruby frontend's last-wins semantics — an override is the caller's final
-    /// word on that path for the run.
+    /// invocation. Overriding a path that was never declared returns
+    /// `Error::Argument`, so an override can never grow the sealed key set;
+    /// a second override of the same `path` wins over the first.
     pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
         if self.catalog.lookup(path).is_none() {
             return Err(Error::Argument(format!(

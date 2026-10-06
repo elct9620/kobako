@@ -47,7 +47,6 @@ impl<'a> RunPayload<'a> {
         RunPayload(Source::Deferred(Box::new(build)))
     }
 
-    /// Finish the payload against the invocation's table.
     pub(crate) fn encode(self, table: &Mutex<HandleTable>) -> Result<Vec<u8>, Error> {
         match self.0 {
             Source::Ready(bytes) => Ok(bytes),

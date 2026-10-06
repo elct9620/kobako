@@ -38,7 +38,6 @@ impl HandleTable {
         Ok(self.entries.len() as u32)
     }
 
-    /// Resolve a live id to its bound object.
     pub(crate) fn get(&self, id: u32) -> Option<Arc<dyn Receiver>> {
         let index = (id as usize).checked_sub(1)?;
         self.entries.get(index).cloned()
@@ -65,11 +64,8 @@ impl<'a> Handles<'a> {
     /// Bind a host object into the invocation's table and return the id
     /// that stands for it on the wire.
     ///
-    /// An id rather than a `Value::Handle` because a Handle is something
-    /// each schema spells for itself: the id is what the table owns and
-    /// what the guest mints one from, so a Receiver encodes it the way
-    /// its own payload does. `Value::Handle(id)` is that spelling in the
-    /// bundled codec.
+    /// An id rather than a `Value::Handle`, because each schema spells a
+    /// Handle for itself; `Value::Handle(id)` is the bundled codec's spelling.
     pub fn alloc(&self, object: Arc<dyn Receiver>) -> Result<u32, Fault> {
         self.table
             .lock()

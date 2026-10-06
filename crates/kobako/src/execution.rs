@@ -47,9 +47,6 @@ pub struct Execution {
 }
 
 impl Execution {
-    /// Assemble the record from a cooked outcome and the invocation's
-    /// observables. The `Sandbox` owns the raw-`Snapshot`-to-outcome
-    /// cook (decode, Handle liveness); this is the plain data holder.
     pub(crate) fn new(
         outcome: Result<Vec<u8>, Error>,
         handles: Arc<Mutex<HandleTable>>,
@@ -66,15 +63,12 @@ impl Execution {
         }
     }
 
-    /// The guest-level outcome as the wire carried it: `Ok` is the
-    /// payload bytes the envelope's ok arm carried, `Err` the taxonomy
-    /// attribution of a guest failure or trap. The captures and `usage`
-    /// stay readable on either arm.
+    /// The guest-level outcome: `Ok` is the payload bytes, `Err` the
+    /// attribution of a guest failure or trap. The captures and `usage` stay
+    /// readable on either arm.
     ///
-    /// Bytes because the payload's schema is the host's own — attributing
-    /// an invocation is the envelope's job and reads no payload byte, so
-    /// a host whose Receivers speak another schema reads its own result
-    /// here and decodes it itself.
+    /// Bytes because the payload's schema is the host's own: a host whose
+    /// Receivers speak another schema decodes its result itself.
     pub fn payload(&self) -> Result<&[u8], &Error> {
         self.outcome.as_ref().map(Vec::as_slice)
     }
@@ -85,11 +79,6 @@ impl Execution {
     /// object outlives the invocation that produced it. Upcast the `Arc`
     /// to `Arc<dyn Any + Send + Sync>` and `downcast` to recover the
     /// concrete receiver type.
-    ///
-    /// An id rather than a decoded value, mirroring `Handles::resolve`:
-    /// finding a Handle inside a result is the schema's job, so a host
-    /// reading its own outcome bytes reaches the object from here without
-    /// a codec.
     pub fn resolve(&self, id: u32) -> Option<Arc<dyn Receiver>> {
         Handles::new(&self.handles).resolve(id)
     }
@@ -134,15 +123,10 @@ impl fmt::Debug for Execution {
     }
 }
 
-/// Classify one OUTCOME_BUFFER by its envelope alone: the ok arm's
-/// payload bytes, or the `Error` its failure attributes to. Reads no
-/// payload byte, so attribution works for a host whose Receivers speak
-/// a schema this crate does not know.
-///
-/// One half of turning a raw `Snapshot` into the `Execution` above — the
-/// half that reads the envelope; `Sandbox`'s `build_execution` is the
-/// other. The Ruby gem's `Kobako::Outcome` is its twin, so both frontends
-/// reading the same bytes reach the same variant.
+/// Reads no payload byte, so attribution works for a host whose Receivers
+/// speak a schema this crate does not know. The Ruby gem's
+/// `Kobako::Outcome` is its twin, so both frontends reading the same bytes
+/// reach the same variant.
 pub(crate) fn classify(bytes: &[u8]) -> Result<Vec<u8>, Error> {
     match Outcome::decode(bytes) {
         Ok(Outcome::Ok(payload)) => Ok(payload),
@@ -159,10 +143,8 @@ pub(crate) fn classify(bytes: &[u8]) -> Result<Vec<u8>, Error> {
     }
 }
 
-/// `origin == "service"` → `Service`; a sandbox-origin panic carrying
-/// the bytecode rejection class → `Bytecode`; everything else →
-/// `Sandbox`. Every field is typed at the envelope, so classifying a
-/// Panic reads no payload byte and cannot fail.
+/// Every field is typed at the envelope, so classifying a Panic reads no
+/// payload byte and cannot fail.
 fn classify_panic(panic: Panic) -> Error {
     let from_service = panic.origin == Origin::Service;
     let failure = Box::new(Failure {
