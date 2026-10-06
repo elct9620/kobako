@@ -193,7 +193,6 @@ The default task and CI reference `gate`, never its members, so joining it stays
 | one test by name | append `-n /pattern/` |
 | check against the specification | `sumi verify` |
 | one module's statistics | `rake stats:<module>`, hidden from `rake -T` |
-| clear `gate:rbs:lock` drift | `rbs collection update` |
 
 ## Entry points
 
