@@ -48,7 +48,7 @@ pub trait Guest {
 
 ## `Guest::yield_to_block`
 
-Re-enter the guest to run a Block for the host, answering with its Reply.
+Re-enter the guest to run a block for the host, answering with its Reply.
 
 ```rust
 pub trait Guest {

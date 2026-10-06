@@ -233,7 +233,7 @@ pub trait MrbGuest {
 
 ## `MrbGuest::yield_to_block`
 
-The flow that re-enters the guest to run a Block for the host.
+The flow that re-enters the guest to run a block for the host.
 
 ```rust
 pub trait MrbGuest {

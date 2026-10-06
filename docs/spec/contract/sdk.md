@@ -330,7 +330,7 @@ pub trait Receiver {}
 
 ## `Receiver::call`
 
-Answer one method call from the guest, with the Block that rode along.
+Answer one method call from the guest, with the block that rode along.
 
 ```rust
 pub trait Receiver {
@@ -350,7 +350,7 @@ pub trait Receiver {
 
 ## `Yielder::call_payload`
 
-Call the Block that rode along with a Call once and return its value, in the
+Call the block that rode along with a Call once and return its value, in the
 payload codec's bytes.
 
 ```rust
@@ -552,7 +552,7 @@ impl Handles<'_> {
 
 ## `Yielder::call_values`
 
-Call the Block once with MessagePack arguments and return its value.
+Call the block once with MessagePack arguments and return its value.
 
 ```rust
 impl Yielder<'_> {

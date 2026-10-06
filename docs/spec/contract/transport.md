@@ -151,7 +151,7 @@ impl Reply {
 
 ## `YieldReply`
 
-How one Yield into the Block ended.
+How one yield into the block ended.
 
 ```rust
 pub enum YieldReply {}
@@ -159,7 +159,7 @@ pub enum YieldReply {}
 
 ## `YieldReply::decode`
 
-Read a Yield's answer from its Envelope.
+Read a yield's answer from its Envelope.
 
 ```rust
 impl YieldReply {
@@ -169,7 +169,7 @@ impl YieldReply {
 
 ## `YieldReply::encode`
 
-Write a Yield's answer into its Envelope.
+Write a yield's answer into its Envelope.
 
 ```rust
 impl YieldReply {
@@ -225,7 +225,7 @@ impl FaultKind {
 
 ## `Outcome`
 
-How an Invocation ended: its value, or a Panic.
+How an invocation ended: its value, or a Panic.
 
 ```rust
 pub enum Outcome {}
@@ -297,7 +297,7 @@ pub struct ErrorRecord {}
 
 ## `Run`
 
-The Entrypoint an Invocation calls and the payload it is called with.
+The Entrypoint an invocation calls and the payload it is called with.
 
 ```rust
 pub struct Run {}
@@ -353,7 +353,7 @@ impl Bindings {
 
 ## `Snippet`
 
-One Snippet an Invocation replays before its entry runs.
+One Snippet an invocation replays before its entry runs.
 
 ```rust
 pub enum Snippet {}
@@ -361,7 +361,7 @@ pub enum Snippet {}
 
 ## `Snippets`
 
-The Snippets an Invocation replays, in order.
+The Snippets an invocation replays, in order.
 
 ```rust
 pub struct Snippets {}
