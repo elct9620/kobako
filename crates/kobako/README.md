@@ -3,21 +3,43 @@
 Rust host SDK for [kobako](https://github.com/elct9620/kobako), an
 in-process Wasm sandbox for running untrusted mruby scripts.
 
-`Sandbox` composes the published tiers (`kobako-transport` envelope,
-`kobako-codec` payload, `kobako-runtime` contract, `kobako-wasmtime`
-driver) into the same host behavior contract the kobako Ruby gem
-exposes, kept aligned by a differential parity harness rather than by
-mirrored API shapes.
+`Sandbox` composes the published tiers into the same host behavior
+contract the kobako Ruby gem exposes. A differential parity harness keeps
+the two aligned, rather than mirrored API shapes.
+
+```
+kobako::Sandbox
+  ├── kobako-transport   envelope
+  ├── kobako-codec       payload
+  ├── kobako-runtime     contract
+  └── kobako-wasmtime    driver
+```
+
+The `Sandbox` runs a prebuilt Guest Binary (`kobako.wasm`) at runtime, so
+no mruby toolchain is needed to build an embedder.
+
+## Core Types
+
+Four types carry the host side of an invocation.
 
 | Type | What it is |
 |---|---|
-| `Sandbox` | one guest per instance: `define` / `bind` / `preload` fill the registration tables until the first invocation seals them, `eval` / `run` execute on a fresh guest instance and return a decoded wire `Value` or a taxonomy `Error` |
-| `Receiver` | the host object a guest dispatch resolves its target to, reached as `MyService::KV` or through a capability Handle, with a `respond_to_guest` narrowing predicate and `Fault` as its refusal channel |
-| `Yielder` | the host-side stand-in for a guest-supplied block, riding the `block` parameter; each call is a synchronous yield round-trip into the in-flight guest |
-| `Handles` | the per-invocation capability-Handle table: stateful host objects cross as opaque tokens the guest can call back into |
+| `Sandbox` | one guest per instance |
+| `Receiver` | the host object a guest dispatch resolves to |
+| `Yielder` | the host-side stand-in for a guest-supplied block |
+| `Handles` | the per-invocation capability-Handle table |
 
-The `Sandbox` runs a prebuilt Guest Binary (`kobako.wasm`) at runtime;
-no mruby toolchain is needed to build an embedder.
+`define`, `bind` and `preload` fill the registration tables until the
+first invocation seals them. `eval` and `run` execute on a fresh guest
+instance and return a decoded wire `Value` or a taxonomy `Error`.
+
+A guest reaches a `Receiver` as `MyService::KV` or through a capability
+Handle. Its `respond_to_guest` predicate narrows what the guest may call,
+and `Fault` is how it refuses.
+
+A `Yielder` rides the `block` parameter, and each call is a synchronous
+yield round-trip into the in-flight guest. Through `Handles`, stateful
+host objects cross as opaque tokens the guest can call back into.
 
 ## Usage
 
@@ -48,4 +70,4 @@ through the `Receiver` seam to let guest code call back into the host.
 
 ## License
 
-Apache-2.0
+Licensed under [Apache-2.0](https://github.com/elct9620/kobako/blob/main/LICENSE).
