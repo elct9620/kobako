@@ -91,13 +91,16 @@ module Kobako
       assert_match(/already preloaded/, err.message)
     end
 
+    # Source read with File.binread arrives tagged binary; the native side
+    # frames a source body only as UTF-8 text, so non-ASCII bytes are what
+    # a missing re-encode would turn into an EncodingError.
+    # @behavior S-174
     def test_register_re_encodes_body_as_utf8
-      bytes = String.new("X = 1", encoding: Encoding::ASCII_8BIT)
-      @table.register(code: bytes, name: :Helper)
+      @table.register(code: "X = 'café'".b, name: :Helper)
 
       body = @table.entries.first.last
-      assert_equal Encoding::UTF_8, body.encoding
-      assert_equal "X = 1", body
+      assert_equal [Encoding::UTF_8, "X = 'café'"], [body.encoding, body],
+                   "binary-tagged source through #register must be held as the same text tagged UTF-8"
     end
 
     # @behavior S-147

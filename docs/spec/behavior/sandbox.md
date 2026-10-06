@@ -1424,3 +1424,11 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a Sandbox whose memory budget is smaller than a value its Service answers |
 | When | guest code calls that Service |
 | Then | the invocation fails as the budget's own trap |
+
+## `S-174` Source tagged as bytes is still preloaded as text
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet table |
+| When | a source snippet is registered from text tagged as binary |
+| Then | the table holds it as text |
