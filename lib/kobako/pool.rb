@@ -4,9 +4,9 @@ require_relative "errors"
 require_relative "sandbox"
 
 module Kobako
-  # Kobako::Pool — a bounded set of warm, identically set-up Sandboxes
-  # handed out one exclusive holder at a time. Every Sandbox it builds is
-  # kept: an invocation leaves nothing behind, whatever ended it.
+  # A bounded set of warm, identically set-up Sandboxes, handed out to one
+  # holder at a time. Every Sandbox it builds is kept: an invocation leaves
+  # nothing behind, whatever ended it.
   class Pool
     # The default +checkout_timeout+: 5 seconds.
     DEFAULT_CHECKOUT_TIMEOUT_SECONDS = 5.0
