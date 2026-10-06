@@ -55,7 +55,7 @@ sandbox.eval("1 + 2").value  # => 3
 ```rust
 use kobako::{Options, Sandbox};
 
-// Options::default() is secure by default: no caps, hermetic isolation.
+// Options::default() is secure by default: the same caps as Ruby, hermetic isolation.
 let sandbox = Sandbox::new("kobako.wasm", Options::default())?;
 sandbox.eval("1 + 2")?.value()?;  // => Value::Int(3)
 ```

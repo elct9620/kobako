@@ -59,14 +59,15 @@ pub struct Options {
 }
 
 impl Default for Options {
-    /// Secure by default: no caps, hermetic floor — the same default
-    /// posture the Ruby frontend requests.
+    /// Secure by default: a 60-second deadline, 1 MiB for memory and for
+    /// each output channel, and the hermetic floor — the same defaults the
+    /// Ruby frontend applies.
     fn default() -> Self {
         Options {
-            timeout: None,
-            memory_limit: None,
-            stdout_limit: None,
-            stderr_limit: None,
+            timeout: Some(Duration::from_secs(60)),
+            memory_limit: Some(1 << 20),
+            stdout_limit: Some(1 << 20),
+            stderr_limit: Some(1 << 20),
             profile: Profile::Hermetic,
         }
     }
@@ -479,5 +480,17 @@ mod tests {
         let second = registry.seal();
         assert!(Arc::ptr_eq(&first, &second));
         assert!(matches!(registry.open_mut(), Err(Error::Sealed(_))));
+    }
+
+    // Pins the literal values rather than a shared constant, so a drift
+    // from the Ruby frontend's defaults in either direction fails here.
+    // @behavior S-004
+    #[test]
+    fn absent_caps_take_their_spec_defaults() {
+        let options = Options::default();
+        assert_eq!(options.timeout, Some(Duration::from_secs(60)));
+        assert_eq!(options.memory_limit, Some(1 << 20));
+        assert_eq!(options.stdout_limit, Some(1 << 20));
+        assert_eq!(options.stderr_limit, Some(1 << 20));
     }
 }

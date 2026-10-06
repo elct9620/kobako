@@ -31,7 +31,8 @@ use kobako::{Options, Sandbox};
 
 fn main() -> Result<(), kobako::Error> {
     // Load a prebuilt Guest Binary. Options::default() is secure by
-    // default: no caps, hermetic isolation (frozen clocks and entropy).
+    // default: a 60 s deadline, 1 MiB for memory and each output
+    // channel, hermetic isolation (frozen clocks and entropy).
     let mut sandbox = Sandbox::new("kobako.wasm", Options::default())?;
 
     // Run untrusted mruby on a fresh instance; the last expression
