@@ -14,12 +14,8 @@ module Kobako
   # Filled on every outcome, traps included, so a Host App that rescues a
   # trap can read from the error's +#execution+ how much of the budget the
   # invocation used.
-  #
-  # Built on the +class X < Data.define(...)+ subclass form (the
-  # Steep-friendly shape — see +.rubocop.yml+ for the rationale).
   class Usage < Data.define(:wall_time, :memory_peak)
-    # Pre-run sentinel. A fresh +Kobako::Context+ holds it until its guest
-    # runs, so an Execution's +#usage+ is never +nil+.
+    # The usage of a run that has not started: no time, no memory.
     EMPTY = new(wall_time: 0.0, memory_peak: 0)
   end
 end
