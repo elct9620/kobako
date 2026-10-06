@@ -10,20 +10,12 @@ module Kobako
       # must match.
       NAME_PATTERN = /\A[A-Z]\w*\z/
 
-      # Build a fresh registry.
       def initialize
         @bindings = {} # : Hash[String, Kobako::Transport::Exposure]
         @sealed = false
       end
 
-      # Bind +object+ as the Service reachable at +path+ — a +Symbol+ or
-      # +String+ of one or more +::+-separated constant-form segments
-      # (+"MyService::KV"+ or a top-level +"File"+). Returns +self+ for
-      # chaining. Raises +ArgumentError+ when a segment is malformed, when
-      # +path+ collides with an existing binding (a name is a bound Service
-      # or a grouping prefix, never both), or when the owning Sandbox has
-      # been sealed by its first invocation. The binding records +object+'s
-      # Exposure as it stands now.
+      # The binding records +object+'s Exposure as it stands now.
       def bind(path, object)
         raise ArgumentError, "cannot bind after first Sandbox invocation" if @sealed
 
@@ -34,14 +26,10 @@ module Kobako
         self
       end
 
-      # Returns +true+ iff a Service is bound at +path+ — the declared (Frame 1)
-      # key set a per-invocation +ctx.bind+ override may target.
       def bound?(path)
         @bindings.key?(path.to_s)
       end
 
-      # Resolve a +target+ constant path to the bound Service's Exposure.
-      # Raises +KeyError+ when no Service is bound at +target+.
       def lookup(target)
         target_str = target.to_s
         raise KeyError, "no service bound at #{target_str.inspect}" unless @bindings.key?(target_str)
@@ -49,24 +37,17 @@ module Kobako
         @bindings[target_str]
       end
 
-      # The bound constant paths in bind order — +["MyService::KV",
-      # "File"]+ — which +Runtime#eval+ / +#run+ frame into the Frame 1
-      # preamble. The registry holds the bindings; the wire layout is the
-      # native side's.
+      # The registry holds the bindings; the wire layout is the native
+      # side's.
       def paths
         @bindings.keys
       end
 
-      # Mark the registry as sealed so registration can never alter the
-      # declared path set afterwards. Called by +Sandbox+ on the first
-      # invocation; afterwards #bind raises ArgumentError. Idempotent;
-      # returns +self+.
       def seal!
         @sealed = true
         self
       end
 
-      # Returns +true+ when #seal! has been called, +false+ otherwise.
       def sealed?
         @sealed
       end
@@ -82,9 +63,7 @@ module Kobako
               "bind path must be constant-form segments joined by '::' (got #{path.inspect})"
       end
 
-      # A path collides when it equals, is a prefix of, or extends an
-      # existing binding on the +::+ segment boundary — the guardrail that
-      # keeps a name from being both a bound Service and a grouping prefix.
+      # Keeps a name from being both a bound Service and a grouping prefix.
       def collision?(path)
         @bindings.each_key.any? do |existing|
           existing == path ||

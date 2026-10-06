@@ -20,47 +20,20 @@ module Kobako
       # represents a different concept entirely.
       MSGPACK_INT_RANGE = (-(2**63)..((2**64) - 1))
 
-      # Codec-type predicate
+      # Whether +value+ falls in the codec's type set
       # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type
-      # Mapping). Returns +true+ when +value+ belongs to the closed
-      # 11-entry codec type set — +nil+, +TrueClass+, +FalseClass+,
-      # +Integer+ (in the +i64..u64+ value domain), +Float+, +String+,
-      # +Symbol+, +Kobako::Handle+, +Array+ whose every element is itself
-      # representable, or +Hash+ whose every key and value are
-      # representable. Integers outside the codec's signed-64 /
-      # unsigned-64 union are rejected so the predicate agrees with the
-      # msgpack gem's encode-time +RangeError+ behaviour the codec
-      # already surfaces as UnsupportedTypeError.
-      #
-      # The optional +depth+ bounds the recursive descent at the wire's
-      # structural nesting cap so a self-referential container — reachable
-      # as a cyclic Hash key on the +#run+ argument path — reads as
-      # non-representable rather than looping, letting #deep_wrap_hash
-      # refuse it instead of overflowing this walk.
+      # Mapping). The +depth+ bound makes a self-referential container —
+      # reachable as a cyclic Hash key on the +#run+ argument path — read as
+      # non-representable rather than looping.
       def representable?(value, depth = 0)
         return false if depth > MAX_NESTING_DEPTH
 
         primitive_type?(value) || container_representable?(value, depth)
       end
 
-      # Deep-walk Array / Hash containers in +value+ and replace every
-      # leaf that fails #representable? with a +Kobako::Handle+
-      # allocated from +handler+. The
-      # walk only descends through representable container shapes
-      # (Array, Hash) one structural level at a time; a non-representable
-      # leaf is wrapped as-is without inspecting its internal structure.
-      # An existing +Kobako::Handle+ is representable and passes through
-      # unchanged — auto-wrap never re-wraps a Handle. Only Hash *values*
-      # are wrapped: a Hash *key* must already be wire-representable, since a
-      # key is not auto-wrapped the way a value is — a non-representable key
-      # raises +Kobako::SandboxError+ rather than crossing as an opaque token
-      # the guest→host restore walk could not round-trip.
-      #
-      # +value+ may be any Ruby value; +handler+ must respond to
-      # +#alloc(object) -> Kobako::Handle+ (a host-side
-      # +Kobako::Catalog::Handles+). Returns a structurally equivalent value
-      # whose leaves are either representable or +Kobako::Handle+
-      # tokens.
+      # Only Hash values are wrapped: a non-representable key raises rather
+      # than crossing as a token the guest→host restore walk could not
+      # round-trip.
       #
       # Recursive calls spell the +HandleWalk.+ receiver so the dispatch
       # stays valid even when a block is captured and run under a
@@ -75,8 +48,7 @@ module Kobako
         end
       end
 
-      # Refuse a wrap walk that has descended past the wire's structural
-      # nesting bound — a reference cycle necessarily trips it — so a +#run+
+      # A reference cycle necessarily trips the nesting bound, so a +#run+
       # argument fails as a clean +Kobako::SandboxError+ rather than an
       # unbounded host recursion.
       def guard_nesting!(depth)
@@ -87,11 +59,9 @@ module Kobako
               "cannot cross the sandbox boundary (possible reference cycle)"
       end
 
-      # Wrap a Hash on the host→guest argument path: each value's
-      # non-representable leaves become Handles, while each key must be
-      # wire-representable as-is. A stateful object may cross the boundary as
-      # a Hash value but not as a key — the one deliberate asymmetry with the
-      # guest→host restore walk, which resolves Handle keys the guest built.
+      # A stateful object may cross the boundary as a Hash value but not as
+      # a key — the one deliberate asymmetry with the guest→host restore
+      # walk, which resolves Handle keys the guest built.
       def deep_wrap_hash(hash, handler, depth)
         wrapped = {} # : Hash[untyped, untyped]
         hash.each do |key, val|
@@ -105,22 +75,9 @@ module Kobako
         wrapped
       end
 
-      # Deep-walk Array / Hash containers in +value+ and replace every
-      # +Kobako::Handle+ leaf with the host-side object +handler+ resolves
-      # it to. The symmetric inverse of #deep_wrap: that walk allocates objects
-      # into Handles on the host→guest argument path; this walk resolves
-      # Handles back to their objects wherever a guest→host payload carries
-      # one — an invocation result, a yield-block result, or a dispatch
-      # argument. The walk descends through Array elements and Hash keys and
-      # values one structural level at a time; any non-Handle leaf passes
-      # through unchanged.
-      #
-      # +value+ is a decoded Ruby value (a Handle here is a wire-decoded
-      # +Kobako::Handle+, never a guest-forged one); +handler+ must
-      # respond to +#fetch(id) -> object+ (a host-side
-      # +Kobako::Catalog::Handles+). +handler.fetch+ raises
-      # +Kobako::SandboxError+ for an id with no live binding, the
-      # corrupted-runtime fallback.
+      # The inverse of #deep_wrap. A Handle here was decoded off the wire,
+      # never forged by the guest, and +handler.fetch+ refuses an id with no
+      # live binding.
       def deep_restore(value, handler)
         case value
         when ::Array then value.map { |element| HandleWalk.deep_restore(element, handler) }
@@ -135,9 +92,6 @@ module Kobako
         end
       end
 
-      # The non-container branch of #representable?: returns +true+ for
-      # the scalar leaves and an existing Handle. Not part of the
-      # public surface; reach for #representable? instead.
       def primitive_type?(value)
         case value
         when ::NilClass, ::TrueClass, ::FalseClass, ::Float, ::String, ::Symbol, Kobako::Handle then true
@@ -146,10 +100,6 @@ module Kobako
         end
       end
 
-      # The container branch of #representable?: recurses into Array
-      # elements and Hash key+value pairs through the public
-      # #representable?. Not part of the public surface; reach for
-      # #representable? instead.
       def container_representable?(value, depth)
         case value
         when ::Array then value.all? { |element| HandleWalk.representable?(element, depth + 1) }

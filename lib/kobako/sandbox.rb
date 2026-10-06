@@ -120,10 +120,8 @@ module Kobako
 
     private
 
-    # Construct the +Runtime+ with the requested isolation profile and
-    # refuse one whose declared posture falls below the request —
-    # +SandboxOptions#enforce_floor!+ owns the ladder comparison, so a
-    # runtime that cannot honor the request never runs guest code.
+    # A runtime whose declared posture falls below the request never runs
+    # guest code.
     def build_runtime!
       runtime = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
                                           @options.stdout_limit, @options.stderr_limit, @options.profile,
@@ -132,20 +130,14 @@ module Kobako
       runtime
     end
 
-    # Seal the config on the first invocation and return a fresh
-    # per-invocation +Context+ for the verb to drive. The Context owns this
-    # run's Handle table, resolved Extension backends, captures, and usage, so
-    # no per-invocation state is written back onto the shared config.
+    # Per-invocation state lives on the Context, so nothing an invocation
+    # does is written back onto the shared config.
     def new_invocation
       begin_invocation!
       Context.new(runtime: @runtime, services: @services, snippets: @snippets, extensions: @extensions)
     end
 
-    # Per-invocation prologue on the config tier: seals the Service and
-    # Extension registries on the first call (idempotent — asserting Extension
-    # dependencies then). The Service seal is the one +#bind+ / +#preload+ /
-    # +#install+ all gate on. Per-invocation provider resolution and observable
-    # state live on the +Context+, not here.
+    # The Service seal is the one #bind, #preload and #install all gate on.
     def begin_invocation!
       @services.seal!
       @extensions.seal!

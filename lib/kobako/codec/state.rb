@@ -20,12 +20,8 @@ module Kobako
         @carried_handle = false
       end
 
-      # Bracket a decode and return the block's result together with
-      # whether the decoded tree carried an ext 0x01 Capability Handle.
       # ExtTypes#unpack_handle is the sole chokepoint every Handle passes
-      # through, so one decode pass records the whole tree and a caller
-      # can skip an all-identity Handle-resolution walk when none was
-      # present.
+      # through, so one decode pass records the whole tree.
       def track_handles
         @carried_handle = false
         result = yield

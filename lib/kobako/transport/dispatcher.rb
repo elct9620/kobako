@@ -44,22 +44,9 @@ module Kobako
       }.freeze
       private_constant :OWN_FAULTS
 
-      # Answer a single routed Call with +[ok, bytes]+, which the native
-      # side puts on the Reply's ok or fault arm. Invoked from the
-      # per-invocation dispatch Proc that
-      # +Kobako::Context+ hands to +Runtime#eval+ / +#run+; +resolver+,
-      # +handler+, and +yield_to_guest+ are captured in that Proc's
-      # closure so the Dispatcher stays stateless and neither the resolver
-      # nor the Context needs to publish accessors for the per-invocation
-      # +Catalog::Handles+ or +Runtime+. +yield_to_guest+ is a +String → String+ callable
-      # (the ext's per-dispatch +Kobako::Runtime::GuestYielder+) used only
-      # when the Call carries +block_given: true+. Never raises — every
-      # failure path takes the fault arm instead, so the guest sees a
-      # transport error rather than a wasm trap.
-      #
-      # The decode runs inside +Codec.track_handles+ so #resolve_call_args
-      # can skip the argument walk when no Capability Handle crossed the
-      # wire.
+      # The per-invocation state arrives as arguments so the Dispatcher
+      # stays stateless and neither the resolver nor the Context publishes
+      # accessors for it.
       def dispatch(call, resolver, handler, yield_to_guest)
         yielder = Yielder.new(yield_to_guest, BREAK_THROW, handler) if call.block_given
         [true, encode_ok(run(call, resolver, handler, yielder), handler), nil] # : [bool, String, String?]
@@ -74,9 +61,6 @@ module Kobako
         yielder&.invalidate!
       end
 
-      # Decode the payload, resolve the receiver, and run the method inside
-      # the +catch+ frame a guest +break+ unwinds to. Split from #dispatch
-      # so the reply-shaping and the failure boundary stay one glance wide.
       def run(call, resolver, handler, yielder)
         arguments, carried_handle = decode_arguments(call.payload)
         exposure = resolve_target(call.target, resolver, handler)
@@ -84,24 +68,14 @@ module Kobako
         catch(BREAK_THROW) { invoke(exposure, call.method_name, args, kwargs, yielder) }
       end
 
-      # Decode the Call's payload into its arguments, reporting whether any
-      # Capability Handle crossed. A codec fault here is a request that
-      # never became a call, restated so it cannot read as an unwritable
-      # reply — the same restatement #encode_ok makes in the other
-      # direction.
+      # A codec fault here is a request that never became a call, restated
+      # so it cannot read as an unwritable reply.
       def decode_arguments(payload)
         Kobako::Codec.track_handles { Payload::Arguments.decode(payload) }
       rescue Kobako::Codec::Error => e
         raise UnreadableRequestError, "Sandbox could not read the request: #{e.message}"
       end
 
-      # Resolve positional and keyword arguments off the decoded payload in
-      # one step. +carried_handle+ reports whether the decode carried any
-      # Capability Handle; when it did not, every argument resolves to
-      # itself, so the decoded values pass straight through and the walk is
-      # skipped entirely. Otherwise both go through #resolve_arg so Handles
-      # round-trip back to the host-side Ruby object before the call reaches
-      # +public_send+.
       def resolve_call_args(arguments, handler, carried_handle)
         return [arguments.args, arguments.kwargs] unless carried_handle
 
@@ -109,12 +83,6 @@ module Kobako
          arguments.kwargs.transform_values { |v| resolve_arg(v, handler) }]
       end
 
-      # Map an error caught at the dispatch boundary to the message and the
-      # category the native side frames into the Reply's fault arm. +error+
-      # is the +StandardError+ caught by #dispatch's rescue; the category
-      # tells the guest which kind of failure it was so it can raise the
-      # matching proxy-side error.
-      #
       # The class prefix marks a Service's own exception and nothing else:
       # it is the +<class>: <message>+ shape a Host App is told to keep
       # secrets out of, so wearing it says the Service raised. kobako's own
@@ -134,18 +102,8 @@ module Kobako
         fault("runtime", "#{error.class}: #{error.message}")
       end
 
-      # Dispatch +method+ on the object behind +exposure+, once the Exposure
-      # the guest's reference carries permits it. +kwargs+ is already
-      # Symbol-keyed (the +Payload::Arguments+ invariant pins it). The
-      # empty-kwargs branch omits the +**+ splat so Ruby 3.x's strict kwargs
-      # separation does not reject calls to no-kwarg methods when the wire
-      # carries the uniform empty-map shape.
-      #
-      # +yielder+ is the host-side Yielder materialised when the guest
-      # call site supplied a block; its Yielder#to_proc
-      # rides the +&block+ slot. +&nil+ is a no-op block argument in Ruby,
-      # so the same call site handles both cases without an explicit
-      # conditional.
+      # The wire always carries a keyword map, so an empty one is left
+      # unsplatted for methods that take no keywords.
       def invoke(exposure, method, args, kwargs, yielder = nil)
         name = method.to_sym
         reject_unreachable!(exposure, name)
@@ -158,32 +116,22 @@ module Kobako
         end
       end
 
-      # Guard the +public_send+ below: Reflection decides what counts as
-      # Service behaviour through this reference, and its refusal reason
-      # becomes the guest's +undefined+ fault. Both the ambient-surface
-      # floor and the reference's Exposure answer through it, so a rejected
-      # name discloses nothing about which of the two refused.
+      # Both the ambient-surface floor and the reference's Exposure answer
+      # through Reflection, so a rejected name discloses nothing about
+      # which of the two refused.
       def reject_unreachable!(exposure, name)
         reason = Reflection.refusal(exposure, name)
         raise UndefinedTargetError, reason if reason
       end
 
-      # Resolve every Kobako::Handle in an argument — bare or nested in an
-      # Array / Hash — back to its host object before the dispatch reaches
-      # +public_send+, symmetric with the guest→host return path. A Handle id
-      # with no live entry surfaces as an unrecognized target.
       def resolve_arg(value, handler)
         Kobako::Codec::HandleWalk.deep_restore(value, handler)
       rescue Kobako::SandboxError => e
         raise UndefinedTargetError, e.message
       end
 
-      # Resolve a Call target to the Exposure the path +resolver+ (or
-      # Catalog::Handles) holds for it. The native side already
-      # discriminated the two forms off the core envelope's +kind+ tag: a
-      # String is a bound constant's path, an Integer is a Capability Handle
-      # id. No else-branch is needed — the envelope layer is the system
-      # boundary that enforces the invariant.
+      # The envelope already discriminated the two target forms, so no
+      # else-branch is needed.
       def resolve_target(target, resolver, handler)
         case target
         when String
@@ -199,26 +147,16 @@ module Kobako
         raise UndefinedTargetError, e.message
       end
 
-      # Resolve +id+ to the Exposure its Handle was minted with. An unknown
-      # id surfaces as UndefinedTargetError.
       def resolve_handle(id, handler)
         handler.exposure(id)
       rescue Kobako::SandboxError => e
         raise UndefinedTargetError, e.message
       end
 
-      # Encode +value+ as the body of a Reply's ok arm — the value alone,
-      # since the envelope's tag already carries the success. A value that
-      # is not wire-representable per the codec's type mapping raises
-      # +UnsupportedTypeError+; the rescue routes it through the
-      # Catalog::Handles via #wrap_as_handle and re-encodes with the
-      # Capability Handle in place. The happy path encodes exactly once.
-      #
-      # Any other codec fault is the answer failing to encode rather than the
-      # request failing to decode, and a Service is the only side that can
-      # change what it returns — so it is named here, where the direction is
-      # known, instead of falling to the boundary's codec floor and reporting
-      # as an exchange that produced no Service outcome.
+      # A value with no wire form goes back as a Capability Handle. Any
+      # other codec fault is the answer failing to encode, which only the
+      # Service can change — so it is named here, where the direction is
+      # known, instead of falling to the boundary's codec floor.
       def encode_ok(value, handler)
         Kobako::Codec::Nesting.assert_within_bound!(value)
         Kobako::Codec::Encoder.encode(value)
@@ -228,16 +166,13 @@ module Kobako
         raise Kobako::SandboxError, "Sandbox could not write the Service's answer: #{e.message}"
       end
 
-      # Allocate +value+ in the Sandbox's Catalog::Handles and return a +Handle+
-      # that the wire codec can carry. Used as the fallback path of
-      # #encode_ok when +value+ has no wire representation.
       def wrap_as_handle(value, handler)
         handler.alloc(value)
       end
 
-      # +message+ folds to UTF-8 first: Ruby core builds some exception
-      # messages as ASCII-8BIT (the arity ArgumentError, for one), and
-      # the envelope requires UTF-8 of the text fields it frames.
+      # Ruby core builds some exception messages as ASCII-8BIT (the arity
+      # ArgumentError, for one), and the envelope requires UTF-8 of the
+      # text fields it frames.
       def fault(type, message)
         [message.encode(Encoding::UTF_8, invalid: :replace, undef: :replace), type] # : [String, String]
       end

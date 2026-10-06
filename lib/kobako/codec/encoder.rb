@@ -8,14 +8,8 @@ require_relative "ext_types"
 module Kobako
   module Codec
     module Encoder # :nodoc:
-      # Encode +value+ to wire bytes (binary-encoded String).
-      # The 11-entry type mapping is a closed set: a value outside it is
-      # rejected as +UnsupportedTypeError+ by the factory's +BasicObject+ guard
-      # (ExtTypes#register_unrepresentable), which raises before the msgpack
-      # gem can route the value through +to_msgpack+ — so a permissive
-      # +method_missing+ object cannot answer that probe and mis-encode. The
-      # rescue below maps the two violations the guard does not reach onto the
-      # same error: an integer outside i64..u64 (+RangeError+) and any
+      # The rescue maps the two violations the factory's +BasicObject+ guard
+      # does not reach: an integer outside i64..u64 (+RangeError+) and any
       # packer-internal +NoMethodError+.
       #
       # The caller bounds +value+'s nesting first (Nesting): the packer takes

@@ -18,9 +18,6 @@ module Kobako
         Codec::Encoder.encode([args, kwargs])
       end
 
-      # Decode +bytes+ into an Arguments. Raises +Codec::InvalidTypeError+ when
-      # the payload is not the expected 2-element msgpack array, or when the
-      # construction invariants reject the decoded fields.
       def self.decode(bytes)
         Codec::Decoder.decode(bytes) do |frame|
           unless frame.is_a?(Array) && frame.length == 2

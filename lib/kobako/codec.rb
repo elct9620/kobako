@@ -18,10 +18,8 @@ module Kobako
     # packer.
     MAX_NESTING_DEPTH = 128
 
-    # Bracket a decode and return the block's result together with whether
-    # the decoded tree carried an ext 0x01 Capability Handle — the signal a
-    # dispatch path uses to skip an all-identity Handle-resolution walk.
-    # The tracking state is codec-internal; this is its only readout.
+    # Answers the block's result with whether the decode carried a
+    # Capability Handle, so a caller can skip an all-identity restore walk.
     def self.track_handles(&block)
       State.current.track_handles(&block)
     end

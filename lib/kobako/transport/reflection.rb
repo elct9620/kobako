@@ -70,13 +70,8 @@ module Kobako
         "no public method #{name.inspect} on target"
       end
 
-      # Whether +name+'s +owner+ is ambient surface rather than Service
-      # behaviour: a core meta module, a callable gadget type, or — when
-      # +target+ is itself a Class or Module bound as a Service — the
-      # singleton class that owns its class-level API (+File.popen+ /
-      # +Kernel.system+, unreachable via any fixed core-module list). A plain
-      # object's own singleton method (+def obj.x+) stays reachable, since
-      # +target+ is not a Module there.
+      # A plain object's own singleton method (+def obj.x+) stays reachable,
+      # since only a Module target counts its singleton class as ambient.
       def ambient_owner?(owner, target)
         META_OWNERS.include?(owner) ||
           GADGET_OWNERS.include?(owner) ||

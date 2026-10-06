@@ -12,34 +12,13 @@ module Kobako
         @entries = [] # : Array[Kobako::Snippet::Source | Kobako::Snippet::Binary]
       end
 
-      # The registered snippets in insertion order, each projected as the
-      # +[kind, name, body]+ triple +Runtime#eval+ / +#run+ frame into
-      # Frame 3 — +kind+ names the form as a Symbol, +name+ is +nil+ for
-      # the bytecode form. The entry value objects stay pure carriers, so
-      # this collection-tier method reads their attributes externally
-      # rather than asking each entry to project itself.
+      # Projected here so the entry value objects stay pure carriers.
       def entries
         @entries.map { |entry| entry_tuple(entry) }
       end
 
-      # Register one preloaded snippet in either of two forms.
-      #
-      #   * Source form +register(code: src, name: Name)+ — +src+ is the
-      #     mruby source as a String; the bytes are re-encoded as UTF-8
-      #     and detached from the caller's reference. +name+ is a Symbol
-      #     or String matching +NAME_PATTERN+. Returns the Symbol form
-      #     of +name+.
-      #   * Binary form +register(binary: bytes)+ — +bytes+ is
-      #     precompiled RITE bytecode as a String, duplicated and forced
-      #     to ASCII-8BIT so msgpack-ruby ships it as +bin+. Returns
-      #     +nil+ — bytecode entries are anonymous on the host side; any
-      #     structural validation is deferred to the guest at first replay.
-      #
-      # The two forms are mutually exclusive: shape validation lives
-      # here so callers (chiefly +Kobako::Sandbox#preload+) collapse to
-      # a single delegation. Raises +ArgumentError+ on mixed forms,
-      # missing keywords, wrong types, malformed +name+, or
-      # duplicate +code:+ +name+.
+      # Bytecode stays unchecked on the host; the guest validates it at
+      # first replay.
       def register(code: nil, name: nil, binary: nil)
         if binary
           raise ArgumentError, "cannot combine binary: with code: / name:" if code || name
@@ -52,10 +31,8 @@ module Kobako
 
       private
 
-      # Source-form register path. Delegates argument-shape checks to
-      # +ensure_source_args!+ (which returns the narrowed +[code, name]+
-      # pair), normalises +name+ to a Symbol, rejects duplicates,
-      # and appends the Source entry.
+      # The native side frames a source body only as UTF-8 text, so source
+      # read as bytes is re-tagged rather than refused.
       def register_source!(code, name)
         code, name = ensure_source_args!(code, name)
         name_sym = normalize_name(name)
@@ -67,11 +44,8 @@ module Kobako
         name_sym
       end
 
-      # Shape-only validation for the +code:+ + +name:+ pair. Returns
-      # the pair with +nil+ narrowed away so callers can treat both as
-      # present. The +code:+ type check runs before the +name:+
-      # presence check so callers passing +code: nil+ explicitly see
-      # the type error rather than the "missing keyword" error.
+      # The +code:+ type check runs first so an explicit +code: nil+ reads
+      # as a type error rather than a missing keyword.
       def ensure_source_args!(code, name)
         raise ArgumentError, "missing keyword: code: + name:, or binary:" if code.nil? && name.nil?
         raise ArgumentError, "code must be a String, got #{code.class}" unless code.is_a?(String)
@@ -80,9 +54,8 @@ module Kobako
         [code, name]
       end
 
-      # Binary-form register path. Validates the +binary:+ payload type
-      # and appends the Binary entry. The bytes are duplicated and forced
-      # to ASCII-8BIT so msgpack-ruby picks the +bin+ family on the wire.
+      # Forced to ASCII-8BIT so msgpack-ruby picks the +bin+ family on the
+      # wire.
       def register_binary!(bytes)
         raise ArgumentError, "binary must be a String, got #{bytes.class}" unless bytes.is_a?(String)
 
@@ -90,10 +63,8 @@ module Kobako
         nil
       end
 
-      # Project one entry as its +[kind, name, body]+ triple. Source
-      # entries contribute their host-side +name+; Binary entries carry
-      # +nil+ because the canonical name lives in the bytecode's embedded
-      # +debug_info+ and is read by the guest at load time.
+      # A bytecode entry carries no name: its canonical name lives in the
+      # bytecode's +debug_info+ and is read by the guest at load time.
       def entry_tuple(entry)
         case entry
         when Snippet::Source

@@ -32,11 +32,8 @@ module Kobako
 
       module_function
 
-      # Assemble a +MessagePack::Factory+ with the two kobako ext types plus
-      # the unrepresentable-value guard registered, frozen because
-      # registration is its only mutation and happens exactly once. The
-      # stateful conversions resolve their per-operation state at call time,
-      # so one registered factory serves every thread.
+      # The stateful conversions resolve their per-operation state at call
+      # time, so one frozen factory serves every thread.
       def build_factory
         factory = MessagePack::Factory.new
         register_symbol(factory)
@@ -45,38 +42,25 @@ module Kobako
         factory.freeze
       end
 
-      # Symbol-to-name packer for the ext-0x00 registration.
       def pack_symbol(symbol)
         symbol.name
       end
 
-      # Validate the ext-0x00 payload as UTF-8 and intern. Raises
-      # InvalidEncodingError on invalid bytes, refusing the
-      # binary-encoding fallback that msgpack-gem's default unpacker
-      # would otherwise apply. The re-tag step lives here because the
-      # msgpack ext-type unpacker hands us binary bytes; the assertion
-      # itself is shared with Decoder via Utils.assert_utf8!. The
-      # +"Symbol"+ label keeps the error message in Ruby vocabulary
-      # rather than wire-ext-code vocabulary.
+      # Refuses the binary-encoding fallback that msgpack-gem's default
+      # unpacker would otherwise apply to invalid bytes.
       def unpack_symbol(payload)
         name = payload.b.force_encoding(Encoding::UTF_8)
         Utils.assert_utf8!(name, "Symbol payload")
         name.to_sym
       end
 
-      # Handle-id packer for the ext-0x01 registration: the fixext-4
-      # big-endian id frame.
       def pack_handle(handle)
         [handle.id].pack("N")
       end
 
-      # Peel off the fixext-4 frame, hand the bytes to the
-      # Host-Gem-internal +Kobako::Handle.restore+ factory, and
-      # translate the +ArgumentError+ raised by Handle's invariants
-      # into a wire-layer +InvalidTypeError+ via Codec::Utils.with_boundary.
-      # The Value Object owns the id-range contract; this method only
-      # owns the frame shape. Records the Handle sighting on +state+ so a
-      # Handle-free decode can skip the downstream resolution walk.
+      # Handle owns the id-range contract; this method owns only the frame
+      # shape. The sighting is recorded so a Handle-free decode can skip the
+      # downstream resolution walk.
       def unpack_handle(payload, state)
         state.record_handle!
         bytes = payload.b

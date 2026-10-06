@@ -7,27 +7,15 @@ module Kobako
     module Utils # :nodoc:
       module_function
 
-      # Raise InvalidEncodingError unless +string+'s bytes are valid under
-      # its current encoding tag. +label+ is the caller-supplied prefix
-      # for the error message (e.g. +"str payload"+, +"Symbol payload"+).
       def assert_utf8!(string, label)
         return if string.valid_encoding?
 
         raise InvalidEncodingError, "#{label} is not valid UTF-8"
       end
 
-      # Run +block+ at the codec boundary: a value object raises
-      # +ArgumentError+ when an invariant is violated at construction, and
-      # this helper surfaces that as InvalidTypeError so the public taxonomy
-      # stays Kobako::Codec::Error and never leaks +ArgumentError+ from
-      # the Ruby standard library.
-      #
-      # Reach for this only where a value object is constructed outside a
-      # Decoder.decode block, whose rescue already performs the same
-      # mapping (worked example: ExtTypes#unpack_handle building
-      # +Handle.restore+ from a raw fixext payload). Do not use it for
-      # general-purpose validation outside the codec boundary —
-      # host-layer +ArgumentError+ values should propagate unchanged.
+      # Only for a value object built outside a Decoder.decode block, whose
+      # rescue already maps the same way; a host-layer +ArgumentError+
+      # elsewhere should propagate unchanged.
       def with_boundary
         yield
       rescue ::ArgumentError => e

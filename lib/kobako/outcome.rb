@@ -23,22 +23,18 @@ module Kobako
 
     module_function
 
-    # Settle one invocation. +kind+ names the arm, +payload+ is the
-    # codec-encoded value the +:ok+ arm carries, and +panic+ carries
-    # the Panic's fields +[origin, class, message, backtrace, available]+ —
-    # present on the panic arm and absent on every other, which is what
-    # tells the failure that has a record to attribute from apart from the
-    # two that do not. +entrypoint+ is the name this invocation asked for,
-    # which the host knows and the wire therefore never carries.
+    # +panic+ is present only on the panic arm, which is what tells the
+    # failure that has a record to attribute from apart from the two that
+    # do not. +entrypoint+ is known to the host and never carried by the
+    # wire.
     def reify(kind, payload, panic, entrypoint: nil)
       return decode_value(payload) if kind == :ok
 
       raise panic ? panic_error(panic, entrypoint) : trap_error(kind)
     end
 
-    # Map a Panic's fields onto the three-layer taxonomy. The fields land
-    # on the exception verbatim — it carries the record rather than a
-    # translation of one.
+    # The fields land on the exception verbatim — it carries the record
+    # rather than a translation of one.
     def panic_error(panic, entrypoint)
       origin, klass, message, backtrace, available = panic
       selected = error_class(origin, klass)
@@ -61,30 +57,24 @@ module Kobako
       selected
     end
 
-    # An arm the host cannot settle: the guest wrote nothing, or wrote
-    # bytes the envelope cannot frame. Either leaves nothing to attribute
-    # to, so both walk the trap path; only the absent-versus-present
-    # distinction selects the message.
+    # The guest wrote nothing, or bytes the envelope cannot frame; either
+    # leaves nothing to attribute to.
     def trap_error(kind)
       return TrapError.new("Sandbox exited without producing a result") if kind == :absent
 
       TrapError.new("Sandbox produced an unrecognised result")
     end
 
-    # The ok arm's value — the one position a payload codec still
-    # owns on this path. A decode fault means the framing was fine but the
-    # carried value is unrepresentable.
+    # A decode fault means the framing was fine but the carried value is
+    # unrepresentable.
     def decode_value(payload)
       Kobako::Codec::Decoder.decode(payload)
     rescue Kobako::Codec::Error => e
       raise wire_error("Sandbox produced an invalid result value", diagnostic: e.message)
     end
 
-    # Lift a wire violation the host detected to the real
-    # +Kobako::Transport::Error+ class so callers can +rescue+ it
-    # specifically instead of pattern-matching on +error.klass+. The
-    # +klass+ field is still populated so existing operator-side tooling
-    # that greps on the string continues to work.
+    # The +klass+ field is still populated so operator-side tooling that
+    # greps on the string continues to work.
     def wire_error(message, diagnostic: nil)
       Kobako::Transport::Error.new(
         message,

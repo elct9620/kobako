@@ -67,11 +67,8 @@ module Kobako
 
     private
 
-    # Coerce +timeout+ into the Float seconds the ext expects, or +nil+
-    # to mean the cap is disabled. Any finite non-positive value is
-    # rejected — a zero or negative timeout would either fire instantly
-    # or never, both of which would surprise callers more than an early
-    # +ArgumentError+.
+    # A zero or negative timeout would either fire instantly or never, both
+    # more surprising than an early ArgumentError.
     def normalize_timeout(timeout)
       return nil if timeout.nil?
       raise ArgumentError, "timeout must be Numeric or nil, got #{timeout.class}" unless timeout.is_a?(Numeric)
@@ -82,9 +79,6 @@ module Kobako
       seconds
     end
 
-    # Coerce +memory_limit+ into the byte cap the ext expects, or +nil+
-    # to mean unbounded. Must be a positive Integer when set; Float or
-    # zero/negative values are rejected.
     def normalize_memory_limit(memory_limit)
       return nil if memory_limit.nil?
       unless memory_limit.is_a?(Integer) && memory_limit.positive?
@@ -94,11 +88,6 @@ module Kobako
       memory_limit
     end
 
-    # Coerce a per-channel output cap (+stdout_limit+ / +stderr_limit+)
-    # into the byte cap the ext expects, or +nil+ to leave the channel
-    # uncapped. Same shape as +normalize_memory_limit+: a positive Integer
-    # when set, Float / zero / negative rejected. +name+ tags the
-    # +ArgumentError+ with the offending keyword.
     def normalize_output_limit(limit, name)
       return nil if limit.nil?
       unless limit.is_a?(Integer) && limit.positive?
@@ -108,19 +97,14 @@ module Kobako
       limit
     end
 
-    # Validate +profile+ against the PROFILES ladder. Unlike the caps
-    # there is no +nil+ form: the weakest posture is requested as an
-    # explicit +:permissive+, so anything off the ladder — +nil+
-    # included — is rejected.
+    # Unlike the caps there is no +nil+ form: the weakest posture is
+    # requested as an explicit +:permissive+.
     def normalize_profile(profile)
       return profile if PROFILES.include?(profile)
 
       raise ArgumentError, "profile must be one of #{PROFILES.map(&:inspect).join(", ")}, got #{profile.inspect}"
     end
 
-    # Validate +gvl+ against GVL_MODES. Like +profile+ it has no +nil+
-    # form: the scheduling mode is requested as an explicit Symbol, so
-    # anything off the set — +nil+ included — is rejected.
     def normalize_gvl(gvl)
       return gvl if GVL_MODES.include?(gvl)
 

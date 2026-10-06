@@ -10,10 +10,8 @@ module Kobako
     # One invocation's Handle table, mapping opaque ids to host objects. Each
     # invocation mints its own, so a Handle resolves only where it was issued.
     class Handles # :nodoc:
-      # Build a fresh, empty table. +next_id+ is an internal seam that
-      # sets the starting value of the monotonic counter (defaults to 1);
-      # tests pass a value near +Kobako::Handle::MAX_ID+ to exercise
-      # the cap-exhaustion path without 2³¹ allocations.
+      # +next_id+ lets tests start near +Kobako::Handle::MAX_ID+ to reach
+      # exhaustion without 2³¹ allocations.
       def initialize(next_id: 1)
         @entries = {} # : Hash[Integer, Kobako::Transport::Exposure]
         surfaces = {} # : Hash[Module, Set[Symbol]]
@@ -21,19 +19,6 @@ module Kobako
         @next_id = next_id
       end
 
-      # Bind +object+ in the table and return a +Kobako::Handle+ token
-      # for it. +object+ is any host-side Ruby object to bind. Returns a
-      # freshly-allocated +Kobako::Handle+ whose +#id+ falls in
-      # +[Kobako::Handle::MIN_ID, Kobako::Handle::MAX_ID]+. Raises
-      # +Kobako::HandleExhaustedError+ if the next ID would exceed the
-      # cap. The cap is anchored on +Kobako::Handle+ — the wire codec
-      # and the allocator share the same invariant.
-      #
-      # Returning a Handle (rather than a bare Integer id) keeps the
-      # allocator's output a domain entity. An id is the Handle's only
-      # content, so the same internal +Kobako::Handle.restore+ constructor
-      # serves both this allocator and the codec's wire-decode path.
-      #
       # The entry records the object's Exposure as it stands at mint, so a
       # call made through this Handle is authorized against the reference
       # the guest was given.
@@ -46,27 +31,17 @@ module Kobako
         Kobako::Handle.restore(id)
       end
 
-      # Resolve a Handle ID to its bound object — the very object +#alloc+
-      # received, so a Handle crossing back restores to it. +id+ is a Handle
-      # ID previously returned by +#alloc+. Raises +Kobako::SandboxError+ if
-      # +id+ is not currently bound.
       def fetch(id)
         exposure(id).object
       end
 
-      # The Exposure +id+ was minted with, which authorizes a call the guest
-      # makes through that Handle. Raises +Kobako::SandboxError+ if +id+ is
-      # not currently bound.
       def exposure(id)
         require_bound!(id)
         @entries[id]
       end
 
-      # Number of currently-bound entries. Used by tests of the Dispatcher
-      # and Codec::HandleWalk#deep_wrap to observe whether each path allocates
-      # exactly the Handle entries it should — the +Handles+ table itself never
-      # consults its own size, but the surrounding code's allocation
-      # contract is part of the observable boundary.
+      # The table never consults its own size; tests read it to pin how many
+      # Handles each path allocates.
       def size
         @entries.size
       end
@@ -96,8 +71,6 @@ module Kobako
         end
       end
 
-      # Guard #alloc against issuing an ID past the cap. Returns +nil+
-      # on success; raises +Kobako::HandleExhaustedError+ at exhaustion.
       def ensure_capacity!
         cap = Kobako::Handle::MAX_ID
         return unless @next_id > cap
@@ -107,9 +80,6 @@ module Kobako
               "in a single invocation (limit #{cap})"
       end
 
-      # Single source of truth for the "unknown Handle id" raise used by
-      # #fetch. Returns +nil+ on success; raises +Kobako::SandboxError+
-      # when +id+ is not currently bound.
       def require_bound!(id)
         return if @entries.key?(id)
 

@@ -46,8 +46,6 @@ module Kobako
 
     private
 
-    # The idle-first claim loop: an idle Sandbox wins, unclaimed
-    # capacity constructs, and a full pool waits for a checkin.
     def acquire
       timeout = @checkout_timeout
       deadline = timeout && (monotonic_now + timeout)
@@ -58,11 +56,10 @@ module Kobako
       end
     end
 
-    # Single locked decision point for one claim attempt. Waiting
-    # happens inside the lock (so a checkin can wake it); construction
-    # happens outside (so a slow setup block never holds the lock) —
-    # capacity is reserved here and released by +construct_slot+ on
-    # failure.
+    # Waiting happens inside the lock (so a checkin can wake it);
+    # construction happens outside (so a slow setup block never holds the
+    # lock) — capacity is reserved here and released by +construct_slot+
+    # on failure.
     def claim_or_wait(deadline)
       @mutex.synchronize do
         return [:idle, @idle.pop] unless @idle.empty?
@@ -77,9 +74,7 @@ module Kobako
       end
     end
 
-    # Wait for a checkin or freed capacity; raises
-    # +Kobako::PoolTimeoutError+ once +deadline+ has passed. Must
-    # run while holding +@mutex+.
+    # Must run while holding +@mutex+.
     def await_slot!(deadline)
       remaining = deadline && (deadline - monotonic_now)
       if remaining && remaining <= 0
@@ -90,10 +85,8 @@ module Kobako
       @slot_freed.wait(@mutex, remaining)
     end
 
-    # Construct and set up one pooled Sandbox against the capacity
-    # reserved by +claim_or_wait+. Construction and setup-block errors
-    # propagate to the checkout caller unchanged; the reserved
-    # capacity is released so a later checkout can retry.
+    # A failed construction releases its reserved capacity so a later
+    # checkout can retry.
     def construct_slot
       done = false
       sandbox = Sandbox.new(**@sandbox_options)
@@ -104,7 +97,6 @@ module Kobako
       release_capacity! unless done
     end
 
-    # Return a Sandbox to the idle list and wake one waiting checkout.
     def checkin(sandbox)
       @mutex.synchronize do
         @idle.push(sandbox)
@@ -112,8 +104,6 @@ module Kobako
       end
     end
 
-    # Give back the capacity a failed construction reserved, and wake one
-    # waiting checkout to claim it.
     def release_capacity!
       @mutex.synchronize do
         @constructed -= 1
@@ -127,17 +117,12 @@ module Kobako
       Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
-    # Pre-flight for +slots+ — no coercion, a positive Integer is
-    # the only accepted shape.
     def validate_slots!(slots)
       return if slots.is_a?(Integer) && slots.positive?
 
       raise ArgumentError, "slots must be a positive Integer, got #{slots.inspect}"
     end
 
-    # Coerce +checkout_timeout+ into the Float seconds the wait loop
-    # consumes, or +nil+ to wait indefinitely — the same normalisation
-    # idiom +SandboxOptions+ applies to +timeout+.
     def normalize_checkout_timeout(checkout_timeout)
       return nil if checkout_timeout.nil?
       unless checkout_timeout.is_a?(Numeric)

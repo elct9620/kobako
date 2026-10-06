@@ -72,26 +72,17 @@ module Kobako
 
     private
 
-    # Run the per-eval override +block+, handing it this Context so it can call
-    # +ctx.bind+, then spend the Context so a captured +ctx+ used after the
-    # block raises. A block that raises propagates before the guest drives, so
-    # the guest never runs and no Execution is produced.
+    # The Context is spent once the block returns, so a captured +ctx+ used
+    # later raises. A block that raises propagates before the guest drives,
+    # so the guest never runs and no Execution is produced.
     def collect_overrides
       yield self
     ensure
       @spent = true
     end
 
-    # Build this invocation's guest→host dispatch handler — a +Proc+ routing
-    # each guest→host call through the stateless +Transport::Dispatcher+,
-    # capturing this Context as the path resolver (its +#lookup+ layers the
-    # per-invocation providers over the static bindings) plus +@handler+. Handed to
-    # +Runtime#eval+ / +#run+ as a call argument, so the Runtime holds no
-    # dispatch state and the +Proc+ stays GC-rooted as a live argument for the
-    # synchronous call. The ext hands the +Proc+ a per-dispatch +guest_yielder+
-    # — a +String → String+ callable that re-enters the in-flight guest to run
-    # a yielded block — which the +Dispatcher+ forwards to the
-    # +Transport::Yielder+ it builds for the call.
+    # Handed to the Runtime as a call argument, so the Runtime holds no
+    # dispatch state and the Proc stays GC-rooted for the synchronous call.
     def dispatch_handler
       lambda do |target, method_name, block_given, payload, guest_yielder|
         call = Transport::Call.new(target: target, method_name: method_name,
@@ -100,19 +91,16 @@ module Kobako
       end
     end
 
-    # Record this invocation's usage and both output captures from the ext
-    # +Snapshot+. Every Snapshot carries them — value return or trap alike — so
-    # +#usage+ / +#stdout+ / +#stderr+ stay readable after a rescued trap.
+    # Every Snapshot carries usage and captures, trap or not, so they stay
+    # readable after a rescued trap.
     def populate_observability!(snapshot)
       @usage = Usage.new(wall_time: snapshot.wall_time, memory_peak: snapshot.memory_peak)
       @stdout_capture = Capture.new(bytes: snapshot.stdout, truncated: snapshot.stdout_truncated?)
       @stderr_capture = Capture.new(bytes: snapshot.stderr, truncated: snapshot.stderr_truncated?)
     end
 
-    # Pick the +TrapError+ subclass to re-raise based on +err+'s actual class.
-    # Cap-trap subclasses (+TimeoutError+ / +MemoryLimitError+) preserve their
-    # named identity; everything else collapses to the base +Kobako::TrapError+,
-    # so #invoke! can add the verb prefix without erasing the named subclass.
+    # The cap subclasses keep their identity through the re-raise that adds
+    # the verb prefix.
     def trap_class_for(err)
       case err
       when TimeoutError     then TimeoutError
@@ -121,10 +109,6 @@ module Kobako
       end
     end
 
-    # Build the +TrapError+-family exception for a trapped +Snapshot+ from its
-    # neutral trap kind, tagged with the verb — the cap subclasses
-    # (+TimeoutError+ / +MemoryLimitError+) keep their identity, every other
-    # engine fault is the base +TrapError+.
     def trap_error_for(snapshot, verb)
       klass = case snapshot.trap_kind
               when :timeout      then TimeoutError
@@ -134,20 +118,16 @@ module Kobako
       klass.new("Sandbox##{verb} failed: #{snapshot.trap_message}")
     end
 
-    # Freeze this run's observables plus +value+ (+nil+ on a failed run) into
-    # the read-only +Execution+ the caller receives or the error carries.
-    # +failed+ records the two apart so a +nil+ +value+ from a successful run
-    # stays distinct from a failed one.
+    # +failed+ keeps a +nil+ value from a successful run apart from a failed
+    # run.
     def build_execution(value, failed:)
       Execution.new(value: value, usage: @usage, stdout: @stdout_capture, stderr: @stderr_capture, failed: failed)
     end
 
-    # Settle a completed run's outcome into its +Execution+. A Capability
-    # Handle in the result is restored to its host object first. The settle
-    # sits in the rescue so a wire-violation trap or a Panic both attach this
-    # run's Execution, just like a guest-call trap does. +entrypoint+ is the
-    # name +#run+ asked for, which the host knows and the wire never carries,
-    # so an unresolved one names itself on the error it raises.
+    # The settle sits in the rescue so a wire-violation trap or a Panic both
+    # attach this run's Execution, just like a guest-call trap does.
+    # +entrypoint+ is known to the host and never carried by the wire, so an
+    # unresolved one names itself on the error it raises.
     def settle_outcome(snapshot, verb, entrypoint)
       kind, payload, panic = snapshot.outcome
       value, carried = Codec.track_handles { Outcome.reify(kind, payload, panic, entrypoint: entrypoint) }
@@ -160,14 +140,10 @@ module Kobako
       raise e.with_execution(build_execution(nil, failed: true))
     end
 
-    # Drive one invocation and settle it into a frozen +Execution+. +verb+
-    # tags the TrapError message so the failing export is identifiable. This
-    # invocation's callable Extension backends are resolved first — before the
-    # guest runs — so a provider that raises propagates unwrapped and leaves
-    # the guest unrun. Usage and captures are recorded before the trap check,
-    # so a trapped Snapshot's error carries them just like a completed run's
-    # return value. A could-not-start fault ran no invocation at all, so it
-    # carries no Execution and gains only the verb prefix.
+    # Extension backends are resolved before the guest runs, so a provider
+    # that raises propagates unwrapped and leaves the guest unrun. A
+    # could-not-start fault ran no invocation at all, so it carries no
+    # Execution and gains only the verb prefix.
     def invoke!(verb, entrypoint: nil)
       @resolved = @extensions.resolve.transform_values { |object| Transport::Exposure.of(object) }
       begin
