@@ -43,21 +43,10 @@ static MODULE_CACHE: OnceLock<Mutex<HashMap<PathBuf, WtModule>>> = OnceLock::new
 /// 10 ms across the whole process).
 const EPOCH_TICK: Duration = Duration::from_millis(10);
 
-/// Return the process-wide wasmtime Engine, building it on first call.
-///
-/// Enables the wasm exceptions proposal so `kobako.wasm` (which uses
-/// `try_table` / `exnref` / `tag` for mruby's setjmp-via-new-EH path)
-/// can be loaded. The mruby wasi build config uses
-/// `-mllvm -wasm-use-legacy-eh=false`, which generates new-style
-/// exception handling instructions in the wasm32 object files;
-/// wasmtime must have the proposal enabled to parse and JIT those
-/// instructions.
-///
-/// Also enables `epoch_interruption(true)` so every Store can install an
-/// `epoch_deadline_callback` for the per-run wall-clock cap
-/// cap. The first call spawns the process-singleton ticker
-/// thread that drives `engine.increment_epoch()` at `EPOCH_TICK`
-/// cadence; subsequent calls reuse the same engine and ticker.
+/// The exceptions proposal is on because the mruby wasi build emits
+/// new-style exception handling (`-mllvm -wasm-use-legacy-eh=false`) for
+/// its setjmp path. Epoch interruption backs the wall-clock cap, driven by
+/// one process-wide ticker thread.
 pub(crate) fn shared_engine() -> Result<&'static WtEngine, SetupError> {
     if let Some(engine) = SHARED_ENGINE.get() {
         return Ok(engine);
@@ -72,11 +61,6 @@ pub(crate) fn shared_engine() -> Result<&'static WtEngine, SetupError> {
     Ok(engine)
 }
 
-/// Spawn the process-singleton epoch ticker. The thread holds a clone of
-/// the shared Engine (`wasmtime::Engine` is reference-counted internally)
-/// and ticks the epoch counter at `EPOCH_TICK` cadence. Idempotent
-/// across reentrant calls to `shared_engine` because `OnceLock`
-/// gates the spawn.
 fn spawn_epoch_ticker(engine: WtEngine) {
     static TICKER_SPAWNED: OnceLock<()> = OnceLock::new();
     TICKER_SPAWNED.get_or_init(|| {
@@ -90,11 +74,8 @@ fn spawn_epoch_ticker(engine: WtEngine) {
     });
 }
 
-/// Look up `path` in the per-path Module cache, compiling and inserting
-/// the artifact on a miss. Returns `SetupError::ModuleNotBuilt`
-/// (boundary → `Kobako::ModuleNotBuiltError`) when the file is missing —
-/// the headline error for the common pre-build state on a fresh clone
-/// before `rake compile`.
+/// A missing file answers `SetupError::ModuleNotBuilt`, the common state of
+/// a fresh clone before `rake compile`.
 pub(crate) fn cached_module(path: &Path) -> Result<WtModule, SetupError> {
     let cache = MODULE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
@@ -145,17 +126,11 @@ pub(crate) fn cached_module(path: &Path) -> Result<WtModule, SetupError> {
 /// whole window are removed by `prune_stale`.
 const ARTIFACT_TTL: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
-/// Compute the disk-cache location for a Guest Binary's compiled
-/// artifact: `$XDG_CACHE_HOME/kobako` (falling back to
-/// `~/.cache/kobako`) `/<sha256 of the wasm bytes>-<crate version>.cwasm`.
-/// Content addressing makes a rebuilt Guest Binary a new cache entry
-/// rather than an invalidation problem; the crate-version segment keeps
-/// two installed kobako-wasmtime versions (each pinning its own
-/// wasmtime) from sharing a key and recompile-thrashing each other's
-/// entry. wasmtime
-/// itself rejects an artifact produced by an incompatible wasmtime
-/// version or Config at deserialize time. Returns `None` when no home
-/// directory is available — the caller then just compiles in-process.
+/// Content addressing makes a rebuilt Guest Binary a new entry rather than
+/// an invalidation problem; the crate-version segment keeps two installed
+/// kobako-wasmtime versions, each pinning its own wasmtime, from thrashing
+/// one key. wasmtime itself rejects an artifact from an incompatible
+/// version or Config at deserialize time.
 fn artifact_path(wasm_bytes: &[u8]) -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
@@ -169,11 +144,8 @@ fn artifact_path(wasm_bytes: &[u8]) -> Option<PathBuf> {
     Some(base.join("kobako").join(name))
 }
 
-/// Best-effort load of a previously serialized compiled artifact.
-/// Any failure — absent file, truncated bytes, wasmtime version or
-/// Config mismatch — returns `None` and the caller recompiles. A hit
-/// refreshes the file's mtime so `prune_stale`'s retention window
-/// measures time since last use, not since creation.
+/// A hit refreshes the file's mtime, so the retention window measures time
+/// since last use rather than since creation.
 fn load_artifact(engine: &WtEngine, artifact: &Path) -> Option<WtModule> {
     if !artifact.exists() || !artifact.parent().is_some_and(dir_is_private) {
         return None;
@@ -192,11 +164,9 @@ fn load_artifact(engine: &WtEngine, artifact: &Path) -> Option<WtModule> {
     Some(module)
 }
 
-/// Best-effort write of a freshly compiled artifact. The temp-file +
-/// rename pair keeps concurrent processes from observing a partial
-/// write; every failure is swallowed because the cache is purely an
-/// optimisation. A successful write also triggers `prune_stale` so the
-/// cache directory cannot grow without bound across Guest Binary
+/// The temp-file and rename pair keeps concurrent processes from observing
+/// a partial write. Failures are swallowed because the cache is only an
+/// optimisation, and pruning on write keeps the directory bounded across
 /// rebuilds.
 fn store_artifact(module: &WtModule, artifact: &Path) {
     let Ok(bytes) = module.serialize() else {
@@ -252,10 +222,8 @@ fn dir_is_private(_dir: &Path) -> bool {
     true
 }
 
-/// Remove every cache entry (`.cwasm` artifacts and crash-leftover
-/// `.tmp*` files) whose mtime sits past `ARTIFACT_TTL`, except the
-/// just-written `keep`. Live temp files are seconds old and never
-/// qualify; foreign file names are left untouched.
+/// Live temp files are seconds old and never qualify; foreign file names
+/// are left untouched.
 fn prune_stale(dir: &Path, keep: &Path) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -277,8 +245,6 @@ fn prune_stale(dir: &Path, keep: &Path) {
     }
 }
 
-/// Returns whether `path` carries a file name this cache wrote — a
-/// `.cwasm` artifact or a `.tmp*` leftover.
 fn cache_entry_name(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;

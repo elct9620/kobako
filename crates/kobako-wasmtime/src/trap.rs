@@ -24,14 +24,9 @@ use kobako_runtime::error::{SetupError, Trap};
 /// overflow checks).
 pub(crate) const NO_TIMEOUT_EPOCH_DELTA: u64 = u64::MAX / 2;
 
-/// Epoch-deadline callback installed on every Store. Read the per-run
-/// wall-clock deadline from `Invocation` and trap with
-/// `TimeoutTrap` once the deadline has passed; otherwise extend the
-/// next check by one tick of the process-wide epoch ticker. When the
-/// deadline is `None` the callback should not fire under the normal
-/// `Driver` invoke flow because
-/// `NO_TIMEOUT_EPOCH_DELTA` is primed; returning the same long
-/// extension keeps the callback inert as a defence in depth.
+/// With no deadline the primed `NO_TIMEOUT_EPOCH_DELTA` keeps this from
+/// firing; returning the same long extension keeps it inert as a defence
+/// in depth.
 pub(crate) fn epoch_deadline_callback(
     ctx: StoreContextMut<'_, Invocation>,
 ) -> wasmtime::Result<UpdateDeadline> {
@@ -42,22 +37,9 @@ pub(crate) fn epoch_deadline_callback(
     }
 }
 
-/// Classify a wasmtime call error into a neutral `Trap`. Pure function
-/// over the error's downcast chain, so the kind routing is exercisable
-/// from `cargo test` without any frontend. The ABI export symbol
-/// (`__kobako_eval` / `__kobako_run`) is deliberately omitted from the
-/// message — the Sandbox layer attaches the user-facing verb
-/// (`Sandbox#eval` / `Sandbox#run`) so the message reads in caller
-/// vocabulary rather than ABI vocabulary.
-///
-/// For the configured-cap paths the trap's own `std::fmt::Display`
-/// carries the user-facing reason (`"wall-clock deadline exceeded"`,
-/// `"linear memory growth exceeded memory_limit: ..."`); the wasmtime
-/// outer wrapper would otherwise surface only the `"error while
-/// executing at wasm backtrace: ..."` framing, which is operator noise
-/// on a cap trap. For any other error the framing is kept but the
-/// chain's root cause is appended (see `other_trap_message`) so the
-/// real trap reason survives.
+/// The message leaves out the ABI export symbol, so the Sandbox layer can
+/// attach the caller's verb instead. A cap trap carries its own message,
+/// since wasmtime's backtrace framing is noise there.
 pub(crate) fn trap_from(err: wasmtime::Error) -> Trap {
     if let Some(t) = err.downcast_ref::<TimeoutTrap>() {
         Trap::Timeout(t.to_string())
@@ -68,13 +50,9 @@ pub(crate) fn trap_from(err: wasmtime::Error) -> Trap {
     }
 }
 
-/// Compose the message for a non-cap trap. wasmtime's `Display` surfaces only
-/// the `"error while executing at wasm backtrace: ..."` framing; the actual
-/// trap reason (e.g. `"wasm trap: indirect call type mismatch"`) is the
-/// chain's root cause and would otherwise be dropped, making real guest
-/// faults undiagnosable. Append the root cause unless the framing already
-/// carries it. Pure so it can be exercised from `cargo test` without the
-/// magnus surface.
+/// wasmtime's `Display` shows only the backtrace framing; the real trap
+/// reason is the chain's root cause and would otherwise be dropped, leaving
+/// a guest fault undiagnosable.
 fn other_trap_message(err: &wasmtime::Error) -> String {
     let display = format!("{}", err);
     let root = err.root_cause().to_string();
@@ -85,14 +63,9 @@ fn other_trap_message(err: &wasmtime::Error) -> String {
     }
 }
 
-/// Classify an instantiation error as a runtime-dead `SetupError`.
-/// Instantiation runs while the per-path template is built, before any
-/// invocation — every such failure is a construction setup fault, not a
-/// per-invocation cap outcome. Neither cap can fire there: the memory
-/// cap is dormant until an invocation arms it
-/// (`Invocation::arm_memory_cap`) and the probe Store names an epoch
-/// deadline it cannot reach, so the `trap_from` trap-class split does
-/// not apply here.
+/// The template is built before any invocation, so neither cap can fire:
+/// the memory cap is not yet armed and the probe Store's epoch deadline is
+/// out of reach. Every failure here is a setup fault, not a trap.
 pub(crate) fn instantiate_err(err: wasmtime::Error) -> SetupError {
     SetupError::Dead(format!("instantiate: {err}"))
 }

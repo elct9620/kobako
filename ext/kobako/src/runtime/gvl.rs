@@ -22,8 +22,6 @@ thread_local! {
     static GVL_RELEASED: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Run `f` (one invocation's guest-execution span) and return its value,
-/// releasing the GVL for the span iff `release`. When holding, `f` runs inline.
 pub(crate) fn region<F, R>(release: bool, f: F) -> R
 where
     F: FnOnce() -> R,
@@ -37,10 +35,8 @@ where
     })
 }
 
-/// Run `f` (a guest→host dispatch callback) under the GVL. Re-acquires the GVL
-/// when the enclosing region released it, and runs inline when the GVL is
-/// already held — hold mode, or a nested dispatch whose outer frame re-acquired
-/// it.
+/// Runs inline when the GVL is already held — hold mode, or a nested
+/// dispatch whose outer frame re-acquired it.
 pub(crate) fn reenter<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
@@ -79,9 +75,8 @@ struct GvlCtx<F, R> {
     result: Option<std::thread::Result<R>>,
 }
 
-/// The `extern "C"` shim the `rb_thread_call_*` functions call: it runs the
-/// erased closure under `catch_unwind` so a panic is captured here rather than
-/// unwinding across the C frame, and stashes the outcome for `call_via`.
+/// Runs the closure under `catch_unwind`, so a panic is captured here rather
+/// than unwinding across the C frame.
 unsafe extern "C" fn trampoline<F, R>(data: *mut c_void) -> *mut c_void
 where
     F: FnOnce() -> R,
@@ -92,9 +87,6 @@ where
     ptr::null_mut()
 }
 
-/// Drive `f` through one of the `rb_thread_call_*` entry points (`invoke`),
-/// erasing it to the C callback shape and re-raising on the caller's thread any
-/// panic the trampoline caught.
 fn call_via<F, R>(
     f: F,
     invoke: impl FnOnce(unsafe extern "C" fn(*mut c_void) -> *mut c_void, *mut c_void) -> *mut c_void,

@@ -39,11 +39,9 @@ pub struct Driver {
 }
 
 impl Driver {
-    /// Construct a Driver from a wasm file path, using the process-wide
-    /// shared Engine and per-path Module / InstancePre caches. The
-    /// artifact's ABI version is verified with the cached template
-    /// (`crate::abi`). Every failure is a `SetupError` for the frontend
-    /// to attribute — Engine and Module never leave the driver.
+    /// Load the Guest Binary at `path` and verify its ABI version. The
+    /// Engine is shared by the process and the Module cached per path;
+    /// neither leaves the driver.
     pub fn new(path: &Path, config: Config) -> Result<Self, SetupError> {
         Ok(Self {
             instance_pre: instance_pre::cached_instance_pre(path)?,
@@ -51,8 +49,6 @@ impl Driver {
         })
     }
 
-    /// Build the per-invocation Store: a fresh `Invocation` wired with
-    /// the memory limiter and the epoch-deadline callback.
     fn new_store(&self) -> Result<WtStore<Invocation>, SetupError> {
         let mut store = WtStore::new(shared_engine()?, Invocation::new(self.config.memory_limit));
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
@@ -60,11 +56,8 @@ impl Driver {
         Ok(store)
     }
 
-    /// Instantiate the per-invocation instance from the pre-linked
-    /// template and resolve its host-driven export handles. An
-    /// instantiation failure at invocation time is an engine fault —
-    /// a `Trap` — unlike the construction-time probe, whose failure is
-    /// `SetupError`.
+    /// Failing here is an engine fault — a `Trap` — unlike the
+    /// construction-time probe, whose failure is a `SetupError`.
     fn instantiate(&self, store: &mut WtStore<Invocation>) -> Result<Exports, Trap> {
         let instance = self
             .instance_pre
@@ -73,15 +66,9 @@ impl Driver {
         Ok(Exports::resolve(&instance, store.as_context_mut()))
     }
 
-    /// Run one guest export call inside the per-invocation cap window:
-    /// `Driver::prime_caps` before, `disarm_caps` after — the shared
-    /// bracket for both run-path exports (`__kobako_eval` /
-    /// `__kobako_run`). Disarm runs whether the call returns or traps, so
-    /// the `wall_time` bracket and the memory
-    /// cap always close — that close-on-trap guarantee is the reason this
-    /// bracket lives in one place rather than inline at each call site.
-    /// The wasmtime trap is returned unmapped; the caller classifies it
-    /// through `trap::trap_from`.
+    /// Disarm runs whether the call returns or traps, so the `wall_time`
+    /// bracket and the memory cap always close; that guarantee is why the
+    /// bracket lives in one place rather than at each call site.
     fn call_with_caps<Params, Results>(
         &self,
         store: &mut WtStore<Invocation>,
@@ -99,20 +86,8 @@ impl Driver {
         result
     }
 
-    /// Stamp the per-invocation wall-clock deadline into `Invocation`
-    /// and prime the wasmtime epoch deadline so the next ticker tick
-    /// wakes the epoch-deadline callback. When `timeout` is disabled,
-    /// the deadline is set far enough in the future that the callback
-    /// effectively never fires.
-    ///
-    /// Also captures the current linear-memory size as the baseline
-    /// for the per-invocation memory delta cap —
-    /// the pre-initialized image's allocation is folded into the
-    /// baseline rather than the budget — and stamps the wall-clock
-    /// entry instant for the `wall_time`
-    /// measurement. The bracket closes in `disarm_caps` so it matches
-    /// the `timeout` deadline window and excludes `OUTCOME_BUFFER`
-    /// decoding and stdout / stderr capture readout.
+    /// The pre-initialized image's allocation is folded into the memory
+    /// baseline rather than the budget.
     fn prime_caps(&self, store: &mut WtStore<Invocation>, exports: &Exports) {
         match self.config.timeout {
             Some(timeout) => {
@@ -133,9 +108,8 @@ impl Driver {
         store.data_mut().start_wall_clock();
     }
 
-    /// Bundle one invocation's observables into a fresh `Snapshot`,
-    /// uniformly for every `completion` — the clipped captures and the
-    /// cap-bracket usage must survive a trap just as they do an outcome.
+    /// Built the same for every `completion`: captures and usage must
+    /// survive a trap just as they do an outcome.
     fn build_snapshot(&self, store: &WtStore<Invocation>, completion: Completion) -> Snapshot {
         let data = store.data();
         let usage = Usage {
@@ -162,18 +136,10 @@ impl Driver {
 }
 
 impl ContractRuntime for Driver {
-    /// Drive one guest invocation on a fresh instance and return its
-    /// `Snapshot`, `Ok` iff the guest export ran. Builds a fresh Store,
-    /// binds the borrowed dispatch handler, installs the stdin frames
-    /// (three for `Eval` — preamble / source / snippets; two for `Run` —
-    /// preamble / snippets, with the envelope copied into guest memory),
-    /// and primes the per-invocation caps around the export call. A fault
-    /// before the export call is the `Err` channel; once the call starts,
-    /// every fault folds into the Snapshot's `Completion` — the
-    /// configured-cap paths as `Trap::Timeout` / `Trap::MemoryLimit`,
-    /// everything else as `Trap::Other` — so captures and usage survive
-    /// it. The body touches no frontend value — the handler is only
-    /// borrowed (see the trait's safety contract).
+    /// A fault before the export call is the `Err` channel; once the call
+    /// starts, every fault folds into the Snapshot's `Completion` so
+    /// captures and usage survive it. The handler is only borrowed (see the
+    /// trait's safety contract).
     fn invoke(
         &self,
         entry: Entry<'_>,
@@ -211,24 +177,14 @@ impl ContractRuntime for Driver {
         Ok(self.build_snapshot(&store, completion))
     }
 
-    /// The posture this driver built — exactly the rung requested via
-    /// `Config`. Every per-invocation WASI context is built to it
-    /// (`frames::install_wasi_frames`): `Hermetic` freezes ambient time
-    /// and entropy (`crate::ambient`), `Permissive` leaves the live WASI
-    /// sources. Both rungs wire no filesystem, environment, or network,
-    /// and the linker adds only the wire ABI's `__kobako_dispatch`
-    /// beyond that confined WASI surface (`crate::instance_pre`).
+    /// Exactly the rung `Config` requested. `Hermetic` freezes ambient time
+    /// and entropy; both rungs wire no filesystem, environment, or network,
+    /// and the linker adds only `__kobako_dispatch` beyond that WASI surface.
     fn profile(&self) -> Profile {
         self.config.profile
     }
 }
 
-/// Drop the memory cap as soon as the guest call returns so that
-/// any post-run host bookkeeping (e.g. fetching the OUTCOME_BUFFER,
-/// which can grow guest memory transiently) is not attributed to
-/// the user script. Also closes the
-/// `wall_time` bracket opened by `Driver::prime_caps`. Paired
-/// with `Driver::prime_caps`.
 fn disarm_caps(store: &mut WtStore<Invocation>) {
     store.data_mut().stop_wall_clock();
     store.data_mut().disarm_memory_cap();

@@ -44,20 +44,16 @@ use kobako_wasmtime::{Config, Driver};
 /// shape, matching the `Kobako::Outcome::panic_fields` alias.
 type PanicFields = (String, String, String, Vec<String>, Vec<String>);
 
-/// Copy the bytes of `s` into a fresh `Vec<u8>`. Single safe entry to
-/// what would otherwise be an inline `unsafe { rstring.as_slice() }
-/// .to_vec()` duplicated at every host-↔-guest boundary. The borrow
-/// does not outlive this call, so no Ruby allocation can move the
-/// underlying RString between the borrow and the copy — the safety
-/// invariant the inline form relied on is established once here.
+/// The one place the boundary borrows an RString's bytes: the borrow does
+/// not outlive this call, so no Ruby allocation can move the RString
+/// between the borrow and the copy.
 fn rstring_to_vec(s: RString) -> Vec<u8> {
     // SAFETY: see item doc.
     unsafe { s.as_slice() }.to_vec()
 }
 
-/// Frame the Frame 1 preamble from the Service registry's bind paths.
-/// The core envelope's byte layout lives on this side of the boundary,
-/// so the registry stays a registry and never holds a wire image.
+/// The core envelope's byte layout lives on this side of the boundary, so
+/// the registry stays a registry and never holds a wire image.
 fn frame_preamble(paths: RArray) -> Result<Vec<u8>, MagnusError> {
     Ok(Bindings {
         paths: paths.to_vec()?,
@@ -65,11 +61,8 @@ fn frame_preamble(paths: RArray) -> Result<Vec<u8>, MagnusError> {
     .encode())
 }
 
-/// Frame the Frame 3 snippet table from the registry's entries — one
-/// `[kind, name, body]` triple each, `kind` a Symbol naming the form so
-/// the wire's discriminant byte stays here. An off-ladder kind raises
-/// rather than defaulting, the same fail-closed posture `from_path`
-/// takes on its Symbol options.
+/// `kind` arrives as a Symbol so the wire's discriminant byte stays here;
+/// an off-ladder kind raises rather than defaulting.
 fn frame_snippets(ruby: &Ruby, entries: RArray) -> Result<Vec<u8>, MagnusError> {
     let mut frame = Snippets {
         entries: Vec::with_capacity(entries.len()),
@@ -151,22 +144,8 @@ struct Runtime {
 impl DataTypeFunctions for Runtime {}
 
 impl Runtime {
-    /// Construct a Runtime from a wasm file path, using the process-wide
-    /// shared Engine and per-path Module / InstancePre caches. The single
-    /// Ruby-facing constructor for `Kobako::Runtime` — Engine and Module
-    /// are never visible to Ruby.
-    ///
-    /// `timeout_seconds` is the wall-clock cap in seconds
-    /// (`None` disables); `memory_limit` is the linear-memory cap in
-    /// bytes (`None` disables); `stdout_limit` / `stderr_limit`
-    /// are the per-channel output caps (`None`
-    /// disables); `profile` is the isolation rung the driver builds
-    /// (`:permissive` / `:hermetic`); `gvl` is the scheduling mode
-    /// (`:hold` / `:release`) deciding whether each invocation releases
-    /// the GVL for its guest span. All six are validated by the caller
-    /// (`Kobako::Sandbox`); this method only refuses non-finite or
-    /// non-positive timeouts, off-ladder profiles, and unrecognized gvl
-    /// modes as a defence in depth.
+    /// The only Ruby-facing constructor, so Engine and Module are never
+    /// visible to Ruby.
     fn from_path(
         path: String,
         timeout_seconds: Option<f64>,
@@ -244,11 +223,6 @@ impl Runtime {
     // directly, since it yields no `Snapshot`.
     // -----------------------------------------------------------------
 
-    /// One-shot mruby source execution (`#eval`). Builds the dispatch
-    /// handler from `dispatch` (the per-invocation Proc), frames the two
-    /// stdin invocation frames from the registry state (`paths`,
-    /// `snippets`), hands them and the source to the driver, and returns
-    /// the run's `Snapshot`.
     fn eval(
         &self,
         dispatch: Value,
@@ -278,14 +252,6 @@ impl Runtime {
         Ok(Snapshot::from(snapshot))
     }
 
-    /// Execute one entrypoint dispatch (`__kobako_run`) and return its
-    /// `Snapshot`.
-    ///
-    /// The two-frame stdin protocol (preamble + snippets; no user source
-    /// frame — docs/wire-codec.md § Invocation channels) plus the Run
-    /// envelope copied into guest linear memory — `entrypoint` routes it,
-    /// `payload` feeds it, and this side frames the two together. Cap
-    /// semantics match `#eval`.
     fn run(
         &self,
         dispatch: Value,
@@ -321,9 +287,8 @@ impl Runtime {
         Ok(Snapshot::from(snapshot))
     }
 
-    /// Return the isolation profile the driver built, as a Symbol
-    /// (`:hermetic` / `:permissive`) — the declaration the Sandbox
-    /// compares against the posture its `profile:` option requested.
+    /// The driver's declaration, which the Sandbox checks against the
+    /// posture its `profile:` option requested.
     fn profile(&self) -> Symbol {
         let ruby = Ruby::get().expect("Ruby thread");
         match self.driver.profile() {
@@ -333,11 +298,9 @@ impl Runtime {
     }
 }
 
-/// Build the dispatch handler for one invocation from the per-call `dispatch`
-/// Proc. A `nil` Proc yields no handler. The Proc stays GC-rooted for the
-/// duration of the synchronous `#eval` / `#run` call as a live method
-/// argument on the Ruby stack, so the driver only borrows it (the safety
-/// contract on `kobako_runtime::runtime::Runtime`).
+/// The Proc stays GC-rooted for the synchronous `#eval` / `#run` call as a
+/// live method argument on the Ruby stack, so the driver only borrows it
+/// (the safety contract on `kobako_runtime::runtime::Runtime`).
 fn build_handler(dispatch: Value) -> Option<Arc<dyn DispatchHandler>> {
     if dispatch.is_nil() {
         return None;
@@ -384,17 +347,9 @@ impl From<RuntimeSnapshot> for Snapshot {
 }
 
 impl Snapshot {
-    /// One completed run's outcome, already split off the core envelope:
-    /// `[kind, payload, panic]`. `kind` names the arm — `:ok`,
-    /// `:panic`, `:absent` (nothing written), or `:malformed` (bytes the
-    /// envelope cannot frame). `payload` is the invocation's
-    /// codec-encoded value, carried only by `:ok`; every other arm
-    /// answers empty. `panic` carries the Panic's own fields on `:panic`
-    /// and is `nil` otherwise, so the Ruby side maps a failure onto its
-    /// error taxonomy without decoding a payload byte.
-    ///
-    /// A trap answers `:absent` — `#trapped?` is the authoritative
-    /// discriminator there and this is never read.
+    /// Already split off the core envelope, so the Ruby side maps a failure
+    /// onto its error taxonomy without decoding a payload byte. A trap
+    /// answers `:absent`; `#trapped?` is the discriminator there.
     fn outcome(&self) -> (Symbol, RString, Option<PanicFields>) {
         let ruby = Ruby::get().expect("Ruby thread");
         let empty = || ruby.str_from_slice(&[]);
@@ -419,14 +374,10 @@ impl Snapshot {
         }
     }
 
-    /// `true` iff the invocation completed via an engine trap.
     fn trapped(&self) -> bool {
         matches!(self.completion, Completion::Trap(_))
     }
 
-    /// The trap's neutral kind as a Symbol (`:timeout` / `:memory_limit` /
-    /// `:trap`), or `nil` on a completed run. The Sandbox maps this onto the
-    /// named `Kobako::TrapError` subclass.
     fn trap_kind(&self) -> Option<Symbol> {
         let ruby = Ruby::get().expect("Ruby thread");
         match &self.completion {
@@ -439,7 +390,6 @@ impl Snapshot {
         }
     }
 
-    /// The trap's message, or `nil` on a completed run.
     fn trap_message(&self) -> Option<String> {
         match &self.completion {
             Completion::Trap(trap) => Some(trap.to_string()),
@@ -447,34 +397,28 @@ impl Snapshot {
         }
     }
 
-    /// Wall-clock seconds the guest export call spent inside wasmtime.
     fn wall_time(&self) -> f64 {
         self.usage.wall_time
     }
 
-    /// High-water `memory.grow` delta in bytes past the entry-time baseline.
     fn memory_peak(&self) -> usize {
         self.usage.memory_peak
     }
 
-    /// Bytes captured on the guest's stdout channel, clipped to the cap.
     fn stdout(&self) -> RString {
         let ruby = Ruby::get().expect("Ruby thread");
         ruby.str_from_slice(&self.stdout.bytes)
     }
 
-    /// `true` iff the stdout channel reached its cap during this run.
     fn stdout_truncated(&self) -> bool {
         self.stdout.truncated
     }
 
-    /// Bytes captured on the guest's stderr channel, clipped to the cap.
     fn stderr(&self) -> RString {
         let ruby = Ruby::get().expect("Ruby thread");
         ruby.str_from_slice(&self.stderr.bytes)
     }
 
-    /// `true` iff the stderr channel reached its cap during this run.
     fn stderr_truncated(&self) -> bool {
         self.stderr.truncated
     }

@@ -17,22 +17,14 @@ use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
 use kobako_transport::abi::FRAME_LEN_SIZE;
 
-/// Return the resolved `memory` export handle, or a `Trap` when the loaded
-/// module exports no linear memory — the "not a Kobako-shaped runtime"
-/// failure mode (`guest_mem::SANDBOX_RUNTIME_NOT_KOBAKO`).
 fn require_memory(exports: &Exports) -> Result<Memory, Trap> {
     exports
         .memory
         .ok_or_else(|| Trap::Other(guest_mem::SANDBOX_RUNTIME_NOT_KOBAKO.to_string()))
 }
 
-/// Allocate a `len`-byte buffer in guest linear memory via
-/// `__kobako_alloc`, copy `envelope` into it, and return `(ptr, len)`
-/// as `i32` values matching the `__kobako_run(env_ptr, env_len)` ABI.
-/// Returns a `Trap` when the allocation hook is missing or itself traps
-/// (an engine fault), and a runtime-intact `SetupError` when the hook runs
-/// but cannot reserve the buffer (`__kobako_alloc` returns 0). The ext
-/// boundary maps these to `Kobako::TrapError` / `Kobako::SandboxError`.
+/// A missing or trapping allocator is an engine fault, a `Trap`; one that
+/// runs but returns 0 leaves the runtime intact, so it is a `SetupError`.
 pub(crate) fn write_envelope(
     store: &mut WtStore<Invocation>,
     exports: &Exports,
@@ -61,18 +53,9 @@ pub(crate) fn write_envelope(
     Ok((ptr as i32, len_i32))
 }
 
-/// Build the per-invocation WASI context with stdin carrying every frame
-/// in `frames` (each prefixed by its 4-byte big-endian u32 length —
-/// docs/wire-codec.md § Invocation channels) plus fresh stdout / stderr
-/// pipes, and install it on the invocation's Store. `#eval` passes three
-/// frames (preamble, source, snippets), `#run` passes two (preamble,
-/// snippets — the Run envelope arrives via linear memory
-/// instead). Each output pipe is sized at `cap + 1` so
-/// `capture::clip_capture` can distinguish "wrote exactly cap bytes"
-/// from "exceeded cap"; uncapped channels fall back to `usize::MAX` and
-/// rely on `memory_limit` for the real ceiling.
-/// Returns a `Trap` when any frame exceeds the 16 MiB cap that keeps its
-/// `u32` length prefix from wrapping (boundary → `Kobako::TrapError`).
+/// An uncapped output channel relies on `memory_limit` for its real
+/// ceiling. The 16 MiB frame cap keeps each `u32` length prefix from
+/// wrapping.
 pub(crate) fn install_wasi_frames(
     store: &mut WtStore<Invocation>,
     config: &Config,
@@ -122,12 +105,6 @@ pub(crate) fn install_wasi_frames(
     Ok(())
 }
 
-/// Invoke `__kobako_take_outcome`, decode the packed `(ptr<<32)|len`
-/// u64, and copy the OUTCOME_BUFFER slice out of guest memory. Returns a
-/// `Trap` (boundary → `Kobako::TrapError`) when the export is missing,
-/// `len` exceeds the 16 MiB single-dispatch cap, the `ptr`/`len`
-/// arithmetic overflows, the slice falls outside live memory, or the
-/// `memory` export itself is absent.
 pub(crate) fn fetch_outcome_bytes(
     store: &mut WtStore<Invocation>,
     exports: &Exports,
@@ -161,14 +138,8 @@ pub(crate) fn fetch_outcome_bytes(
 const SANDBOX_RUNTIME_MISSING_HOOKS: &str = "Sandbox runtime is missing required hooks; \
      rebuild data/kobako.wasm against the installed version";
 
-/// Return the resolved `TypedFunc` for an ABI export, or a `Trap`
-/// (boundary → `Kobako::TrapError`) when the option is `None`. Both
-/// run-path methods (`#eval`, `#run`) plus the `build_snapshot` readout
-/// that drains `OUTCOME_BUFFER` share the same "missing export" handling;
-/// this helper collapses those sites onto one safe entry. The user-facing
-/// message is intentionally export-agnostic (see
-/// `SANDBOX_RUNTIME_MISSING_HOOKS`) — the ABI symbol name is not
-/// actionable to callers, so it is not threaded in.
+/// The message names no export, because the ABI symbol is not actionable
+/// to callers.
 pub(crate) fn require_export<Params, Results>(
     export: Option<&TypedFunc<Params, Results>>,
 ) -> Result<&TypedFunc<Params, Results>, Trap>

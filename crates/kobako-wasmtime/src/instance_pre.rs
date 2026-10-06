@@ -27,11 +27,6 @@ use kobako_runtime::error::SetupError;
 static INSTANCE_PRE_CACHE: OnceLock<Mutex<HashMap<PathBuf, InstancePre<Invocation>>>> =
     OnceLock::new();
 
-/// Look up `path` in the per-path `InstancePre` cache, wiring the
-/// Linker, resolving the Module's imports, and verifying the artifact's
-/// ABI version on a miss. Compilation faults surface through
-/// `cached_module`; import-resolution and ABI faults return a
-/// runtime-dead `SetupError` (boundary → `Kobako::SetupError`).
 pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>, SetupError> {
     let cache = INSTANCE_PRE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
@@ -59,8 +54,6 @@ pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>
     Ok(pre)
 }
 
-/// Build the host-import `Linker` every Guest Binary instantiates
-/// against.
 fn build_linker() -> Result<Linker<Invocation>, SetupError> {
     let mut linker: Linker<Invocation> = Linker::new(shared_engine()?);
 

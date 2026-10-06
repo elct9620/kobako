@@ -7,10 +7,8 @@
 //! channel) so a regression that only breaks one channel cannot sneak
 //! through the test that pins them.
 
-/// Translate a per-channel byte cap into the MemoryOutputPipe capacity:
-/// `cap + 1` (saturated against `usize::MAX`) when a cap is set so the
-/// "wrote exactly cap" and "exceeded cap" cases stay distinguishable;
-/// `usize::MAX` when the channel is uncapped.
+/// One byte past the cap, so "wrote exactly cap" and "exceeded cap" stay
+/// distinguishable.
 pub(crate) fn pipe_capacity(cap: Option<usize>) -> usize {
     match cap {
         Some(c) => c.saturating_add(1),
@@ -18,13 +16,8 @@ pub(crate) fn pipe_capacity(cap: Option<usize>) -> usize {
     }
 }
 
-/// Pure clipping core shared by the snapshot readback: given the
-/// unclipped pipe snapshot (owned — truncated in place, so the readback
-/// costs one copy out of the pipe, not two), return the bytes Ruby
-/// should observe plus the truncation flag. `truncated` is `true` only
-/// when the snapshot strictly exceeded the cap — this is the "wrote
-/// `cap + 1` bytes into a `cap + 1`-sized pipe" case; "wrote exactly
-/// `cap` bytes" stays `false`.
+/// Takes the snapshot by value and truncates in place, so the readback
+/// costs one copy out of the pipe rather than two.
 pub(crate) fn clip_capture(mut raw: Vec<u8>, cap: Option<usize>) -> (Vec<u8>, bool) {
     match cap {
         Some(c) if raw.len() > c => {

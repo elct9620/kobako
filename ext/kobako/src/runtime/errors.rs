@@ -13,12 +13,8 @@ use magnus::{prelude::*, Error as MagnusError, ExceptionClass, RModule, Ruby};
 
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
 
-/// Resolve `Kobako::<name>` as an `ExceptionClass` — the shared body of
-/// every error-class `Lazy` below, which differ only in the constant
-/// name. The constants are guaranteed present by the time any of these
-/// lazies first resolve (`lib/kobako/errors.rb` loads the hierarchy before
-/// the ext raises into it), so a missing constant is a build / wiring bug
-/// and the `unwrap` is the correct fail-fast.
+/// `lib/kobako/errors.rb` loads the hierarchy before the ext raises into
+/// it, so a missing constant is a wiring bug and the `unwrap` fails fast.
 fn kobako_error_class(ruby: &Ruby, name: &str) -> ExceptionClass {
     let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
     kobako.const_get(name).unwrap()
@@ -40,26 +36,17 @@ static MEMORY_LIMIT_ERROR: Lazy<ExceptionClass> =
 static SANDBOX_ERROR: Lazy<ExceptionClass> =
     Lazy::new(|ruby| kobako_error_class(ruby, "SandboxError"));
 
-/// Build a `MagnusError` in `class` carrying `msg` — the shared body of
-/// the named `*_err` constructors below, which differ only in which
-/// error-class `Lazy` they target.
 fn error_in(ruby: &Ruby, class: &Lazy<ExceptionClass>, msg: impl Into<String>) -> MagnusError {
     MagnusError::new(ruby.get_inner(class), msg.into())
 }
 
-/// Construct a `Kobako::TrapError` magnus error. Used for every
-/// invocation-time wasmtime engine failure that is not a configured-cap
-/// trap — missing exports, allocation faults, memory write/read failures.
-/// Construction-time setup failures use `setup_err`, not this.
+/// For an invocation-time engine failure that is not a configured cap;
+/// construction-time failures use `setup_err`.
 pub(super) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &TRAP_ERROR, msg)
 }
 
-/// Map a neutral `Trap` onto its `Kobako::TrapError`-family Ruby exception.
-/// The boundary between the magnus-free run mechanics and the Ruby surface:
-/// the run path classifies a fault into a `Trap`, and this is where it
-/// becomes a raised exception. The verb prefix (`Sandbox#eval` / `#run`)
-/// is added by `Kobako::Context#invoke!`.
+/// The verb prefix is left to `Kobako::Context#invoke!`.
 pub(super) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
     match trap {
         Trap::Timeout(msg) => error_in(ruby, &TIMEOUT_ERROR, msg),
@@ -70,8 +57,6 @@ pub(super) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
     }
 }
 
-/// Map a neutral `SetupError` onto the `Kobako::*` class assigned to
-/// each runtime state — artifact-absent, runtime-dead, runtime-intact.
 pub(super) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {
     match err {
         SetupError::ModuleNotBuilt(msg) => error_in(ruby, &MODULE_NOT_BUILT_ERROR, msg),
@@ -86,9 +71,6 @@ pub(super) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {
     }
 }
 
-/// Map either run-path channel onto its Ruby exception. The single
-/// translation point the run-path entry methods funnel their `Result`
-/// through.
 pub(super) fn to_magnus(ruby: &Ruby, err: InvokeError) -> MagnusError {
     match err {
         InvokeError::Trap(trap) => trap_to_magnus(ruby, trap),

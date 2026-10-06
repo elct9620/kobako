@@ -23,9 +23,8 @@ const ARM_OK: &str = "ok";
 const ARM_BREAK: &str = "break";
 const ARM_ERROR: &str = "error";
 
-/// Register the `Kobako::Runtime::GuestYielder` Ruby class. Called from
-/// `crate::runtime::init` after `Kobako::Runtime` is defined so the
-/// `#[magnus::wrap]` class name resolves before any object is wrapped.
+/// Runs after `Kobako::Runtime` is defined, so the `#[magnus::wrap]` class
+/// name resolves before any object is wrapped.
 pub(super) fn register(runtime_class: RClass) -> Result<(), MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
     let class = runtime_class.define_class("GuestYielder", ruby.class_object())?;
@@ -80,22 +79,15 @@ impl GuestYielder {
         }
     }
 
-    /// Mark this handle dead. Called the instant the dispatch frame's
-    /// `funcall` returns, so a guest block stashed beyond its frame raises
-    /// instead of dereferencing freed stack.
+    /// Runs the instant the dispatch frame's `funcall` returns, so a guest
+    /// block stashed beyond its frame raises instead of dereferencing freed
+    /// stack.
     fn invalidate(&self) {
         self.yielder.set(None);
     }
 
-    /// Ruby-visible `call(args_payload) -> [arm, body, class]`: drive one
-    /// yield round-trip and hand back the reply already split. The arm is
-    /// named here off the core envelope, so the host `Transport::Yielder`
-    /// decodes only a payload — and only on the two arms that carry one,
-    /// where `body` is the block's value; on the error arm it is the
-    /// message, and `class` names what raised.
-    /// Raises `Kobako::TrapError` when the handle has been invalidated
-    /// (escaped guest block), when the re-entry itself traps, or when the
-    /// guest answers with bytes the envelope cannot frame.
+    /// The arm is named here off the core envelope, so the host
+    /// `Transport::Yielder` decodes only a payload.
     fn call(&self, args: RString) -> Result<(Symbol, RString, Option<String>), MagnusError> {
         let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_yield");
         let Some(mut ptr) = self.yielder.get() else {
@@ -147,16 +139,10 @@ impl RubyDispatchHandler {
 }
 
 impl DispatchHandler for RubyDispatchHandler {
-    /// Call the Ruby Proc with the routed Call and return its Reply. The
-    /// envelope is already decoded, so Ruby receives the target, method,
-    /// and block flag as ordinary values and decodes only the payload —
-    /// through the MessagePack codec it already owns, which keeps a
-    /// large payload's strings shared with the buffer rather than copied.
-    ///
-    /// The Proc is contracted to fold every dispatch failure into the
-    /// Reply's fault arm (see `Kobako::Transport::Dispatcher.dispatch`),
-    /// so a raise is a contract violation surfaced as `None` — the
-    /// dispatcher then walks the 0-return wire-fault path.
+    /// Ruby decodes only the payload, through the codec it already owns,
+    /// which keeps a large payload's strings shared with the buffer rather
+    /// than copied. The Proc folds every dispatch failure into the Reply's
+    /// fault arm, so a raise is a contract violation surfaced as `None`.
     fn dispatch(&self, call: Call<'_>, yielder: &mut dyn Yielder) -> Option<Reply> {
         // The guest may be running GVL-free (`gvl: :release`); re-acquire the
         // GVL for the whole callback before touching any Ruby VALUE. In hold

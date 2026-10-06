@@ -29,12 +29,9 @@ const PROBE_CONFIG: Config = Config {
     profile: Profile::Hermetic,
 };
 
-/// Instantiate a throwaway probe instance from `pre` and require the
-/// guest's `__kobako_abi_version` export to equal `ABI_VERSION`. An
-/// absent export or a non-equal value is a deterministic artifact
-/// fault, so every failure is a `SetupError` for the frontend to
-/// attribute. The frameless WASI context keeps a third-party guest
-/// whose start section touches WASI on the `SetupError` path instead of
+/// An absent or unequal version is a deterministic artifact fault, so
+/// every failure is a `SetupError`. The frameless WASI context keeps a
+/// guest whose start section touches WASI on that path instead of
 /// panicking in `Invocation::wasi_mut`.
 pub(crate) fn verify(pre: &InstancePre<Invocation>) -> Result<(), SetupError> {
     let mut store = WtStore::new(shared_engine()?, Invocation::new(None));

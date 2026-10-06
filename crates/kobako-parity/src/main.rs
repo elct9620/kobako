@@ -67,8 +67,6 @@ fn write_frame(output: &mut impl Write, payload: &[u8], flag: u32) {
         .expect("harness closed the pipe mid-frame");
 }
 
-/// Execute one scenario: build the Sandbox, apply registrations, run
-/// every invocation, and collect the raw observables.
 fn run_scenario(frame: &[u8]) -> Result<Json, String> {
     let scenario: Json =
         serde_json::from_slice(frame).map_err(|err| format!("malformed scenario JSON: {err}"))?;
@@ -99,7 +97,6 @@ fn run_scenario(frame: &[u8]) -> Result<Json, String> {
     Ok(Json::Array(observables))
 }
 
-/// The closed preload-kind set the Ruby executor interprets too.
 /// Snippet failures are invocation-time observables (replay), so a
 /// preload here never fails on a well-formed scenario.
 fn apply_preload(sandbox: &mut Sandbox, preload: &Json) -> Result<(), String> {
@@ -124,9 +121,8 @@ fn apply_preload(sandbox: &mut Sandbox, preload: &Json) -> Result<(), String> {
     .map_err(|err| format!("preload failed: {err}"))
 }
 
-/// Install an Extension from its scenario spec: a preloaded source plus an
-/// optional stub backend. depends_on stays empty here — the dependency
-/// assertion is per-frontend setup surface, not a differential observable.
+/// depends_on stays empty: the dependency assertion is per-frontend setup
+/// surface, not a differential observable.
 fn install_extension(sandbox: &mut Sandbox, extension: &Json) -> Result<(), String> {
     let name = extension["name"]
         .as_str()
@@ -182,10 +178,8 @@ impl Extension for ScenarioExtension {
     }
 }
 
-/// Build a backend Provider from its spec: `fixed` binds one stub for the
-/// Sandbox's life; `per_invocation` captures the method spec and rebuilds a
-/// fresh stub each invocation, so a stateful `counter` resets between
-/// invocations.
+/// `per_invocation` rebuilds a fresh stub each invocation, so a stateful
+/// `counter` resets between invocations.
 fn build_provider(backend: &Json) -> Result<Provider, String> {
     match backend["provider"].as_str() {
         Some("fixed") => Ok(Provider::Static(
@@ -204,10 +198,8 @@ fn build_provider(backend: &Json) -> Result<Provider, String> {
     }
 }
 
-/// Parse a backend's methods into a fresh StubReceiver — fresh state per
-/// build, so a `counter` resets when a `per_invocation` provider rebuilds
-/// it. Backends use the stateless / counter behaviors; opaque / read_label
-/// need the shared capability registry and are not backend behaviors.
+/// opaque / read_label need the shared capability registry, so they are not
+/// backend behaviors.
 fn build_backend_stub(methods: &Json) -> Result<StubReceiver, String> {
     let mut discard = Vec::new();
     let mut parsed = HashMap::new();
@@ -335,8 +327,8 @@ fn parse_behavior(behavior: &Json, opaques: &mut Opaques) -> Result<Behavior, St
     }
 }
 
-/// Create and register a labeled opaque object so the tagger can
-/// recover its identity from a resolved Handle.
+/// Registered so the tagger can recover its identity from a resolved
+/// Handle.
 fn register_opaque(opaques: &mut Opaques, label: &str) -> Arc<dyn Receiver> {
     let object: Arc<dyn Receiver> = (OpaqueStub {
         label: label.to_string(),
@@ -428,9 +420,8 @@ impl ValueReceiver for StubReceiver {
     }
 }
 
-/// Resolve the first (possibly Array-nested) Handle argument and
-/// answer with its object's label — the Ruby stub reads `arg.label`
-/// off the restored object the dispatcher handed it.
+/// Mirrors the Ruby stub reading `arg.label` off the restored object the
+/// dispatcher handed it.
 fn read_label(args: &[Value], handles: &Handles<'_>) -> Result<Value, Fault> {
     let mut arg = args
         .first()
@@ -464,8 +455,7 @@ fn read_label(args: &[Value], handles: &Handles<'_>) -> Result<Value, Fault> {
         .map_err(|err| Fault::new(FaultKind::Runtime, err.to_string()))
 }
 
-/// Yield each positional argument, collecting the block results. A
-/// call without a block mirrors the Ruby stub's `nil.call` crash — a
+/// A call without a block mirrors the Ruby stub's `nil.call` crash — a
 /// runtime fault, never a stub-declared one.
 fn yield_each(args: &[Value], block: Option<&mut Yielder<'_>>) -> Result<Value, Fault> {
     let Some(block) = block else {
@@ -481,10 +471,8 @@ fn yield_each(args: &[Value], block: Option<&mut Yielder<'_>>) -> Result<Value, 
     Ok(Value::Array(out))
 }
 
-/// Run one invocation and emit its raw observable object. A verb that runs
-/// (`eval` / `run`) reads its status, value, and observables off the
-/// returned `Execution`; `late_bind` runs no guest, so it has no Execution
-/// and reports the empty readout.
+/// `late_bind` runs no guest, so it has no Execution and reports the empty
+/// readout.
 fn observe(
     sandbox: &mut Sandbox,
     invocation: &Json,
@@ -526,9 +514,7 @@ fn observe(
     Ok(Json::Object(observable))
 }
 
-/// Dispatch an `eval` / `run` invocation to the SDK, returning its
-/// `Execution` result; the outer `Err` is a malformed scenario, not an
-/// invocation failure.
+/// The outer `Err` is a malformed scenario, not an invocation failure.
 fn run_verb(
     sandbox: &mut Sandbox,
     invocation: &Json,
@@ -587,8 +573,6 @@ fn run_verb(
     }
 }
 
-/// Write a failed invocation's neutral status (and, for a guest failure,
-/// its class / message) into the observable object.
 fn write_failure(observable: &mut Map<String, Json>, error: &Error) {
     let (status, failure) = classify(error);
     observable.insert("status".into(), json!(status));
@@ -600,9 +584,6 @@ fn write_failure(observable: &mut Map<String, Json>, error: &Error) {
     }
 }
 
-/// Write an invocation's observables, read off the run's `Execution`. A verb
-/// that ran no guest — a `late_bind`, or a run that never started — has no
-/// Execution, so its readout is empty.
 fn write_observables(observable: &mut Map<String, Json>, execution: Option<&Execution>) {
     let (stdout_hex, stderr_hex, stdout_truncated, stderr_truncated, usage) = match execution {
         Some(execution) => {
@@ -628,9 +609,7 @@ fn write_observables(observable: &mut Map<String, Json>, execution: Option<&Exec
 /// per overridden path.
 type OverrideStubs = Vec<(String, Arc<dyn Receiver>)>;
 
-/// Build the override stubs an `eval_with` closure binds: each
-/// `{ path, methods }` entry becomes a StubReceiver bound at its path,
-/// mirroring the Ruby executor's `ctx.bind` override.
+/// Mirrors the Ruby executor's `ctx.bind` override.
 fn build_override_stubs(
     overrides: &[Json],
     opaques: &mut Opaques,
@@ -673,11 +652,9 @@ fn late_bind(sandbox: &mut Sandbox, invocation: &Json) -> Result<Result<Value, E
         .map(|()| Value::Nil))
 }
 
-/// The neutral parity status of each error variant, plus the guest
-/// failure record when the variant carries one. The wildcard arm
-/// answers a status the Ruby executor never produces, so an SDK error
-/// variant this runner does not yet classify surfaces as a loud
-/// parity mismatch instead of a silent bucket.
+/// The wildcard arm answers a status the Ruby executor never produces, so
+/// an SDK error variant this runner does not yet classify surfaces as a
+/// loud parity mismatch instead of a silent bucket.
 fn classify(error: &Error) -> (&'static str, Option<&kobako::Failure>) {
     match error {
         Error::Timeout(_) => ("timeout", None),
@@ -724,10 +701,8 @@ fn tag_value(value: &Value, execution: &Execution, opaques: &Opaques) -> Json {
     }
 }
 
-/// The declared label of the opaque object a result Handle resolves
-/// to; `None` for an object outside the scenario's opaque set (no
-/// closed-DSL scenario produces one). Resolves against the invocation's
-/// own `Execution`, which owns the Handle table its result stands in.
+/// Resolves against the invocation's own `Execution`, which owns the
+/// Handle table its result stands in.
 fn handle_label(value: &Value, execution: &Execution, opaques: &Opaques) -> Option<String> {
     let Value::Handle(id) = value else {
         return None;
@@ -739,9 +714,6 @@ fn handle_label(value: &Value, execution: &Execution, opaques: &Opaques) -> Opti
         .map(|(label, _)| label.clone())
 }
 
-/// A `run` argument off its tagged form: the `opaque` tag becomes a
-/// fresh labeled host object (registered so the tagger can recover its
-/// identity), every other tag stays a wire value.
 fn untag_run_arg(tagged: &Json, opaques: &mut Opaques) -> Result<RunArg, String> {
     if tagged["t"].as_str() == Some("opaque") {
         let label = tagged["label"]

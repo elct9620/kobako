@@ -47,10 +47,7 @@ impl<'a> Decoder<'a> {
     }
 }
 
-/// Decode a single `Value` from a `&mut &[u8]` cursor (the form `rmp`'s
-/// `RmpRead` impl for byte slices expects). The cursor advances by the
-/// number of bytes consumed. `depth` is the current nesting level;
-/// recursing past `MAX_NESTING_DEPTH` is refused as a clean error so a
+/// Recursing past `MAX_NESTING_DEPTH` is refused as a clean error, so a
 /// deeply nested payload cannot overflow the wasm stack.
 fn read_value_from(cursor: &mut &[u8], depth: usize) -> Result<Value, Error> {
     if depth > MAX_NESTING_DEPTH {

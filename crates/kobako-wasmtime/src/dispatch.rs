@@ -34,7 +34,6 @@ pub(crate) fn handle(
     }))
 }
 
-/// The exchange itself, each failure carrying the reason `handle` logs.
 fn try_handle(
     caller: &mut Caller<'_, Invocation>,
     req_ptr: i32,
@@ -70,9 +69,6 @@ fn try_handle(
     write_response(caller, &reply.encode())
 }
 
-/// Allocate a guest-side buffer and copy the response bytes into it via
-/// `crate::guest_mem::alloc_and_write`, returning the packed
-/// `(ptr<<32)|len` u64 the guest's `__kobako_dispatch` import expects.
 fn write_response(caller: &mut Caller<'_, Invocation>, bytes: &[u8]) -> Result<i64, &'static str> {
     let ptr = crate::guest_mem::alloc_and_write(caller, bytes)?;
     Ok(((ptr as i64) << 32) | (bytes.len() as i64))

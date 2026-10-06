@@ -52,11 +52,6 @@ const RUNTIME_INCOMPATIBLE: &str =
 pub(crate) const SANDBOX_RUNTIME_NOT_KOBAKO: &str =
     "the loaded Wasm module is not a Kobako-compatible runtime";
 
-/// Resolve the guest's exported linear `memory`. The lookup shape (and its
-/// diagnostic) is shared by every Caller-based path here — the write side
-/// (`alloc_and_write`), the read side (`read`), and the yield round-trip
-/// (`drive_yield`) — so the "no linear memory" reason lives in one place.
-/// `read` maps the `Err` to its own `None` outcome via `.ok()`.
 fn memory_export(caller: &mut Caller<'_, Invocation>) -> Result<Memory, &'static str> {
     match caller.get_export("memory") {
         Some(Extern::Memory(m)) => Ok(m),
@@ -75,10 +70,7 @@ fn trapped(
     reason
 }
 
-/// Allocate `bytes.len()` bytes in guest memory via `__kobako_alloc` and
-/// copy `bytes` in. Returns the guest pointer. Every failure path carries a
-/// `&'static str` reason so the caller can surface a diagnostic rather than
-/// a silent fault. A guest that has already trapped is not called again.
+/// A guest that has already trapped is not called again.
 pub(crate) fn alloc_and_write(
     caller: &mut Caller<'_, Invocation>,
     bytes: &[u8],
@@ -110,12 +102,8 @@ pub(crate) fn alloc_and_write(
     Ok(ptr as u32)
 }
 
-/// Copy `[ptr, ptr + len)` out of the guest's linear memory as seen from
-/// `caller`. Each failure carries a `&'static str` reason — matching the
-/// other Caller-based ops here — so the caller surfaces a specific
-/// diagnostic instead of a lumped one; a guest-claimed length past the
-/// 16 MiB cap is a wire violation that names the cap (the caller walks
-/// the trap path on any `Err`).
+/// A guest-claimed length past the 16 MiB cap is a wire violation that
+/// names the cap.
 pub(crate) fn read(
     caller: &mut Caller<'_, Invocation>,
     ptr: i32,
@@ -137,12 +125,8 @@ pub(crate) fn read(
         .ok_or("the Sandbox produced an out-of-bounds request")
 }
 
-/// Validate a payload length against `MAX_DISPATCH_PAYLOAD` and narrow it
-/// to `i32` — the signed wasm ABI width for the guest buffer parameters.
-/// Every host *write* boundary (`alloc_and_write`, `drive_yield`,
-/// `frames::write_envelope`) routes its length through here so the
-/// wire-violation reason is uniform; the *read* boundaries compare
-/// against `MAX_DISPATCH_PAYLOAD` directly.
+/// Every host write boundary routes its length through here, so the
+/// wire-violation reason is uniform.
 pub(crate) fn checked_payload_len(len: usize) -> Result<i32, &'static str> {
     if len > MAX_DISPATCH_PAYLOAD {
         return Err("payload exceeds the 16 MiB limit");
@@ -151,10 +135,6 @@ pub(crate) fn checked_payload_len(len: usize) -> Result<i32, &'static str> {
     i32::try_from(len).map_err(|_| "payload exceeds the 16 MiB limit")
 }
 
-/// Compute the half-open range `[ptr, ptr + len)` for a guest linear-memory
-/// copy, validating that the arithmetic does not overflow and the range
-/// fits inside `mem_size`. Shared by `frames::write_envelope` (write side)
-/// and `frames::fetch_outcome_bytes` (read side).
 pub(crate) fn guest_buffer_range(
     ptr: usize,
     len: usize,
@@ -167,18 +147,11 @@ pub(crate) fn guest_buffer_range(
     Ok(ptr..end)
 }
 
-/// The `(ptr, len)` a buffer-returning ABI export answered with, widened
-/// to the `usize` the linear-memory ranges here are computed in.
 pub(crate) fn unpack_outcome_packed(packed: u64) -> (usize, usize) {
     let (ptr, len) = unpack_ptr_len(packed);
     (ptr as usize, len as usize)
 }
 
-/// Allocate `args.len()` bytes in guest memory, copy the args payload in,
-/// call `__kobako_yield_to_block(ptr, len)`, then read the response slice
-/// the guest produced and return it. Mirrors `dispatch::write_response`'s
-/// allocator dance but in the opposite direction — the host is the
-/// *initiator* of this round-trip, not the responder.
 pub(crate) fn drive_yield(
     caller: &mut Caller<'_, Invocation>,
     args: &[u8],
