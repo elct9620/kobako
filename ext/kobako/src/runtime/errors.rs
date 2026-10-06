@@ -59,7 +59,7 @@ pub(super) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
 /// The boundary between the magnus-free run mechanics and the Ruby surface:
 /// the run path classifies a fault into a `Trap`, and this is where it
 /// becomes a raised exception. The verb prefix (`Sandbox#eval` / `#run`)
-/// is added by `Kobako::Sandbox#invoke!`.
+/// is added by `Kobako::Context#invoke!`.
 pub(super) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
     match trap {
         Trap::Timeout(msg) => error_in(ruby, &TIMEOUT_ERROR, msg),

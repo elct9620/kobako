@@ -42,7 +42,7 @@ class TestCodecHandleWalkNesting < Minitest::Test
 
   # @behavior CD-013
   # Recursing instead would raise a host SystemStackError, which is not a
-  # StandardError and would escape Sandbox#invoke! uncaught.
+  # StandardError, so a bare rescue around #run would not catch it.
   def test_cyclic_argument_is_rejected_without_stack_overflow
     cyclic = []
     cyclic << cyclic
