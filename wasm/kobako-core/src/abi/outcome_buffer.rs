@@ -45,19 +45,12 @@ pub fn write_panic(panic: Panic) {
     write_outcome(Outcome::Panic(panic).encode());
 }
 
-/// Guest allocator — hands out a `size`-byte buffer in wasm linear
-/// memory and returns its ptr (u32). Returns 0 on allocation failure
-/// (host treats 0 as a trap signal). Behind the `__kobako_alloc`
-/// export: signature `(size: i32) -> i32`.
+/// Guest allocator behind the `__kobako_alloc` export: a `size`-byte
+/// buffer the host writes into, or 0 when `malloc` cannot reserve one,
+/// which the host attributes to the guest rather than the engine.
 ///
-/// Delegates to wasi-libc's `malloc`. The allocated buffer is
-/// intentionally not freed — its lifetime is bounded by the wasm
-/// instance lifetime (one Sandbox invocation). The host writes the
-/// transport response into this buffer inside the `__kobako_dispatch`
-/// callback, then consumes the response synchronously before the
-/// transport call returns, so the buffer does not need to outlive the
-/// call frame.
-/// Instance drop frees all linear memory.
+/// Nothing frees the buffer: it lives until the instance is dropped at
+/// the end of the invocation.
 pub fn alloc(size: u32) -> u32 {
     #[cfg(target_arch = "wasm32")]
     {

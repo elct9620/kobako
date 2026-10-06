@@ -72,16 +72,9 @@ fn build_linker() -> Result<Linker<Invocation>, SetupError> {
     p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| state.wasi_mut())
         .map_err(|e| SetupError::Dead(format!("failed to set up the WASI runtime: {e}")))?;
 
-    // `__kobako_dispatch` host import. Signature per docs/wire-codec.md
-    // § ABI Signatures:
-    //   (req_ptr: i32, req_len: i32) -> i64
-    // Reads the Call bytes from guest memory and hands them —
-    // undecoded — to the bound `DispatchHandler` (the frontend's
-    // dispatch bridge, e.g. a Ruby Proc), then allocates a guest
-    // buffer through `__kobako_alloc`, writes the handler's Reply
-    // bytes there, and returns the packed `(ptr<<32)|len`. The
-    // dispatcher returns 0 on any wire-layer fault (including no
-    // handler bound); see `dispatch::handle`.
+    // `__kobako_dispatch`, `(req_ptr: i32, req_len: i32) -> i64` per
+    // docs/wire-codec.md § ABI Signatures; `dispatch::handle` owns what it
+    // answers.
     linker
         .func_wrap(
             "env",

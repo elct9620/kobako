@@ -1,49 +1,14 @@
-//! Host-side dispatch for the `__kobako_dispatch` import.
+//! Host side of the `__kobako_dispatch` import: hand the guest's Call to
+//! the bound `DispatchHandler` and write its Reply back into guest memory.
 //!
-//! When the guest invokes the wasm import declared in
-//! `wasm/kobako-core/src/abi.rs`, wasmtime calls back into the host
-//! through the closure registered by `instance_pre::build_linker`.
-//! That closure delegates here. The dispatcher:
+//! A failure lands on whoever is answerable for it. A trap the guest
+//! raises while the host calls back into it ends the invocation as that
+//! trap; any other failure is the guest's or the wire's, so the import
+//! answers 0, which the guest receives as a wire failure.
 //!
-//!   1. Reads the Call bytes from guest linear memory.
-//!   2. Invokes the bound `DispatchHandler` (the frontend's dispatch
-//!      bridge, e.g. a Ruby Proc) and recovers Reply bytes.
-//!   3. Allocates a guest buffer via `__kobako_alloc(len)` invoked
-//!      through `Caller::get_export`.
-//!   4. Writes the Reply bytes into the guest buffer.
-//!   5. Returns packed `(ptr<<32)|len` for the guest to decode.
-//!
-//! Returns 0 on any step failure. `Kobako::Sandbox#initialize` always
-//! installs the dispatch handler before any invocation, so reaching the
-//! dispatcher with no handler bound is itself a wire-layer fault; the
-//! guest refuses a 0 return as an envelope error. Failures during normal dispatch
-//! take the Reply's fault arm from
-//! `Kobako::Transport::Dispatcher.dispatch` itself — they never reach
-//! this 0-return path.
-//!
-//! ## Why this module writes to `stderr`
-//!
-//! This file is the one place in the driver that deliberately prints
-//! through `eprintln!`. The host normally surfaces faults through the
-//! contract's error channels; the dispatcher contract is the exception
-//! — it must return a packed `i64` to the guest and cannot fail, so a
-//! 0 return is the only signal the wasm side receives. The guest collapses every 0 into the same envelope error, so the
-//! Ruby host has no way to attribute the failure to a specific step
-//! (missing `memory` export vs. no dispatch handler bound vs. the
-//! handler raised vs. `__kobako_alloc` returned 0 vs. `memory.write`
-//! rejected).
-//!
-//! `handle` writes a single `[kobako-dispatch] <reason>` line to
-//! `stderr` on each failure path so operators have a breadcrumb to
-//! correlate the failure with the actual cause. The line is emitted in
-//! both debug and release builds on purpose: dispatcher failures are
-//! wire-layer faults rather than expected error paths (`Kobako::Sandbox`
-//! always installs the handler, the handler is contracted never to
-//! raise, etc.), so the "release-build noise" cost is bounded — under
-//! normal operation the line is never written. Operators that need to
-//! silence the stream can redirect the host process's stderr, but the
-//! kobako convention is "ext never logs" plus this single, named
-//! exception.
+//! A 0 carries no reason, so each one also writes a single
+//! `[kobako-dispatch] <reason>` line to stderr. It is the one place the
+//! driver logs, and normal operation never reaches it.
 
 use wasmtime::Caller;
 
@@ -51,16 +16,9 @@ use kobako_transport::envelope::Call;
 
 use crate::invocation::Invocation;
 
-/// Drive a single `__kobako_dispatch` invocation end-to-end. Entry point
-/// from the wasmtime closure registered by `instance_pre::build_linker`.
-///
-/// Returns the packed `(ptr<<32)|len` u64 on success, 0 on any
-/// wire-layer fault. Failure paths log a `[kobako-dispatch]` line to
-/// `stderr` so operators have a breadcrumb when the guest sees a 0
-/// return and traps. The bound dispatch handler is contracted never to
-/// raise (it folds Service exceptions onto the Reply's fault arm),
-/// so reaching the failure path is always a wiring bug or wire-layer
-/// fault rather than an expected path.
+/// Answer one `__kobako_dispatch` call: the packed `(ptr<<32)|len` of the
+/// Reply, 0 for a failure the guest or the wire is answerable for, or the
+/// trap a callback into the guest raised.
 pub(crate) fn handle(
     caller: &mut Caller<'_, Invocation>,
     req_ptr: i32,
@@ -76,8 +34,7 @@ pub(crate) fn handle(
     }))
 }
 
-/// Result-returning core of `handle`. Pulled out so each early
-/// failure path carries a diagnostic string instead of an opaque 0.
+/// The exchange itself, each failure carrying the reason `handle` logs.
 fn try_handle(
     caller: &mut Caller<'_, Invocation>,
     req_ptr: i32,
