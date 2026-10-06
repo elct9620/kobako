@@ -49,8 +49,8 @@ pub fn write_panic(panic: Panic) {
 /// buffer the host writes into, or 0 when `malloc` cannot reserve one,
 /// which the host attributes to the guest rather than the engine.
 ///
-/// Nothing frees the buffer: it lives until the instance is dropped at
-/// the end of the invocation.
+/// The buffer lives until the instance is dropped at the end of the
+/// invocation.
 pub fn alloc(size: u32) -> u32 {
     #[cfg(target_arch = "wasm32")]
     {

@@ -67,10 +67,9 @@ impl Invocation {
         }
     }
 
-    /// Keep the first trap the guest raised while the host was calling
-    /// back into it. A host callback cannot raise through the guest, so the
-    /// trap waits here for the dispatch import to end the invocation with
-    /// it, which keeps its kind instead of the callback's flattened reason.
+    /// Keep the first trap the guest raised during a callback into it. The
+    /// dispatch import ends the invocation with it, so the trap keeps its
+    /// own kind.
     pub(crate) fn record_reentry_trap(&mut self, trap: wasmtime::Error) {
         self.reentry_trap.get_or_insert(trap);
     }

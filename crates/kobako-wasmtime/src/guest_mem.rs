@@ -64,7 +64,7 @@ fn memory_export(caller: &mut Caller<'_, Invocation>) -> Result<Memory, &'static
     }
 }
 
-/// Keep a trap the guest raised under a host callback for the dispatch
+/// Keep a trap the guest raised during a callback into it for the dispatch
 /// import to end the invocation with, and answer the callback's own reason.
 fn trapped(
     caller: &mut Caller<'_, Invocation>,

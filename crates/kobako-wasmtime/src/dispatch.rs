@@ -2,13 +2,13 @@
 //! the bound `DispatchHandler` and write its Reply back into guest memory.
 //!
 //! A failure lands on whoever is answerable for it. A trap the guest
-//! raises while the host calls back into it ends the invocation as that
-//! trap; any other failure is the guest's or the wire's, so the import
-//! answers 0, which the guest receives as a wire failure.
+//! raises during a callback into it ends the invocation as that trap; any
+//! other failure is the guest's or the wire's, so the import answers 0,
+//! which the guest receives as a wire failure.
 //!
-//! A 0 carries no reason, so each one also writes a single
-//! `[kobako-dispatch] <reason>` line to stderr. It is the one place the
-//! driver logs, and normal operation never reaches it.
+//! Each 0 also writes one `[kobako-dispatch] <reason>` line to stderr,
+//! since the 0 itself carries no reason. It is the one place the driver
+//! logs, and normal operation never reaches it.
 
 use wasmtime::Caller;
 
