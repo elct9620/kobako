@@ -118,18 +118,17 @@ scenario  When: "both frontends run it"
 
 ## Per-Frontend Pins
 
-A compared behavior with no guest-expressible differential scenario is
+A behavior no guest-expressible scenario can run on both frontends is
 pinned by each frontend on its own, and the owning feature says why.
+Where the two agree but cannot be staged, the parity scenario is
+declared unverifiable.
 
-| Behavior | Owner |
-|---|---|
-| an engine trap no cap caused | [outcome](spec/behavior/outcome.md) |
-| a Yielder held past its frame | [transport-yield](spec/behavior/transport-yield.md) |
-| a stale reference | [transport-dispatch](spec/behavior/transport-dispatch.md) |
-| a reflective object a host method returns | [transport-boundary](spec/behavior/transport-boundary.md) |
-
-The engine trap and the stale reference keep a skipped placeholder in
-`test/parity/`.
+| Behavior | Parity scenario | Owner |
+|---|---|---|
+| an engine trap no cap caused | unverifiable | [outcome](spec/behavior/outcome.md) |
+| a Yielder held past its frame | none, the frontends differ | [transport-yield](spec/behavior/transport-yield.md) |
+| a stale reference | unverifiable | [transport-dispatch](spec/behavior/transport-dispatch.md) |
+| a reflective object a host method returns | none, one frontend only | [transport-boundary](spec/behavior/transport-boundary.md) |
 
 ## Excluded Behavior
 

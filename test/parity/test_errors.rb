@@ -45,14 +45,4 @@ class TestParityErrors < Parity::Case
       invocations: [{ verb: "eval", source: 'a = []; 200.times { a << ("x" * 100_000) }; nil' }]
     )
   end
-
-  # A raw engine trap (not a cap) has no deterministic pure-mruby trigger:
-  # the guest turns deep recursion into its own SystemStackError before
-  # wasm faults, and the one live path (a host exception escaping the
-  # dispatch callback) is frontend-specific by nature. The Ruby side is
-  # pinned in test/e2e/test_capability_exception_safety.rb, trap-kind
-  # routing in the driver's classify_trap tests.
-  def test_engine_trap_pending
-    skip "pending a deterministic guest trap trigger"
-  end
 end
