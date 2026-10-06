@@ -25,7 +25,7 @@ module Kobako
       # The codec fault behind this violation, appended to Ruby's own
       # rendering. A caller cannot act on the inner "Symbol payload must
       # be …" wording, so it stays out of #message; an operator
-      # triaging a corrupted runtime still needs it, and
+      # triaging the violation still needs it, and
       # +detailed_message+ is where Ruby puts text of exactly that kind.
       def detailed_message(...)
         rendered = super

@@ -26,15 +26,14 @@ class TestOutcomeDecoding < Minitest::Test
   end
 
   # @behavior OC-002
-  # An unrecognised result means the guest runtime is past reasoning
-  # about, so what the message has to convey is "discard the Sandbox"
-  # rather than the bytes, which are not actionable.
+  # The next invocation runs on a fresh instance, so the message names the
+  # failure and asks nothing of the Sandbox the caller holds.
   def test_a_malformed_outcome_raises_trap_error
     err = assert_raises(Kobako::TrapError) { Kobako::Outcome.reify(:malformed, "".b, nil) }
 
-    assert_match(/Sandbox produced an unrecognised result/, err.message)
-    assert_match(/runtime is corrupted/, err.message,
-                 "an unframeable outcome must tell the caller to discard the Sandbox")
+    assert_equal "Sandbox produced an unrecognised result", err.message,
+                 "an unframeable outcome through Outcome.reify must name the failure without asking " \
+                 "the caller to discard the Sandbox"
   end
 
   # @behavior OC-003

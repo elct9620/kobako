@@ -76,10 +76,7 @@ module Kobako
     def trap_error(kind)
       return TrapError.new("Sandbox exited without producing a result") if kind == :absent
 
-      TrapError.new(
-        "Sandbox produced an unrecognised result; the runtime is corrupted, " \
-        "discard this Sandbox before another invocation"
-      )
+      TrapError.new("Sandbox produced an unrecognised result")
     end
 
     # The ok arm's value — the one position a payload codec still

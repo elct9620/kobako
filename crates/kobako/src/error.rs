@@ -36,7 +36,7 @@ pub struct Failure {
     pub available: Vec<String>,
     /// The codec fault behind a host-detected wire violation. Kept out of
     /// `message`, which names the failure a caller can act on, and carried
-    /// here for the operator triaging a corrupted runtime.
+    /// here for the operator triaging the violation.
     pub diagnostic: Option<String>,
 }
 

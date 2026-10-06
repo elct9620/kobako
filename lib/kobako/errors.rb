@@ -35,9 +35,8 @@ module Kobako
   end
 
   # Wasm engine layer. Raised when the Wasm execution engine crashed
-  # (trap, OOM, unreachable) or when the wire layer detected a structural
-  # violation that signals a corrupted guest execution environment (an
-  # outcome the core envelope cannot frame, an absent one included).
+  # (trap, OOM, unreachable) or when no outcome could be framed, an
+  # absent one included.
   #
   # Two named subclasses cover the configured per-invocation caps:
   #

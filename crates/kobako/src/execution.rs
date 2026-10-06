@@ -154,9 +154,7 @@ pub(crate) fn classify(bytes: &[u8]) -> Result<Vec<u8>, Error> {
             "Sandbox exited without producing a result".into(),
         )),
         Err(_) => Err(Error::Trap(
-            "Sandbox produced an unrecognised result; the runtime is corrupted, \
-             discard this Sandbox before another invocation"
-                .into(),
+            "Sandbox produced an unrecognised result".into(),
         )),
     }
 }
@@ -295,7 +293,11 @@ mod classify_tests {
     // @behavior OC-002
     #[test]
     fn unknown_tag_walks_the_trap_path() {
-        assert!(matches!(classify(&[0x7f, 0x2a]), Err(Error::Trap(_))));
+        let result = classify(&[0x7f, 0x2a]);
+        assert!(
+            matches!(&result, Err(Error::Trap(msg)) if msg == "Sandbox produced an unrecognised result"),
+            "an unknown outcome tag must trap with a message that asks nothing of the Sandbox, got {result:?}"
+        );
     }
 
     // @behavior OC-002
