@@ -27,6 +27,7 @@ module Kobako
                           snippets: @snippets, extensions: @extensions)
     end
 
+    # @behavior SV-001
     def test_lookup_resolves_a_bound_path_to_its_base_object
       kv = Object.new
       @services.bind("Store::KV", kv)

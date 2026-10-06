@@ -34,6 +34,7 @@ class TestRuntime < Minitest::Test
     assert_match(/rake wasm:build/, err.message)
   end
 
+  # @behavior RT-056
   def test_from_path_works_with_fixture_module
     skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
 

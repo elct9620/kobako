@@ -65,6 +65,7 @@ class TestSandbox < Minitest::Test
     end
   end
 
+  # @behavior OC-028
   def test_eval_against_minimal_fixture_raises_trap_error_when_export_missing
     # The minimal_abi_ok.wat fixture passes construction but stubs only
     # the entry points — `__kobako_take_outcome` is absent, so the eval
