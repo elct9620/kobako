@@ -1,51 +1,10 @@
-//! Method bodies registered with mruby at install time.
-//!
-//! Every function here is a typed `beni::method!` body
-//! (`fn(&Mrb, Value, …) -> Value`); the macro generates the raw
-//! `mrb_func_t` bridge mruby invokes. The registrations happen in
-//! `super::Kobako::init`; the bodies re-enter the boundary by
-//! resolving a `Kobako` token via `super::Kobako::resolve_raw` and
-//! then call safe methods.
-//!
-//! ## Dispatch chain
-//!
-//! ```text
-//!   user_script:    MyService::KV.get(:user_42)
-//!        │
-//!        │ (no method named `get`; the call falls through to the
-//!        │  `method_missing` the `Kobako::Proxy` module contributes —
-//!        │  at class level for a bound constant that extended the module,
-//!        │  at instance level for a Handle that included it)
-//!        ▼
-//!   proxy_method_missing(mrb, self=KV.class)
-//!        │
-//!        │ (derive Target from the receiver's identity: a Kobako::Handle
-//!        │  instance → Target::Handle from its `@__kobako_id__` ivar, a
-//!        │  class → Target::Path from its name; any other receiver has no
-//!        │  target and is refused in-guest)
-//!        ▼
-//!   forward_to_dispatch(Target::Path(target_str), ...)
-//!        ▼
-//!   kobako_core::proxy::dispatch(...)
-//! ```
-//!
-//! `proxy_method_missing` is the single forwarding entry the
-//! `Kobako::Proxy` module contributes to both proxy shapes. It derives the
-//! `Target` from the receiver's positive identity — a `Kobako::Handle`
-//! instance by its id, a class by its constant path — and refuses in-guest
-//! any receiver that is neither, so a fabricated `Kobako::Proxy` holder
-//! cannot drive a dispatch off arbitrary instance state. Method-symbol
-//! extraction, args/kwargs unpacking, the host round-trip, and result
-//! conversion all live in `forward_to_dispatch`, which reaches the host
-//! through `crate::dispatch` — the same seam a capability gem uses, so the
-//! built-in proxy holds no privilege over one.
-//!
-//! ## Safety
-//!
-//! The `method!`-generated bridges hand each body a borrowed `&Mrb`, and
-//! a body reports a failure as `Err(beni::Error)` for the macro to raise
-//! at the guest call site. Nothing long-jumps over a Rust frame, so
+//! Method bodies the Kobako surface registers with mruby, and the helpers
+//! they share. Each `beni::method!` body reports failure as `Err` for the
+//! macro to raise, so nothing long-jumps over a Rust frame and
 //! `resolve_raw` is the one `unsafe` left here.
+//!
+//! The proxy reaches the host through `crate::dispatch`, the same seam a
+//! capability gem uses, so the built-in proxy holds no privilege over one.
 
 use beni::prelude::*;
 use beni::{Array, Hash, Mrb, Proc, Symbol, Value};

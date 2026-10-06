@@ -1,44 +1,10 @@
-//! Kobako runtime — installs the Kobako module surface onto an mruby VM
-//! and owns the class handles needed by the dispatch layer.
+//! The Kobako surface installed on an mruby VM, and the class handles the
+//! dispatch layer reads from it.
 //!
-//! ## Why a separate type from `beni::Mrb`
-//!
-//! `Mrb` is the language-level VM owner: it knows how to open and close
-//! an mruby state and nothing about kobako's own object surface. The
-//! kobako-specific registrations (`Kobako` module, the `Kobako::Transport`
-//! namespace, the `Kobako::Proxy` capability module and the
-//! `Kobako::Handle` proxy that includes it, `Kobako::ServiceError` /
-//! `Kobako::Transport::Error`) belong to a different concern and live
-//! behind this domain boundary. The IO / Kernel surface is the sibling
-//! `kobako-io` crate's gem, composed alongside the bridge gem at
-//! install time.
-//!
-//! The shape mirrors `magnus::Ruby` for CRuby: a value-type "token" that
-//! proves you can talk to the runtime, with no Drop and no lifetime —
-//! liveness is the caller's contract, just as it is for mruby's own C
-//! API. The C-bridges in `crate::runtime::bridges` remain
-//! `unsafe extern "C" fn` callbacks invoked by mruby, but their bodies
-//! acquire a `Kobako` through `Kobako::resolve_raw` and then call
-//! safe methods.
-//!
-//! ## Lifecycle
-//!
-//! `Kobako::init` is called once per `__kobako_eval` invocation,
-//! immediately after `Mrb::open`. It registers every boot-time entity
-//! and returns a `Kobako` carrying the resolved class handles. The
-//! returned value is then used to drive the Frame 1 preamble through
-//! `Kobako::install_bindings`.
-//!
-//! C-bridges enter on a raw `*mut mrb_state` — the
-//! `beni::sys::mrb_func_t` ABI mandates it — but `beni::method!`
-//! hands each body a borrowed `&Mrb`, which it passes to
-//! `Kobako::resolve_raw` to obtain the same handle, reading the
-//! registrations resolved once for this instance.
-//!
-//! What this file holds is the install side: registering the surface and
-//! naming the errors that cross back out through it. Reading a value out
-//! of the VM or building one into it is `values`, which is also the
-//! surface a payload codec is handed.
+//! It stands apart from `beni::Mrb`, which owns only the language VM. Like
+//! `magnus::Ruby` for CRuby, a `Kobako` is a token proving the runtime can
+//! be reached, with liveness the caller's contract. Reading or building VM
+//! values lives in `values`, which is also what a payload codec is handed.
 
 pub(crate) mod block_stack;
 pub(crate) mod bridges;

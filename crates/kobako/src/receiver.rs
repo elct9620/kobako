@@ -39,8 +39,8 @@ pub use kobako_transport::envelope::{Fault, FaultKind};
 ///
 /// `block` is present when the guest call site supplied a block; the
 /// `Yielder` riding it is the block's host-side stand-in, and each
-/// each yield is a synchronous round-trip into the guest
-/// whose errors propagate with `?`. `handles` is the invocation's
+/// yield is a synchronous round-trip into the guest whose errors
+/// propagate with `?`. `handles` is the invocation's
 /// capability-Handle view: `Handles::alloc` hands the guest a stateful
 /// host object as an opaque token, `Handles::resolve` turns a
 /// `Value::Handle` argument back into the live object.

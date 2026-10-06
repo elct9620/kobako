@@ -1,34 +1,14 @@
-//! Module-level static slot owning the live `Mrb` state.
+//! Module-level static slot owning the live `Mrb` in canonical boot state.
 //!
-//! The slot carries the VM in canonical boot state: populated at build
-//! time by the wizer bake
-//! (`super::boot::bake_boot`) or lazily by the first entry on a
-//! non-baked artifact. The block / yield mechanism
-//! needs the *same* `mrb_state` to be reachable from
-//! `__kobako_yield_to_block` while the original dispatch frame is
-//! still on the wasm call stack, which is why the slot is a
-//! module-level static rather than a stack local.
+//! It is a static rather than a stack local because
+//! `__kobako_yield_to_block` must reach the *same* `mrb_state` while the
+//! dispatch frame that yielded is still on the wasm call stack. Once boot
+//! succeeds it stays installed, since the host drops the whole instance
+//! after each invocation.
 //!
-//! ## Lifecycle contract
-//!
-//! 1. The bake (or the first entry's `boot_vm`) installs an opened,
-//!    Kobako-initialised `Mrb` via `MRB.install`.
-//! 2. Entry bodies reach the VM through the `Kobako` returned by
-//!    `acquire_vm` (`Kobako::mrb`); the yield entry, which has no
-//!    acquire step, borrows via `MRB.as_ref`.
-//! 3. The slot is cleared only when a lazy boot fails mid-way; on
-//!    every other path the VM stays installed — the host discards the
-//!    whole instance after each invocation (the per-invocation
-//!    discipline), so `mrb_close` never needs to run.
-//!
-//! ## Cross-invocation isolation
-//!
-//! The host drives every invocation on a fresh instance of the module,
-//! and `MRB` is a module-level static inside that instance's
-//! wasm linear memory — two invocations see *different* memory
-//! locations for this static, with no aliasing. The single-threaded
-//! wasm execution model inside any one instance is what licenses the
-//! `UnsafeCell` interior mutability here.
+//! Each invocation runs on a fresh instance, so the static never aliases
+//! across invocations, and wasm runs single-threaded inside one instance;
+//! together they license the `UnsafeCell` here.
 
 use beni::Mrb;
 

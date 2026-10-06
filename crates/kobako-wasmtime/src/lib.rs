@@ -8,29 +8,7 @@
 //! lives behind the contract surface, so a frontend shell (the Ruby
 //! ext's `Kobako::Runtime`) sees no wasmtime type.
 //!
-//! Module layout (one responsibility per file):
-//!
-//! * `driver` — `Driver` + `impl kobako_runtime::runtime::Runtime`
-//!   (the run mechanics).
-//! * `cache` — process-wide Engine + per-path Module cache and the
-//!   process-singleton epoch ticker thread.
-//! * `config` — per-Driver caps (timeout / stdout / stderr limits).
-//! * `exports` — per-invocation `__kobako_eval` / `_run` /
-//!   `_take_outcome` / `_alloc` / `memory` handles.
-//! * `instance_pre` — host-import Linker wiring + per-path
-//!   `InstancePre` cache.
-//! * `abi` — the Guest Binary's declared ABI version check, verified
-//!   with the cached `InstancePre` it guards.
-//! * `invocation` — Invocation (per-Store context), the
-//!   `MemoryLimiter` memory cap, and the trap marker types
-//!   (`TimeoutTrap` / `MemoryLimitTrap`).
-//! * `dispatch` — `__kobako_dispatch` host-import dispatch helpers.
-//! * `frames` — stdin frame stream + WASI context assembly, `#run`
-//!   envelope write, OUTCOME_BUFFER readout.
-//! * `guest_mem` — Caller-based guest linear-memory alloc / write / read.
-//! * `capture` — stdout / stderr pipe sizing + clip helpers.
-//! * `ambient` — frozen WASI clocks + constant RNG (ambient denial).
-//! * `trap` — wasmtime-error → neutral `Trap` classification.
+//! Each module holds one responsibility and opens with its own doc.
 
 mod abi;
 mod ambient;

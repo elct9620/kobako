@@ -15,13 +15,7 @@
 //! `kobako-wasmtime` crate behind the `kobako_runtime` contract; no wasm
 //! engine type reaches this crate or the Host App.
 //!
-//! Module layout — one responsibility per file:
-//!
-//! * `bridge` — the magnus dispatch bridge: `RubyDispatchHandler` plus the
-//!   frame-scoped `GuestYielder` Ruby class.
-//! * `errors` — the single boundary mapping the neutral `Trap` /
-//!   `SetupError` channels onto the `Kobako::*` classes for a failure that
-//!   never produced a `Snapshot` (a could-not-start fault).
+//! Each module holds one responsibility and opens with its own doc.
 
 mod bridge;
 mod errors;
