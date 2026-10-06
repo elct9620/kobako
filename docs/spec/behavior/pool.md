@@ -118,41 +118,14 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | When | a checkout runs again inside that block |
 | Then | the inner block receives a different Sandbox than the outer one |
 
-## `PL-013` A trapped Sandbox is never handed out again
+## `PL-032` A trap costs the Pool nothing
 
 | Step | Statement |
 | --- | --- |
 | Given | a Pool of one slot |
 | Given | a checkout whose block met a trap |
 | When | a checkout runs again |
-| Then | the block receives a different Sandbox than the one the trap left |
-
-## `PL-014` The refilled slot is a working one
-
-| Step | Statement |
-| --- | --- |
-| Given | a Pool of one slot |
-| Given | a checkout whose block met a trap |
-| When | the next checkout's Sandbox evaluates guest code |
-| Then | the evaluation returns its value |
-
-## `PL-015` Refilling builds a Sandbox rather than reviving one
-
-| Step | Statement |
-| --- | --- |
-| Given | a Pool of one slot and a setup block that records each Sandbox it prepares |
-| Given | a checkout whose block met a trap |
-| When | a checkout runs again |
-| Then | the setup block has run twice |
-
-## `PL-016` Only a trap costs the Pool its Sandbox
-
-| Step | Statement |
-| --- | --- |
-| Given | a Pool of one slot |
-| Given | a checkout whose block met a Sandbox failure |
-| When | a checkout runs again |
-| Then | the block receives the Sandbox that error left |
+| Then | the block receives the Sandbox the trap left, and it evaluates guest code |
 
 ## `PL-017` A guest error costs no construction
 
@@ -269,13 +242,3 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | Given | a Pool of one slot whose holder has bound a Service |
 | When | another checkout times out |
 | Then | the holder still drives its Sandbox and the next checkout receives it |
-
-## `PL-030` A slot a trap emptied is refilled on demand
-
-| Step | Statement |
-| --- | --- |
-| Given | a Pool of one slot whose holder met a trap |
-| When | the holder's block returns |
-| Then | no Sandbox has been built yet |
-| When | a checkout next needs the slot |
-| Then | it builds one |

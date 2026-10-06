@@ -5,16 +5,8 @@ require_relative "sandbox"
 
 module Kobako
   # Kobako::Pool — a bounded set of warm, identically set-up Sandboxes
-  # handed out one exclusive holder at a time.
-  #
-  # Construction forwards every +Kobako::Sandbox.new+ keyword verbatim
-  # and holds the optional block as the per-Sandbox setup hook; a
-  # checkout prefers an idle Sandbox and constructs a new one only when
-  # none is idle and fewer than +slots+ exist. +#with+ blocks up
-  # to +checkout_timeout+ seconds when every slot is held, discards at
-  # checkin a Sandbox whose holder raised +TrapError+, and
-  # the Pool releases everything with its own reachability — there is no
-  # teardown verb.
+  # handed out one exclusive holder at a time. Every Sandbox it builds is
+  # kept: an invocation leaves nothing behind, whatever ended it.
   class Pool
     # The +#with+ wait bound applied when +checkout_timeout+ is not given.
     DEFAULT_CHECKOUT_TIMEOUT_SECONDS = 5.0
@@ -40,21 +32,15 @@ module Kobako
     end
 
     # Yield one exclusively-held Sandbox to the block and return the
-    # block's value. Blocks while every slot is held; raises
-    # +Kobako::PoolTimeoutError+ once the wait exceeds +checkout_timeout+.
-    # The Sandbox returns to the pool at block exit — unless the block raised
-    # +Kobako::TrapError+, in which case that Sandbox is discarded and its
-    # slot refills by a fresh construction on next demand.
+    # block's value; the Sandbox returns to the pool however the block
+    # exits. Raises +Kobako::PoolTimeoutError+ once every slot has stayed
+    # held past +checkout_timeout+.
     def with
       sandbox = acquire
       begin
         yield sandbox
-      rescue TrapError
-        release_capacity!
-        sandbox = nil
-        raise
       ensure
-        checkin(sandbox) if sandbox
+        checkin(sandbox)
       end
     end
 
@@ -126,8 +112,8 @@ module Kobako
       end
     end
 
-    # Give back reserved-but-unfilled capacity — a failed construction or
-    # a discarded Sandbox — and wake one waiting checkout to claim it.
+    # Give back the capacity a failed construction reserved, and wake one
+    # waiting checkout to claim it.
     def release_capacity!
       @mutex.synchronize do
         @constructed -= 1

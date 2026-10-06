@@ -369,7 +369,7 @@ pool.with { |sandbox| sandbox.eval(%(KV::Lookup.call("user_42"))).value }
 | `slots:` | Upper bound on constructed Sandboxes | required |
 | `checkout_timeout:` | Seconds `#with` waits for a free Sandbox; `nil` waits indefinitely | 5.0 |
 
-Sandboxes construct lazily on first demand. `#with` yields a Sandbox and returns the block's value, and at block exit the Sandbox returns to the pool. A block that raises `Kobako::TrapError` instead discards its Sandbox, and the slot refills by a fresh construction on next demand. A checkout that waits past `checkout_timeout` raises `Kobako::PoolTimeoutError`. There is no teardown verb — a Pool releases everything with its own reachability.
+Sandboxes construct lazily on first demand. `#with` yields a Sandbox and returns the block's value, and at block exit the Sandbox returns to the pool, whatever the block raised. A checkout that waits past `checkout_timeout` raises `Kobako::PoolTimeoutError`. There is no teardown verb — a Pool releases everything with its own reachability.
 
 #### Pool Trade-offs
 

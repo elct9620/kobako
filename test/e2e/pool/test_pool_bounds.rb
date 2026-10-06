@@ -4,8 +4,8 @@ require "test_helper"
 
 # Coverage for what a Kobako::Pool slot costs and when it is paid, driving
 # the real data/kobako.wasm: a nested checkout holds a slot like any other
-# holder, a checkout that waits past its bound fails as itself and touches
-# nothing, and a slot a trap emptied is refilled only when it is needed.
+# holder, and a checkout that waits past its bound fails as itself and
+# touches nothing.
 class TestPoolBounds < Minitest::Test
   include E2eGuestHelper
 
@@ -44,19 +44,5 @@ class TestPoolBounds < Minitest::Test
 
     assert_equal :held, after, "the holder must still drive its Sandbox after another checkout timed out"
     pool.with { |sandbox| assert_same held, sandbox, "a timed-out checkout must leave the pooled Sandbox in place" }
-  end
-
-  # @behavior PL-030
-  def test_a_slot_a_trap_emptied_is_refilled_only_when_a_checkout_needs_it
-    constructed = []
-    pool = Kobako::Pool.new(slots: 1, timeout: 0.05) { |sandbox| constructed << sandbox }
-    assert_raises(Kobako::TimeoutError) { pool.with { |sandbox| sandbox.eval("loop do end") } }
-
-    refilled_on_return = constructed.size
-    pool.with { nil }
-
-    assert_equal [1, 2], [refilled_on_return, constructed.size],
-                 "a slot a trap emptied must be refilled when a checkout next needs it, not when " \
-                 "the trapped holder returns"
   end
 end

@@ -2,43 +2,38 @@
 
 require "test_helper"
 
-# Coverage for Kobako::Pool slot recovery — the checkin contract on a
-# raising block (TrapError discards and recreates, anything else checks
-# back in) and capacity release after a failed construction, driving the
-# real data/kobako.wasm.
+# Coverage for Kobako::Pool slot recovery — a raising block checks its
+# Sandbox back in, and a failed construction releases its capacity,
+# driving the real data/kobako.wasm.
 class TestPoolRecovery < Minitest::Test
   include E2eGuestHelper
 
-  # @behavior PL-013 PL-014 PL-015
-  # A TrapError discards the Sandbox at checkin; the slot refills with a
-  # fresh construction + setup-block run on next demand.
-  def test_trap_error_discards_and_refills_the_slot
+  # @behavior PL-032
+  # A trap ends one invocation on its own instance, so the Sandbox that
+  # met it serves the next checkout unchanged.
+  def test_trap_error_checks_the_sandbox_back_in
     constructed = []
     pool = Kobako::Pool.new(slots: 1, timeout: 0.05) { |sandbox| constructed << sandbox }
     assert_raises(Kobako::TimeoutError) { pool.with { |sandbox| sandbox.eval("loop do end") } }
-    pool.with do |sandbox|
-      refute_same constructed.first, sandbox,
-                  "a checkout after a TrapError through Pool#with must never receive the Sandbox that trapped"
-      assert_equal 1, sandbox.eval("1").value, "the refilled Sandbox must invoke normally"
+
+    value = pool.with do |sandbox|
+      assert_same constructed.first, sandbox,
+                  "a checkout after a TrapError through Pool#with must receive the Sandbox the trap left"
+      sandbox.eval("1").value
     end
-    assert_equal 2, constructed.size, "the discarded slot must refill via a fresh construction"
+    assert_equal 1, value, "the Sandbox a trap left through Pool#with must evaluate guest code"
   end
 
-  # @behavior PL-016 PL-017
-  # Only TrapError discards — a guest exception surfaces as SandboxError
-  # and leaves the Sandbox healthy, so checkin must return it to the pool.
-  # A regression widening the discard rescue (or losing the ensure-checkin)
-  # would rebuild or leak the slot on every guest error while the
-  # TrapError-side test stays green.
-  def test_non_trap_error_checks_the_sandbox_back_in
+  # @behavior PL-017
+  # A guest exception leaves the Sandbox in the pool without a rebuild.
+  def test_sandbox_error_checks_the_sandbox_back_in
     constructed = []
     pool = Kobako::Pool.new(slots: 1) { |sandbox| constructed << sandbox }
     assert_raises(Kobako::SandboxError) { pool.with { |sandbox| sandbox.eval(%(raise "boom")) } }
-    pool.with do |sandbox|
-      assert_same constructed.first, sandbox,
-                  "a SandboxError through Pool#with must check the same Sandbox back in, not discard it"
-    end
-    assert_equal 1, constructed.size, "a non-TrapError block exit must not trigger a fresh construction"
+    pool.with { nil }
+
+    assert_equal 1, constructed.size,
+                 "a SandboxError through Pool#with must not cost a fresh construction on the next checkout"
   end
 
   # @behavior PL-006 PL-007
