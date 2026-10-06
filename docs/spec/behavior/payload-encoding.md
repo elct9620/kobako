@@ -88,6 +88,14 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | the peer implementation reads it and writes it back |
 | Then | the bytes are identical |
 
+## `WP-098` Both implementations carry the same kinds of frame
+
+| Step | Statement |
+| --- | --- |
+| Given | the kinds of payload frame this host encodes and decodes |
+| When | the peer implementation is asked which kinds it carries |
+| Then | it names the same kinds |
+
 ## `WP-009` Nothing crosses as nothing
 
 | Step | Statement |

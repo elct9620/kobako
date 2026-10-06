@@ -1,13 +1,15 @@
 # frozen_string_literal: true
 
-# Cross-language payload-codec round-trip.
+# Cross-language payload-codec agreement.
 #
-# Drives the Rust `payload_oracle` subprocess from the host: each test
-# Ruby-encodes one codec payload, prefixes a single-byte kind tag, and
-# asks the oracle to decode + re-encode it. The Ruby side then asserts
-# byte-identical round-trip — proving the two codec peers agree on the
-# argument shape, not just the underlying msgpack codec already covered
-# by test/fuzz/test_roundtrip_fuzz.rb.
+# Drives the Rust `payload_oracle` subprocess from the host. The peers
+# first agree on which payload types exist: the host lists its own by
+# reflection and the oracle names the kinds it carries. Then each
+# round-trip test Ruby-encodes one codec payload, prefixes a single-byte
+# kind tag, and asks the oracle to decode + re-encode it. The Ruby side
+# asserts byte-identical round-trip — proving the two codec peers agree
+# on the argument shape, not just the underlying msgpack codec already
+# covered by test/fuzz/test_roundtrip_fuzz.rb.
 #
 # The core envelope has no case here: it has one implementation, pinned
 # by the golden vectors in crates/kobako-transport.
@@ -18,7 +20,7 @@
 
 require "test_helper"
 
-class TestArgumentsRoundtrip < Minitest::Test
+class TestPayloadOracle < Minitest::Test
   include GuestGuard
 
   CRATE_DIR = TestPaths.source("wasm", "kobako-wasm")
@@ -41,6 +43,26 @@ class TestArgumentsRoundtrip < Minitest::Test
     body, error = @channel.read_frame
     flunk "oracle reported error: #{body}" if error
     body
+  end
+
+  # A payload type is a class under Kobako::Payload that both writes
+  # itself and reads itself back. Listing the host's by reflection, rather
+  # than by name, is what lets a type only this peer grows surface here.
+  def host_payload_types
+    Kobako::Payload.constants.map { |name| Kobako::Payload.const_get(name) }
+                   .select { |type| type.is_a?(Class) && type.method_defined?(:encode) && type.respond_to?(:decode) }
+                   .map { |type| type.name.split("::").last }
+                   .sort
+  end
+
+  def oracle_payload_types
+    oracle_roundtrip("?", "").split("\n").map { |line| line.split(" ", 2).last }.sort
+  end
+
+  # @behavior WP-098
+  def test_both_peers_carry_the_same_payload_types
+    assert_equal host_payload_types, oracle_payload_types,
+                 "the payload types Kobako::Payload codes must be the kinds payload_oracle names"
   end
 
   # ---------- invocation Arguments payload ----------

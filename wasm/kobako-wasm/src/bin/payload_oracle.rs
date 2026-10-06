@@ -17,14 +17,15 @@
 //!
 //! ```text
 //! 4-byte BE length (of payload, including the kind tag)
-//! 1-byte kind: 'A' invocation Arguments
+//! 1-byte kind: a tag from `KINDS`, or '?' to list them
 //! N bytes: msgpack payload for the specified document kind
 //! ```
 //!
 //! Result frames have the same layout as `roundtrip_oracle`: a 4-byte
 //! length header (high bit clear on success, set on error) followed by
 //! the re-encoded bytes (no kind tag — the Ruby driver knows which kind
-//! it sent).
+//! it sent). A '?' frame answers one `<tag> <type name>` line per kind,
+//! so the host can hold its own payload types to the same set.
 //!
 //! No deps beyond the codec under test and `std`.
 
@@ -36,6 +37,15 @@ use kobako_codec::msgpack::payload::Arguments;
 use kobako_transport::abi::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
 
 const ERROR_FLAG: u32 = 0x8000_0000;
+
+const LIST_KINDS: u8 = b'?';
+
+type Roundtrip = fn(&[u8]) -> Result<Vec<u8>, String>;
+
+/// Every payload document this codec carries: its kind tag, the type name
+/// its host peer shares, and the round-trip that exercises it. A payload
+/// type joins the cross-language checks by joining this table.
+const KINDS: &[(u8, &str, Roundtrip)] = &[(b'A', "Arguments", roundtrip_as::<Arguments>)];
 
 fn main() {
     if let Err(e) = run() {
@@ -69,7 +79,7 @@ fn run() -> io::Result<()> {
 
         let kind = payload[0];
         let body = &payload[1..];
-        match roundtrip(kind, body) {
+        match answer(kind, body) {
             Ok(out) => write_frame(&mut output, &out, false)?,
             Err(msg) => write_frame(&mut output, msg.as_bytes(), true)?,
         }
@@ -85,14 +95,30 @@ fn write_frame<W: Write>(out: &mut W, payload: &[u8], is_error: bool) -> io::Res
     Ok(())
 }
 
-fn roundtrip(kind: u8, body: &[u8]) -> Result<Vec<u8>, String> {
-    match kind {
-        b'A' => {
-            let arguments = Arguments::decode(body).map_err(stringify)?;
-            arguments.encode().map_err(stringify)
-        }
-        other => Err(format!("unknown document kind {:#04x}", other)),
+fn answer(kind: u8, body: &[u8]) -> Result<Vec<u8>, String> {
+    if kind == LIST_KINDS {
+        return Ok(list_kinds());
     }
+    match KINDS.iter().find(|(tag, _, _)| *tag == kind) {
+        Some((_, _, roundtrip)) => roundtrip(body),
+        None => Err(format!("unknown document kind {:#04x}", kind)),
+    }
+}
+
+fn roundtrip_as<T: Decode + Encode>(body: &[u8]) -> Result<Vec<u8>, String> {
+    T::decode(body)
+        .map_err(stringify)?
+        .encode()
+        .map_err(stringify)
+}
+
+fn list_kinds() -> Vec<u8> {
+    KINDS
+        .iter()
+        .map(|(tag, name, _)| format!("{} {name}", *tag as char))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .into_bytes()
 }
 
 fn stringify(e: codec::Error) -> String {
