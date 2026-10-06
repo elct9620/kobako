@@ -74,11 +74,8 @@ pub fn alloc(size: u32) -> u32 {
     }
 }
 
-/// Outcome reader — the host calls the `__kobako_take_outcome` export
-/// after `__kobako_eval` / `__kobako_run` returns to fetch the
-/// outcome-buffer bytes. Returns packed u64 `(ptr << 32) | len`.
-/// `len == 0` is a wire violation (docs/wire-codec.md § ABI
-/// Signatures).
+/// The outcome buffer as a packed `(ptr << 32) | len`; `len == 0` is a
+/// wire violation.
 ///
 /// The returned ptr aliases the buffer the static owns; the host must
 /// consume the bytes before the next invocation rebuilds the buffer.

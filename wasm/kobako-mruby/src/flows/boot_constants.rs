@@ -59,9 +59,6 @@ unsafe impl Sync for BootConstantSlot {}
 
 static BOOT_CONSTANTS: BootConstantSlot = BootConstantSlot::new();
 
-/// Record what `kobako`'s VM holds at top level as the boot-state
-/// snapshot. Called from `super::boot::boot_vm` once the runtime is
-/// installed — at the bake, or on a non-baked artifact's first entry.
 pub(super) fn record(kobako: &Kobako) {
     BOOT_CONSTANTS.install(kobako.top_level_constants());
 }

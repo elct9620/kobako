@@ -33,9 +33,6 @@ const MAX_NESTING_DEPTH: usize = 127;
 /// loss, the ceiling of the parse integer policy's `Float` band.
 const FLOAT_EXACT_INT_LIMIT: u128 = 1 << 53;
 
-/// Map a parsed `serde_json::Value` to a native mruby value tree
-/// (`parse`). Object keys become `Symbol` when `symbolize` is set,
-/// `String` otherwise.
 pub(crate) fn decode(mrb: &Mrb, json: &JsonValue, symbolize: bool) -> Result<Value, Error> {
     match json {
         JsonValue::Null => Ok(Value::nil()),
@@ -64,9 +61,8 @@ pub(crate) fn decode(mrb: &Mrb, json: &JsonValue, symbolize: bool) -> Result<Val
     }
 }
 
-/// Apply the integer-range policy. A real maps to `Float`; an
-/// integer maps to `Integer` when it fits the guest's 32-bit width, to an
-/// exact `Float` up to 2^53, and otherwise raises rather than degrade.
+/// An integer past the guest's 32-bit width becomes an exact `Float` up to
+/// 2^53 and otherwise raises rather than lose precision.
 fn decode_number(mrb: &Mrb, n: &Number) -> Result<Value, Error> {
     // `arbitrary_precision` keeps the original literal, so its textual
     // form distinguishes an integer from a real even past `u64` range.
@@ -101,9 +97,8 @@ fn too_large(mrb: &Mrb, literal: &str) -> Error {
     )
 }
 
-/// Cap an untrusted numeric literal before it enters an error message, so a
-/// pathologically long digit run cannot inflate the exception. A literal past
-/// the cap shows a bounded prefix and its length instead of its full text.
+/// An untrusted literal is capped before it enters an error message, so a
+/// pathologically long digit run cannot inflate the exception.
 fn clamp_literal(literal: &str) -> String {
     const MAX: usize = 32;
     if literal.len() <= MAX {
@@ -113,9 +108,8 @@ fn clamp_literal(literal: &str) -> String {
     format!("{head}... ({} digits)", literal.len())
 }
 
-/// Build a `String` or interned `Symbol` object key. Interning routes
-/// through `String#to_sym` rather than a `CStr` so an arbitrary key byte
-/// sequence (a key may carry a NUL) interns intact.
+/// Interning routes through `String#to_sym` rather than a `CStr`, so a key
+/// carrying a NUL interns intact.
 fn decode_key(mrb: &Mrb, key: &str, symbolize: bool) -> Value {
     let s = mrb.str_new(key.as_bytes()).as_value();
     if symbolize {
@@ -125,9 +119,6 @@ fn decode_key(mrb: &Mrb, key: &str, symbolize: bool) -> Value {
     }
 }
 
-/// Map an mruby value to a `serde_json::Value` (`generate` /
-/// `pretty_generate`). `depth` is the current nesting level, bounded by
-/// `MAX_NESTING_DEPTH`.
 pub(crate) fn encode(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, Error> {
     // Dispatch on the value's native mruby type through the safe `FromValue`
     // downcast / tag predicates, as the guest codec does — never on its Ruby
@@ -200,11 +191,8 @@ fn encode_hash(mrb: &Mrb, hash: Hash, depth: usize) -> Result<JsonValue, Error> 
     Ok(JsonValue::Object(map))
 }
 
-/// Render an object key as its JSON string form. A `String`, `Symbol`, or
-/// JSON-native scalar (number, `nil`, boolean) renders to text, as in
-/// CRuby; any other key — an `Array`, a `Hash`, a `Kobako::Handle`, a
-/// bound constant, or any non-native object — is refused through the same
-/// boundary as a non-native value, never stringified through a
+/// A `String`, `Symbol`, or JSON-native scalar renders to text, as in CRuby;
+/// any other key is refused rather than stringified through a
 /// host-dispatching `to_s`. The `as_json` opt-in applies to values, never
 /// to keys.
 fn encode_key(mrb: &Mrb, key: Value) -> Result<String, Error> {
@@ -247,17 +235,16 @@ fn encode_via_as_json(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, 
     encode(mrb, projected, depth + 1)
 }
 
-/// Read a `String` value's bytes as a Rust `String`. JSON text is UTF-8,
-/// so a non-UTF-8 byte sequence is refused rather than lossily transcoded.
+/// JSON text is UTF-8, so a non-UTF-8 byte sequence is refused rather than
+/// lossily transcoded.
 fn utf8_string(mrb: &Mrb, s: RString) -> Result<String, Error> {
     let bytes = Vec::<u8>::from_value(s.as_value())
         .ok_or_else(|| generator_error(mrb, "string is not valid UTF-8"))?;
     String::from_utf8(bytes).map_err(|_| generator_error(mrb, "string is not valid UTF-8"))
 }
 
-/// Read a Symbol's name as a Rust `String`, holding it to the same rule
-/// `utf8_string` holds a String to: JSON text is UTF-8, so a name whose
-/// bytes are not is refused rather than rendered into a different name.
+/// Held to `utf8_string`'s rule, so a non-UTF-8 name is refused rather than
+/// rendered into a different name.
 fn utf8_symbol_name(mrb: &Mrb, symbol: Symbol) -> Result<String, Error> {
     symbol
         .name_bytes(mrb)

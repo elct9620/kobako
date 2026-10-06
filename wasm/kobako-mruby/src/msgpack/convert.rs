@@ -33,11 +33,9 @@ use kobako_codec::msgpack::codec::Value as CodecValue;
 // (docs/wire/payload-msgpack.md § Structural Nesting Depth).
 use kobako_codec::msgpack::codec::MAX_NESTING_DEPTH;
 
-/// Encode a guest String. mruby carries no encoding tag, so validity is
-/// the only rule available: UTF-8 bytes ride as `str`, any other bytes as
-/// `bin`. Both families are legal wherever a value rides, so the choice
-/// costs nothing and no byte is dropped — where rendering the String
-/// through `Object#to_s` would drop every byte a `str` cannot hold.
+/// mruby carries no encoding tag, so validity is the only rule: UTF-8
+/// bytes ride as `str`, any other as `bin`, and no byte is dropped the way
+/// rendering through `Object#to_s` would.
 fn string_to_codec(val: Value) -> Option<CodecValue> {
     let bytes = Vec::<u8>::from_value(val)?;
     Some(match String::from_utf8(bytes) {
@@ -46,17 +44,14 @@ fn string_to_codec(val: Value) -> Option<CodecValue> {
     })
 }
 
-/// A Symbol's name, or `None` when it has none the wire can carry. The
-/// name rides as ext 0x00, whose payload the wire requires to be UTF-8,
-/// so a name that is not UTF-8 has no representation — reading the bytes
-/// rather than rendering is what makes that detectable at all.
+/// The name rides as ext 0x00, which must be UTF-8; reading the bytes
+/// rather than rendering is what makes a non-UTF-8 name detectable at all.
 fn symbol_name(kobako: &Kobako, symbol: Symbol) -> Option<String> {
     String::from_utf8(symbol.name_bytes(kobako.mrb())?).ok()
 }
 
-/// Encode a guest Symbol. A name the wire cannot carry leaves the value
-/// unrepresentable, so the caller refuses it rather than interning
-/// something else under a name the guest never wrote.
+/// A name the wire cannot carry leaves the value unrepresentable, so the
+/// caller refuses it rather than interning a name the guest never wrote.
 fn symbol_to_codec(kobako: &Kobako, val: Value) -> Option<CodecValue> {
     symbol_name(kobako, Symbol::from_value(val)?).map(CodecValue::Sym)
 }
@@ -69,13 +64,8 @@ type UnpackedArgs = (
 );
 
 impl Kobako {
-    /// Decode every key/value pair from an mruby Hash into `out` as
-    /// `(String, codec::Value)` pairs. The outer `String` carries the
-    /// key's name; `payload::Arguments`'s `Encode` impl re-emits
-    /// each name as a `Value::Sym` (ext 0x00) per
-    /// docs/wire/payload-msgpack.md § Ext Types. A key or a value with no
-    /// wire representation aborts the walk with `CodecError` so the caller
-    /// raises at the guest dispatch call site rather than coercing it.
+    /// A key or value with no wire representation aborts the walk, so the
+    /// caller raises at the guest dispatch call site rather than coercing it.
     pub(crate) fn extract_hash_kwargs(
         &self,
         hash: beni::Hash,
@@ -112,17 +102,12 @@ impl Kobako {
         }
     }
 
-    /// Convert a dispatch call's positional `rest` slice and its separate
-    /// keyword `kwargs` Hash into wire args and kwargs. Every element of
-    /// `rest` is a positional argument — an explicit `{...}` Hash literal
-    /// among them stays positional, matching Ruby 3 call semantics; the
-    /// keyword bucket arrives already separated from the positionals,
-    /// empty when the call passed no keywords.
+    /// An explicit `{...}` Hash literal in `rest` stays positional, matching
+    /// Ruby 3 call semantics.
     ///
-    /// `rest` is typed as `&[Value]` even though the underlying buffer
-    /// came from mruby's variadic out-param; `Value` is
-    /// `#[repr(transparent)]` over `mrb_value` so the slice layouts
-    /// are identical (the bridge call site casts once).
+    /// `rest` is typed as `&[Value]` even though the buffer came from
+    /// mruby's variadic out-param; `Value` is `#[repr(transparent)]` over
+    /// `mrb_value`, so the slice layouts are identical.
     pub(crate) fn unpack_args_kwargs(
         &self,
         rest: &[Value],
@@ -142,9 +127,6 @@ impl Kobako {
         Ok((args, kwargs))
     }
 
-    /// Convert each element of an mruby Array through the strict value
-    /// converter, returning a `Vec<Option<..>>` the caller collapses to a
-    /// single `None` when any element has no wire representation.
     fn array_to_codec(
         &self,
         ary: beni::Array,
@@ -158,11 +140,8 @@ impl Kobako {
         items
     }
 
-    /// Convert each key/value pair of an mruby Hash through the strict value
-    /// converter. Both the key and the value flow through it so a `Symbol`
-    /// key arrives as `Value::Sym` (ext 0x00) and a `String` key as
-    /// `Value::Str` — distinct codec encodings per
-    /// docs/wire/payload-msgpack.md § Ext Types.
+    /// Keys flow through the value converter too, so a `Symbol` key and a
+    /// `String` key keep distinct encodings.
     fn hash_to_codec(
         &self,
         hash: beni::Hash,
@@ -186,26 +165,13 @@ impl Kobako {
         pairs
     }
 
-    /// Convert a `Value` to a kobako `kobako_codec::msgpack::codec::Value` — the
-    /// single guest→host value converter, shared by the `#eval` / `#run`
-    /// outcome, the yield-block result, and the dispatch Call args /
-    /// kwargs. Symbol values map to `Value::Sym` (ext 0x00); Array / Hash
-    /// values map to `Value::Array` / `Value::Map` recursively
-    /// (docs/wire/payload-msgpack.md § Type Mapping #7-#8) so a collection retains
-    /// element-level fidelity.
+    /// The single guest→host value converter, so every value path refuses
+    /// the same values the same way.
     ///
-    /// A `Kobako::Handle` proxy the guest holds (a Service return, or a
-    /// `#run` argument auto-wrap) re-emits as an `ext 0x01` Capability
-    /// Handle carrying its id, so the host restores it to its original
-    /// object on every guest→host value path.
-    ///
-    /// Returns `None` when `val` has no wire representation: any type
-    /// outside the 11-entry wire set, a collection containing such a value,
-    /// or a collection that nests beyond `MAX_NESTING_DEPTH` (a reference
-    /// cycle necessarily does). No path coerces through an implicit `to_s` /
-    /// `inspect`, so the caller surfaces the `None` as a Panic envelope
-    /// (outcome), a `0x04` error Yield Reply (yield), or a raise at the
-    /// dispatch call site rather than handing the host a misleading String.
+    /// Returns `None` when `val` has no wire representation, including a
+    /// collection nested past `MAX_NESTING_DEPTH` (a reference cycle
+    /// necessarily is). No path coerces through an implicit `to_s` /
+    /// `inspect`, so the host is never handed a misleading String.
     pub(crate) fn try_codec_value(
         &self,
         val: Value,
@@ -269,12 +235,6 @@ impl Kobako {
         }
     }
 
-    /// Convert a kobako `kobako_codec::msgpack::codec::Value` into a `Value`
-    /// suitable for handing back to the mruby VM. Handle values are
-    /// boxed into a fresh `Kobako::Handle` instance carrying the id
-    /// (subsequent method calls on it route to the host through
-    /// `Kobako::Handle`'s instance-level `method_missing` and the bridge's
-    /// `forward_to_dispatch` round-trip).
     pub(crate) fn to_mrb_value(
         &self,
         val: kobako_codec::msgpack::codec::Value,

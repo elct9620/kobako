@@ -58,20 +58,8 @@ fn reflection_blocked(mrb: &Mrb, method_name: &str) -> beni::Error {
     }
 }
 
-/// Full guest→host dispatch from the active mruby call frame — the
-/// shared body behind `proxy_method_missing`. The caller supplies the
-/// `Target` it derived from its `self_` receiver (a class name for a
-/// bound constant, a Handle id for a `Kobako::Handle` instance) plus two
-/// error labels: `sym_err_msg` for a null method symbol, `envelope_err_msg`
-/// for a transport envelope fault. Extracts the method symbol, args/kwargs,
-/// and block; encodes the arguments and rounds the Call through the host
-/// via `kobako_core::proxy::dispatch`; and reads back whichever
-/// body the Reply's arm named — raising `Kobako::ServiceError` on a fault
-/// arm and `Kobako::Transport::Error` on an envelope fault (both raise
-/// paths diverge). The payload codec is this side's to run: the
-/// transport beneath routes the Call without reading a byte of it.
-/// The `Kobako` token supplies only the VM-level primitives (arg/result
-/// conversion, error raising); the dispatch orchestration lives here.
+/// The payload codec is this side's to run: the transport beneath routes
+/// the Call without reading a byte of it.
 ///
 /// The helper reads the call frame itself, so a caller must not have
 /// consumed the arglist before reaching it.
@@ -151,9 +139,8 @@ fn forward_to_dispatch(
     }
 }
 
-/// The failure a codec refusal at `position` attributes to, as the guest
-/// frame that provoked it will see it. The attribution itself is
-/// `crate::refusal`'s; this is only its delivery into a running script.
+/// The attribution itself is `crate::refusal`'s; this only delivers it
+/// into a running script.
 ///
 /// `Kobako::Transport::Error` is kobako's own namespaced constant, which
 /// no name lookup reaches, so it comes from the class `Kobako` already
@@ -177,19 +164,12 @@ fn refusal(
     }
 }
 
-/// `Kobako::Proxy#method_missing(name, *args)` C bridge — the single
-/// forwarding entry the module contributes to both proxy shapes.
-/// `Kobako::Proxy` is extended onto each bound-Service constant and included
-/// into `Kobako::Handle`. The Call `Target` follows the receiver's
-/// identity: an exact `Kobako::Handle` instance yields `Target::Handle`
-/// from its `@__kobako_id__` ivar, and a class receiver yields
-/// `Target::Path` from its constant name. Any other receiver — a subclass
-/// of `Kobako::Handle`, or a foreign object that mixed in the module — has
-/// no target and is refused in-guest (`raise_no_target`), so a guest cannot
-/// drive a Handle-targeted dispatch off arbitrary instance state by
+/// The Call `Target` follows the receiver's identity: an exact
+/// `Kobako::Handle` yields its id, a class its constant name. Any other
+/// receiver — a subclass of `Kobako::Handle`, or a foreign object that
+/// mixed in the module — has no target and is refused in-guest, so a guest
+/// cannot drive a Handle-targeted dispatch off arbitrary instance state by
 /// fabricating a proxy holder.
-///
-/// Forwards to `forward_to_dispatch`.
 pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Result<Value, beni::Error> {
     use kobako_transport::envelope::Target;
 
@@ -222,10 +202,6 @@ pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Result<Value, ben
     )
 }
 
-/// Refuse a dispatch from a receiver that mixed in `Kobako::Proxy` yet is
-/// neither a `Kobako::Handle` nor a class: it carries no dispatch target,
-/// so the call raises `NoMethodError` in-guest and sends no Call rather
-/// than forwarding a target read off arbitrary instance state.
 fn no_target(mrb: &Mrb, self_: Value) -> beni::Error {
     match mrb.exc_get(c"NoMethodError") {
         Ok(nomethod) => beni::Error::new(
@@ -237,12 +213,10 @@ fn no_target(mrb: &Mrb, self_: Value) -> beni::Error {
     }
 }
 
-/// `Kobako::Handle.new` / `.allocate` C bridge — singleton-class level.
-/// Both raise `NoMethodError` so an exact `Kobako::Handle` arises only from
-/// the wire decoder's `mrb_obj_new` (which bypasses these Ruby entries);
-/// with guest construction closed, a `Kobako::Handle` receiver in
-/// `proxy_method_missing` is always host-issued. `mrb_args_any()` makes the
-/// raise fire regardless of arguments.
+/// `Kobako::Handle.new` / `.allocate` both raise, so an exact
+/// `Kobako::Handle` arises only from the wire decoder's `mrb_obj_new`; with
+/// guest construction closed, a `Kobako::Handle` receiver in
+/// `proxy_method_missing` is always host-issued.
 pub(crate) fn handle_not_constructible(mrb: &Mrb, _self: Value) -> Result<Value, beni::Error> {
     Err(match mrb.exc_get(c"NoMethodError") {
         Ok(nomethod) => beni::Error::new(
@@ -254,9 +228,6 @@ pub(crate) fn handle_not_constructible(mrb: &Mrb, _self: Value) -> Result<Value,
     })
 }
 
-/// `Kobako::Handle#initialize(id)` C bridge. Stores the Handle integer
-/// id into the `@__kobako_id__` instance variable via
-/// `super::Kobako::set_handle_id`.
 pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value, id: Value) -> Result<Value, beni::Error> {
     // SAFETY: `mrb` is live for this bridge frame and install has run.
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
@@ -273,12 +244,8 @@ pub(crate) fn handle_initialize_copy(mrb: &Mrb, self_: Value, _orig: Value) -> V
     self_.freeze(mrb)
 }
 
-/// `respond_to_missing?(name, include_private)` C bridge, contributed by
-/// the `Kobako::Proxy` module. Always returns `true` — every method call
-/// is dispatched through `method_missing` to the host, so probing via
-/// `respond_to?` must succeed. Class-level on a bound constant that
-/// extended the module, instance-level on a `Kobako::Handle` that included
-/// it.
+/// Always `true`: every call dispatches through `method_missing` to the
+/// host, so probing via `respond_to?` must succeed.
 pub(crate) fn proxy_respond_to_missing(_mrb: &Mrb, _self_: Value) -> Value {
     // No VM access needed: `Value::true_()` reads the sys-side immediates
     // cache, populated at install before any probe runs, so the raw

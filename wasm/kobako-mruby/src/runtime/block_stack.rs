@@ -34,14 +34,11 @@ impl BlockStack {
         Self(UnsafeCell::new(Vec::new()))
     }
 
-    /// Push `block` onto the top of the stack.
     pub(crate) fn push(&self, block: Proc) {
         // SAFETY: see type doc.
         unsafe { (*self.0.get()).push(block) };
     }
 
-    /// Pop the top of the stack, discarding the value. Safe to call
-    /// when the stack is empty (no-op).
     pub(crate) fn pop(&self) {
         // SAFETY: see type doc.
         unsafe {
@@ -49,13 +46,9 @@ impl BlockStack {
         }
     }
 
-    /// Return the topmost block, or `None` when the stack is empty.
-    /// Consumed by `__kobako_yield_to_block` to identify the block
-    /// bound to the active dispatch frame. The returned handle is a copy
-    /// of the one stored on the stack — it is `Copy` and the underlying
-    /// `mrb_value` slot keeps the mruby GC rooting argument intact for
-    /// the duration of the dispatch frame, so reading the top is safe
-    /// inside the same single-threaded invocation that pushed it.
+    /// The stored `mrb_value` keeps the block GC-rooted for the dispatch
+    /// frame, so a copy of the top is safe to use inside the same
+    /// single-threaded invocation that pushed it.
     pub(crate) fn last(&self) -> Option<Proc> {
         // SAFETY: see type doc.
         unsafe { (*self.0.get()).last().copied() }

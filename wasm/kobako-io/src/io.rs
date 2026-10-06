@@ -30,20 +30,14 @@ use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::{Array, Error, IntoValue, Mrb, RString, Value};
 
-/// The positional arguments of a call registered for any arity — the
-/// splat every variadic body here reads, as an owned `Vec`.
 fn rest(mrb: &Mrb) -> Result<Vec<Value>, Error> {
     scan_args::<(), (), Array, (), (), ()>(mrb)?
         .splat
         .to_vec(mrb)
 }
 
-/// Install the IO surface on `mrb` — the top-level `::IO` class with
-/// its full instance-method surface, then the `STDOUT` / `STDERR`
-/// constants and the assignable `$stdout` / `$stderr` globals
-/// constructed from it — the gem-init step named after mruby's own
-/// `mrb_init_io`. The class is defined before the instances by
-/// construction; the body order is the dependency order.
+/// The gem-init step named after mruby's own `mrb_init_io`; the body order
+/// is the dependency order, the class before the instances built from it.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     use beni::Module;
 
@@ -89,14 +83,9 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     Ok(())
 }
 
-/// `IO.new(fd, mode)` — initialize a sandbox-scoped IO bound to a
-/// stdout / stderr file descriptor. Stores `fd` in `@__kobako_fd__`.
-///
-/// Raises `ArgumentError` when:
-///   * `fd` is not 1 (stdout) or 2 (stderr) — the sandbox does not
-///     route any other descriptor to the host capture pipe.
-///   * `mode` is anything other than `"w"` — only the write-path is
-///     implemented.
+/// `IO.new(fd, mode)` refuses any `fd` but 1 or 2, since the sandbox
+/// routes no other descriptor to the host capture pipe, and any `mode`
+/// but `"w"`, since only the write path exists.
 fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode_val: Value) -> Result<Value, Error> {
     if fd != 1 && fd != 2 {
         return Err(argument_error(
@@ -114,15 +103,9 @@ fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode_val: Value) -> Result<Va
     Ok(Value::zeroed())
 }
 
-/// `IO#write(*objs)` — coerce each object via `mrb_obj_as_string`
-/// and pump the bytes through `write(2)` to the descriptor-selected
-/// stream. Returns the total bytes accepted (an `Integer`).
-///
-/// Truncation on cap exhaustion surfaces as
-/// a short return value: when wasmtime's `MemoryOutputPipe` rejects
-/// bytes past its limit, `write(2)` short-writes and the returned
-/// total reflects only the accepted bytes. No Ruby-level error is
-/// raised.
+/// Truncation at the output cap surfaces as a short return value, not a
+/// Ruby-level error: past the pipe's limit `write(2)` short-writes, and the
+/// total counts only the accepted bytes.
 fn io_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let fd = read_fd(mrb, self_);
     // The construction-time allowlist in `io_initialize` is not
@@ -175,14 +158,10 @@ unsafe extern "C" {
     fn write(fd: core::ffi::c_int, buf: *const core::ffi::c_void, n: usize) -> isize;
 }
 
-/// `IO#fileno` — returns the stored fd as an `Integer`. Also
-/// registered as the `IO#to_i` alias.
 fn io_fileno(mrb: &Mrb, self_: Value) -> Value {
     read_fd(mrb, self_).into_value(mrb)
 }
 
-/// `IO#print(*args)` — write each argument's `to_s` form, nothing
-/// between or after. Returns `nil`.
 fn io_print(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let argv = rest(mrb)?;
     for &val in &argv {
@@ -193,9 +172,6 @@ fn io_print(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Ok(Value::nil())
 }
 
-/// `IO#puts(*args)` — newline-terminated write of each argument,
-/// recursing into Arrays element-wise; no arguments writes a bare
-/// newline. Returns `nil`.
 fn io_puts(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let argv = rest(mrb)?;
     if argv.is_empty() {
@@ -208,9 +184,6 @@ fn io_puts(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Ok(Value::nil())
 }
 
-/// One `puts` element: Arrays recurse element-wise; anything else is
-/// `to_s`-coerced, written, and newline-terminated unless the string
-/// already ends with one.
 fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
     // Downcast on the value's type tag, not its classname: the tag
     // covers Array subclasses too, matching the `is_a?(Array)` check
@@ -236,13 +209,8 @@ fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
     Ok(())
 }
 
-/// `IO#printf(format, *args)` — `sprintf` the arguments and write the
-/// result. Returns `nil`.
-///
-/// `Kernel#sprintf` is reachable through funcall regardless of its
-/// private visibility (`mrb_funcall_with_block` does not consult
-/// `MRB_METHOD_PRIVATE_FL`) — the same implicit-self call the
-/// previous mrblib body made.
+/// `Kernel#sprintf` is reachable through funcall despite being private,
+/// since `mrb_funcall_with_block` does not consult `MRB_METHOD_PRIVATE_FL`.
 fn io_printf(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let argv = rest(mrb)?;
     let formatted = self_.funcall(mrb, c"sprintf", &argv)?;
@@ -250,11 +218,8 @@ fn io_printf(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Ok(Value::nil())
 }
 
-/// `IO#putc(obj)` — mirrors mruby-io's `io_putc` (call-seq
-/// `ios.putc(obj) -> obj`). Integer writes one byte (`obj & 0xff`);
-/// String writes its first character (first byte in our non-UTF8
-/// build); other objects coerce via `to_s`. Empty string is a no-op
-/// write. Always returns the original argument.
+/// Mirrors mruby-io's `io_putc`; a String's first character is its first
+/// byte in this non-UTF8 build.
 fn io_putc(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
     if let Some(n) = i32::from_value(obj) {
         let byte = [(n & 0xff) as u8];
@@ -275,9 +240,7 @@ fn io_putc(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
     Ok(obj)
 }
 
-/// `IO#p(*args)` — write each argument's `inspect` form plus a
-/// newline. Returns `nil` for no arguments, the argument itself for
-/// one, and the argument Array for several — mirroring `Kernel#p`.
+/// The return value mirrors `Kernel#p`.
 fn io_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let argv = rest(mrb)?;
     for &val in &argv {
@@ -299,19 +262,17 @@ fn io_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     })
 }
 
-/// `IO#<<(obj)` — write `obj` and return `self` for chaining.
 fn io_lshift(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
     write_one(mrb, self_, obj)?;
     Ok(self_)
 }
 
-/// `IO#tty?` / `IO#isatty` — the sandbox pipes are never terminals.
+/// The sandbox pipes are never terminals.
 fn io_tty_p(_mrb: &Mrb, _self: Value) -> Value {
     Value::false_()
 }
 
-/// `IO#sync` — reports whatever the guest last assigned via `#sync=`,
-/// defaulting to `true` (the capture pipe is effectively unbuffered).
+/// Defaults to `true`, since the capture pipe is effectively unbuffered.
 fn io_sync(mrb: &Mrb, self_: Value) -> Value {
     let v = self_.iv_get(mrb, c"@__kobako_sync");
     if v.is_nil() {
@@ -321,41 +282,36 @@ fn io_sync(mrb: &Mrb, self_: Value) -> Value {
     }
 }
 
-/// `IO#sync=(value)` — store the flag; a no-op for the write path,
-/// kept for mruby-io surface compatibility.
+/// A no-op for the write path, kept for mruby-io surface compatibility.
 fn io_sync_set(mrb: &Mrb, self_: Value, v: Value) -> Result<Value, Error> {
     self_.iv_set(mrb, c"@__kobako_sync", v)?;
     Ok(v)
 }
 
-/// `IO#flush` — no-op (writes go straight to `write(2)`); returns
-/// `self` for chaining.
+/// A no-op, since writes go straight to `write(2)`.
 fn io_flush(_mrb: &Mrb, self_: Value) -> Value {
     self_
 }
 
-/// `IO#closed?` — the sandbox streams cannot be closed.
+/// The sandbox streams cannot be closed.
 fn io_closed_p(_mrb: &Mrb, _self: Value) -> Value {
     Value::false_()
 }
 
-/// Route one value through `self.write(...)` — the funcall keeps the
-/// mrblib dispatch shape so a subclass overriding `#write` redirects
-/// every composite method.
+/// Dispatches through `self.write`, so a subclass overriding `#write`
+/// redirects every composite method.
 fn write_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
     self_.funcall(mrb, c"write", &[val])?;
     Ok(())
 }
 
-/// Write a single `"\n"` through `self.write`.
 fn write_newline(mrb: &Mrb, self_: Value) -> Result<(), Error> {
     let nl = mrb.str_new(b"\n").as_value();
     write_one(mrb, self_, nl)
 }
 
-/// Build an `ArgumentError` carrying `msg`. A handler returns it as
-/// `Err`, so the bridge frame raises it to the guest only after the
-/// Rust frame has unwound — unlike a direct `mrb_raise` long-jump.
+/// Returned as `Err`, so the bridge frame raises it only after the Rust
+/// frame has unwound — unlike a direct `mrb_raise` long-jump.
 fn argument_error(mrb: &Mrb, msg: &str) -> Error {
     match mrb.exc_get(c"ArgumentError") {
         Ok(cls) => Error::new(mrb, cls, msg),
@@ -363,12 +319,8 @@ fn argument_error(mrb: &Mrb, msg: &str) -> Error {
     }
 }
 
-/// Read the `@__kobako_fd__` ivar back to an `i32`, or 0 when the ivar is
-/// missing or not Fixnum-tagged. The value is untrusted: although
-/// `io_initialize` only ever stores 1 or 2, the ivar is guest-mutable
-/// (`instance_variable_set`), so any caller that forwards the result to a
-/// syscall must re-validate the descriptor first — `io_write` does, refusing
-/// anything outside {1, 2} before reaching `write(2)`.
+/// The value is untrusted: the ivar is guest-mutable, so a caller that
+/// forwards it to a syscall must re-validate the descriptor first.
 fn read_fd(mrb: &Mrb, self_: Value) -> i32 {
     let val = self_.iv_get(mrb, c"@__kobako_fd__");
     i32::from_value(val).unwrap_or(0)

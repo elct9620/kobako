@@ -28,7 +28,6 @@ pub(crate) struct CodecSlot {
 }
 
 impl CodecSlot {
-    /// Encode a dispatch Call's arguments.
     pub(crate) fn encode_call_arguments(
         &self,
         kobako: &Kobako,
@@ -38,7 +37,6 @@ impl CodecSlot {
         (self.encode_call_arguments)(kobako, rest, kwargs)
     }
 
-    /// Read a Reply's ok body.
     pub(crate) fn decode_reply_value(
         &self,
         kobako: &Kobako,
@@ -50,9 +48,8 @@ impl CodecSlot {
 
 static SLOT: OnceLock<CodecSlot> = OnceLock::new();
 
-/// Record the guest's codec. Called by `Kobako::init`; later calls are
-/// ignored, since the first one already named the only codec this binary
-/// has.
+/// Later calls are ignored, since the first one already named the only
+/// codec this binary has.
 pub(crate) fn install<C: PayloadCodec>() {
     let _ = SLOT.set(CodecSlot {
         encode_call_arguments: C::encode_call_arguments,

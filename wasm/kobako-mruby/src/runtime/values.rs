@@ -50,11 +50,10 @@ impl IntegerOutOfRange {
 }
 
 impl Kobako {
-    /// Collect the Array-of-String a `recv.method` funcall returns into
-    /// a `Vec<String>`; empty when the call raises or answers anything
-    /// else, so the Panic envelope still serialises cleanly under
-    /// guest-class shenanigans. The element count comes from the C array
-    /// rather than a `.length` dispatch, so a guest cannot choose it.
+    /// Empty when the call raises or answers anything else, so the Panic
+    /// envelope still serialises under guest-class shenanigans. The element
+    /// count comes from the C array rather than a `.length` dispatch, so a
+    /// guest cannot choose it.
     fn strings_from_funcall(&self, recv: Value, method: &std::ffi::CStr) -> Vec<String> {
         use beni::FromValue;
         let Ok(val) = recv.funcall(self.mrb(), method, &[]) else {
@@ -80,35 +79,20 @@ impl Kobako {
         out
     }
 
-    /// Collect `exc_val.backtrace` (an mruby `Array of String`) into a
-    /// Rust `Vec<String>`. Used by the guest panic path
-    /// (`crate::flows::eval` / `crate::flows::run`) to populate the Panic
-    /// envelope's `backtrace` field
-    /// (docs/wire/envelope.md § Panic).
-    ///
-    /// mruby's default build keeps the backtrace, so `.backtrace`
-    /// returns an Array of String. If the runtime is ever rebuilt
-    /// without keep-mode the call yields a non-Array value (typically
-    /// `nil`), which reads as an empty backtrace.
+    /// The exception's backtrace, or empty for a runtime built without
+    /// backtrace keep-mode.
     pub fn extract_backtrace(&self, exc_val: Value) -> Vec<String> {
         self.strings_from_funcall(exc_val, c"backtrace")
     }
 
-    /// Snapshot every top-level constant currently defined on `Object`
-    /// by calling `Object.constants` and unpacking the returned Symbol
-    /// Array into a `Vec<String>`. The unpacking costs one allocation per
-    /// name, so a flow that needs to compare two such snapshots should
-    /// reach for it where the answer keeps — see
-    /// `crate::flows::boot_constants`, which records one at boot and takes
-    /// the other only when an entrypoint went missing.
+    /// Every top-level constant currently defined on `Object`. It costs one
+    /// allocation per name, so take it where the answer is kept.
     pub fn top_level_constants(&self) -> Vec<String> {
         let object_value = self.mrb().object_class().as_value();
         self.strings_from_funcall(object_value, c"constants")
     }
 
-    /// Store `id_val` into a fresh `Kobako::Handle` instance's
-    /// `@__kobako_id__` ivar. Used by the `Kobako::Handle#initialize`
-    /// C bridge.
+    /// Store `id_val` as a fresh `Kobako::Handle`'s id.
     pub fn set_handle_id(&self, target: Value, id_val: Value) -> Result<(), beni::Error> {
         target.iv_set(self.mrb(), HANDLE_ID_IVAR, id_val)
     }
@@ -123,14 +107,10 @@ impl Kobako {
         val.is_instance_of(self.mrb(), self.registrations.handle_class)
     }
 
-    /// Read the `u32` Handle id stored in a `Kobako::Handle` instance's
-    /// `@__kobako_id__` instance variable. Returns 0 when the ivar is
-    /// missing, not a Fixnum, or carries a negative payload — the
-    /// resolver downstream treats id 0 as undefined. The id is unboxed
-    /// rather than
-    /// round-tripped through the mruby string machinery, which would
-    /// silently truncate above `i32::MAX` and cost a string allocation
-    /// on every dispatch.
+    /// The Handle id, or 0 — which the host resolves as undefined — when
+    /// the ivar is missing or not a non-negative Fixnum. Unboxed rather than
+    /// round-tripped through a string, which would truncate above
+    /// `i32::MAX`.
     pub fn extract_handle_id(&self, handle_val: Value) -> u32 {
         use beni::FromValue;
         let id_val = handle_val.iv_get(self.mrb(), HANDLE_ID_IVAR);
@@ -173,8 +153,7 @@ impl Kobako {
 
     /// Represent `n` as an mruby `Integer`, refusing anything the MRB_INT32
     /// build cannot hold rather than saturating it — neither side may ever
-    /// see a different number than the wire carried
-    /// (docs/wire/payload-msgpack.md § Integer Range).
+    /// see a different number than the wire carried.
     pub fn narrow_int<N>(&self, n: N) -> Result<Value, IntegerOutOfRange>
     where
         N: TryInto<i32> + Into<i128> + Copy,

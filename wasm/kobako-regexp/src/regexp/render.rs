@@ -3,8 +3,7 @@
 
 use crate::translate;
 
-/// Enabled option letters in MRI's `m`, `i`, `x` order — the form
-/// `Regexp#inspect` appends after the pattern.
+/// MRI's `m`, `i`, `x` order, as `Regexp#inspect` appends them.
 pub(super) fn enabled_flags(options: i64) -> String {
     let mut flags = String::new();
     for (bit, letter) in [
@@ -19,7 +18,6 @@ pub(super) fn enabled_flags(options: i64) -> String {
     flags
 }
 
-/// Enabled and disabled option letters for `Regexp#to_s`'s `(?on-off:…)`.
 pub(super) fn on_off_flags(options: i64) -> (String, String) {
     let mut on = String::new();
     let mut off = String::new();
@@ -37,11 +35,9 @@ pub(super) fn on_off_flags(options: i64) -> (String, String) {
     (on, off)
 }
 
-/// If `source` is a single inline-flag group spanning the whole string —
-/// `(?flags-flags:body)`, including the flag-less `(?:body)` — return its
-/// enabled and disabled flag bits and the `body`. Mirrors the lift MRI's
-/// `Regexp#to_s` applies; a group that does not span the whole source, or a
-/// non-flag group such as `(?<name>…)`, yields `None`.
+/// Mirrors the lift MRI's `Regexp#to_s` applies: only an inline-flag group
+/// spanning the whole source lifts, never a named group such as
+/// `(?<name>…)`.
 pub(super) fn lift_inline_group(source: &str) -> Option<(i64, i64, &str)> {
     let bytes = source.as_bytes();
     if !source.starts_with("(?") {
@@ -106,10 +102,8 @@ pub(super) fn lift_inline_group(source: &str) -> Option<(i64, i64, &str)> {
     }
 }
 
-/// Render a pattern source for `Regexp#inspect`: escape `/` to `\/`, render a
-/// non-whitespace control character as `\xHH` (uppercase hex), and pass
-/// printable characters, multibyte UTF-8, and the whitespace controls through
-/// literally — matching MRI.
+/// Matches MRI: whitespace controls pass through literally while other
+/// controls render as `\xHH`.
 pub(super) fn inspect_source(source: &str) -> String {
     let mut out = String::with_capacity(source.len());
     for c in source.chars() {
@@ -123,8 +117,6 @@ pub(super) fn inspect_source(source: &str) -> String {
     out
 }
 
-/// Backslash-escape the regexp metacharacters in `source`, mirroring
-/// `Regexp.escape`.
 pub(super) fn escape_str(source: &str) -> String {
     let mut out = String::with_capacity(source.len());
     for c in source.chars() {

@@ -14,8 +14,6 @@ use beni::prelude::*;
 use beni::scan_args::{get_kwargs, scan_args};
 use beni::{Error, Hash, Module, Mrb, RString, Value};
 
-/// Define the `JSON` module, its three functions, and the `as_json`
-/// serialization hook on `Object`.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     let json = mrb.define_module(c"JSON")?;
     json.define_module_function(mrb, c"parse", beni::method!(json_parse, -1))?;
@@ -34,9 +32,6 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     Ok(())
 }
 
-/// `JSON.parse(source, symbolize_names: false)` — parse a JSON `String`
-/// into native mruby values. A non-`String` source is a `TypeError`;
-/// malformed input is a `JSON::ParserError`.
 fn json_parse(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     let args = scan_args::<(Value,), (), (), (), Hash, ()>(mrb)?;
     let (source,) = args.required;
@@ -55,12 +50,10 @@ fn json_parse(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     convert::decode(mrb, &json, symbolize)
 }
 
-/// `JSON.generate(obj)` — a compact JSON `String`.
 fn json_generate(mrb: &Mrb, _self: Value, obj: Value) -> Result<Value, Error> {
     emit(mrb, obj, false)
 }
 
-/// `JSON.pretty_generate(obj)` — an indented JSON `String`.
 fn json_pretty_generate(mrb: &Mrb, _self: Value, obj: Value) -> Result<Value, Error> {
     emit(mrb, obj, true)
 }
@@ -76,10 +69,8 @@ fn emit(mrb: &Mrb, obj: Value, pretty: bool) -> Result<Value, Error> {
     Ok(mrb.str_new(text.as_bytes()).as_value())
 }
 
-/// `Object#as_json` — the raising default. The generator handles native
-/// types directly and only calls this for a non-native value, so an
-/// object that has not overridden it is refused here rather than
-/// stringified through a host-dispatching `to_s`.
+/// The raising default: an object that has not overridden it is refused
+/// rather than stringified through a host-dispatching `to_s`.
 fn object_as_json(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Err(errors::generator_error(
         mrb,
@@ -90,10 +81,10 @@ fn object_as_json(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     ))
 }
 
-/// Whether the keywords ask for symbolized names. Any truthy value asks for
-/// them, as it does in MRI. A keyword this parse does not name is left in the
-/// rest rather than refused, so an option spelled as a String — or one this
-/// build has no use for — reads as absent instead of turning it on.
+/// Any truthy value asks, as in MRI. A keyword this parse does not name is
+/// left in the rest rather than refused, so an option spelled as a String —
+/// or one this build has no use for — reads as absent instead of turning it
+/// on.
 fn symbolize_names(mrb: &Mrb, keywords: Hash) -> Result<bool, Error> {
     let kw = get_kwargs::<_, (), (Option<Value>,), Hash>(mrb, keywords, &[], &["symbolize_names"])?;
     let (symbolize,) = kw.optional;

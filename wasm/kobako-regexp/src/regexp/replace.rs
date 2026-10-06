@@ -12,9 +12,8 @@ pub(crate) struct MatchSpan {
     pub groups: Vec<Option<(usize, usize)>>,
 }
 
-/// Collect non-overlapping matches of `regexp` over `subject` as owned byte
-/// spans, so the String methods can build results after the engine borrow
-/// is released. A zero-width match advances by one character.
+/// Owned spans, so the String methods can build results after the engine
+/// borrow is released. A zero-width match advances by one character.
 pub(crate) fn match_spans(
     mrb: &Mrb,
     regexp: Value,
@@ -49,12 +48,9 @@ pub(crate) fn match_spans(
     Ok(spans)
 }
 
-/// Expand the backreferences in a gsub/sub replacement string against one
-/// match's spans, mirroring the curated regexp engine: `\0`..`\9` insert a
-/// numbered group (`\0` the whole match; an out-of-range number inserts
-/// nothing), `\k<name>` inserts a named group (an undefined name raises
-/// `IndexError`), `\\` is a literal backslash, and any other `\x` stays the
-/// two literal characters. A trailing backslash is literal.
+/// Mirrors the curated regexp engine: an out-of-range group number inserts
+/// nothing, an undefined `\k<name>` raises `IndexError`, and an unknown
+/// `\x` or a trailing backslash stays literal.
 pub(crate) fn expand_replacement(
     mrb: &Mrb,
     regexp: Value,
@@ -97,9 +93,7 @@ pub(crate) fn expand_replacement(
     Ok(out)
 }
 
-/// Read the `<name>` body following a `\k` in a replacement string, consuming
-/// up to and including the closing `>`. A `\k` not followed by `<…>` is an
-/// invalid replace expression.
+/// A `\k` not followed by `<…>` is an invalid replace expression.
 fn read_group_name(
     mrb: &Mrb,
     chars: &mut core::str::Chars,
@@ -118,8 +112,6 @@ fn read_group_name(
     }
 }
 
-/// Append group `index`'s matched substring to `out` (`0` is the whole match);
-/// a group that did not participate or sits past the pattern appends nothing.
 fn push_group(out: &mut String, subject: &str, span: &MatchSpan, index: usize) {
     let range = if index == 0 {
         Some(span.whole)
@@ -131,8 +123,6 @@ fn push_group(out: &mut String, subject: &str, span: &MatchSpan, index: usize) {
     }
 }
 
-/// The group number a capture name resolves to, or `None` when the pattern
-/// has no such name.
 fn name_to_index(state: &RegexpState, name: &str) -> Option<usize> {
     state.regex.capture_names().position(|n| n == Some(name))
 }

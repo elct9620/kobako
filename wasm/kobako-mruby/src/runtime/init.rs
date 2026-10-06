@@ -21,16 +21,9 @@ use super::bridges;
 pub(super) struct KobakoBridge;
 
 impl Gem for KobakoBridge {
-    /// Register the Kobako module, the `Kobako::Transport` namespace, the
-    /// `Kobako::Proxy` capability module and the `Kobako::Handle` proxy
-    /// that includes it, and the `Kobako::ServiceError` /
-    /// `Kobako::Transport::Error` exception hierarchy.
-    ///
     /// Function pointers come from `bridges`, the only producer of
-    /// `mrb_func_t` in this crate. Handles produced by the definition
-    /// calls are owned by mruby and live for the duration of `mrb`. An
-    /// `Err` from any registration aborts the init and surfaces to the
-    /// boot path as a Panic.
+    /// `mrb_func_t` in this crate. The handles the definitions produce are
+    /// owned by mruby and live for the duration of `mrb`.
     fn init(mrb: &Mrb) -> Result<(), Error> {
         let object_class = mrb.object_class();
 

@@ -5,7 +5,6 @@
 use beni::{Error, Mrb};
 use core::ffi::CStr;
 
-/// `RegexpError` naming the offending pattern `source` and the engine `detail`.
 pub(crate) fn regexp_error(mrb: &Mrb, source: &str, detail: &str) -> Error {
     let message = format!(
         "{source:?} is an invalid regular expression: {}",
@@ -14,8 +13,6 @@ pub(crate) fn regexp_error(mrb: &Mrb, source: &str, detail: &str) -> Error {
     exception(mrb, c"RegexpError", &message)
 }
 
-/// `RegexpError` naming a malformed replacement expression (a `\k` not
-/// followed by `<name>`).
 pub(crate) fn replace_expression_error(mrb: &Mrb, replacement: &str) -> Error {
     exception(
         mrb,
@@ -24,23 +21,19 @@ pub(crate) fn replace_expression_error(mrb: &Mrb, replacement: &str) -> Error {
     )
 }
 
-/// `ArgumentError` carrying `message`.
 pub(crate) fn argument_error(mrb: &Mrb, message: &str) -> Error {
     exception(mrb, c"ArgumentError", message)
 }
 
-/// `IndexError` carrying `message`.
 pub(crate) fn index_error(mrb: &Mrb, message: &str) -> Error {
     exception(mrb, c"IndexError", message)
 }
 
-/// `TypeError` carrying `message`.
 pub(crate) fn type_error(mrb: &Mrb, message: &str) -> Error {
     exception(mrb, c"TypeError", message)
 }
 
-/// Build an exception of the named class. On the impossible miss (a broken
-/// build), surface mruby's own lookup error rather than degrading the raise
+/// A miss surfaces mruby's own lookup error rather than degrading the raise
 /// to a different class.
 fn exception(mrb: &Mrb, class: &CStr, message: &str) -> Error {
     match mrb.exc_get(class) {

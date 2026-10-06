@@ -44,8 +44,6 @@ pub fn bake(wasm: &[u8]) -> Result<Vec<u8>> {
     ))
 }
 
-/// Build the bake's import surface: the deterministic WASI stub set
-/// plus the trapping `__kobako_dispatch`.
 fn deterministic_linker(engine: &wasmtime::Engine) -> Result<wasmtime::Linker<()>> {
     let mut linker = wasmtime::Linker::new(engine);
     add_deterministic_wasi_stubs(&mut linker)?;

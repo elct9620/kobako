@@ -14,8 +14,6 @@ pub(crate) const IGNORECASE: i64 = 1;
 pub(crate) const EXTENDED: i64 = 2;
 pub(crate) const MULTILINE: i64 = 4;
 
-/// Parse the letter flags a regexp literal carries (`"imx"`) into the MRI
-/// option bitmask. Unknown letters are ignored.
 pub(crate) fn parse_flag_string(flags: &str) -> i64 {
     let mut options = 0;
     for letter in flags.chars() {
@@ -29,9 +27,8 @@ pub(crate) fn parse_flag_string(flags: &str) -> i64 {
     options
 }
 
-/// Build a `fancy-regex` pattern string from a Ruby `source` and MRI
-/// `options`. The multiline (`m`) flag is always set so `^` / `$` match per
-/// line as in Ruby; Ruby's `/m` maps to the regex `s` (DOTALL) flag.
+/// The engine's multiline flag is always set so `^` / `$` match per line as
+/// in Ruby; Ruby's `/m` maps to the engine's `s` (DOTALL) flag.
 pub(crate) fn build_pattern(source: &str, options: i64) -> String {
     let mut out = String::with_capacity(source.len() + 8);
     out.push_str("(?m");
@@ -49,11 +46,10 @@ pub(crate) fn build_pattern(source: &str, options: i64) -> String {
     out
 }
 
-/// Rewrite Ruby's ASCII `\d` / `\w` / `\s` (and the `\D` / `\W` / `\S`
-/// negations) into explicit ASCII ranges, appending to `out`. Escaped
-/// backslashes (`\\`) are consumed as a pair so the following letter is not
-/// misread as a shorthand class, and the inside-vs-outside-character-class
-/// form is tracked so `[\d]` becomes `[0-9]` rather than `[[0-9]]`.
+/// Ruby's shorthand classes are ASCII-only, unlike the engine's. Escaped
+/// backslashes are consumed as a pair so the next letter is not misread as
+/// a shorthand, and class context is tracked so `[\d]` becomes `[0-9]`
+/// rather than `[[0-9]]`.
 fn rewrite_ascii_classes(source: &str, out: &mut String) {
     let mut chars = source.chars();
     let mut in_class = false;
@@ -82,9 +78,8 @@ fn rewrite_ascii_classes(source: &str, out: &mut String) {
     }
 }
 
-/// The explicit ASCII range a shorthand class letter expands to, or `None`
-/// when the letter is not a rewritten shorthand. Negated forms only apply
-/// outside a character class, where a class wrapper is meaningful.
+/// Negated forms only apply outside a character class, where a class
+/// wrapper is meaningful.
 fn ascii_class(letter: char, in_class: bool) -> Option<&'static str> {
     match letter {
         'd' if in_class => Some("0-9"),

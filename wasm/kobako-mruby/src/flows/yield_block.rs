@@ -30,9 +30,6 @@
 use kobako_core::abi::pack_ptr_len;
 use kobako_transport::envelope::{ErrorRecord, YieldReply};
 
-/// Invocation entry behind the `__kobako_yield_to_block` export —
-/// see module docs. Signature pinned by docs/wire-codec.md § ABI
-/// Signatures (5 guest exports).
 pub(crate) fn yield_to_block<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     yield_to_block_body::<G>(req)
 }
@@ -106,14 +103,10 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     write_yield_buffer(&bytes)
 }
 
-/// Classify the value the protected `Proc::call` surfaced on its `Err`
-/// path into a Yield Reply. mruby's VM already raises
-/// `E_LOCALJUMP_ERROR` directly for the orphan-block / orphan-Proc
-/// shapes, so any RBreak we see here is either a
-/// real `break` from a non-lambda block or a non-orphan Proc `return`
-/// — discriminate them by comparing `RBreak.ci_break_index` against
-/// the `enter_idx` snapshot taken immediately before the protected
-/// yield.
+/// mruby already raises `E_LOCALJUMP_ERROR` for the orphan-block and
+/// orphan-Proc shapes, so an RBreak here is either a real `break` or a
+/// non-orphan Proc `return`; `RBreak.ci_break_index` against `enter_idx`
+/// tells them apart.
 fn classify_protected_error<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     exc: beni::Value,
@@ -143,9 +136,9 @@ fn classify_protected_error<G: crate::MrbGuest>(
     }
 }
 
-/// Encode a value-carrying Yield Reply (the ok or break arm). A value the
-/// schema cannot write surfaces as an error arm the host Yielder reifies
-/// at the Service's yield site, rather than being coerced to a String.
+/// A value the schema cannot write surfaces as an error arm the host
+/// Yielder reifies at the Service's yield site, rather than being coerced
+/// to a String.
 fn encode_value_response<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     value: beni::Value,
@@ -202,17 +195,11 @@ fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec
     .encode()
 }
 
-/// Write an error Yield Reply directly into a fresh guest buffer
-/// and return its packed `(ptr<<32)|len`. Used by the early-out paths
-/// that never reach the protect / classify steps.
 fn write_error_response(class: &str, message: impl Into<String>, backtrace: Vec<String>) -> u64 {
     let bytes = encode_error_bytes(class, &message.into(), backtrace);
     write_yield_buffer(&bytes)
 }
 
-/// Allocate a `len`-byte buffer via `__kobako_alloc` inside the active
-/// wasm instance, copy `bytes` into it, and return the packed
-/// `(ptr<<32)|len` u64 the host reads.
 fn write_yield_buffer(bytes: &[u8]) -> u64 {
     let len_u32 = match u32::try_from(bytes.len()) {
         Ok(n) => n,

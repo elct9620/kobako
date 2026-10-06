@@ -15,8 +15,7 @@
 
 use beni::{Array, Error, Module, Mrb, Value};
 
-/// Register the six private Kernel delegators — the gem-init step
-/// named after mruby's own `mrb_init_kernel`.
+/// The gem-init step named after mruby's own `mrb_init_kernel`.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     let kernel = mrb.define_module(c"Kernel")?;
     kernel.define_private_method(mrb, c"print", beni::method!(kernel_print, -1))?;
@@ -28,15 +27,12 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     Ok(())
 }
 
-/// Read a global variable (`$stdout` / `$stderr`) by name; an unset
-/// variable reads as `nil`, and the subsequent funcall raises
+/// An unset global reads as `nil`, so the funcall that follows raises
 /// `NoMethodError` exactly as the mrblib delegator would.
 fn global(mrb: &Mrb, name: &core::ffi::CStr) -> Value {
     mrb.gv_get(name)
 }
 
-/// Shared body of the rest-args delegators: forward every positional
-/// argument to `<global>.<method>` and return its result.
 fn delegate_rest(
     mrb: &Mrb,
     target: &core::ffi::CStr,

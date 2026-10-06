@@ -50,11 +50,9 @@ pub trait MrbGuest {
     /// is what the bundled Guest Binary chooses.
     type Codec: PayloadCodec;
 
-    /// Install the shell-chosen gem set onto the freshly booted VM,
-    /// via `Mrb::init_gem`. Runs once per boot — at the build-time
-    /// bake, or on a non-baked artifact's first entry — after
-    /// `KobakoBridge`; an `Err` aborts the boot and surfaces to the
-    /// host as a `Kobako::BootError` Panic.
+    /// Install the shell-chosen gem set onto the freshly booted VM, once
+    /// per boot and after `KobakoBridge`. An `Err` aborts the boot and
+    /// reaches the host as a `Kobako::BootError` Panic.
     fn init_gems(mrb: &Mrb) -> Result<(), Error>;
 
     /// `__kobako_eval` — runs one-shot user source from stdin Frame 2
@@ -84,13 +82,10 @@ pub trait MrbGuest {
         flows::yield_to_block::<Self>(req)
     }
 
-    /// Bake the canonical boot state into the
-    /// running instance — boot the VM and install the Kobako runtime
-    /// plus the shell gem set, leaving preamble installation and
-    /// snippet replay to the invocation entries. Called from the
-    /// shell's build-time wizer pre-initialization export; panics on
-    /// failure so a bake aborts instead of shipping a half-booted
-    /// image.
+    /// Bake the canonical boot state — the VM, the Kobako runtime, and the
+    /// shell gem set — into the running instance, for the shell's
+    /// build-time pre-initialization export. Panics on failure so a bake
+    /// aborts instead of shipping a half-booted image.
     fn bake_boot()
     where
         Self: Sized,

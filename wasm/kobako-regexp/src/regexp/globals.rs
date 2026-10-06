@@ -13,8 +13,6 @@ const NUMBERED: [&CStr; 9] = [
     c"$1", c"$2", c"$3", c"$4", c"$5", c"$6", c"$7", c"$8", c"$9",
 ];
 
-/// Build a `MatchData`, bind `$~`, and refresh the derived globals from a
-/// match's byte spans (`groups[0]` is the whole match); returns the `MatchData`.
 pub(super) fn finalize(
     mrb: &Mrb,
     regexp: Value,
@@ -39,10 +37,8 @@ pub(super) fn finalize(
     md
 }
 
-/// Set `$&` / `` $` `` / `$'` / `$+` / `$1..$9` from a match's byte spans
-/// (`groups[0]` is the whole match); does not touch `$~`. The derived globals
-/// are views of `$~`, so both `finalize` and `Regexp.last_match=` refresh them
-/// from this one routine.
+/// The derived globals are views of `$~`, so every path that sets `$~`
+/// refreshes them from this one routine.
 fn set_derived(mrb: &Mrb, subject: &str, groups: &[Option<(usize, usize)>]) {
     let whole = groups.first().copied().flatten();
     set_global(
@@ -78,10 +74,8 @@ fn set_derived(mrb: &Mrb, subject: &str, groups: &[Option<(usize, usize)>]) {
     }
 }
 
-/// Set `$~` to `value` and refresh its derived views (`Regexp.last_match=`).
-/// A `MatchData` refreshes `$&` / `` $` `` / `$'` / `$+` / `$1..$9` from its
-/// own spans; `nil` or any non-`MatchData` leaves no captures to view, so the
-/// derived globals clear.
+/// A non-`MatchData` value leaves no captures to view, so the derived
+/// globals clear.
 pub(super) fn set_last_match(mrb: &Mrb, value: Value) {
     let _ = mrb.gv_set(c"$~", value);
     match matchdata::state_of(mrb, value) {
@@ -90,8 +84,7 @@ pub(super) fn set_last_match(mrb: &Mrb, value: Value) {
     }
 }
 
-/// Refresh the match globals for a gsub/scan block from owned spans, so
-/// `$1` is fresh on each iteration.
+/// Run per gsub/scan iteration, so `$1` is fresh in each block call.
 pub(crate) fn set_span_globals(mrb: &Mrb, regexp: Value, subject: &str, span: &MatchSpan) {
     let mut groups = Vec::with_capacity(span.groups.len() + 1);
     groups.push(Some(span.whole));
@@ -101,15 +94,11 @@ pub(crate) fn set_span_globals(mrb: &Mrb, regexp: Value, subject: &str, span: &M
     finalize(mrb, regexp, subject.to_owned(), groups, Vec::new());
 }
 
-/// Reset every match global to nil after a failed match.
 pub(super) fn clear_globals(mrb: &Mrb) {
     let _ = mrb.gv_set(c"$~", Value::nil());
     clear_derived(mrb);
 }
 
-/// Reset the derived globals (`$&` / `` $` `` / `$'` / `$+` / `$1..$9`) to
-/// nil, leaving `$~` untouched — the clear half shared by a failed match and a
-/// `Regexp.last_match=` to a non-`MatchData`.
 fn clear_derived(mrb: &Mrb) {
     for name in [c"$&", c"$`", c"$'", c"$+"].iter().chain(NUMBERED.iter()) {
         set_global(mrb, name, None);

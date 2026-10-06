@@ -27,15 +27,12 @@ pub(crate) struct MatchState {
     pub names: Vec<(String, usize)>,
 }
 
-/// Borrow the match snapshot a `MatchData` value carries, if it is one, so
-/// `Regexp.last_match=` can refresh the derived match globals from an assigned
-/// match.
 pub(crate) fn state_of(mrb: &Mrb, value: Value) -> Option<&MatchState> {
     <&MatchState>::try_convert(value, mrb).ok()
 }
 
-/// Wrap `state` as a fresh `MatchData`, recording `regexp` as the
-/// `@regexp` ivar so the GC keeps the originating pattern reachable.
+/// `regexp` is kept as the `@regexp` ivar so the GC keeps the originating
+/// pattern reachable.
 pub(crate) fn build(mrb: &Mrb, regexp: Value, state: MatchState) -> Value {
     let md = mrb.wrap(state).as_value();
     // Fresh MatchData, never frozen — storing `@regexp` cannot raise.
@@ -43,7 +40,6 @@ pub(crate) fn build(mrb: &Mrb, regexp: Value, state: MatchState) -> Value {
     md
 }
 
-/// Define the `MatchData` class and its accessors on `mrb`.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     let cls = mrb.define_class(c"MatchData", mrb.object_class())?;
     MatchState::mark_carriers(mrb)?;
@@ -76,10 +72,8 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     Ok(())
 }
 
-/// `MatchData#dup` — a fresh carrier holding a clone of the snapshot,
-/// with `@regexp` copied over so the duplicate still names the pattern it
-/// came from. Unlike `clone` it carries no frozen state, as mruby's own
-/// `dup` does not.
+/// `@regexp` is copied so the duplicate still names its pattern. Unlike
+/// `clone` it carries no frozen state, as mruby's own `dup` does not.
 fn md_dup(mrb: &Mrb, rb_self: Obj<MatchState>) -> Result<Obj<MatchState>, Error> {
     let copy = mrb.obj_wrap((*rb_self).clone());
     copy.as_value()
@@ -87,9 +81,8 @@ fn md_dup(mrb: &Mrb, rb_self: Obj<MatchState>) -> Result<Obj<MatchState>, Error>
     Ok(copy)
 }
 
-/// `MatchData.new` is forbidden — a `MatchData` only ever arises from a
-/// match, never direct construction. Raising `NoMethodError` follows the
-/// raising-bridge pattern for non-constructible types.
+/// A `MatchData` only ever arises from a match, so direct construction
+/// raises `NoMethodError`.
 fn md_new_forbidden(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     Err(match mrb.exc_get(c"NoMethodError") {
         Ok(cls) => Error::new(mrb, cls, "undefined method 'new' for MatchData"),
@@ -97,8 +90,6 @@ fn md_new_forbidden(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     })
 }
 
-/// Build a String value from a group's byte range, or `nil` when the group
-/// did not participate.
 fn group_str(mrb: &Mrb, state: &MatchState, index: usize) -> Value {
     match state.groups.get(index).copied().flatten() {
         Some((begin, end)) => mrb
@@ -108,11 +99,9 @@ fn group_str(mrb: &Mrb, state: &MatchState, index: usize) -> Value {
     }
 }
 
-/// The numeric group index a single `MatchData#[]` argument resolves to: an
-/// Integer is used as-is (a negative index counts from the end via `Array#[]`),
-/// a Symbol or String names a capture (an undefined name raises IndexError).
-/// Any other argument (e.g. a Range) yields `None` so the caller delegates the
-/// whole argument list to `Array#[]` on the group list.
+/// An undefined capture name raises IndexError; an argument that is neither
+/// index nor name (e.g. a Range) yields `None`, so the caller delegates to
+/// `Array#[]` on the group list.
 fn numeric_index(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<i32>, Error> {
     if let Some(n) = i32::from_value(arg) {
         return Ok(Some(n));
@@ -130,9 +119,7 @@ fn numeric_index(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<i32
     Ok(None)
 }
 
-/// `MatchData#[]`: a single Integer or capture name selects one group; a
-/// start+length or a Range slices the group list, mirroring `Array#[]` over
-/// `#to_a` (the whole match followed by the captures).
+/// Slicing mirrors `Array#[]` over `#to_a`.
 fn md_aref(mrb: &Mrb, state: &MatchState) -> Result<Value, Error> {
     let args = scan_args::<(), (), Array, (), (), ()>(mrb)?
         .splat
@@ -146,10 +133,8 @@ fn md_aref(mrb: &Mrb, state: &MatchState) -> Result<Value, Error> {
     array.funcall(mrb, c"[]", &args)
 }
 
-/// The byte span the begin/end/offset argument names, or `None` when the
-/// group is valid but did not participate (reported as `nil`). An index past
-/// the group count, a negative index, or an undefined capture name raises
-/// IndexError, mirroring the curated engine's bounds check.
+/// An index past the group count, a negative index, or an undefined capture
+/// name raises IndexError, mirroring the curated engine's bounds check.
 fn group_at(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<(usize, usize)>, Error> {
     let index = numeric_index(mrb, state, arg)?.unwrap_or(0);
     if index < 0 || index as usize >= state.groups.len() {
@@ -210,9 +195,7 @@ fn md_named_captures(mrb: &Mrb, state: &MatchState) -> Result<Value, Error> {
     Ok(map.as_value())
 }
 
-/// Read the optional `symbolize_names:` keyword. mruby passes it as a trailing
-/// option Hash; a truthy value (Ruby semantics: anything but nil/false) turns
-/// the keys into Symbols, as in MRI.
+/// mruby passes the keyword as a trailing option Hash.
 fn symbolize_names_requested(mrb: &Mrb) -> Result<bool, Error> {
     let args = scan_args::<(), (), Array, (), (), ()>(mrb)?
         .splat
@@ -257,8 +240,6 @@ fn md_string(mrb: &Mrb, state: &MatchState) -> Value {
     mrb.str_new(state.subject.as_bytes()).as_value()
 }
 
-/// The originating pattern, read off the ivar `build` stored — the one
-/// accessor that reaches the carrier object rather than its payload.
 fn md_regexp(mrb: &Mrb, self_: Value) -> Value {
     self_.iv_get(mrb, c"@regexp")
 }
@@ -267,9 +248,6 @@ fn md_to_a(mrb: &Mrb, state: &MatchState) -> Result<Value, Error> {
     Ok(to_a(mrb, state)?.as_value())
 }
 
-/// The whole match followed by each capture, as an Array of Strings (a group
-/// that did not participate is `nil`). Shared by `#to_a` and the slicing form
-/// of `#[]`.
 fn to_a(mrb: &Mrb, state: &MatchState) -> Result<beni::Array, Error> {
     let all = mrb.ary_new();
     for index in 0..state.groups.len() {

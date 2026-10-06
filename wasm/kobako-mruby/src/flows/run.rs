@@ -29,9 +29,6 @@
 //!    value as an ok Outcome or convert the raised exception into a
 //!    Panic Outcome.
 
-/// Invocation entry behind the `__kobako_run` export — see module
-/// docs. `G` supplies the shell-chosen gem set via
-/// `MrbGuest::init_gems`.
 pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
     run_body::<G>(env);
 }

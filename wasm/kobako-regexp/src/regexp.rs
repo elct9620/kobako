@@ -39,8 +39,6 @@ pub(crate) struct RegexpState {
     options: i64,
 }
 
-/// The compiled pattern a value carries, if it is a `Regexp` — the read
-/// every site that holds a bare `Value` rather than a typed receiver makes.
 pub(crate) fn state_of(mrb: &Mrb, value: Value) -> Option<&RegexpState> {
     <&RegexpState>::try_convert(value, mrb).ok()
 }
@@ -94,7 +92,6 @@ fn cache_capacity() -> NonZeroUsize {
         .unwrap_or(NonZeroUsize::new(64).expect("64 is non-zero"))
 }
 
-/// Define the `Regexp` class, its option constants, and its methods.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     // RegexpError is the guest exception a bad pattern or a blown
     // backtracking limit raises; the gem owns it as a StandardError subclass.
@@ -168,8 +165,6 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 /// ultimate compute bound.
 const BACKTRACK_LIMIT: usize = 1_000_000;
 
-/// `Regexp.new` / `Regexp.compile` / literal compilation. The flags
-/// argument is an Integer option mask, a letter String (`"im"`), or nil.
 fn rx_compile(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     let args = crate::args::rest(mrb)?;
     if args.is_empty() {
@@ -183,12 +178,8 @@ fn rx_compile(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     compile(mrb, source, options)
 }
 
-/// Build a `Regexp` carrier from an owned `source` and MRI `options`,
-/// raising `RegexpError` on an invalid pattern. The canonical construction
-/// path shared by `Regexp.new` / `Regexp.compile` and the String-method
-/// coercion of a non-`Regexp` pattern. It consults the per-invocation compile
-/// cache first, so an identical pattern reuses its compiled engine
-/// instead of rebuilding it.
+/// The one construction path, so every pattern goes through the
+/// per-invocation compile cache and an identical one reuses its engine.
 fn compile(mrb: &Mrb, source: String, options: i64) -> Result<Value, Error> {
     if let Some(regex) = cache_get(mrb, &source, options) {
         return Ok(wrap_regexp(mrb, regex, source, options));
@@ -207,8 +198,6 @@ fn compile(mrb: &Mrb, source: String, options: i64) -> Result<Value, Error> {
     }
 }
 
-/// Wrap a compiled pattern — freshly built or shared from the cache — as a new
-/// `Regexp` object carrying its own `source` and `options`.
 fn wrap_regexp(mrb: &Mrb, regex: Arc<fancy_regex::Regex>, source: String, options: i64) -> Value {
     mrb.wrap(RegexpState {
         regex,
@@ -218,13 +207,11 @@ fn wrap_regexp(mrb: &Mrb, regex: Arc<fancy_regex::Regex>, source: String, option
     .as_value()
 }
 
-/// Run `f` against the per-invocation compile cache when it is installed.
 fn with_compile_cache<R>(mrb: &Mrb, f: impl FnOnce(&CompileCache) -> R) -> Option<R> {
     let value = mrb.gv_get(COMPILE_CACHE_GVAR);
     <&CompileCache>::try_convert(value, mrb).ok().map(f)
 }
 
-/// The engine cached for `(source, options)`, if present.
 fn cache_get(mrb: &Mrb, source: &str, options: i64) -> Option<Arc<fancy_regex::Regex>> {
     with_compile_cache(mrb, |cache| {
         cache
@@ -236,8 +223,6 @@ fn cache_get(mrb: &Mrb, source: &str, options: i64) -> Option<Arc<fancy_regex::R
     .flatten()
 }
 
-/// Remember `regex` for `(source, options)`, evicting the least-recently-used
-/// entry when the cache is full.
 fn cache_put(mrb: &Mrb, source: String, options: i64, regex: &Arc<fancy_regex::Regex>) {
     with_compile_cache(mrb, |cache| {
         cache
@@ -247,7 +232,6 @@ fn cache_put(mrb: &Mrb, source: String, options: i64, regex: &Arc<fancy_regex::R
     });
 }
 
-/// Resolve the optional flags argument to the MRI option mask.
 fn parse_options(mrb: &Mrb, flags: Option<Value>) -> Result<i64, Error> {
     match flags {
         Some(value) if !value.is_nil() => match i32::from_value(value) {
@@ -258,10 +242,9 @@ fn parse_options(mrb: &Mrb, flags: Option<Value>) -> Result<i64, Error> {
     }
 }
 
-/// Resolve a `pos` argument to a byte offset, MRI-style: a negative `pos`
-/// counts back from the end of `subject`. A position outside `0..=len` yields
-/// `None`, so the caller reports no match; a valid offset is snapped down to a
-/// UTF-8 char boundary so the engine never receives a mid-codepoint offset.
+/// MRI-style: a negative `pos` counts back from the end, and one out of
+/// range is no match. A valid offset snaps down to a char boundary so the
+/// engine never receives a mid-codepoint offset.
 pub(crate) fn resolve_pos(subject: &str, pos: i64) -> Option<usize> {
     let len = subject.len() as i64;
     let pos = if pos < 0 { pos + len } else { pos };
@@ -275,8 +258,6 @@ pub(crate) fn resolve_pos(subject: &str, pos: i64) -> Option<usize> {
     Some(p)
 }
 
-/// Read the optional `pos` argument (the second positional) as a byte offset
-/// in `subject`, or `None` when it is out of range.
 fn match_pos(subject: &str, args: &[Value]) -> Option<usize> {
     let raw = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0);
     resolve_pos(subject, i64::from(raw))
@@ -298,9 +279,7 @@ fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     yield_match(mrb, md, block)
 }
 
-/// On a hit, yield the `MatchData` to a given block and return its result
-/// (mirroring `Regexp#match`'s block form); on a miss, or with no block,
-/// return the `MatchData`/`nil` directly. The block is never called on a miss.
+/// Mirrors `Regexp#match`'s block form: the block is never called on a miss.
 pub(crate) fn yield_match(mrb: &Mrb, md: Value, block: Option<Proc>) -> Result<Value, Error> {
     match block {
         Some(b) if !md.is_nil() => b.call(mrb, &[md]),
@@ -373,9 +352,6 @@ fn rx_casefold(_mrb: &Mrb, state: &RegexpState) -> Value {
     }
 }
 
-/// `Regexp#named_captures` — a Hash mapping each capture name to the list of
-/// group numbers carrying it (`{name => [index]}`). Names are listed in
-/// declaration order; a same-named group appends its index.
 fn rx_named_captures(mrb: &Mrb, state: &RegexpState) -> Result<Value, Error> {
     let map = mrb.hash_new();
     for (name, indexes) in named_groups(state) {
@@ -392,8 +368,6 @@ fn rx_named_captures(mrb: &Mrb, state: &RegexpState) -> Result<Value, Error> {
     Ok(map.as_value())
 }
 
-/// `Regexp#names` — the capture names in declaration order (the keys of
-/// `#named_captures`).
 fn rx_names(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let Some(state) = state_of(mrb, self_) else {
         return Ok(Value::nil());
@@ -405,8 +379,8 @@ fn rx_names(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Ok(names.as_value())
 }
 
-/// Capture names paired with their group numbers, in declaration order; a
-/// name shared by several groups collects every index.
+/// A name shared by several groups collects every index, as MRI's
+/// `named_captures` does.
 fn named_groups(state: &RegexpState) -> Vec<(&str, Vec<usize>)> {
     let mut groups: Vec<(&str, Vec<usize>)> = Vec::new();
     for (index, name) in state.regex.capture_names().enumerate() {
@@ -462,16 +436,14 @@ fn rx_eq(mrb: &Mrb, self_: Value, arg: Value) -> Value {
     }
 }
 
-/// `Regexp.last_match` — the most recent match's `MatchData`, read straight
-/// from `$~`. MRI keeps the two in lock-step and the gem refreshes `$~` on
-/// every match, so no separate state is needed.
+/// Read straight from `$~`: MRI keeps the two in lock-step and every match
+/// refreshes `$~`, so no separate state is needed.
 fn rx_last_match(mrb: &Mrb, _self: Value) -> Value {
     mrb.gv_get(c"$~")
 }
 
-/// `Regexp.last_match=` — overwrite `$~` and refresh its derived views (the
-/// numbered and special globals) so a caller can save and restore the whole
-/// match set around an inner match (`String#slice!` relies on this).
+/// Refreshes the derived globals too, so a caller can save and restore the
+/// whole match set around an inner match (`String#slice!` relies on this).
 fn rx_set_last_match(mrb: &Mrb, _self: Value, value: Value) -> Value {
     globals::set_last_match(mrb, value);
     value
@@ -490,9 +462,6 @@ fn rx_escape(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
         .as_value())
 }
 
-/// Run the pattern against `subject` from byte `pos`, building a
-/// `MatchData` and refreshing the match globals on a hit, clearing them on
-/// a miss, and raising `RegexpError` on an engine error.
 fn do_match(mrb: &Mrb, regexp: Value, subject: String, pos: usize) -> Result<Value, Error> {
     let Some(state) = state_of(mrb, regexp) else {
         return Ok(Value::nil());
@@ -521,13 +490,12 @@ fn do_match(mrb: &Mrb, regexp: Value, subject: String, pos: usize) -> Result<Val
     }
 }
 
-/// True when `value` is a `Regexp` carrier.
 pub(crate) fn is_regexp(mrb: &Mrb, value: Value) -> bool {
     state_of(mrb, value).is_some()
 }
 
-/// Coerce a String method's pattern argument to a `Regexp`: a `Regexp`
-/// passes through; anything else compiles as a literal (escaped) pattern.
+/// A non-`Regexp` pattern compiles as a literal (escaped) pattern, as in
+/// MRI.
 pub(crate) fn coerce_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
     if is_regexp(mrb, arg) {
         return Ok(arg);
@@ -535,21 +503,17 @@ pub(crate) fn coerce_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
     compile(mrb, render::escape_str(&text_of(mrb, arg)?), 0)
 }
 
-/// Read `val`'s text, or refuse it. Everything here works over `&str` —
-/// fancy-regex matches one, spans index into one, and replacements splice
-/// into one — so bytes that are not UTF-8 have no text to be. Refusing is
-/// what makes that visible: rendering them answers an empty string, where
-/// an empty subject silently matches nothing and an empty pattern
-/// silently matches everywhere.
+/// Everything here works over `&str`, so non-UTF-8 bytes are refused rather
+/// than rendered as an empty string, where an empty subject silently
+/// matches nothing and an empty pattern silently matches everywhere.
 pub(crate) fn text_of(mrb: &Mrb, val: Value) -> Result<String, Error> {
     let rendered = val.funcall(mrb, c"to_s", &[])?;
     String::from_value(rendered)
         .ok_or_else(|| argument_error(mrb, "invalid byte sequence in UTF-8"))
 }
 
-/// Coerce a match subject like the C `reg_operand`: a `String` or `Symbol`
-/// yields its characters; any other operand raises `TypeError`. Callers handle
-/// `nil` as a no-match before reaching this.
+/// Coerces like the C `reg_operand`: a `String` or `Symbol` yields its
+/// characters, anything else raises `TypeError`.
 fn subject_string(mrb: &Mrb, arg: Value) -> Result<String, Error> {
     if arg.is_string() || arg.is_symbol() {
         text_of(mrb, arg)
@@ -564,9 +528,7 @@ fn subject_string(mrb: &Mrb, arg: Value) -> Result<String, Error> {
     }
 }
 
-/// Require a `Regexp` operand for `String#match` / `#match?` before
-/// forwarding to the pattern's own `#match` — a String is not coerced, so a
-/// non-`Regexp` raises `TypeError`.
+/// A String is not coerced here, so a non-`Regexp` raises `TypeError`.
 pub(crate) fn require_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
     if is_regexp(mrb, arg) {
         Ok(arg)

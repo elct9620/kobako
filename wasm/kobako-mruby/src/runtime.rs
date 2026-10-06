@@ -159,12 +159,8 @@ impl Registrations {
 // previous per-instance field read.
 
 impl Kobako {
-    /// Install the Kobako runtime onto `mrb` — the built-in
-    /// `KobakoBridge` gem (classes + C bridges, the precondition of
-    /// `Kobako::resolve_raw`) followed by the shell-chosen gem set
-    /// from `G`'s `init_gems` hook — and return a handle to the
-    /// resulting class registrations. An `Err` means mruby rejected a
-    /// boot-time registration; the boot path surfaces it as a Panic.
+    /// Install the built-in `KobakoBridge` gem, then `G`'s gem set, onto
+    /// `mrb`. Fails when mruby rejects a boot-time registration.
     pub fn init<G: crate::MrbGuest>(mrb: &Mrb) -> Result<Self, beni::Error> {
         // The dispatch bridge mruby calls is a bare function pointer, so it
         // reads the guest's codec from here rather than from `G`.
@@ -197,14 +193,10 @@ impl Kobako {
         }
     }
 
-    /// Install a bound-constant proxy for each bind path from a Frame 1
-    /// preamble: define a class at the path and `extend Kobako::Proxy`
-    /// onto it, so a class-level call dispatches to the host. A
-    /// multi-segment path nests the leaf class under a module per prefix
-    /// segment — resolved once per namespace, so paths sharing one share
-    /// its module — while a single-segment path binds the class at top
-    /// level. The host guarantees no path is a prefix of another, so a
-    /// segment is never both a module and a leaf.
+    /// Define a class at each bind path with `Kobako::Proxy` extended onto
+    /// it, so a class-level call dispatches to the host. The host
+    /// guarantees no path is a prefix of another, so a segment is never
+    /// both a module and a leaf.
     pub fn install_bindings(&self, paths: &[String]) -> Result<(), InstallError> {
         use beni::Module;
 
@@ -244,9 +236,6 @@ impl Kobako {
         Ok(())
     }
 
-    /// Register every segment of a bind path's `prefix` as a nested module
-    /// and return the innermost one, the namespace its leaf class binds
-    /// under.
     fn define_namespace(&self, mrb: &Mrb, prefix: &str) -> Result<beni::RModule, InstallError> {
         use beni::Module;
 
@@ -266,9 +255,6 @@ impl Kobako {
         Ok(module)
     }
 
-    /// Extend `Kobako::Proxy` onto `class`, so the module's forwarding
-    /// seam lands as the class's singleton methods and a class-level call
-    /// on the bound constant dispatches to the host.
     fn extend_proxy(&self, mrb: &Mrb, class: beni::RClass) -> Result<(), InstallError> {
         use beni::Module;
 

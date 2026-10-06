@@ -40,11 +40,9 @@ impl MrbSlot {
         unsafe { *self.0.get() = Some(mrb) };
     }
 
-    /// Drop the held `Mrb` (if any) and leave the slot empty. Safe to
-    /// call when the slot is already empty (no-op). After `clear`, any
-    /// `&Mrb` borrow previously returned by `Self::as_ref` is dangling
-    /// — callers must structure code so the borrow does not outlive the
-    /// frame that owns the install/clear bracket.
+    /// After `clear`, any `&Mrb` borrow previously returned by
+    /// `Self::as_ref` is dangling, so the borrow must not outlive the frame
+    /// that owns the install/clear bracket.
     pub(super) fn clear(&self) {
         // SAFETY: see type doc — `clear` runs at frame exit, after all
         // body-scoped `&Mrb` borrows from `as_ref` have ended.

@@ -98,8 +98,6 @@ fn str_scan(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     }
 }
 
-/// One `scan` element: the whole match for a group-less pattern, otherwise
-/// an array of the group substrings.
 fn scan_item(mrb: &Mrb, subject: &str, span: &regexp::MatchSpan) -> Result<Value, Error> {
     if span.groups.is_empty() {
         return Ok(mrb
@@ -167,10 +165,8 @@ fn str_sub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Ok(mrb.str_new(out.as_bytes()).as_value())
 }
 
-/// The replacement text for one match. A replacement argument wins over a
-/// block (as MRI does): a Hash is keyed by the whole match, a String expands
-/// its backreferences. With only a block, its result is used after `$1..$9`
-/// refresh to this match.
+/// A replacement argument wins over a block, as in MRI; a block runs only
+/// after `$1..$9` refresh to this match.
 fn substitution(
     mrb: &Mrb,
     re: Value,
@@ -196,9 +192,7 @@ fn substitution(
     Ok(String::new())
 }
 
-/// `self.to_enum(method, pattern)` — the Enumerator a block-less,
-/// replacement-less gsub returns. The guest must provide Enumerator
-/// (mruby-enumerator); without it `to_enum` is undefined and the call raises
+/// Needs mruby-enumerator in the guest; without it the call raises
 /// NoMethodError, as it would on any receiver.
 fn enum_for(mrb: &Mrb, self_: Value, method: &CStr, pattern: Value) -> Result<Value, Error> {
     let symbol = mrb
@@ -292,11 +286,8 @@ fn str_aref(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     md.funcall(mrb, c"[]", &[group])
 }
 
-/// `String#[]=` on a `Regexp`: match the pattern and overwrite the matched
-/// region in place — the whole match for the 2-arg form, capture group `n`
-/// for the 3-arg form — then return the receiver. A non-`Regexp` first
-/// argument delegates to the core method. A non-matching pattern raises
-/// `IndexError`, as `str[regexp] = x` does in MRI.
+/// A non-matching pattern raises `IndexError`, as `str[regexp] = x` does in
+/// MRI.
 fn str_aset(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let args = rest(mrb)?;
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
@@ -326,12 +317,9 @@ fn str_aset(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Ok(self_)
 }
 
-/// `String#slice!` — slice the matched (or indexed) portion out in place and
-/// return it. This gem implements every form, as the core String has no
-/// `slice!`: a `Regexp` form saves and restores `$~` around the inner delete
-/// so the visible match stays the slice's own; an Integer / Range / String
-/// form deletes through the core `[]=`. Returns `nil`, leaving the string
-/// untouched, when nothing matched.
+/// Every form lives here, since the core String has no `slice!`. The
+/// `Regexp` form saves and restores `$~` around the inner delete so the
+/// visible match stays the slice's own.
 fn str_slice_bang(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let args = rest(mrb)?;
     let Some(&nth) = args.first() else {
@@ -372,7 +360,6 @@ fn slice_bang_should_delete(
     Ok(i32::from_value(args[0]) != i32::from_value(size))
 }
 
-/// String value of a byte-range group, or `nil` for an absent group.
 fn span_str(mrb: &Mrb, subject: &str, group: Option<(usize, usize)>) -> Value {
     match group {
         Some((start, end)) => mrb.str_new(&subject.as_bytes()[start..end]).as_value(),
