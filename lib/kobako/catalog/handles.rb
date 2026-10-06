@@ -7,26 +7,9 @@ require_relative "../transport/exposure"
 
 module Kobako
   module Catalog
-    # Host-side mapping from opaque integer Handle IDs to Ruby objects.
-    # Each invocation's +Kobako::Context+ mints its own table and hands it to
-    # the dispatcher, so guest→host dispatch resolves Handle targets and
-    # arguments against the same table that host→guest wire encoding allocates
-    # into for that run.
-    #
-    # Lifecycle invariants:
-    #
-    #   - Handle IDs are allocated by a monotonically increasing counter
-    #     scoped to a single invocation. The first ID issued in an
-    #     invocation is 1; ID 0 is reserved as the invalid sentinel and is
-    #     never returned by +#alloc+.
-    #
-    #   - A fresh table backs each invocation, so a Handle issued in one
-    #     invocation resolves in no other — uniformly regardless of
-    #     allocation source (Service return or host-injected argument).
-    #
-    #   - The cap is +0x7fff_ffff+ (2³¹ − 1). Allocation beyond the cap
-    #     raises immediately — no silent truncation, no wrap, no ID reuse.
-    class Handles
+    # One invocation's Handle table, mapping opaque ids to host objects. Each
+    # invocation mints its own, so a Handle resolves only where it was issued.
+    class Handles # :nodoc:
       # Build a fresh, empty table. +next_id+ is an internal seam that
       # sets the starting value of the monotonic counter (defaults to 1);
       # tests pass a value near +Kobako::Handle::MAX_ID+ to exercise

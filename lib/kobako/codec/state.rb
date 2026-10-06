@@ -2,11 +2,9 @@
 
 module Kobako
   module Codec
-    # Codec-internal, per-thread state of the operation in flight: whether
-    # a Capability Handle crossed the current decode. Thread scoping is
-    # what makes plain instance variables sound — host codec calls run
-    # synchronously on their owning thread.
-    class State
+    # Whether a Capability Handle crossed the decode in flight, kept per
+    # thread so plain instance variables stay sound.
+    class State # :nodoc:
       # Thread-local slot holding the calling thread's State.
       STATE_KEY = :__kobako_codec_state__
       private_constant :STATE_KEY

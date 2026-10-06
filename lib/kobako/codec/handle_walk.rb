@@ -5,19 +5,7 @@ require_relative "../errors"
 
 module Kobako
   module Codec
-    # Substitutes Capability Handles into and out of a Ruby value tree at
-    # the host↔guest boundary. #deep_wrap allocates a +Kobako::Handle+ for
-    # each non-wire-representable leaf on the host→guest +#run+ argument
-    # path; #deep_restore resolves each wire-decoded Handle back to its
-    # host object on every guest→host value path. #representable? is the
-    # by-value codec-type predicate that decides which leaves #deep_wrap
-    # must wrap: the closed 11-entry wire type set
-    # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type
-    # Mapping).
-    #
-    # All helpers are pure except #deep_wrap, whose only side effect is
-    # allocating new Handle ids into the supplied table.
-    module HandleWalk
+    module HandleWalk # :nodoc:
       module_function
 
       # Inclusive Integer range the msgpack gem encodes without raising

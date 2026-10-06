@@ -1,10 +1,7 @@
 # frozen_string_literal: true
 
 module Kobako
-  # What one invocation wrote to stdout or stderr, up to that channel's
-  # cap, together with whether it wrote past the cap. Frozen, so the bytes
-  # and the flag always travel together.
-  class Capture
+  class Capture # :nodoc:
     attr_reader :bytes
 
     # The bytes read as UTF-8 when they are valid UTF-8, and as binary

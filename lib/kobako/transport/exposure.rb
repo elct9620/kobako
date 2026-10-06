@@ -6,16 +6,11 @@ require_relative "reflection"
 
 module Kobako
   module Transport
-    # The methods a host object lets the guest call through one reference
-    # to it — a bound path or a Capability Handle — fixed when the reference
-    # is made. An object defining its own private +respond_to_guest?(name)+
-    # is asked on every dispatch; any other exposes only what its own class
-    # and the object itself define in source, since the methods a Host App
-    # cannot foresee handing over are the ones it never wrote.
-    #
-    # Built on the +class X < Data.define(...)+ subclass form so the class
-    # body is fully Steep-visible; see +.rubocop.yml+ for the rationale.
-    class Exposure < Data.define(:object, :names)
+    # The methods one reference lets the guest call, fixed when the reference
+    # is made. Only what the object's own class and the object define in
+    # source is exposed, since a Host App cannot foresee handing over what it
+    # never wrote.
+    class Exposure < Data.define(:object, :names) # :nodoc:
       PREDICATE = :respond_to_guest?
       private_constant :PREDICATE
 

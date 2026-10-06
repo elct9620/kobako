@@ -8,13 +8,8 @@ require_relative "state"
 require_relative "../handle"
 
 module Kobako
-  module Codec
-    # The kobako wire ext-type conversions
-    # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Ext Types)
-    # as pure functions: per-operation decode state is threaded in as an
-    # argument, so the module itself holds nothing. #build_factory assembles
-    # the one +MessagePack::Factory+ these conversions are registered on.
-    module ExtTypes
+  module Codec # :nodoc:
+    module ExtTypes # :nodoc:
       # MessagePack ext type code reserved for Symbol
       # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Ext Types
       # → ext 0x00). Module-private — mirrors +codec::EXT_SYMBOL+ on the
@@ -128,11 +123,9 @@ module Kobako
       end
     end
 
-    # The process-wide registered factory: ext registration is paid once at
-    # load, and a registered +MessagePack::Factory+ only reads its type
-    # registry afterwards, so every thread shares this instance for byte
-    # work.
-    FACTORY = ExtTypes.build_factory
+    # Registered once at load and only read afterwards, so every thread
+    # shares it.
+    FACTORY = ExtTypes.build_factory # :nodoc:
     private_constant :FACTORY
   end
 end

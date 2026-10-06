@@ -4,20 +4,10 @@ require_relative "../unresolved"
 
 module Kobako
   module Catalog
-    # Kobako::Catalog::Extensions — per-Sandbox registry of installed
-    # Extensions. Composes each Extension onto the sibling registries at
-    # install time (its +source+ into +Catalog::Snippets+, its +backend+
-    # path into +Catalog::Services+), asserts declared dependencies are
-    # present when the Sandbox seals, and resolves each callable-backed
-    # path to a fresh object for every invocation — returning that map to the
-    # driving +Context+ rather than mutating the shared registry, so
-    # concurrent invocations stay shared-nothing.
-    #
-    # Sealing and the reject-after-install guard are governed by the owning
-    # Sandbox through +Catalog::Services#sealed?+, the shared seal signal;
-    # this registry only records entries and enforces the Extension-shape
-    # and dependency rules.
-    class Extensions
+    # The installed Extensions, composed onto the Service and snippet
+    # registries. Providers resolve afresh for each invocation and are handed
+    # back rather than stored, so concurrent invocations share nothing.
+    class Extensions # :nodoc:
       def initialize
         @entries = [] # : Array[untyped]
         @asserted = false

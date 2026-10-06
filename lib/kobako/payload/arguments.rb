@@ -4,19 +4,7 @@ require_relative "../codec"
 
 module Kobako
   module Payload
-    # The invocation arguments a Call or a Run carries: a 2-element
-    # msgpack array, +args+ then +kwargs+. Both elements are always
-    # present, so field positions stay stable when either is empty.
-    #
-    # The positional-versus-keyword split lives here rather than in the
-    # core envelope because it is Ruby's call semantics, not the wire's.
-    # +kwargs+ keys must be Symbols; the invariant is enforced at
-    # construction so the value object is the single source of truth.
-    #
-    # Built on the +class X < Data.define(...)+ subclass form so the class
-    # body is fully Steep-visible; see +.rubocop.yml+ for the
-    # rationale.
-    class Arguments < Data.define(:args, :kwargs)
+    class Arguments < Data.define(:args, :kwargs) # :nodoc:
       def initialize(args: [], kwargs: {})
         raise ArgumentError, "payload args must be Array" unless args.is_a?(Array)
 

@@ -8,18 +8,7 @@ require_relative "utils"
 
 module Kobako
   module Codec
-    # Module-level entry point for the host side of the kobako wire
-    # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type Mapping).
-    #
-    # Translates msgpack gem exceptions into the kobako error taxonomy
-    # (TruncatedInputError, InvalidTypeError, InvalidEncodingError, UnsupportedTypeError) so
-    # callers can pattern-match on the wire-violation categories
-    # without leaking the gem's internal exception classes.
-    #
-    # Public API is a single function — +.decode+. The decoder is
-    # stateless; the +MessagePack::Unpacker+ instance is built per call
-    # because callers always decode exactly one wire value at a time.
-    module Decoder
+    module Decoder # :nodoc:
       # Decode +bytes+ into one Ruby value and validate transitively
       # against the wire type mapping. Raises TruncatedInputError, InvalidTypeError,
       # or InvalidEncodingError on wire violations.

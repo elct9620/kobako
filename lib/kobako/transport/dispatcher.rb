@@ -11,19 +11,9 @@ module Kobako
   # See lib/kobako/transport.rb for the umbrella module doc; this file
   # owns the pure-function dispatcher that answers a routed Call.
   module Transport
-    # Pure-function dispatcher for guest-initiated Calls. The native side
-    # has already decoded the core envelope, so this resolves the target
-    # through the per-invocation path +resolver+ (the +Context+, whose
-    # +#lookup+ layers per-invocation providers over the static bindings)
-    # or Catalog::Handles, decodes only the payload, invokes the method,
-    # and answers +[ok, bytes]+ — which the native side puts on the
-    # Reply's ok or fault arm. It never raises.
-    #
-    # The module is stateless — all mutable state is threaded through
-    # arguments so Dispatcher has no instance variables and no side
-    # effects beyond mutating the Catalog::Handles via +alloc+ when a
-    # non-wire-representable return value must be wrapped.
-    module Dispatcher
+    # Answers a routed Call with +[ok, bytes]+ and never raises, so every
+    # failure reaches the guest as a fault.
+    module Dispatcher # :nodoc:
       # Throw tag for the Yielder's break unwind back to the
       # dispatcher's +catch+ frame. +private_constant+ is a
       # convention boundary — not a defence.
@@ -32,15 +22,9 @@ module Kobako
 
       module_function
 
-      # Internal sentinel raised when target resolution fails. Becomes a
-      # Fault with type="undefined". Contained at the wire boundary —
-      # not part of the public Kobako error taxonomy.
-      class UndefinedTargetError < StandardError; end
+      class UndefinedTargetError < StandardError; end # :nodoc:
 
-      # The codec fault of a request that never became a call, restated in
-      # the vocabulary the guest can act on while staying inside the codec
-      # taxonomy the fault boundary sorts on.
-      class UnreadableRequestError < Kobako::Codec::Error; end
+      class UnreadableRequestError < Kobako::Codec::Error; end # :nodoc:
 
       # The category kobako's own refusals answer under, keyed by the class
       # each is raised as and ordered most specific first. A class absent

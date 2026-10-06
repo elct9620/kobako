@@ -4,15 +4,7 @@ require_relative "codec"
 require_relative "transport/error"
 
 module Kobako
-  # Host-facing boundary for the invocation outcome the native side split
-  # off the core envelope. Takes the arm it named plus the fields that arm
-  # carries, and settles the invocation the way a host does: return the
-  # value, or raise the exception the failure attributes to.
-  #
-  # This is the two-step attribution decision. The wire framing belongs to
-  # the native side; the payload codec at +Kobako::Codec+ decodes only
-  # the one arm that carries a value.
-  module Outcome
+  module Outcome # :nodoc:
     # The two +origin+ values a Panic attributes with.
     ORIGIN_SANDBOX = "sandbox"
     ORIGIN_SERVICE = "service"

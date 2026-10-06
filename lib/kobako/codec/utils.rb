@@ -4,21 +4,7 @@ require_relative "error"
 
 module Kobako
   module Codec
-    # Byte-boundary helpers shared by the host-side encoder and decoder.
-    # Two concerns live here:
-    #
-    #   - UTF-8 assertion at the codec boundary
-    #     ({docs/wire-codec.md}[link:../../../docs/wire-codec.md]
-    #     § str/bin Encoding Rules and § Ext Types → ext 0x00). Used by
-    #     Decoder when walking +str+ family payloads and by ExtTypes
-    #     when validating the +ext 0x00+ Symbol payload.
-    #   - +ArgumentError+ translation at the codec boundary
-    #     (#with_boundary) so the public taxonomy stays
-    #     Kobako::Codec::Error.
-    #
-    # Both helpers are pure — they only inspect inputs, never mutate them.
-    # The host↔guest Handle substitution walk lives in HandleWalk.
-    module Utils
+    module Utils # :nodoc:
       module_function
 
       # Raise InvalidEncodingError unless +string+'s bytes are valid under

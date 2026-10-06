@@ -4,24 +4,7 @@ require_relative "../snippet"
 
 module Kobako
   module Catalog
-    # Kobako::Catalog::Snippets — per-Sandbox insertion-ordered registry
-    # of preloaded snippets.
-    #
-    # Entries replay against the fresh +mrb_state+ before per-invocation
-    # source / entrypoint resolution. Each +Snippet::Source+ entry's +name+
-    # is its canonical identity — the filename baked into the loaded IREP's
-    # +debug_info+ that surfaces in every backtrace frame originating from
-    # the snippet as +(snippet:Name):line+. Duplicate names within the
-    # +code:+ form would produce ambiguous attribution and are rejected at
-    # registration time.
-    # +Snippet::Binary+ entries carry no host-side name — their canonical
-    # name lives in the bytecode's +debug_info+ and is read by the guest at
-    # load time; the host does not extract it.
-    #
-    # Sealing is governed by the owning Sandbox — the registry itself
-    # is append-only and exposes no mutation API beyond +#register+; the
-    # Sandbox guards +#register+ behind the seal check before delegating.
-    class Snippets
+    class Snippets # :nodoc:
       # Ruby constant-name pattern enforced on snippet names.
       NAME_PATTERN = /\A[A-Z]\w*\z/
 

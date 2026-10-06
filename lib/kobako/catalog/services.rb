@@ -5,25 +5,7 @@ require_relative "../transport/exposure"
 
 module Kobako
   module Catalog
-    # Kobako::Catalog::Services — per-Sandbox registry of Service
-    # bindings keyed by their constant-path name. Holds the flat
-    # path→Exposure table and the declared path set every invocation
-    # announces on Frame 1.
-    #
-    # Public API:
-    #
-    #   services = Kobako::Catalog::Services.new
-    #   services.bind("MyService::KV", kv_object)  # => services (chainable)
-    #   services.paths                             # => ["MyService::KV"]
-    #   services.lookup("MyService::KV").object    # => kv_object
-    #
-    # Per-dispatch routing is +Kobako::Transport::Dispatcher+'s
-    # responsibility — the Dispatcher resolves a path against the invocation's
-    # +Kobako::Context+ (which layers per-invocation providers and +ctx.bind+
-    # overrides over these base bindings) and the +Catalog::Handles+, both
-    # passed in the per-invocation dispatch Proc the Context hands to
-    # +Runtime#eval+ / +#run+.
-    class Services
+    class Services # :nodoc:
       # Ruby constant-name pattern each +::+-separated bind-path segment
       # must match.
       NAME_PATTERN = /\A[A-Z]\w*\z/

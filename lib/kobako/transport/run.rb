@@ -9,29 +9,9 @@ module Kobako
   # owns +Run+, the host-side value object for one +#run+ request — the
   # native side frames it into the envelope +__kobako_run+ consumes.
   module Transport
-    # Host-side value object for a single +Sandbox#run+ invocation
-    # ({docs/wire-codec.md Invocation channels}[link:../../../docs/wire-codec.md]).
-    #
-    # A Run captures the host-layer concept of "a single +#run+
-    # call": the entrypoint constant name plus its positional and keyword
-    # arguments. Host pre-flight (entrypoint type / name pattern, forged
-    # Handle, kwargs-key type) is enforced at construction so the Value
-    # Object is the single source of truth — anything that passes
-    # +Run.new+ is safe to ship to the guest.
-    #
-    # +#payload+ takes the invocation's +Catalog::Handles+ and routes any
-    # non-wire-representable +args+ / +kwargs+ leaf through it as a
-    # +Kobako::Handle+ — the symmetric counterpart of the guest→host wrap
-    # path in the dispatcher. A +Kobako::Handle+ that arrives **already
-    # constructed** in the caller's +args+ / +kwargs+ is rejected at
-    # construction: legitimate Handles only enter Host App code through
-    # error fields, so a Handle reaching the call site is by definition
-    # smuggled in. +Runtime#run+ frames that payload with the entrypoint
-    # into the Run envelope the +__kobako_run+ command buffer carries.
-    #
-    # Built on the +class X < Data.define(...)+ subclass form (the
-    # Steep-friendly shape — see +.rubocop.yml+ for the rationale).
-    class Run < Data.define(:entrypoint, :args, :kwargs)
+    # A Handle already in the arguments is refused, since a caller never
+    # legitimately holds one.
+    class Run < Data.define(:entrypoint, :args, :kwargs) # :nodoc:
       # Ruby constant-name pattern enforced on the +entrypoint+ Symbol.
       # Parallel to
       # +Kobako::Catalog::Snippets::NAME_PATTERN+; the two constants name the

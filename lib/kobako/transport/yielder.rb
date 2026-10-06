@@ -8,26 +8,7 @@ module Kobako
   # owns the host-side object that materialises a guest-supplied block as
   # a Ruby callable the Service method can yield into.
   module Transport
-    # Host-side stand-in for a guest-supplied block.
-    #
-    # Each guest call that carries +block_given: true+ gets a Yielder
-    # that the Dispatcher hands to the Service method as +&block+. The
-    # Service method observes it as an ordinary Ruby Proc through
-    # #to_proc; +yield val+ / +block.call(val)+ invokes #yield, which
-    # serialises the positional args, re-enters the guest via the injected
-    # +yield_to_guest+ lambda, and reifies the Yield Reply into Ruby
-    # control flow:
-    #
-    #   * ok    — return the decoded value to +yield+'s caller
-    #   * break — +throw break_tag, value+ so the Dispatcher's +catch+
-    #     frame unwinds the Service method
-    #   * error — raise a BlockError at the Service's yield site,
-    #     carrying the guest's class on +#klass+
-    #
-    # The Dispatcher calls #invalidate! from its +ensure+ block once
-    # dispatch completes; any later call to a stashed Yielder then raises
-    # +LocalJumpError+ — the observable shape of an escaped Yielder.
-    class Yielder
+    class Yielder # :nodoc:
       # +yield_to_guest+ is the ext's per-dispatch
       # +Kobako::Runtime::GuestYielder+, which #yield invokes to re-enter
       # the guest: it takes the argument payload and answers the reply

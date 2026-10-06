@@ -4,14 +4,9 @@ require_relative "error"
 
 module Kobako
   module Codec
-    # The structural nesting bound
-    # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md]
-    # § Structural Nesting Depth), checked before a value reaches the
-    # packer. The packer takes no depth limit and walks a list or map in
-    # frames that carry no stack guard, so a value it cannot finish — a
-    # reference cycle necessarily is one — must be refused before it is
-    # handed over.
-    module Nesting
+    # Refuses a value nested past the wire's bound before the packer sees it,
+    # since the packer walks without a stack guard and a cycle never ends.
+    module Nesting # :nodoc:
       # Raise InvalidTypeError when +value+ nests past MAX_NESTING_DEPTH; a
       # value nested exactly to the bound passes.
       def self.assert_within_bound!(value, depth = 0)

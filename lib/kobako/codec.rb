@@ -10,24 +10,7 @@ require_relative "codec/encoder"
 require_relative "codec/decoder"
 
 module Kobako
-  # Host-side MessagePack codec for the kobako wire contract — the
-  # byte-level layer ({docs/wire-codec.md}[link:../../docs/wire-codec.md]).
-  # This is the payload codec: the core envelope is framed natively, so
-  # what reaches here is one codec document — an invocation's arguments
-  # (+Kobako::Payload::Arguments+), a dispatch or yield value, or an
-  # invocation's value and a Panic's diagnostics
-  # (+Kobako::Outcome+). The ext-type leaves this layer
-  # carries — +Kobako::Handle+ (0x01) — lives at the kobako root so the
-  # codec can register it without depending upward on Transport.
-  #
-  # Backed by the official +msgpack+ gem: ExtTypes registers the two
-  # kobako-specific ext types (0x00 Symbol, 0x01 Capability Handle) on
-  # one process-wide +MessagePack::Factory+,
-  # and Encoder / Decoder are thin wrappers over it. The Rust side
-  # mirrors this layer as the +codec+ module in the +kobako-codec+ crate;
-  # the ext-code constants live as module-private values on ExtTypes
-  # alongside +codec::EXT_SYMBOL+ / +codec::EXT_HANDLE+ on that side.
-  module Codec
+  module Codec # :nodoc:
     # The maximum structural nesting depth the wire represents (the
     # MessagePack ecosystem's bound), shared with the guest +kobako_codec+
     # so both sides cap identically. The host refuses a value nesting past

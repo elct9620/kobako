@@ -7,20 +7,7 @@ require_relative "ext_types"
 
 module Kobako
   module Codec
-    # Module-level entry point for the host side of the kobako wire
-    # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type Mapping).
-    #
-    # The codec backbone is the official +msgpack+ gem: integers, floats,
-    # strings, arrays, and maps go through the gem's narrowest-encoding
-    # logic; the two kobako-specific ext types (0x00 Symbol, 0x01
-    # Capability Handle) are registered by ExtTypes on the process-wide
-    # factory.
-    #
-    # Public API is a single function — +.encode+. The codec is stateless;
-    # there is no buffer accumulator and no streaming write API. Callers
-    # that need to concatenate multiple encodings build the bytes
-    # themselves.
-    module Encoder
+    module Encoder # :nodoc:
       # Encode +value+ to wire bytes (binary-encoded String).
       # The 11-entry type mapping is a closed set: a value outside it is
       # rejected as +UnsupportedTypeError+ by the factory's +BasicObject+ guard

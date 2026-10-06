@@ -2,15 +2,7 @@
 
 module Kobako
   module Transport
-    # The reflection floor a guest→host dispatch must clear before the
-    # Dispatcher reaches +public_send+: which method names on a resolved
-    # target count as Service behaviour, and which are Ruby's ambient
-    # metaprogramming surface.
-    #
-    # Answers with a refusal reason rather than raising, so the error
-    # taxonomy stays with the Dispatcher and this module holds only the
-    # policy.
-    module Reflection
+    module Reflection # :nodoc:
       # Modules whose instance methods are ambient Ruby reflection /
       # metaprogramming surface (+send+, +public_send+, +instance_eval+,
       # +method+, +tap+, +instance_variable_get+, ...) rather than Service
