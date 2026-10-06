@@ -2,7 +2,8 @@
 
 The payload types both Codec implementations carry, each registered on both
 sides so neither peer can drop or reshape its half alone. The round-trip fuzz
-holds what the bytes are; this holds that each peer still answers for them.
+holds what the bytes are, and the behavior specification holds that both
+peers carry the same set; this holds that each peer still answers for them.
 
 ## Includes
 

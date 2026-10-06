@@ -209,8 +209,9 @@ Each check reaches what the one before it cannot. The guest's value walk sits be
 |-------|-------|---------|
 | Round-trip fuzz | the payload peers, byte for byte | every shape the harness generates |
 | Identity law | the guest's value walk | a value through the real Guest Binary |
+| Payload oracle | the set of payload types each peer carries | a host type the oracle lacks, or the reverse |
 | `sumi verify` | each peer's encode and decode for a registered type | a peer that drops or reshapes its half |
 
-A payload type is registered on both peers in [`spec/contract/wire.md`](spec/contract/wire.md). A type only one peer grows reaches none of these checks until it is registered there.
+A payload type is registered on both peers in [`spec/contract/wire.md`](spec/contract/wire.md). That both peers carry the same set is a promise of [payload encoding](spec/behavior/payload-encoding.md). The oracle lists the host's types by reflection and the guest's from the one table it dispatches by. A guest type left out of that table stays outside every check.
 
 Field names inside a type stay outside every check. A peer spells a field the way its language makes idiomatic, since the wire position is what the contract fixes. Success and failure are likewise each language's idiom: a value on the guest (`Outcome`), return-or-raise on the host.
