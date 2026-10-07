@@ -15,7 +15,7 @@ use beni::Value;
 use crate::codec::{CodecError, PayloadCodec};
 use crate::runtime::Kobako;
 
-type EncodeCallArgumentsFn = fn(&Kobako, &[Value], beni::Hash) -> Result<Vec<u8>, CodecError>;
+type EncodeCallArgumentsFn = fn(&Kobako, &[Value], beni::RHash) -> Result<Vec<u8>, CodecError>;
 type DecodeReplyValueFn = fn(&Kobako, &[u8]) -> Result<Value, CodecError>;
 
 /// The two codec operations a guest→host dispatch needs, as plain
@@ -32,7 +32,7 @@ impl CodecSlot {
         &self,
         kobako: &Kobako,
         rest: &[Value],
-        kwargs: beni::Hash,
+        kwargs: beni::RHash,
     ) -> Result<Vec<u8>, CodecError> {
         (self.encode_call_arguments)(kobako, rest, kwargs)
     }

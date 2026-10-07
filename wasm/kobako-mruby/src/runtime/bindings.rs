@@ -2,7 +2,6 @@
 //! under a module per prefix segment.
 
 use beni::Mrb;
-use beni::ReprValue;
 
 use super::Kobako;
 
@@ -104,10 +103,9 @@ impl Kobako {
     }
 
     fn extend_proxy(&self, mrb: &Mrb, class: beni::RClass) -> Result<(), InstallError> {
-        use beni::Module;
+        use beni::{Module, Object};
 
         class
-            .as_value()
             .singleton_class(mrb)
             .and_then(|singleton| singleton.include_module(mrb, self.registrations.proxy_module))
             .map_err(|e| InstallError::Rejected(e.message(mrb)))

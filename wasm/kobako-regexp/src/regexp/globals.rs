@@ -3,6 +3,7 @@
 
 use crate::matchdata::{self, MatchState};
 use beni::prelude::*;
+use beni::value::qnil;
 use beni::{Mrb, Value};
 use core::ffi::CStr;
 
@@ -95,7 +96,7 @@ pub(crate) fn set_span_globals(mrb: &Mrb, regexp: Value, subject: &str, span: &M
 }
 
 pub(super) fn clear_globals(mrb: &Mrb) {
-    let _ = mrb.gv_set(c"$~", Value::nil());
+    let _ = mrb.gv_set(c"$~", qnil().as_value());
     clear_derived(mrb);
 }
 
@@ -106,5 +107,5 @@ fn clear_derived(mrb: &Mrb) {
 }
 
 fn set_global(mrb: &Mrb, name: &CStr, value: Option<Value>) {
-    let _ = mrb.gv_set(name, value.unwrap_or_else(Value::nil));
+    let _ = mrb.gv_set(name, value.unwrap_or_else(|| qnil().as_value()));
 }

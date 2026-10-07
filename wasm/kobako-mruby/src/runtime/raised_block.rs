@@ -78,7 +78,7 @@ impl RaisedBlock {
             .as_ref()?
             .block
             .as_value()
-            .obj_equal(mrb, block.as_value())
+            .is_equal(mrb, block.as_value())
         {
             return None;
         }

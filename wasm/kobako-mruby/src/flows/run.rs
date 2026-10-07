@@ -36,7 +36,7 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::{boot, panic};
     use crate::codec::PayloadCodec;
-    use beni::ReprValue;
+    use beni::{Module, ReprValue};
     use kobako_core::abi::write_panic;
     use kobako_transport::envelope::{Panic, Run};
 
@@ -86,9 +86,9 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         Ok(sym) => sym,
         Err(err) => return write_panic(panic::panic_from_error(&kobako, err)),
     };
-    let object_value = mrb.object_class().as_value();
+    let object_class = mrb.object_class();
 
-    if !object_value.const_defined(mrb, target_sym) {
+    if !object_class.const_defined(mrb, target_sym) {
         let available = super::boot_constants::snippet_constants(&kobako, &preamble);
         return write_panic(Panic {
             available,
@@ -99,7 +99,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         });
     }
 
-    let target_val = match object_value.const_get(mrb, target_sym) {
+    let target_val = match object_class.const_get::<_, beni::Value>(mrb, target_sym) {
         Ok(v) => v,
         // The `const_defined` gate above makes a plain undefined-constant
         // miss unreachable here; a surfaced error is the exotic case

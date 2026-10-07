@@ -1,21 +1,12 @@
-//! The call-frame reads the variadic bodies in this gem make.
-//!
-//! A body with a fixed argument list takes them as typed parameters
-//! instead; these two shapes are what `method!`'s any-arity form leaves
-//! to the body.
+//! The call-frame read the variadic bodies in this gem make beside the
+//! arguments `method!`'s any-arity form already hands them.
 
 use beni::scan_args::scan_args;
-use beni::{Array, Error, Mrb, Proc, Value};
+use beni::{Error, Mrb, Proc, RArray};
 
-/// Owned, so the arguments outlive any mruby call the body makes
-/// afterwards.
-pub(crate) fn rest(mrb: &Mrb) -> Result<Vec<Value>, Error> {
-    scan_args::<(), (), Array, (), (), ()>(mrb)?
-        .splat
-        .to_vec(mrb)
-}
-
-pub(crate) fn rest_block(mrb: &Mrb) -> Result<(Vec<Value>, Option<Proc>), Error> {
-    let args = scan_args::<(), (), Array, (), (), Option<Proc>>(mrb)?;
-    Ok((args.splat.to_vec(mrb)?, args.block))
+/// The call's block. Any-arity bodies receive the arguments as a slice
+/// but not the block, so it is read from the frame, the splat taking
+/// whatever positionals the call passed.
+pub(crate) fn block(mrb: &Mrb) -> Result<Option<Proc>, Error> {
+    Ok(scan_args::<(), (), RArray, (), (), Option<Proc>>(mrb)?.block)
 }

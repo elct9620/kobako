@@ -25,19 +25,20 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "beni"
-version = "0.18.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56895f263934b842c09cd98f5528753b92d482b0a6fed116ed58db27d21cd53a"
+checksum = "54ee8e516245ee4850e693137924b05b9db3b3ff54a23b9c9c57415a8ad1f3b4"
 dependencies = [
  "beni-macros",
  "beni-sys",
+ "bytemuck",
 ]
 
 [[package]]
 name = "beni-macros"
-version = "0.18.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8e5f2d3c351f600ddd8b62bafcb79e9ad6ba6358a49b2703811e216e3b0a406"
+checksum = "90c2d58fd6105f628223dc1004a9f199f769b4ec455ba3f2b03d47c337f0f7c2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -46,9 +47,9 @@ dependencies = [
 
 [[package]]
 name = "beni-sys"
-version = "0.18.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "251dcbde3698a216e1e1f608d13bcc896d9dfca89a097cf37b7590c394044d40"
+checksum = "ed97a02ef2494241bbb81fe3b1ecc1ec75198f416797b9ebeed7113c69d29e3f"
 dependencies = [
  "bindgen",
  "cc",
@@ -94,6 +95,12 @@ name = "bitflags"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4512299f36f043ab09a583e57bceb5a5aab7a73db1805848e8fef3c9e8c78b3"
+
+[[package]]
+name = "bytemuck"
+version = "1.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
 
 [[package]]
 name = "cc"

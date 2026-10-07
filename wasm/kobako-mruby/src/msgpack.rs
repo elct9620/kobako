@@ -26,7 +26,7 @@ impl PayloadCodec for MsgpackCodec {
     fn encode_call_arguments(
         kobako: &Kobako,
         rest: &[Value],
-        kwargs: beni::Hash,
+        kwargs: beni::RHash,
     ) -> Result<Vec<u8>, CodecError> {
         let (args, kwargs) = kobako.unpack_args_kwargs(rest, kwargs)?;
         payload::Arguments::new(args, kwargs)
@@ -53,7 +53,7 @@ impl PayloadCodec for MsgpackCodec {
                 .map(|(name, value)| (CodecValue::Sym(name), value))
                 .collect();
             let hash = kobako.to_mrb_value(CodecValue::Map(pairs))?;
-            beni::Hash::from_value(hash)
+            beni::RHash::from_value(hash)
         };
         Ok(Arguments { args, kwargs })
     }

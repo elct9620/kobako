@@ -26,7 +26,8 @@
 use crate::codec::CodecError;
 use crate::runtime::{IntegerOutOfRange, Kobako};
 use beni::prelude::*;
-use beni::{Symbol, Value};
+use beni::value::qnil;
+use beni::{RArray, RHash, Symbol, Value};
 use kobako_codec::msgpack::codec::Value as CodecValue;
 // The encode-side walk caps at the same depth the decoder enforces; the
 // constant lives in `kobako-codec` so the two guest walks share one bound
@@ -68,14 +69,14 @@ impl Kobako {
     /// caller raises at the guest dispatch call site rather than coercing it.
     pub(crate) fn extract_hash_kwargs(
         &self,
-        hash: beni::Hash,
+        hash: RHash,
         out: &mut Vec<(String, kobako_codec::msgpack::codec::Value)>,
     ) -> Result<(), CodecError> {
         let keys_ary = hash.keys(self.mrb());
         for key_val in keys_ary.entries(self.mrb()) {
             // A hostile Hash subclass whose `[]` raises reads as `nil`
             // for that key rather than faulting this marshalling helper.
-            let val = hash.get(self.mrb(), key_val).unwrap_or(Value::nil());
+            let val = hash.get(self.mrb(), key_val).unwrap_or(qnil().as_value());
             let encoded = self
                 .try_codec_value(val)
                 .ok_or_else(|| CodecError::unrepresentable(self, val))?;
@@ -104,14 +105,10 @@ impl Kobako {
 
     /// An explicit `{...}` Hash literal in `rest` stays positional, matching
     /// Ruby 3 call semantics.
-    ///
-    /// `rest` is typed as `&[Value]` even though the buffer came from
-    /// mruby's variadic out-param; `Value` is `#[repr(transparent)]` over
-    /// `mrb_value`, so the slice layouts are identical.
     pub(crate) fn unpack_args_kwargs(
         &self,
         rest: &[Value],
-        kwargs_hash: beni::Hash,
+        kwargs_hash: RHash,
     ) -> Result<UnpackedArgs, CodecError> {
         let mut args: Vec<kobako_codec::msgpack::codec::Value> = Vec::with_capacity(rest.len());
         for &mrb_val in rest {
@@ -129,7 +126,7 @@ impl Kobako {
 
     fn array_to_codec(
         &self,
-        ary: beni::Array,
+        ary: RArray,
         depth: usize,
     ) -> Vec<Option<kobako_codec::msgpack::codec::Value>> {
         let entries = ary.entries(self.mrb());
@@ -144,7 +141,7 @@ impl Kobako {
     /// `String` key keep distinct encodings.
     fn hash_to_codec(
         &self,
-        hash: beni::Hash,
+        hash: RHash,
         depth: usize,
     ) -> Vec<(
         Option<kobako_codec::msgpack::codec::Value>,
@@ -156,7 +153,7 @@ impl Kobako {
         for key in entries {
             // As in `extract_hash_kwargs`: a raising `[]` reads as `nil`
             // rather than faulting the recursive converter.
-            let v = hash.get(self.mrb(), key).unwrap_or(Value::nil());
+            let v = hash.get(self.mrb(), key).unwrap_or(qnil().as_value());
             pairs.push((
                 self.try_codec_value_at(key, depth + 1),
                 self.try_codec_value_at(v, depth + 1),
@@ -218,13 +215,13 @@ impl Kobako {
             // The name keeps the read to an exact list or map and the tag
             // proves the layout — a class takes the name of the constant it
             // is assigned to, so the name alone is the guest's to choose.
-            "Array" if depth < MAX_NESTING_DEPTH => beni::Array::from_value(val).and_then(|ary| {
+            "Array" if depth < MAX_NESTING_DEPTH => RArray::from_value(val).and_then(|ary| {
                 self.array_to_codec(ary, depth)
                     .into_iter()
                     .collect::<Option<Vec<_>>>()
                     .map(CodecValue::Array)
             }),
-            "Hash" if depth < MAX_NESTING_DEPTH => beni::Hash::from_value(val).and_then(|hash| {
+            "Hash" if depth < MAX_NESTING_DEPTH => RHash::from_value(val).and_then(|hash| {
                 self.hash_to_codec(hash, depth)
                     .into_iter()
                     .map(|(k, v)| k.zip(v))
@@ -242,7 +239,7 @@ impl Kobako {
         use beni::IntoValue;
         let mrb = self.mrb();
         Ok(match val {
-            CodecValue::Nil => Value::nil(),
+            CodecValue::Nil => qnil().as_value(),
             CodecValue::Bool(b) => b.into_value(mrb),
             CodecValue::Int(n) => self.narrow_int(n)?,
             CodecValue::UInt(n) => self.narrow_int(n)?,

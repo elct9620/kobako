@@ -20,6 +20,7 @@
 //! [payload codec]: ../../../docs/wire/payload-msgpack.md
 
 use crate::runtime::{IntegerOutOfRange, Kobako};
+use beni::ReprValue;
 
 /// Why a codec could not carry a value across.
 ///
@@ -99,7 +100,7 @@ pub struct Arguments {
     pub args: Vec<beni::Value>,
     /// The keyword Hash, or `None` when the call passed no keywords — so
     /// an entrypoint taking only positionals never sees an empty Hash tail.
-    pub kwargs: Option<beni::Hash>,
+    pub kwargs: Option<beni::RHash>,
 }
 
 /// One schema for everything a core envelope hands through.
@@ -129,7 +130,7 @@ pub trait PayloadCodec {
     fn encode_call_arguments(
         kobako: &Kobako,
         rest: &[beni::Value],
-        kwargs: beni::Hash,
+        kwargs: beni::RHash,
     ) -> Result<Vec<u8>, CodecError> {
         let _ = (kobako, rest, kwargs);
         Err(CodecError::Unsupported)

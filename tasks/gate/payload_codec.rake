@@ -43,8 +43,9 @@ CODEC_FREE_TIERS = {
   "kobako-mruby" => File.expand_path("../../wasm", __dir__)
 }.freeze
 # Crates a codec-free build may still resolve to: the tiers themselves
-# plus the mruby wrapper, which is the interpreter rather than a schema.
-CODEC_FREE_ALLOWED = (CODEC_FREE_TIERS.keys + %w[beni beni-sys]).freeze
+# plus the mruby wrapper and what it is built on, which are the
+# interpreter rather than a schema.
+CODEC_FREE_ALLOWED = (CODEC_FREE_TIERS.keys + %w[beni beni-sys bytemuck]).freeze
 
 # Report why +crate+ is not codec-free, or +nil+ when it is. A crate is
 # codec-free when its default build resolves to nothing but the

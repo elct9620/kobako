@@ -64,7 +64,7 @@ impl Kobako {
         }
         // The tag proves the layout the name cannot, as in the codec's own
         // container arms.
-        let Some(ary) = beni::Array::from_value(val) else {
+        let Some(ary) = beni::RArray::from_value(val) else {
             return Vec::new();
         };
         let entries = ary.entries(self.mrb());
@@ -94,7 +94,8 @@ impl Kobako {
 
     /// Store `id_val` as a fresh `Kobako::Handle`'s id.
     pub fn set_handle_id(&self, target: Value, id_val: Value) -> Result<(), beni::Error> {
-        target.iv_set(self.mrb(), HANDLE_ID_IVAR, id_val)
+        use beni::{Object, RObject, TryConvert};
+        RObject::try_convert(target, self.mrb())?.ivar_set(self.mrb(), HANDLE_ID_IVAR, id_val)
     }
 
     /// Whether `val` is a `Kobako::Handle` the decoder minted. The class the
@@ -112,9 +113,11 @@ impl Kobako {
     /// round-tripped through a string, which would truncate above
     /// `i32::MAX`.
     pub fn extract_handle_id(&self, handle_val: Value) -> u32 {
-        use beni::FromValue;
-        let id_val = handle_val.iv_get(self.mrb(), HANDLE_ID_IVAR);
-        let Some(id) = i32::from_value(id_val) else {
+        use beni::{FromValue, Object, RObject};
+        let Some(id) = RObject::from_value(handle_val)
+            .and_then(|handle| handle.ivar_get::<_, Value>(self.mrb(), HANDLE_ID_IVAR).ok())
+            .and_then(i32::from_value)
+        else {
             return 0;
         };
         if id < 0 {
@@ -140,15 +143,16 @@ impl Kobako {
     /// something else.
     pub fn mint_handle(&self, id: u32) -> Value {
         use beni::IntoValue;
+        let nil = beni::value::qnil().as_value();
         if id > HANDLE_ID_MAX {
-            return Value::nil();
+            return nil;
         }
         let mrb = self.mrb();
         self.registrations
             .handle_class
-            .obj_new(mrb, &[(id as i32).into_value(mrb)])
+            .new_instance(mrb, &[(id as i32).into_value(mrb)])
             .map(|handle| handle.freeze(mrb))
-            .unwrap_or(Value::nil())
+            .unwrap_or(nil)
     }
 
     /// Represent `n` as an mruby `Integer`, refusing anything the MRB_INT32

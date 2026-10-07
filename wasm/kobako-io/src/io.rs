@@ -27,8 +27,8 @@
 //! to route to.
 
 use beni::prelude::*;
-use beni::scan_args::scan_args;
-use beni::{Array, Error, IntoValue, Mrb, RString, Value};
+use beni::value::{qnil, qtrue};
+use beni::{Error, IntoValue, Mrb, RArray, RObject, RString, Value};
 use core::ffi::CStr;
 
 /// Where `IO.new` records the descriptor `write` later reads back.
@@ -37,12 +37,6 @@ const FD_IVAR: &CStr = c"@__kobako_fd__";
 /// The sandbox routes only stdout and stderr to the host capture pipe.
 fn is_captured_fd(fd: i32) -> bool {
     fd == 1 || fd == 2
-}
-
-fn rest(mrb: &Mrb) -> Result<Vec<Value>, Error> {
-    scan_args::<(), (), Array, (), (), ()>(mrb)?
-        .splat
-        .to_vec(mrb)
 }
 
 /// The gem-init step named after mruby's own `mrb_init_io`; the body order
@@ -58,7 +52,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     let io = mrb.define_class(c"IO", mrb.object_class())?;
 
     // A body with a fixed argument list takes them as typed parameters;
-    // only the variadic ones read the call frame themselves.
+    // the variadic ones take the call's arguments as a slice.
     io.define_method(mrb, c"initialize", beni::method!(io_initialize, 2))?;
     io.define_method(mrb, c"write", beni::method!(io_write, -1))?;
     io.define_method(mrb, c"fileno", beni::method!(io_fileno, 0))?;
@@ -81,8 +75,8 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     // the whole point of routing through the Kernel delegators that
     // `crate::kernel_ext::init` registers afterwards.
     let mode_str = mrb.str_new_cstr(c"w").as_value();
-    let stdout_val = io.obj_new(mrb, &[1i32.into_value(mrb), mode_str])?;
-    let stderr_val = io.obj_new(mrb, &[2i32.into_value(mrb), mode_str])?;
+    let stdout_val = io.new_instance(mrb, &[1i32.into_value(mrb), mode_str])?;
+    let stderr_val = io.new_instance(mrb, &[2i32.into_value(mrb), mode_str])?;
 
     mrb.define_global_const(c"STDOUT", stdout_val)?;
     mrb.define_global_const(c"STDERR", stderr_val)?;
@@ -95,7 +89,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 /// `IO.new(fd, mode)` refuses any `fd` but 1 or 2, since the sandbox
 /// routes no other descriptor to the host capture pipe, and any `mode`
 /// but `"w"`, since only the write path exists.
-fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode_val: Value) -> Result<Value, Error> {
+fn io_initialize(mrb: &Mrb, self_: RObject, fd: i32, mode_val: Value) -> Result<(), Error> {
     if !is_captured_fd(fd) {
         return Err(argument_error(
             mrb,
@@ -108,14 +102,13 @@ fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode_val: Value) -> Result<Va
         return Err(argument_error(mrb, "kobako IO only supports mode \"w\""));
     }
 
-    self_.iv_set(mrb, FD_IVAR, fd.into_value(mrb))?;
-    Ok(Value::zeroed())
+    self_.ivar_set(mrb, FD_IVAR, fd)
 }
 
 /// Truncation at the output cap surfaces as a short return value, not a
 /// Ruby-level error: past the pipe's limit `write(2)` short-writes, and the
 /// total counts only the accepted bytes.
-fn io_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+fn io_write(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let fd = read_fd(mrb, self_);
     // The construction-time allowlist in `io_initialize` is not
     // self-enforcing: `@__kobako_fd__` is an ordinary ivar that guest mruby
@@ -128,16 +121,12 @@ fn io_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
             "kobako IO writes only to fd 1 (stdout) or fd 2 (stderr)",
         ));
     }
-    // An owned copy, so the values outlive the `obj_as_string` funcalls
-    // below — a borrow of the frame's own slots would not cross re-entry.
-    let argv = rest(mrb)?;
-
     let mut total: i32 = 0;
-    for &val in &argv {
+    for &val in args {
         // A guest-defined `to_s` that raises propagates as an ordinary
         // guest exception instead of unwinding past this Rust frame.
-        let s = val.obj_as_string(mrb)?;
-        // SAFETY: `obj_as_string` returns a String-tagged Value;
+        let s = val.to_r_string(mrb)?;
+        // SAFETY: `to_r_string` returns a String-tagged Value;
         // the slice is consumed before the next mruby call.
         let bytes = unsafe { RString::from_value_unchecked(s).as_bytes(mrb) };
         if !bytes.is_empty() {
@@ -171,33 +160,30 @@ fn io_fileno(mrb: &Mrb, self_: Value) -> Value {
     read_fd(mrb, self_).into_value(mrb)
 }
 
-fn io_print(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let argv = rest(mrb)?;
-    for &val in &argv {
+fn io_print(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<(), Error> {
+    for &val in args {
         let _scope = mrb.arena_scope();
-        let s = val.obj_as_string(mrb)?;
+        let s = val.to_r_string(mrb)?;
         write_one(mrb, self_, s)?;
     }
-    Ok(Value::nil())
+    Ok(())
 }
 
-fn io_puts(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let argv = rest(mrb)?;
-    if argv.is_empty() {
-        write_newline(mrb, self_)?;
-        return Ok(Value::nil());
+fn io_puts(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<(), Error> {
+    if args.is_empty() {
+        return write_newline(mrb, self_);
     }
-    for &val in &argv {
+    for &val in args {
         puts_one(mrb, self_, val)?;
     }
-    Ok(Value::nil())
+    Ok(())
 }
 
 fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
     // Downcast on the value's type tag, not its classname: the tag
     // covers Array subclasses too, matching the `is_a?(Array)` check
     // the mrblib predecessor made.
-    if let Some(ary) = beni::Array::from_value(val) {
+    if let Some(ary) = RArray::from_value(val) {
         // Walk the C-level slots, never a Ruby `#each`: a hostile Array
         // subclass cannot override iteration to drive the recursion past the
         // real elements.
@@ -207,8 +193,8 @@ fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
         return Ok(());
     }
     let _scope = mrb.arena_scope();
-    let s = val.obj_as_string(mrb)?;
-    // SAFETY: `obj_as_string` returns a String-tagged Value; the
+    let s = val.to_r_string(mrb)?;
+    // SAFETY: `to_r_string` returns a String-tagged Value; the
     // slice is dropped before the next mruby call below.
     let ends_nl = unsafe { RString::from_value_unchecked(s).as_bytes(mrb) }.last() == Some(&b'\n');
     write_one(mrb, self_, s)?;
@@ -220,11 +206,9 @@ fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
 
 /// `Kernel#sprintf` is reachable through funcall despite being private,
 /// since `mrb_funcall_with_block` does not consult `MRB_METHOD_PRIVATE_FL`.
-fn io_printf(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let argv = rest(mrb)?;
-    let formatted = self_.funcall(mrb, c"sprintf", &argv)?;
-    write_one(mrb, self_, formatted)?;
-    Ok(Value::nil())
+fn io_printf(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<(), Error> {
+    let formatted = self_.funcall(mrb, c"sprintf", args)?;
+    write_one(mrb, self_, formatted)
 }
 
 /// Mirrors mruby-io's `io_putc`; a String's first character is its first
@@ -236,8 +220,8 @@ fn io_putc(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
         write_one(mrb, self_, s)?;
         return Ok(obj);
     }
-    let s = obj.obj_as_string(mrb)?;
-    // SAFETY: `obj_as_string` returns a String-tagged Value; the
+    let s = obj.to_r_string(mrb)?;
+    // SAFETY: `to_r_string` returns a String-tagged Value; the
     // first byte is copied out before the next mruby call.
     let first = unsafe { RString::from_value_unchecked(s).as_bytes(mrb) }
         .first()
@@ -250,24 +234,17 @@ fn io_putc(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
 }
 
 /// The return value mirrors `Kernel#p`.
-fn io_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let argv = rest(mrb)?;
-    for &val in &argv {
+fn io_p(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    for &val in args {
         let _scope = mrb.arena_scope();
         let insp = val.funcall(mrb, c"inspect", &[])?;
         let nl = mrb.str_new(b"\n").as_value();
         self_.funcall(mrb, c"write", &[insp, nl])?;
     }
-    Ok(match argv.len() {
-        0 => Value::nil(),
-        1 => argv[0],
-        _ => {
-            let ary = mrb.ary_new();
-            for &val in &argv {
-                ary.push(mrb, val)?;
-            }
-            ary.as_value()
-        }
+    Ok(match args {
+        [] => qnil().as_value(),
+        [only] => *only,
+        _ => mrb.ary_new_from_values(args).as_value(),
     })
 }
 
@@ -277,23 +254,19 @@ fn io_lshift(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
 }
 
 /// The sandbox pipes are never terminals.
-fn io_tty_p(_mrb: &Mrb, _self: Value) -> Value {
-    Value::false_()
+fn io_tty_p(_mrb: &Mrb, _self: Value) -> bool {
+    false
 }
 
 /// Defaults to `true`, since the capture pipe is effectively unbuffered.
-fn io_sync(mrb: &Mrb, self_: Value) -> Value {
-    let v = self_.iv_get(mrb, c"@__kobako_sync");
-    if v.is_nil() {
-        Value::true_()
-    } else {
-        v
-    }
+fn io_sync(mrb: &Mrb, self_: RObject) -> Result<Value, Error> {
+    let v: Value = self_.ivar_get(mrb, c"@__kobako_sync")?;
+    Ok(if v.is_nil() { qtrue().as_value() } else { v })
 }
 
 /// A no-op for the write path, kept for mruby-io surface compatibility.
-fn io_sync_set(mrb: &Mrb, self_: Value, v: Value) -> Result<Value, Error> {
-    self_.iv_set(mrb, c"@__kobako_sync", v)?;
+fn io_sync_set(mrb: &Mrb, self_: RObject, v: Value) -> Result<Value, Error> {
+    self_.ivar_set(mrb, c"@__kobako_sync", v)?;
     Ok(v)
 }
 
@@ -303,8 +276,8 @@ fn io_flush(_mrb: &Mrb, self_: Value) -> Value {
 }
 
 /// The sandbox streams cannot be closed.
-fn io_closed_p(_mrb: &Mrb, _self: Value) -> Value {
-    Value::false_()
+fn io_closed_p(_mrb: &Mrb, _self: Value) -> bool {
+    false
 }
 
 /// Dispatches through `self.write`, so a subclass overriding `#write`
@@ -331,6 +304,8 @@ fn argument_error(mrb: &Mrb, msg: &str) -> Error {
 /// The value is untrusted: the ivar is guest-mutable, so a caller that
 /// forwards it to a syscall must re-validate the descriptor first.
 fn read_fd(mrb: &Mrb, self_: Value) -> i32 {
-    let val = self_.iv_get(mrb, FD_IVAR);
-    i32::from_value(val).unwrap_or(0)
+    RObject::from_value(self_)
+        .and_then(|obj| obj.ivar_get::<_, Value>(mrb, FD_IVAR).ok())
+        .and_then(i32::from_value)
+        .unwrap_or(0)
 }

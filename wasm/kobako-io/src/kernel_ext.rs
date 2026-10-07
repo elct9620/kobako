@@ -13,7 +13,8 @@
 //! core module, so the `Kernel` lookup is the same idempotent call
 //! every gem uses.
 
-use beni::{Array, Error, Module, Mrb, Value};
+use beni::prelude::*;
+use beni::{Error, Mrb, Value};
 
 /// The gem-init step named after mruby's own `mrb_init_kernel`.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
@@ -33,44 +34,32 @@ fn global(mrb: &Mrb, name: &core::ffi::CStr) -> Value {
     mrb.gv_get(name)
 }
 
-fn delegate_rest(
-    mrb: &Mrb,
-    target: &core::ffi::CStr,
-    method: &core::ffi::CStr,
-) -> Result<Value, Error> {
-    // An owned copy, so the values outlive the funcall below.
-    let argv = beni::scan_args::scan_args::<(), (), Array, (), (), ()>(mrb)?
-        .splat
-        .to_vec::<Value>(mrb)?;
-    global(mrb, target).funcall(mrb, method, &argv)
+fn kernel_print(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
+    global(mrb, c"$stdout").funcall(mrb, c"print", args)
 }
 
-fn kernel_print(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    delegate_rest(mrb, c"$stdout", c"print")
+fn kernel_puts(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
+    global(mrb, c"$stdout").funcall(mrb, c"puts", args)
 }
 
-fn kernel_puts(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    delegate_rest(mrb, c"$stdout", c"puts")
+fn kernel_printf(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
+    global(mrb, c"$stdout").funcall(mrb, c"printf", args)
 }
 
-fn kernel_printf(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    delegate_rest(mrb, c"$stdout", c"printf")
-}
-
-fn kernel_p(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    delegate_rest(mrb, c"$stdout", c"p")
+fn kernel_p(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
+    global(mrb, c"$stdout").funcall(mrb, c"p", args)
 }
 
 /// `Kernel#warn` routes through `$stderr.puts` — symmetric with the
 /// `$stdout` delegators above.
-fn kernel_warn(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    delegate_rest(mrb, c"$stderr", c"puts")
+fn kernel_warn(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
+    global(mrb, c"$stderr").funcall(mrb, c"puts", args)
 }
 
 /// `Kernel#putc` returns `nil`, not the argument — pinned by
 /// mruby-io's `mrblib/kernel.rb`; the IO-level `IO#putc` does return
 /// the original argument, and this delegator deliberately drops it.
-fn kernel_putc(mrb: &Mrb, _self: Value, obj: Value) -> Result<Value, Error> {
+fn kernel_putc(mrb: &Mrb, _self: Value, obj: Value) -> Result<(), Error> {
     global(mrb, c"$stdout").funcall(mrb, c"putc", &[obj])?;
-    Ok(Value::nil())
+    Ok(())
 }

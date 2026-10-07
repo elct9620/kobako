@@ -7,7 +7,7 @@
 //! capability gem uses, so the built-in proxy holds no privilege over one.
 
 use beni::prelude::*;
-use beni::{Array, Hash, Mrb, Proc, Symbol, Value};
+use beni::{Mrb, Proc, RArray, RHash, Symbol, Value};
 
 use crate::codec::CodecError;
 use crate::runtime::codec_slot;
@@ -75,9 +75,9 @@ fn forward_to_dispatch(
     use kobako_transport::envelope::FaultKind;
 
     let args =
-        beni::scan_args::scan_args::<(Symbol,), (), Array, (), Hash, Option<Proc>>(kobako.mrb())?;
+        beni::scan_args::scan_args::<(Symbol,), (), RArray, (), RHash, Option<Proc>>(kobako.mrb())?;
     let (method_sym,) = args.required;
-    let rest = args.splat.to_vec::<Value>(kobako.mrb())?;
+    let rest: Vec<Value> = args.splat.entries(kobako.mrb()).collect();
     let kwargs_hash = args.keywords;
     let block = args.block;
 
@@ -170,7 +170,11 @@ fn refusal(
 /// mixed in the module — has no target and is refused in-guest, so a guest
 /// cannot drive a Handle-targeted dispatch off arbitrary instance state by
 /// fabricating a proxy holder.
-pub(crate) fn proxy_method_missing(mrb: &Mrb, self_: Value) -> Result<Value, beni::Error> {
+pub(crate) fn proxy_method_missing(
+    mrb: &Mrb,
+    self_: Value,
+    _args: &[Value],
+) -> Result<Value, beni::Error> {
     use kobako_transport::envelope::Target;
 
     // SAFETY: `mrb` is live for this bridge frame and install has run
@@ -217,7 +221,11 @@ fn no_target(mrb: &Mrb, self_: Value) -> beni::Error {
 /// `Kobako::Handle` arises only from the wire decoder's `mrb_obj_new`; with
 /// guest construction closed, a `Kobako::Handle` receiver in
 /// `proxy_method_missing` is always host-issued.
-pub(crate) fn handle_not_constructible(mrb: &Mrb, _self: Value) -> Result<Value, beni::Error> {
+pub(crate) fn handle_not_constructible(
+    mrb: &Mrb,
+    _self: Value,
+    _args: &[Value],
+) -> Result<Value, beni::Error> {
     Err(match mrb.exc_get(c"NoMethodError") {
         Ok(nomethod) => beni::Error::new(
             mrb,
@@ -228,11 +236,10 @@ pub(crate) fn handle_not_constructible(mrb: &Mrb, _self: Value) -> Result<Value,
     })
 }
 
-pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value, id: Value) -> Result<Value, beni::Error> {
+pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value, id: Value) -> Result<(), beni::Error> {
     // SAFETY: `mrb` is live for this bridge frame and install has run.
     let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-    kobako.set_handle_id(self_, id)?;
-    Ok(Value::zeroed())
+    kobako.set_handle_id(self_, id)
 }
 
 /// `Kobako::Handle#initialize_copy(orig)` C bridge. mruby copies the id ivar
@@ -246,11 +253,8 @@ pub(crate) fn handle_initialize_copy(mrb: &Mrb, self_: Value, _orig: Value) -> V
 
 /// Always `true`: every call dispatches through `method_missing` to the
 /// host, so probing via `respond_to?` must succeed.
-pub(crate) fn proxy_respond_to_missing(_mrb: &Mrb, _self_: Value) -> Value {
-    // No VM access needed: `Value::true_()` reads the sys-side immediates
-    // cache, populated at install before any probe runs, so the raw
-    // `mrb` pointer goes unused.
-    Value::true_()
+pub(crate) fn proxy_respond_to_missing(_mrb: &Mrb, _self_: Value, _args: &[Value]) -> bool {
+    true
 }
 
 #[cfg(test)]

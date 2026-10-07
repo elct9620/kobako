@@ -6,11 +6,11 @@
 //! `slice!` / `index` / `split` keep their non-regexp behaviour by delegating
 //! back to the preserved core methods whenever the argument is not a `Regexp`.
 
-use crate::args::{rest, rest_block};
 use crate::errors::{argument_error, index_error, type_error};
 use crate::regexp;
 use beni::prelude::*;
-use beni::{Error, IntoValue, Mrb, Proc, Value};
+use beni::value::qnil;
+use beni::{Error, IntoValue, Mrb, Proc, RHash, RString, Value};
 use core::ffi::CStr;
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
@@ -50,16 +50,16 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 /// operand is a type error (a literal is not a pattern); any other operand is
 /// dispatched to its own `=~`, which falls through to `Kernel#=~` (nil).
 fn str_eqtilde(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, Error> {
-    if arg.is_string() {
+    if RString::from_value(arg).is_some() {
         return Err(type_error(mrb, "type mismatch: String given"));
     }
     arg.funcall(mrb, c"=~", &[self_])
 }
 
-fn str_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (args, block) = rest_block(mrb)?;
+fn str_match(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let block = crate::args::block(mrb)?;
     if args.is_empty() {
-        return Ok(Value::nil());
+        return Ok(qnil().as_value());
     }
     let re = regexp::require_regexp(mrb, args[0])?;
     let forwarded: Vec<Value> = core::iter::once(self_)
@@ -69,10 +69,9 @@ fn str_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     regexp::yield_match(mrb, md, block)
 }
 
-fn str_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = rest(mrb)?;
+fn str_match_p(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if args.is_empty() {
-        return Ok(Value::false_());
+        return Ok(false.into_value(mrb));
     }
     let re = regexp::require_regexp(mrb, args[0])?;
     let forwarded: Vec<Value> = core::iter::once(self_)
@@ -81,8 +80,8 @@ fn str_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     re.funcall(mrb, c"match?", &forwarded)
 }
 
-fn str_scan(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (args, block) = rest_block(mrb)?;
+fn str_scan(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let block = crate::args::block(mrb)?;
     let result = mrb.ary_new();
     if args.is_empty() {
         return Ok(result.as_value());
@@ -119,8 +118,8 @@ fn scan_item(mrb: &Mrb, subject: &str, span: &regexp::MatchSpan) -> Result<Value
     Ok(tuple.as_value())
 }
 
-fn str_gsub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (args, block) = rest_block(mrb)?;
+fn str_gsub(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let block = crate::args::block(mrb)?;
     if args.is_empty() {
         return Ok(self_);
     }
@@ -145,8 +144,8 @@ fn str_gsub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Ok(mrb.str_new(out.as_bytes()).as_value())
 }
 
-fn str_sub(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (args, block) = rest_block(mrb)?;
+fn str_sub(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let block = crate::args::block(mrb)?;
     if args.is_empty() {
         return Ok(self_);
     }
@@ -185,7 +184,7 @@ fn substitution(
 ) -> Result<String, Error> {
     let (start, end) = span.whole;
     if let Some(rep) = replacement {
-        if rep.is_hash() {
+        if RHash::from_value(rep).is_some() {
             let matched = mrb.str_new(&subject.as_bytes()[start..end]).as_value();
             let value = rep.funcall(mrb, c"[]", &[matched])?;
             return regexp::text_of(mrb, value);
@@ -217,10 +216,9 @@ fn enum_for(mrb: &Mrb, self_: Value, method: &CStr, pattern: Value) -> Result<Va
 /// stays unsplit as the last field); an omitted or `0` limit drops trailing
 /// empty fields; a negative limit keeps them. A non-`Regexp` argument delegates
 /// to the core method, which handles its own limit.
-fn str_split(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = rest(mrb)?;
+fn str_split(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
-        return self_.funcall(mrb, c"__kobako_split", &args);
+        return self_.funcall(mrb, c"__kobako_split", args);
     }
     let subject = regexp::text_of(mrb, self_)?;
     let limit = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0);
@@ -262,33 +260,31 @@ fn str_split(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// multibyte character snaps down to its boundary, as in `Regexp#match`),
 /// or `nil`. A non-`Regexp` argument delegates to the core method, which
 /// handles its own `pos`.
-fn str_index(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = rest(mrb)?;
+fn str_index(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
-        return self_.funcall(mrb, c"__kobako_index", &args);
+        return self_.funcall(mrb, c"__kobako_index", args);
     }
     let subject = regexp::text_of(mrb, self_)?;
     let pos = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0);
     let Some(start) = regexp::resolve_pos(&subject, i64::from(pos)) else {
-        return Ok(Value::nil());
+        return Ok(qnil().as_value());
     };
     let tail = mrb.str_new(&subject.as_bytes()[start..]).as_value();
     Ok(
         match i32::from_value(args[0].funcall(mrb, c"=~", &[tail])?) {
             Some(offset) => ((i64::from(offset) + start as i64) as i32).into_value(mrb),
-            None => Value::nil(),
+            None => qnil().as_value(),
         },
     )
 }
 
-fn str_aref(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = rest(mrb)?;
+fn str_aref(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
-        return self_.funcall(mrb, c"__kobako_aref", &args);
+        return self_.funcall(mrb, c"__kobako_aref", args);
     }
     let md = args[0].funcall(mrb, c"match", &[self_])?;
     if md.is_nil() {
-        return Ok(Value::nil());
+        return Ok(qnil().as_value());
     }
     let group = args.get(1).copied().unwrap_or_else(|| 0i32.into_value(mrb));
     md.funcall(mrb, c"[]", &[group])
@@ -296,10 +292,9 @@ fn str_aref(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 /// A non-matching pattern raises `IndexError`, as `str[regexp] = x` does in
 /// MRI.
-fn str_aset(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = rest(mrb)?;
+fn str_aset(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
-        return self_.funcall(mrb, c"__kobako_aset", &args);
+        return self_.funcall(mrb, c"__kobako_aset", args);
     }
     let (group, replacement) = match args.len() {
         2 => (0i32.into_value(mrb), args[1]),
@@ -328,18 +323,17 @@ fn str_aset(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// Every form lives here, since the core String has no `slice!`. The
 /// `Regexp` form saves and restores `$~` around the inner delete so the
 /// visible match stays the slice's own.
-fn str_slice_bang(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = rest(mrb)?;
+fn str_slice_bang(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let Some(&nth) = args.first() else {
         return Err(argument_error(
             mrb,
             "wrong number of arguments (given 0, expected 1..2)",
         ));
     };
-    let result = self_.funcall(mrb, c"slice", &args)?;
+    let result = self_.funcall(mrb, c"slice", args)?;
     let regexp_form = regexp::is_regexp(mrb, nth);
     let saved = regexp_form.then(|| mrb.gv_get(c"$~"));
-    if !result.is_nil() && slice_bang_should_delete(mrb, self_, &args, regexp_form)? {
+    if !result.is_nil() && slice_bang_should_delete(mrb, self_, args, regexp_form)? {
         let empty = mrb.str_new(b"").as_value();
         match args.get(1) {
             Some(&len) => self_.funcall(mrb, c"[]=", &[nth, len, empty])?,
@@ -371,6 +365,6 @@ fn slice_bang_should_delete(
 fn span_str(mrb: &Mrb, subject: &str, group: Option<(usize, usize)>) -> Value {
     match group {
         Some((start, end)) => mrb.str_new(&subject.as_bytes()[start..end]).as_value(),
-        None => Value::nil(),
+        None => qnil().as_value(),
     }
 }

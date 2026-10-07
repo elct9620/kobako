@@ -10,9 +10,9 @@
 use crate::errors::{index_error, no_method_error};
 use crate::regexp;
 use beni::prelude::*;
-use beni::scan_args::scan_args;
 use beni::typed_data::Obj;
-use beni::{Array, Error, IntoValue, Mrb, TryConvert, TypedData, Value};
+use beni::value::qnil;
+use beni::{Error, IntoValue, Mrb, RArray, RHash, RString, Symbol, TryConvert, TypedData, Value};
 
 /// Owned snapshot of one successful match.
 #[derive(Clone)]
@@ -34,10 +34,10 @@ pub(crate) fn state_of(mrb: &Mrb, value: Value) -> Option<&MatchState> {
 /// `regexp` is kept as the `@regexp` ivar so the GC keeps the originating
 /// pattern reachable.
 pub(crate) fn build(mrb: &Mrb, regexp: Value, state: MatchState) -> Value {
-    let md = mrb.wrap(state).as_value();
+    let md = mrb.wrap(state);
     // Fresh MatchData, never frozen — storing `@regexp` cannot raise.
-    let _ = md.iv_set(mrb, c"@regexp", regexp);
-    md
+    let _ = md.ivar_set(mrb, c"@regexp", regexp);
+    md.as_value()
 }
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
@@ -76,14 +76,17 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 /// `clone` it carries no frozen state, as mruby's own `dup` does not.
 fn md_dup(mrb: &Mrb, rb_self: Obj<MatchState>) -> Result<Obj<MatchState>, Error> {
     let copy = mrb.obj_wrap((*rb_self).clone());
-    copy.as_value()
-        .iv_set(mrb, c"@regexp", rb_self.as_value().iv_get(mrb, c"@regexp"))?;
+    copy.ivar_set(
+        mrb,
+        c"@regexp",
+        rb_self.ivar_get::<_, Value>(mrb, c"@regexp")?,
+    )?;
     Ok(copy)
 }
 
 /// A `MatchData` only ever arises from a match, so direct construction
 /// raises `NoMethodError`.
-fn md_new_forbidden(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
+fn md_new_forbidden(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
     Err(no_method_error(mrb, "undefined method 'new' for MatchData"))
 }
 
@@ -92,7 +95,7 @@ fn group_str(mrb: &Mrb, state: &MatchState, index: usize) -> Value {
         Some((begin, end)) => mrb
             .str_new(&state.subject.as_bytes()[begin..end])
             .as_value(),
-        None => Value::nil(),
+        None => qnil().as_value(),
     }
 }
 
@@ -103,7 +106,7 @@ fn numeric_index(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<i32
     if let Some(n) = i32::from_value(arg) {
         return Ok(Some(n));
     }
-    if arg.is_symbol() || arg.is_string() {
+    if Symbol::from_value(arg).is_some() || RString::from_value(arg).is_some() {
         let name = regexp::text_of(mrb, arg)?;
         let Some((_, i)) = state.names.iter().find(|(n, _)| *n == name) else {
             return Err(index_error(
@@ -117,17 +120,14 @@ fn numeric_index(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<i32
 }
 
 /// Slicing mirrors `Array#[]` over `#to_a`.
-fn md_aref(mrb: &Mrb, state: &MatchState) -> Result<Value, Error> {
-    let args = scan_args::<(), (), Array, (), (), ()>(mrb)?
-        .splat
-        .to_vec::<Value>(mrb)?;
+fn md_aref(mrb: &Mrb, state: &MatchState, args: &[Value]) -> Result<Value, Error> {
     let array = to_a(mrb, state)?.as_value();
-    if let [arg] = args.as_slice() {
+    if let [arg] = args {
         if let Some(index) = numeric_index(mrb, state, *arg)? {
             return array.funcall(mrb, c"[]", &[index.into_value(mrb)]);
         }
     }
-    array.funcall(mrb, c"[]", &args)
+    array.funcall(mrb, c"[]", args)
 }
 
 /// An index past the group count, a negative index, or an undefined capture
@@ -143,14 +143,14 @@ fn group_at(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<(usize, 
 fn md_begin(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Value, Error> {
     Ok(match group_at(mrb, state, arg)? {
         Some((begin, _)) => (begin as i32).into_value(mrb),
-        None => Value::nil(),
+        None => qnil().as_value(),
     })
 }
 
 fn md_end(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Value, Error> {
     Ok(match group_at(mrb, state, arg)? {
         Some((_, end)) => (end as i32).into_value(mrb),
-        None => Value::nil(),
+        None => qnil().as_value(),
     })
 }
 
@@ -162,8 +162,8 @@ fn md_offset(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Value, Error> 
             pair.push(mrb, (end as i32).into_value(mrb))?;
         }
         None => {
-            pair.push(mrb, Value::nil())?;
-            pair.push(mrb, Value::nil())?;
+            pair.push(mrb, qnil().as_value())?;
+            pair.push(mrb, qnil().as_value())?;
         }
     }
     Ok(pair.as_value())
@@ -177,8 +177,8 @@ fn md_captures(mrb: &Mrb, state: &MatchState) -> Result<Value, Error> {
     Ok(captures.as_value())
 }
 
-fn md_named_captures(mrb: &Mrb, state: &MatchState) -> Result<Value, Error> {
-    let symbolize = symbolize_names_requested(mrb)?;
+fn md_named_captures(mrb: &Mrb, state: &MatchState, args: &[Value]) -> Result<Value, Error> {
+    let symbolize = symbolize_names_requested(mrb, args)?;
     let map = mrb.hash_new();
     for (name, index) in &state.names {
         let key = mrb.str_new(name.as_bytes()).as_value();
@@ -193,11 +193,12 @@ fn md_named_captures(mrb: &Mrb, state: &MatchState) -> Result<Value, Error> {
 }
 
 /// mruby passes the keyword as a trailing option Hash.
-fn symbolize_names_requested(mrb: &Mrb) -> Result<bool, Error> {
-    let args = scan_args::<(), (), Array, (), (), ()>(mrb)?
-        .splat
-        .to_vec::<Value>(mrb)?;
-    let Some(options) = args.last().copied().filter(|arg| arg.is_hash()) else {
+fn symbolize_names_requested(mrb: &Mrb, args: &[Value]) -> Result<bool, Error> {
+    let Some(options) = args
+        .last()
+        .copied()
+        .filter(|arg| RHash::from_value(*arg).is_some())
+    else {
         return Ok(false);
     };
     let key = mrb
@@ -237,15 +238,15 @@ fn md_string(mrb: &Mrb, state: &MatchState) -> Value {
     mrb.str_new(state.subject.as_bytes()).as_value()
 }
 
-fn md_regexp(mrb: &Mrb, self_: Value) -> Value {
-    self_.iv_get(mrb, c"@regexp")
+fn md_regexp(mrb: &Mrb, rb_self: Obj<MatchState>) -> Result<Value, Error> {
+    rb_self.ivar_get(mrb, c"@regexp")
 }
 
 fn md_to_a(mrb: &Mrb, state: &MatchState) -> Result<Value, Error> {
     Ok(to_a(mrb, state)?.as_value())
 }
 
-fn to_a(mrb: &Mrb, state: &MatchState) -> Result<beni::Array, Error> {
+fn to_a(mrb: &Mrb, state: &MatchState) -> Result<RArray, Error> {
     let all = mrb.ary_new();
     for index in 0..state.groups.len() {
         all.push(mrb, group_str(mrb, state, index))?;

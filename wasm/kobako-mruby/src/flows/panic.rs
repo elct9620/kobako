@@ -4,6 +4,7 @@
 
 use crate::refusal::{Refusal, SANDBOX_ERROR, TRANSPORT_ERROR};
 use crate::runtime::Kobako;
+use beni::ReprValue;
 use kobako_transport::envelope::{ErrorRecord, Origin, Panic};
 
 /// Every boot-time failure passes through here, so the host-visible
@@ -119,7 +120,7 @@ pub(super) fn exception_fields(
     let message = {
         let msg_val = exc_val
             .funcall(mrb, c"message", &[])
-            .unwrap_or(beni::Value::nil());
+            .unwrap_or(beni::value::qnil().as_value());
         let m = msg_val.to_string(mrb);
         if m.is_empty() {
             class_name.clone()

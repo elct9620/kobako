@@ -20,7 +20,8 @@
 
 use crate::errors::{generator_error, parser_error};
 use beni::prelude::*;
-use beni::{Array, Error, Hash, IntoValue, Mrb, RString, Symbol, Value};
+use beni::value::qnil;
+use beni::{Error, IntoValue, Mrb, Qfalse, Qtrue, RArray, RHash, RString, Symbol, Value};
 use serde_json::{Map, Number, Value as JsonValue};
 
 /// The maximum container nesting `generate` accepts. serde_json's parse
@@ -35,7 +36,7 @@ const FLOAT_EXACT_INT_LIMIT: u128 = 1 << 53;
 
 pub(crate) fn decode(mrb: &Mrb, json: &JsonValue, symbolize: bool) -> Result<Value, Error> {
     match json {
-        JsonValue::Null => Ok(Value::nil()),
+        JsonValue::Null => Ok(qnil().as_value()),
         JsonValue::Bool(b) => Ok(b.into_value(mrb)),
         JsonValue::Number(n) => decode_number(mrb, n),
         JsonValue::String(s) => Ok(mrb.str_new(s.as_bytes()).as_value()),
@@ -133,10 +134,10 @@ pub(crate) fn encode(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, E
     if val.is_nil() {
         return Ok(JsonValue::Null);
     }
-    if val.is_true() {
+    if Qtrue::from_value(val).is_some() {
         return Ok(JsonValue::Bool(true));
     }
-    if val.is_false() {
+    if Qfalse::from_value(val).is_some() {
         return Ok(JsonValue::Bool(false));
     }
     if let Some(s) = RString::from_value(val) {
@@ -145,10 +146,10 @@ pub(crate) fn encode(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, E
     if let Some(symbol) = Symbol::from_value(val) {
         return Ok(JsonValue::String(utf8_symbol_name(mrb, symbol)?));
     }
-    if let Some(ary) = Array::from_value(val) {
+    if let Some(ary) = RArray::from_value(val) {
         return encode_array(mrb, ary, depth);
     }
-    if let Some(hash) = Hash::from_value(val) {
+    if let Some(hash) = RHash::from_value(val) {
         return encode_hash(mrb, hash, depth);
     }
     // Any other value — including a `Kobako::Handle` or a bound constant — is reached
@@ -162,7 +163,7 @@ fn number_from_f64(mrb: &Mrb, f: f64) -> Result<JsonValue, Error> {
         .ok_or_else(|| generator_error(mrb, "NaN and Infinity are not valid JSON"))
 }
 
-fn encode_array(mrb: &Mrb, ary: Array, depth: usize) -> Result<JsonValue, Error> {
+fn encode_array(mrb: &Mrb, ary: RArray, depth: usize) -> Result<JsonValue, Error> {
     if depth >= MAX_NESTING_DEPTH {
         return Err(too_deep(mrb));
     }
@@ -174,7 +175,7 @@ fn encode_array(mrb: &Mrb, ary: Array, depth: usize) -> Result<JsonValue, Error>
     Ok(JsonValue::Array(items))
 }
 
-fn encode_hash(mrb: &Mrb, hash: Hash, depth: usize) -> Result<JsonValue, Error> {
+fn encode_hash(mrb: &Mrb, hash: RHash, depth: usize) -> Result<JsonValue, Error> {
     if depth >= MAX_NESTING_DEPTH {
         return Err(too_deep(mrb));
     }
@@ -185,7 +186,7 @@ fn encode_hash(mrb: &Mrb, hash: Hash, depth: usize) -> Result<JsonValue, Error> 
         // `hash.get` is the C hash lookup, not a Ruby `[]` dispatch, so a key
         // missing from the snapshot (e.g. removed mid-walk) reads as `nil`
         // rather than faulting the recursive converter.
-        let value = hash.get(mrb, key).unwrap_or(Value::nil());
+        let value = hash.get(mrb, key).unwrap_or(qnil().as_value());
         map.insert(encode_key(mrb, key)?, encode(mrb, value, depth + 1)?);
     }
     Ok(JsonValue::Object(map))
@@ -205,10 +206,10 @@ fn encode_key(mrb: &Mrb, key: Value) -> Result<String, Error> {
     if key.is_nil() {
         return Ok(String::new());
     }
-    if key.is_true() {
+    if Qtrue::from_value(key).is_some() {
         return Ok("true".to_string());
     }
-    if key.is_false() {
+    if Qfalse::from_value(key).is_some() {
         return Ok("false".to_string());
     }
     if let Some(s) = RString::from_value(key) {

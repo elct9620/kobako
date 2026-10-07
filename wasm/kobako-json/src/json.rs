@@ -12,7 +12,7 @@ use crate::convert;
 use crate::errors;
 use beni::prelude::*;
 use beni::scan_args::{get_kwargs, scan_args};
-use beni::{Error, Hash, Module, Mrb, RString, Value};
+use beni::{Error, Module, Mrb, RHash, RString, Value};
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     let json = mrb.define_module(c"JSON")?;
@@ -32,8 +32,8 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     Ok(())
 }
 
-fn json_parse(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    let args = scan_args::<(Value,), (), (), (), Hash, ()>(mrb)?;
+fn json_parse(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
+    let args = scan_args::<(Value,), (), (), (), RHash, ()>(mrb)?;
     let (source,) = args.required;
     let rstr = RString::from_value(source)
         .ok_or_else(|| errors::type_error(mrb, "no implicit conversion of argument into String"))?;
@@ -85,8 +85,9 @@ fn object_as_json(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// left in the rest rather than refused, so an option spelled as a String —
 /// or one this build has no use for — reads as absent instead of turning it
 /// on.
-fn symbolize_names(mrb: &Mrb, keywords: Hash) -> Result<bool, Error> {
-    let kw = get_kwargs::<_, (), (Option<Value>,), Hash>(mrb, keywords, &[], &["symbolize_names"])?;
+fn symbolize_names(mrb: &Mrb, keywords: RHash) -> Result<bool, Error> {
+    let kw =
+        get_kwargs::<_, (), (Option<Value>,), RHash>(mrb, keywords, &[], &["symbolize_names"])?;
     let (symbolize,) = kw.optional;
     Ok(symbolize.is_some_and(|value| value.to_bool()))
 }

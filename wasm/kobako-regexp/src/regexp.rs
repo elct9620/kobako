@@ -23,7 +23,10 @@ pub(crate) use replace::{expand_replacement, match_spans, MatchSpan};
 use crate::errors::{argument_error, regexp_error, type_error};
 use crate::translate;
 use beni::prelude::*;
-use beni::{DataType, Error, IntoValue, Mrb, Proc, RClass, TryConvert, TypedData, Value};
+use beni::value::qnil;
+use beni::{
+    DataType, Error, IntoValue, Mrb, Proc, RClass, RString, Symbol, TryConvert, TypedData, Value,
+};
 use lru::LruCache;
 use std::cell::RefCell;
 use std::num::NonZeroUsize;
@@ -103,21 +106,9 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 
     // The archive is built MRB_INT32, so an option flag crosses into the
     // value domain as the width mruby actually carries.
-    cls.define_const(
-        mrb,
-        c"IGNORECASE",
-        (translate::IGNORECASE as i32).into_value(mrb),
-    )?;
-    cls.define_const(
-        mrb,
-        c"EXTENDED",
-        (translate::EXTENDED as i32).into_value(mrb),
-    )?;
-    cls.define_const(
-        mrb,
-        c"MULTILINE",
-        (translate::MULTILINE as i32).into_value(mrb),
-    )?;
+    cls.const_set(mrb, c"IGNORECASE", translate::IGNORECASE as i32)?;
+    cls.const_set(mrb, c"EXTENDED", translate::EXTENDED as i32)?;
+    cls.const_set(mrb, c"MULTILINE", translate::MULTILINE as i32)?;
 
     cls.define_singleton_method(mrb, c"new", beni::method!(rx_compile, -1))?;
     cls.define_singleton_method(mrb, c"compile", beni::method!(rx_compile, -1))?;
@@ -166,8 +157,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 /// ultimate compute bound.
 const BACKTRACK_LIMIT: usize = 1_000_000;
 
-fn rx_compile(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    let args = crate::args::rest(mrb)?;
+fn rx_compile(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
     if args.is_empty() {
         return Err(argument_error(
             mrb,
@@ -264,17 +254,17 @@ fn match_pos(subject: &str, args: &[Value]) -> Option<usize> {
     resolve_pos(subject, i64::from(raw))
 }
 
-fn rx_match(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (args, block) = crate::args::rest_block(mrb)?;
+fn rx_match(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let block = crate::args::block(mrb)?;
     let Some(&arg) = args.first() else {
-        return Ok(Value::nil());
+        return Ok(qnil().as_value());
     };
     if arg.is_nil() {
-        return Ok(Value::nil());
+        return Ok(qnil().as_value());
     }
     let subject = subject_string(mrb, arg)?;
-    let Some(pos) = match_pos(&subject, &args) else {
-        return Ok(Value::nil());
+    let Some(pos) = match_pos(&subject, args) else {
+        return Ok(qnil().as_value());
     };
     let md = do_match(mrb, self_, subject, pos)?;
     yield_match(mrb, md, block)
@@ -288,53 +278,47 @@ pub(crate) fn yield_match(mrb: &Mrb, md: Value, block: Option<Proc>) -> Result<V
     }
 }
 
-fn rx_match_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let args = crate::args::rest(mrb)?;
+fn rx_match_p(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<bool, Error> {
     let Some(&arg) = args.first() else {
-        return Ok(Value::false_());
+        return Ok(false);
     };
     if arg.is_nil() {
-        return Ok(Value::false_());
+        return Ok(false);
     }
     let subject = subject_string(mrb, arg)?;
-    let Some(pos) = match_pos(&subject, &args) else {
-        return Ok(Value::false_());
+    let Some(pos) = match_pos(&subject, args) else {
+        return Ok(false);
     };
     let Some(state) = state_of(mrb, self_) else {
-        return Ok(Value::false_());
+        return Ok(false);
     };
     match state.regex.find_from_pos(&subject, pos) {
-        Ok(Some(_)) => Ok(Value::true_()),
-        Ok(None) => Ok(Value::false_()),
+        Ok(found) => Ok(found.is_some()),
         Err(error) => Err(regexp_error(mrb, &state.source, &error.to_string())),
     }
 }
 
 fn rx_eqtilde(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, Error> {
     if arg.is_nil() {
-        return Ok(Value::nil());
+        return Ok(qnil().as_value());
     }
     let subject = subject_string(mrb, arg)?;
     let md = do_match(mrb, self_, subject, 0)?;
     if md.is_nil() {
-        Ok(Value::nil())
+        Ok(qnil().as_value())
     } else {
         md.funcall(mrb, c"begin", &[0i32.into_value(mrb)])
     }
 }
 
-fn rx_eqq(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, Error> {
+fn rx_eqq(mrb: &Mrb, self_: Value, arg: Value) -> Result<bool, Error> {
     if arg.is_nil() {
-        return Ok(Value::false_());
+        return Ok(false);
     }
     let Ok(subject) = subject_string(mrb, arg) else {
-        return Ok(Value::false_());
+        return Ok(false);
     };
-    if do_match(mrb, self_, subject, 0)?.is_nil() {
-        Ok(Value::false_())
-    } else {
-        Ok(Value::true_())
-    }
+    Ok(!do_match(mrb, self_, subject, 0)?.is_nil())
 }
 
 fn rx_source(mrb: &Mrb, state: &RegexpState) -> Value {
@@ -345,12 +329,8 @@ fn rx_options(mrb: &Mrb, state: &RegexpState) -> Value {
     (state.options as i32).into_value(mrb)
 }
 
-fn rx_casefold(_mrb: &Mrb, state: &RegexpState) -> Value {
-    if state.options & translate::IGNORECASE != 0 {
-        Value::true_()
-    } else {
-        Value::false_()
-    }
+fn rx_casefold(_mrb: &Mrb, state: &RegexpState) -> bool {
+    state.options & translate::IGNORECASE != 0
 }
 
 fn rx_named_captures(mrb: &Mrb, state: &RegexpState) -> Result<Value, Error> {
@@ -371,7 +351,7 @@ fn rx_named_captures(mrb: &Mrb, state: &RegexpState) -> Result<Value, Error> {
 
 fn rx_names(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let Some(state) = state_of(mrb, self_) else {
-        return Ok(Value::nil());
+        return Ok(qnil().as_value());
     };
     let names = mrb.ary_new();
     for (name, _) in named_groups(state) {
@@ -396,7 +376,7 @@ fn named_groups(state: &RegexpState) -> Vec<(&str, Vec<usize>)> {
 
 fn rx_inspect(mrb: &Mrb, self_: Value) -> Value {
     let Some(state) = state_of(mrb, self_) else {
-        return Value::nil();
+        return qnil().as_value();
     };
     mrb.str_new(
         format!(
@@ -411,7 +391,7 @@ fn rx_inspect(mrb: &Mrb, self_: Value) -> Value {
 
 fn rx_to_s(mrb: &Mrb, self_: Value) -> Value {
     let Some(state) = state_of(mrb, self_) else {
-        return Value::nil();
+        return qnil().as_value();
     };
     let (options, body) = match render::lift_inline_group(&state.source) {
         Some((enabled, disabled, inner)) => ((state.options | enabled) & !disabled, inner),
@@ -426,15 +406,11 @@ fn rx_to_s(mrb: &Mrb, self_: Value) -> Value {
     mrb.str_new(rendered.as_bytes()).as_value()
 }
 
-fn rx_eq(mrb: &Mrb, self_: Value, arg: Value) -> Value {
+fn rx_eq(mrb: &Mrb, self_: Value, arg: Value) -> bool {
     let (Some(this), Some(other)) = (state_of(mrb, self_), state_of(mrb, arg)) else {
-        return Value::false_();
+        return false;
     };
-    if this.source == other.source && this.options == other.options {
-        Value::true_()
-    } else {
-        Value::false_()
-    }
+    this.source == other.source && this.options == other.options
 }
 
 /// Read straight from `$~`: MRI keeps the two in lock-step and every match
@@ -450,8 +426,7 @@ fn rx_set_last_match(mrb: &Mrb, _self: Value, value: Value) -> Value {
     value
 }
 
-fn rx_escape(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    let args = crate::args::rest(mrb)?;
+fn rx_escape(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
     if args.is_empty() {
         return Err(argument_error(
             mrb,
@@ -465,7 +440,7 @@ fn rx_escape(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
 
 fn do_match(mrb: &Mrb, regexp: Value, subject: String, pos: usize) -> Result<Value, Error> {
     let Some(state) = state_of(mrb, regexp) else {
-        return Ok(Value::nil());
+        return Ok(qnil().as_value());
     };
     match state.regex.captures_from_pos(&subject, pos) {
         Ok(Some(captures)) => {
@@ -485,7 +460,7 @@ fn do_match(mrb: &Mrb, regexp: Value, subject: String, pos: usize) -> Result<Val
         }
         Ok(None) => {
             globals::clear_globals(mrb);
-            Ok(Value::nil())
+            Ok(qnil().as_value())
         }
         Err(error) => Err(regexp_error(mrb, &state.source, &error.to_string())),
     }
@@ -516,7 +491,7 @@ pub(crate) fn text_of(mrb: &Mrb, val: Value) -> Result<String, Error> {
 /// Coerces like the C `reg_operand`: a `String` or `Symbol` yields its
 /// characters, anything else raises `TypeError`.
 fn subject_string(mrb: &Mrb, arg: Value) -> Result<String, Error> {
-    if arg.is_string() || arg.is_symbol() {
+    if RString::from_value(arg).is_some() || Symbol::from_value(arg).is_some() {
         text_of(mrb, arg)
     } else {
         Err(type_error(

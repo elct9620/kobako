@@ -114,6 +114,7 @@ fn classify_protected_error<G: crate::MrbGuest>(
 ) -> Vec<u8> {
     use beni::sys;
     use beni::sys::AsRawValue;
+    use beni::ReprValue;
     // A non-break exception is a plain raise — tag 0x04.
     let Some(brk) = exc.as_break() else {
         return encode_exception_reply(kobako, exc);
