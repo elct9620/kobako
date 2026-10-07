@@ -49,7 +49,7 @@ impl CatalogHandler {
     /// Routes a Call to its Receiver and hands the payload through
     /// untouched: what the bytes mean is the Receiver's own schema, so
     /// this layer never decodes them.
-    fn handle(&self, call: &Call<'_>, channel: &mut dyn RawYielder) -> Reply {
+    fn answer(&self, call: &Call<'_>, channel: &mut dyn RawYielder) -> Reply {
         let object = match self.resolve_target(&call.target) {
             Ok(object) => object,
             Err(fault) => return fault_reply(fault),
@@ -108,7 +108,7 @@ impl DispatchHandler for CatalogHandler {
     /// `None` is reserved for "the handler itself failed"; this
     /// handler reifies every failure as an envelope instead.
     fn dispatch(&self, call: Call<'_>, channel: &mut dyn RawYielder) -> Option<Reply> {
-        Some(self.handle(&call, channel))
+        Some(self.answer(&call, channel))
     }
 }
 
