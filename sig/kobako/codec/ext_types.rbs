@@ -5,21 +5,23 @@ module Kobako
       EXT_HANDLE: Integer
       UNREPRESENTABLE_GUARD_ID: Integer
 
-      def self?.build_factory: () -> MessagePack::Factory
+      def self.build_factory: () -> MessagePack::Factory
 
-      def self?.pack_symbol: (Symbol symbol) -> String
+      private
 
-      def self?.unpack_symbol: (String payload) -> Symbol
+      def self.pack_symbol: (Symbol symbol) -> String
 
-      def self?.pack_handle: (Kobako::Handle handle) -> String
+      def self.unpack_symbol: (String payload) -> Symbol
 
-      def self?.unpack_handle: (String payload, State state) -> Kobako::Handle
+      def self.pack_handle: (Kobako::Handle handle) -> String
 
-      def self?.register_symbol: (MessagePack::Factory factory) -> void
+      def self.unpack_handle: (String payload, State state) -> Kobako::Handle
 
-      def self?.register_handle: (MessagePack::Factory factory) -> void
+      def self.register_symbol: (MessagePack::Factory factory) -> void
 
-      def self?.register_unrepresentable: (MessagePack::Factory factory) -> void
+      def self.register_handle: (MessagePack::Factory factory) -> void
+
+      def self.register_unrepresentable: (MessagePack::Factory factory) -> void
     end
 
     FACTORY: MessagePack::Factory

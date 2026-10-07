@@ -20,8 +20,6 @@ module Kobako
       BREAK_THROW = :__kobako_break__
       private_constant :BREAK_THROW
 
-      module_function
-
       class UndefinedTargetError < StandardError; end # :nodoc:
 
       class UnreadableRequestError < Kobako::Codec::Error; end # :nodoc:
@@ -47,7 +45,7 @@ module Kobako
       # The per-invocation state arrives as arguments so the Dispatcher
       # stays stateless and neither the resolver nor the Context publishes
       # accessors for it.
-      def dispatch(call, resolver, handles, yield_to_guest)
+      def self.dispatch(call, resolver, handles, yield_to_guest)
         yielder = Yielder.new(yield_to_guest, BREAK_THROW, handles) if call.block_given
         [true, encode_ok(run(call, resolver, handles, yielder), handles), nil] # : [bool, String, String?]
       # StandardError is the boundary by intent: a Service method's
@@ -61,120 +59,124 @@ module Kobako
         yielder&.invalidate!
       end
 
-      def run(call, resolver, handles, yielder)
-        arguments, carried_handle = decode_arguments(call.payload)
-        exposure = resolve_target(call.target, resolver, handles)
-        args, kwargs = resolve_call_args(arguments, handles, carried_handle)
-        catch(BREAK_THROW) { invoke(exposure, call.method_name, args, kwargs, yielder) }
-      end
+      class << self
+        private
 
-      # A codec fault here is a request that never became a call, restated
-      # so it cannot read as an unwritable reply.
-      def decode_arguments(payload)
-        Kobako::Codec.track_handles { Payload::Arguments.decode(payload) }
-      rescue Kobako::Codec::Error => e
-        raise UnreadableRequestError, "Sandbox could not read the request: #{e.message}"
-      end
-
-      def resolve_call_args(arguments, handles, carried_handle)
-        return [arguments.args, arguments.kwargs] unless carried_handle
-
-        [arguments.args.map { |v| resolve_arg(v, handles) },
-         arguments.kwargs.transform_values { |v| resolve_arg(v, handles) }]
-      end
-
-      # The class prefix marks a Service's own exception and nothing else:
-      # it is the +<class>: <message>+ shape a Host App is told to keep
-      # secrets out of, so wearing it says the Service raised. kobako's own
-      # refusals answer under their own wording instead of borrowing that
-      # shape.
-      #
-      # The guest's own block failing is not the Service's to report at
-      # all, so the Yielder that raised it is asked first — it recognises
-      # its own by identity and words the failure the guest's way.
-      def caught_fault(error, yielder)
-        block_failure = yielder&.fault_text(error)
-        return fault("block", block_failure) if block_failure
-
-        own = OWN_FAULTS.find { |klass, _| error.is_a?(klass) }
-        return fault(own.last, error.message) if own
-
-        fault("runtime", "#{error.class}: #{error.message}")
-      end
-
-      # The wire always carries a keyword map, so an empty one is left
-      # unsplatted for methods that take no keywords.
-      def invoke(exposure, method, args, kwargs, yielder = nil)
-        name = method.to_sym
-        reject_unreachable!(exposure, name)
-        target = exposure.object
-        block = yielder&.to_proc
-        if kwargs.empty?
-          target.public_send(name, *args, &block)
-        else
-          target.public_send(name, *args, **kwargs, &block)
+        def run(call, resolver, handles, yielder)
+          arguments, carried_handle = decode_arguments(call.payload)
+          exposure = resolve_target(call.target, resolver, handles)
+          args, kwargs = resolve_call_args(arguments, handles, carried_handle)
+          catch(BREAK_THROW) { invoke(exposure, call.method_name, args, kwargs, yielder) }
         end
-      end
 
-      # Both the ambient-surface floor and the reference's Exposure answer
-      # through Reflection, so a rejected name discloses nothing about
-      # which of the two refused.
-      def reject_unreachable!(exposure, name)
-        reason = Reflection.refusal(exposure, name)
-        raise UndefinedTargetError, reason if reason
-      end
-
-      def resolve_arg(value, handles)
-        Kobako::Codec::HandleWalk.deep_restore(value, handles)
-      rescue Kobako::SandboxError => e
-        raise UndefinedTargetError, e.message
-      end
-
-      # The envelope already discriminated the two target forms, so no
-      # else-branch is needed.
-      def resolve_target(target, resolver, handles)
-        case target
-        when String
-          resolve_path(target, resolver)
-        when Integer
-          resolve_handle(target, handles)
+        # A codec fault here is a request that never became a call, restated
+        # so it cannot read as an unwritable reply.
+        def decode_arguments(payload)
+          Kobako::Codec.track_handles { Payload::Arguments.decode(payload) }
+        rescue Kobako::Codec::Error => e
+          raise UnreadableRequestError, "Sandbox could not read the request: #{e.message}"
         end
-      end
 
-      def resolve_path(path, resolver)
-        resolver.lookup(path)
-      rescue KeyError => e
-        raise UndefinedTargetError, e.message
-      end
+        def resolve_call_args(arguments, handles, carried_handle)
+          return [arguments.args, arguments.kwargs] unless carried_handle
 
-      def resolve_handle(id, handles)
-        handles.exposure(id)
-      rescue Kobako::SandboxError => e
-        raise UndefinedTargetError, e.message
-      end
+          [arguments.args.map { |v| resolve_arg(v, handles) },
+           arguments.kwargs.transform_values { |v| resolve_arg(v, handles) }]
+        end
 
-      # A value with no wire form goes back as a Capability Handle. Any
-      # other codec fault is the answer failing to encode, which only the
-      # Service can change — so it is named here, where the direction is
-      # known, instead of falling to the boundary's codec floor.
-      def encode_ok(value, handles)
-        Kobako::Codec::Nesting.assert_within_bound!(value)
-        Kobako::Codec::Encoder.encode(value)
-      rescue Kobako::Codec::UnsupportedTypeError
-        encode_ok(wrap_as_handle(value, handles), handles)
-      rescue Kobako::Codec::Error => e
-        raise Kobako::SandboxError, "Sandbox could not write the Service's answer: #{e.message}"
-      end
+        # The class prefix marks a Service's own exception and nothing else:
+        # it is the +<class>: <message>+ shape a Host App is told to keep
+        # secrets out of, so wearing it says the Service raised. kobako's own
+        # refusals answer under their own wording instead of borrowing that
+        # shape.
+        #
+        # The guest's own block failing is not the Service's to report at
+        # all, so the Yielder that raised it is asked first — it recognises
+        # its own by identity and words the failure the guest's way.
+        def caught_fault(error, yielder)
+          block_failure = yielder&.fault_text(error)
+          return fault("block", block_failure) if block_failure
 
-      def wrap_as_handle(value, handles)
-        handles.alloc(value)
-      end
+          own = OWN_FAULTS.find { |klass, _| error.is_a?(klass) }
+          return fault(own.last, error.message) if own
 
-      # Ruby core builds some exception messages as ASCII-8BIT (the arity
-      # ArgumentError, for one), and the envelope requires UTF-8 of the
-      # text fields it frames.
-      def fault(type, message)
-        [message.encode(Encoding::UTF_8, invalid: :replace, undef: :replace), type] # : [String, String]
+          fault("runtime", "#{error.class}: #{error.message}")
+        end
+
+        # The wire always carries a keyword map, so an empty one is left
+        # unsplatted for methods that take no keywords.
+        def invoke(exposure, method, args, kwargs, yielder = nil)
+          name = method.to_sym
+          reject_unreachable!(exposure, name)
+          target = exposure.object
+          block = yielder&.to_proc
+          if kwargs.empty?
+            target.public_send(name, *args, &block)
+          else
+            target.public_send(name, *args, **kwargs, &block)
+          end
+        end
+
+        # Both the ambient-surface floor and the reference's Exposure answer
+        # through Reflection, so a rejected name discloses nothing about
+        # which of the two refused.
+        def reject_unreachable!(exposure, name)
+          reason = Reflection.refusal(exposure, name)
+          raise UndefinedTargetError, reason if reason
+        end
+
+        def resolve_arg(value, handles)
+          Kobako::Codec::HandleWalk.deep_restore(value, handles)
+        rescue Kobako::SandboxError => e
+          raise UndefinedTargetError, e.message
+        end
+
+        # The envelope already discriminated the two target forms, so no
+        # else-branch is needed.
+        def resolve_target(target, resolver, handles)
+          case target
+          when String
+            resolve_path(target, resolver)
+          when Integer
+            resolve_handle(target, handles)
+          end
+        end
+
+        def resolve_path(path, resolver)
+          resolver.lookup(path)
+        rescue KeyError => e
+          raise UndefinedTargetError, e.message
+        end
+
+        def resolve_handle(id, handles)
+          handles.exposure(id)
+        rescue Kobako::SandboxError => e
+          raise UndefinedTargetError, e.message
+        end
+
+        # A value with no wire form goes back as a Capability Handle. Any
+        # other codec fault is the answer failing to encode, which only the
+        # Service can change — so it is named here, where the direction is
+        # known, instead of falling to the boundary's codec floor.
+        def encode_ok(value, handles)
+          Kobako::Codec::Nesting.assert_within_bound!(value)
+          Kobako::Codec::Encoder.encode(value)
+        rescue Kobako::Codec::UnsupportedTypeError
+          encode_ok(wrap_as_handle(value, handles), handles)
+        rescue Kobako::Codec::Error => e
+          raise Kobako::SandboxError, "Sandbox could not write the Service's answer: #{e.message}"
+        end
+
+        def wrap_as_handle(value, handles)
+          handles.alloc(value)
+        end
+
+        # Ruby core builds some exception messages as ASCII-8BIT (the arity
+        # ArgumentError, for one), and the envelope requires UTF-8 of the
+        # text fields it frames.
+        def fault(type, message)
+          [message.encode(Encoding::UTF_8, invalid: :replace, undef: :replace), type] # : [String, String]
+        end
       end
     end
   end

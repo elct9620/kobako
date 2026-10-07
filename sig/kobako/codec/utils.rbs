@@ -1,9 +1,9 @@
 module Kobako
   module Codec
     module Utils
-      def self?.assert_utf8!: (String string, String label) -> void
+      def self.assert_utf8!: (String string, String label) -> void
 
-      def self?.with_boundary: [T] () { () -> T } -> T
+      def self.with_boundary: [T] () { () -> T } -> T
     end
   end
 end

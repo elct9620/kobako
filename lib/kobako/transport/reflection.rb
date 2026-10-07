@@ -28,54 +28,56 @@ module Kobako
       # callable exposes by default, so the floor and the Exposure agree.
       CALLABLE_ALLOW = %i[call [] yield arity lambda?].freeze
 
-      module_function
-
       # The reason +name+ is unreachable through +exposure+, or +nil+ when
       # the dispatch may proceed. Composes the ambient-surface floor with the
       # reference's Exposure, in that order: the Exposure only narrows and
       # can never re-open what the floor rejects.
-      def refusal(exposure, name)
+      def self.refusal(exposure, name)
         ambient_refusal(exposure.object, name) ||
           (exposure.exposes?(name) ? nil : "method #{name.inspect} is not exposed to the guest")
       end
 
-      # Guard against ambient reflection methods. A public method whose
-      # owner is a META_OWNERS or GADGET_OWNERS module — or a singleton
-      # class, the owner of every class-level method (+File.popen+ /
-      # +Kernel.system+, unreachable via any fixed core-module list) — is
-      # rejected, except CALLABLE_ALLOW on a gadget target (a bound lambda
-      # stays invocable). A name with no concrete public method is allowed
-      # only when the target opts into it via +respond_to?+ (dynamic
-      # +method_missing+ Services), since the dangerous methods are all
-      # concretely defined and therefore never reach that branch.
-      #
-      # +method_missing+ named explicitly is refused whatever its owner:
-      # it is Ruby's dynamic-dispatch hook, and a public override (a
-      # +Delegator+) binds and calls the private method the guest passes as
-      # its first argument (+Kernel#system+). A dynamic +method_missing+
-      # Service is untouched — the guest reaches it by the virtual name,
-      # which resolves through the +NameError+ branch below, never by
-      # naming +method_missing+.
-      def ambient_refusal(target, name)
-        return "method #{name.inspect} is not a Service method" if name == :method_missing
+      class << self
+        private
 
-        owner = target.public_method(name).owner
-        return nil unless ambient_owner?(owner, target)
-        return nil if GADGET_OWNERS.include?(owner) && CALLABLE_ALLOW.include?(name)
+        # Guard against ambient reflection methods. A public method whose
+        # owner is a META_OWNERS or GADGET_OWNERS module — or a singleton
+        # class, the owner of every class-level method (+File.popen+ /
+        # +Kernel.system+, unreachable via any fixed core-module list) — is
+        # rejected, except CALLABLE_ALLOW on a gadget target (a bound lambda
+        # stays invocable). A name with no concrete public method is allowed
+        # only when the target opts into it via +respond_to?+ (dynamic
+        # +method_missing+ Services), since the dangerous methods are all
+        # concretely defined and therefore never reach that branch.
+        #
+        # +method_missing+ named explicitly is refused whatever its owner:
+        # it is Ruby's dynamic-dispatch hook, and a public override (a
+        # +Delegator+) binds and calls the private method the guest passes as
+        # its first argument (+Kernel#system+). A dynamic +method_missing+
+        # Service is untouched — the guest reaches it by the virtual name,
+        # which resolves through the +NameError+ branch below, never by
+        # naming +method_missing+.
+        def ambient_refusal(target, name)
+          return "method #{name.inspect} is not a Service method" if name == :method_missing
 
-        "method #{name.inspect} is not a Service method"
-      rescue NameError
-        return nil if target.respond_to?(name)
+          owner = target.public_method(name).owner
+          return nil unless ambient_owner?(owner, target)
+          return nil if GADGET_OWNERS.include?(owner) && CALLABLE_ALLOW.include?(name)
 
-        "no public method #{name.inspect} on target"
-      end
+          "method #{name.inspect} is not a Service method"
+        rescue NameError
+          return nil if target.respond_to?(name)
 
-      # A plain object's own singleton method (+def obj.x+) stays reachable,
-      # since only a Module target counts its singleton class as ambient.
-      def ambient_owner?(owner, target)
-        META_OWNERS.include?(owner) ||
-          GADGET_OWNERS.include?(owner) ||
-          (target.is_a?(Module) && owner.singleton_class?)
+          "no public method #{name.inspect} on target"
+        end
+
+        # A plain object's own singleton method (+def obj.x+) stays reachable,
+        # since only a Module target counts its singleton class as ambient.
+        def ambient_owner?(owner, target)
+          META_OWNERS.include?(owner) ||
+            GADGET_OWNERS.include?(owner) ||
+            (target.is_a?(Module) && owner.singleton_class?)
+        end
       end
     end
   end

@@ -30,11 +30,9 @@ module Kobako
       UNREPRESENTABLE_GUARD_ID = 0x7F
       private_constant :UNREPRESENTABLE_GUARD_ID
 
-      module_function
-
       # The stateful conversions resolve their per-operation state at call
       # time, so one frozen factory serves every thread.
-      def build_factory
+      def self.build_factory
         factory = MessagePack::Factory.new
         register_symbol(factory)
         register_handle(factory)
@@ -42,68 +40,72 @@ module Kobako
         factory.freeze
       end
 
-      def pack_symbol(symbol)
-        symbol.name
-      end
+      class << self
+        private
 
-      # Refuses the binary-encoding fallback that msgpack-gem's default
-      # unpacker would otherwise apply to invalid bytes.
-      def unpack_symbol(payload)
-        name = payload.b.force_encoding(Encoding::UTF_8)
-        Utils.assert_utf8!(name, "Symbol payload")
-        name.to_sym
-      end
+        def pack_symbol(symbol)
+          symbol.name
+        end
 
-      def pack_handle(handle)
-        [handle.id].pack("N")
-      end
+        # Refuses the binary-encoding fallback that msgpack-gem's default
+        # unpacker would otherwise apply to invalid bytes.
+        def unpack_symbol(payload)
+          name = payload.b.force_encoding(Encoding::UTF_8)
+          Utils.assert_utf8!(name, "Symbol payload")
+          name.to_sym
+        end
 
-      # Handle owns the id-range contract; this method owns only the frame
-      # shape. The sighting is recorded so a Handle-free decode can skip the
-      # downstream resolution walk.
-      def unpack_handle(payload, state)
-        state.record_handle!
-        bytes = payload.b
-        raise InvalidTypeError, "Handle payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
+        def pack_handle(handle)
+          [handle.id].pack("N")
+        end
 
-        id = bytes.unpack1("N") # : Integer
-        Codec::Utils.with_boundary { Kobako::Handle.restore(id) }
-      end
+        # Handle owns the id-range contract; this method owns only the frame
+        # shape. The sighting is recorded so a Handle-free decode can skip the
+        # downstream resolution walk.
+        def unpack_handle(payload, state)
+          state.record_handle!
+          bytes = payload.b
+          raise InvalidTypeError, "Handle payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
 
-      def register_symbol(factory)
-        factory.register_type(
-          EXT_SYMBOL, Symbol,
-          packer: ->(symbol) { ExtTypes.pack_symbol(symbol) },
-          unpacker: ->(payload) { ExtTypes.unpack_symbol(payload) }
-        )
-      end
+          id = bytes.unpack1("N") # : Integer
+          Codec::Utils.with_boundary { Kobako::Handle.restore(id) }
+        end
 
-      def register_handle(factory)
-        factory.register_type(
-          EXT_HANDLE, Kobako::Handle,
-          packer: ->(handle) { ExtTypes.pack_handle(handle) },
-          unpacker: ->(payload) { ExtTypes.unpack_handle(payload, State.current) }
-        )
-      end
+        def register_symbol(factory)
+          factory.register_type(
+            EXT_SYMBOL, Symbol,
+            packer: ->(symbol) { pack_symbol(symbol) },
+            unpacker: ->(payload) { unpack_symbol(payload) }
+          )
+        end
 
-      # A catch-all packer that rejects any value with no wire representation
-      # as +UnsupportedTypeError+. Registered on +BasicObject+ so it also covers
-      # BasicObject-based proxies; the narrower Symbol / Handle
-      # registrations still win by most-specific match, and native types never
-      # reach it. Packer-only: the guard never writes bytes, so its id is inert
-      # and the decode surface stays fail-closed.
-      #
-      # This makes the host's non-wire detection a positive allowlist — a value
-      # outside the type set is rejected here rather than routed to +to_msgpack+
-      # — matching the guest's classname allowlist and the Rust codec's closed
-      # +Value+ enum. Without it, a value with a permissive +method_missing+
-      # answers the codec's +to_msgpack+ probe and mis-encodes as +nil+ instead
-      # of crossing as a Capability Handle.
-      def register_unrepresentable(factory)
-        factory.register_type(
-          UNREPRESENTABLE_GUARD_ID, BasicObject,
-          packer: ->(_value) { raise UnsupportedTypeError, "value has no wire representation" }
-        )
+        def register_handle(factory)
+          factory.register_type(
+            EXT_HANDLE, Kobako::Handle,
+            packer: ->(handle) { pack_handle(handle) },
+            unpacker: ->(payload) { unpack_handle(payload, State.current) }
+          )
+        end
+
+        # A catch-all packer that rejects any value with no wire representation
+        # as +UnsupportedTypeError+. Registered on +BasicObject+ so it also covers
+        # BasicObject-based proxies; the narrower Symbol / Handle
+        # registrations still win by most-specific match, and native types never
+        # reach it. Packer-only: the guard never writes bytes, so its id is inert
+        # and the decode surface stays fail-closed.
+        #
+        # This makes the host's non-wire detection a positive allowlist — a value
+        # outside the type set is rejected here rather than routed to +to_msgpack+
+        # — matching the guest's classname allowlist and the Rust codec's closed
+        # +Value+ enum. Without it, a value with a permissive +method_missing+
+        # answers the codec's +to_msgpack+ probe and mis-encodes as +nil+ instead
+        # of crossing as a Capability Handle.
+        def register_unrepresentable(factory)
+          factory.register_type(
+            UNREPRESENTABLE_GUARD_ID, BasicObject,
+            packer: ->(_value) { raise UnsupportedTypeError, "value has no wire representation" }
+          )
+        end
       end
     end
 
