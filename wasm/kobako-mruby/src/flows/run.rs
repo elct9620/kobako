@@ -2,7 +2,7 @@
 //!
 //! `(env_ptr, env_len)` locate the host-supplied Run envelope on linear
 //! memory. Frames read from stdin: Frame 1 preamble + Frame 3 snippets
-//! (docs/wire-codec.md § Invocation channels). Frame 2 is the `#eval`
+//! (docs/wire/abi.md § Invocation channels). Frame 2 is the `#eval`
 //! user source and never reaches here — the entrypoint is already
 //! resident as a top-level constant a preloaded snippet contributed.
 //!

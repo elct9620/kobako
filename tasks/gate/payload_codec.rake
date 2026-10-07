@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Payload-codec replaceability gate (docs/wire-codec.md § How the Two
+# Payload-codec replaceability gate (docs/wire/README.md § How the Two
 # Layers Relate): the tiers that only route messages must build with no
 # payload codec at all, and those builds must carry no MessagePack
 # dependency. Without this check "the codec is replaceable" is a claim

@@ -76,7 +76,7 @@ Gem::Specification.new do |spec|
   spec.extensions = ["ext/kobako/extconf.rb"]
 
   # MessagePack codec backbone for the host side of the kobako wire
-  # (docs/wire-codec.md). The Host Gem registers ext type 0x01 (Capability Handle)
+  # (docs/wire/payload-msgpack.md). The Host Gem registers ext type 0x01 (Capability Handle)
   # and ext type 0x02 (Exception envelope) on a `MessagePack::Factory`; the
   # gem's hand-written byte-level encoder/decoder has been retired.
   spec.add_dependency "msgpack", "~> 1.7"

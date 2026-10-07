@@ -59,7 +59,7 @@ The types those seams carry, by grade:
 
 Two things stay fixed. The **core envelope** and the **ABI surface** are the same for
 every assembly, which makes the parts interchangeable at all
-(→ [`wire-codec.md`](../wire-codec.md)). Both live in `kobako-transport`, which depends
+(→ [`wire/README.md`](../wire/README.md)). Both live in `kobako-transport`, which depends
 on nothing, so an implementer picks up the fixed tier without anyone else's choices.
 
 The **Ruby frontend is fixed to the default codec**. MessagePack is Ruby's native
@@ -89,14 +89,15 @@ schema's overlay is written outside the SDK as extension traits over the same en
 
 ### Codec Obligations
 
-A codec may serve only some positions; writing a value is the floor every codec owes
-(→ [`wire-codec.md`](../wire-codec.md#what-a-replacement-codec-must-provide)).
+A codec fills positions, not an encoding. It may serve only some of them; writing a
+value is the floor every codec owes, and each other position it serves or refuses as
+unserved, so a missing feature reads apart from a broken guest.
 
-| Position | What serving it obliges |
-|---|---|
-| Yield Reply ok / break body, Outcome ok body | one value — **the floor** |
-| Call payload | positional and keyword arguments, distinguishably |
-| Run payload, Yield Call | the arguments alone; neither carries keywords |
+| Position | What serving it obliges | Why |
+|---|---|---|
+| Yield Reply ok / break body, Outcome ok body | one value — **the floor** | every invocation writes an Outcome |
+| Call payload | positional and keyword arguments, distinguishably | `public_send` does not interchange them |
+| Run payload, Yield Call | the arguments alone; neither carries keywords | neither position has keywords |
 
 How an unserved position refuses, and why a Call owes its Reply, is specified in
 [codec](../spec/behavior/codec.md). Keep the Call payload's keywords apart from its rest
@@ -230,7 +231,7 @@ the difference.
 `MrbGuest` provides `eval`, `run`, and `yield_to_block` over mruby. A non-mruby guest
 skips `kobako-mruby` entirely. `wasm/kobako-wasm` takes this same path, so the
 shipped shell is not privileged. The ABI is in
-[`wire-codec.md`](../wire-codec.md#abi-signatures).
+[`wire/abi.md`](../wire/abi.md).
 
 ## Wasm Engine
 

@@ -5,8 +5,6 @@
 //! they are implemented: the guest contract crate emits the exports, the
 //! driver resolves them. What lives here is what both sides must spell the
 //! same way, and each value is spelled once.
-//!
-//! [ABI signatures]: ../../../docs/wire-codec.md
 
 /// The Guest ABI version. A host accepts a Guest Binary only when the
 /// version it reports equals this one, so a wire change is an increment

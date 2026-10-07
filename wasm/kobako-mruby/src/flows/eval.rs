@@ -3,7 +3,7 @@
 //! Reactor entry that runs three jobs in sequence:
 //!
 //! 1. Read Frame 1 → install preamble groups; read Frame 2 (user
-//!    script); read Frame 3 → replay snippets (docs/wire-codec.md
+//!    script); read Frame 3 → replay snippets (docs/wire/abi.md
 //!    § Invocation channels).
 //! 2. Evaluate the user script under a `(eval)` ccontext so its IREP
 //!    carries `debug_info` (needed for a populated

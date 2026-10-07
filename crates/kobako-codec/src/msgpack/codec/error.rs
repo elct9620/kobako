@@ -3,7 +3,7 @@
 use rmp::decode::{MarkerReadError, NumValueReadError, ValueReadError};
 
 /// Errors raised by the codec when bytes do not conform to the kobako
-/// codec (docs/wire-codec.md). The byte-level variants cover a value that
+/// codec (docs/wire/payload-msgpack.md). The byte-level variants cover a value that
 /// is the wrong msgpack family or truncated; `Malformed` covers a value
 /// that decoded cleanly but whose higher structure is wrong (a message
 /// with the wrong arity, a missing required field, a field of the wrong

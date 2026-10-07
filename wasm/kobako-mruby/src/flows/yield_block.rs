@@ -1,5 +1,5 @@
 //! `__kobako_yield_to_block` — host-initiated re-entry into a guest
-//! block (docs/wire-codec.md § ABI Signatures).
+//! block (docs/wire/abi.md § ABI Signatures).
 //!
 //! The host calls this from inside a `__kobako_dispatch` callback when
 //! a Service method invokes its Yielder. The signature mirrors

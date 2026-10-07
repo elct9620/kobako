@@ -5,7 +5,7 @@
 //! shims in `kobako-mruby`'s bridge module, whose shared
 //! `forward_to_dispatch` body calls `dispatch` here) and the wasm-level
 //! `__kobako_dispatch` host import declared in `crate::abi`.
-//! docs/wire-contract.md § Call Shape / § Reply Shape pins the contract
+//! docs/wire/envelope.md § Call / § Reply pins the contract
 //! this module implements.
 //!
 //! `dispatch` builds a `Call` around a payload it never reads, calls the
@@ -129,7 +129,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     let packed = unsafe { __kobako_dispatch(req_ptr, req_len) };
     let (ptr, len) = unpack_ptr_len(packed);
     if len == 0 {
-        // Wire violation per docs/wire-codec.md § ABI Signatures.
+        // Wire violation per docs/wire/abi.md § ABI Signatures.
         return Err(DispatchError::Envelope(envelope::DecodeError::new(
             "the host returned an empty Reply",
         )));

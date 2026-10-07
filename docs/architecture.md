@@ -101,4 +101,4 @@ Everything depends on it, which is why a host, a payload codec, and a guest can 
 
 A payload rides inside that envelope untouched, and that is what makes the schema replaceable.
 Routing a message and attributing its outcome never read a payload byte.
-Swapping the schema therefore leaves the envelope, the ABI, and the version alone (→ [`wire-codec.md`](wire-codec.md)).
+Swapping the schema therefore leaves the envelope, the ABI, and the version alone (→ [`wire/README.md`](wire/README.md)).

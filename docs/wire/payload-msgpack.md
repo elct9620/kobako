@@ -4,9 +4,8 @@ This document pins the byte encoding of the payload, the opaque `bytes` field ev
 
 | Document | Holds |
 |----------|-------|
-| [`../wire-codec.md`](../wire-codec.md) | how the two layers relate; the fuzz checks |
+| [`README.md`](README.md) | how the two layers relate; the fuzz checks |
 | [`envelope.md`](envelope.md) | the envelope that carries each payload |
-| [`../wire-contract.md`](../wire-contract.md) | the abstract shape encoded here |
 | [`../spec/behavior/payload-encoding.md`](../spec/behavior/payload-encoding.md) | this encoding's behavior |
 
 Another codec may replace this one, since the envelope never reads a payload byte. The Host Gem (`lib/kobako/`) and the Guest Binary (`crates/kobako-codec`) implement it independently, in different languages.
@@ -138,7 +137,7 @@ A Handle is a `fixext 4`: format byte `0xd6`, type byte `0x01`, then a big-endia
 | 1 | `0x01` — kobako ext type code |
 | 2–5 | Handle ID as big-endian u32 |
 
-The ID is the opaque identifier `Catalog::Handles` allocates (→ [`../wire-contract.md`](../wire-contract.md) § Capability Handle). ID `0` is the invalid sentinel, and `0x7fff_ffff` is the maximum. A Handle may appear at any payload position and depth, in both directions; in a Run payload it comes from host-side auto-wrap.
+The ID is the opaque identifier `Catalog::Handles` allocates (→ [`README.md`](README.md) § Capability Handle). ID `0` is the invalid sentinel, and `0x7fff_ffff` is the maximum. A Handle may appear at any payload position and depth, in both directions; in a Run payload it comes from host-side auto-wrap.
 
 A Handle in the `target` position is an envelope field, not an ext value (→ [`envelope.md`](envelope.md) § Call). A codec without a Handle representation is legal: it still reaches a Handle target and forgoes only Handles as arguments or values.
 

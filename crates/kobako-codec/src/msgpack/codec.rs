@@ -1,6 +1,6 @@
 //! MessagePack codec — Rust-side glue over the `rmp` crate.
 //!
-//! The kobako codec (docs/wire-codec.md) is plain MessagePack with
+//! The kobako codec (docs/wire/payload-msgpack.md) is plain MessagePack with
 //! two ext type codes — 0x00 Symbol (variable-length ext carrying the
 //! symbol name as UTF-8 bytes) and 0x01 Capability Handle (`fixext 4`,
 //! big-endian u32). The Ruby host encodes through the

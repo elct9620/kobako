@@ -1,5 +1,5 @@
 ;; Minimal wasm32 module that passes the B-40 construction-time ABI
-;; version check (docs/wire-codec.md § ABI Version) while stubbing the
+;; version check (docs/wire/abi.md § ABI Version) while stubbing the
 ;; two invocation entry points as no-ops. Successor to `minimal.wasm`
 ;; for tests that only need `Kobako::Sandbox.new(wasm_path:)` to
 ;; succeed; never invoked end-to-end. Text format on purpose — the ext

@@ -125,5 +125,5 @@ Pick the next document by where this one left you.
 | L1, with a capability the default lacks | [`variants.md`](variants.md) |
 | L2 or beyond | [`customization.md`](customization.md), the obligations each seam carries |
 | how the parts fit around the fixed pillar | [`architecture.md`](../architecture.md) |
-| the wire itself | [`wire-contract.md`](../wire-contract.md), then [`wire-codec.md`](../wire-codec.md) |
+| the wire itself | [`wire/`](../wire/README.md), starting from its overview |
 | what the sandbox does and does not defend | [`security.md`](security.md) |

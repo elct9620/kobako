@@ -200,7 +200,7 @@ Each row names an entry point and only what reading it will not tell you.
 
 | Topic | Entry point | Note |
 |---|---|---|
-| wire format | `docs/wire-codec.md` | anchors the envelope and payload layers |
+| wire format | `docs/wire/README.md` | anchors the envelope and payload layers |
 | core envelope | `crates/kobako-transport/src/` | one implementation for both sides |
 | host payload codec | `lib/kobako/{codec,payload}/` | a Fault rides the envelope instead |
 | guest payload codec | `crates/kobako-codec/src/msgpack/` | wire-symmetric peer of `lib/` |

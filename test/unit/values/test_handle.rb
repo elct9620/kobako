@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Kobako::Handle's construction surface is deliberately closed: the wire
-# contract (docs/wire-contract.md § Capability Handle, "Not constructible
+# contract (docs/wire/README.md § Capability Handle, "Not constructible
 # by guest or Host App") pins that the Host App has no public path that
 # turns a bare integer into a Handle. `.new` is privatised, and `#with` —
 # Data's copy-with-changes constructor, which would let a legitimate

@@ -66,7 +66,7 @@ fn build_linker() -> Result<Linker<Invocation>, SetupError> {
         .map_err(|e| SetupError::Dead(format!("failed to set up the WASI runtime: {e}")))?;
 
     // `__kobako_dispatch`, `(req_ptr: i32, req_len: i32) -> i64` per
-    // docs/wire-codec.md § ABI Signatures; `dispatch::handle` owns what it
+    // docs/wire/abi.md § ABI Signatures; `dispatch::handle` owns what it
     // answers.
     linker
         .func_wrap(

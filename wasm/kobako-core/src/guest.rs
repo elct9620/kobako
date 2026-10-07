@@ -1,6 +1,6 @@
 //! The Guest ABI contract as a Rust trait.
 //!
-//! `Guest` turns the export enumeration pinned by docs/wire-codec.md
+//! `Guest` turns the export enumeration pinned by docs/wire/abi.md
 //! § ABI Signatures into a compiler-checked type; `export_guest!`
 //! emits every `#[no_mangle]` export in the invoking crate, so export
 //! signatures cannot drift per-guest and this crate itself defines no
@@ -59,7 +59,7 @@ macro_rules! export_guest {
         pub extern "C" fn __kobako_run(env_ptr: u32, env_len: u32) {
             // SAFETY: the host wrote the Run envelope at
             // `[env_ptr, env_ptr + env_len)` in guest linear memory
-            // before calling this export (docs/wire-codec.md § ABI
+            // before calling this export (docs/wire/abi.md § ABI
             // Signatures); u8 has alignment 1.
             let env = unsafe {
                 ::core::slice::from_raw_parts(env_ptr as usize as *const u8, env_len as usize)

@@ -1,7 +1,7 @@
 //! Stdin invocation-channel frame mechanics.
 //!
 //! Every invocation entry point consumes length-prefixed stdin frames
-//! (4-byte big-endian u32 length + payload — docs/wire-codec.md
+//! (4-byte big-endian u32 length + payload — docs/wire/abi.md
 //! § Invocation channels). This module carries only the channel itself;
 //! what a frame's bytes mean is the core envelope's business
 //! (`kobako_transport::envelope`).

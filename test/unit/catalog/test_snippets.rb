@@ -114,7 +114,7 @@ module Kobako
   end
 
   # The projection every invocation frames into Frame 3
-  # (docs/wire-codec.md § Invocation channels): one +[kind, name, body]+
+  # (docs/wire/abi.md § Invocation channels): one +[kind, name, body]+
   # triple per entry in insertion order. Source entries name themselves;
   # Binary entries carry no name, because a bytecode snippet's canonical
   # name lives in its RITE debug_info and is read by the guest at load
