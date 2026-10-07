@@ -72,8 +72,9 @@ unsafe impl TypedData for CompileCache {
 }
 
 /// The interpreter global the compile cache hangs from, keeping it reachable
-/// for the GC until the interpreter closes.
-const COMPILE_CACHE_GVAR: &core::ffi::CStr = c"$__kobako_regexp_compile_cache";
+/// for the GC until the interpreter closes. The name carries no `$`, so no
+/// guest program can read or overwrite it.
+const COMPILE_CACHE_GVAR: &core::ffi::CStr = c"__kobako_regexp_compile_cache";
 
 impl CompileCache {
     fn new() -> Self {

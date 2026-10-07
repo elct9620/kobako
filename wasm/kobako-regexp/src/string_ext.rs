@@ -15,13 +15,21 @@ use core::ffi::CStr;
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     let cls = mrb.class_get(c"String")?;
-    // Preserve each core method under a `__kobako_`-prefixed public alias
+    // Preserve each core method under a private `__kobako_`-prefixed alias
     // before overriding it, so the non-Regexp dispatch path can delegate
-    // back to the original.
-    cls.alias_method(mrb, c"__kobako_aref", c"[]")?;
-    cls.alias_method(mrb, c"__kobako_aset", c"[]=")?;
-    cls.alias_method(mrb, c"__kobako_index", c"index")?;
-    cls.alias_method(mrb, c"__kobako_split", c"split")?;
+    // back to the original while guest code cannot call the alias.
+    const ALIASES: [(&CStr, &CStr); 4] = [
+        (c"__kobako_aref", c"[]"),
+        (c"__kobako_aset", c"[]="),
+        (c"__kobako_index", c"index"),
+        (c"__kobako_split", c"split"),
+    ];
+    let mut hidden = Vec::with_capacity(ALIASES.len());
+    for (alias, original) in ALIASES {
+        cls.alias_method(mrb, alias, original)?;
+        hidden.push(mrb.intern_cstr(alias)?.into_value(mrb));
+    }
+    cls.as_value().funcall(mrb, c"private", &hidden)?;
 
     cls.define_method(mrb, c"=~", beni::method!(str_eqtilde, 1))?;
     cls.define_method(mrb, c"match", beni::method!(str_match, -1))?;
