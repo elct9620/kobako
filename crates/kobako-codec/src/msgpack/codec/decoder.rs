@@ -33,15 +33,15 @@ impl<'a> Decoder<'a> {
     }
 
     /// Read a single value and require it to consume the whole input. Every
-    /// kobako envelope is exactly one msgpack value, so bytes left over
-    /// after it signal a host↔guest framing desync. The host codec rejects
+    /// payload is exactly one msgpack value, so bytes left over after it
+    /// signal a host↔guest framing desync. The host codec rejects
     /// the same case ("extra bytes after the deserialized object"); matching
     /// that here keeps the two wire peers equally strict and fails loud
     /// instead of silently decoding a truncated stream.
     pub fn read_only_value(&mut self) -> Result<Value, Error> {
         let value = self.read_value()?;
         if !self.at_end() {
-            return Err(Error::Malformed("trailing bytes after the envelope value"));
+            return Err(Error::Malformed("trailing bytes after the payload value"));
         }
         Ok(value)
     }
@@ -287,7 +287,7 @@ mod tests {
         let mut dec = Decoder::new(&bytes);
         assert_eq!(
             dec.read_only_value(),
-            Err(Error::Malformed("trailing bytes after the envelope value"))
+            Err(Error::Malformed("trailing bytes after the payload value"))
         );
     }
 
