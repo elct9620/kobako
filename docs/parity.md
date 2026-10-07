@@ -17,40 +17,44 @@ failing comparison rather than a report from an embedder.
        raw observables -> normalize -> assert equal
 ```
 
-## Harness Mechanism
+## Harness Shape
 
-One declarative scenario of caps, Service stubs, and invocations runs
-through both frontends against the same `data/kobako.wasm`.
+One declarative scenario runs through both frontends against the same
+`data/kobako.wasm`, and each side reports what a host could observe.
 
 | Side | Lives in | Assembles |
 |---|---|---|
 | Ruby executor | `test/support/parity/ruby_executor.rb` | `Kobako::Sandbox` |
 | Rust runner | `crates/kobako-parity` | `kobako::Sandbox`, over the CargoOracle framed protocol |
 
-Each side emits raw observables per invocation: neutral status, tagged
-value, capture bytes and truncation predicates, and usage. The test
-asserts equality after normalization in `test/support/parity/case.rb`,
-where host-generated `message` wording and raw usage numbers are
-diagnostic-only. The suite rides `rake test`; on a checkout without
-cargo the families skip.
+The two must match field for field after normalization. Host-generated
+wording and raw timing legitimately differ, so they stay
+diagnostic-only; `test/support/parity/case.rb` owns that normalization.
+The suite rides `rake test`, and its families skip on a checkout without
+cargo.
 
-## Scenario Vocabulary
+## Scenarios
 
-A scenario draws on closed sets that grow append-only with the corpus.
+A scenario is pure data, and every part of it draws on a closed set that
+grows append-only with the corpus.
 
-| Set | Members |
+| Part | Holds |
 |---|---|
-| Stub behaviors | `echo`, `echo_positional`, `value`, `raise`, `yield_each`, `opaque`, `read_label` |
-| Invocation verbs | `eval`, `run`, `late_bind` |
-| Preload kinds | `source`, `bytecode` |
-| Service option | `exposed`, the `respond_to_guest?` narrowing both stubs enforce |
+| options | caps and the isolation posture |
+| services | Service stubs and their narrowing |
+| preloads | source or bytecode snippets |
+| extensions | Extensions to install |
+| invocations | the verbs run in order |
 
-An `undefined` or `argument` fault must arise from the scenario's shape
-on both sides, never from a stub declaration. `echo_positional` declares
-a positional-only signature, so kwargs on the wire fail its binding on
-both sides. Scenarios narrow bound Services only: opaque stubs expose
-just `label`, so the Handle-target narrowing stays pinned by each
-frontend's dispatch unit tests.
+`test/support/parity/scenario.rb` defines the shape, and each executor
+interprets the sets: `sandbox_builder.rb` on the Ruby side,
+`crates/kobako-parity/src/main.rs` on the Rust side. A new member lands on
+both sides at once.
+
+An `undefined` or `argument` fault must arise from the scenario's shape on
+both sides, never from a stub declaration. Scenarios narrow bound Services
+only, so the narrowing of a Handle target stays pinned by each frontend's
+dispatch unit tests.
 
 ## Handle Comparison
 
@@ -63,7 +67,7 @@ opaque stub / run argument ──> crosses as a Handle
   Rust: Handle -> Sandbox table -> object's label ─┴─> {"t": "opaque", "label": …}
 ```
 
-An `opaque` stub or a `run` argument is a labeled non-wire host object.
+An opaque stub or a `run` argument is a labeled non-wire host object.
 The `run` verb carries tagged `args` and `kwargs`, exercising the
 auto-wrap in both positions.
 
@@ -76,17 +80,18 @@ reified machinery carries the concept's own name.
 
 | Concept | Ruby frontend | Rust SDK |
 |---|---|---|
-| Receiver | any object, through methods its class defines under the reflection floor | the `Receiver` trait, one contract for Services and Handle objects |
+| Receiver | any object, through methods its class defines | the `Receiver` trait, for Services and Handle objects |
 | Service | any object bound via `bind`, duck-typed | a `Receiver` bound via `Sandbox::bind` |
 | Bound constant | `bind(path, object)` on the `Sandbox` | `Sandbox::bind(path, object)` |
-| Yielder | `Kobako::Transport::Yielder`, internal, in the `&block` slot | `kobako::Yielder`, public, the `block` parameter of `Receiver::call` |
-| Block | never crosses; only the Call's `block_given` flag travels | same; the wire contract is shared |
+| Yielder | `Kobako::Transport::Yielder`, internal, in the `&block` slot | `kobako::Yielder`, the `block` parameter of `Receiver::call` |
+| Block | never crosses; only the `block_given` flag travels | same; the wire contract is shared |
 | Execution | `Kobako::Execution`, from `#eval` / `#run` | `kobako::Execution`, from `eval` / `run` |
 
 An SDK `Receiver` whose `respond_to_guest` denies every name is opaque.
 The Ruby Yielder stays internal so a Service method takes an ordinary
-block ([transport-yield](spec/behavior/transport-yield.md)); the SDK
-yield site still reads `block.call(args)`.
+block ([transport-yield](spec/behavior/transport-yield.md)). The SDK
+yield site calls the Yielder directly, through `call_payload` or the
+`msgpack` feature's `call_values`.
 
 ## Error Model
 
@@ -116,19 +121,16 @@ scenario  When: "both frontends run it"
         └─ sumi verify fails once that case stops claiming it
 ```
 
-## Per-Frontend Pins
+### Unstageable Behavior
 
-A behavior no guest-expressible scenario can run on both frontends is
-pinned by each frontend on its own, and the owning feature says why.
-Where the two agree but cannot be staged, the parity scenario is
-declared unverifiable.
+A behavior that no scenario can stage on both frontends is pinned by each
+frontend on its own. Its owning feature says which case applies.
 
-| Behavior | Parity scenario | Owner |
-|---|---|---|
-| an engine trap no cap caused | unverifiable | [outcome](spec/behavior/outcome.md) |
-| a Yielder held past its frame | none, the frontends differ | [transport-yield](spec/behavior/transport-yield.md) |
-| a stale reference | unverifiable | [transport-dispatch](spec/behavior/transport-dispatch.md) |
-| a reflective object a host method returns | none, one frontend only | [transport-boundary](spec/behavior/transport-boundary.md) |
+| Situation | Parity scenario |
+|---|---|
+| both frontends run it | claimed by a case in `test/parity/` |
+| they agree, but no scenario can stage it | declared `unverifiable` |
+| they differ, or only one has it | none; each frontend pins its own |
 
 ## Excluded Behavior
 

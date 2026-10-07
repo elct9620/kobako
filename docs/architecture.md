@@ -1,9 +1,15 @@
 # Architecture
 
-kobako is assembled from parts. This document maps what each part owns, what it
-depends on, where each endpoint's dialect sits, and how the Ruby gem's `lib/` is
-tiered. Which level a user stands on is in
-[`guides/assembly-levels.md`](guides/assembly-levels.md).
+kobako is assembled from parts. This document is the baseline for where a change belongs. It names the part that owns it, what that part may depend on, and the Ruby tier it joins.
+
+| Question | Section |
+|---|---|
+| which part owns this | The Parts |
+| what every assembly shares | The Fixed Pillar |
+| what holds across builds | Build Rules |
+| where a Ruby type goes | Ruby Tiers |
+
+Which level a user stands on is in [`guides/assembly-levels.md`](guides/assembly-levels.md).
 
 ## The Parts
 
@@ -45,46 +51,40 @@ Every other part is an endpoint assembling those two into a model of its own.
          values. Depends on nothing; everything above depends on it.
 ```
 
-| Part | Owns | Depends on |
+### Part Ownership
+
+Each part owns one concern, and its dependencies on other kobako parts may only point the way this table does.
+
+| Part | Owns | kobako parts it uses |
 |---|---|---|
-| `kobako-transport` | the core envelope and the ABI's values | nothing, ever |
-| `kobako-codec` | the payload dialects, one namespace and feature per schema | nothing |
+| `kobako-transport` | the core envelope and the ABI's values | none, ever |
+| `kobako-codec` | the payload dialects, one namespace and feature per schema | none |
 | `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot` | transport |
 | `kobako-wasmtime` | one engine behind that contract | runtime, transport |
 | `kobako` | the Rust host model: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
-| `lib/` | the Ruby host model and its own dialect implementation | the native ext |
-| `ext/` | the magnus surface, a byte shuttle between Ruby and the driver | runtime, transport, wasmtime |
-| `kobako-core` | the guest ABI: the `Guest` trait, `export_guest!`, the dispatch proxy | transport |
-| `kobako-mruby` | the mruby guest model: `MrbGuest` flows and the wire-tied bridge gem | core, transport, beni, codec *(optional)* |
-| `kobako-io` · `-regexp` · `-json` | capability gems: guest-local behaviour, no wire | beni |
-| `kobako-wasm` | the shipped shell, naming the schema and the gem set | all of the guest side |
+| `lib/` | the Ruby host model and its own dialect | the native ext |
+| `ext/` | the magnus byte shuttle between Ruby and the driver | runtime, transport, wasmtime |
+| `kobako-core` | the guest ABI: `Guest`, `export_guest!`, the dispatch proxy | transport |
+| `kobako-mruby` | the mruby guest model: `MrbGuest` flows and the bridge gem | core, transport, codec *(optional)* |
+| `kobako-io` · `-regexp` · `-json` | capability gems: guest-local behaviour, no wire | none |
+| `kobako-wasm` | the shipped shell, naming the schema and the gem set | every guest part |
+| `kobako-baker` | the build-time bake of the boot state into an artifact | none |
+| `kobako-parity` | the Rust half of the parity harness, never published | kobako, codec |
+
+`kobako-transport` takes no dependency at all, third-party included. Elsewhere, `rmp` sits behind `kobako-codec`'s `msgpack` feature, `beni` under every guest crate that touches mruby, and the `msgpack` gem under `lib/`.
 
 ### Dialect Overlays
 
-An overlay is how one endpoint's dialect speaks to its own objects.
-It decodes a payload into them, wraps one back out, and reaches a bound object through whatever seam that took.
-Each of the three endpoints has one, living where that endpoint's objects live.
+An overlay is how one endpoint's dialect speaks to its own objects. It decodes a payload into them, wraps one back out, and reaches a bound object. It lives where that endpoint's objects live.
 
 | Endpoint | Dialect implementation | Overlay |
 |---|---|---|
-| Ruby gem | `lib/kobako/{codec,payload}/`, an independent second implementation | the same files |
+| Ruby gem | `lib/kobako/{codec,payload}/`, a second implementation | the same files |
 | Rust SDK | `kobako-codec` | `kobako`'s `msgpack` module |
 | mruby guest | `kobako-codec` | `kobako-mruby`'s `msgpack` module |
+| `ext/` | none | none |
 
-### Overlay Placement
-
-Where an overlay sits follows from where the endpoint's objects are.
-That is why the two placements that look odd are correct.
-
-| Case | Placement |
-|---|---|
-| shared dialect crate | the overlay is a module of the endpoint's own beside it |
-| Ruby gem | the Handle walk in `lib/kobako/codec/` is the overlay, not a misplacement |
-| `ext/` | no overlay: a shuttle holds no objects to bind a dialect to |
-| a dialect kobako does not ship | wherever its objects live, even outside this repository |
-
-The Ruby gem writes the dialect itself, so the dialect already sits where its objects are.
-`ext/` has Ruby's values on one side and the driver's bytes on the other.
+The Ruby gem writes its dialect itself, so the Handle walk in `lib/kobako/codec/` is its overlay. `ext/` holds no objects to bind a dialect to. A dialect kobako does not ship places its overlay wherever its objects live, even outside this repository.
 
 ## The Fixed Pillar
 
@@ -110,7 +110,7 @@ Two structural facts no part's own code states.
 
 | Rule | Why |
 |---|---|
-| guest crates link libmruby on every build | no code hides behind a linked-only `cfg` |
+| a guest crate depending on `beni` links libmruby on every build | no code hides behind a linked-only `cfg` |
 | `Kobako::Codec` has no schema namespace | Ruby is fixed to MessagePack and has no seam |
 
 ## Ruby Tiers

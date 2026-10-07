@@ -52,4 +52,4 @@ App or to other projects.
 | Cross-Sandbox quotas, fairness, and aggregate metrics | per-invocation caps and usage |
 | Fair ordering among waiting Pool checkouts | the bounded Pool checkout |
 | Adaptive scheduling, or observing it per invocation | the per-Sandbox `gvl:` mode |
-| Async or resumable execution, interpreter snapshots | — |
+| Async execution, or pausing and resuming an invocation | the boot state baked into the artifact at build time |
