@@ -23,7 +23,7 @@ mod gvl;
 
 use magnus::{
     function, method, prelude::*, typed_data::DataTypeFunctions, value::Opaque,
-    Error as MagnusError, RArray, RModule, RString, Ruby, Symbol, TypedData, Value,
+    Error as MagnusError, Exception, RArray, RModule, RString, Ruby, Symbol, TypedData, Value,
 };
 
 use std::path::Path;
@@ -31,7 +31,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kobako_runtime::dispatch::DispatchHandler;
-use kobako_runtime::error::Trap;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot as RuntimeSnapshot, Usage};
@@ -111,9 +110,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     // Snapshot — the per-invocation result object each entry point returns.
     let snapshot = runtime.define_class("Snapshot", ruby.class_object())?;
     snapshot.define_method("outcome", method!(Snapshot::outcome, 0))?;
-    snapshot.define_method("trapped?", method!(Snapshot::trapped, 0))?;
-    snapshot.define_method("trap_kind", method!(Snapshot::trap_kind, 0))?;
-    snapshot.define_method("trap_message", method!(Snapshot::trap_message, 0))?;
+    snapshot.define_method("trap_error", method!(Snapshot::trap_error, 0))?;
     snapshot.define_method("wall_time", method!(Snapshot::wall_time, 0))?;
     snapshot.define_method("memory_peak", method!(Snapshot::memory_peak, 0))?;
     snapshot.define_method("stdout", method!(Snapshot::stdout, 0))?;
@@ -315,9 +312,7 @@ fn build_handler(dispatch: Value) -> Option<Arc<dyn DispatchHandler>> {
 /// driver produced, exposed as `Kobako::Runtime::Snapshot`. Usage and the
 /// two output captures are present on every outcome, so the trap path
 /// carries them just like the value path; the completion is read as either
-/// the outcome bytes (`#outcome`) or a trap (`#trapped?` / `#trap_kind` /
-/// `#trap_message`), and the Sandbox layer maps a trap onto its
-/// `Kobako::TrapError` family.
+/// the outcome bytes (`#outcome`) or a trap (`#trap_error`).
 #[derive(TypedData)]
 #[magnus(class = "Kobako::Runtime::Snapshot", free_immediately, size)]
 struct Snapshot {
@@ -349,7 +344,7 @@ impl From<RuntimeSnapshot> for Snapshot {
 impl Snapshot {
     /// Already split off the core envelope, so the Ruby side maps a failure
     /// onto its error taxonomy without decoding a payload byte. A trap
-    /// answers `:absent`; `#trapped?` is the discriminator there.
+    /// answers `:absent`; `#trap_error` is the discriminator there.
     fn outcome(&self) -> (Symbol, RString, Option<PanicFields>) {
         let ruby = Ruby::get().expect("Ruby thread");
         let empty = || ruby.str_from_slice(&[]);
@@ -374,27 +369,16 @@ impl Snapshot {
         }
     }
 
-    fn trapped(&self) -> bool {
-        matches!(self.completion, Completion::Trap(_))
-    }
-
-    fn trap_kind(&self) -> Option<Symbol> {
+    /// Unraised, so the Sandbox layer can attach the run's Execution before
+    /// raising it.
+    fn trap_error(&self) -> Result<Option<Exception>, MagnusError> {
+        let Completion::Trap(trap) = &self.completion else {
+            return Ok(None);
+        };
         let ruby = Ruby::get().expect("Ruby thread");
-        match &self.completion {
-            Completion::Trap(Trap::Timeout(_)) => Some(ruby.to_symbol("timeout")),
-            Completion::Trap(Trap::MemoryLimit(_)) => Some(ruby.to_symbol("memory_limit")),
-            // A cap this frontend has no named subclass for is still a
-            // trap; the base class is what the taxonomy owes it.
-            Completion::Trap(_) => Some(ruby.to_symbol("trap")),
-            Completion::Outcome(_) => None,
-        }
-    }
-
-    fn trap_message(&self) -> Option<String> {
-        match &self.completion {
-            Completion::Trap(trap) => Some(trap.to_string()),
-            Completion::Outcome(_) => None,
-        }
+        errors::trap_class(&ruby, trap)
+            .new_instance((trap.to_string(),))
+            .map(Some)
     }
 
     fn wall_time(&self) -> f64 {

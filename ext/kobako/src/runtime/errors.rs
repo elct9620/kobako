@@ -46,15 +46,21 @@ pub(super) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &TRAP_ERROR, msg)
 }
 
-/// The verb prefix is left to `Kobako::Context#invoke!`.
-pub(super) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
+/// The one place a trap meets the `Kobako::TrapError` family, whether it
+/// stopped the run before the guest started or while it ran.
+pub(super) fn trap_class(ruby: &Ruby, trap: &Trap) -> ExceptionClass {
     match trap {
-        Trap::Timeout(msg) => error_in(ruby, &TIMEOUT_ERROR, msg),
-        Trap::MemoryLimit(msg) => error_in(ruby, &MEMORY_LIMIT_ERROR, msg),
+        Trap::Timeout(_) => ruby.get_inner(&TIMEOUT_ERROR),
+        Trap::MemoryLimit(_) => ruby.get_inner(&MEMORY_LIMIT_ERROR),
         // A cap with no named subclass here is still an engine fault, so it
         // takes the base class rather than borrowing another cap's name.
-        other => trap_err(ruby, other.to_string()),
+        _ => ruby.get_inner(&TRAP_ERROR),
     }
+}
+
+/// The verb prefix is left to `Kobako::Context#invoke!`.
+pub(super) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
+    MagnusError::new(trap_class(ruby, &trap), trap.to_string())
 }
 
 pub(super) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {

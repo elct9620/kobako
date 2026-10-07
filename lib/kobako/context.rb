@@ -99,23 +99,10 @@ module Kobako
       @stderr_capture = Capture.new(bytes: snapshot.stderr, truncated: snapshot.stderr_truncated?)
     end
 
-    # The cap subclasses keep their identity through the re-raise that adds
-    # the verb prefix.
-    def trap_class_for(err)
-      case err
-      when TimeoutError     then TimeoutError
-      when MemoryLimitError then MemoryLimitError
-      else TrapError
-      end
-    end
-
-    def trap_error_for(snapshot, verb)
-      klass = case snapshot.trap_kind
-              when :timeout      then TimeoutError
-              when :memory_limit then MemoryLimitError
-              else TrapError
-              end
-      klass.new("Sandbox##{verb} failed: #{snapshot.trap_message}")
+    # Every TrapError leaving an invocation names the verb that ran it; the
+    # cap subclasses keep their identity through the rebuild.
+    def with_verb(err, verb)
+      err.class.new("Sandbox##{verb} failed: #{err.message}")
     end
 
     # +failed+ keeps a +nil+ value from a successful run apart from a failed
@@ -134,8 +121,7 @@ module Kobako
       value = Codec::HandleWalk.deep_restore(value, @handler) if carried
       build_execution(value, failed: false)
     rescue Kobako::TrapError => e
-      raise trap_class_for(e).new("Sandbox##{verb} failed: #{e.message}").with_execution(build_execution(nil,
-                                                                                                         failed: true))
+      raise with_verb(e, verb).with_execution(build_execution(nil, failed: true))
     rescue Kobako::SandboxError, Kobako::ServiceError => e
       raise e.with_execution(build_execution(nil, failed: true))
     end
@@ -149,12 +135,13 @@ module Kobako
       begin
         snapshot = yield
       rescue Kobako::TrapError => e
-        raise trap_class_for(e), "Sandbox##{verb} failed: #{e.message}"
+        raise with_verb(e, verb)
       end
       populate_observability!(snapshot)
-      return settle_outcome(snapshot, verb, entrypoint) unless snapshot.trapped?
+      trap = snapshot.trap_error
+      return settle_outcome(snapshot, verb, entrypoint) unless trap
 
-      raise trap_error_for(snapshot, verb).with_execution(build_execution(nil, failed: true))
+      raise with_verb(trap, verb).with_execution(build_execution(nil, failed: true))
     end
   end
 end

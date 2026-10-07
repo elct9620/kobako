@@ -23,9 +23,7 @@ module Kobako
 
     def populate_observability!: (Kobako::Runtime::Snapshot snapshot) -> void
 
-    def trap_class_for: (Kobako::TrapError err) -> singleton(Kobako::TrapError)
-
-    def trap_error_for: (Kobako::Runtime::Snapshot snapshot, Symbol verb) -> Kobako::TrapError
+    def with_verb: (Kobako::TrapError err, Symbol verb) -> Kobako::TrapError
 
     def build_execution: (untyped value, failed: bool) -> Kobako::Execution
 

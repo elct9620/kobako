@@ -31,7 +31,7 @@ class TestRuntimeSnapshot < Minitest::Test
   def test_snapshot_exposes_documented_raw_types_on_a_completed_run
     snapshot = drive_eval("42")
 
-    refute_predicate snapshot, :trapped?
+    assert_nil snapshot.trap_error, "a completed run through Runtime#eval must answer no trap error"
     assert_kind_of String, snapshot.stdout
     assert_kind_of String, snapshot.stderr
     assert_includes [true, false], snapshot.stdout_truncated?

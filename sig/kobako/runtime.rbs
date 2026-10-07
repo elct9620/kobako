@@ -41,11 +41,7 @@ module Kobako
     class Snapshot
       def outcome: () -> [Symbol, String, Kobako::Outcome::panic_fields?]
 
-      def trapped?: () -> bool
-
-      def trap_kind: () -> Symbol?
-
-      def trap_message: () -> String?
+      def trap_error: () -> Kobako::TrapError?
 
       def wall_time: () -> Float
 
