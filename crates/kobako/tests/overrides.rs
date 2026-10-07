@@ -1,20 +1,17 @@
 //! Integration coverage for the per-invocation override closure:
 //! `eval_with` / `run_with` fill a fillable or shadow a declared binding for
 //! one invocation, and refuse an undeclared override before the guest runs.
-//! Driven through the real guest binary; a missing binary is a hard failure
-//! under CI and a silent skip locally, mirroring the Ruby E2E helper.
 //!
 //! The Services here are written against the bundled schema's overlay,
 //! which is what makes each case readable, so the file stands with that
 //! overlay. The byte-level path they share is walked in `byte_surface.rs`.
 #![cfg(all(feature = "msgpack", feature = "wasmtime"))]
 
-use std::path::Path;
+mod common;
 
+use common::real_sandbox;
 use kobako::msgpack::{Value, ValueReceiver};
-use kobako::{Error, Fault, Handles, Options, RunPayload, Sandbox, Yielder};
-
-const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
+use kobako::{Error, Fault, Handles, RunPayload, Yielder};
 
 /// A host store the guest reaches as the bound constant; `get` returns its
 /// fixed value so a test can witness which object backed the path.
@@ -31,17 +28,6 @@ impl ValueReceiver for Kv {
     ) -> Result<Value, Fault> {
         Ok(Value::Str(self.0.to_string()))
     }
-}
-
-fn real_sandbox() -> Option<Sandbox> {
-    if !Path::new(WASM).exists() {
-        assert!(
-            std::env::var_os("CI").is_none(),
-            "data/kobako.wasm missing under CI — run `bundle exec rake wasm:build`"
-        );
-        return None;
-    }
-    Some(Sandbox::new(WASM, Options::default()).expect("construct the Sandbox"))
 }
 
 // @behavior SV-022

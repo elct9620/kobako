@@ -7,19 +7,17 @@
 //!
 //! The dependency assertion raises ahead of the guest, so the guest binary
 //! is only needed to construct the Sandbox; the invocation never runs mruby.
-//! A missing binary is a hard failure under CI (which always builds it) and
-//! a silent skip locally, mirroring the Ruby E2E helper.
 
 // Driven through the bundled engine: these cases load a real Guest Binary,
 // so they stand only in a build that carries one.
 #![cfg(feature = "wasmtime")]
 
-use std::path::Path;
+mod common;
+
 use std::sync::Arc;
 
-use kobako::{Error, Extension, Options, Sandbox};
-
-const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
+use common::real_sandbox;
+use kobako::{Error, Extension};
 
 /// A guest idiom declaring a dependency the test never installs.
 struct FileExt;
@@ -41,14 +39,9 @@ impl Extension for FileExt {
 // @behavior EX-029 EX-030 EX-041 EX-043
 #[test]
 fn unmet_dependency_raises_at_first_invocation_naming_the_missing_dependency() {
-    if !Path::new(WASM).exists() {
-        assert!(
-            std::env::var_os("CI").is_none(),
-            "data/kobako.wasm missing under CI — run `bundle exec rake wasm:build`"
-        );
+    let Some(mut sandbox) = real_sandbox() else {
         return;
-    }
-    let mut sandbox = Sandbox::new(WASM, Options::default()).expect("construct the Sandbox");
+    };
     sandbox
         .install(Arc::new(FileExt))
         .expect("install the Extension");

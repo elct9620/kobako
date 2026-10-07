@@ -3,14 +3,14 @@
 //! returns its own `Execution`, so results never cross between threads. The
 //! Ruby frontend reaches concurrency through `Kobako::Pool` instead — a
 //! deliberate per-language divergence; the SDK leans on the borrow checker to
-//! prove the shared config is only read. Driven through the real guest binary;
-//! a missing binary is a hard failure under CI and a silent skip locally.
+//! prove the shared config is only read.
 
 // Driven through the bundled engine: these cases load a real Guest Binary,
 // so they stand only in a build that carries one.
 #![cfg(feature = "wasmtime")]
 
-use std::path::Path;
+mod common;
+
 use std::sync::Arc;
 use std::thread;
 
@@ -19,20 +19,7 @@ use std::thread;
 // comes from the crate that owns that schema rather than from a feature.
 use kobako_codec::msgpack::codec::{Decoder, Value};
 
-use kobako::{Options, Sandbox};
-
-const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
-
-fn real_sandbox() -> Option<Sandbox> {
-    if !Path::new(WASM).exists() {
-        assert!(
-            std::env::var_os("CI").is_none(),
-            "data/kobako.wasm missing under CI — run `bundle exec rake wasm:build`"
-        );
-        return None;
-    }
-    Some(Sandbox::new(WASM, Options::default()).expect("construct the Sandbox"))
-}
+use common::real_sandbox;
 
 /// Read one outcome the way a host owning its own schema does — off the
 /// bytes, with the decoder for the schema the guest speaks.

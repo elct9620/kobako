@@ -3,32 +3,20 @@
 //! and left unfilled, it enters Frame 1 so the guest sees the constant, but a
 //! dispatch to it fails closed as a Service failure — the same fail-closed
 //! channel as an idiom with no backend. A `ctx.bind` override fills it for one
-//! invocation. Driven through the real guest binary; a missing binary is a hard
-//! failure under CI and a silent skip locally, mirroring the Ruby E2E helper.
+//! invocation.
 //!
 //! The Services here are written against the bundled schema's overlay,
 //! which is what makes each case readable, so the file stands with that
 //! overlay. The byte-level path they share is walked in `byte_surface.rs`.
 #![cfg(all(feature = "msgpack", feature = "wasmtime"))]
 
-use std::path::Path;
+mod common;
+
 use std::sync::Arc;
 
+use common::real_sandbox;
 use kobako::msgpack::{Value, ValueReceiver};
-use kobako::{Backend, Error, Extension, Fault, Handles, Options, Provider, Sandbox, Yielder};
-
-const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
-
-fn real_sandbox() -> Option<Sandbox> {
-    if !Path::new(WASM).exists() {
-        assert!(
-            std::env::var_os("CI").is_none(),
-            "data/kobako.wasm missing under CI — run `bundle exec rake wasm:build`"
-        );
-        return None;
-    }
-    Some(Sandbox::new(WASM, Options::default()).expect("construct the Sandbox"))
-}
+use kobako::{Backend, Error, Extension, Fault, Handles, Provider, Yielder};
 
 /// A host store the guest reaches through the filled backend; `get` returns
 /// its fixed value so a test can witness the fill.

@@ -8,34 +8,21 @@
 //! encode and decode, and the bytes it hands over ride verbatim. A host
 //! whose guest speaks another schema substitutes its own encoder at exactly
 //! these call sites.
-//!
-//! Driven through the real guest binary; a missing binary is a hard failure
-//! under CI and a silent skip locally, mirroring the Ruby E2E helper.
 
 // Driven through the bundled engine: these cases load a real Guest Binary,
 // so they stand only in a build that carries one.
 #![cfg(feature = "wasmtime")]
 
-use std::path::Path;
+mod common;
+
 use std::sync::{Arc, Mutex};
 
 use kobako::handles::Detached;
-use kobako::{Fault, FaultKind, Handles, Options, Receiver, RunPayload, Sandbox, Yielder};
+use kobako::{Fault, FaultKind, Handles, Receiver, RunPayload, Yielder};
 use kobako_codec::msgpack::codec::{Decode, Decoder, Encode, Encoder, Value};
 use kobako_codec::msgpack::payload::Arguments;
 
-const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
-
-fn real_sandbox() -> Option<Sandbox> {
-    if !Path::new(WASM).exists() {
-        assert!(
-            std::env::var_os("CI").is_none(),
-            "data/kobako.wasm missing under CI — run `bundle exec rake wasm:build`"
-        );
-        return None;
-    }
-    Some(Sandbox::new(WASM, Options::default()).expect("construct the Sandbox"))
-}
+use common::real_sandbox;
 
 /// The host's own encode of a `run` payload — one positional argument.
 fn run_args(value: Value) -> Vec<u8> {
