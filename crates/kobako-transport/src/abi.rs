@@ -24,8 +24,7 @@ pub const MAX_DISPATCH_PAYLOAD: usize = 16 * 1024 * 1024;
 /// length before it can check anything else about it, so this bounds what a
 /// declared length may make it allocate. It sits above
 /// `MAX_DISPATCH_PAYLOAD` because it guards the read rather than enforcing
-/// the contract: a frame between the two is allocated and then refused on
-/// its merits.
+/// the contract: the host enforces the 16 MiB cap before it sends a frame.
 pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 
 // The read guard must admit every frame the contract allows, so a refusal

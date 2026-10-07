@@ -1,14 +1,15 @@
 # frozen_string_literal: true
 
-# +rake gate:release:wiring+ — the two seats a crate can leave empty on the
-# release track without anything saying so: a package the manifest does not
-# record, and a generic extra-file carrying no version annotation. Both let
+# +rake gate:release:wiring+ — the three seats a crate can leave empty on
+# the release track without anything saying so: a package the manifest does
+# not record, a generic extra-file carrying no version annotation, and a
+# sibling dev-dependency pinned to a version no updater rewrites. Each lets
 # a release report success while leaving a version where it was.
 #
 # The loud seats — the publish script, the workflow, the crates.io
 # placeholder — announce themselves at release time and are enumerated
 # beside these in docs/releasing.md, which the failure points at: a crate
-# that missed one of these two usually missed those as well.
+# that missed one of these three usually missed those as well.
 # Reader unit coverage rides test/tasks/test_release_wiring.rb.
 
 require "json"
