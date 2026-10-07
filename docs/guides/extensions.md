@@ -7,7 +7,7 @@ any bound Service.
 
 | Part | Lives in |
 |---|---|
-| behavior, setup refusals included | [`spec/behavior/extension.md`](spec/behavior/extension.md) |
+| behavior, setup refusals included | [`spec/behavior/extension.md`](../spec/behavior/extension.md) |
 | the contract in use, a worked example | this document |
 | a concrete Extension | the Host App or a third-party gem |
 
@@ -59,7 +59,7 @@ install(ext) ──► preload(code: ext.source, name: ext.name)
 
 Install every Extension before the first invocation, which seals installation along
 with `#bind` and `#preload` and checks each `depends_on`. The seal and the dependency
-check are specified in [extension](spec/behavior/extension.md).
+check are specified in [extension](../spec/behavior/extension.md).
 
 ## Design Boundaries
 

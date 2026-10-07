@@ -6,7 +6,7 @@ it.
 
 | Feature file | Covers |
 |---|---|
-| [json](spec/behavior/json.md) | parsing, generating, refusals, presence per Guest Binary |
+| [json](../spec/behavior/json.md) | parsing, generating, refusals, presence per Guest Binary |
 
 ## Intent
 
@@ -25,10 +25,10 @@ That is the natural shape for scripts that make API calls.
 ### Compute Boundary
 
 Parsing and generation are a guest-internal compute capability, the
-pure-compute peer of the IO / Kernel surface ([io](spec/behavior/io.md))
+pure-compute peer of the IO / Kernel surface ([io](../spec/behavior/io.md))
 and the [Regexp](regexp.md) surface. JSON adds no wire type and no ext
 code; a returned value follows the ordinary return-value semantics of
-[sandbox](spec/behavior/sandbox.md).
+[sandbox](../spec/behavior/sandbox.md).
 
 ```
 +---------------- guest ----------------+         +--- host ---+

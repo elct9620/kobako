@@ -8,10 +8,10 @@ its implementer to do, and what kobako promises in return.
 |---|---|
 | [`variants.md`](variants.md) | the prebuilt artifacts **we ship** |
 | this document | the interfaces **a third party replaces** |
-| [`architecture.md`](architecture.md) | which interfaces your starting point meets |
+| [`assembly-levels.md`](assembly-levels.md) | which interfaces your starting point meets |
 
 A variant is something to download; a customization point is something to
-implement. Read the architecture map first, so you never implement a seam your
+implement. Read the assembly levels first, so you never implement a seam your
 starting point already fixed.
 
 ## Commitment Grades
@@ -59,7 +59,7 @@ The types those seams carry, by grade:
 
 Two things stay fixed. The **core envelope** and the **ABI surface** are the same for
 every assembly, which makes the parts interchangeable at all
-(→ [`wire-codec.md`](wire-codec.md)). Both live in `kobako-transport`, which depends
+(→ [`wire-codec.md`](../wire-codec.md)). Both live in `kobako-transport`, which depends
 on nothing, so an implementer picks up the fixed tier without anyone else's choices.
 
 The **Ruby frontend is fixed to the default codec**. MessagePack is Ruby's native
@@ -90,7 +90,7 @@ schema's overlay is written outside the SDK as extension traits over the same en
 ### Codec Obligations
 
 A codec may serve only some positions; writing a value is the floor every codec owes
-(→ [`wire-codec.md`](wire-codec.md#what-a-replacement-codec-must-provide)).
+(→ [`wire-codec.md`](../wire-codec.md#what-a-replacement-codec-must-provide)).
 
 | Position | What serving it obliges |
 |---|---|
@@ -99,7 +99,7 @@ A codec may serve only some positions; writing a value is the floor every codec 
 | Run payload, Yield Call | the arguments alone; neither carries keywords |
 
 How an unserved position refuses, and why a Call owes its Reply, is specified in
-[codec](spec/behavior/codec.md). Keep the Call payload's keywords apart from its rest
+[codec](../spec/behavior/codec.md). Keep the Call payload's keywords apart from its rest
 arguments: a codec folding them together makes `KV.get(key, limit: 9)` lose `limit:`
 with nothing raising.
 
@@ -156,7 +156,7 @@ codec is allowed, because no consumer installs it.
 `MrbGuest::init_gems` installs the shell's gems onto the freshly booted VM. Each gem
 is a `beni::Gem`; `kobako-io`, `kobako-regexp`, and `kobako-json` are the worked
 examples, and none depends on `kobako-mruby`. A shell installing nothing still boots
-(→ [mruby](spec/behavior/mruby.md)).
+(→ [mruby](../spec/behavior/mruby.md)).
 
 ```rust
 struct Greeter;
@@ -230,7 +230,7 @@ the difference.
 `MrbGuest` provides `eval`, `run`, and `yield_to_block` over mruby. A non-mruby guest
 skips `kobako-mruby` entirely. `wasm/kobako-wasm` takes this same path, so the
 shipped shell is not privileged. The ABI is in
-[`wire-codec.md`](wire-codec.md#abi-signatures).
+[`wire-codec.md`](../wire-codec.md#abi-signatures).
 
 ## Wasm Engine
 
@@ -250,7 +250,7 @@ the same path with the bundled wasmtime engine.
 
 Only the isolation floor crosses that seam. The engine's own caps are configured
 where the engine is built, while the SDK checks the posture it declares
-(→ [runtime](spec/behavior/runtime.md)).
+(→ [runtime](../spec/behavior/runtime.md)).
 
 ### Engine-free Builds
 

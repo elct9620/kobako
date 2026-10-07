@@ -2,7 +2,7 @@
 
 kobako isolates untrusted guest code; it does not decide what that code may reach.
 The first job is the gem's, the second is yours, and this guide draws the line.
-The behavior itself is specified in [`spec/behavior/`](spec/behavior/).
+The behavior itself is specified in [`spec/behavior/`](../spec/behavior/).
 
 ```
    kobako owns                          you own
@@ -25,14 +25,14 @@ feature that specifies it.
 
 | Guarantee | Specified in |
 |---|---|
-| a bound object exposes only what it defines itself | [transport-boundary](spec/behavior/transport-boundary.md) |
-| reflection and eval never cross, whatever an object permits | [transport-boundary](spec/behavior/transport-boundary.md) |
-| the guest cannot forge or dereference a Handle | [transport-boundary](spec/behavior/transport-boundary.md) |
-| each invocation starts from the same boot state | [sandbox](spec/behavior/sandbox.md) |
-| a binding belongs to its own Sandbox | [services](spec/behavior/services.md) |
-| no ambient time, entropy, filesystem, environment, or socket | [runtime](spec/behavior/runtime.md) |
-| timeout, memory cap, and output clipping fail cleanly | [sandbox](spec/behavior/sandbox.md) |
-| a value the wire cannot carry becomes a Handle or a controlled error | [transport-dispatch](spec/behavior/transport-dispatch.md) |
+| a bound object exposes only what it defines itself | [transport-boundary](../spec/behavior/transport-boundary.md) |
+| reflection and eval never cross, whatever an object permits | [transport-boundary](../spec/behavior/transport-boundary.md) |
+| the guest cannot forge or dereference a Handle | [transport-boundary](../spec/behavior/transport-boundary.md) |
+| each invocation starts from the same boot state | [sandbox](../spec/behavior/sandbox.md) |
+| a binding belongs to its own Sandbox | [services](../spec/behavior/services.md) |
+| no ambient time, entropy, filesystem, environment, or socket | [runtime](../spec/behavior/runtime.md) |
+| timeout, memory cap, and output clipping fail cleanly | [sandbox](../spec/behavior/sandbox.md) |
+| a value the wire cannot carry becomes a Handle or a controlled error | [transport-dispatch](../spec/behavior/transport-dispatch.md) |
 
 ## Isolation Profiles
 
@@ -51,7 +51,7 @@ every other guarantee holds on both rungs.
 The request is also a floor. Keep the default when the engine is swappable. An
 engine that cannot deny ambient authority is then refused at construction, not
 silently weakening these guarantees. The ladder is specified in
-[runtime](spec/behavior/runtime.md).
+[runtime](../spec/behavior/runtime.md).
 
 ## Service Design
 
@@ -88,7 +88,7 @@ end
 
 `bind` exposes every public method the object's own class and the object itself
 define, not just the one you had in mind. What it inherits or mixes in stays out, as
-[transport-boundary](spec/behavior/transport-boundary.md) specifies. Bind a
+[transport-boundary](../spec/behavior/transport-boundary.md) specifies. Bind a
 purpose-built object rather than a capable one whose other methods leak more than
 you intend.
 
@@ -122,7 +122,7 @@ Service but reads nothing. That is the bearer-token shape a credential wants.
 Answer `true` for a subset, such as `name == :public_id`, to expose exactly those.
 The predicate replaces the default rather than trimming it, so answer narrowly.
 The reflection floor still holds beneath it; keep it private all the same. The rules
-live in [transport-boundary](spec/behavior/transport-boundary.md).
+live in [transport-boundary](../spec/behavior/transport-boundary.md).
 
 ```ruby
 class ApiCredential
@@ -213,7 +213,7 @@ guest-safe one, so secrets and internal detail stay out of the message.
 
 Caps limit the *rate* of dispatch, not its total *volume*. A Handle costs the guest
 only its reference, while the object stays in host memory until the invocation ends
-([sandbox](spec/behavior/sandbox.md)). For hostile input, bound the work and the
+([sandbox](../spec/behavior/sandbox.md)). For hostile input, bound the work and the
 number of Handles a single invocation can create.
 
 ```ruby

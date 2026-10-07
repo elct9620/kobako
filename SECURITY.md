@@ -3,7 +3,7 @@
 kobako runs untrusted guest code inside an in-process Wasm sandbox, so a break in
 its isolation boundary is treated as a security issue. This file is about **reporting
 such an issue**; for how the boundary is meant to work and where your
-responsibilities as a host begin, see [`docs/security-model.md`](docs/security-model.md).
+responsibilities as a host begin, see [`docs/guides/security.md`](docs/guides/security.md).
 
 ## Supported versions
 

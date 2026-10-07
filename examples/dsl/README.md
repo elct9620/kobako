@@ -5,7 +5,7 @@ builder DSL — `header "..."`, `body do ... end` — whose every dialect
 lives on the **host**. No builder logic is reimplemented in the guest:
 one small generic wrapper forwards each call onto a Capability Handle, so
 the host's `Card` / `Section` / `Image` classes stay the single source of
-truth. It is the [`Kobako::Extension`](../../docs/extensions.md) companion
+truth. It is the [`Kobako::Extension`](../../docs/guides/extensions.md) companion
 to the [vfs](../vfs/README.md) demo — that installs a native `File`; this
 installs a builder idiom over host dialects.
 

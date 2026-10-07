@@ -69,7 +69,7 @@ Edit the `Serverless::ROUTES` Hash in `app.rb`. Each entry's key is the URL segm
 MRUBY
 ```
 
-The guest does not see the Rack env as data — it sees a Handle, and every method call on `req` dispatches back to the host as one RPC round-trip against the real request object. A Handle exposes only what its object declares ([security model](../../docs/security-model.md)), so `GuestRequest` names the Rack methods a script may call through a private `respond_to_guest?`, and each access pays a guest→host round-trip (~5.8 µs amortised, kobako benchmark `2d-1000-calls-in-one-eval`):
+The guest does not see the Rack env as data — it sees a Handle, and every method call on `req` dispatches back to the host as one RPC round-trip against the real request object. A Handle exposes only what its object declares ([security model](../../docs/guides/security.md)), so `GuestRequest` names the Rack methods a script may call through a private `respond_to_guest?`, and each access pays a guest→host round-trip (~5.8 µs amortised, kobako benchmark `2d-1000-calls-in-one-eval`):
 
 | Call in guest          | Runs on host                 | Returns                  |
 |------------------------|------------------------------|--------------------------|

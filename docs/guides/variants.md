@@ -16,14 +16,14 @@ base ─┬─ alone ──────────── kobako.wasm
 ## Base Surface
 
 Every variant, including the default, links the same base. The opt-in
-axes are the Regexp capability ([regexp](spec/behavior/regexp.md)) and
-the JSON capability ([json](spec/behavior/json.md)).
+axes are the Regexp capability ([regexp](../spec/behavior/regexp.md)) and
+the JSON capability ([json](../spec/behavior/json.md)).
 
 | Part | Role |
 |---|---|
 | mruby core | the interpreter |
 | curated mrbgem allowlist | the standard-library subset |
-| IO / Kernel write ([io](spec/behavior/io.md)) | the base capability, never an opt-in axis |
+| IO / Kernel write ([io](../spec/behavior/io.md)) | the base capability, never an opt-in axis |
 
 ## Variant Matrix
 
@@ -38,7 +38,7 @@ Each variant names the capabilities it adds beyond the base.
 | full | `kobako+full.wasm` | ASCII Regexp + JSON |
 
 Choose `regexp-unicode` when guest code needs case-insensitive patterns.
-[regexp](spec/behavior/regexp.md) states what each ASCII variant
+[regexp](../spec/behavior/regexp.md) states what each ASCII variant
 refuses.
 
 ## Artifact Naming
@@ -78,7 +78,7 @@ Kobako::Sandbox.new(wasm_path: "path/to/kobako+json.wasm")
 ## Build Tasks
 
 Every variant passes through the canonical boot bake
-([mruby](spec/behavior/mruby.md)). Re-baking the same inputs yields a
+([mruby](../spec/behavior/mruby.md)). Re-baking the same inputs yields a
 byte-identical artifact, gated by the reproducible-build pipeline.
 
 | Task | Produces |

@@ -4,7 +4,7 @@ A self-contained script that gives the guest a native-style `File`
 constant backed by a host **overlay filesystem**: reads fall through to
 the real disk, but every write is intercepted into an in-memory overlay,
 so untrusted guest code can freely "edit" files while the disk on the
-host stays untouched. It is the [`Kobako::Extension`](../../docs/extensions.md)
+host stays untouched. It is the [`Kobako::Extension`](../../docs/guides/extensions.md)
 companion to the [serverless](../serverless/README.md) and
 [async-io](../async-io/README.md) demos — those bind plain Services; this
 one installs a full idiom-plus-backend capability.

@@ -10,7 +10,7 @@ printed is genuine LINE Flex output — paste it into LINE's
 [Flex Message Simulator](https://developers.line.biz/flex-simulator/) to see it
 render.
 
-It is the [`Kobako::Extension`](../../docs/extensions.md) companion to the
+It is the [`Kobako::Extension`](../../docs/guides/extensions.md) companion to the
 [dsl](../dsl/README.md) demo: that one teaches the host-owned-DSL mechanism with
 a toy builder; this one proves the same mechanism against a real gem whose
 output a third party can validate.

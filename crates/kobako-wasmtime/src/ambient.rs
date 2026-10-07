@@ -8,7 +8,7 @@
 //! (`build_config/wasi.rb`), but a future libc-backed gem would silently
 //! obtain real time and host entropy — a covert timing channel and a
 //! nondeterminism source the hermetic posture deliberately excludes
-//! (docs/security-model.md).
+//! (docs/guides/security.md).
 //! Pinning the clocks to the Unix epoch and the RNG to a constant stream
 //! makes that denial a property of the host, not merely of the gem allowlist.
 //!

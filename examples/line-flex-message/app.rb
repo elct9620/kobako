@@ -110,7 +110,7 @@ module LineFlex
   # vocabulary would not be bounded by the gem's method set. The builder
   # methods are answered dynamically, so the same gate is the object's
   # `respond_to_guest?` — the names a guest may call are the ones it declares
-  # (docs/security-model.md).
+  # (docs/guides/security.md).
   class Buildable
     def initialize(node) = (@node = node)
 

@@ -77,7 +77,7 @@ host frontend          Guest Binary
   your own      ──┘  └── kobako+json.wasm · your own
 ```
 
-They compose freely, since any frontend loads any Guest Binary. A Ruby host can run a JSON-enabled guest, and a Rust host can run the pure default. How far down those choices go — and which ones a given starting point quietly makes for you — is laid out in [`docs/architecture.md`](docs/architecture.md).
+They compose freely, since any frontend loads any Guest Binary. A Ruby host can run a JSON-enabled guest, and a Rust host can run the pure default. How far down those choices go — and which ones a given starting point quietly makes for you — is laid out in [`docs/guides/assembly-levels.md`](docs/guides/assembly-levels.md).
 
 ### Host frontends
 
@@ -278,7 +278,7 @@ sandbox = Kobako::Sandbox.new(
 
 `memory_limit` covers the per-invocation `memory.grow` delta from the entry baseline, so a Sandbox reused across invocations does not silently accumulate against a global budget.
 
-Beyond the four caps, `profile:` requests the Sandbox's isolation posture on the `:permissive` < `:hermetic` ladder (default `:hermetic`). `:hermetic` denies the guest ambient time and entropy; `:permissive` lets the guest's `wasi:clocks` / `wasi:random` read live host sources, an explicit trade of reproducibility. Filesystem, environment, and network stay unreachable under either. The request is also a floor: construction fails with `Kobako::SetupError` on a runtime that declares a weaker posture than requested. See [`docs/security-model.md`](docs/security-model.md) § Isolation profiles.
+Beyond the four caps, `profile:` requests the Sandbox's isolation posture on the `:permissive` < `:hermetic` ladder (default `:hermetic`). `:hermetic` denies the guest ambient time and entropy; `:permissive` lets the guest's `wasi:clocks` / `wasi:random` read live host sources, an explicit trade of reproducibility. Filesystem, environment, and network stay unreachable under either. The request is also a floor: construction fails with `Kobako::SetupError` on a runtime that declares a weaker posture than requested. See [`docs/guides/security.md`](docs/guides/security.md) § Isolation profiles.
 
 ### Concurrency
 
@@ -473,7 +473,7 @@ Use the source form for snippets authored in your repo; use the bytecode form wh
 
 ### Extensions
 
-An Extension teaches the guest a native-style constant by pairing a guest idiom (`source`) with an optional host `backend`. `Sandbox#install` composes the two through the existing `#preload` and `#bind` verbs, adding no wire or Guest Binary surface. Pure operations run in-guest with no round-trip. The rest dispatch to the backend under the same isolation and reflection guarantees as any bound Service ([`docs/extensions.md`](docs/extensions.md)).
+An Extension teaches the guest a native-style constant by pairing a guest idiom (`source`) with an optional host `backend`. `Sandbox#install` composes the two through the existing `#preload` and `#bind` verbs, adding no wire or Guest Binary surface. Pure operations run in-guest with no round-trip. The rest dispatch to the backend under the same isolation and reflection guarantees as any bound Service ([`docs/guides/extensions.md`](docs/guides/extensions.md)).
 
 ```ruby
 FILE = <<~'MRUBY'
@@ -544,7 +544,7 @@ end
 
 Guest code can name any `MyService::KV` path, but a forged name only resolves to
 something you bound — the real authorization gate is this host-side allowlist. Give each
-trust context its own Sandbox. [`docs/security-model.md`](docs/security-model.md) covers the
+trust context its own Sandbox. [`docs/guides/security.md`](docs/guides/security.md) covers the
 rest as security-design concerns: validating untrusted input, default-deny external effects,
 and controlling the return surface.
 

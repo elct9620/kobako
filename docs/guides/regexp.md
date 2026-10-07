@@ -7,9 +7,9 @@ files.
 
 | Feature file | Covers |
 |---|---|
-| [regexp](spec/behavior/regexp.md) | the pattern object, match globals, presence per Guest Binary |
-| [regexp-string](spec/behavior/regexp-string.md) | the `String` methods that take a pattern |
-| [regexp-matchdata](spec/behavior/regexp-matchdata.md) | what a successful match hands back |
+| [regexp](../spec/behavior/regexp.md) | the pattern object, match globals, presence per Guest Binary |
+| [regexp-string](../spec/behavior/regexp-string.md) | the `String` methods that take a pattern |
+| [regexp-matchdata](../spec/behavior/regexp-matchdata.md) | what a successful match hands back |
 
 ## Intent
 
@@ -28,9 +28,9 @@ substitutes, and splits entirely inside the sandbox.
 ### Compute Boundary
 
 Matching is a guest-internal compute capability, the pure-compute peer
-of the IO / Kernel surface ([io](spec/behavior/io.md)). `Regexp` and
+of the IO / Kernel surface ([io](../spec/behavior/io.md)). `Regexp` and
 `MatchData` never cross the boundary; a returned value follows the
-ordinary return-value semantics of [sandbox](spec/behavior/sandbox.md).
+ordinary return-value semantics of [sandbox](../spec/behavior/sandbox.md).
 
 ```
 +---------------- guest ----------------+         +--- host ---+

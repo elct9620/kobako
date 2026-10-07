@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # Engine-replaceability gate, the sibling of `gate:payload:optional`:
-# `docs/architecture.md` marks the wasm engine as something a host brings
+# `docs/guides/assembly-levels.md` marks the wasm engine as something a host brings
 # itself, and `Sandbox::with_runtime` takes any `Runtime`. Without this
 # check that stays a claim about the code rather than a fact about the
 # dependency graph — the SDK could grow a `kobako_wasmtime::` reference on

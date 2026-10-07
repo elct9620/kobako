@@ -168,7 +168,7 @@ The Guest Binary is gitignored and built in three stages.
 2. Run `rake wasm:build` for Stage C, which ends with the `kobako-baker` bake.
 3. Run `rake compile` from a clean clone to walk the chain and build the native ext.
 
-The gem bundles only the pure default; capability variants are Release assets described in `docs/variants.md`.
+The gem bundles only the pure default; capability variants are Release assets described in `docs/guides/variants.md`.
 
 ### Release gate
 
@@ -208,11 +208,11 @@ Each row names an entry point and only what reading it will not tell you.
 | sandbox lifecycle | `lib/kobako/sandbox.rb` | each run settles into an `Execution` |
 | dispatch | `lib/kobako/transport/dispatcher.rb` | answers `[ok, bytes]`, never raises |
 | Handles | `lib/kobako/catalog/handles.rb` | minted per invocation by `Context` |
-| Extensions | `docs/extensions.md` | a backend's kind is a keyword |
+| Extensions | `docs/guides/extensions.md` | a backend's kind is a keyword |
 | guest capabilities | `wasm/kobako-{io,regexp,json}/src/` | pure-Rust `beni::Gem`, no mrblib |
 | ABI surface | `wasm/kobako-core/src/guest.rs` | bodies in `flows.rs` and `driver.rs` |
-| security | `docs/security-model.md` | the host is the boundary |
-| customization | `docs/customization.md` | grades are commitments |
+| security | `docs/guides/security.md` | the host is the boundary |
+| customization | `docs/guides/customization.md` | grades are commitments |
 | parity | `docs/parity.md` | behavior aligns; APIs stay idiomatic |
 | RBS | `sig/kobako/` | reach for a stdlib `library` first |
 | benchmarks | `benchmark/README.md` | `support/roster.rb` names the gated set |
