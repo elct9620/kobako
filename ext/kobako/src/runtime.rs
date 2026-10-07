@@ -33,7 +33,7 @@ use std::time::Duration;
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
-use kobako_runtime::snapshot::{Capture, Completion, Snapshot as RuntimeSnapshot, Usage};
+use kobako_runtime::snapshot::{Completion, Snapshot as RuntimeSnapshot};
 use kobako_transport::envelope::{Bindings, Outcome, Run, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
@@ -227,26 +227,8 @@ impl Runtime {
         source: RString,
         snippets: RArray,
     ) -> Result<Snapshot, MagnusError> {
-        let ruby = Ruby::get().expect("Ruby thread");
-        let handler = build_handler(dispatch);
-        let preamble = frame_preamble(paths)?;
         let source = rstring_to_vec(source);
-        let snippets = frame_snippets(&ruby, snippets)?;
-        // Release the GVL around the guest span iff this Sandbox asks for it;
-        // the closure touches no Ruby VALUE (the driver is magnus-free, and a
-        // guest→host dispatch re-acquires the GVL through the bridge).
-        let result = gvl::region(self.release_gvl, || {
-            self.driver.invoke(
-                Entry::Eval { source: &source },
-                Frames {
-                    preamble: &preamble,
-                    snippets: &snippets,
-                },
-                handler,
-            )
-        });
-        let snapshot = result.map_err(|e| errors::to_magnus(&ruby, e))?;
-        Ok(Snapshot::from(snapshot))
+        self.invoke(dispatch, paths, snippets, Entry::Eval { source: &source })
     }
 
     fn run(
@@ -257,22 +239,40 @@ impl Runtime {
         entrypoint: String,
         payload: RString,
     ) -> Result<Snapshot, MagnusError> {
-        let ruby = Ruby::get().expect("Ruby thread");
-        let handler = build_handler(dispatch);
-        let preamble = frame_preamble(paths)?;
-        let snippets = frame_snippets(&ruby, snippets)?;
         let envelope = Run {
             entrypoint,
             payload: rstring_to_vec(payload),
         }
         .encode();
+        self.invoke(
+            dispatch,
+            paths,
+            snippets,
+            Entry::Run {
+                envelope: &envelope,
+            },
+        )
+    }
+
+    /// One owner for the wiring both verbs share, so a frame or handler
+    /// change cannot drift between them.
+    fn invoke(
+        &self,
+        dispatch: Value,
+        paths: RArray,
+        snippets: RArray,
+        entry: Entry<'_>,
+    ) -> Result<Snapshot, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let handler = build_handler(dispatch);
+        let preamble = frame_preamble(paths)?;
+        let snippets = frame_snippets(&ruby, snippets)?;
         // Release the GVL around the guest span iff this Sandbox asks for it;
-        // see the note in `#eval`.
+        // the closure touches no Ruby VALUE (the driver is magnus-free, and a
+        // guest→host dispatch re-acquires the GVL through the bridge).
         let result = gvl::region(self.release_gvl, || {
             self.driver.invoke(
-                Entry::Run {
-                    envelope: &envelope,
-                },
+                entry,
                 Frames {
                     preamble: &preamble,
                     snippets: &snippets,
@@ -280,8 +280,9 @@ impl Runtime {
                 handler,
             )
         });
-        let snapshot = result.map_err(|e| errors::to_magnus(&ruby, e))?;
-        Ok(Snapshot::from(snapshot))
+        result
+            .map(Snapshot)
+            .map_err(|e| errors::to_magnus(&ruby, e))
     }
 
     /// The driver's declaration, which the Sandbox checks against the
@@ -315,31 +316,9 @@ fn build_handler(dispatch: Value) -> Option<Arc<dyn DispatchHandler>> {
 /// the outcome bytes (`#outcome`) or a trap (`#trap_error`).
 #[derive(TypedData)]
 #[magnus(class = "Kobako::Runtime::Snapshot", free_immediately, size)]
-struct Snapshot {
-    completion: Completion,
-    stdout: Capture,
-    stderr: Capture,
-    usage: Usage,
-}
+struct Snapshot(RuntimeSnapshot);
 
 impl DataTypeFunctions for Snapshot {}
-
-impl From<RuntimeSnapshot> for Snapshot {
-    fn from(snapshot: RuntimeSnapshot) -> Self {
-        let RuntimeSnapshot {
-            completion,
-            stdout,
-            stderr,
-            usage,
-        } = snapshot;
-        Self {
-            completion,
-            stdout,
-            stderr,
-            usage,
-        }
-    }
-}
 
 impl Snapshot {
     /// Already split off the core envelope, so the Ruby side maps a failure
@@ -348,7 +327,7 @@ impl Snapshot {
     fn outcome(&self) -> (Symbol, RString, Option<PanicFields>) {
         let ruby = Ruby::get().expect("Ruby thread");
         let empty = || ruby.str_from_slice(&[]);
-        let Completion::Outcome(bytes) = &self.completion else {
+        let Completion::Outcome(bytes) = &self.0.completion else {
             return (ruby.to_symbol("absent"), empty(), None);
         };
         match Outcome::decode(bytes) {
@@ -372,7 +351,7 @@ impl Snapshot {
     /// Unraised, so the Sandbox layer can attach the run's Execution before
     /// raising it.
     fn trap_error(&self) -> Result<Option<Exception>, MagnusError> {
-        let Completion::Trap(trap) = &self.completion else {
+        let Completion::Trap(trap) = &self.0.completion else {
             return Ok(None);
         };
         let ruby = Ruby::get().expect("Ruby thread");
@@ -382,28 +361,28 @@ impl Snapshot {
     }
 
     fn wall_time(&self) -> f64 {
-        self.usage.wall_time
+        self.0.usage.wall_time
     }
 
     fn memory_peak(&self) -> usize {
-        self.usage.memory_peak
+        self.0.usage.memory_peak
     }
 
     fn stdout(&self) -> RString {
         let ruby = Ruby::get().expect("Ruby thread");
-        ruby.str_from_slice(&self.stdout.bytes)
+        ruby.str_from_slice(&self.0.stdout.bytes)
     }
 
     fn stdout_truncated(&self) -> bool {
-        self.stdout.truncated
+        self.0.stdout.truncated
     }
 
     fn stderr(&self) -> RString {
         let ruby = Ruby::get().expect("Ruby thread");
-        ruby.str_from_slice(&self.stderr.bytes)
+        ruby.str_from_slice(&self.0.stderr.bytes)
     }
 
     fn stderr_truncated(&self) -> bool {
-        self.stderr.truncated
+        self.0.stderr.truncated
     }
 }
