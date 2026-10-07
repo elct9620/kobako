@@ -272,3 +272,19 @@ Which channel bytes land in, where they stop, and what survives a failed run are
 | Given | a Sandbox |
 | When | guest code writes an instance of an Array subclass |
 | Then | the capture holds one line per element |
+
+## `IO-033` Putting nothing writes a line break
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code puts to the output stream with no arguments |
+| Then | the capture holds a single line break |
+
+## `IO-034` Writing several values writes each in order
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code writes several values to the output stream in one call |
+| Then | the capture holds each value's string form in the order given |
