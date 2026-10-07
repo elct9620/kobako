@@ -243,17 +243,6 @@ mod tests {
         assert!(extensions.assert_dependencies().is_ok());
     }
 
-    // @behavior EX-029 EX-030
-    #[test]
-    fn assert_dependencies_rejects_an_unmet_dependency() {
-        let extensions = installed([ext("File", &["Errno"])]);
-        let err = extensions.assert_dependencies().unwrap_err();
-        assert!(
-            matches!(err, Error::Argument(message) if message.contains("File") && message.contains("Errno")),
-            "an unmet dependency names both ends"
-        );
-    }
-
     // @behavior EX-031
     #[test]
     fn assert_dependencies_re_asserts_after_a_failed_seal() {

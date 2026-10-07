@@ -1,9 +1,7 @@
 //! Integration coverage for the `install` dependency seam: an
 //! Extension whose `depends_on` names an uninstalled Extension must fail at
 //! the first invocation, before the guest runs, through the real
-//! `begin_invocation` path. The unit test on `assert_dependencies` pins the
-//! assertion in isolation; only driving `install` -> `eval` on a real
-//! Sandbox witnesses that the first invocation reaches it.
+//! `begin_invocation` path, naming both the Extension and the dependency.
 //!
 //! The dependency assertion raises ahead of the guest, so the guest binary
 //! is only needed to construct the Sandbox; the invocation never runs mruby.
