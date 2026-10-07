@@ -22,6 +22,7 @@ mod frames;
 mod guest_mem;
 mod instance_pre;
 mod invocation;
+mod limiter;
 mod trap;
 
 pub use config::Config;

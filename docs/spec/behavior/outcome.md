@@ -24,7 +24,6 @@ One block here is deliberately written in one frontend's own names: the ancestry
 - `test/e2e/test_caps.rb`
 - `test/e2e/sandbox/test_sandbox.rb`
 - `test/e2e/sandbox/test_trap_over_result.rb`
-- `crates/kobako-wasmtime/src/invocation.rs`
 - `crates/kobako-wasmtime/src/trap.rs`
 - `crates/kobako/src/execution.rs`
 - `crates/kobako/src/error.rs`

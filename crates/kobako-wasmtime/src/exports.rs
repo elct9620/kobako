@@ -16,10 +16,19 @@
 
 use wasmtime::{AsContextMut, Instance as WtInstance, Memory, TypedFunc};
 
+use crate::guest_mem::SANDBOX_RUNTIME_NOT_KOBAKO;
+use kobako_runtime::error::Trap;
+
+/// For a required guest export that is absent or mistyped, wherever it is
+/// looked up. Names neither the export nor a frontend's artifact path;
+/// what a caller can do is rebuild the runtime.
+pub(crate) const RUNTIME_INCOMPATIBLE: &str =
+    "the Sandbox runtime is incompatible; rebuild it against the kobako version in use";
+
 /// The resolved host-driven export handles. Each is `Option` because test
 /// fixtures (a minimal "ping" module) need not provide them; real
-/// `kobako.wasm` always does, and the run-path methods surface a `Trap`
-/// (via `require_export` / `require_memory`) when a handle is `None`.
+/// `kobako.wasm` always does, and the run path surfaces a `Trap` (via
+/// `require` / `Exports::require_memory`) when a handle is `None`.
 ///
 /// The handles are indices into the owning Store, not borrows of the
 /// `Instance` — they stay valid for the Store's lifetime, which is why
@@ -52,6 +61,21 @@ impl Exports {
             memory: instance.get_memory(&mut ctx, "memory"),
         }
     }
+
+    pub(crate) fn require_memory(&self) -> Result<Memory, Trap> {
+        self.memory
+            .ok_or_else(|| Trap::Other(SANDBOX_RUNTIME_NOT_KOBAKO.to_string()))
+    }
+}
+
+pub(crate) fn require<Params, Results>(
+    export: Option<&TypedFunc<Params, Results>>,
+) -> Result<&TypedFunc<Params, Results>, Trap>
+where
+    Params: wasmtime::WasmParams,
+    Results: wasmtime::WasmResults,
+{
+    export.ok_or_else(|| Trap::Other(RUNTIME_INCOMPATIBLE.to_string()))
 }
 
 #[cfg(test)]

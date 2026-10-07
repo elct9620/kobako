@@ -5,16 +5,29 @@
 //! onto its own error surface, and hosts the epoch-deadline callback
 //! that raises the wall-clock `TimeoutTrap`. The classification is a
 //! pure function over the error's downcast chain so it can be exercised
-//! from `cargo test` without any frontend; the trap marker types
-//! themselves live in `crate::invocation` (where the limiter / callback
-//! construct them).
+//! from `cargo test` without any frontend.
 
 use std::time::Instant;
 
 use wasmtime::{StoreContextMut, UpdateDeadline};
 
-use crate::invocation::{Invocation, MemoryLimitTrap, TimeoutTrap};
+use crate::invocation::Invocation;
+use crate::limiter::MemoryLimitTrap;
 use kobako_runtime::error::{SetupError, Trap};
+
+/// Marker error returned from the epoch-deadline callback when the
+/// wall-clock deadline is exceeded. Downcast from the wasmtime trap
+/// error to classify the failure as a timeout `Trap`.
+#[derive(Debug)]
+pub(crate) struct TimeoutTrap;
+
+impl std::fmt::Display for TimeoutTrap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "wall-clock deadline exceeded")
+    }
+}
+
+impl std::error::Error for TimeoutTrap {}
 
 /// Epoch delta that keeps the deadline effectively unreachable when no
 /// wall-clock cap is configured. Half the epoch range rather than
@@ -72,8 +85,9 @@ pub(crate) fn instantiate_err(err: wasmtime::Error) -> SetupError {
 
 #[cfg(test)]
 mod tests {
-    use super::{other_trap_message, trap_from, NO_TIMEOUT_EPOCH_DELTA};
-    use crate::invocation::{Invocation, MemoryLimitTrap, TimeoutTrap};
+    use super::{other_trap_message, trap_from, TimeoutTrap, NO_TIMEOUT_EPOCH_DELTA};
+    use crate::invocation::Invocation;
+    use crate::limiter::MemoryLimitTrap;
     use kobako_runtime::error::Trap;
 
     // The no-timeout priming delta is added to the engine's current

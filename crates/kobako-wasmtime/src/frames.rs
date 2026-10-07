@@ -5,23 +5,17 @@
 //! context, and reads the OUTCOME_BUFFER back out. The driver owns no
 //! wire codec — these helpers move raw bytes; the frontend decodes them.
 
-use wasmtime::{AsContextMut, Memory, Store as WtStore, TypedFunc};
+use wasmtime::{AsContextMut, Store as WtStore};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::WasiCtxBuilder;
 
 use crate::config::Config;
-use crate::exports::Exports;
+use crate::exports::{self, Exports};
 use crate::invocation::Invocation;
 use crate::{ambient, capture, guest_mem};
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
 use kobako_transport::abi::FRAME_LEN_SIZE;
-
-fn require_memory(exports: &Exports) -> Result<Memory, Trap> {
-    exports
-        .memory
-        .ok_or_else(|| Trap::Other(guest_mem::SANDBOX_RUNTIME_NOT_KOBAKO.to_string()))
-}
 
 /// A missing or trapping allocator is an engine fault, a `Trap`; one that
 /// runs but returns 0 leaves the runtime intact, so it is a `SetupError`.
@@ -33,8 +27,8 @@ pub(crate) fn write_envelope(
     let len_i32 = guest_mem::checked_payload_len(envelope.len())
         .map_err(|msg| Trap::Other(msg.to_string()))?;
 
-    let alloc = require_export(exports.alloc.as_ref())?;
-    let memory = require_memory(exports)?;
+    let alloc = exports::require(exports.alloc.as_ref())?;
+    let memory = exports.require_memory()?;
 
     let ptr = alloc
         .call(store.as_context_mut(), len_i32 as u32)
@@ -109,13 +103,13 @@ pub(crate) fn fetch_outcome_bytes(
     store: &mut WtStore<Invocation>,
     exports: &Exports,
 ) -> Result<Vec<u8>, Trap> {
-    let take = require_export(exports.take_outcome.as_ref())?;
-    let mem = require_memory(exports)?;
+    let take = exports::require(exports.take_outcome.as_ref())?;
+    let mem = exports.require_memory()?;
 
     let packed = take
         .call(store.as_context_mut(), ())
         .map_err(|e| Trap::Other(format!("failed to read the Sandbox result: {e}")))?;
-    let (ptr, len) = guest_mem::unpack_outcome_packed(packed);
+    let (ptr, len) = guest_mem::unpack_guest_buffer(packed);
     if len > kobako_transport::abi::MAX_DISPATCH_PAYLOAD {
         return Err(Trap::Other(
             "result payload exceeds the 16 MiB limit".to_string(),
@@ -126,24 +120,6 @@ pub(crate) fn fetch_outcome_bytes(
     let range = guest_mem::guest_buffer_range(ptr, len, data.len())
         .map_err(|msg| Trap::Other(format!("the Sandbox result is out of bounds: {msg}")))?;
     Ok(data[range].to_vec())
-}
-
-/// Names no ABI symbol, since a caller cannot act on one, and no
-/// frontend's artifact path, since every frontend reaches this engine;
-/// what a caller can do is rebuild the runtime.
-const SANDBOX_RUNTIME_MISSING_HOOKS: &str = "Sandbox runtime is missing required hooks; \
-     rebuild it against the kobako version in use";
-
-/// The message names no export, because the ABI symbol is not actionable
-/// to callers.
-pub(crate) fn require_export<Params, Results>(
-    export: Option<&TypedFunc<Params, Results>>,
-) -> Result<&TypedFunc<Params, Results>, Trap>
-where
-    Params: wasmtime::WasmParams,
-    Results: wasmtime::WasmResults,
-{
-    export.ok_or_else(|| Trap::Other(SANDBOX_RUNTIME_MISSING_HOOKS.to_string()))
 }
 
 #[cfg(test)]

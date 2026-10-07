@@ -43,7 +43,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 - `test/parity/test_seal.rb`
 - `test/unit/values/test_capture.rb`
 - `crates/kobako-wasmtime/src/capture.rs`
-- `crates/kobako-wasmtime/src/invocation.rs`
+- `crates/kobako-wasmtime/src/limiter.rs`
 - `crates/kobako-wasmtime/src/trap.rs`
 - `crates/kobako/src/sandbox.rs`
 - `crates/kobako/src/snippet.rs`

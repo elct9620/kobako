@@ -11,37 +11,9 @@
 
 use wasmtime::{Caller, Extern, Memory};
 
+use crate::exports::RUNTIME_INCOMPATIBLE;
 use crate::invocation::Invocation;
-use kobako_runtime::error::Trap;
-use kobako_runtime::yielder::Yielder;
 use kobako_transport::abi::{unpack_ptr_len, MAX_DISPATCH_PAYLOAD};
-
-/// The wasmtime-backed `Yielder` (`kobako_runtime::yielder`): a
-/// frame-scoped wrapper over the dispatch `Caller` that drives a block-yield
-/// round-trip through `drive_yield`. Built per `__kobako_dispatch` frame and
-/// handed to the dispatch handler, so nested dispatch frames each
-/// carry their own and stack on the Rust call stack with no shared slot.
-pub(crate) struct CallerYielder<'a, 'c> {
-    caller: &'a mut Caller<'c, Invocation>,
-}
-
-impl<'a, 'c> CallerYielder<'a, 'c> {
-    pub(crate) fn new(caller: &'a mut Caller<'c, Invocation>) -> Self {
-        Self { caller }
-    }
-}
-
-impl Yielder for CallerYielder<'_, '_> {
-    fn yield_to_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap> {
-        drive_yield(self.caller, args).map_err(|msg| Trap::Other(msg.to_string()))
-    }
-}
-
-/// For a required guest export (the allocation or block-yield hook) that
-/// is absent or mistyped. Names neither the hook nor a frontend's artifact
-/// path; what a caller can do is rebuild the runtime.
-const RUNTIME_INCOMPATIBLE: &str =
-    "the Sandbox runtime is incompatible; rebuild it against the kobako version in use";
 
 /// User-facing message for the "the loaded Wasm module is not a
 /// Kobako-shaped runtime at all" failure mode — no linear memory export
@@ -145,7 +117,9 @@ pub(crate) fn guest_buffer_range(
     Ok(ptr..end)
 }
 
-pub(crate) fn unpack_outcome_packed(packed: u64) -> (usize, usize) {
+/// The `(ptr, len)` the guest packs for any buffer it hands back, the
+/// outcome and a block's result alike.
+pub(crate) fn unpack_guest_buffer(packed: u64) -> (usize, usize) {
     let (ptr, len) = unpack_ptr_len(packed);
     (ptr as usize, len as usize)
 }
@@ -166,7 +140,7 @@ pub(crate) fn drive_yield(
     let packed = yield_fn
         .call(&mut *caller, (req_ptr, len_i32))
         .map_err(|trap| trapped(caller, trap, "the Sandbox trapped while invoking a block"))?;
-    let (resp_ptr, resp_len) = unpack_outcome_packed(packed);
+    let (resp_ptr, resp_len) = unpack_guest_buffer(packed);
     if resp_len == 0 {
         return Err("the Sandbox returned an empty block result");
     }
@@ -184,7 +158,7 @@ pub(crate) fn drive_yield(
 #[cfg(test)]
 mod tests {
     use super::{
-        checked_payload_len, guest_buffer_range, unpack_outcome_packed, MAX_DISPATCH_PAYLOAD,
+        checked_payload_len, guest_buffer_range, unpack_guest_buffer, MAX_DISPATCH_PAYLOAD,
     };
 
     // @behavior WE-059
@@ -232,16 +206,16 @@ mod tests {
 
     // @behavior WE-001
     #[test]
-    fn unpack_outcome_packed_extracts_high_ptr_low_len() {
+    fn unpack_guest_buffer_extracts_high_ptr_low_len() {
         assert_eq!(
-            unpack_outcome_packed(0xAABB_CCDD_1122_3344),
+            unpack_guest_buffer(0xAABB_CCDD_1122_3344),
             (0xAABB_CCDD, 0x1122_3344)
         );
     }
 
     // @behavior WE-065
     #[test]
-    fn unpack_outcome_packed_zero_decodes_to_zero_pair() {
-        assert_eq!(unpack_outcome_packed(0), (0, 0));
+    fn unpack_guest_buffer_zero_decodes_to_zero_pair() {
+        assert_eq!(unpack_guest_buffer(0), (0, 0));
     }
 }

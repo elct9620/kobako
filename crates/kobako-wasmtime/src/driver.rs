@@ -17,7 +17,7 @@ use wasmtime::{
 
 use crate::cache::shared_engine;
 use crate::config::Config;
-use crate::exports::Exports;
+use crate::exports::{self, Exports};
 use crate::invocation::Invocation;
 use crate::{capture, frames, instance_pre, trap};
 use kobako_runtime::dispatch::DispatchHandler;
@@ -158,11 +158,11 @@ impl ContractRuntime for Driver {
         let exports = self.instantiate(&mut store)?;
         let called = match entry {
             Entry::Eval { .. } => {
-                let eval = frames::require_export(exports.eval.as_ref())?;
+                let eval = exports::require(exports.eval.as_ref())?;
                 self.call_with_caps(&mut store, &exports, eval, ())
             }
             Entry::Run { envelope } => {
-                let run = frames::require_export(exports.run.as_ref())?;
+                let run = exports::require(exports.run.as_ref())?;
                 let (env_ptr, env_len) = frames::write_envelope(&mut store, &exports, envelope)?;
                 self.call_with_caps(&mut store, &exports, run, (env_ptr, env_len))
             }

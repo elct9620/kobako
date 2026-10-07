@@ -12,9 +12,26 @@
 
 use wasmtime::Caller;
 
+use kobako_runtime::error::Trap;
+use kobako_runtime::yielder::Yielder;
+use kobako_transport::abi::pack_ptr_len;
 use kobako_transport::envelope::Call;
 
+use crate::guest_mem;
 use crate::invocation::Invocation;
+
+/// The wasmtime-backed `Yielder`: built per `__kobako_dispatch` frame over
+/// that frame's `Caller`, so nested dispatch frames each carry their own and
+/// stack on the Rust call stack with no shared slot.
+struct CallerYielder<'a, 'c> {
+    caller: &'a mut Caller<'c, Invocation>,
+}
+
+impl Yielder for CallerYielder<'_, '_> {
+    fn yield_to_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap> {
+        guest_mem::drive_yield(self.caller, args).map_err(|msg| Trap::Other(msg.to_string()))
+    }
+}
 
 /// Answer one `__kobako_dispatch` call: the packed `(ptr<<32)|len` of the
 /// Reply, 0 for a failure the guest or the wire is answerable for, or the
@@ -39,7 +56,7 @@ fn try_handle(
     req_ptr: i32,
     req_len: i32,
 ) -> Result<i64, &'static str> {
-    let req_bytes = crate::guest_mem::read(caller, req_ptr, req_len)?;
+    let req_bytes = guest_mem::read(caller, req_ptr, req_len)?;
     // The driver decodes the core envelope so the frontend never sees a
     // frame; the payload inside it stays bytes the whole way through.
     let call = Call::decode(&req_bytes).map_err(|_| {
@@ -59,7 +76,7 @@ fn try_handle(
     // `write_response`; nested dispatch frames each build their own, so
     // the LIFO re-entry lives on the Rust stack — no shared slot.
     let reply = {
-        let mut yielder = crate::guest_mem::CallerYielder::new(caller);
+        let mut yielder = CallerYielder { caller };
         handler.dispatch(call, &mut yielder)
     }
     .ok_or(
@@ -70,6 +87,7 @@ fn try_handle(
 }
 
 fn write_response(caller: &mut Caller<'_, Invocation>, bytes: &[u8]) -> Result<i64, &'static str> {
-    let ptr = crate::guest_mem::alloc_and_write(caller, bytes)?;
-    Ok(((ptr as i64) << 32) | (bytes.len() as i64))
+    let ptr = guest_mem::alloc_and_write(caller, bytes)?;
+    // `alloc_and_write` has already held the length to the payload cap.
+    Ok(pack_ptr_len(ptr, bytes.len() as u32) as i64)
 }
