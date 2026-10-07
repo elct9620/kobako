@@ -29,6 +29,15 @@
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::{Array, Error, IntoValue, Mrb, RString, Value};
+use core::ffi::CStr;
+
+/// Where `IO.new` records the descriptor `write` later reads back.
+const FD_IVAR: &CStr = c"@__kobako_fd__";
+
+/// The sandbox routes only stdout and stderr to the host capture pipe.
+fn is_captured_fd(fd: i32) -> bool {
+    fd == 1 || fd == 2
+}
 
 fn rest(mrb: &Mrb) -> Result<Vec<Value>, Error> {
     scan_args::<(), (), Array, (), (), ()>(mrb)?
@@ -87,7 +96,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 /// routes no other descriptor to the host capture pipe, and any `mode`
 /// but `"w"`, since only the write path exists.
 fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode_val: Value) -> Result<Value, Error> {
-    if fd != 1 && fd != 2 {
+    if !is_captured_fd(fd) {
         return Err(argument_error(
             mrb,
             "kobako IO only supports fd 1 (stdout) or fd 2 (stderr)",
@@ -99,7 +108,7 @@ fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode_val: Value) -> Result<Va
         return Err(argument_error(mrb, "kobako IO only supports mode \"w\""));
     }
 
-    self_.iv_set(mrb, c"@__kobako_fd__", fd.into_value(mrb))?;
+    self_.iv_set(mrb, FD_IVAR, fd.into_value(mrb))?;
     Ok(Value::zeroed())
 }
 
@@ -113,7 +122,7 @@ fn io_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     // can rewrite via `instance_variable_set`. Re-validate at the one place
     // the fd reaches a syscall, so the stdout / stderr restriction is an
     // enforced boundary rather than a construction-time courtesy.
-    if fd != 1 && fd != 2 {
+    if !is_captured_fd(fd) {
         return Err(argument_error(
             mrb,
             "kobako IO writes only to fd 1 (stdout) or fd 2 (stderr)",
@@ -322,6 +331,6 @@ fn argument_error(mrb: &Mrb, msg: &str) -> Error {
 /// The value is untrusted: the ivar is guest-mutable, so a caller that
 /// forwards it to a syscall must re-validate the descriptor first.
 fn read_fd(mrb: &Mrb, self_: Value) -> i32 {
-    let val = self_.iv_get(mrb, c"@__kobako_fd__");
+    let val = self_.iv_get(mrb, FD_IVAR);
     i32::from_value(val).unwrap_or(0)
 }

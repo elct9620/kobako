@@ -33,6 +33,10 @@ pub(crate) fn type_error(mrb: &Mrb, message: &str) -> Error {
     exception(mrb, c"TypeError", message)
 }
 
+pub(crate) fn no_method_error(mrb: &Mrb, message: &str) -> Error {
+    exception(mrb, c"NoMethodError", message)
+}
+
 /// A miss surfaces mruby's own lookup error rather than degrading the raise
 /// to a different class.
 fn exception(mrb: &Mrb, class: &CStr, message: &str) -> Error {

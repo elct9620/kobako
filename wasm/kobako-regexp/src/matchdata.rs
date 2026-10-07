@@ -7,7 +7,7 @@
 //! byte-based, mirroring the curated regexp engine. The originating
 //! `Regexp` is held as the `@regexp` ivar so the mruby GC keeps it alive.
 
-use crate::errors::index_error;
+use crate::errors::{index_error, no_method_error};
 use crate::regexp;
 use beni::prelude::*;
 use beni::scan_args::scan_args;
@@ -84,10 +84,7 @@ fn md_dup(mrb: &Mrb, rb_self: Obj<MatchState>) -> Result<Obj<MatchState>, Error>
 /// A `MatchData` only ever arises from a match, so direct construction
 /// raises `NoMethodError`.
 fn md_new_forbidden(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
-    Err(match mrb.exc_get(c"NoMethodError") {
-        Ok(cls) => Error::new(mrb, cls, "undefined method 'new' for MatchData"),
-        Err(err) => err,
-    })
+    Err(no_method_error(mrb, "undefined method 'new' for MatchData"))
 }
 
 fn group_str(mrb: &Mrb, state: &MatchState, index: usize) -> Value {
