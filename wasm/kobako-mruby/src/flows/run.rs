@@ -79,16 +79,14 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // and the `target.call(*args, **kwargs)` invocation —
     // runs through the mruby C API. No Ruby trampoline, no global
     // variable injection.
-    // Interned once and reused for both the gate and the fetch: a name
-    // too long for the symbol table fails the invocation here rather
-    // than at either of them.
-    let target_sym = match mrb.intern(run.entrypoint.as_bytes()) {
-        Ok(sym) => sym,
-        Err(err) => return write_panic(panic::panic_from_error(&kobako, err)),
-    };
+    // Looked up without interning: a constant is named by a symbol that
+    // already exists, so a name with none is undefined without adding one
+    // to the guest's symbol table.
     let object_class = mrb.object_class();
-
-    if !object_class.const_defined(mrb, target_sym) {
+    let defined = mrb
+        .check_id(run.entrypoint.as_bytes())
+        .filter(|&sym| object_class.const_defined(mrb, sym));
+    let Some(target_sym) = defined else {
         let available = super::boot_constants::snippet_constants(&kobako, &preamble);
         return write_panic(Panic {
             available,
@@ -97,7 +95,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
                 format!("undefined entrypoint: {}", run.entrypoint),
             )
         });
-    }
+    };
 
     let target_val = match object_class.const_get::<_, beni::Value>(mrb, target_sym) {
         Ok(v) => v,
