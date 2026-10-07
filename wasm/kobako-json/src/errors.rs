@@ -32,6 +32,15 @@ pub(crate) fn type_error(mrb: &Mrb, message: &str) -> Error {
     }
 }
 
+/// CRuby's generator refuses a Hash that grows while it is written, in
+/// these words.
+pub(crate) fn key_added_error(mrb: &Mrb) -> Error {
+    match mrb.exception_runtime_error() {
+        Ok(cls) => Error::new(mrb, cls, "can't add a new key into hash during iteration"),
+        Err(err) => err,
+    }
+}
+
 /// The constant is the guest's to reassign, so a miss surfaces mruby's own
 /// lookup error rather than degrading the raise to a different class.
 fn json_exception(mrb: &Mrb, member: &CStr, message: &str) -> Error {

@@ -18,7 +18,7 @@
 //! refuses a `Kobako::Handle` / a bound constant / un-opted object without a host
 //! round-trip.
 
-use crate::errors::{generator_error, parser_error};
+use crate::errors::{generator_error, key_added_error, parser_error};
 use beni::prelude::*;
 use beni::value::qnil;
 use beni::{Error, IntoValue, Mrb, Qfalse, Qtrue, RArray, RHash, RString, Symbol, Value};
@@ -179,15 +179,24 @@ fn encode_hash(mrb: &Mrb, hash: RHash, depth: usize) -> Result<JsonValue, Error>
     if depth >= MAX_NESTING_DEPTH {
         return Err(too_deep(mrb));
     }
+    // A value's opt-in hook is guest code running mid-walk, so the walk reads
+    // a snapshot of the keys rather than the live table, which mruby's own
+    // walk would read past its end once a hook removed an entry. A key the
+    // hook removed is skipped and one it added is refused, as in CRuby.
+    let size = hash.len(mrb);
     let keys = hash.keys(mrb);
-    let entries = keys.entries(mrb);
-    let mut map = Map::with_capacity(entries.len());
-    for key in entries {
-        // `hash.get` is the C hash lookup, not a Ruby `[]` dispatch, so a key
-        // missing from the snapshot (e.g. removed mid-walk) reads as `nil`
-        // rather than faulting the recursive converter.
+    let mut map = Map::with_capacity(size);
+    for key in keys.entries(mrb) {
+        // `contains_key` and `get` are the C lookups, not a Ruby `[]`
+        // dispatch; a key whose own `hash` raises still reads as present.
+        if !hash.contains_key(mrb, key).unwrap_or(true) {
+            continue;
+        }
         let value = hash.get(mrb, key).unwrap_or(qnil().as_value());
         map.insert(encode_key(mrb, key)?, encode(mrb, value, depth + 1)?);
+        if hash.len(mrb) > size {
+            return Err(key_added_error(mrb));
+        }
     }
     Ok(JsonValue::Object(map))
 }
