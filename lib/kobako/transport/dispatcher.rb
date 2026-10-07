@@ -45,8 +45,8 @@ module Kobako
       # The per-invocation state arrives as arguments so the Dispatcher
       # stays stateless and neither the resolver nor the Context publishes
       # accessors for it.
-      def self.dispatch(call, resolver, handles, yield_to_guest)
-        yielder = Yielder.new(yield_to_guest, BREAK_THROW, handles) if call.block_given
+      def self.dispatch(call, resolver, handles, guest_yielder)
+        yielder = Yielder.new(guest_yielder, BREAK_THROW, handles) if call.block_given
         [true, encode_ok(run(call, resolver, handles, yielder), handles), nil] # : [bool, String, String?]
       # StandardError is the boundary by intent: a Service method's
       # application fault folds into a guest-rescuable fault, while a

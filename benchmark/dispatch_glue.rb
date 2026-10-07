@@ -60,7 +60,7 @@ runner = Kobako::Bench::Runner.new("dispatch_glue")
 # per-invocation providers or ctx.bind overrides here, that resolver
 # degenerates to the registry, so we pass Services directly and keep this
 # bench free of a Runtime.
-handler = Kobako::Catalog::Handles.new
+handles = Kobako::Catalog::Handles.new
 services = Kobako::Catalog::Services.new
 services.bind("Bench::Noop", -> {})
         .bind("Bench::Echo", ->(x) { x })
@@ -68,9 +68,9 @@ services.bind("Bench::Noop", -> {})
         .bind("Bench::Small", ->        { Array.new(16) { |i| i } })
         .bind("Bench::Large", ->        { Array.new(256) { |i| i } })
 
-# block_given is false on every case below, so yield_to_guest is never
+# block_given is false on every case below, so guest_yielder is never
 # invoked; a raising stub localises any accidental block path.
-yield_to_guest = ->(_bytes) { raise "yield_to_guest must not fire in dispatch_glue" }
+guest_yielder = ->(_bytes) { raise "guest_yielder must not fire in dispatch_glue" }
 
 # Build each routed Call ONCE — the driver hands Ruby an already-decoded
 # target and a payload it has not touched, so payload encoding stays out
@@ -90,26 +90,26 @@ LARGE_CALL = call_for(:Large, "call")
 
 # Warm process-wide codec / inline caches so the first measured case
 # does not pay cold-cache cost. Mirrors the warm-up in the other suites.
-Kobako::Transport::Dispatcher.dispatch(NOOP_CALL, services, handler, yield_to_guest)
+Kobako::Transport::Dispatcher.dispatch(NOOP_CALL, services, handles, guest_yielder)
 
 runner.case("10a-empty-call") do
-  Kobako::Transport::Dispatcher.dispatch(NOOP_CALL, services, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(NOOP_CALL, services, handles, guest_yielder)
 end
 
 runner.case("10b-primitive-arg") do
-  Kobako::Transport::Dispatcher.dispatch(ECHO_CALL, services, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(ECHO_CALL, services, handles, guest_yielder)
 end
 
 runner.case("10c-kwargs") do
-  Kobako::Transport::Dispatcher.dispatch(GREET_CALL, services, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(GREET_CALL, services, handles, guest_yielder)
 end
 
 runner.case("10d-small-return-16") do
-  Kobako::Transport::Dispatcher.dispatch(SMALL_CALL, services, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(SMALL_CALL, services, handles, guest_yielder)
 end
 
 runner.case("10e-large-return-256") do
-  Kobako::Transport::Dispatcher.dispatch(LARGE_CALL, services, handler, yield_to_guest)
+  Kobako::Transport::Dispatcher.dispatch(LARGE_CALL, services, handles, guest_yielder)
 end
 
 puts runner.write!

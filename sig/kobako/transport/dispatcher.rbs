@@ -11,7 +11,7 @@ module Kobako
 
       OWN_FAULTS: Hash[singleton(StandardError), String]
 
-      def self.dispatch: (Kobako::Transport::Call call, Kobako::Transport::_ServiceResolver resolver, Kobako::Transport::_HandleTable handles, Kobako::Transport::_GuestYielder yield_to_guest) -> [bool, String, String?]
+      def self.dispatch: (Kobako::Transport::Call call, Kobako::Transport::_ServiceResolver resolver, Kobako::Transport::_HandleTable handles, Kobako::Transport::_GuestYielder guest_yielder) -> [bool, String, String?]
 
       private
 

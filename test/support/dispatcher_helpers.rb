@@ -6,11 +6,11 @@
 # Live-Sandbox elevation of these paths lives in +test/e2e/+ via real
 # mruby.
 module DispatcherHelpers
-  # Stub +yield_to_guest+ lambda for tests that never trip a guest
+  # Stub +guest_yielder+ lambda for tests that never trip a guest
   # block. Dispatch only builds the Yielder when +block_given+ is
   # true on the wire, so this lambda is never invoked by the paths
   # exercised below; raising on call surfaces an accidental yield-path
-  # regression instead of silently returning an empty response.
+  # regression instead of silently returning an empty Reply.
   NO_YIELD = ->(_) { raise "unexpected yield in dispatch-only test" }
 
   # A Reply read back in the vocabulary these tests are written in: the

@@ -9,8 +9,8 @@ module Kobako
   # a Ruby callable the Service method can yield into.
   module Transport
     class Yielder # :nodoc:
-      def initialize(yield_to_guest, break_tag, handles)
-        @yield_to_guest = yield_to_guest
+      def initialize(guest_yielder, break_tag, handles)
+        @guest_yielder = guest_yielder
         @break_tag = break_tag
         @handles = handles
         @active = true
@@ -38,7 +38,7 @@ module Kobako
       def yield(*args)
         raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless @active
 
-        arm, body, klass = @yield_to_guest.call(encode_args(args))
+        arm, body, klass = @guest_yielder.call(encode_args(args))
         raise remember(BlockError.new(body, klass: klass)) if arm == :error
 
         value, carried_handle = decode_body(body)
