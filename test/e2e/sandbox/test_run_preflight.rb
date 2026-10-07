@@ -37,6 +37,15 @@ class TestSandboxRunPreflight < Minitest::Test
     assert_match(/must match/, err.message)
   end
 
+  # @behavior S-175
+  # mruby refuses to intern a name of 65535 bytes or more, so the longest
+  # name it can hold is the last one pre-flight lets through.
+  def test_target_rejects_a_name_longer_than_a_symbol_holds
+    err = assert_raises(ArgumentError) { @fixture_sandbox.run("A#{"b" * 65_534}") }
+    assert_match(/must match/, err.message,
+                 "#run with a 65535-byte constant name must be refused at pre-flight, naming the constraint")
+  end
+
   # @behavior S-095
   # Legitimate Handles only surface through error fields, so one the
   # caller constructed can only have been smuggled — refusing it at
