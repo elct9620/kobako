@@ -113,9 +113,8 @@ At L4 you compose `kobako-transport` and `kobako-runtime` directly and write the
 |---|---|
 | the wire and the ABI | everything above them |
 
-This is not an exotic path: kobako's own Ruby gem is an L4 assembly.
-It reaches the driver through a magnus shim rather than the Rust SDK.
-So is any host written in a language other than Rust.
+This is not an exotic path: kobako's own Ruby gem is an L4 assembly, as is any host not written in Rust.
+The gem reaches the driver through a magnus shim rather than the Rust SDK.
 
 ## The Parts
 
