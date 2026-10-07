@@ -37,8 +37,10 @@ class TestRegexpPresence < Minitest::Test
   end
 
   # @behavior RX-222
+  # A global is reachable by whatever its name spells, so the witness asks
+  # which names exist rather than reading one it expects to be absent.
   def test_compile_cache_is_not_reachable_as_a_global_variable
-    assert_nil eval_regexp('"a" =~ /a/; $__kobako_regexp_compile_cache'),
-               "the compile cache's name read as a global through eval must answer nil"
+    assert_empty eval_regexp('"a" =~ /a/; global_variables.map(&:to_s).grep(/kobako|cache/)'),
+                 "global_variables after a match through eval must name nothing after the capability or its cache"
   end
 end
