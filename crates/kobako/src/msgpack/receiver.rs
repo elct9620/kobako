@@ -90,8 +90,12 @@ impl<V: ValueReceiver> Receiver for IntoReceiver<V> {
         let value = self
             .0
             .call(method, &arguments.args, &arguments.kwargs, block, handles)?;
-        Encoder::encode(&value)
-            .map_err(|err| Fault::new(FaultKind::Runtime, format!("response not encodable: {err}")))
+        Encoder::encode(&value).map_err(|err| {
+            Fault::new(
+                FaultKind::Runtime,
+                format!("Sandbox could not write the Service's answer: {err}"),
+            )
+        })
     }
 
     fn respond_to_guest(&self, method: &str) -> bool {
@@ -101,7 +105,7 @@ impl<V: ValueReceiver> Receiver for IntoReceiver<V> {
 
 #[cfg(test)]
 mod tests {
-    use kobako_codec::msgpack::codec::{Encode, Encoder};
+    use kobako_codec::msgpack::codec::{Encode, Encoder, MAX_NESTING_DEPTH};
     use kobako_codec::msgpack::payload::Arguments;
 
     use super::*;
@@ -164,6 +168,40 @@ mod tests {
             matches!(refusal, Err(fault) if fault.kind == FaultKind::Internal),
             "a payload this schema cannot read must refuse as an internal fault — the \
              receiver never ran, so nothing about it failed"
+        );
+    }
+
+    /// Answers every name with an array nested one level past the deepest
+    /// the schema writes.
+    struct TooDeep;
+
+    impl ValueReceiver for TooDeep {
+        fn call(
+            &self,
+            _method: &str,
+            _args: &[Value],
+            _kwargs: &[(String, Value)],
+            _block: Option<&mut Yielder<'_>>,
+            _handles: &Handles<'_>,
+        ) -> Result<Value, Fault> {
+            Ok((0..=MAX_NESTING_DEPTH).fold(Value::Nil, |inner, _| Value::Array(vec![inner])))
+        }
+    }
+
+    #[test]
+    fn an_answer_this_schema_cannot_write_is_the_services_failure() {
+        let payload = Arguments::new(Vec::new(), Vec::new()).encode().unwrap();
+        let table = Detached::new();
+
+        let refusal = TooDeep
+            .into_receiver()
+            .call("answer", &payload, None, &table.as_handles());
+
+        assert!(
+            matches!(&refusal, Err(fault) if fault.kind == FaultKind::Runtime
+                && fault.message.contains("could not write the Service's answer")),
+            "an answer nested past the schema's bound through into_receiver must refuse as \
+             the Service's runtime failure, worded as the Ruby frontend words it, got {refusal:?}"
         );
     }
 

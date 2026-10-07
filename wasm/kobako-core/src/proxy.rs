@@ -131,7 +131,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     if len == 0 {
         // Wire violation per docs/wire-codec.md § ABI Signatures.
         return Err(DispatchError::Envelope(envelope::DecodeError::new(
-            "the host returned an empty response",
+            "the host returned an empty Reply",
         )));
     }
     // SAFETY: the host promises [ptr, ptr+len) is a valid Reply
