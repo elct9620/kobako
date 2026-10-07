@@ -52,7 +52,7 @@ fn try_handle(
     let handler = caller
         .data()
         .on_dispatch()
-        .ok_or("a Sandbox callback fired outside an active Sandbox#run — please report this as a kobako bug")?;
+        .ok_or("a Sandbox callback fired outside an active invocation — please report this as a kobako bug")?;
 
     // Build a frame-scoped yielder over this Caller and hand it to the
     // handler. The borrow ends with the block, freeing the Caller for

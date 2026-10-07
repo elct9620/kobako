@@ -90,7 +90,7 @@ pub(crate) fn cached_module(path: &Path) -> Result<WtModule, SetupError> {
 
     if !path.exists() {
         return Err(SetupError::ModuleNotBuilt(format!(
-            "Sandbox runtime not found at {}; run `bundle exec rake wasm:build` to build it",
+            "Sandbox runtime not found at {}",
             path.display()
         )));
     }

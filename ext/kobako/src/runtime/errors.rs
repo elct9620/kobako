@@ -65,7 +65,13 @@ pub(super) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
 
 pub(super) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {
     match err {
-        SetupError::ModuleNotBuilt(msg) => error_in(ruby, &MODULE_NOT_BUILT_ERROR, msg),
+        // The engine serves every frontend, so the gem adds its own way to
+        // build the artifact.
+        SetupError::ModuleNotBuilt(msg) => error_in(
+            ruby,
+            &MODULE_NOT_BUILT_ERROR,
+            format!("{msg}; run `bundle exec rake wasm:build` to build it"),
+        ),
         SetupError::Dead(msg) => error_in(ruby, &SETUP_ERROR, msg),
         // Runtime intact means a host-side pre-call fault attributed to
         // the sandbox / wire layer: the engine never ran, so never a

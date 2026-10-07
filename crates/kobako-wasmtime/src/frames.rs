@@ -128,15 +128,11 @@ pub(crate) fn fetch_outcome_bytes(
     Ok(data[range].to_vec())
 }
 
-/// User-facing message for the "Sandbox runtime is missing one of the
-/// internal Kobako hooks" failure mode. Phrased in caller vocabulary —
-/// the underlying ABI symbol names (`__kobako_alloc`, `__kobako_eval`,
-/// `__kobako_take_outcome`) are not actionable to callers, and the
-/// gem itself raises this error so a self-reference like "matches the
-/// kobako gem version" reads as third-person. The actionable
-/// diagnosis is "your data/kobako.wasm is out of sync; rebuild it".
+/// Names no ABI symbol, since a caller cannot act on one, and no
+/// frontend's artifact path, since every frontend reaches this engine;
+/// what a caller can do is rebuild the runtime.
 const SANDBOX_RUNTIME_MISSING_HOOKS: &str = "Sandbox runtime is missing required hooks; \
-     rebuild data/kobako.wasm against the installed version";
+     rebuild it against the kobako version in use";
 
 /// The message names no export, because the ABI symbol is not actionable
 /// to callers.

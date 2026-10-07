@@ -37,13 +37,11 @@ impl Yielder for CallerYielder<'_, '_> {
     }
 }
 
-/// User-facing reason when a required guest export (the allocation or
-/// block-yield hook) is absent or has the wrong signature — the loaded
-/// `data/kobako.wasm` does not match the installed gem. Phrased in caller
-/// vocabulary: the underlying hook symbol names are not actionable, and
-/// the actionable fix is to rebuild the runtime.
+/// For a required guest export (the allocation or block-yield hook) that
+/// is absent or mistyped. Names neither the hook nor a frontend's artifact
+/// path; what a caller can do is rebuild the runtime.
 const RUNTIME_INCOMPATIBLE: &str =
-    "the Sandbox runtime is incompatible; rebuild data/kobako.wasm against the installed version";
+    "the Sandbox runtime is incompatible; rebuild it against the kobako version in use";
 
 /// User-facing message for the "the loaded Wasm module is not a
 /// Kobako-shaped runtime at all" failure mode — no linear memory export
