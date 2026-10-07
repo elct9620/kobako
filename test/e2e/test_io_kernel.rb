@@ -2,9 +2,10 @@
 
 require "test_helper"
 
-# E2E — the kobako-io Kernel delegators through real mruby:
-# putc byte semantics, private registration, p's inspect form, and puts'
-# Array flattening / GC-arena behaviour. Channel routing lives in
+# E2E — the kobako-io Kernel delegators and the argument lists they
+# forward, through real mruby: putc byte semantics, private registration,
+# p's inspect form, puts' Array flattening / GC-arena behaviour / empty
+# list, and IO#write over several values. Channel routing lives in
 # test_io_streams.rb; IO write byte paths in test_io_write.rb.
 class TestE2EIoKernel < Minitest::Test
   include E2eGuestHelper
@@ -124,5 +125,27 @@ class TestE2EIoKernel < Minitest::Test
     assert_equal "first\nsecond\n", execution.stdout,
                  "Kernel#puts must flatten an Array subclass element-wise, " \
                  "matching the is_a?(Array) recursion gate"
+  end
+
+  # @behavior IO-033
+  # An empty argument list is its own branch of IO#puts, so a body that only
+  # walked its arguments would write nothing at all.
+  def test_puts_without_arguments_writes_a_line_break
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    execution = sandbox.eval("puts; 1")
+
+    assert_equal "\n", execution.stdout,
+                 "Kernel#puts with no arguments must write one line break to stdout"
+  end
+
+  # @behavior IO-034
+  # Every composite method writes one value per IO#write call, so only a
+  # direct call carries several arguments to the write body at once.
+  def test_write_with_several_values_writes_each_in_order
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    execution = sandbox.eval('$stdout.write("a", 1, :b); 1')
+
+    assert_equal "a1b", execution.stdout,
+                 "IO#write with several values must write each one's string form to stdout in order"
   end
 end
