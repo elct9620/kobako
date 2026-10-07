@@ -99,7 +99,7 @@ fn cache_capacity() -> NonZeroUsize {
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     // RegexpError is the guest exception a bad pattern or a blown
     // backtracking limit raises; the gem owns it as a StandardError subclass.
-    mrb.define_error(c"RegexpError", mrb.exc_get(c"StandardError")?)?;
+    mrb.define_error(c"RegexpError", mrb.exception_standard_error())?;
 
     let cls = mrb.define_class(c"Regexp", mrb.object_class())?;
     RegexpState::mark_carriers(mrb)?;

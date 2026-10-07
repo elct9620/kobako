@@ -11,7 +11,7 @@ use core::ffi::CStr;
 /// independently of `json::init`'s ordering.
 pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     let json = mrb.define_module(c"JSON")?;
-    let json_error = json.define_error(mrb, c"JSONError", mrb.exc_get(c"StandardError")?)?;
+    let json_error = json.define_error(mrb, c"JSONError", mrb.exception_standard_error())?;
     json.define_error(mrb, c"ParserError", json_error)?;
     json.define_error(mrb, c"GeneratorError", json_error)?;
     Ok(())
@@ -26,7 +26,7 @@ pub(crate) fn generator_error(mrb: &Mrb, message: &str) -> Error {
 }
 
 pub(crate) fn type_error(mrb: &Mrb, message: &str) -> Error {
-    match mrb.exc_get(c"TypeError") {
+    match mrb.exception_type_error() {
         Ok(cls) => Error::new(mrb, cls, message),
         Err(err) => err,
     }

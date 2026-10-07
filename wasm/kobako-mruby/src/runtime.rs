@@ -105,7 +105,7 @@ impl Registrations {
         let transport_mod = kobako_mod
             .define_module(mrb, c"Transport")
             .expect(INITIALIZED);
-        let runtime_error_class = mrb.exc_get(c"RuntimeError").expect(INITIALIZED);
+        let runtime_error_class = mrb.exception_runtime_error().expect(INITIALIZED);
         Self {
             proxy_module: kobako_mod.define_module(mrb, c"Proxy").expect(INITIALIZED),
             handle_class: kobako_mod.class_get(mrb, c"Handle").expect(INITIALIZED),

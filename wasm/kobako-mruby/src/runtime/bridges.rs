@@ -48,12 +48,22 @@ const REFLECTION_DENYLIST: &[&str] = &[
 /// `NoMethodError` for a reflection method the guest proxy refuses to
 /// forward, naming the method without leaking host detail.
 fn reflection_blocked(mrb: &Mrb, method_name: &str) -> beni::Error {
-    match mrb.exc_get(c"NoMethodError") {
-        Ok(nomethod) => beni::Error::new(
-            mrb,
-            nomethod,
-            &format!("{method_name} is not a Kobako Service method"),
-        ),
+    exception(
+        mrb,
+        mrb.exception_no_method_error(),
+        &format!("{method_name} is not a Kobako Service method"),
+    )
+}
+
+/// A failed class lookup surfaces mruby's own lookup error rather than
+/// degrading the raise to a different class.
+fn exception(
+    mrb: &Mrb,
+    class: Result<beni::ExceptionClass, beni::Error>,
+    message: &str,
+) -> beni::Error {
+    match class {
+        Ok(class) => beni::Error::new(mrb, class, message),
         Err(err) => err,
     }
 }
@@ -158,10 +168,8 @@ fn refusal(
         return kobako.transport_error(&refusal.message);
     }
     let name = std::ffi::CString::new(refusal.class).expect("a class name carries no interior NUL");
-    match kobako.mrb().exc_get(&*name) {
-        Ok(class) => beni::Error::new(kobako.mrb(), class, &refusal.message),
-        Err(err) => err,
-    }
+    let mrb = kobako.mrb();
+    exception(mrb, mrb.exc_get(&*name), &refusal.message)
 }
 
 /// The Call `Target` follows the receiver's identity: an exact
@@ -207,14 +215,11 @@ pub(crate) fn proxy_method_missing(
 }
 
 fn no_target(mrb: &Mrb, self_: Value) -> beni::Error {
-    match mrb.exc_get(c"NoMethodError") {
-        Ok(nomethod) => beni::Error::new(
-            mrb,
-            nomethod,
-            &format!("{} is not a Kobako dispatch target", self_.classname(mrb)),
-        ),
-        Err(err) => err,
-    }
+    exception(
+        mrb,
+        mrb.exception_no_method_error(),
+        &format!("{} is not a Kobako dispatch target", self_.classname(mrb)),
+    )
 }
 
 /// `Kobako::Handle.new` / `.allocate` both raise, so an exact
@@ -226,14 +231,11 @@ pub(crate) fn handle_not_constructible(
     _self: Value,
     _args: &[Value],
 ) -> Result<Value, beni::Error> {
-    Err(match mrb.exc_get(c"NoMethodError") {
-        Ok(nomethod) => beni::Error::new(
-            mrb,
-            nomethod,
-            "Kobako::Handle is a host-issued capability reference, not a constructible class",
-        ),
-        Err(err) => err,
-    })
+    Err(exception(
+        mrb,
+        mrb.exception_no_method_error(),
+        "Kobako::Handle is a host-issued capability reference, not a constructible class",
+    ))
 }
 
 pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value, id: Value) -> Result<(), beni::Error> {

@@ -295,7 +295,7 @@ fn write_newline(mrb: &Mrb, self_: Value) -> Result<(), Error> {
 /// Returned as `Err`, so the bridge frame raises it only after the Rust
 /// frame has unwound — unlike a direct `mrb_raise` long-jump.
 fn argument_error(mrb: &Mrb, msg: &str) -> Error {
-    match mrb.exc_get(c"ArgumentError") {
+    match mrb.exception_arg_error() {
         Ok(cls) => Error::new(mrb, cls, msg),
         Err(err) => err,
     }

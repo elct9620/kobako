@@ -93,7 +93,7 @@ impl Gem for KobakoBridge {
         // ServiceError and BytecodeError stay at the Kobako top level
         // (public API); Error lives under Transport since it is a
         // transport-layer fault.
-        let runtime_error_class = mrb.exc_get(c"RuntimeError")?;
+        let runtime_error_class = mrb.exception_runtime_error()?;
         let service_error_class =
             kobako_mod.define_error(mrb, c"ServiceError", runtime_error_class)?;
         // A Fault's category picks one of these, so guest code branches on
