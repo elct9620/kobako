@@ -60,9 +60,11 @@ class TestSandbox < Minitest::Test
 
   # @behavior RT-059
   def test_missing_wasm_raises_module_not_built_error
-    assert_raises(Kobako::ModuleNotBuiltError) do
+    err = assert_raises(Kobako::ModuleNotBuiltError) do
       Kobako::Sandbox.new(wasm_path: "/nonexistent/kobako.wasm")
     end
+    assert_match(/rake wasm:build/, err.message,
+                 "a missing Guest Binary through Sandbox.new must name the build step that produces it")
   end
 
   # @behavior OC-028

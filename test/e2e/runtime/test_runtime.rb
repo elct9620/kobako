@@ -26,22 +26,6 @@ class TestRuntime < Minitest::Test
     assert Kobako::Runtime.default_path.start_with?("/"), "default_path must be absolute"
   end
 
-  # @behavior RT-059
-  def test_from_path_raises_module_not_built_for_missing_path
-    err = assert_raises(Kobako::ModuleNotBuiltError) do
-      Kobako::Runtime.from_path("/nonexistent/kobako.wasm", nil, nil, nil, nil, :hermetic, :hold)
-    end
-    assert_match(/rake wasm:build/, err.message)
-  end
-
-  # @behavior RT-056
-  def test_from_path_works_with_fixture_module
-    require_fixture!(FIXTURE_PATH)
-
-    runtime = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :hold)
-    assert_instance_of Kobako::Runtime, runtime
-  end
-
   def test_from_path_repeated_calls_return_independent_instances
     require_fixture!(FIXTURE_PATH)
 
