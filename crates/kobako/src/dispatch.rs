@@ -17,24 +17,27 @@ use crate::handles::{HandleTable, Handles};
 use crate::receiver::{Fault, FaultKind, Receiver};
 use crate::yielder::Yielder;
 
+/// Per-invocation path→object resolutions the handler answers ahead of the
+/// sealed Catalog: the `ctx.bind` overrides followed by each
+/// `PerInvocation` provider's fresh object.
+pub(crate) type Resolved = Vec<(String, Arc<dyn Receiver>)>;
+
 /// `DispatchHandler` over a sealed Catalog and the invocation's Handle
 /// table: resolve each Call's target to its Receiver and fold every
 /// failure into a fault envelope.
 pub(crate) struct CatalogHandler {
     catalog: Arc<Catalog>,
     handles: Arc<Mutex<HandleTable>>,
-    /// The paths this invocation resolves ahead of the sealed Catalog — its
-    /// `ctx.bind` overrides first, then each `PerInvocation` provider's fresh
-    /// object — so an override or a fresh backend serves its path while
-    /// Frame 1 stays fixed.
-    resolved: Vec<(String, Arc<dyn Receiver>)>,
+    /// Answered first, so an override or a fresh backend serves its path
+    /// while Frame 1 stays fixed.
+    resolved: Resolved,
 }
 
 impl CatalogHandler {
     pub(crate) fn new(
         catalog: Arc<Catalog>,
         handles: Arc<Mutex<HandleTable>>,
-        resolved: Vec<(String, Arc<dyn Receiver>)>,
+        resolved: Resolved,
     ) -> Self {
         CatalogHandler {
             catalog,
@@ -49,13 +52,13 @@ impl CatalogHandler {
     fn handle(&self, call: &Call<'_>, channel: &mut dyn RawYielder) -> Reply {
         let object = match self.resolve_target(&call.target) {
             Ok(object) => object,
-            Err(fault) => return fault_reply(&fault),
+            Err(fault) => return fault_reply(fault),
         };
         // The target's own narrowing predicate answers before any
         // method runs; the rejection shares the `undefined` fault kind
         // of an unresolved target and the Ruby frontend's wording.
         if !object.respond_to_guest(call.method) {
-            return fault_reply(&Fault::new(
+            return fault_reply(Fault::new(
                 FaultKind::Undefined,
                 format!("method :{} is not exposed to the guest", call.method),
             ));
@@ -71,7 +74,7 @@ impl CatalogHandler {
         }
         match result {
             Ok(body) => Reply::Ok(body),
-            Err(fault) => fault_reply(&fault),
+            Err(fault) => fault_reply(fault),
         }
     }
 
@@ -112,8 +115,8 @@ impl DispatchHandler for CatalogHandler {
 /// The fault arm carries the Fault itself: it is an envelope shape, so
 /// this frontend hands it on rather than encoding it — which is what
 /// leaves a host free to answer every other position in its own schema.
-fn fault_reply(fault: &Fault) -> Reply {
-    Reply::Fault(fault.clone())
+fn fault_reply(fault: Fault) -> Reply {
+    Reply::Fault(fault)
 }
 
 // The handler routes bytes, but a test needs a Service with behaviour to

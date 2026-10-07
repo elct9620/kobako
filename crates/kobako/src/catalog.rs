@@ -15,15 +15,11 @@ use kobako_transport::envelope::Bindings;
 
 use crate::error::Error;
 use crate::receiver::Receiver;
-use crate::snippet::Snippets;
+use crate::snippet::{constant_name, Snippets};
 
+/// An empty path splits into one empty segment, which no constant name is.
 fn is_constant_path(path: &str) -> bool {
-    !path.is_empty()
-        && path.split("::").all(|segment| {
-            let mut chars = segment.chars();
-            chars.next().is_some_and(|c| c.is_ascii_uppercase())
-                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-        })
+    path.split("::").all(constant_name)
 }
 
 /// Bind-ordered Service registry plus the snippet table for one Sandbox.

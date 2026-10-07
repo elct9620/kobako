@@ -9,6 +9,22 @@ use crate::execution::Execution;
 /// host-detected wire violations on both frontends.
 const WIRE_ERROR_CLASS: &str = "Kobako::Transport::Error";
 
+/// Only the overlay reads a value tree, so only it detects a failure the
+/// guest never reported.
+impl Failure {
+    /// A failure the host detected itself, so the guest left no backtrace
+    /// and offered no correction.
+    pub(crate) fn host(name: &str, message: impl Into<String>) -> Self {
+        Failure {
+            name: name.into(),
+            message: message.into(),
+            backtrace: Vec::new(),
+            available: Vec::new(),
+            diagnostic: None,
+        }
+    }
+}
+
 impl Execution {
     /// The outcome decoded through the default payload codec, with every
     /// Handle in it checked live. A guest cannot fabricate a Handle, so
@@ -26,13 +42,10 @@ impl Execution {
     fn require_live_handles(&self, value: &Value) -> Result<(), Error> {
         match value {
             Value::Handle(id) => self.resolve(*id).map(|_| ()).ok_or_else(|| {
-                Error::Sandbox(Box::new(Failure {
-                    name: "Kobako::SandboxError".into(),
-                    message: format!("unknown Handle id: {id}"),
-                    backtrace: Vec::new(),
-                    available: Vec::new(),
-                    diagnostic: None,
-                }))
+                Error::Sandbox(Box::new(Failure::host(
+                    "Kobako::SandboxError",
+                    format!("unknown Handle id: {id}"),
+                )))
             }),
             Value::Array(items) => items.iter().try_for_each(|v| self.require_live_handles(v)),
             Value::Map(pairs) => pairs.iter().try_for_each(|(key, val)| {
@@ -55,11 +68,8 @@ fn decode_value(body: &[u8]) -> Result<Value, Error> {
 
 fn wire_violation(message: &str, detail: &kobako_codec::msgpack::codec::Error) -> Error {
     Error::Sandbox(Box::new(Failure {
-        name: WIRE_ERROR_CLASS.into(),
-        message: message.into(),
-        backtrace: Vec::new(),
-        available: Vec::new(),
         diagnostic: Some(detail.to_string()),
+        ..Failure::host(WIRE_ERROR_CLASS, message)
     }))
 }
 

@@ -22,19 +22,14 @@ use kobako_transport::envelope::Run;
 use kobako_wasmtime::{Config, Driver};
 
 use crate::catalog::Catalog;
-use crate::dispatch::CatalogHandler;
+use crate::dispatch::{CatalogHandler, Resolved};
 use crate::error::{Error, SetupError};
 use crate::execution::{classify, Execution};
-use crate::extension::{install_object, unresolved, Extension, Extensions};
+use crate::extension::{unresolved, Extension, Extensions};
 use crate::handles::HandleTable;
 use crate::payload::RunPayload;
 use crate::receiver::Receiver;
 use crate::snippet;
-
-/// Per-invocation path→object resolutions the dispatch handler answers ahead
-/// of the sealed Catalog: the `ctx.bind` overrides followed by each
-/// `PerInvocation` provider's fresh object.
-type Resolved = Vec<(String, Arc<dyn Receiver>)>;
 
 /// Per-Sandbox caps and posture, the counterpart of the Ruby
 /// `SandboxOptions` value object. `None` means "no cap".
@@ -195,15 +190,14 @@ impl Sandbox {
     /// `depends_on` names one that was not installed fails the first
     /// invocation.
     pub fn install(&mut self, extension: Arc<dyn Extension>) -> Result<(), Error> {
-        let catalog = self.open_catalog()?;
-        catalog
-            .snippets
-            .register_source(extension.name(), extension.source())?;
-        if let Some(backend) = extension.backend() {
-            catalog.bind(&backend.path, install_object(&backend.provider))?;
-        }
-        self.extensions.record(extension);
-        Ok(())
+        // The registry and the Extensions are borrowed apart, which
+        // `open_catalog` (all of `self`) would not allow.
+        let catalog = self
+            .registry
+            .get_mut()
+            .expect("the registry mutex is never poisoned")
+            .open_mut()?;
+        self.extensions.install(catalog, extension)
     }
 
     /// Register a source snippet for per-invocation replay under its
@@ -228,15 +222,7 @@ impl Sandbox {
     /// last expression, or a guest failure, rides `Execution::value`); the
     /// outer `Err` means it never started.
     pub fn eval(&self, source: &str) -> Result<Execution, Error> {
-        let (catalog, handles) = self.begin_invocation()?;
-        self.invoke(
-            catalog,
-            handles,
-            Entry::Eval {
-                source: source.as_bytes(),
-            },
-            Vec::new(),
-        )
+        self.eval_with(source, |_| Ok(()))
     }
 
     /// `eval` with a closure that overrides declared bindings for this
@@ -266,7 +252,7 @@ impl Sandbox {
     /// a Sandbox speaks. A non-constant `target` is refused before the
     /// invocation seals registration.
     pub fn run(&self, target: &str, payload: RunPayload<'_>) -> Result<Execution, Error> {
-        self.drive_run(target, payload, |_| Ok(Vec::new()))
+        self.run_with(target, payload, |_| Ok(()))
     }
 
     /// `run` with an override closure, under the same rules as `eval_with`.
@@ -279,27 +265,13 @@ impl Sandbox {
     where
         F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
     {
-        self.drive_run(target, payload, move |catalog| {
-            collect_overrides(catalog, overrides)
-        })
-    }
-
-    fn drive_run<C>(
-        &self,
-        target: &str,
-        payload: RunPayload<'_>,
-        collect: C,
-    ) -> Result<Execution, Error>
-    where
-        C: FnOnce(&Catalog) -> Result<Resolved, Error>,
-    {
         if !snippet::constant_name(target) {
             return Err(Error::Argument(format!(
                 "entrypoint must be a Ruby constant name (got {target:?})"
             )));
         }
         let (catalog, handles) = self.begin_invocation()?;
-        let resolved = collect(&catalog)?;
+        let resolved = collect_overrides(&catalog, overrides)?;
         let payload = payload.encode(&handles)?;
         let envelope = Run {
             entrypoint: target.to_string(),

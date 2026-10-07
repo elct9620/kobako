@@ -13,6 +13,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use crate::catalog::Catalog;
+use crate::dispatch::Resolved;
 use crate::error::Error;
 use crate::handles::Handles;
 use crate::receiver::{Fault, FaultKind, Receiver};
@@ -107,17 +109,17 @@ pub(crate) fn unresolved() -> Arc<dyn Receiver> {
     Arc::new(Unresolved)
 }
 
-pub(crate) fn install_object(provider: &Provider) -> Arc<dyn Receiver> {
+fn install_object(provider: &Provider) -> Arc<dyn Receiver> {
     match provider {
         Provider::Static(object) => object.clone(),
         Provider::PerInvocation(_) | Provider::Fillable => unresolved(),
     }
 }
 
-/// Per-Sandbox registry of installed Extensions. The Sandbox has already
-/// composed each onto the Catalog (source preloaded, backend path bound);
-/// this asserts declared dependencies at the seal and resolves each
-/// `PerInvocation` backend afresh for every invocation.
+/// Per-Sandbox registry of installed Extensions: it composes each onto the
+/// Catalog at install (source preloaded, backend path bound), asserts
+/// declared dependencies at the seal, and resolves each `PerInvocation`
+/// backend afresh for every invocation.
 #[derive(Default)]
 pub(crate) struct Extensions {
     entries: Vec<Arc<dyn Extension>>,
@@ -125,8 +127,19 @@ pub(crate) struct Extensions {
 }
 
 impl Extensions {
-    pub(crate) fn record(&mut self, extension: Arc<dyn Extension>) {
+    pub(crate) fn install(
+        &mut self,
+        catalog: &mut Catalog,
+        extension: Arc<dyn Extension>,
+    ) -> Result<(), Error> {
+        catalog
+            .snippets
+            .register_source(extension.name(), extension.source())?;
+        if let Some(backend) = extension.backend() {
+            catalog.bind(&backend.path, install_object(&backend.provider))?;
+        }
         self.entries.push(extension);
+        Ok(())
     }
 
     /// Presence-only, so dependency cycles are permitted. Concurrent first
@@ -156,7 +169,7 @@ impl Extensions {
 
     /// One object per provider identity, so provider identity is resource
     /// identity.
-    pub(crate) fn resolve(&self) -> Vec<(String, Arc<dyn Receiver>)> {
+    pub(crate) fn resolve(&self) -> Resolved {
         let mut by_provider: Vec<(ProviderFn, Arc<dyn Receiver>)> = Vec::new();
         let mut resolved = Vec::new();
         for extension in &self.entries {
@@ -211,20 +224,29 @@ mod tests {
         Arc::new(TestExt { name, depends_on })
     }
 
+    // Install each into a scratch Catalog, the way a Sandbox does.
+    fn installed(extensions: impl IntoIterator<Item = Arc<dyn Extension>>) -> Extensions {
+        let mut catalog = Catalog::default();
+        let mut registry = Extensions::default();
+        for extension in extensions {
+            registry
+                .install(&mut catalog, extension)
+                .expect("a well-formed Extension installs");
+        }
+        registry
+    }
+
     // @behavior EX-023
     #[test]
     fn assert_dependencies_accepts_a_satisfied_set() {
-        let mut extensions = Extensions::default();
-        extensions.record(ext("Errno", &[]));
-        extensions.record(ext("File", &["Errno"]));
+        let extensions = installed([ext("Errno", &[]), ext("File", &["Errno"])]);
         assert!(extensions.assert_dependencies().is_ok());
     }
 
     // @behavior EX-029 EX-030
     #[test]
     fn assert_dependencies_rejects_an_unmet_dependency() {
-        let mut extensions = Extensions::default();
-        extensions.record(ext("File", &["Errno"]));
+        let extensions = installed([ext("File", &["Errno"])]);
         let err = extensions.assert_dependencies().unwrap_err();
         assert!(
             matches!(err, Error::Argument(message) if message.contains("File") && message.contains("Errno")),
@@ -235,8 +257,7 @@ mod tests {
     // @behavior EX-031
     #[test]
     fn assert_dependencies_re_asserts_after_a_failed_seal() {
-        let mut extensions = Extensions::default();
-        extensions.record(ext("File", &["Errno"]));
+        let extensions = installed([ext("File", &["Errno"])]);
         assert!(extensions.assert_dependencies().is_err());
         assert!(
             extensions.assert_dependencies().is_err(),
@@ -247,9 +268,7 @@ mod tests {
     // @behavior EX-025
     #[test]
     fn assert_dependencies_permits_cycles() {
-        let mut extensions = Extensions::default();
-        extensions.record(ext("A", &["B"]));
-        extensions.record(ext("B", &["A"]));
+        let extensions = installed([ext("A", &["B"]), ext("B", &["A"])]);
         assert!(extensions.assert_dependencies().is_ok());
     }
 
@@ -281,7 +300,7 @@ mod tests {
 
     // Drive Extensions::resolve with per-invocation backends built from the
     // given (path, provider) pairs.
-    fn resolve_of(specs: &[(&'static str, ProviderFn)]) -> Vec<(String, Arc<dyn Receiver>)> {
+    fn resolve_of(specs: &[(&'static str, ProviderFn)]) -> Resolved {
         struct BackendExt {
             path: &'static str,
             provider: ProviderFn,
@@ -300,13 +319,12 @@ mod tests {
                 })
             }
         }
-        let mut extensions = Extensions::default();
-        for (path, provider) in specs {
-            extensions.record(Arc::new(BackendExt {
+        installed(specs.iter().map(|(path, provider)| {
+            Arc::new(BackendExt {
                 path,
                 provider: provider.clone(),
-            }));
-        }
-        extensions.resolve()
+            }) as Arc<dyn Extension>
+        }))
+        .resolve()
     }
 }
