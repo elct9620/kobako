@@ -1085,5 +1085,5 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code reads the global variable named after the compile cache |
-| Then | it reads `nil` |
+| When | guest code lists the global variables after a match |
+| Then | none of them is named after the capability or its compile cache |
