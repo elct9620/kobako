@@ -1,8 +1,9 @@
 # Architecture
 
 kobako is assembled from parts. This document maps what each part owns, what it
-depends on, and where each endpoint's dialect sits. Which level a user stands on
-is in [`guides/assembly-levels.md`](guides/assembly-levels.md).
+depends on, where each endpoint's dialect sits, and how the Ruby gem's `lib/` is
+tiered. Which level a user stands on is in
+[`guides/assembly-levels.md`](guides/assembly-levels.md).
 
 ## The Parts
 
@@ -102,3 +103,45 @@ Everything depends on it, which is why a host, a payload codec, and a guest can 
 A payload rides inside that envelope untouched, and that is what makes the schema replaceable.
 Routing a message and attributing its outcome never read a payload byte.
 Swapping the schema therefore leaves the envelope, the ABI, and the version alone (→ [`wire/README.md`](wire/README.md)).
+
+## Build Rules
+
+Two structural facts no part's own code states.
+
+| Rule | Why |
+|---|---|
+| guest crates link libmruby on every build | no code hides behind a linked-only `cfg` |
+| `Kobako::Codec` has no schema namespace | Ruby is fixed to MessagePack and has no seam |
+
+## Ruby Tiers
+
+Inside `lib/`, a tier may use the tiers below it and never one above.
+
+```
+Orchestration   Sandbox, Pool, Runtime (+ ext), Context
+      │
+Catalog         setup-time registries + the per-invocation Handle table
+      │
+Transport ──┐   call value objects + dispatch
+Outcome ────┤   guest-result attribution
+      │     │
+Payload ◄───┤   the [args, kwargs] shape a Call or Run carries
+      │     │
+Codec ◄─────┘   byte-level payload wire
+      │
+Root            dependency-free value objects and error classes
+```
+
+The core envelope has no tier here, because the native side frames and decodes it.
+
+### Placement Rules
+
+These three rules keep the tiers acyclic; each was learned from a cycle or a leak.
+
+| Rule | Example |
+|---|---|
+| a type sits at the lowest tier that needs it | `Kobako::Handle` at the root, for `Codec` |
+| `Outcome` may require `transport/error.rb` | the gem contract fixes the class name |
+| `Codec.track_handles` wraps only the decode call | wider leaks its flag into re-entry |
+
+Namespace follows dependency direction, not which tier reads a type most. Do not move `Kobako::Transport::Error` to remove the lateral edge; its file depends only on root `errors.rb`.

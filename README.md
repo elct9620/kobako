@@ -144,7 +144,7 @@ impl kobako_core::Guest for MyGuest {
 kobako_core::export_guest!(MyGuest);
 ```
 
-Build the crate as a `cdylib` for `wasm32-wasip1`, then bake the canonical boot state into the artifact (see [`CLAUDE.md`](CLAUDE.md) § Build Pipeline).
+Build the crate as a `cdylib` for `wasm32-wasip1`, then bake the canonical boot state into the artifact (see [`AGENTS.md`](AGENTS.md) § Build chain).
 
 ## Glossary
 
@@ -588,7 +588,7 @@ bin/setup         # install dependencies
 bundle exec rake  # default: compile + test + rubocop + steep
 ```
 
-Building from source requires a WASI-capable Rust toolchain in addition to the standard host toolchain. The first compile walks the full chain. The [beni](https://github.com/elct9620/beni) gem vendors wasi-sdk + mruby and builds `libmruby.a` (`rake beni:build`), then `rake wasm:build` produces the Guest Binary. See [`CLAUDE.md`](CLAUDE.md) for the rake task map and pipeline layout. `bin/console` opens an IRB session with the gem preloaded; `bundle exec rake install` installs the local checkout as a gem.
+Building from source requires a WASI-capable Rust toolchain in addition to the standard host toolchain. The first compile walks the full chain. The [beni](https://github.com/elct9620/beni) gem vendors wasi-sdk + mruby and builds `libmruby.a` (`rake beni:build`), then `rake wasm:build` produces the Guest Binary. See [`AGENTS.md`](AGENTS.md) for the rake task map and pipeline layout. `bin/console` opens an IRB session with the gem preloaded; `bundle exec rake install` installs the local checkout as a gem.
 
 ## Contributing
 
