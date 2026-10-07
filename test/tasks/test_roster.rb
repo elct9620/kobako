@@ -106,7 +106,7 @@ class KobakoRosterTest < Minitest::Test
   # non-implementation artifacts, so a +.keep+ mount for a gitignored
   # build product (+data/+) never reads as an unplaced tree.
   def live_tracked_paths
-    KobakoStats.tracked_files([], root: File.expand_path("../..", __dir__))
+    KobakoStats.tracked_files([], root: TestPaths::ROOT)
   end
 
   # The gem's ext crate shares +Cargo.toml+ with +crates/kobako+, so the

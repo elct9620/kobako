@@ -87,7 +87,7 @@ class TestSandbox < Minitest::Test
   # deterministic artifact faults, so they surface at Sandbox.new as
   # Kobako::SetupError — never mid-invocation.
   def test_construction_rejects_guest_without_abi_version_export
-    skip "minimal.wasm fixture missing" unless File.exist?(ABSENT_ABI_FIXTURE_PATH)
+    require_fixture!(ABSENT_ABI_FIXTURE_PATH)
 
     err = assert_raises(Kobako::SetupError) do
       Kobako::Sandbox.new(wasm_path: ABSENT_ABI_FIXTURE_PATH)
@@ -102,7 +102,7 @@ class TestSandbox < Minitest::Test
   # second construction fails exactly like the first. Dropping the
   # repetition would leave that "not remembered" guarantee unwitnessed.
   def test_construction_rejects_guest_with_mismatched_abi_version
-    skip "minimal_abi_mismatch.wat fixture missing" unless File.exist?(MISMATCH_ABI_FIXTURE_PATH)
+    require_fixture!(MISMATCH_ABI_FIXTURE_PATH)
 
     2.times do
       err = assert_raises(Kobako::SetupError) do

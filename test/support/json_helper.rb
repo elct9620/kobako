@@ -5,19 +5,12 @@
 # Binary — these scenarios drive data/kobako+json.wasm and assert
 # kobako-json's specified contract directly.
 module JsonGuestHelper
-  JSON_WASM = File.expand_path("../../data/kobako+json.wasm", __dir__)
+  include GuestGuard
+
+  JSON_WASM = TestPaths.data("kobako+json.wasm")
 
   def setup
-    # `rake test` builds this variant, so under CI a missing prerequisite
-    # is a broken pipeline, never a skip — mirroring E2eGuestHelper.
-    unless defined?(Kobako::Runtime)
-      flunk "native ext not compiled under CI" if ENV["CI"]
-      skip "native ext not compiled (run `bundle exec rake compile`)"
-    end
-    return if File.exist?(JSON_WASM)
-
-    flunk "data/kobako+json.wasm missing under CI" if ENV["CI"]
-    skip "data/kobako+json.wasm missing — run `bundle exec rake wasm:build:json`"
+    require_guest_binary!(JSON_WASM, build: "bundle exec rake wasm:build:json")
   end
 
   # Evaluate +code+ in a fresh Sandbox on the json guest. A fresh Sandbox

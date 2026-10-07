@@ -36,14 +36,14 @@ class TestRuntime < Minitest::Test
 
   # @behavior RT-056
   def test_from_path_works_with_fixture_module
-    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
+    require_fixture!(FIXTURE_PATH)
 
     runtime = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :hold)
     assert_instance_of Kobako::Runtime, runtime
   end
 
   def test_from_path_repeated_calls_return_independent_instances
-    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
+    require_fixture!(FIXTURE_PATH)
 
     a = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :hold)
     b = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :hold)
@@ -61,7 +61,7 @@ class TestRuntime < Minitest::Test
     # fixture that ships in the repo so the test is deterministic and
     # the failure mode is "bytes are not wasm" rather than I/O.
     non_wasm = TestPaths.fixture("snippet_answers.rb")
-    skip "snippet_answers.rb fixture missing" unless File.exist?(non_wasm)
+    require_fixture!(non_wasm)
 
     err = assert_raises(Kobako::SetupError) do
       Kobako::Runtime.from_path(non_wasm, nil, nil, nil, nil, :hermetic, :hold)
@@ -90,7 +90,7 @@ class TestRuntime < Minitest::Test
   # posture it built, so the request round-trips through construction to
   # the +#profile+ reader on both rungs of the ladder.
   def test_from_path_builds_and_declares_the_requested_profile
-    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
+    require_fixture!(FIXTURE_PATH)
 
     assert_equal :hermetic, Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :hold).profile,
                  "a :hermetic request through from_path must construct a runtime declaring :hermetic"
@@ -126,7 +126,7 @@ class TestRuntime < Minitest::Test
   # default to either form. +Catalog::Snippets+ only ever emits the two,
   # so this exercises the guard on a direct +#eval+ call.
   def test_eval_raises_argument_error_for_an_unrecognized_snippet_kind
-    skip "minimal_abi_ok.wat fixture missing" unless File.exist?(FIXTURE_PATH)
+    require_fixture!(FIXTURE_PATH)
 
     runtime = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :hold)
     err = assert_raises(ArgumentError) do

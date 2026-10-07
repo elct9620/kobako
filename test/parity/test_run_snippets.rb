@@ -6,9 +6,7 @@ require "test_helper"
 # dispatch and per-invocation snippet replay must observe identically
 # through both frontends.
 class TestParityRunSnippets < Parity::Case
-  BYTECODE_ANSWERS_HEX = File.binread(
-    File.expand_path("../fixtures/snippet_answers.mrb", __dir__)
-  ).unpack1("H*")
+  BYTECODE_ANSWERS_HEX = File.binread(TestPaths.fixture("snippet_answers.mrb")).unpack1("H*")
 
   # The replay chain: the Total snippet evaluates its predecessors'
   # constants (one of them bytecode-form) at replay time, so an
@@ -74,7 +72,7 @@ class TestParityRunSnippets < Parity::Case
   # @behavior S-127
   def test_bytecode_faults
     %w[snippet_wrong_version snippet_corrupt].each do |fixture|
-      hex = File.binread(File.expand_path("../fixtures/#{fixture}.mrb", __dir__)).unpack1("H*")
+      hex = File.binread(TestPaths.fixture("#{fixture}.mrb")).unpack1("H*")
       assert_parity Parity::Scenario.new(
         name: fixture.tr("_", "-"),
         preloads: [{ kind: "bytecode", hex: hex }],

@@ -5,18 +5,14 @@ module Parity
   # differential harness — over the CargoOracle framed protocol: one
   # scenario JSON per frame in, the raw observables array back.
   class RustExecutor
-    CRATE_DIR = File.expand_path("../../../crates/kobako-parity", __dir__)
+    CRATE_DIR = TestPaths.source("crates", "kobako-parity")
+
+    # The runner's CargoOracle, for GuestGuard#require_cargo_oracle!.
+    attr_reader :oracle
 
     def initialize(wasm_path)
       @wasm_path = wasm_path
       @oracle = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "parity_runner")
-    end
-
-    # Memoised release build of the runner; callers skip on
-    # +:no_cargo+ (flunk under CI, where the toolchain is provisioned)
-    # and flunk on +:build_failed+ (CargoOracle contract).
-    def ensure_built
-      @oracle.ensure_built
     end
 
     def execute(scenario)

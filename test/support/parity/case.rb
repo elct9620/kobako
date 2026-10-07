@@ -11,7 +11,7 @@ module Parity
     include E2eGuestHelper
 
     def assert_parity(scenario)
-      ensure_runner!
+      require_cargo_oracle!(rust_executor.oracle)
       ruby = RubyExecutor.new(E2eGuestHelper::REAL_WASM).execute(scenario)
       rust = rust_executor.execute(scenario)
       assert_equal normalize(ruby), normalize(rust),
@@ -20,17 +20,6 @@ module Parity
     end
 
     private
-
-    def ensure_runner!
-      build = rust_executor.ensure_built
-      if build.status == :no_cargo
-        # CI provisions the Rust toolchain before the suite runs, so a
-        # missing cargo there is a broken pipeline, never a skip.
-        flunk "cargo unavailable — parity must run in CI" if ENV["CI"]
-        skip "cargo unavailable — parity runner cannot build"
-      end
-      flunk "parity runner build failed:\n#{build.error}" if build.status == :build_failed
-    end
 
     def rust_executor
       @rust_executor ||= RustExecutor.new(E2eGuestHelper::REAL_WASM)
