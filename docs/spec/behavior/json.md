@@ -489,3 +489,19 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 | Given | a Sandbox over the JSON-capable Guest Binary, with a guest class ready to build itself from a document |
 | When | guest code parses a document whose class-naming member names that class |
 | Then | it answers a plain Hash and the class is never asked to build |
+
+## `JS-060` A key removed while generating is not written
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| When | guest code generates a Hash whose member's opt-in hook removes a key the walk has not reached |
+| Then | the output leaves that key out |
+
+## `JS-061` A key added while generating is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| When | guest code generates a Hash whose member's opt-in hook adds a key to it |
+| Then | it raises `RuntimeError` |
