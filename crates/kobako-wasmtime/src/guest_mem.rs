@@ -15,6 +15,10 @@ use crate::exports::RUNTIME_INCOMPATIBLE;
 use crate::invocation::Invocation;
 use kobako_transport::abi::{unpack_ptr_len, MAX_DISPATCH_PAYLOAD};
 
+// The size-limit messages here and in `frames` name the cap as 16 MiB, so
+// moving the cap fails the build until they are reworded with it.
+const _: () = assert!(MAX_DISPATCH_PAYLOAD == 16 << 20);
+
 /// User-facing message for the "the loaded Wasm module is not a
 /// Kobako-shaped runtime at all" failure mode — no linear memory export
 /// here, no `memory` module export on the instantiation path in
