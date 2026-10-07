@@ -199,7 +199,7 @@ impl Kobako {
     // ----------------------------------------------------------------
     // VM access. The `mrb` accessor synthesises a borrowed `Mrb`
     // reference over the raw pointer so callers can use the safe
-    // builder / accessor methods (`hash_get`, `intern_cstr`, etc.)
+    // builder / accessor methods (`intern_cstr`, `exc_get`, etc.)
     // without each method re-implementing the same FFI dispatch.
     // ----------------------------------------------------------------
 

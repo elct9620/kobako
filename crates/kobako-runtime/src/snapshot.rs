@@ -22,13 +22,18 @@ pub struct Capture {
     pub truncated: bool,
 }
 
-/// How the guest invocation completed: `Outcome` carries the encoded
-/// Outcome envelope, still undecoded; `Trap` is an engine fault after the
-/// export call started, kept as a value so the rest of the `Snapshot`
-/// survives it.
+/// How the guest invocation completed: `Outcome` carries the bytes the
+/// guest left as its result, still undecoded; `Trap` is an engine fault
+/// after the export call started, kept as a value so the rest of the
+/// `Snapshot` survives it.
 ///
-/// Closed rather than `#[non_exhaustive]`: an invocation either produced
-/// its final message or the engine stopped it, and there is no third way
+/// The bytes may be empty: a guest that wrote nothing still returned from
+/// its export, so it ended the first way. Telling "wrote nothing" from
+/// "wrote something unframeable" is the frontend's attribution, not a
+/// third way to end.
+///
+/// Closed rather than `#[non_exhaustive]`: an invocation either returned
+/// from its export or the engine stopped it, and there is no third way
 /// for one to end. A wildcard would only hide a frontend that had not
 /// been told otherwise.
 pub enum Completion {

@@ -41,7 +41,7 @@ fn error_in(ruby: &Ruby, class: &Lazy<ExceptionClass>, msg: impl Into<String>) -
 }
 
 /// For an invocation-time engine failure that is not a configured cap;
-/// construction-time failures use `setup_err`.
+/// construction-time failures use `setup_to_magnus`.
 pub(super) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &TRAP_ERROR, msg)
 }

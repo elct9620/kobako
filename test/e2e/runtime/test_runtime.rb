@@ -41,7 +41,7 @@ class TestRuntime < Minitest::Test
   # @behavior RT-060
   def test_from_path_raises_setup_error_for_corrupt_wasm_payload
     # Any present file whose bytes are not a valid wasm module reaches
-    # the WtModule::new compile path and trips +setup_err+. Pick a small
+    # the WtModule::new compile path and fails as a +SetupError+. Pick a small
     # fixture that ships in the repo so the test is deterministic and
     # the failure mode is "bytes are not wasm" rather than I/O.
     non_wasm = TestPaths.fixture("snippet_answers.rb")
