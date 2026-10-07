@@ -12,13 +12,10 @@ module Kobako
 
       def initialize
         @bindings = {} # : Hash[String, Kobako::Transport::Exposure]
-        @sealed = false
       end
 
       # The binding records +object+'s Exposure as it stands now.
       def bind(path, object)
-        raise ArgumentError, "cannot bind after first Sandbox invocation" if @sealed
-
         path_str = validate_path!(path)
         raise ArgumentError, "Service path #{path_str} conflicts with an existing binding" if collision?(path_str)
 
@@ -41,15 +38,6 @@ module Kobako
       # side's.
       def paths
         @bindings.keys
-      end
-
-      def seal!
-        @sealed = true
-        self
-      end
-
-      def sealed?
-        @sealed
       end
 
       private

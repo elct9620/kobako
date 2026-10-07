@@ -24,13 +24,18 @@ module Kobako
         self
       end
 
-      # The asserted flag flips only on success, so a seal that failed
-      # re-checks on the next attempt rather than silently passing a broken
+      # The asserted flag flips only on success, so a check that failed
+      # re-runs on the next invocation rather than silently passing a broken
       # Sandbox.
-      def seal!
+      def assert_dependencies!
         return self if @asserted
 
-        assert_dependencies!
+        extension, dependency = unmet_dependency
+        if extension
+          raise ArgumentError,
+                "Extension #{extension.name.inspect} depends on #{dependency.inspect}, which is not installed"
+        end
+
         @asserted = true
         self
       end
@@ -70,16 +75,14 @@ module Kobako
         raise ArgumentError, "Extension #backend must expose #path, #object, and #provider"
       end
 
-      def assert_dependencies!
+      def unmet_dependency
         names = @entries.map { |extension| symbolize(extension.name) }
         @entries.each do |extension|
           (extension.depends_on || []).each do |dependency|
-            next if names.include?(symbolize(dependency))
-
-            raise ArgumentError,
-                  "Extension #{extension.name.inspect} depends on #{dependency.inspect}, which is not installed"
+            return [extension, dependency] unless names.include?(symbolize(dependency))
           end
         end
+        nil
       end
 
       def symbolize(name) = name.is_a?(String) ? name.to_sym : name

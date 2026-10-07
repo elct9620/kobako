@@ -39,6 +39,7 @@ module Kobako
       @services = Kobako::Catalog::Services.new
       @snippets = Catalog::Snippets.new
       @extensions = Catalog::Extensions.new
+      @sealed = false
       @runtime = build_runtime!
     end
 
@@ -57,6 +58,7 @@ module Kobako
     # Raises ArgumentError for a malformed path, a path that collides with an
     # existing binding, or a call after the first invocation.
     def bind(path, object = Unresolved)
+      refuse_once_invoked!("bind")
       @services.bind(path, object)
       self
     end
@@ -68,7 +70,7 @@ module Kobako
     # Raises ArgumentError for a malformed Extension, a call after the first
     # invocation, or, at the first invocation, a missing dependency.
     def install(*extensions)
-      raise ArgumentError, "cannot install after first Sandbox invocation" if @services.sealed?
+      refuse_once_invoked!("install")
 
       extensions.each { |extension| @extensions.install(extension, snippets: @snippets, services: @services) }
       self
@@ -86,7 +88,7 @@ module Kobako
     # after the first invocation. A snippet that fails to load fails every
     # invocation with SandboxError, or BytecodeError for bytecode.
     def preload(code: nil, name: nil, binary: nil)
-      raise ArgumentError, "cannot preload after first Sandbox invocation" if @services.sealed?
+      refuse_once_invoked!("preload")
 
       @snippets.register(code: code, name: name, binary: binary)
       self
@@ -137,10 +139,17 @@ module Kobako
       Context.new(runtime: @runtime, services: @services, snippets: @snippets, extensions: @extensions)
     end
 
-    # The Service seal is the one #bind, #preload and #install all gate on.
+    # Registration closes at the first invocation, so every invocation ships
+    # the same Services, snippets and Extensions.
+    def refuse_once_invoked!(verb)
+      raise ArgumentError, "cannot #{verb} after first Sandbox invocation" if @sealed
+    end
+
+    # Sealing before the dependency check keeps a Sandbox whose check failed
+    # closed to further registration.
     def begin_invocation!
-      @services.seal!
-      @extensions.seal!
+      @sealed = true
+      @extensions.assert_dependencies!
     end
   end
 end

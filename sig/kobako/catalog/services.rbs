@@ -13,10 +13,6 @@ module Kobako
 
       def paths: () -> Array[String]
 
-      def seal!: () -> self
-
-      def sealed?: () -> bool
-
       private
 
       def validate_path!: (Symbol | String path) -> String

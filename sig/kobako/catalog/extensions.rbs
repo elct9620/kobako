@@ -5,7 +5,7 @@ module Kobako
 
       def install: (untyped extension, snippets: Kobako::Catalog::Snippets, services: Kobako::Catalog::Services) -> self
 
-      def seal!: () -> self
+      def assert_dependencies!: () -> self
 
       def resolve: () -> Hash[String, untyped]
 
@@ -17,7 +17,7 @@ module Kobako
 
       def validate!: (untyped extension) -> void
 
-      def assert_dependencies!: () -> void
+      def unmet_dependency: () -> [untyped, untyped]?
 
       def symbolize: (untyped name) -> untyped
     end

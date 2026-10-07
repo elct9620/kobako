@@ -88,72 +88,71 @@ module Kobako
     end
 
     # @behavior EX-023
-    def test_seal_accepts_satisfied_dependencies
+    def test_dependency_check_accepts_satisfied_dependencies
       install(extension(name: :Errno, source: "1"))
       install(extension(name: :File, source: "2", depends_on: [:Errno]))
 
-      assert_same @extensions, @extensions.seal!
+      assert_same @extensions, @extensions.assert_dependencies!
     end
 
     # @behavior EX-030
     # Naming only the missing half would leave a Host App with several
     # Extensions unable to tell which one asked for it.
-    def test_seal_raises_on_an_unmet_dependency_naming_it
+    def test_dependency_check_raises_on_an_unmet_dependency_naming_it
       install(extension(name: :File, source: "1", depends_on: [:Errno]))
 
-      err = assert_raises(ArgumentError) { @extensions.seal! }
+      err = assert_raises(ArgumentError) { @extensions.assert_dependencies! }
       assert_match(/:File/, err.message)
       assert_match(/:Errno/, err.message,
                    "an unmet dependency assertion names the missing Extension")
     end
 
     # @behavior EX-024
-    def test_seal_matches_dependencies_across_symbol_and_string_forms
+    def test_dependency_check_matches_across_symbol_and_string_forms
       install(extension(name: :Errno, source: "1"))
       install(extension(name: "File", source: "2", depends_on: ["Errno"]))
 
-      assert_same @extensions, @extensions.seal!,
+      assert_same @extensions, @extensions.assert_dependencies!,
                   "a depends_on entry and a name match by Symbol, so their String/Symbol forms interchange"
     end
 
     # @behavior EX-025
-    def test_seal_permits_dependency_cycles
+    def test_dependency_check_permits_cycles
       install(extension(name: :A, source: "1", depends_on: [:B]))
       install(extension(name: :B, source: "2", depends_on: [:A]))
 
-      assert_same @extensions, @extensions.seal!,
+      assert_same @extensions, @extensions.assert_dependencies!,
                   "presence-only assertion permits dependency cycles"
     end
 
     # @behavior EX-026
     # The dependency assertion is a one-time gate at the first seal, not a
-    # per-invocation check — begin_invocation! calls seal! on every
-    # invocation and relies on it staying silent afterward. Drive the
-    # registry directly (the Sandbox refuses install once sealed) to add an
-    # unmet dependency after the first seal: a second seal must neither
-    # re-assert nor raise.
-    def test_seal_asserts_dependencies_once_then_is_a_silent_no_op
+    # per-invocation check — every invocation calls it and relies on it
+    # staying silent afterward. Drive the registry directly (the Sandbox
+    # refuses install once sealed) to add an unmet dependency after the first
+    # check: a second check must neither re-assert nor raise.
+    def test_dependency_check_runs_once_then_is_a_silent_no_op
       install(extension(name: :A, source: "1"))
-      assert_same @extensions, @extensions.seal!
+      assert_same @extensions, @extensions.assert_dependencies!
 
       install(extension(name: :B, source: "2", depends_on: [:Missing]))
-      assert_same @extensions, @extensions.seal!,
-                  "seal! asserts dependencies only at the first seal, so a dependency left " \
-                  "unmet afterward does not raise on a later seal"
+      assert_same @extensions, @extensions.assert_dependencies!,
+                  "assert_dependencies! checks only until it first passes, so a dependency left " \
+                  "unmet afterward does not raise on a later invocation"
     end
 
     # @behavior EX-031
-    # The asserted flag flips only on a successful seal, so a retry keeps
+    # The asserted flag flips only on a successful check, so a retry keeps
     # failing closed rather than passing a Sandbox whose dependency is
     # still missing.
-    def test_seal_re_asserts_after_a_failed_seal_so_a_retry_still_raises
+    def test_dependency_check_re_runs_after_a_failure_so_a_retry_still_raises
       install(extension(name: :File, source: "1", depends_on: [:Errno]))
 
-      assert_raises(ArgumentError) { @extensions.seal! }
+      assert_raises(ArgumentError) { @extensions.assert_dependencies! }
       assert_raises(ArgumentError,
-                    "a seal that failed on an unmet dependency must re-check on retry, not silently " \
-                    "pass — the asserted flag flips only on a successful seal") do
-        @extensions.seal!
+                    "a dependency check that failed on an unmet dependency must re-check on retry, " \
+                    "not silently pass — the asserted flag flips only on a successful check") do
+        @extensions.assert_dependencies!
       end
     end
 

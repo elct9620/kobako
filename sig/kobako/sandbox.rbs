@@ -37,6 +37,8 @@ module Kobako
 
     def new_invocation: () -> Kobako::Context
 
+    def refuse_once_invoked!: (String verb) -> void
+
     def begin_invocation!: () -> void
   end
 end

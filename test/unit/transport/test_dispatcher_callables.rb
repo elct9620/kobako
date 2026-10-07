@@ -12,7 +12,6 @@ class TestDispatchCallables < Minitest::Test
     super
     @registry.bind("Cfg::Fn", ->(x) { x * 2 })
     @registry.bind("Cfg::Gadget", Object.new.instance_eval { binding })
-    @registry.seal!
   end
 
   def call(target, method, args = []) = reify(dispatch(build_call(target, method, args)))

@@ -22,7 +22,6 @@ class TestDispatchGadgetReturn < Minitest::Test
     @handler = Kobako::Catalog::Handles.new
     @services = Kobako::Catalog::Services.new
     @services.bind("Cfg::S", Service.new)
-    @services.seal!
     @yield = ->(_bytes) { raise "no block" }
   end
 

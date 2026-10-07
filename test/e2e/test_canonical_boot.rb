@@ -81,4 +81,19 @@ class TestE2ECanonicalBoot < Minitest::Test
     refute @sandbox.eval("Object.const_defined?(:CanonicalBootProbe)").value,
            "a constant defined by a prior #eval must not exist at the next invocation's entry"
   end
+
+  # @behavior S-018
+  # The guest materializes its constants from the declared path set, so a
+  # refused late bind shows up as a name the next invocation cannot reach.
+  def test_a_path_refused_after_the_seal_stays_out_of_the_declared_set
+    @sandbox.bind("MyService::KV", -> { "kv" })
+    @sandbox.eval("1")
+    assert_raises(ArgumentError) { @sandbox.bind("MyService::Late", -> { "late" }) }
+
+    result = @sandbox.eval("[MyService::KV.call, MyService.const_defined?(:Late)]").value
+
+    assert_equal ["kv", false], result,
+                 "a bind refused after the first #eval must leave the next invocation's declared " \
+                 "path set as it was at the seal"
+  end
 end

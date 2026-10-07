@@ -68,7 +68,6 @@ class TestDispatchGuestNarrowing < Minitest::Test
     @services = Kobako::Catalog::Services.new
     { Cred: Opaque.new, Report: AllowList.new, Wide: Widener.new, Open: Plain.new, Dyn: Dynamic.new }
       .each { |name, service| @services.bind("Cfg::#{name}", service) }
-    @services.seal!
     @yield = ->(_bytes) { raise "no block" }
   end
 

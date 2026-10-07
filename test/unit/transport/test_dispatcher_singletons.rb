@@ -13,7 +13,6 @@ class TestDispatchSingletons < Minitest::Test
     greeter = Object.new
     def greeter.greet = "hi"
     @registry.bind("Cfg::Greeter", greeter)
-    @registry.seal!
   end
 
   # @behavior T-227

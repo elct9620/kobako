@@ -26,7 +26,6 @@ class TestDispatchMethodAllowlist < Minitest::Test
     { Theme: Service.new, Fn: ->(x) { x * 2 }, Meth: "abc".method(:upcase), Own: Tappable.new,
       Klass: File, Mod: Kernel, Wrap: SimpleDelegator.new(Object.new) }
       .each { |name, service| @services.bind("Cfg::#{name}", service) }
-    @services.seal!
     @yield = ->(_bytes) { raise "no block" }
   end
 

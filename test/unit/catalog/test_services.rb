@@ -138,18 +138,7 @@ module Kobako
                    "a rejected prefix-of-existing bind must leave the existing deeper binding intact"
     end
 
-    # ---------- seal / lookup error paths ----------
-
-    # @behavior SV-031
-    # The seal is what makes the declared path set stable for every later
-    # invocation, so the refusal has to name the invocation that closed
-    # registration rather than read as an ordinary collision.
-    def test_bind_after_seal_raises
-      @services.bind("Early::A", :a)
-      @services.seal!
-      err = assert_raises(ArgumentError) { @services.bind("Late::B", :b) }
-      assert_match(/after first Sandbox invocation/, err.message)
-    end
+    # ---------- lookup error paths ----------
 
     def test_lookup_raises_key_error_for_an_unbound_path
       @services.bind("Logger::Info", :v)
@@ -196,19 +185,6 @@ module Kobako
       assert_equal %w[MyService::KV], first
       assert_equal %w[MyService::KV MyService::Logger], @services.paths,
                    "binding a Service on an unsealed registry must surface in the next #paths read"
-    end
-
-    # @behavior S-018
-    # The first invocation seals Service registration, and binding past the
-    # seal raises, so the declared path set is stable by construction.
-    def test_paths_after_seal_excludes_paths_bound_later
-      @services.bind("MyService::KV", :kv)
-      @services.seal!
-
-      assert_raises(ArgumentError) { @services.bind("MyService::Late", :late) }
-
-      assert_equal %w[MyService::KV], @services.paths,
-                   "a bind rejected after the seal must not alter the declared path set"
     end
   end
 end

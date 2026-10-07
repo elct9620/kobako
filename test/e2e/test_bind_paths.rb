@@ -79,4 +79,17 @@ class TestE2EBindPaths < Minitest::Test
                  "bind paths that share a two-segment namespace and ones that share only their root " \
                  "must each materialize under the namespace their own prefix spells"
   end
+
+  # @behavior SV-031
+  # The refusal names the invocation that closed registration, so it does not
+  # read as an ordinary path collision.
+  def test_bind_after_the_first_invocation_is_refused
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Early::A", -> { :a })
+    sandbox.eval("1")
+
+    err = assert_raises(ArgumentError) { sandbox.bind("Late::B", -> { :b }) }
+    assert_match(/after first Sandbox invocation/, err.message,
+                 "a bind through Sandbox#bind after the first #eval must be refused naming that invocation")
+  end
 end
