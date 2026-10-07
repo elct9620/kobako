@@ -35,4 +35,32 @@ class TestJsonAsJson < Minitest::Test
 
     assert_guest_raises "JSON::GeneratorError", code
   end
+
+  # A hook that edits the Hash being written — the one guest code that runs
+  # mid-walk. CRuby's generator skips a removed key and refuses an added one.
+  MUTATING_HOOK = <<~RUBY
+    class Editor
+      def initialize(hash, &edit) = (@hash = hash; @edit = edit)
+      def as_json = (@edit.call(@hash); "x")
+    end
+  RUBY
+
+  # @behavior JS-060
+  def test_key_removed_by_a_hook_is_not_written
+    code = "#{MUTATING_HOOK}h = {}; h[:a] = Editor.new(h) { |x| x.delete(:b) }; h[:b] = 2; JSON.generate(h)"
+
+    assert_equal '{"a":"x"}', eval_json(code),
+                 "JSON.generate of a Hash whose hook removes an unwritten key must leave that key out"
+  end
+
+  # One added key, so the table keeps its capacity and only the walk itself
+  # can notice the change.
+  # @behavior JS-061
+  def test_key_added_by_a_hook_is_refused
+    code = "#{MUTATING_HOOK}h = {}; h[:a] = Editor.new(h) { |x| x[:c] = 3 }; h[:b] = 2; JSON.generate(h)"
+
+    err = assert_guest_raises "RuntimeError", code
+    assert_includes err.message, "can't add a new key into hash during iteration",
+                    "JSON.generate of a Hash whose hook adds a key must raise CRuby's iteration error"
+  end
 end
