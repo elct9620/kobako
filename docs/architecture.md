@@ -1,21 +1,21 @@
-# Architecture — which layer to stand on
+# Assembly Levels
 
-kobako is assembled from parts, and how many of them you choose is up to you.
-This document is the map: four levels, each widening what is yours and each
-costing more to stand on, so you can find the one that varies what you need
-varied and stop there.
+kobako is assembled from parts, and you choose how many of them are yours.
+This document maps four levels. Each widens what is yours and costs more to stand on.
+Find the one that varies what you need varied, and stop there.
 
-Read this before [`customization.md`](customization.md). That document states
-what each replaceable interface obliges its implementer to do; this one tells
-you which interfaces you are even going to meet.
+Read this before [`customization.md`](customization.md).
+This one tells you which interfaces you will meet; that one states what each obliges its implementer to do.
 
 | Document | Answers |
 |---|---|
 | [`variants.md`](variants.md) | what we ship |
-| **this one** | which level to stand on |
+| this one | which level to stand on |
 | [`customization.md`](customization.md) | what the interfaces at that level oblige you to |
 
-## The ladder
+## The Ladder
+
+Each level names what you depend on, and all four stand on the same fixed pillar.
 
 ```
      what you name                        ┌──────────────────────────┐
@@ -36,72 +36,92 @@ you which interfaces you are even going to meet.
                                           └──────────────────────────┘
 ```
 
-What is yours at each level:
+## Level Ownership
 
-| | payload schema | capability gems | invocation flows | guest language | wasm engine | host frontend |
-|---|---|---|---|---|---|---|
-| **L1** | MessagePack | `kobako-io` | the harness's | mruby | wasmtime | the Ruby gem |
-| **L2** | MessagePack ⚠ | **yours** | **yours** | **yours** | wasmtime | the Ruby gem |
-| **L3** | **yours** | **yours** | **yours** | **yours** | **yours** | the SDK's ⚠ |
-| **L4** | **yours** | **yours** | **yours** | **yours** | **yours** | **yours** |
+These two tables show what is yours at each level, guest side first.
 
-The ⚠ cells are the traps: the two places where the freedom looks available
-from where you stand and is not. The other fixed cells surprise nobody — you
-picked the Ruby gem, so you get its engine.
+| | capability gems | invocation flows | guest language |
+|---|---|---|---|
+| L1 | `kobako-io` | the harness's | mruby |
+| L2 | yours | yours | yours |
+| L3 | yours | yours | yours |
+| L4 | yours | yours | yours |
 
-## L1 — the bundled assembly
+| | payload schema | wasm engine | host frontend |
+|---|---|---|---|
+| L1 | MessagePack | wasmtime | the Ruby gem |
+| L2 | MessagePack ⚠ | wasmtime | the Ruby gem |
+| L3 | yours | yours | the SDK's ⚠ |
+| L4 | yours | yours | yours |
 
-`gem "kobako"` and the `data/kobako.wasm` it ships. Every choice is made for
-you: MessagePack on the wire, `kobako-io` as the only capability, the hermetic
-isolation floor, wasmtime as the engine, the mruby harness's own invocation
-flows. Point a Sandbox at a downloadable variant to add Regexp or JSON
-([`variants.md`](variants.md)) and you are still here — a variant is a
-different artifact, not a different level.
+The ⚠ cells are the traps: the freedom looks available from where you stand, and is not.
+The other fixed cells surprise nobody: you picked the Ruby gem, so you get its engine.
 
-## L2 — your own guest, the same wire
+## L1 Bundled Assembly
 
-Build a Guest Binary of your own: a leaf shell over `kobako-mruby`, naming the
-`beni::Gem` set your scripts may reach and, where the harness's flow is not
-what you want, replacing one. Leaving mruby behind is this level too — the gem
-points at whatever artifact you hand it, and an interpreter that satisfies the
-ABI is one it can drive. Either way the Ruby gem drives it unchanged, because
-the guest still speaks what the gem speaks.
+L1 is `gem "kobako"` and the `data/kobako.wasm` it ships, with every choice made for you.
 
-**⚠ The schema is not yours here.** A guest shell names its codec on
-`MrbGuest::Codec`, so the freedom looks available — but the Ruby frontend has
-no matching seam. It speaks MessagePack directly, and a guest that answers in
-anything else has nothing to answer to. Wanting your own schema means L3.
+| Part | Choice |
+|---|---|
+| wire | MessagePack |
+| capability | `kobako-io` only |
+| isolation floor | hermetic |
+| engine | wasmtime |
+| invocation flows | the mruby harness's own |
 
-## L3 — your own host, in Rust
+A downloadable variant adds Regexp or JSON ([`variants.md`](variants.md)) and keeps you here.
+A variant is a different artifact, not a different level.
 
-The `kobako` crate is a second frontend over the same driver, and at this level
-every part below it is yours to pick: the payload schema (build without the
-`msgpack` feature and each payload position is bytes you own), the guest (any
-artifact satisfying the ABI, in any language), the engine (anything satisfying
-the `kobako-runtime` contract, handed to `Sandbox::with_runtime`).
+## L2 Custom Guest
 
-**⚠ The host model is the SDK's.** Services bound at constant paths, Handles
-minted per invocation, Extensions composed over preload and bind, registration
-sealed at the first invocation — that shape is what the SDK is. It is the same
-shape the Ruby gem has, and the differential parity harness holds the two to
-it. Wanting a different one means L4.
+At L2 you build a Guest Binary of your own, and the Ruby gem drives it unchanged.
 
-## L4 — your own frontend
+| Option | What you build |
+|---|---|
+| mruby | a leaf shell over `kobako-mruby` naming the `beni::Gem` set scripts may reach |
+| mruby, other flows | the same shell, replacing a harness flow you do not want |
+| another interpreter | any artifact that satisfies the ABI |
 
-Compose `kobako-transport` and `kobako-runtime` directly and write the host
-model you want. This is not an exotic path: kobako's own Ruby gem is an L4
-assembly, reaching the driver through a magnus shim rather than through the
-Rust SDK, and so is any host in a language that is not Rust.
+The gem drives whatever artifact you hand it, since the guest still speaks what the gem speaks.
 
-What you inherit at this level is the wire and the ABI. What you owe is
-everything above them.
+The schema is not yours here ⚠.
+A guest shell names its codec on `MrbGuest::Codec`, so the freedom looks available.
+The Ruby frontend has no matching seam: it speaks MessagePack directly.
+A guest answering in anything else has nothing to answer to, so your own schema means L3.
 
-## The parts
+## L3 Rust Host
 
-`kobako-codec` is a **dialect** — MessagePack is the one we ship, and another
-schema is another namespace beside it. `kobako-transport` is the **grammar**
-both ends share whatever dialect fills a payload. Everything else is one
-endpoint or another assembling those two into a model of its own.
+At L3 the `kobako` crate is a second frontend over the same driver, and every part below it is yours.
+
+| Part | How you pick it |
+|---|---|
+| payload schema | build without the `msgpack` feature; each payload position is bytes you own |
+| guest | any artifact satisfying the ABI, in any language |
+| engine | anything satisfying the `kobako-runtime` contract, via `Sandbox::with_runtime` |
+
+The host model is the SDK's ⚠.
+Services bind at constant paths, and Handles are minted per invocation.
+Extensions compose over preload and bind, and registration seals at the first invocation.
+That shape is what the SDK is, the same one the Ruby gem has.
+The differential parity harness holds the two to it, so a different host model means L4.
+
+## L4 Custom Frontend
+
+At L4 you compose `kobako-transport` and `kobako-runtime` directly and write the host model you want.
+
+| You inherit | You owe |
+|---|---|
+| the wire and the ABI | everything above them |
+
+This is not an exotic path: kobako's own Ruby gem is an L4 assembly.
+It reaches the driver through a magnus shim rather than the Rust SDK.
+So is any host written in a language other than Rust.
+
+## The Parts
+
+`kobako-codec` is a dialect: MessagePack is the one we ship, and another schema is another namespace beside it.
+`kobako-transport` is the grammar both ends share, whatever dialect fills a payload.
+Every other part is an endpoint assembling those two into a model of its own.
 
 ```
   HOST                                       │  GUEST (wasm32)
@@ -140,58 +160,69 @@ endpoint or another assembling those two into a model of its own.
 | Part | Owns | Depends on |
 |---|---|---|
 | `kobako-transport` | the core envelope and the ABI's values | nothing, ever |
-| `kobako-codec` | the payload dialects — one namespace and one feature per schema | nothing |
+| `kobako-codec` | the payload dialects, one namespace and feature per schema | nothing |
 | `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot` | transport |
 | `kobako-wasmtime` | one engine behind that contract | runtime, transport |
-| `kobako` | the Rust host model: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime, codec *(optional)* |
-| `lib/` | the Ruby host model, and its own implementation of the dialect | the native ext |
-| `ext/` | the magnus surface — a byte shuttle between Ruby and the driver | runtime, transport, wasmtime |
+| `kobako` | the Rust host model: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
+| `lib/` | the Ruby host model and its own dialect implementation | the native ext |
+| `ext/` | the magnus surface, a byte shuttle between Ruby and the driver | runtime, transport, wasmtime |
 | `kobako-core` | the guest ABI: the `Guest` trait, `export_guest!`, the dispatch proxy | transport |
-| `kobako-mruby` | the mruby guest model: the `MrbGuest` flows and the wire-tied bridge gem | core, transport, beni, codec *(optional)* |
-| `kobako-io` · `-regexp` · `-json` | capability gems — guest-local behaviour, no wire | beni |
-| `kobako-wasm` | the shipped shell: names the schema and the gem set | all of the guest side |
+| `kobako-mruby` | the mruby guest model: `MrbGuest` flows and the wire-tied bridge gem | core, transport, beni, codec *(optional)* |
+| `kobako-io` · `-regexp` · `-json` | capability gems: guest-local behaviour, no wire | beni |
+| `kobako-wasm` | the shipped shell, naming the schema and the gem set | all of the guest side |
 
-### Where a dialect meets objects
+### Dialect Overlays
 
-An **overlay** is one endpoint's answer to "how does this dialect speak to my
-objects" — decoding a payload into them, wrapping one back out, and reaching a
-bound object back through whatever seam that took. There are three endpoints,
-so there are three overlays, and each lives where that endpoint's own objects
-live:
+An overlay is how one endpoint's dialect speaks to its own objects.
+It decodes a payload into them, wraps one back out, and reaches a bound object through whatever seam that took.
+Each of the three endpoints has one, living where that endpoint's objects live.
 
-| Endpoint | dialect implementation | overlay |
+| Endpoint | Dialect implementation | Overlay |
 |---|---|---|
-| Ruby gem | `lib/kobako/{codec,payload}/` — an independent second implementation | the same files |
+| Ruby gem | `lib/kobako/{codec,payload}/`, an independent second implementation | the same files |
 | Rust SDK | `kobako-codec` | `kobako`'s `msgpack` module |
 | mruby guest | `kobako-codec` | `kobako-mruby`'s `msgpack` module |
 
-Two endpoints consume a shared dialect crate, so their overlay is a module of
-their own beside it. The Ruby gem writes the dialect itself, so the dialect is
-already where its objects are and there is nowhere else for an overlay to be:
-the Handle walk in `lib/kobako/codec/` is the overlay, not a misplacement of
-it. `ext/` has none at all, and that is not an omission either: a shuttle has
-no objects of its own to bind a dialect to — Ruby's values are on one side of
-it and the driver's bytes on the other. The same reasoning places a dialect
-kobako does not ship: its overlay belongs wherever the objects it speaks to
-live, which is why one can be written entirely outside this repository.
+### Overlay Placement
 
-## The fixed pillar
+Where an overlay sits follows from where the endpoint's objects are.
+That is why the two placements that look odd are correct.
 
-`kobako-transport` — the core envelope and the ABI's values — is the same at
-every level and in every assembly. It depends on nothing, so taking it does not
-mean taking anyone else's choices, and everything else depends on it, which is
-why a host, a payload codec, and a guest can be chosen independently at all.
+| Case | Placement |
+|---|---|
+| shared dialect crate | the overlay is a module of the endpoint's own beside it |
+| Ruby gem | the Handle walk in `lib/kobako/codec/` is the overlay, not a misplacement |
+| `ext/` | no overlay: a shuttle holds no objects to bind a dialect to |
+| a dialect kobako does not ship | wherever its objects live, even outside this repository |
 
-A payload rides inside that envelope untouched. That is the whole reason the
-schema is replaceable: routing a message and attributing its outcome never read
-a payload byte, so swapping the schema leaves the envelope, the ABI, and the
-version alone (→ [`wire-codec.md`](wire-codec.md)).
+The Ruby gem writes the dialect itself, so the dialect already sits where its objects are.
+`ext/` has Ruby's values on one side and the driver's bytes on the other.
 
-## Where to go next
+## The Fixed Pillar
+
+`kobako-transport` is the same at every level and in every assembly.
+It depends on nothing, so taking it means taking no one else's choices.
+Everything depends on it, which is why a host, a payload codec, and a guest can be chosen independently.
+
+```
+ ┌─ core envelope (kobako-transport) ──────────────────────┐
+ │ routing, outcome attribution    ┌─ payload ───────────┐ │
+ │ read here                       │ never read here     │ │
+ │                                 └─────────────────────┘ │
+ └─────────────────────────────────────────────────────────┘
+```
+
+A payload rides inside that envelope untouched, and that is what makes the schema replaceable.
+Routing a message and attributing its outcome never read a payload byte.
+Swapping the schema therefore leaves the envelope, the ABI, and the version alone (→ [`wire-codec.md`](wire-codec.md)).
+
+## Further Reading
+
+Pick the next document by where this one left you.
 
 | You are heading for | Read |
 |---|---|
 | L1, with a capability the default lacks | [`variants.md`](variants.md) |
-| L2 or beyond | [`customization.md`](customization.md) — the obligations each seam carries |
+| L2 or beyond | [`customization.md`](customization.md), the obligations each seam carries |
 | the wire itself | [`wire-contract.md`](wire-contract.md), then [`wire-codec.md`](wire-codec.md) |
 | what the sandbox does and does not defend | [`security-model.md`](security-model.md) |
