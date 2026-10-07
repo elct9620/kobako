@@ -8,7 +8,7 @@ require "delegate"
 # Before the guard, method="send" let a guest pivot
 # `public_send(:send, :eval, code)` into host RCE; a bound lambda's own
 # `Proc#binding` reached `Binding#eval` for the same effect.
-class TestDispatchMethodAllowlist < Minitest::Test
+class TestDispatchReflectionRefusal < Minitest::Test
   class Service
     def color = "blue"
   end

@@ -22,7 +22,7 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 - `test/e2e/test_delegator_escape.rb`
 - `test/e2e/test_own_surface.rb`
 - `test/e2e/test_narrowed_reference.rb`
-- `test/unit/transport/test_dispatcher_allowlist.rb`
+- `test/unit/transport/test_dispatcher_reflection.rb`
 - `test/unit/transport/test_dispatcher_gadget_return.rb`
 - `test/unit/transport/test_dispatcher_permissive_return.rb`
 - `test/unit/transport/test_dispatcher_narrowing.rb`

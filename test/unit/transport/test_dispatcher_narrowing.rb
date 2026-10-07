@@ -4,7 +4,7 @@ require "test_helper"
 
 # A bound object narrows its own guest-reachable surface through the opt-in
 # private predicate +respond_to_guest?+: falsy for every name
-# is opaque, truthy for a subset is an allow-list. The predicate composes
+# is opaque, truthy for a subset is that subset's Exposure. The predicate composes
 # beneath the reflection floor and can only narrow — it never re-opens the
 # +send+ / +eval+ surface the floor rejects, so the bound object never becomes
 # an authority over its own security gate.
@@ -20,8 +20,8 @@ class TestDispatchGuestNarrowing < Minitest::Test
     def respond_to_guest?(_name) = false
   end
 
-  # respond_to_guest? truthy for a chosen subset: an allow-list.
-  class AllowList
+  # respond_to_guest? truthy for a chosen subset: the Exposure is that subset.
+  class Subset
     def headers = { authorization: "Bearer x" }
     def body = "private"
 
@@ -66,7 +66,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
   def setup
     @handles = Kobako::Catalog::Handles.new
     @services = Kobako::Catalog::Services.new
-    { Cred: Opaque.new, Report: AllowList.new, Wide: Widener.new, Open: Plain.new, Dyn: Dynamic.new }
+    { Cred: Opaque.new, Report: Subset.new, Wide: Widener.new, Open: Plain.new, Dyn: Dynamic.new }
       .each { |name, service| @services.bind("Cfg::#{name}", service) }
     @yield = ->(_bytes) { raise "no block" }
   end
@@ -103,16 +103,16 @@ class TestDispatchGuestNarrowing < Minitest::Test
   end
 
   # @behavior T-126 T-197
-  def test_allow_list_exposes_only_the_permitted_subset
+  def test_a_subset_predicate_exposes_only_the_permitted_names
     permitted = dispatch("Cfg::Report", "headers")
     assert_equal true, permitted.ok?,
-                 "an allow-listed method through guest dispatch must stay reachable"
+                 "a permitted method through guest dispatch must stay reachable"
     assert_equal({ authorization: "Bearer x" }, permitted.payload,
                  "the permitted method through guest dispatch must return its value across the boundary")
 
     denied = dispatch("Cfg::Report", "body")
     assert_equal false, denied.ok?,
-                 "a method outside the allow-list through guest dispatch must be rejected"
+                 "a method outside the object's Exposure through guest dispatch must be rejected"
     assert_equal "undefined", denied.payload.type,
                  "the non-permitted method rejection must surface as the undefined fault"
   end

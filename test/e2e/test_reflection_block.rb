@@ -8,7 +8,7 @@ require "test_helper"
 # forwards.
 #
 # The guest refusal is non-authoritative opacity — the host's guard is the
-# real boundary and is covered host-side in test/unit/transport/test_dispatcher_allowlist.rb.
+# real boundary and is covered host-side in test/unit/transport/test_dispatcher_reflection.rb.
 # This file pins the guest-observable behaviour end to end.
 class TestE2EReflectionBlock < Minitest::Test
   include E2eGuestHelper
