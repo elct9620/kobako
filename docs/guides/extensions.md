@@ -21,7 +21,7 @@ value type; a conforming object of your own is equally valid.
 
 | Reader | Type | Meaning |
 |---|---|---|
-| `name` | Symbol or String matching `/\A[A-Z]\w*\z/` | snippet name and `depends_on` key |
+| `name` | Symbol or String matching `/\A[A-Z]\w{0,65533}\z/` | snippet name and `depends_on` key |
 | `source` | String, mandatory | the mruby idiom, preloaded as a snippet |
 | `backend` | `Kobako::Extension::Backend` or `nil` | the host attachment; `nil` stays pure-guest |
 | `depends_on` | Array of Symbol or String | Extensions that must also be installed |

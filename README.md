@@ -163,7 +163,7 @@ sandbox.eval(<<~RUBY)
 RUBY
 ```
 
-Each `::`-separated path segment must match `/\A[A-Z]\w*\z/`. Symbol kwargs travel transparently to the host method's keyword arguments. The registry seals at the first invocation (see [Invocation Lifecycle](#invocation-lifecycle)); later `#bind` raises `ArgumentError`.
+Each `::`-separated path segment must match `/\A[A-Z]\w{0,65533}\z/`. Symbol kwargs travel transparently to the host method's keyword arguments. The registry seals at the first invocation (see [Invocation Lifecycle](#invocation-lifecycle)); later `#bind` raises `ArgumentError`.
 
 ### Per-Invocation Bindings
 

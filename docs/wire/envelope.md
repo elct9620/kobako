@@ -189,7 +189,7 @@ Run is the host→guest entrypoint dispatch, delivered on the command buffer to 
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `entrypoint` | `bytes` | a top-level constant name, `/\A[A-Z]\w*\z/` |
+| `entrypoint` | `bytes` | a top-level constant name, `/\A[A-Z]\w{0,65533}\z/` |
 | `payload` | remainder | the entrypoint's arguments, codec-encoded |
 
 It carries no `method`, since the entrypoint is invoked through `#call`, and no `block_given`, since `#run` supplies no block.

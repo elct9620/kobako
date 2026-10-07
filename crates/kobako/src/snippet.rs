@@ -57,9 +57,14 @@ impl Snippets {
     }
 }
 
+/// The guest interns every constant name, and mruby holds a symbol of at
+/// most this many bytes.
+const SYMBOL_MAX_LEN: usize = 65_534;
+
 pub(crate) fn constant_name(name: &str) -> bool {
     let mut chars = name.chars();
-    chars.next().is_some_and(|c| c.is_ascii_uppercase())
+    name.len() <= SYMBOL_MAX_LEN
+        && chars.next().is_some_and(|c| c.is_ascii_uppercase())
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
@@ -116,6 +121,21 @@ mod tests {
                 "{name:?} must be rejected"
             );
         }
+    }
+
+    // The bound sits where mruby stops interning, so the longest name it
+    // holds passes and one byte more does not.
+    #[test]
+    fn constant_name_stops_at_the_longest_symbol() {
+        let longest = format!("A{}", "b".repeat(SYMBOL_MAX_LEN - 1));
+        assert!(
+            constant_name(&longest),
+            "a {SYMBOL_MAX_LEN}-byte name must pass"
+        );
+        assert!(
+            !constant_name(&format!("{longest}b")),
+            "a name one byte past the symbol limit must be refused"
+        );
     }
 
     // @behavior S-086
