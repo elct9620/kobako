@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
 require "json"
+require "open3"
 
 require_relative "report"
+require_relative "wasm"
 
 # Renders `cargo llvm-cov --json` into the concise framed table the
 # coverage:crates / coverage:wasm reports print: only the files below full
@@ -13,6 +15,18 @@ module KobakoRustCoverage
   module_function
 
   HEADER = %w[File Lines Cover].freeze
+
+  # Measure +manifest+'s whole workspace and print the report under +task+,
+  # the coverage task's own name; the two Rust workspaces differ only in
+  # what +scope+, +reads_as+ and +env+ say.
+  def report(task, scope:, manifest:, reads_as:, env: {})
+    KobakoWasm.ensure_llvm_cov!
+    json, status = Open3.capture2(env, "cargo", "llvm-cov", "--manifest-path", manifest, "--workspace", "--json")
+    abort "#{task}: cargo llvm-cov failed" unless status.success?
+
+    puts KobakoReport.banner("#{task} — #{scope} line coverage, files below 100%", reads_as: reads_as)
+    puts table(json, root: KobakoWasm::ROOT)
+  end
 
   # The framed table lines for the llvm-cov export in +json_text+, with
   # absolute filenames relativized against +root+.
