@@ -73,9 +73,9 @@ The guest sees exactly these constructs.
 | Match globals | `$~`, `$1`..`$9`, `$&`, `` $` ``, `$'`, `$+` |
 | Errors | `RegexpError` |
 
-The capability also leaves names under the reserved `__kobako_` prefix visible,
-such as `String#__kobako_aref`. They are its internals, so guest code must not
-rely on them.
+The capability's internals sit under the reserved `__kobako_` prefix as private
+`String` methods, which a plain call refuses with `NoMethodError`. Guest code must
+not reach for them.
 
 ### Non-goals
 

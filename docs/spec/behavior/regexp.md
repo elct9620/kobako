@@ -1071,3 +1071,19 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the Guest Binary composing JSON beside the regexp capability without Unicode |
 | When | guest code uses a case-insensitive pattern |
 | Then | it raises `RegexpError` |
+
+## `RX-221` The capability's preserved String methods are not callable from guest code
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code calls one of the capability's `__kobako_`-prefixed String methods directly |
+| Then | it raises `NoMethodError` |
+
+## `RX-222` The compile cache is not reachable as a global variable
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads the global variable named after the compile cache |
+| Then | it reads `nil` |
