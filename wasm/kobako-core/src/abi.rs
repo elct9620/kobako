@@ -27,7 +27,7 @@ pub use outcome_buffer::{alloc, take_outcome, write_outcome, write_panic};
 extern "C" {
     /// Host-provided transport bridge. Guest writes a Call payload at
     /// `[req_ptr, req_ptr + req_len)` and calls this; host returns a
-    /// packed u64 holding (response_ptr, response_len) of a buffer the
+    /// packed u64 holding (reply_ptr, reply_len) of a buffer the
     /// host allocated via `__kobako_alloc` inside the same call frame.
     /// Crate-internal — guests dispatch through `proxy`,
     /// never the raw import.

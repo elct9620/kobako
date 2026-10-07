@@ -24,7 +24,7 @@
 //!       representation for, or an RBreak aimed past the yielder's frame
 //!       (a non-orphan Proc `return`) → the error arm carrying an Error
 //!       Record
-//! 5. Allocate the response buffer via `__kobako_alloc`, copy the
+//! 5. Allocate the reply buffer via `__kobako_alloc`, copy the
 //!    bytes in, return the packed `(ptr<<32)|len`.
 
 use kobako_core::abi::pack_ptr_len;
@@ -44,7 +44,7 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     // Step 1: resolve the active VM + Kobako runtime + bound block. The
     // codec needs the VM to build values, so the buffer is read after it.
     let Some(mrb) = MRB.as_ref() else {
-        return write_error_response(
+        return write_error_reply(
             "RuntimeError",
             "block was called outside an active Sandbox invocation",
             Vec::new(),
@@ -60,7 +60,7 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     // its own — cannot be answered with the spent one.
     crate::runtime::raised_block::RAISED_BLOCK.clear(mrb);
     let Some(block) = BLOCK_STACK.last() else {
-        return write_error_response("LocalJumpError", "no block given (yield)", Vec::new());
+        return write_error_reply("LocalJumpError", "no block given (yield)", Vec::new());
     };
 
     // Step 2: read the yield arguments through the guest's codec. One
@@ -71,7 +71,7 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
         Ok(args) => args,
         Err(err) => {
             let refusal = crate::refusal::at(crate::refusal::Position::YieldArguments, err);
-            return write_error_response(refusal.class, refusal.message, Vec::new());
+            return write_error_reply(refusal.class, refusal.message, Vec::new());
         }
     };
 
@@ -92,7 +92,7 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     // could sweep the exception object out of the GC arena. RBreak
     // outcomes split on `ci_break_index` vs `enter_idx`.
     let bytes = match result {
-        Ok(value) => encode_ok_response::<G>(&kobako, value),
+        Ok(value) => encode_ok_reply::<G>(&kobako, value),
         Err(beni::Error::Exception(exc)) => classify_protected_error::<G>(&kobako, exc, enter_idx),
         // Calling a block compiles nothing, so no parse failure reaches
         // here, and a Rust panic inside the protected yield surfaces
@@ -100,7 +100,7 @@ fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
         // `panic = "abort"`. Neither arm is reachable in production.
         Err(beni::Error::Syntax(_) | beni::Error::Panic(_)) => std::process::abort(),
     };
-    write_yield_buffer(&bytes)
+    write_reply(&bytes)
 }
 
 /// mruby already raises `E_LOCALJUMP_ERROR` for the orphan-block and
@@ -116,19 +116,19 @@ fn classify_protected_error<G: crate::MrbGuest>(
     use beni::sys::AsRawValue;
     // A non-break exception is a plain raise — tag 0x04.
     let Some(brk) = exc.as_break() else {
-        return encode_error_response_from_exception(kobako, exc);
+        return encode_exception_reply(kobako, exc);
     };
     // SAFETY: `exc` is RBreak-tagged (`as_break` returned `Some`); the
     // shim reads `RBreak.ci_break_index`, a VM-internal field with no
     // MRB_API accessor, so it stays on the unsafe `sys` seam.
     let brk_idx = unsafe { sys::mrb_break_ci_index_func(exc.as_raw()) };
     if brk_idx >= enter_idx {
-        encode_break_response::<G>(kobako, brk.value())
+        encode_break_reply::<G>(kobako, brk.value())
     } else {
         // RBreak whose destination is deeper than the yielder's frame
         // is a non-orphan Proc `return` aimed at an outer guest method
         // — unrepresentable across the host yield boundary.
-        encode_error_bytes(
+        encode_error_reply(
             "LocalJumpError",
             "cannot return from a block passed into the Sandbox",
             Vec::new(),
@@ -139,7 +139,7 @@ fn classify_protected_error<G: crate::MrbGuest>(
 /// A value the schema cannot write surfaces as an error arm the host
 /// Yielder reifies at the Service's yield site, rather than being coerced
 /// to a String.
-fn encode_value_response<G: crate::MrbGuest>(
+fn encode_value_reply<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     value: beni::Value,
     arm: fn(Vec<u8>) -> YieldReply,
@@ -150,31 +150,28 @@ fn encode_value_response<G: crate::MrbGuest>(
         Ok(payload) => arm(payload).encode(),
         Err(err) => {
             let refusal = crate::refusal::at(position, err);
-            encode_error_bytes(refusal.class, &refusal.message, Vec::new())
+            encode_error_reply(refusal.class, &refusal.message, Vec::new())
         }
     }
 }
 
-fn encode_break_response<G: crate::MrbGuest>(
+fn encode_break_reply<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     value: beni::Value,
 ) -> Vec<u8> {
     use crate::refusal::Position;
-    encode_value_response::<G>(kobako, value, YieldReply::Break, Position::BreakValue)
+    encode_value_reply::<G>(kobako, value, YieldReply::Break, Position::BreakValue)
 }
 
-fn encode_ok_response<G: crate::MrbGuest>(
+fn encode_ok_reply<G: crate::MrbGuest>(
     kobako: &crate::runtime::Kobako,
     value: beni::Value,
 ) -> Vec<u8> {
     use crate::refusal::Position;
-    encode_value_response::<G>(kobako, value, YieldReply::Ok, Position::BlockReturnValue)
+    encode_value_reply::<G>(kobako, value, YieldReply::Ok, Position::BlockReturnValue)
 }
 
-fn encode_error_response_from_exception(
-    kobako: &crate::runtime::Kobako,
-    exc: beni::Value,
-) -> Vec<u8> {
+fn encode_exception_reply(kobako: &crate::runtime::Kobako, exc: beni::Value) -> Vec<u8> {
     let (class, message, backtrace) = super::panic::exception_fields(kobako, exc);
     // Held for the rest of the round-trip against the block that raised
     // it: the Service may rescue this, and if it does not, that block's
@@ -183,10 +180,10 @@ fn encode_error_response_from_exception(
     if let Some(block) = crate::runtime::block_stack::BLOCK_STACK.last() {
         crate::runtime::raised_block::RAISED_BLOCK.set(kobako.mrb(), block, exc);
     }
-    encode_error_bytes(&class, &message, backtrace)
+    encode_error_reply(&class, &message, backtrace)
 }
 
-fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec<u8> {
+fn encode_error_reply(class: &str, message: &str, backtrace: Vec<String>) -> Vec<u8> {
     YieldReply::Error(ErrorRecord {
         name: class.into(),
         message: message.into(),
@@ -195,12 +192,12 @@ fn encode_error_bytes(class: &str, message: &str, backtrace: Vec<String>) -> Vec
     .encode()
 }
 
-fn write_error_response(class: &str, message: impl Into<String>, backtrace: Vec<String>) -> u64 {
-    let bytes = encode_error_bytes(class, &message.into(), backtrace);
-    write_yield_buffer(&bytes)
+fn write_error_reply(class: &str, message: impl Into<String>, backtrace: Vec<String>) -> u64 {
+    let bytes = encode_error_reply(class, &message.into(), backtrace);
+    write_reply(&bytes)
 }
 
-fn write_yield_buffer(bytes: &[u8]) -> u64 {
+fn write_reply(bytes: &[u8]) -> u64 {
     let len_u32 = match u32::try_from(bytes.len()) {
         Ok(n) => n,
         Err(_) => return 0,

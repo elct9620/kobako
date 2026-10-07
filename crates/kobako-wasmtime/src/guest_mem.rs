@@ -144,17 +144,17 @@ pub(crate) fn drive_yield(
     let packed = yield_fn
         .call(&mut *caller, (req_ptr, len_i32))
         .map_err(|trap| trapped(caller, trap, "the Sandbox trapped while invoking a block"))?;
-    let (resp_ptr, resp_len) = unpack_guest_buffer(packed);
-    if resp_len == 0 {
+    let (reply_ptr, reply_len) = unpack_guest_buffer(packed);
+    if reply_len == 0 {
         return Err("the Sandbox returned an empty block result");
     }
-    if resp_len > MAX_DISPATCH_PAYLOAD {
+    if reply_len > MAX_DISPATCH_PAYLOAD {
         return Err("block result payload exceeds the 16 MiB limit");
     }
 
     let mem = memory_export(caller)?;
     let data = mem.data(&caller);
-    let range = guest_buffer_range(resp_ptr, resp_len, data.len())
+    let range = guest_buffer_range(reply_ptr, reply_len, data.len())
         .map_err(|_| "the Sandbox returned an out-of-bounds block result")?;
     Ok(data[range].to_vec())
 }

@@ -73,7 +73,7 @@ fn try_handle(
 
     // Build a frame-scoped yielder over this Caller and hand it to the
     // handler. The borrow ends with the block, freeing the Caller for
-    // `write_response`; nested dispatch frames each build their own, so
+    // `write_reply`; nested dispatch frames each build their own, so
     // the LIFO re-entry lives on the Rust stack — no shared slot.
     let reply = {
         let mut yielder = CallerYielder { caller };
@@ -83,10 +83,10 @@ fn try_handle(
         "a Sandbox callback raised an exception instead of returning a fault — please report this as a kobako bug",
     )?;
 
-    write_response(caller, &reply.encode())
+    write_reply(caller, &reply.encode())
 }
 
-fn write_response(caller: &mut Caller<'_, Invocation>, bytes: &[u8]) -> Result<i64, &'static str> {
+fn write_reply(caller: &mut Caller<'_, Invocation>, bytes: &[u8]) -> Result<i64, &'static str> {
     let ptr = guest_mem::alloc_and_write(caller, bytes)?;
     // `alloc_and_write` has already held the length to the payload cap.
     Ok(pack_ptr_len(ptr, bytes.len() as u32) as i64)

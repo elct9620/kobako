@@ -106,7 +106,7 @@ impl Invocation {
     }
 
     /// A clone, so the borrow on the `Caller` is released and the
-    /// dispatcher can re-borrow it to write the response.
+    /// dispatcher can re-borrow it to write the Reply.
     pub(crate) fn on_dispatch(&self) -> Option<Arc<dyn DispatchHandler>> {
         self.on_dispatch.clone()
     }

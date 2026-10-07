@@ -46,20 +46,20 @@ mod tests {
     /// A raw yield channel answering from a canned script, recording
     /// what the Yielder sent into the guest.
     struct Scripted {
-        responses: VecDeque<Result<Vec<u8>, Trap>>,
+        replies: VecDeque<Result<Vec<u8>, Trap>>,
         sent: Vec<Vec<u8>>,
     }
 
     impl RawYielder for Scripted {
         fn yield_to_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap> {
             self.sent.push(args.to_vec());
-            self.responses.pop_front().expect("script exhausted")
+            self.replies.pop_front().expect("script exhausted")
         }
     }
 
     fn scripted(replies: Vec<Vec<u8>>) -> Scripted {
         Scripted {
-            responses: replies.into_iter().map(Ok).collect(),
+            replies: replies.into_iter().map(Ok).collect(),
             sent: Vec::new(),
         }
     }

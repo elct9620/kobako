@@ -2,7 +2,7 @@
 //!
 //! The twin of the Ruby gem's `Transport::Dispatcher` contract: it
 //! **never fails** — every refusal, decode fault, and unencodable
-//! response folds into the Reply's fault arm, which the guest re-raises
+//! answer folds into the Reply's fault arm, which the guest re-raises
 //! as a rescuable exception, so a Service misuse can never become a
 //! wasm trap.
 
@@ -360,9 +360,9 @@ mod tests {
     /// The Fault's category — the discriminator the guest uses to pick
     /// the proxy-side error, so a test can tell a rejection kind apart
     /// from a receiver that ran and failed.
-    fn fault_type(response: &Answer) -> &'static str {
-        let Answer::Fault(fault) = response else {
-            panic!("expected a fault envelope, got a success response");
+    fn fault_type(answer: &Answer) -> &'static str {
+        let Answer::Fault(fault) = answer else {
+            panic!("expected a fault envelope, got an ok answer");
         };
         fault.kind.name()
     }

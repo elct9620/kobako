@@ -117,7 +117,7 @@ pub fn dispatch(
 fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     // On wasm32, pass the request by its current linear-memory address
     // and call the host import. The host reads `[req_ptr, req_ptr+len)`
-    // out of our memory, writes the response into a buffer it allocated
+    // out of our memory, writes the Reply into a buffer it allocated
     // via `__kobako_alloc`, and returns the packed (ptr, len) tuple.
     //
     // The request bytes stay live for the synchronous `__kobako_dispatch`
@@ -134,7 +134,7 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
             "the host returned an empty response",
         )));
     }
-    // SAFETY: the host promises [ptr, ptr+len) is a valid response
+    // SAFETY: the host promises [ptr, ptr+len) is a valid Reply
     // buffer in our linear memory for the duration of this call frame.
     let slice = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
     Ok(slice.to_vec())
@@ -164,15 +164,12 @@ mod tests {
     const OPAQUE: &[u8] = &[0xc1, 0x00, 0xff, 0x92];
 
     /// Helper: install a one-shot loopback that captures the request
-    /// bytes and returns a canned response.
-    fn install_canned(
-        captured: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
-        response_bytes: Vec<u8>,
-    ) {
+    /// bytes and returns a canned Reply.
+    fn install_canned(captured: std::sync::Arc<std::sync::Mutex<Vec<u8>>>, reply_bytes: Vec<u8>) {
         let cb_captured = captured.clone();
         let hook: LoopbackFn = Box::new(move |req: &[u8]| {
             cb_captured.lock().unwrap().extend_from_slice(req);
-            response_bytes.clone()
+            reply_bytes.clone()
         });
         set_loopback(Some(hook));
     }

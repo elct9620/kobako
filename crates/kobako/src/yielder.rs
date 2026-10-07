@@ -169,14 +169,14 @@ mod tests {
     /// A raw yield channel answering from a canned script, recording
     /// what the Yielder sent into the guest.
     struct Scripted {
-        responses: VecDeque<Result<Vec<u8>, Trap>>,
+        replies: VecDeque<Result<Vec<u8>, Trap>>,
         sent: Vec<Vec<u8>>,
     }
 
     impl Scripted {
-        fn new(responses: Vec<Result<Vec<u8>, Trap>>) -> Self {
+        fn new(replies: Vec<Result<Vec<u8>, Trap>>) -> Self {
             Scripted {
-                responses: responses.into(),
+                replies: replies.into(),
                 sent: Vec::new(),
             }
         }
@@ -185,7 +185,7 @@ mod tests {
     impl RawYielder for Scripted {
         fn yield_to_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap> {
             self.sent.push(args.to_vec());
-            self.responses.pop_front().expect("script exhausted")
+            self.replies.pop_front().expect("script exhausted")
         }
     }
 
@@ -256,7 +256,7 @@ mod tests {
 
     // @behavior T-166
     #[test]
-    fn malformed_response_bytes_abort() {
+    fn malformed_reply_bytes_abort() {
         let mut channel = Scripted::new(vec![Ok(vec![0x03, 0xc0])]);
         let mut block = Yielder::new(&mut channel);
 
