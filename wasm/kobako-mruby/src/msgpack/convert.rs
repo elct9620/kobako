@@ -27,7 +27,7 @@ use crate::codec::CodecError;
 use crate::runtime::{IntegerOutOfRange, Kobako};
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{RArray, RHash, Symbol, Value};
+use beni::{ForEach, RArray, RHash, Symbol, Value};
 use kobako_codec::msgpack::codec::Value as CodecValue;
 // The encode-side walk caps at the same depth the decoder enforces; the
 // constant lives in `kobako-codec` so the two guest walks share one bound
@@ -72,20 +72,36 @@ impl Kobako {
         hash: RHash,
         out: &mut Vec<(String, kobako_codec::msgpack::codec::Value)>,
     ) -> Result<(), CodecError> {
-        let keys_ary = hash.keys(self.mrb());
-        for key_val in keys_ary.entries(self.mrb()) {
-            // A hostile Hash subclass whose `[]` raises reads as `nil`
-            // for that key rather than faulting this marshalling helper.
-            let val = hash.get(self.mrb(), key_val).unwrap_or(qnil().as_value());
-            let encoded = self
-                .try_codec_value(val)
-                .ok_or_else(|| CodecError::unrepresentable(self, val))?;
-            let name = self
-                .kwargs_key_name(key_val)
-                .ok_or_else(|| CodecError::unrepresentable(self, key_val))?;
-            out.push((name, encoded));
+        let mut refusal = None;
+        let walked = hash.foreach(self.mrb(), |key: Value, val: Value| {
+            match self.kwarg_pair(key, val) {
+                Ok(pair) => out.push(pair),
+                Err(err) => {
+                    refusal = Some(err);
+                    return Ok(ForEach::Stop);
+                }
+            }
+            Ok(ForEach::Continue)
+        });
+        match (refusal, walked) {
+            (Some(err), _) => Err(err),
+            (None, Ok(())) => Ok(()),
+            (None, Err(_)) => Err(CodecError::Malformed),
         }
-        Ok(())
+    }
+
+    fn kwarg_pair(
+        &self,
+        key: Value,
+        val: Value,
+    ) -> Result<(String, kobako_codec::msgpack::codec::Value), CodecError> {
+        let encoded = self
+            .try_codec_value(val)
+            .ok_or_else(|| CodecError::unrepresentable(self, val))?;
+        let name = self
+            .kwargs_key_name(key)
+            .ok_or_else(|| CodecError::unrepresentable(self, key))?;
+        Ok((name, encoded))
     }
 
     /// A kwargs name rides as a Symbol (ext 0x00), whose payload the wire
@@ -143,23 +159,29 @@ impl Kobako {
         &self,
         hash: RHash,
         depth: usize,
-    ) -> Vec<(
-        Option<kobako_codec::msgpack::codec::Value>,
-        Option<kobako_codec::msgpack::codec::Value>,
-    )> {
-        let keys_ary = hash.keys(self.mrb());
-        let entries = keys_ary.entries(self.mrb());
-        let mut pairs = Vec::with_capacity(entries.len());
-        for key in entries {
-            // As in `extract_hash_kwargs`: a raising `[]` reads as `nil`
-            // rather than faulting the recursive converter.
-            let v = hash.get(self.mrb(), key).unwrap_or(qnil().as_value());
-            pairs.push((
-                self.try_codec_value_at(key, depth + 1),
-                self.try_codec_value_at(v, depth + 1),
-            ));
-        }
-        pairs
+    ) -> Option<
+        Vec<(
+            kobako_codec::msgpack::codec::Value,
+            kobako_codec::msgpack::codec::Value,
+        )>,
+    > {
+        let mut pairs = Vec::with_capacity(hash.len(self.mrb()));
+        let mut representable = true;
+        hash.foreach(self.mrb(), |key: Value, val: Value| {
+            match self
+                .try_codec_value_at(key, depth + 1)
+                .zip(self.try_codec_value_at(val, depth + 1))
+            {
+                Some(pair) => pairs.push(pair),
+                None => {
+                    representable = false;
+                    return Ok(ForEach::Stop);
+                }
+            }
+            Ok(ForEach::Continue)
+        })
+        .ok()?;
+        representable.then_some(pairs)
     }
 
     /// The single guest→host value converter, so every value path refuses
@@ -221,13 +243,9 @@ impl Kobako {
                     .collect::<Option<Vec<_>>>()
                     .map(CodecValue::Array)
             }),
-            "Hash" if depth < MAX_NESTING_DEPTH => RHash::from_value(val).and_then(|hash| {
-                self.hash_to_codec(hash, depth)
-                    .into_iter()
-                    .map(|(k, v)| k.zip(v))
-                    .collect::<Option<Vec<_>>>()
-                    .map(CodecValue::Map)
-            }),
+            "Hash" if depth < MAX_NESTING_DEPTH => RHash::from_value(val)
+                .and_then(|hash| self.hash_to_codec(hash, depth))
+                .map(CodecValue::Map),
             _ => None,
         }
     }
