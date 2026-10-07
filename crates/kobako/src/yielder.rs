@@ -118,8 +118,8 @@ impl<'y> Yielder<'y> {
 
     /// Run the guest block once with `args` and return its value.
     ///
-    /// The value arrives as the raw wire `Value`: a `Value::Handle`
-    /// inside it stays a token until the receiver resolves it through
+    /// The value arrives as payload bytes in the guest's schema: a Handle
+    /// inside it stays a token until the receiver resolves its id through
     /// `Handles` — the explicit spelling of the Ruby frontend's
     /// automatic restore at the yield site.
     ///

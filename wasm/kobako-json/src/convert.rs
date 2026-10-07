@@ -121,9 +121,9 @@ fn decode_key(mrb: &Mrb, key: &str, symbolize: bool) -> Value {
 
 pub(crate) fn encode(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, Error> {
     // Dispatch on the value's native mruby type through the safe `FromValue`
-    // downcast / tag predicates, as the guest codec does — never on its Ruby
-    // class identity, so a native subclass still serializes as its kind and a
-    // capability proxy cannot masquerade by answering a name.
+    // downcast / tag predicates — never on its Ruby class identity, so a
+    // native subclass still serializes as its kind and a capability proxy
+    // cannot masquerade by answering a name.
     if let Some(n) = i32::from_value(val) {
         return Ok(JsonValue::Number(Number::from(n)));
     }

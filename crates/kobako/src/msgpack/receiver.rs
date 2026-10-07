@@ -58,9 +58,9 @@ pub trait ValueReceiver: Any + Send + Sync {
 /// payload into a value tree and encodes the answer back, with the codec
 /// this build resolves to.
 ///
-/// A malformed payload and an unencodable answer both surface as a
-/// `runtime` fault, matching how the Ruby frontend folds the same two
-/// failures.
+/// A malformed payload surfaces as an `internal` fault and an unencodable
+/// answer as a `runtime` one, matching how the Ruby frontend folds the
+/// same two failures.
 ///
 /// The wrapped receiver is held behind its own `Arc`, so `resolve_as`
 /// hands back an `Arc<V>` — the same shape the byte-level path's

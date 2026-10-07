@@ -42,8 +42,8 @@ pub use kobako_transport::envelope::{Fault, FaultKind};
 /// yield is a synchronous round-trip into the guest whose errors
 /// propagate with `?`. `handles` is the invocation's
 /// capability-Handle view: `Handles::alloc` hands the guest a stateful
-/// host object as an opaque token, `Handles::resolve` turns a
-/// `Value::Handle` argument back into the live object.
+/// host object as an opaque token, `Handles::resolve` turns the Handle id
+/// an argument carries back into the live object.
 ///
 /// `Any` is a supertrait so a resolved host object recovers its
 /// concrete type: upcast the `Arc` to `Arc<dyn Any + Send + Sync>`

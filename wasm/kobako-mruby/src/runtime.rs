@@ -42,9 +42,9 @@ use beni::ReprValue;
 /// The public methods serve the two things a third party replaces, and
 /// which group a method belongs to says who it is for:
 ///
-///   * **The payload codec seam** (`PayloadCodec`) — `mrb`,
+///   * **The payload codec seam** (`PayloadCodec`) — `mrb`, `is_handle`,
 ///     `mint_handle`, `extract_handle_id`, `narrow_int`. A codec walking
-///     its own value tree needs all four: VM access, the Handle spelling,
+///     its own value tree needs all five: VM access, the Handle spelling,
 ///     and the integer-range guard.
 ///   * **The invocation flow seam** (`MrbGuest::run` and friends) —
 ///     `init`, `resolve_raw`, `install_bindings`, `top_level_constants`,
@@ -118,13 +118,6 @@ impl Registrations {
         }
     }
 }
-
-// The canonical mruby `nil` / `true` / `false` value snapshots no
-// longer live on the `Kobako` struct. They are captured once into
-// the sys-side `Value` immediates cache and read via
-// `Value::nil()` / `Value::true_()` / `Value::false_()` — each call
-// is a single atomic load against the `OnceLock`, on par with the
-// previous per-instance field read.
 
 impl Kobako {
     /// Install the built-in `KobakoBridge` gem, then `G`'s gem set, onto

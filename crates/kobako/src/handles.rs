@@ -48,10 +48,10 @@ impl HandleTable {
 /// to every dispatch alongside the call.
 ///
 /// `alloc` is how a receiver hands the guest a stateful host object: the
-/// returned `Value::Handle` rides the wire as an opaque token, and the
-/// guest routes later calls on it back to the object. `resolve` is the
-/// inverse for arguments: a `Value::Handle` the guest passed resolves
-/// to the live object it stands for.
+/// returned id rides the wire as an opaque token, and the guest routes
+/// later calls on it back to the object. `resolve` is the inverse for
+/// arguments: a Handle id the guest passed resolves to the live object
+/// it stands for.
 pub struct Handles<'a> {
     table: &'a Mutex<HandleTable>,
 }
