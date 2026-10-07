@@ -39,12 +39,8 @@ module Kobako
 
     def normalize_timeout: ((Float | Integer)? timeout) -> Float?
 
-    def normalize_memory_limit: (Integer? memory_limit) -> Integer?
+    def normalize_byte_limit: (Integer? limit, String name) -> Integer?
 
-    def normalize_output_limit: (Integer? limit, String name) -> Integer?
-
-    def normalize_profile: (untyped profile) -> Symbol
-
-    def normalize_gvl: (untyped gvl) -> Symbol
+    def normalize_choice: (untyped value, Array[Symbol] choices, String name) -> Symbol
   end
 end

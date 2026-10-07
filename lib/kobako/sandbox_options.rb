@@ -48,11 +48,11 @@ module Kobako
                    profile: DEFAULT_PROFILE,
                    gvl: DEFAULT_GVL)
       timeout = normalize_timeout(timeout)
-      memory_limit = normalize_memory_limit(memory_limit)
-      stdout_limit = normalize_output_limit(stdout_limit, "stdout_limit")
-      stderr_limit = normalize_output_limit(stderr_limit, "stderr_limit")
-      profile = normalize_profile(profile)
-      gvl = normalize_gvl(gvl)
+      memory_limit = normalize_byte_limit(memory_limit, "memory_limit")
+      stdout_limit = normalize_byte_limit(stdout_limit, "stdout_limit")
+      stderr_limit = normalize_byte_limit(stderr_limit, "stderr_limit")
+      profile = normalize_choice(profile, PROFILES, "profile")
+      gvl = normalize_choice(gvl, GVL_MODES, "gvl")
       super
     end
 
@@ -79,16 +79,7 @@ module Kobako
       seconds
     end
 
-    def normalize_memory_limit(memory_limit)
-      return nil if memory_limit.nil?
-      unless memory_limit.is_a?(Integer) && memory_limit.positive?
-        raise ArgumentError, "memory_limit must be a positive Integer or nil, got #{memory_limit.inspect}"
-      end
-
-      memory_limit
-    end
-
-    def normalize_output_limit(limit, name)
+    def normalize_byte_limit(limit, name)
       return nil if limit.nil?
       unless limit.is_a?(Integer) && limit.positive?
         raise ArgumentError, "#{name} must be a positive Integer or nil, got #{limit.inspect}"
@@ -98,17 +89,11 @@ module Kobako
     end
 
     # Unlike the caps there is no +nil+ form: the weakest posture is
-    # requested as an explicit +:permissive+.
-    def normalize_profile(profile)
-      return profile if PROFILES.include?(profile)
+    # requested by name, as in +:permissive+.
+    def normalize_choice(value, choices, name)
+      return value if choices.include?(value)
 
-      raise ArgumentError, "profile must be one of #{PROFILES.map(&:inspect).join(", ")}, got #{profile.inspect}"
-    end
-
-    def normalize_gvl(gvl)
-      return gvl if GVL_MODES.include?(gvl)
-
-      raise ArgumentError, "gvl must be one of #{GVL_MODES.map(&:inspect).join(", ")}, got #{gvl.inspect}"
+      raise ArgumentError, "#{name} must be one of #{choices.map(&:inspect).join(", ")}, got #{value.inspect}"
     end
   end
 end
