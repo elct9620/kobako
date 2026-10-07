@@ -41,11 +41,6 @@ let decoded = Arguments::decode(&payload_from_the_wire)?;
 
 ## Contract
 
-| What | Where |
-|---|---|
-| Byte-level payload format | [docs/wire/payload-msgpack.md](https://github.com/elct9620/kobako/blob/main/docs/wire/payload-msgpack.md) |
-| What a replacement codec owes | [docs/customization.md](https://github.com/elct9620/kobako/blob/main/docs/customization.md) |
-
 Consistency with the host gem's independent Ruby implementation is
 established by bidirectional round-trip fuzz in the kobako repository.
 

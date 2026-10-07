@@ -34,9 +34,8 @@ host   kobako-runtime · kobako-wasmtime ──┐
 guest  kobako-core · kobako-mruby ────────┴──> kobako-transport
 ```
 
-The byte layout is specified in
-[`docs/wire/envelope.md`](https://github.com/elct9620/kobako/blob/main/docs/wire/envelope.md);
-the golden vectors in this crate are derived from that document.
+The golden vectors in this crate are derived from the kobako repository's
+byte-layout document, not from this code.
 
 ## Usage
 

@@ -56,10 +56,6 @@ sandbox = Kobako::Sandbox.new(wasm_path: "path/to/my_guest.wasm")
 
 ## Contract
 
-| What | Where |
-|---|---|
-| Byte-level wire and ABI signatures | [docs/wire-codec.md](https://github.com/elct9620/kobako/blob/main/docs/wire-codec.md) |
-
 The crate reports `abi::ABI_VERSION` through the macro-emitted
 `__kobako_abi_version` export; the host validates it by equality at
 Sandbox construction and rejects skew with `Kobako::SetupError`.
