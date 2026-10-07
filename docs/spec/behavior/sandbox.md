@@ -813,6 +813,14 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the entrypoint verb is given a target spelling a nested constant |
 | Then | the refusal names the constraint |
 
+## `S-175` An entrypoint name too long to be a symbol is refused before the run
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | the entrypoint verb is given a constant name longer than the interpreter can hold as a symbol |
+| Then | the refusal names the constraint |
+
 ## `S-095` A capability reference among a run's arguments
 
 | Step | Statement |
