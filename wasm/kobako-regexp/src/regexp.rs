@@ -23,7 +23,9 @@ pub(crate) use replace::{expand_replacement, match_spans, MatchSpan};
 use crate::errors::{argument_error, regexp_error, type_error};
 use crate::translate;
 use beni::prelude::*;
+use beni::typed_data::Obj;
 use beni::value::qnil;
+use beni::value::Lazy;
 use beni::{
     DataType, Error, IntoValue, Mrb, Proc, RClass, RString, Symbol, TryConvert, TypedData, Value,
 };
@@ -48,8 +50,8 @@ pub(crate) fn state_of(mrb: &Mrb, value: Value) -> Option<&RegexpState> {
 
 /// Per-invocation memoization of compiled patterns, keyed by
 /// `(source, options)`. Bounded so it cannot grow without limit within
-/// an invocation; rooted on an interpreter global, it is freed with the
-/// interpreter when the invocation ends.
+/// an invocation; held per interpreter, it is freed with the interpreter
+/// when the invocation ends.
 struct CompileCache {
     entries: RefCell<LruCache<(String, i64), Arc<fancy_regex::Regex>>>,
 }
@@ -74,10 +76,9 @@ unsafe impl TypedData for CompileCache {
     }
 }
 
-/// The interpreter global the compile cache hangs from, keeping it reachable
-/// for the GC until the interpreter closes. The name carries no `$`, so no
-/// guest program can read or overwrite it.
-const COMPILE_CACHE_GVAR: &core::ffi::CStr = c"__kobako_regexp_compile_cache";
+/// Each interpreter's compile cache, built on its first compile and kept
+/// where no guest program can read or overwrite it.
+static COMPILE_CACHE: Lazy<Obj<CompileCache>> = Lazy::new(|mrb| mrb.obj_wrap(CompileCache::new()));
 
 impl CompileCache {
     fn new() -> Self {
@@ -142,11 +143,6 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
         c"clone",
         beni::method!(<RegexpState as beni::typed_data::Dup>::clone, -1),
     )?;
-
-    // Install the per-invocation compile cache, rooted on an interpreter
-    // global so the GC keeps it alive for the invocation and frees it at close.
-    let cache = mrb.wrap(CompileCache::new()).as_value();
-    mrb.gv_set(COMPILE_CACHE_GVAR, cache)?;
     Ok(())
 }
 
@@ -198,29 +194,19 @@ fn wrap_regexp(mrb: &Mrb, regex: Arc<fancy_regex::Regex>, source: String, option
     .as_value()
 }
 
-fn with_compile_cache<R>(mrb: &Mrb, f: impl FnOnce(&CompileCache) -> R) -> Option<R> {
-    let value = mrb.gv_get(COMPILE_CACHE_GVAR);
-    <&CompileCache>::try_convert(value, mrb).ok().map(f)
-}
-
 fn cache_get(mrb: &Mrb, source: &str, options: i64) -> Option<Arc<fancy_regex::Regex>> {
-    with_compile_cache(mrb, |cache| {
-        cache
-            .entries
-            .borrow_mut()
-            .get(&(source.to_string(), options))
-            .cloned()
-    })
-    .flatten()
+    mrb.get_inner(&COMPILE_CACHE)
+        .entries
+        .borrow_mut()
+        .get(&(source.to_string(), options))
+        .cloned()
 }
 
 fn cache_put(mrb: &Mrb, source: String, options: i64, regex: &Arc<fancy_regex::Regex>) {
-    with_compile_cache(mrb, |cache| {
-        cache
-            .entries
-            .borrow_mut()
-            .put((source, options), Arc::clone(regex));
-    });
+    mrb.get_inner(&COMPILE_CACHE)
+        .entries
+        .borrow_mut()
+        .put((source, options), Arc::clone(regex));
 }
 
 fn parse_options(mrb: &Mrb, flags: Option<Value>) -> Result<i64, Error> {
