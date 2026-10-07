@@ -25,7 +25,7 @@ class TestErrorClassHierarchy < Minitest::Test
   end
 
   # @behavior OC-018
-  def test_handler_exhausted_chains_under_sandbox_error
+  def test_handle_exhausted_chains_under_sandbox_error
     assert Kobako::HandleExhaustedError < Kobako::SandboxError
   end
 

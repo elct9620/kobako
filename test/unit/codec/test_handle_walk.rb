@@ -73,7 +73,7 @@ class TestCodecHandleWalk < Minitest::Test
   end
 
   # @behavior T-026
-  def test_non_wire_leaf_is_wrapped_via_handler
+  def test_non_wire_leaf_is_wrapped_as_a_handle
     body = StringIO.new("hello")
 
     wrapped = HandleWalk.deep_wrap(body, @table)

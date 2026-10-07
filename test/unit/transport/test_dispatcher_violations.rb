@@ -116,11 +116,11 @@ class TestTransportDispatchViolations < Minitest::Test
 
   # ---------- Catalog::Handles exhaustion ----------
 
-  # The dispatcher's wrap_return path is where a normal transport call reaches
-  # the cap: a non-wire-representable return falls through to @handles.alloc,
-  # and the exhaustion raise must surface on the fault arm the guest observes.
+  # Encoding a Service's return is where a normal transport call reaches the
+  # cap: a non-wire-representable return is wrapped as a Handle, and the
+  # exhaustion raise must surface on the fault arm the guest observes.
   # @behavior T-046
-  def test_handler_exhaustion_during_wrap_return_takes_the_fault_arm
+  def test_handle_exhaustion_while_encoding_a_return_takes_the_fault_arm
     answer = reify(dispatch(build_call("Factory::Make", "make", [], {}),
                             server: factory_registry, handles: exhausted_handles))
 
@@ -135,7 +135,7 @@ class TestTransportDispatchViolations < Minitest::Test
   end
 
   # @behavior T-047
-  def test_handler_exhaustion_propagates_as_sandbox_error_class
+  def test_handle_exhaustion_propagates_as_sandbox_error_class
     # Callers rescuing SandboxError must catch the exhaustion path, so the
     # class identity matters even though the dispatcher turns the raise into
     # a fault the guest can observe.
