@@ -47,6 +47,7 @@ The suffix encodes capability composition, not a version.
 
 ```
 kobako.wasm                    the default, fixed name
+kobako-<version>.wasm          the default as a Release asset
 kobako+<cap>.wasm              a capability variant
 kobako+<cap>-<version>.wasm    that variant as a Release asset
 ```
@@ -56,14 +57,15 @@ kobako+<cap>-<version>.wasm    that variant as a Release asset
 
 ## Packaging Policy
 
-The published gem bundles exactly one Guest Binary, by the gemspec's
-file allowlist. This keeps the install footprint minimal; a Host App
-that needs a capability downloads the matching variant.
+The published gem bundles exactly one Guest Binary, `data/kobako.wasm`,
+which the gemspec appends to its tracked files. This keeps the install
+footprint minimal; a Host App that needs a capability downloads the
+matching variant.
 
 | Guest Binary | Ships as |
 |---|---|
-| `data/kobako.wasm` | bundled in the gem |
-| capability variants | GitHub Release assets, or a local build |
+| `data/kobako.wasm` | bundled in the gem, and a Release asset |
+| capability variants | Release assets, or a local build |
 
 ## Variant Selection
 

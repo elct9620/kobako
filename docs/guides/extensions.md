@@ -21,10 +21,10 @@ value type; a conforming object of your own is equally valid.
 
 | Reader | Type | Meaning |
 |---|---|---|
-| `name` | Symbol matching `/\A[A-Z]\w*\z/` | snippet name and `depends_on` key |
+| `name` | Symbol or String matching `/\A[A-Z]\w*\z/` | snippet name and `depends_on` key |
 | `source` | String, mandatory | the mruby idiom, preloaded as a snippet |
 | `backend` | `Kobako::Extension::Backend` or `nil` | the host attachment; `nil` stays pure-guest |
-| `depends_on` | Array of Symbol | Extensions that must also be installed |
+| `depends_on` | Array of Symbol or String | Extensions that must also be installed |
 
 The idiom's locally defined methods run in the guest, and the rest fall through to
 the backend. The `name` is the Extension's identity, independent of any bound path.
@@ -138,7 +138,7 @@ The `crates/kobako` host SDK reifies the same contract idiomatically. Behavior i
 parity-pinned to the Ruby frontend; only the API shape differs.
 
 ```rust
-pub trait Extension {
+pub trait Extension: Send + Sync {
     fn name(&self) -> &str;
     fn source(&self) -> &str;
     fn depends_on(&self) -> &[&str] { &[] }
@@ -153,7 +153,7 @@ pub enum Provider {
     Fillable,                                                        // unresolved until ctx.bind fills it
 }
 
-// sandbox.install(ext: Arc<dyn Extension>) -> Result<(), Error>
+// Sandbox::install(&mut self, extension: Arc<dyn Extension>) -> Result<(), Error>
 ```
 
 Provider identity maps to `Arc::ptr_eq`, mirroring the Ruby object-identity rule.

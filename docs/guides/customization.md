@@ -52,10 +52,11 @@ The types those seams carry, by grade:
 
 | Grade | Names |
 |---|---|
-| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_core::frames::read_frame` · `kobako_mruby::{Kobako, Arguments, dispatch, IntegerOutOfRange, MsgpackCodec}` · `kobako_runtime::{Snapshot, Capture, Usage, Frames}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Options, Execution, Context, Handles, RunPayload, Backend}` · `kobako::handles::Detached` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::{Config, Driver}` |
+| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_core::frames::read_frame` · `kobako_mruby::{Kobako, Arguments, dispatch, IntegerOutOfRange, MsgpackCodec}` · `kobako_runtime::{Snapshot, Capture, Usage, Frames}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, Arguments, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Options, Execution, Context, Handles, RunPayload, Backend, Yielder}` · `kobako::handles::Detached` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::{Config, Driver}` |
 | **stable · exhaustive** | `kobako_runtime::{Profile, Entry, Completion}` · `kobako_codec::msgpack::Value` · `kobako::{Provider, msgpack::RunArg}` |
 | **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension}` · `kobako::msgpack::ValueReceiver` |
-| **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · `kobako_transport::envelope::*` · `kobako::FaultKind` |
+| **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |
+| **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · every other `kobako_transport::envelope::*` |
 
 Two things stay fixed. The **core envelope** and the **ABI surface** are the same for
 every assembly, which makes the parts interchangeable at all
@@ -89,9 +90,9 @@ schema's overlay is written outside the SDK as extension traits over the same en
 
 ### Codec Obligations
 
-A codec fills positions, not an encoding. It may serve only some of them; writing a
-value is the floor every codec owes, and each other position it serves or refuses as
-unserved, so a missing feature reads apart from a broken guest.
+A codec fills positions, not an encoding. Writing a value is the floor every codec
+owes. Each other position it serves or refuses as unserved, so a missing feature
+reads apart from a broken guest.
 
 | Position | What serving it obliges | Why |
 |---|---|---|

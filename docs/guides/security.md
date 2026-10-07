@@ -30,7 +30,8 @@ feature that specifies it.
 | the guest cannot forge or dereference a Handle | [transport-boundary](../spec/behavior/transport-boundary.md) |
 | each invocation starts from the same boot state | [sandbox](../spec/behavior/sandbox.md) |
 | a binding belongs to its own Sandbox | [services](../spec/behavior/services.md) |
-| no ambient time, entropy, filesystem, environment, or socket | [runtime](../spec/behavior/runtime.md) |
+| no ambient filesystem, environment, or socket | [runtime](../spec/behavior/runtime.md) |
+| no live time or entropy under the default `:hermetic` | [runtime](../spec/behavior/runtime.md) |
 | timeout, memory cap, and output clipping fail cleanly | [sandbox](../spec/behavior/sandbox.md) |
 | a value the wire cannot carry becomes a Handle or a controlled error | [transport-dispatch](../spec/behavior/transport-dispatch.md) |
 
@@ -93,6 +94,7 @@ purpose-built object rather than a capable one whose other methods leak more tha
 you intend.
 
 ```ruby
+# Either binding, not both: one path takes one object.
 sandbox.bind("Cfg::Settings", AppConfig.current)  # reachable: secret_key, database_url, writers, ...
 
 class ThemeReader
@@ -101,16 +103,15 @@ end
 sandbox.bind("Cfg::Settings", ThemeReader.new)    # reachable: only #color
 ```
 
-> **Gotcha — a class you did not write.** kobako cannot tell your classes from a
-> gem's or the standard library's. A `Pathname` handed to the guest exposes
-> `#rmtree`, `#mkpath`, and the rest of what `Pathname` defines. Hand over objects of
-> classes you wrote, return a terminal value, or narrow the object with
-> `respond_to_guest?`.
+#### Surface Gotchas
 
-> **Gotcha — a reflective method name.** A Service method named after reflection or
-> eval (`send`, `eval`, `binding`, `method`, …) is unreachable from guest code.
-> The guest proxy refuses the name. Rename it, and never reuse member or
-> method names across trust layers.
+Two cases surprise hosts that follow the rule above. kobako cannot tell your
+classes from a gem's or the standard library's, and reflective names never cross.
+
+| Case | What the guest meets | Do instead |
+|---|---|---|
+| a class you did not write, such as `Pathname` | its Ruby-source methods, `#rmtree` and `#mkpath` among them | bind your own class, or narrow with `respond_to_guest?` |
+| a Service method named `send`, `eval`, `binding`, `method`, … | a proxy refusal, or for `send` the guest's own `Kernel#send` | rename it; never reuse names across trust layers |
 
 ### Self-gating Objects
 
@@ -202,8 +203,11 @@ a `respond_to_guest?` that seals or narrows that surface.
 
 ```ruby
 sandbox.bind("Search::Docs", ->(q) { index.query(q).map(&:title) })  # => ["...", "..."]
-#                                            index.query(q)                 # => a Handle whose own methods dispatch back
+sandbox.bind("Search::Hit",  ->(q) { index.query(q).first })         # => a Handle whose own methods dispatch back
 ```
+
+A returned collection holding host objects crosses as one Handle too, and the
+guest cannot index into it. Map it to terminal values on the host side.
 
 The same applies to failures. An exception a Service raises reaches the guest as
 `<class>: <message>` fault text. Rescue internal errors and re-raise a clean,
@@ -211,15 +215,25 @@ guest-safe one, so secrets and internal detail stay out of the message.
 
 ### Work Volume
 
-Caps limit the *rate* of dispatch, not its total *volume*. A Handle costs the guest
-only its reference, while the object stays in host memory until the invocation ends
-([sandbox](../spec/behavior/sandbox.md)). For hostile input, bound the work and the
-number of Handles a single invocation can create.
+The timeout bounds an invocation's time, Service time included, but not the host
+memory and work each call costs. A Handle costs the guest only its reference, while
+its object stays in host memory until the invocation ends
+([transport-dispatch](../spec/behavior/transport-dispatch.md)). For hostile input,
+bound the calls and Handles a single invocation can create.
 
 ```ruby
-calls = 0
-sandbox.bind("Cur::Next", -> {
-  raise "budget exhausted" if (calls += 1) > 1_000
-  cursor.advance  # a fresh Handle each call
-})
+sandbox.bind("Cur::Next")  # filled per invocation
+
+def budgeted(cursor, limit: 1_000)
+  calls = 0
+  -> {
+    raise "budget exhausted" if (calls += 1) > limit
+    cursor.advance  # a fresh Handle each call
+  }
+end
+
+sandbox.eval(script) { |ctx| ctx.bind("Cur::Next", budgeted(cursor)) }
 ```
+
+A fresh budget per `ctx.bind` resets the count for every invocation. A counter
+captured once at `bind` would span the Sandbox's lifetime instead.

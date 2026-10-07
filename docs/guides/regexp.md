@@ -73,6 +73,10 @@ The guest sees exactly these constructs.
 | Match globals | `$~`, `$1`..`$9`, `$&`, `` $` ``, `$'`, `$+` |
 | Errors | `RegexpError` |
 
+The capability also leaves names under the reserved `__kobako_` prefix visible,
+such as `String#__kobako_aref`. They are its internals, so guest code must not
+rely on them.
+
 ### Non-goals
 
 The capability deliberately leaves out these parts of CRuby's surface.
