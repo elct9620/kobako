@@ -4,8 +4,8 @@
 //! reusing the slot a build-time pre-initialized image baked, or
 //! booting lazily — then materialise
 //! the Frame 1 preamble's proxy classes and replay any preloaded Frame 3
-//! snippets before running the entry-specific body. When any of those
-//! steps fails, the failure surfaces as a Panic with
+//! snippets before running the entry-specific body. A step that fails
+//! before any guest code runs surfaces as a Panic with
 //! `origin = sandbox` and `name = "Kobako::BootError"`.
 //!
 //! Snippet replay compiles each snippet under a

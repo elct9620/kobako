@@ -88,8 +88,8 @@ module Kobako
       limit
     end
 
-    # Unlike the caps there is no +nil+ form: the weakest posture is
-    # requested by name, as in +:permissive+.
+    # Unlike the caps there is no +nil+ form: every choice, the weakest
+    # included, is requested by name, as in +:permissive+.
     def normalize_choice(value, choices, name)
       return value if choices.include?(value)
 

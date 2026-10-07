@@ -12,8 +12,8 @@
 //! This module is a thin shim: the public surface — `Value`, `Encoder`,
 //! `Decoder`, `Error` — carries the whole wire byte form, and every
 //! consumer (the host SDK's and the mruby guest's payload overlays, the
-//! oracle binaries) reaches the bytes only through it; the byte-level work is delegated to `rmp::encode` /
-//! `rmp::decode`. One file per responsibility — `error`, `value`,
+//! oracle binaries) reaches the bytes only through it; the byte-level
+//! work is delegated to `rmp::encode` / `rmp::decode`. One file per responsibility — `error`, `value`,
 //! `encoder`, `decoder` — each re-exported at this root so call sites
 //! name it `codec::Value` etc.
 

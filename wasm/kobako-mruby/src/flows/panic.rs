@@ -25,11 +25,12 @@ pub(super) fn panic_for(refusal: &Refusal) -> Panic {
 }
 
 /// A failure the flow itself detected, outside any guest exception.
-pub(super) fn guest_panic(message: impl Into<String>) -> Panic {
+pub(super) fn flow_panic(message: impl Into<String>) -> Panic {
     sandbox_panic(SANDBOX_ERROR, message)
 }
 
-/// No backtrace: the failure is a reading of the wire, not a guest stack.
+/// No backtrace: the flow detected this failure itself, so no guest stack
+/// stands behind it.
 pub(super) fn sandbox_panic(class: &str, message: impl Into<String>) -> Panic {
     Panic {
         origin: Origin::Sandbox,

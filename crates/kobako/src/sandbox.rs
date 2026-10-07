@@ -159,29 +159,20 @@ impl Sandbox {
         })
     }
 
-    /// Setup runs on `&mut self`, before the Sandbox is shared, so it reaches
-    /// the registry without locking.
-    fn open_catalog(&mut self) -> Result<&mut Catalog, Error> {
-        self.registry
-            .get_mut()
-            .expect("the registry mutex is never poisoned")
-            .open_mut()
-    }
-
     /// Bind a host object as the Service reachable at `path` — a
     /// constant path of one or more `::`-separated segments
     /// (`"MyService::KV"` or a top-level `"File"`). A path already bound,
     /// or one that would sit inside another, is refused. Refused once
     /// sealed.
     pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
-        self.open_catalog()?.bind(path, object)
+        open_catalog(&mut self.registry)?.bind(path, object)
     }
 
     /// Declare a Service at `path` with no object, for an override to fill
     /// per invocation. The guest sees the constant either way; a call to an
     /// unfilled one fails as a guest `ServiceError`. Refused once sealed.
     pub fn bind_fillable(&mut self, path: &str) -> Result<(), Error> {
-        self.open_catalog()?.bind(path, unresolved())
+        open_catalog(&mut self.registry)?.bind(path, unresolved())
     }
 
     /// Install an Extension — a guest idiom (`source`) paired with an
@@ -190,13 +181,7 @@ impl Sandbox {
     /// `depends_on` names one that was not installed fails the first
     /// invocation.
     pub fn install(&mut self, extension: Arc<dyn Extension>) -> Result<(), Error> {
-        // The registry and the Extensions are borrowed apart, which
-        // `open_catalog` (all of `self`) would not allow.
-        let catalog = self
-            .registry
-            .get_mut()
-            .expect("the registry mutex is never poisoned")
-            .open_mut()?;
+        let catalog = open_catalog(&mut self.registry)?;
         self.extensions.install(catalog, extension)
     }
 
@@ -204,14 +189,16 @@ impl Sandbox {
     /// canonical backtrace name. Refused once sealed, on a
     /// non-constant name, or on a duplicate name.
     pub fn preload(&mut self, name: &str, source: &str) -> Result<(), Error> {
-        self.open_catalog()?.snippets.register_source(name, source)
+        open_catalog(&mut self.registry)?
+            .snippets
+            .register_source(name, source)
     }
 
     /// Register precompiled RITE bytecode for per-invocation replay.
     /// The bytes stay opaque host-side; the guest validates them at
     /// first replay. Refused once sealed.
     pub fn preload_binary(&mut self, bytecode: impl Into<Vec<u8>>) -> Result<(), Error> {
-        self.open_catalog()?
+        open_catalog(&mut self.registry)?
             .snippets
             .register_binary(bytecode.into());
         Ok(())
@@ -324,6 +311,16 @@ impl Sandbox {
         self.extensions.assert_dependencies()?;
         Ok((catalog, Arc::new(Mutex::new(HandleTable::default()))))
     }
+}
+
+/// Setup runs on `&mut Sandbox`, before it is shared, so it reaches the
+/// registry without locking. It takes the field rather than the Sandbox so
+/// `install` can hold the open Catalog beside the Extensions.
+fn open_catalog(registry: &mut Mutex<Registry>) -> Result<&mut Catalog, Error> {
+    registry
+        .get_mut()
+        .expect("the registry mutex is never poisoned")
+        .open_mut()
 }
 
 /// The `handles` table rides along so the result's Handles resolve on the

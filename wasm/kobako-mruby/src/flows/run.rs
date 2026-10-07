@@ -109,7 +109,7 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     };
 
     if !target_val.respond_to(mrb, c"call") {
-        return write_panic(panic::guest_panic(format!(
+        return write_panic(panic::flow_panic(format!(
             "entrypoint {} does not respond to :call",
             run.entrypoint
         )));
