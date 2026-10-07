@@ -1,13 +1,11 @@
 # frozen_string_literal: true
 
+require_relative "../constant_name"
 require_relative "../snippet"
 
 module Kobako
   module Catalog
     class Snippets # :nodoc:
-      # Ruby constant-name pattern enforced on snippet names.
-      NAME_PATTERN = /\A[A-Z]\w*\z/
-
       def initialize
         @entries = [] # : Array[Kobako::Snippet::Source | Kobako::Snippet::Binary]
       end
@@ -80,9 +78,9 @@ module Kobako
         end
 
         name_str = name.to_s
-        unless NAME_PATTERN.match?(name_str)
+        unless CONSTANT_NAME.match?(name_str)
           raise ArgumentError,
-                "snippet name must match #{NAME_PATTERN.inspect} (got #{name.inspect})"
+                "snippet name must match #{CONSTANT_NAME.inspect} (got #{name.inspect})"
         end
 
         name_str.to_sym

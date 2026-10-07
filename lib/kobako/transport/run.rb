@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "../constant_name"
 require_relative "../handle"
 require_relative "../codec"
 require_relative "../payload"
@@ -12,13 +13,6 @@ module Kobako
     # A Handle already in the arguments is refused, since a caller never
     # legitimately holds one.
     class Run < Data.define(:entrypoint, :args, :kwargs) # :nodoc:
-      # Ruby constant-name pattern enforced on the +entrypoint+ Symbol.
-      # Parallel to
-      # +Kobako::Catalog::Snippets::NAME_PATTERN+; the two constants name the
-      # same regex but cover distinct surfaces (snippet identity vs.
-      # entrypoint resolution) so a future divergence stays local.
-      NAME_PATTERN = /\A[A-Z]\w*\z/
-
       def initialize(entrypoint:, args: [], kwargs: {})
         entrypoint = normalize_entrypoint(entrypoint)
         validate_args!(args)
@@ -47,9 +41,9 @@ module Kobako
         end
 
         target_str = target.to_s
-        unless NAME_PATTERN.match?(target_str)
+        unless CONSTANT_NAME.match?(target_str)
           raise ArgumentError,
-                "entrypoint must match #{NAME_PATTERN.inspect} (got #{target.inspect})"
+                "entrypoint must match #{CONSTANT_NAME.inspect} (got #{target.inspect})"
         end
 
         target_str.to_sym

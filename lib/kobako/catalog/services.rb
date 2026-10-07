@@ -1,15 +1,12 @@
 # frozen_string_literal: true
 
+require_relative "../constant_name"
 require_relative "../errors"
 require_relative "../transport/exposure"
 
 module Kobako
   module Catalog
     class Services # :nodoc:
-      # Ruby constant-name pattern each +::+-separated bind-path segment
-      # must match.
-      NAME_PATTERN = /\A[A-Z]\w*\z/
-
       def initialize
         @bindings = {} # : Hash[String, Kobako::Transport::Exposure]
       end
@@ -45,7 +42,7 @@ module Kobako
       def validate_path!(path)
         path_str = path.to_s
         segments = path_str.split("::", -1)
-        return path_str if !segments.empty? && segments.all? { |seg| NAME_PATTERN.match?(seg) }
+        return path_str if !segments.empty? && segments.all? { |seg| CONSTANT_NAME.match?(seg) }
 
         raise ArgumentError,
               "bind path must be constant-form segments joined by '::' (got #{path.inspect})"

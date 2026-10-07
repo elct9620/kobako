@@ -1,8 +1,6 @@
 module Kobako
   module Transport
     class Run < Data
-      NAME_PATTERN: Regexp
-
       attr_reader entrypoint: Symbol
       attr_reader args: Array[Kobako::Codec::wire_value]
       attr_reader kwargs: Hash[Symbol, Kobako::Codec::wire_value]
