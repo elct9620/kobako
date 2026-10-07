@@ -25,7 +25,7 @@ module Kobako
       @resolved = {} # : Hash[String, Transport::Exposure]
       @overrides = {} # : Hash[String, Transport::Exposure]
       @spent = false
-      @handler = Catalog::Handles.new
+      @handles = Catalog::Handles.new
       @stdout_capture = @stderr_capture = Capture::EMPTY
       @usage = Usage::EMPTY
     end
@@ -66,7 +66,7 @@ module Kobako
       collect_overrides(&block) if block
       invoke!(:run, entrypoint: request.entrypoint) do
         @runtime.run(dispatch_handler, @services.paths, @snippets.entries,
-                     request.entrypoint.to_s, request.payload(@handler))
+                     request.entrypoint.to_s, request.payload(@handles))
       end
     end
 
@@ -87,7 +87,7 @@ module Kobako
       lambda do |target, method_name, block_given, payload, guest_yielder|
         call = Transport::Call.new(target: target, method_name: method_name,
                                    block_given: block_given, payload: payload)
-        Transport::Dispatcher.dispatch(call, self, @handler, guest_yielder)
+        Transport::Dispatcher.dispatch(call, self, @handles, guest_yielder)
       end
     end
 
@@ -118,7 +118,7 @@ module Kobako
     def settle_outcome(snapshot, verb, entrypoint)
       kind, payload, panic = snapshot.outcome
       value, carried = Codec.track_handles { Outcome.reify(kind, payload, panic, entrypoint: entrypoint) }
-      value = Codec::HandleWalk.deep_restore(value, @handler) if carried
+      value = Codec::HandleWalk.deep_restore(value, @handles) if carried
       build_execution(value, failed: false)
     rescue Kobako::TrapError => e
       raise with_verb(e, verb).with_execution(build_execution(nil, failed: true))

@@ -3,11 +3,11 @@ module Kobako
     class Yielder
       @yield_to_guest: Kobako::Transport::_GuestYielder
       @break_tag: Symbol
-      @handler: Kobako::Codec::_HandleTable
+      @handles: Kobako::Codec::_HandleTable
       @active: bool
       @raised: Kobako::BlockError?
 
-      def initialize: (Kobako::Transport::_GuestYielder yield_to_guest, Symbol break_tag, Kobako::Codec::_HandleTable handler) -> void
+      def initialize: (Kobako::Transport::_GuestYielder yield_to_guest, Symbol break_tag, Kobako::Codec::_HandleTable handles) -> void
 
       def fault_text: (Exception error) -> String?
 

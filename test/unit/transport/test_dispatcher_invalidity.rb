@@ -14,10 +14,10 @@ class TestTransportDispatchInvalidity < Minitest::Test
   def test_a_prior_runs_handle_is_undefined_against_the_next_runs_table
     obj = Object.new
     def obj.tag = "t"
-    handle_id = alloc_id(obj) # issued against this run's table (@handler)
+    handle_id = alloc_id(obj) # issued against this run's table (@handles)
     next_run = Kobako::Catalog::Handles.new # the next invocation mints its own
 
-    resp = dispatch_handle_target(handle_id, "tag", handler: next_run)
+    resp = dispatch_handle_target(handle_id, "tag", handles: next_run)
 
     assert_predicate resp, :error?
     assert_equal "undefined", resp.payload.type
@@ -37,7 +37,7 @@ class TestTransportDispatchInvalidity < Minitest::Test
     # The integer id has meaning in A but must NOT cross over to B —
     # B's Catalog::Handles does not contain that id.
     assert_equal "pong", table_a.fetch(handle_id_in_a).ping
-    resp = dispatch_handle_target(handle_id_in_a, "ping", server: server_b, handler: table_b)
+    resp = dispatch_handle_target(handle_id_in_a, "ping", server: server_b, handles: table_b)
 
     assert_predicate resp, :error?
     assert_equal "undefined", resp.payload.type
@@ -54,7 +54,7 @@ class TestTransportDispatchInvalidity < Minitest::Test
     server_b.bind("Echo::Wrap", ->(g) { "wrapped:#{g}" })
 
     call = build_call("Echo::Wrap", "call", [Kobako::Handle.restore(handle_id_in_a)], {})
-    answer = reify(dispatch(call, server: server_b, handler: table_b))
+    answer = reify(dispatch(call, server: server_b, handles: table_b))
 
     assert_predicate answer, :error?
     assert_equal "undefined", answer.payload.type

@@ -47,16 +47,16 @@ module DispatcherHelpers
   end
 
   def setup
-    @handler = Kobako::Catalog::Handles.new
+    @handles = Kobako::Catalog::Handles.new
     @registry = Kobako::Catalog::Services.new
   end
 
-  # Drive the Dispatcher directly with the configured registry / handler
+  # Drive the Dispatcher directly with the configured registry / Handle table
   # and the +NO_YIELD+ stub. Mirrors the per-invocation dispatch +Proc+
   # +Sandbox+ hands to +Runtime#eval+ / +#run+ so these unit tests exercise
   # the same entry point as the live ext callback.
-  def dispatch(call, server: @registry, handler: @handler)
-    Kobako::Transport::Dispatcher.dispatch(call, server, handler, NO_YIELD)
+  def dispatch(call, server: @registry, handles: @handles)
+    Kobako::Transport::Dispatcher.dispatch(call, server, handles, NO_YIELD)
   end
 
   # Instance-side shorthands for the two module functions above, so an
@@ -72,7 +72,7 @@ module DispatcherHelpers
   # Allocate +obj+ in the test's own Catalog::Handles and return the id —
   # the host side of every Handle the guest could legitimately hold.
   def alloc_id(obj)
-    @handler.alloc(obj).id
+    @handles.alloc(obj).id
   end
 
   # Round-trip a Handle-target Call through the dispatcher: build,

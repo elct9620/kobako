@@ -19,7 +19,7 @@ class TestDispatchGadgetReturn < Minitest::Test
   end
 
   def setup
-    @handler = Kobako::Catalog::Handles.new
+    @handles = Kobako::Catalog::Handles.new
     @services = Kobako::Catalog::Services.new
     @services.bind("Cfg::S", Service.new)
     @yield = ->(_bytes) { raise "no block" }
@@ -27,7 +27,7 @@ class TestDispatchGadgetReturn < Minitest::Test
 
   def dispatch(method)
     call = DispatcherHelpers.call_for("Cfg::S", method)
-    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
+    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handles, @yield))
   end
 
   # @behavior T-122 T-195 T-201
@@ -47,7 +47,7 @@ class TestDispatchGadgetReturn < Minitest::Test
                    "a Service returning ##{meth} (a bare Class/Module) must not mint a Handle onto its class-level API"
       assert_equal "runtime", resp.payload.type,
                    "##{meth} return must surface as the runtime fault"
-      assert_equal 0, @handler.size,
+      assert_equal 0, @handles.size,
                    "##{meth} must allocate no Handle entry"
     end
   end
@@ -64,7 +64,7 @@ class TestDispatchGadgetReturn < Minitest::Test
                  "a Service returning a transparent forwarder must not mint a Handle onto its forwarding surface"
     assert_equal "runtime", resp.payload.type,
                  "a forwarder return must surface as the runtime fault"
-    assert_equal 0, @handler.size,
+    assert_equal 0, @handles.size,
                  "a forwarder return must allocate no Handle entry"
   end
 
@@ -83,13 +83,13 @@ class TestDispatchGadgetReturn < Minitest::Test
   # @behavior T-226
   def test_a_gadget_extracted_from_a_container_reference_is_refused
     container = Struct.new(:held).new(binding)
-    id = @handler.alloc(container).id
+    id = @handles.alloc(container).id
     call = DispatcherHelpers.call_for(id, "held")
-    resp = DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
+    resp = DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handles, @yield))
 
     assert_equal [false, "runtime"], [resp.ok?, resp.payload.type],
                  "a reflective gadget extracted through a container reference must be refused as a runtime fault"
-    assert_equal 1, @handler.size, "extracting the gadget must allocate no Handle beyond the container's own"
+    assert_equal 1, @handles.size, "extracting the gadget must allocate no Handle beyond the container's own"
   end
 
   private
@@ -104,7 +104,7 @@ class TestDispatchGadgetReturn < Minitest::Test
     refute_match(/Kobako::/, resp.payload.message,
                  "the refusal of ##{meth} is kobako's own, so it must not wear the " \
                  "<class>: <message> shape a Service exception crosses in")
-    assert_equal 0, @handler.size,
+    assert_equal 0, @handles.size,
                  "##{meth} must allocate no Handle entry"
   end
 end

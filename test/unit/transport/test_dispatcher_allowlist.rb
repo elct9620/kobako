@@ -21,7 +21,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
   end
 
   def setup
-    @handler = Kobako::Catalog::Handles.new
+    @handles = Kobako::Catalog::Handles.new
     @services = Kobako::Catalog::Services.new
     { Theme: Service.new, Fn: ->(x) { x * 2 }, Meth: "abc".method(:upcase), Own: Tappable.new,
       Klass: File, Mod: Kernel, Wrap: SimpleDelegator.new(Object.new) }
@@ -31,7 +31,7 @@ class TestDispatchMethodAllowlist < Minitest::Test
 
   def dispatch(target, method, args)
     call = DispatcherHelpers.call_for(target, method, args)
-    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
+    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handles, @yield))
   end
 
   # @behavior T-116

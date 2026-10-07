@@ -47,9 +47,9 @@ module Kobako
       # The per-invocation state arrives as arguments so the Dispatcher
       # stays stateless and neither the resolver nor the Context publishes
       # accessors for it.
-      def dispatch(call, resolver, handler, yield_to_guest)
-        yielder = Yielder.new(yield_to_guest, BREAK_THROW, handler) if call.block_given
-        [true, encode_ok(run(call, resolver, handler, yielder), handler), nil] # : [bool, String, String?]
+      def dispatch(call, resolver, handles, yield_to_guest)
+        yielder = Yielder.new(yield_to_guest, BREAK_THROW, handles) if call.block_given
+        [true, encode_ok(run(call, resolver, handles, yielder), handles), nil] # : [bool, String, String?]
       # StandardError is the boundary by intent: a Service method's
       # application fault folds into a guest-rescuable fault, while a
       # host-process failure (NoMemoryError, SignalException, a bare Exception)
@@ -61,10 +61,10 @@ module Kobako
         yielder&.invalidate!
       end
 
-      def run(call, resolver, handler, yielder)
+      def run(call, resolver, handles, yielder)
         arguments, carried_handle = decode_arguments(call.payload)
-        exposure = resolve_target(call.target, resolver, handler)
-        args, kwargs = resolve_call_args(arguments, handler, carried_handle)
+        exposure = resolve_target(call.target, resolver, handles)
+        args, kwargs = resolve_call_args(arguments, handles, carried_handle)
         catch(BREAK_THROW) { invoke(exposure, call.method_name, args, kwargs, yielder) }
       end
 
@@ -76,11 +76,11 @@ module Kobako
         raise UnreadableRequestError, "Sandbox could not read the request: #{e.message}"
       end
 
-      def resolve_call_args(arguments, handler, carried_handle)
+      def resolve_call_args(arguments, handles, carried_handle)
         return [arguments.args, arguments.kwargs] unless carried_handle
 
-        [arguments.args.map { |v| resolve_arg(v, handler) },
-         arguments.kwargs.transform_values { |v| resolve_arg(v, handler) }]
+        [arguments.args.map { |v| resolve_arg(v, handles) },
+         arguments.kwargs.transform_values { |v| resolve_arg(v, handles) }]
       end
 
       # The class prefix marks a Service's own exception and nothing else:
@@ -124,20 +124,20 @@ module Kobako
         raise UndefinedTargetError, reason if reason
       end
 
-      def resolve_arg(value, handler)
-        Kobako::Codec::HandleWalk.deep_restore(value, handler)
+      def resolve_arg(value, handles)
+        Kobako::Codec::HandleWalk.deep_restore(value, handles)
       rescue Kobako::SandboxError => e
         raise UndefinedTargetError, e.message
       end
 
       # The envelope already discriminated the two target forms, so no
       # else-branch is needed.
-      def resolve_target(target, resolver, handler)
+      def resolve_target(target, resolver, handles)
         case target
         when String
           resolve_path(target, resolver)
         when Integer
-          resolve_handle(target, handler)
+          resolve_handle(target, handles)
         end
       end
 
@@ -147,8 +147,8 @@ module Kobako
         raise UndefinedTargetError, e.message
       end
 
-      def resolve_handle(id, handler)
-        handler.exposure(id)
+      def resolve_handle(id, handles)
+        handles.exposure(id)
       rescue Kobako::SandboxError => e
         raise UndefinedTargetError, e.message
       end
@@ -157,17 +157,17 @@ module Kobako
       # other codec fault is the answer failing to encode, which only the
       # Service can change — so it is named here, where the direction is
       # known, instead of falling to the boundary's codec floor.
-      def encode_ok(value, handler)
+      def encode_ok(value, handles)
         Kobako::Codec::Nesting.assert_within_bound!(value)
         Kobako::Codec::Encoder.encode(value)
       rescue Kobako::Codec::UnsupportedTypeError
-        encode_ok(wrap_as_handle(value, handler), handler)
+        encode_ok(wrap_as_handle(value, handles), handles)
       rescue Kobako::Codec::Error => e
         raise Kobako::SandboxError, "Sandbox could not write the Service's answer: #{e.message}"
       end
 
-      def wrap_as_handle(value, handler)
-        handler.alloc(value)
+      def wrap_as_handle(value, handles)
+        handles.alloc(value)
       end
 
       # Ruby core builds some exception messages as ASCII-8BIT (the arity

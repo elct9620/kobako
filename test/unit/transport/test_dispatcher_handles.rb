@@ -21,7 +21,7 @@ class TestTransportDispatchHandles < Minitest::Test
 
     assert_predicate answer, :ok?
     assert_kind_of Kobako::Handle, answer.payload
-    bound = @handler.fetch(answer.payload.id)
+    bound = @handles.fetch(answer.payload.id)
     assert_equal "hi,Alice", bound.greet
   end
 
@@ -34,7 +34,7 @@ class TestTransportDispatchHandles < Minitest::Test
 
     answer = reify(dispatch(build_call("Factory::Bare", "call", [], {})))
 
-    assert_same held, @handler.fetch(answer.payload.id),
+    assert_same held, @handles.fetch(answer.payload.id),
                 "a Service answering a map holding a BasicObject through Dispatcher.dispatch must " \
                 "cross as a Handle to that map"
   end
@@ -48,7 +48,7 @@ class TestTransportDispatchHandles < Minitest::Test
 
     assert_predicate answer, :ok?
     assert_equal "plain", answer.payload
-    assert_equal 0, @handler.size
+    assert_equal 0, @handles.size
   end
 
   # ---------- guest passes Handle as argument ----------
@@ -121,7 +121,7 @@ class TestTransportDispatchHandles < Minitest::Test
     assert_predicate answer, :ok?
     assert_kind_of Kobako::Handle, answer.payload
     refute_equal parent_id, answer.payload.id
-    assert_equal "leaf", @handler.fetch(answer.payload.id).kind
+    assert_equal "leaf", @handles.fetch(answer.payload.id).kind
   end
 
   # @behavior T-008

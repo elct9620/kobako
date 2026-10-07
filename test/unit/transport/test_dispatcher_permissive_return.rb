@@ -18,7 +18,7 @@ class TestDispatchPermissiveReturn < Minitest::Test
   end
 
   def setup
-    @handler = Kobako::Catalog::Handles.new
+    @handles = Kobako::Catalog::Handles.new
     @services = Kobako::Catalog::Services.new
     @services.bind("Dsl::S", Service.new)
     @yield = ->(_bytes) { raise "no block" }
@@ -26,7 +26,7 @@ class TestDispatchPermissiveReturn < Minitest::Test
 
   def dispatch(method)
     call = DispatcherHelpers.call_for("Dsl::S", method)
-    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
+    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handles, @yield))
   end
 
   # @behavior T-160
@@ -36,7 +36,7 @@ class TestDispatchPermissiveReturn < Minitest::Test
                  "a Service returning a permissive method_missing object must succeed, not mis-encode as nil"
     assert_instance_of Kobako::Handle, resp.payload,
                        "a permissive method_missing return must cross as a Capability Handle, never a nil payload"
-    assert_equal 1, @handler.size,
+    assert_equal 1, @handles.size,
                  "the permissive return must allocate exactly one Handle entry"
   end
 end

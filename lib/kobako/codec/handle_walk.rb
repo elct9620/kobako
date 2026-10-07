@@ -38,13 +38,13 @@ module Kobako
       # Recursive calls spell the +HandleWalk.+ receiver so the dispatch
       # stays valid even when a block is captured and run under a
       # different +self+ (+module_function+ privatizes the instance copies).
-      def deep_wrap(value, handler, depth = 0)
+      def deep_wrap(value, handles, depth = 0)
         guard_nesting!(depth)
         case value
-        when ::Array then value.map { |element| HandleWalk.deep_wrap(element, handler, depth + 1) }
-        when ::Hash  then HandleWalk.deep_wrap_hash(value, handler, depth)
+        when ::Array then value.map { |element| HandleWalk.deep_wrap(element, handles, depth + 1) }
+        when ::Hash  then HandleWalk.deep_wrap_hash(value, handles, depth)
         else
-          representable?(value) ? value : handler.alloc(value)
+          representable?(value) ? value : handles.alloc(value)
         end
       end
 
@@ -62,7 +62,7 @@ module Kobako
       # A stateful object may cross the boundary as a Hash value but not as
       # a key — the one deliberate asymmetry with the guest→host restore
       # walk, which resolves Handle keys the guest built.
-      def deep_wrap_hash(hash, handler, depth)
+      def deep_wrap_hash(hash, handles, depth)
         wrapped = {} # : Hash[untyped, untyped]
         hash.each do |key, val|
           unless HandleWalk.representable?(key, depth + 1)
@@ -70,24 +70,24 @@ module Kobako
                   "a Hash passed to #run has a key that cannot cross the sandbox boundary " \
                   "(#{key.class}); only wire-representable values may be Hash keys"
           end
-          wrapped[key] = HandleWalk.deep_wrap(val, handler, depth + 1)
+          wrapped[key] = HandleWalk.deep_wrap(val, handles, depth + 1)
         end
         wrapped
       end
 
       # The inverse of #deep_wrap. A Handle here was decoded off the wire,
-      # never forged by the guest, and +handler.fetch+ refuses an id with no
+      # never forged by the guest, and +handles.fetch+ refuses an id with no
       # live binding.
-      def deep_restore(value, handler)
+      def deep_restore(value, handles)
         case value
-        when ::Array then value.map { |element| HandleWalk.deep_restore(element, handler) }
+        when ::Array then value.map { |element| HandleWalk.deep_restore(element, handles) }
         when ::Hash
           # Rebuilt with each key restored: two distinct Handle keys that
           # resolve to equal host objects collapse to the later pair, as in
           # any Ruby Hash. The guest authored this payload, so that collapse
           # is its own concern, not a fidelity guarantee the host owes it.
-          value.to_h { |key, val| [HandleWalk.deep_restore(key, handler), HandleWalk.deep_restore(val, handler)] }
-        when Kobako::Handle then handler.fetch(value.id)
+          value.to_h { |key, val| [HandleWalk.deep_restore(key, handles), HandleWalk.deep_restore(val, handles)] }
+        when Kobako::Handle then handles.fetch(value.id)
         else value
         end
       end

@@ -9,10 +9,10 @@ module Kobako
   # a Ruby callable the Service method can yield into.
   module Transport
     class Yielder # :nodoc:
-      def initialize(yield_to_guest, break_tag, handler)
+      def initialize(yield_to_guest, break_tag, handles)
         @yield_to_guest = yield_to_guest
         @break_tag = break_tag
-        @handler = handler
+        @handles = handles
         @active = true
         @raised = nil
       end
@@ -82,7 +82,7 @@ module Kobako
       def restore(value, carried_handle)
         return value unless carried_handle
 
-        Kobako::Codec::HandleWalk.deep_restore(value, @handler)
+        Kobako::Codec::HandleWalk.deep_restore(value, @handles)
       end
     end
   end

@@ -64,7 +64,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
   end
 
   def setup
-    @handler = Kobako::Catalog::Handles.new
+    @handles = Kobako::Catalog::Handles.new
     @services = Kobako::Catalog::Services.new
     { Cred: Opaque.new, Report: AllowList.new, Wide: Widener.new, Open: Plain.new, Dyn: Dynamic.new }
       .each { |name, service| @services.bind("Cfg::#{name}", service) }
@@ -73,7 +73,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
 
   def dispatch(target, method, args = [])
     call = DispatcherHelpers.call_for(target, method, args)
-    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handler, @yield))
+    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handles, @yield))
   end
 
   # The undefined fault discloses nothing about which methods the object
@@ -94,7 +94,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
   # by the same chokepoint as a bound constant — the guest holds it but calls nothing.
   # @behavior T-125 T-197
   def test_opaque_object_is_narrowed_through_a_handle_target
-    id = @handler.alloc(Opaque.new).id
+    id = @handles.alloc(Opaque.new).id
     resp = dispatch(id, "token")
     assert_equal false, resp.ok?,
                  "an opaque object reached as a Handle target must be narrowed identically to a bound constant"

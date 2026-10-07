@@ -57,7 +57,7 @@ class TestTransportDispatchViolations < Minitest::Test
     assert_equal "undefined", answer.payload.type,
                  "an integer through the Call target slot that the table never issued must be " \
                  "refused as an undefined target"
-    assert_equal 0, @handler.size,
+    assert_equal 0, @handles.size,
                  "a refused Handle id must not enter the Catalog::Handles"
   end
 
@@ -117,12 +117,12 @@ class TestTransportDispatchViolations < Minitest::Test
   # ---------- Catalog::Handles exhaustion ----------
 
   # The dispatcher's wrap_return path is where a normal transport call reaches
-  # the cap: a non-wire-representable return falls through to @handler.alloc,
+  # the cap: a non-wire-representable return falls through to @handles.alloc,
   # and the exhaustion raise must surface on the fault arm the guest observes.
   # @behavior T-046
   def test_handler_exhaustion_during_wrap_return_takes_the_fault_arm
     answer = reify(dispatch(build_call("Factory::Make", "make", [], {}),
-                            server: factory_registry, handler: exhausted_handles))
+                            server: factory_registry, handles: exhausted_handles))
 
     assert_predicate answer, :error?
     assert_equal "internal", answer.payload.type,
