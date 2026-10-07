@@ -21,7 +21,7 @@ pub(crate) fn eval<G: crate::MrbGuest>() {
 }
 
 fn eval_body<G: crate::MrbGuest>() {
-    use super::boot;
+    use super::{boot, panic};
     use beni::Ccontext;
     use kobako_core::abi::write_panic;
     use kobako_core::frames;
@@ -33,7 +33,7 @@ fn eval_body<G: crate::MrbGuest>() {
 
     let frame2 = match frames::read_frame() {
         Some(b) => b,
-        None => return write_panic(boot::boot_panic("failed to read the script")),
+        None => return write_panic(panic::boot_panic("failed to read the script")),
     };
 
     let snippets = match boot::read_snippets() {
@@ -41,19 +41,11 @@ fn eval_body<G: crate::MrbGuest>() {
         Err(panic) => return write_panic(panic),
     };
 
-    let kobako = match boot::acquire_vm::<G>() {
+    let kobako = match boot::enter::<G>(&preamble, &snippets) {
         Ok(k) => k,
         Err(panic) => return write_panic(panic),
     };
     let mrb = kobako.mrb();
-
-    if let Err(panic) = boot::install_preamble(&kobako, &preamble) {
-        return write_panic(panic);
-    }
-
-    if let Err(panic) = boot::replay_snippets(&kobako, &snippets) {
-        return write_panic(panic);
-    }
 
     // Compile under a ccontext with filename so the resulting IREP
     // carries `debug_info`; `pack_backtrace` in
@@ -63,7 +55,7 @@ fn eval_body<G: crate::MrbGuest>() {
     let filename = c"(eval)";
     let result = {
         let Some(cxt) = Ccontext::new(mrb, filename) else {
-            return write_panic(boot::boot_panic(
+            return write_panic(panic::boot_panic(
                 "failed to initialize the Sandbox interpreter",
             ));
         };
@@ -72,8 +64,8 @@ fn eval_body<G: crate::MrbGuest>() {
     };
 
     match result {
-        Ok(value) => boot::write_value_outcome::<G>(&kobako, value),
-        Err(err) => write_panic(boot::load_panic(&kobako, filename, err)),
+        Ok(value) => panic::write_value_outcome::<G>(&kobako, value),
+        Err(err) => write_panic(panic::load_panic(&kobako, filename, err)),
     }
     // The VM stays in the slot — the host discards the whole instance
     // after draining the outcome (the per-invocation discipline).

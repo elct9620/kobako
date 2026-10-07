@@ -34,11 +34,11 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
 }
 
 fn run_body<G: crate::MrbGuest>(env: &[u8]) {
-    use super::boot;
+    use super::{boot, panic};
     use crate::codec::PayloadCodec;
     use beni::ReprValue;
     use kobako_core::abi::write_panic;
-    use kobako_transport::envelope::{ErrorRecord, Origin, Panic, Run};
+    use kobako_transport::envelope::{Panic, Run};
 
     let preamble = match boot::read_preamble() {
         Ok(p) => p,
@@ -49,19 +49,11 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         Err(panic) => return write_panic(panic),
     };
 
-    let kobako = match boot::acquire_vm::<G>() {
+    let kobako = match boot::enter::<G>(&preamble, &snippets) {
         Ok(k) => k,
         Err(panic) => return write_panic(panic),
     };
     let mrb = kobako.mrb();
-
-    if let Err(panic) = boot::install_preamble(&kobako, &preamble) {
-        return write_panic(panic);
-    }
-
-    if let Err(panic) = boot::replay_snippets(&kobako, &snippets) {
-        return write_panic(panic);
-    }
 
     // Wire faults reject here, before entrypoint resolution: a request
     // that is both malformed and aimed at a missing entrypoint reports
@@ -71,14 +63,14 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     let run = match Run::decode(env) {
         Ok(run) => run,
         Err(_) => {
-            return write_panic(boot::transport_panic(crate::refusal::UNFRAMED_RUN));
+            return write_panic(panic::transport_panic(crate::refusal::UNFRAMED_RUN));
         }
     };
     let arguments = match G::Codec::decode_run_arguments(&kobako, &run.payload) {
         Ok(arguments) => arguments,
         Err(err) => {
             let refusal = crate::refusal::at(crate::refusal::Position::RunArguments, err);
-            return write_panic(boot::panic_for(&refusal));
+            return write_panic(panic::panic_for(&refusal));
         }
     };
 
@@ -92,20 +84,18 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     // than at either of them.
     let target_sym = match mrb.intern(run.entrypoint.as_bytes()) {
         Ok(sym) => sym,
-        Err(err) => return write_panic(boot::panic_from_error(&kobako, err)),
+        Err(err) => return write_panic(panic::panic_from_error(&kobako, err)),
     };
     let object_value = mrb.object_class().as_value();
 
     if !object_value.const_defined(mrb, target_sym) {
         let available = super::boot_constants::snippet_constants(&kobako, &preamble);
         return write_panic(Panic {
-            origin: Origin::Sandbox,
-            error: ErrorRecord {
-                name: "Kobako::UndefinedEntrypointError".into(),
-                message: format!("undefined entrypoint: {}", run.entrypoint),
-                backtrace: Vec::new(),
-            },
             available,
+            ..panic::sandbox_panic(
+                "Kobako::UndefinedEntrypointError",
+                format!("undefined entrypoint: {}", run.entrypoint),
+            )
         });
     }
 
@@ -115,19 +105,14 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
         // miss unreachable here; a surfaced error is the exotic case
         // (e.g. an autoload hook raised). Attribute it verbatim rather
         // than silently swallow it.
-        Err(err) => return write_panic(boot::panic_from_error(&kobako, err)),
+        Err(err) => return write_panic(panic::panic_from_error(&kobako, err)),
     };
 
     if !target_val.respond_to(mrb, c"call") {
-        return write_panic(Panic {
-            origin: Origin::Sandbox,
-            error: ErrorRecord {
-                name: "Kobako::SandboxError".into(),
-                message: format!("entrypoint {} does not respond to :call", run.entrypoint),
-                backtrace: Vec::new(),
-            },
-            available: Vec::new(),
-        });
+        return write_panic(panic::guest_panic(format!(
+            "entrypoint {} does not respond to :call",
+            run.entrypoint
+        )));
     }
 
     // Build argv = [*args, kwargs?] where the trailing kwargs Hash is
@@ -153,8 +138,8 @@ fn run_body<G: crate::MrbGuest>(env: &[u8]) {
 
     let result_val = match target_val.funcall(mrb, c"call", &argv) {
         Ok(v) => v,
-        Err(err) => return write_panic(boot::panic_from_error(&kobako, err)),
+        Err(err) => return write_panic(panic::panic_from_error(&kobako, err)),
     };
 
-    boot::write_value_outcome::<G>(&kobako, result_val);
+    panic::write_value_outcome::<G>(&kobako, result_val);
 }

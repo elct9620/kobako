@@ -7,6 +7,7 @@ mod boot;
 mod boot_constants;
 mod eval;
 mod mrb_slot;
+mod panic;
 mod run;
 mod yield_block;
 

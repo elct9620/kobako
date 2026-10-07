@@ -175,7 +175,7 @@ fn encode_error_response_from_exception(
     kobako: &crate::runtime::Kobako,
     exc: beni::Value,
 ) -> Vec<u8> {
-    let (class, message, backtrace) = super::boot::exception_fields(kobako, exc);
+    let (class, message, backtrace) = super::panic::exception_fields(kobako, exc);
     // Held for the rest of the round-trip against the block that raised
     // it: the Service may rescue this, and if it does not, that block's
     // own dispatch re-raises this very object rather than a class and

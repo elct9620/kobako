@@ -17,6 +17,10 @@ use crate::codec::CodecError;
 /// a guest frame reaches it through `Kobako` instead of by name.
 pub(crate) const TRANSPORT_ERROR: &str = "Kobako::Transport::Error";
 
+/// The class a failure the guest's own flow detected carries, where no
+/// mruby exception names one.
+pub(crate) const SANDBOX_ERROR: &str = "Kobako::SandboxError";
+
 /// The wording a Run whose envelope does not frame fails under. It differs
 /// from every refusal of the Run's arguments, so a host reading the Panic
 /// can tell a framing desync from a payload the codec could not read.
@@ -88,7 +92,7 @@ impl Position {
             | Position::ReplyValue
             | Position::BlockReturnValue
             | Position::BreakValue => "TypeError",
-            Position::InvocationValue => "Kobako::SandboxError",
+            Position::InvocationValue => SANDBOX_ERROR,
             Position::RunArguments | Position::YieldArguments => TRANSPORT_ERROR,
         }
     }
@@ -121,7 +125,7 @@ impl Position {
             | Position::YieldArguments
             | Position::BlockReturnValue
             | Position::BreakValue => "NotImplementedError",
-            Position::RunArguments | Position::InvocationValue => "Kobako::SandboxError",
+            Position::RunArguments | Position::InvocationValue => SANDBOX_ERROR,
             Position::ReplyValue => TRANSPORT_ERROR,
         }
     }
