@@ -161,11 +161,12 @@ fn rx_compile(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
             "wrong number of arguments (given 0, expected 1..3)",
         ));
     }
-    let source = if is_regexp(mrb, args[0]) {
-        text_of(mrb, args[0])?
-    } else {
-        string_text(mrb, args[0])?
-    };
+    // A pattern keeps its own source and options; MRI ignores any given
+    // alongside.
+    if let Some(state) = state_of(mrb, args[0]) {
+        return compile(mrb, state.source.clone(), state.options);
+    }
+    let source = string_text(mrb, args[0])?;
     let options = parse_options(mrb, args.get(1).copied())?;
     compile(mrb, source, options)
 }
