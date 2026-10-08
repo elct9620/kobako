@@ -1069,8 +1069,8 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code builds a pattern from an Integer, a Symbol and nil, by either construction name |
-| Then | each raises `TypeError` |
+| When | guest code builds a pattern from an Integer, a Symbol and nil |
+| Then | each raises `TypeError` under either construction name |
 
 ## `RX-228` A pattern built from another keeps its source and options
 
@@ -1093,7 +1093,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code builds a pattern passing true, a Float and a Symbol, then false and nil, as the option |
+| When | guest code passes true, a Float, a Symbol, false and nil as the option |
 | Then | the first three make it case-insensitive, and the last two leave it with no option |
 
 ## `RX-231` A flag string names only the language's letters
@@ -1101,5 +1101,5 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code builds a pattern with a flag string of each letter the language names, and with one carrying a letter it does not |
+| When | guest code builds patterns from flag strings, one carrying a letter the language lacks |
 | Then | each named letter becomes its own option, and the other raises `ArgumentError` |

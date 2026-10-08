@@ -8,9 +8,16 @@ A String handed a pattern searches, splits, substitutes or rewrites itself. Each
 
 Splitting and scanning disagree deliberately about a group that did not take part: splitting drops it, scanning keeps the hole. Both are witnessed on the same pattern, because the contrast is the contract.
 
-A String handed where a pattern goes is read two ways, as the language reads it: matching compiles it, while scanning and substituting look for its characters. Both are witnessed with a metacharacter, the one case where the two readings answer differently.
-
 Replacement text is a small language of its own, so its scenarios cover what expands, what stays literal, and what is refused — a name no group carries, and a name marker with no name behind it.
+
+#### String Readings
+
+A String handed where a pattern goes is read as the language reads it. A metacharacter is the one case where the two readings answer differently, so both are witnessed with one.
+
+```
+matching                 reads a String as a pattern
+scanning, substituting   reads a String as literal characters
+```
 
 ## Includes
 
@@ -503,7 +510,7 @@ Replacement text is a small language of its own, so its scenarios cover what exp
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code scans, substitutes once and substitutes globally with a String pattern holding a pattern metacharacter |
+| When | guest code scans and substitutes with a String holding a pattern metacharacter |
 | Then | each matches only those literal characters |
 
 ## `RX-224` Only a pattern or a String is taken as a pattern
@@ -511,7 +518,7 @@ Replacement text is a small language of its own, so its scenarios cover what exp
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code scans, substitutes once and substitutes globally with an Integer, and with a Symbol, as the pattern |
+| When | guest code scans and substitutes with an Integer, then a Symbol, as the pattern |
 | Then | each raises `TypeError` |
 
 ## `RX-225` Matching reads a String as the pattern it spells
@@ -519,7 +526,7 @@ Replacement text is a small language of its own, so its scenarios cover what exp
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code matches a String, and asks whether it matches, against another String holding a pattern metacharacter |
+| When | guest code matches a String against another holding a pattern metacharacter, in both forms |
 | Then | the other String is compiled as a pattern rather than read as literal text |
 
 ## `RX-226` A replacement must be a String or a Hash
@@ -527,5 +534,5 @@ Replacement text is a small language of its own, so its scenarios cover what exp
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code substitutes once and substitutes globally with an Integer, and with nil, as the replacement, on a String the pattern does not match |
+| When | guest code substitutes into an unmatched String with an Integer or nil replacement |
 | Then | each raises `TypeError` before any match is sought |
