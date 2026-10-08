@@ -1079,3 +1079,11 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code builds a pattern from an Integer, a Symbol and nil, by either construction name |
 | Then | each raises `TypeError` |
+
+## `RX-228` A pattern built from another keeps its source and options
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code builds a pattern from a case-insensitive pattern, passing a different option alongside |
+| Then | the new pattern carries the original's source and options and equals it |
