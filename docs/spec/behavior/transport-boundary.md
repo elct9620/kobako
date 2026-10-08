@@ -643,3 +643,11 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | Given | two objects of one class, one carrying a method defined on the object itself |
 | When | the guest calls that name on each |
 | Then | only the object carrying it exposes the name |
+
+## `T-265` A reference the guest receives names the object the host issued it for
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose guest redefined how the reference type initializes |
+| When | a Service answers a stateful object |
+| Then | the guest's reference reaches that object |
