@@ -19,7 +19,7 @@ use beni::Value;
 
 use super::Kobako;
 
-/// Mangled instance-variable name that `Kobako::Handle#initialize`
+/// Mangled instance-variable name that `Kobako::set_handle_id`
 /// stores the Handle id under. Read back through `Kobako::extract_handle_id`
 /// at every method dispatch — keeping the literal in a single
 /// `const` makes the writer / reader pairing impossible to drift
@@ -130,7 +130,9 @@ impl Kobako {
     /// Mint the `Kobako::Handle` naming `id`, frozen so the guest cannot
     /// re-point it at an id it was never handed. The exact class matters as
     /// much as the freeze: dispatch derives a Handle target from an exact
-    /// `Kobako::Handle` receiver, so a subclass would carry no target.
+    /// `Kobako::Handle` receiver, so a subclass would carry no target. The
+    /// Handle is allocated without running `initialize`, so a guest that
+    /// reopened the class cannot choose the id it carries.
     ///
     /// The id cap is re-checked here rather than trusted from the caller.
     /// A codec is replaceable, so an id it failed to bound must not
@@ -150,8 +152,11 @@ impl Kobako {
         let mrb = self.mrb();
         self.registrations
             .handle_class
-            .new_instance(mrb, &[(id as i32).into_value(mrb)])
-            .map(|handle| handle.freeze(mrb))
+            .obj_alloc(mrb)
+            .and_then(|handle| {
+                self.set_handle_id(handle, (id as i32).into_value(mrb))?;
+                Ok(handle.freeze(mrb))
+            })
             .unwrap_or(nil)
     }
 

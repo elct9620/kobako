@@ -55,21 +55,13 @@ impl Gem for KobakoBridge {
         )?;
 
         // `Kobako::Handle` — capability-handle proxy. Includes `Kobako::Proxy`
-        // for instance-level forwarding (calls route to a `Target::Handle`
-        // derived from the id `initialize` stores). Guest construction is
-        // blocked at the class level so an exact `Kobako::Handle` arises only
-        // from the wire decoder's `mrb_obj_new`; that keeps every
-        // `Kobako::Handle` the guest sees host-issued, which is what
-        // `proxy_method_missing`'s exact-identity check relies on.
+        // for instance-level forwarding to a `Target::Handle`. Guest
+        // construction is blocked at the class level, so every exact
+        // `Kobako::Handle` comes from `Kobako::mint_handle` and carries an id
+        // the host issued — what `proxy_method_missing`'s exact-identity
+        // check relies on.
         let handle_class = kobako_mod.define_class(mrb, c"Handle", object_class)?;
         handle_class.include_module(mrb, proxy_module)?;
-        // One argument, the Handle id — the wire decoder's `mrb_obj_new` is
-        // the only caller and always passes exactly it.
-        handle_class.define_method(
-            mrb,
-            c"initialize",
-            beni::method!(bridges::handle_initialize, 1),
-        )?;
         // Freeze a `dup`/`clone` copy so no duplication yields a re-pointable
         // Handle; see `bridges::handle_initialize_copy`.
         handle_class.define_method(

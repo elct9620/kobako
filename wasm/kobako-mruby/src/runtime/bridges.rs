@@ -223,7 +223,7 @@ fn no_target(mrb: &Mrb, self_: Value) -> beni::Error {
 }
 
 /// `Kobako::Handle.new` / `.allocate` both raise, so an exact
-/// `Kobako::Handle` arises only from the wire decoder's `mrb_obj_new`; with
+/// `Kobako::Handle` arises only from `Kobako::mint_handle`; with
 /// guest construction closed, a `Kobako::Handle` receiver in
 /// `proxy_method_missing` is always host-issued.
 pub(crate) fn handle_not_constructible(
@@ -236,12 +236,6 @@ pub(crate) fn handle_not_constructible(
         mrb.exception_no_method_error(),
         "Kobako::Handle is a host-issued capability reference, not a constructible class",
     ))
-}
-
-pub(crate) fn handle_initialize(mrb: &Mrb, self_: Value, id: Value) -> Result<(), beni::Error> {
-    // SAFETY: `mrb` is live for this bridge frame and install has run.
-    let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
-    kobako.set_handle_id(self_, id)
 }
 
 /// `Kobako::Handle#initialize_copy(orig)` C bridge. mruby copies the id ivar
