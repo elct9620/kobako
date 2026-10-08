@@ -262,3 +262,11 @@ A match cannot be constructed. It exists because a pattern matched, which is wha
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code clones a match and duplicates it |
 | Then | both carry the same captures and offsets |
+
+## `RX-232` A group is asked for by a number or a name
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code asks a match where a group begins, ends and lies by a Float, by nil and by an object that is neither number nor name |
+| Then | the Float reads as its whole part, and nil and the object each raise `TypeError` |
