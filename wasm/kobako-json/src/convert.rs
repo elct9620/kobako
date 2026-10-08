@@ -180,9 +180,9 @@ fn encode_hash(mrb: &Mrb, hash: RHash, depth: usize) -> Result<JsonValue, Error>
         return Err(too_deep(mrb));
     }
     // A value's opt-in hook is guest code running mid-walk, so the walk reads
-    // a snapshot of the keys rather than the live table, which mruby's own
-    // walk would read past its end once a hook removed an entry. A key the
-    // hook removed is skipped and one it added is refused, as in CRuby.
+    // a snapshot of the keys rather than the live table, whose walk ends in
+    // an error once a hook changes the pair count. A key the hook removed is
+    // skipped and one it added is refused, as in CRuby.
     let size = hash.len(mrb);
     let keys = hash.keys(mrb);
     let mut map = Map::with_capacity(size);
