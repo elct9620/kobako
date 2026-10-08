@@ -505,3 +505,11 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 | Given | a Sandbox over the JSON-capable Guest Binary |
 | When | guest code generates a Hash whose member's opt-in hook adds a key to it |
 | Then | it raises `RuntimeError` |
+
+## `JS-062` Only a String is parsed
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| When | guest code parses an Integer, a Symbol and nil |
+| Then | each raises `TypeError` |
