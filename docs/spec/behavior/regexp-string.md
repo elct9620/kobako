@@ -503,3 +503,11 @@ Replacement text is a small language of its own, so its scenarios cover what exp
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code scans, substitutes once and substitutes globally with a String pattern holding a pattern metacharacter |
 | Then | each matches only those literal characters |
+
+## `RX-224` Only a pattern or a String is taken as a pattern
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code scans, substitutes once and substitutes globally with an Integer, and with a Symbol, as the pattern |
+| Then | each raises `TypeError` |
