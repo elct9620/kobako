@@ -86,4 +86,9 @@ class TestJsonParse < Minitest::Test
                  "a parse failure whose error class the guest replaced must reach the guest as " \
                  "the lookup's own error rather than ending the invocation"
   end
+
+  # @behavior JS-062
+  def test_a_source_that_is_not_a_string_is_refused
+    %w[1 :a nil].each { |source| assert_guest_raises("TypeError", "JSON.parse(#{source})") }
+  end
 end
