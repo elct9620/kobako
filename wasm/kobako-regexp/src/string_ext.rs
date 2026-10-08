@@ -61,7 +61,7 @@ fn str_match(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if args.is_empty() {
         return Ok(qnil().as_value());
     }
-    let re = regexp::require_regexp(mrb, args[0])?;
+    let re = regexp::spelled_regexp(mrb, args[0])?;
     let forwarded: Vec<Value> = core::iter::once(self_)
         .chain(args[1..].iter().copied())
         .collect();
@@ -73,7 +73,7 @@ fn str_match_p(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
     if args.is_empty() {
         return Ok(false.into_value(mrb));
     }
-    let re = regexp::require_regexp(mrb, args[0])?;
+    let re = regexp::spelled_regexp(mrb, args[0])?;
     let forwarded: Vec<Value> = core::iter::once(self_)
         .chain(args[1..].iter().copied())
         .collect();
@@ -86,7 +86,7 @@ fn str_scan(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if args.is_empty() {
         return Ok(result.as_value());
     }
-    let re = regexp::coerce_regexp(mrb, args[0])?;
+    let re = regexp::literal_regexp(mrb, args[0])?;
     let subject = regexp::text_of(mrb, self_)?;
     let spans = regexp::match_spans(mrb, re, &subject)?;
     for span in &spans {
@@ -129,7 +129,7 @@ fn str_gsub(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if block.is_none() && replacement.is_none() {
         return enum_for(mrb, self_, c"gsub", args[0]);
     }
-    let re = regexp::coerce_regexp(mrb, args[0])?;
+    let re = regexp::literal_regexp(mrb, args[0])?;
     let subject = regexp::text_of(mrb, self_)?;
     let spans = regexp::match_spans(mrb, re, &subject)?;
     let mut out = String::with_capacity(subject.len());
@@ -158,7 +158,7 @@ fn str_sub(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
             "wrong number of arguments (given 1, expected 2)",
         ));
     }
-    let re = regexp::coerce_regexp(mrb, args[0])?;
+    let re = regexp::literal_regexp(mrb, args[0])?;
     let subject = regexp::text_of(mrb, self_)?;
     let spans = regexp::match_spans(mrb, re, &subject)?;
     let Some(span) = spans.first() else {

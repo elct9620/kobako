@@ -457,16 +457,32 @@ pub(crate) fn is_regexp(mrb: &Mrb, value: Value) -> bool {
     state_of(mrb, value).is_some()
 }
 
-/// A `String` pattern compiles as a literal (escaped) pattern, as in MRI;
-/// anything else that is not a `Regexp` is refused.
-pub(crate) fn coerce_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
+/// A `String` pattern compiles as its literal characters, as scanning and
+/// substituting read it in MRI.
+pub(crate) fn literal_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
+    string_pattern(mrb, arg, |text| render::escape_str(&text))
+}
+
+/// A `String` pattern compiles as the pattern it spells, as matching reads
+/// it in MRI.
+pub(crate) fn spelled_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
+    string_pattern(mrb, arg, |text| text)
+}
+
+/// A `Regexp` as it is, a `String` compiled from the source `read` makes of
+/// it; anything else is refused.
+fn string_pattern(
+    mrb: &Mrb,
+    arg: Value,
+    read: impl FnOnce(String) -> String,
+) -> Result<Value, Error> {
     if is_regexp(mrb, arg) {
         return Ok(arg);
     }
     if RString::from_value(arg).is_none() {
         return Err(not_a_pattern(mrb, arg));
     }
-    compile(mrb, render::escape_str(&text_of(mrb, arg)?), 0)
+    compile(mrb, read(text_of(mrb, arg)?), 0)
 }
 
 /// The `TypeError` for a pattern that is neither a `Regexp` nor a
@@ -508,14 +524,5 @@ fn subject_string(mrb: &Mrb, arg: Value) -> Result<String, Error> {
         text_of(mrb, arg)
     } else {
         string_text(mrb, arg)
-    }
-}
-
-/// A String is not coerced here, so a non-`Regexp` raises `TypeError`.
-pub(crate) fn require_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
-    if is_regexp(mrb, arg) {
-        Ok(arg)
-    } else {
-        Err(not_a_pattern(mrb, arg))
     }
 }
