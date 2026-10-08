@@ -515,11 +515,17 @@ fn not_a_pattern(mrb: &Mrb, arg: Value) -> Error {
     )
 }
 
-/// Everything here works over `&str`, so non-UTF-8 bytes are refused rather
-/// than rendered as an empty string, where an empty subject silently
-/// matches nothing and an empty pattern silently matches everywhere.
+/// A String's own characters, or another value's `to_s`, as MRI renders a
+/// value it needs as text. Everything here works over `&str`, so non-UTF-8
+/// bytes are refused rather than rendered as an empty string, where an
+/// empty subject silently matches nothing and an empty pattern silently
+/// matches everywhere.
 pub(crate) fn text_of(mrb: &Mrb, val: Value) -> Result<String, Error> {
-    let rendered = val.funcall(mrb, c"to_s", &[])?;
+    let rendered = if RString::from_value(val).is_some() {
+        val
+    } else {
+        val.funcall(mrb, c"to_s", &[])?
+    };
     String::from_value(rendered)
         .ok_or_else(|| argument_error(mrb, "invalid byte sequence in UTF-8"))
 }
