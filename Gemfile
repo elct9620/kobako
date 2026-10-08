@@ -25,7 +25,7 @@ gem "beni", "~> 0.22.0", require: false
 group :development do
   gem "irb", require: false
   gem "minitest", "~> 6.0", require: false
-  gem "rubocop", "~> 1.90", require: false
+  gem "rubocop", "~> 1.91", require: false
 
   # Static type checker. Signatures live in sig/.
   gem "steep", "~> 2.1", require: false
