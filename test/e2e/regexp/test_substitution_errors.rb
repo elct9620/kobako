@@ -40,4 +40,16 @@ class TestRegexpSubstitutionErrors < Minitest::Test
     assert_equal "ArgumentError", guard_error('"aa".sub(/a/)', "ArgumentError"),
                  "sub with neither a block nor a replacement raises ArgumentError"
   end
+
+  # The subject holds no match, so a refusal can only come from the
+  # replacement being checked before the search, as the language does.
+  # @behavior RX-226
+  def test_a_replacement_that_is_neither_a_string_nor_a_hash_is_refused
+    %w[1 nil].each do |replacement|
+      %w[sub gsub].each do |method|
+        assert_equal "TypeError", guard_error("'b'.#{method}(/a/, #{replacement})", "TypeError"),
+                     "#{replacement} as the replacement through String##{method} must raise TypeError"
+      end
+    end
+  end
 end
