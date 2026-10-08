@@ -131,9 +131,13 @@ fn md_aref(mrb: &Mrb, state: &MatchState, args: &[Value]) -> Result<Value, Error
 }
 
 /// An index past the group count, a negative index, or an undefined capture
-/// name raises IndexError, mirroring the curated engine's bounds check.
+/// name raises IndexError, mirroring the curated engine's bounds check; any
+/// other value converts to an Integer as MRI converts it, or raises.
 fn group_at(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<(usize, usize)>, Error> {
-    let index = numeric_index(mrb, state, arg)?.unwrap_or(0);
+    let index = match numeric_index(mrb, state, arg)? {
+        Some(index) => index,
+        None => i32::try_convert(arg, mrb)?,
+    };
     if index < 0 || index as usize >= state.groups.len() {
         return Err(index_error(mrb, &format!("index {index} out of matches")));
     }
