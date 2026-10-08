@@ -161,7 +161,11 @@ fn rx_compile(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
             "wrong number of arguments (given 0, expected 1..3)",
         ));
     }
-    let source = text_of(mrb, args[0])?;
+    let source = if is_regexp(mrb, args[0]) {
+        text_of(mrb, args[0])?
+    } else {
+        string_text(mrb, args[0])?
+    };
     let options = parse_options(mrb, args.get(1).copied())?;
     compile(mrb, source, options)
 }
