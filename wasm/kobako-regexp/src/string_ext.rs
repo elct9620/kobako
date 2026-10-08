@@ -10,7 +10,7 @@ use crate::errors::{argument_error, index_error, type_error};
 use crate::regexp;
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Mrb, Proc, RHash, RString, Value};
+use beni::{Error, IntoValue, Mrb, Proc, RHash, RString, TryConvert, Value};
 use core::ffi::CStr;
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
@@ -129,6 +129,7 @@ fn str_gsub(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if block.is_none() && replacement.is_none() {
         return enum_for(mrb, self_, c"gsub", args[0]);
     }
+    require_replacement(mrb, replacement)?;
     let re = regexp::literal_regexp(mrb, args[0])?;
     let subject = regexp::text_of(mrb, self_)?;
     let spans = regexp::match_spans(mrb, re, &subject)?;
@@ -158,6 +159,7 @@ fn str_sub(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
             "wrong number of arguments (given 1, expected 2)",
         ));
     }
+    require_replacement(mrb, replacement)?;
     let re = regexp::literal_regexp(mrb, args[0])?;
     let subject = regexp::text_of(mrb, self_)?;
     let spans = regexp::match_spans(mrb, re, &subject)?;
@@ -170,6 +172,17 @@ fn str_sub(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     out.push_str(&substitution(mrb, re, &subject, span, block, replacement)?);
     out.push_str(&subject[end..]);
     Ok(mrb.str_new(out.as_bytes()).as_value())
+}
+
+/// A replacement is a Hash or a String; anything else is refused before
+/// any match is sought, as in MRI.
+fn require_replacement(mrb: &Mrb, replacement: Option<Value>) -> Result<(), Error> {
+    if let Some(rep) = replacement {
+        if RHash::from_value(rep).is_none() {
+            RString::try_convert(rep, mrb)?;
+        }
+    }
+    Ok(())
 }
 
 /// A replacement argument wins over a block, as in MRI; a block runs only
