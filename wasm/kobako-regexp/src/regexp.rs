@@ -215,13 +215,20 @@ fn cache_put(mrb: &Mrb, source: String, options: i64, regex: &Arc<fancy_regex::R
         .put((source, options), Arc::clone(regex));
 }
 
+/// An Integer is the option bits and a String names them by letter; any
+/// other value asks for case-insensitivity by its truth, as in MRI.
 fn parse_options(mrb: &Mrb, flags: Option<Value>) -> Result<i64, Error> {
-    match flags {
-        Some(value) if !value.is_nil() => match i32::from_value(value) {
-            Some(mask) => Ok(i64::from(mask)),
-            None => Ok(translate::parse_flag_string(&text_of(mrb, value)?)),
-        },
-        _ => Ok(0),
+    let Some(value) = flags else {
+        return Ok(0);
+    };
+    if let Some(mask) = i32::from_value(value) {
+        Ok(i64::from(mask))
+    } else if RString::from_value(value).is_some() {
+        Ok(translate::parse_flag_string(&text_of(mrb, value)?))
+    } else if value.to_bool() {
+        Ok(translate::IGNORECASE)
+    } else {
+        Ok(0)
     }
 }
 
