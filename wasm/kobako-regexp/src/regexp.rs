@@ -224,7 +224,9 @@ fn parse_options(mrb: &Mrb, flags: Option<Value>) -> Result<i64, Error> {
     if let Some(mask) = i32::from_value(value) {
         Ok(i64::from(mask))
     } else if RString::from_value(value).is_some() {
-        Ok(translate::parse_flag_string(&text_of(mrb, value)?))
+        let flags = text_of(mrb, value)?;
+        translate::parse_flag_string(&flags)
+            .ok_or_else(|| argument_error(mrb, &format!("unknown regexp option: {flags}")))
     } else if value.to_bool() {
         Ok(translate::IGNORECASE)
     } else {

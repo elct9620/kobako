@@ -14,17 +14,15 @@ pub(crate) const IGNORECASE: i64 = 1;
 pub(crate) const EXTENDED: i64 = 2;
 pub(crate) const MULTILINE: i64 = 4;
 
-pub(crate) fn parse_flag_string(flags: &str) -> i64 {
-    let mut options = 0;
-    for letter in flags.chars() {
-        match letter {
-            'i' => options |= IGNORECASE,
-            'm' => options |= MULTILINE,
-            'x' => options |= EXTENDED,
-            _ => {}
-        }
-    }
-    options
+/// The option bits a flag string names, or `None` when it carries a letter
+/// MRI does not name.
+pub(crate) fn parse_flag_string(flags: &str) -> Option<i64> {
+    flags.chars().try_fold(0, |options, letter| match letter {
+        'i' => Some(options | IGNORECASE),
+        'm' => Some(options | MULTILINE),
+        'x' => Some(options | EXTENDED),
+        _ => None,
+    })
 }
 
 /// The engine's multiline flag is always set so `^` / `$` match per line as
@@ -99,14 +97,16 @@ fn ascii_class(letter: char, in_class: bool) -> Option<&'static str> {
 mod tests {
     use super::*;
 
-    // @behavior RX-167
     #[test]
     fn flag_string_parses_known_letters() {
-        assert_eq!(parse_flag_string(""), 0);
-        assert_eq!(parse_flag_string("i"), IGNORECASE);
-        assert_eq!(parse_flag_string("im"), IGNORECASE | MULTILINE);
-        assert_eq!(parse_flag_string("imx"), IGNORECASE | MULTILINE | EXTENDED);
-        assert_eq!(parse_flag_string("z"), 0);
+        assert_eq!(parse_flag_string(""), Some(0));
+        assert_eq!(parse_flag_string("i"), Some(IGNORECASE));
+        assert_eq!(parse_flag_string("im"), Some(IGNORECASE | MULTILINE));
+        assert_eq!(
+            parse_flag_string("imx"),
+            Some(IGNORECASE | MULTILINE | EXTENDED)
+        );
+        assert_eq!(parse_flag_string("iz"), None);
     }
 
     // @behavior RX-168
