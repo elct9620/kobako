@@ -17,4 +17,11 @@ class TestRegexpConstruction < Minitest::Test
       end
     end
   end
+
+  # @behavior RX-228
+  def test_a_pattern_built_from_another_keeps_its_source_and_options
+    assert_equal ["a.", 1, true],
+                 eval_regexp("r = Regexp.new(/a./i, Regexp::MULTILINE); [r.source, r.options, r == /a./i]"),
+                 "a pattern through Regexp.new must keep its source and options, ignoring the options given alongside"
+  end
 end
