@@ -11,10 +11,30 @@ contract over mruby.
 
 | Item | What it provides |
 |---|---|
-| `MrbGuest` | the harness trait: one required `init_gems` hook naming the shell-chosen `beni::Gem` set, plus provided `eval` / `run` / `yield_to_block` flows (canonical boot-state acquisition per invocation, frame reading, codec conversion, block-yield re-entry) and the build-time `bake_boot` hook behind the wizer pre-initialization entry |
-| `KobakoBridge` | the single built-in gem, installed by the provided flows themselves: the `Kobako` module, Service / Handle dispatch to the host, and the block machinery |
-| `BlockFrame` | the block seam a capability gem holds across its own dispatch, so a gem-defined method takes a block the same way the built-in proxy does |
-| Value conversion | mruby ↔ wire, between `beni` values and the [kobako-codec](https://crates.io/crates/kobako-codec) codec |
+| `MrbGuest` | the harness trait a guest shell implements |
+| `KobakoBridge` | the single built-in gem |
+| `BlockFrame` | the block seam a capability gem holds |
+| Value conversion | mruby ↔ wire, between `beni` values and [kobako-codec](https://crates.io/crates/kobako-codec) |
+
+The provided flows install `KobakoBridge` themselves. It carries the
+`Kobako` module, Service / Handle dispatch to the host, and the block
+machinery. A capability gem holds `BlockFrame` across its own dispatch,
+so a gem-defined method takes a block the same way the built-in proxy
+does.
+
+## Harness
+
+`MrbGuest` asks a shell for one hook and provides the rest.
+
+| Member | Kind | Role |
+|---|---|---|
+| `init_gems` | required hook | names the shell-chosen `beni::Gem` set |
+| `eval` / `run` / `yield_to_block` | provided flows | one invocation each |
+| `bake_boot` | build-time hook | behind the wizer pre-initialization entry |
+
+Each provided flow acquires the canonical boot state per invocation,
+reads the frame, converts through the codec, and re-enters for a block
+yield.
 
 ## Usage
 
@@ -96,4 +116,4 @@ the toolchain that builds it.
 
 ## License
 
-Apache-2.0
+Licensed under [Apache-2.0](https://github.com/elct9620/kobako/blob/main/LICENSE).

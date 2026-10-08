@@ -34,4 +34,4 @@ hook — the in-repo `kobako-wasm` shell composing the bundled
 
 ## License
 
-Apache-2.0
+Licensed under [Apache-2.0](https://github.com/elct9620/kobako/blob/main/LICENSE).
