@@ -3,8 +3,8 @@
 require "test_helper"
 
 # What the String methods that take a pattern accept as one. A dot
-# discriminates a literal match from a compiled one: compiled, it would
-# match every character.
+# discriminates a literal match from a compiled one: compiled, it matches
+# every character.
 class TestRegexpStringPattern < Minitest::Test
   include RegexpGuestHelper
 
@@ -24,5 +24,11 @@ class TestRegexpStringPattern < Minitest::Test
                      "#{pattern} as the pattern through String##{call} must raise TypeError"
       end
     end
+  end
+
+  # @behavior RX-225
+  def test_matching_compiles_a_string_pattern
+    assert_equal [true, "bc"], eval_regexp('["axc".match?("."), "abc".match("b.")[0]]'),
+                 "a String pattern through String#match? and #match must compile as the pattern it spells"
   end
 end

@@ -5,8 +5,8 @@ require "test_helper"
 # The match-family operand contract. A Regexp
 # match takes a String or Symbol subject, treats nil as no match, and raises
 # TypeError on anything else (=== rescues to false). For String#match /
-# #match? the pattern must be a Regexp (a String is not coerced) — anything
-# else is a TypeError.
+# #match? the pattern must be a Regexp or a String — anything else is a
+# TypeError.
 class TestRegexpMatchOperand < Minitest::Test
   include RegexpGuestHelper
 
@@ -70,18 +70,6 @@ class TestRegexpMatchOperand < Minitest::Test
   def test_a_nil_subject_is_no_match
     assert_equal [nil, false], eval_regexp("[/b/ =~ nil, /b/ === nil]"),
                  "Regexp#=~ must answer nil and Regexp#=== must answer false for a nil subject"
-  end
-
-  # @behavior RX-193
-  def test_string_match_raises_type_error_on_string_pattern_through_the_match_form
-    assert_equal "TypeError", guard_error('"abc".match("b")', "TypeError"),
-                 "a String pattern through String#match, not only #match?, must raise TypeError"
-  end
-
-  # @behavior RX-028
-  def test_string_match_raises_type_error_on_string_pattern
-    assert_equal "TypeError", guard_error('"axc".match?(".")', "TypeError"),
-                 "a String pattern through String#match? must raise TypeError (not coerced, mirroring C)"
   end
 
   # @behavior RX-029
