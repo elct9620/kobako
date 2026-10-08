@@ -24,4 +24,13 @@ class TestRegexpConstruction < Minitest::Test
                  eval_regexp("r = Regexp.new(/a./i, Regexp::MULTILINE); [r.source, r.options, r == /a./i]"),
                  "a pattern through Regexp.new must keep its source and options, ignoring the options given alongside"
   end
+
+  # The Symbol is :m, whose name a reader of letters would take for the
+  # multiline flag rather than for a true value.
+  # @behavior RX-230
+  def test_an_option_that_is_neither_a_number_nor_text_is_read_by_its_truth
+    assert_equal [1, 1, 1, 0, 0], eval_regexp('[true, 1.5, :m, false, nil].map { |o| Regexp.new("a", o).options }'),
+                 "a non-Integer, non-String option through Regexp.new must make the pattern case-insensitive " \
+                 "when true and leave it without options when false or nil"
+  end
 end
