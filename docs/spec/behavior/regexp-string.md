@@ -495,3 +495,11 @@ Replacement text is a small language of its own, so its scenarios cover what exp
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code slices a String by a pattern that matches and by one that does not |
 | Then | each answers what indexing by that pattern answers |
+
+## `RX-223` A String pattern matches its own characters
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code scans, substitutes once and substitutes globally with a String pattern holding a pattern metacharacter |
+| Then | each matches only those literal characters |
