@@ -1111,3 +1111,11 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code redefines how a String renders, then matches, scans, builds, escapes and substitutes |
 | Then | each reads the Strings it was handed, not their rendering |
+
+## `RX-234` A Symbol is read as its own name
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code redefines Symbol rendering, then matches, escapes and locates a group by a Symbol |
+| Then | each reads the Symbol's own name, not its rendering |
