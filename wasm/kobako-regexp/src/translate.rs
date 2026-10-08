@@ -97,18 +97,6 @@ fn ascii_class(letter: char, in_class: bool) -> Option<&'static str> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn flag_string_parses_known_letters() {
-        assert_eq!(parse_flag_string(""), Some(0));
-        assert_eq!(parse_flag_string("i"), Some(IGNORECASE));
-        assert_eq!(parse_flag_string("im"), Some(IGNORECASE | MULTILINE));
-        assert_eq!(
-            parse_flag_string("imx"),
-            Some(IGNORECASE | MULTILINE | EXTENDED)
-        );
-        assert_eq!(parse_flag_string("iz"), None);
-    }
-
     // @behavior RX-168
     #[test]
     fn pattern_always_enables_multiline_for_ruby_anchors() {

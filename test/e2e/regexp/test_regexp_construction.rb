@@ -36,7 +36,7 @@ class TestRegexpConstruction < Minitest::Test
 
   # @behavior RX-231
   def test_a_flag_string_names_only_the_languages_letters
-    assert_equal [1, 4, 2, 7], eval_regexp('%w[i m x imx].map { |f| Regexp.new("a", f).options }'),
+    assert_equal [1, 4, 2, 7, 0], eval_regexp('["i", "m", "x", "imx", ""].map { |f| Regexp.new("a", f).options }'),
                  "each named letter in a flag string through Regexp.new must become its own option"
     assert_equal "ArgumentError", guard_error('Regexp.new("a", "iq")', "ArgumentError"),
                  "a flag string with a letter the language does not name through Regexp.new must raise ArgumentError"
