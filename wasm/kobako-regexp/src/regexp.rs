@@ -27,7 +27,8 @@ use beni::typed_data::Obj;
 use beni::value::qnil;
 use beni::value::Lazy;
 use beni::{
-    DataType, Error, IntoValue, Mrb, Proc, RClass, RString, Symbol, TryConvert, TypedData, Value,
+    DataType, Error, IntoValue, Mrb, Proc, Qfalse, Qtrue, RClass, RString, Symbol, TryConvert,
+    TypedData, Value,
 };
 use lru::LruCache;
 use std::cell::RefCell;
@@ -456,13 +457,32 @@ pub(crate) fn is_regexp(mrb: &Mrb, value: Value) -> bool {
     state_of(mrb, value).is_some()
 }
 
-/// A non-`Regexp` pattern compiles as a literal (escaped) pattern, as in
-/// MRI.
+/// A `String` pattern compiles as a literal (escaped) pattern, as in MRI;
+/// anything else that is not a `Regexp` is refused.
 pub(crate) fn coerce_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
     if is_regexp(mrb, arg) {
         return Ok(arg);
     }
+    if RString::from_value(arg).is_none() {
+        return Err(not_a_pattern(mrb, arg));
+    }
     compile(mrb, render::escape_str(&text_of(mrb, arg)?), 0)
+}
+
+/// The `TypeError` for a pattern that is neither a `Regexp` nor a
+/// `String`, naming `nil`, `true` and `false` by value as mruby's type
+/// check does.
+fn not_a_pattern(mrb: &Mrb, arg: Value) -> Error {
+    let named =
+        if arg.is_nil() || Qtrue::from_value(arg).is_some() || Qfalse::from_value(arg).is_some() {
+            arg.inspect(mrb)
+        } else {
+            arg.classname(mrb)
+        };
+    type_error(
+        mrb,
+        &format!("wrong argument type {named} (expected Regexp)"),
+    )
 }
 
 /// Everything here works over `&str`, so non-UTF-8 bytes are refused rather
@@ -496,12 +516,6 @@ pub(crate) fn require_regexp(mrb: &Mrb, arg: Value) -> Result<Value, Error> {
     if is_regexp(mrb, arg) {
         Ok(arg)
     } else {
-        Err(type_error(
-            mrb,
-            &format!(
-                "wrong argument type {} (expected Regexp)",
-                arg.classname(mrb)
-            ),
-        ))
+        Err(not_a_pattern(mrb, arg))
     }
 }
