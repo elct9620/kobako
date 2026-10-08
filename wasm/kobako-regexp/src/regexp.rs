@@ -474,19 +474,20 @@ pub(crate) fn text_of(mrb: &Mrb, val: Value) -> Result<String, Error> {
         .ok_or_else(|| argument_error(mrb, "invalid byte sequence in UTF-8"))
 }
 
+/// A `String`'s characters; anything else raises the `TypeError` mruby
+/// raises for a value it cannot convert to a String.
+fn string_text(mrb: &Mrb, val: Value) -> Result<String, Error> {
+    RString::try_convert(val, mrb)?;
+    text_of(mrb, val)
+}
+
 /// Coerces like the C `reg_operand`: a `String` or `Symbol` yields its
 /// characters, anything else raises `TypeError`.
 fn subject_string(mrb: &Mrb, arg: Value) -> Result<String, Error> {
-    if RString::from_value(arg).is_some() || Symbol::from_value(arg).is_some() {
+    if Symbol::from_value(arg).is_some() {
         text_of(mrb, arg)
     } else {
-        Err(type_error(
-            mrb,
-            &format!(
-                "no implicit conversion of {} into String",
-                arg.classname(mrb)
-            ),
-        ))
+        string_text(mrb, arg)
     }
 }
 
