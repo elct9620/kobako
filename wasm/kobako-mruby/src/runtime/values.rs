@@ -142,7 +142,7 @@ impl Kobako {
     /// dispatch, which fails at its next call rather than silently naming
     /// something else.
     pub fn mint_handle(&self, id: u32) -> Value {
-        use beni::IntoValue;
+        use beni::{Class, IntoValue};
         let nil = beni::value::qnil().as_value();
         if id > HANDLE_ID_MAX {
             return nil;

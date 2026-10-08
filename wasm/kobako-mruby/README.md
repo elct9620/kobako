@@ -29,7 +29,7 @@ crate-type = ["cdylib"]
 [dependencies]
 kobako-mruby = { version = "0.17.0", features = ["msgpack"] } # x-release-please-version
 kobako-core = "0.17.0" # x-release-please-version
-beni = "0.21"
+beni = "0.22"
 ```
 
 ```rust
