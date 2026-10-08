@@ -13,4 +13,16 @@ class TestRegexpStringPattern < Minitest::Test
     assert_equal [["."], "a-c", "x-y-z"], eval_regexp('["a.c".scan("."), "a.c".sub(".", "-"), "x.y.z".gsub(".", "-")]'),
                  "a String pattern through String#scan, #sub and #gsub must match only its literal characters"
   end
+
+  # A Symbol is refused as well as an Integer: its name would read as
+  # text, yet the language takes only a String as a literal pattern.
+  # @behavior RX-224
+  def test_a_value_that_is_neither_a_pattern_nor_a_string_is_refused
+    %w[1 :a].each do |pattern|
+      ["scan(#{pattern})", "sub(#{pattern}, '-')", "gsub(#{pattern}, '-')"].each do |call|
+        assert_equal "TypeError", guard_error("'a'.#{call}", "TypeError"),
+                     "#{pattern} as the pattern through String##{call} must raise TypeError"
+      end
+    end
+  end
 end
