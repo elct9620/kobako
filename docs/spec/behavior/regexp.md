@@ -781,14 +781,6 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code matches an ASCII digit shorthand |
 | Then | it answers the matched substring |
 
-## `RX-167` A flag string is read letter by letter
-
-| Step | Statement |
-| --- | --- |
-| Given | a flag string carrying each letter the language names, and one it does not |
-| When | it is read |
-| Then | each named letter becomes its own option and the rest are ignored |
-
 ## `RX-168` Every pattern is compiled with the anchors the language means
 
 | Step | Statement |
@@ -1103,3 +1095,11 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code builds a pattern passing true, a Float and a Symbol, then false and nil, as the option |
 | Then | the first three make it case-insensitive, and the last two leave it with no option |
+
+## `RX-231` A flag string names only the language's letters
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code builds a pattern with a flag string of each letter the language names, and with one carrying a letter it does not |
+| Then | each named letter becomes its own option, and the other raises `ArgumentError` |
