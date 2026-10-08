@@ -1103,3 +1103,11 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code builds patterns from flag strings, one carrying a letter the language lacks |
 | Then | each named letter becomes its own option, and the other raises `ArgumentError` |
+
+## `RX-233` A String is read as its own characters
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code redefines how a String renders, then matches, scans, builds, escapes and substitutes |
+| Then | each reads the Strings it was handed, not their rendering |
