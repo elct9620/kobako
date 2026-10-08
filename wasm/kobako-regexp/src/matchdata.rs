@@ -107,7 +107,7 @@ fn numeric_index(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<i32
         return Ok(Some(n));
     }
     if Symbol::from_value(arg).is_some() || RString::from_value(arg).is_some() {
-        let name = regexp::text_of(mrb, arg)?;
+        let name = regexp::string_or_symbol_text(mrb, arg)?;
         let Some((_, i)) = state.names.iter().find(|(n, _)| *n == name) else {
             return Err(index_error(
                 mrb,

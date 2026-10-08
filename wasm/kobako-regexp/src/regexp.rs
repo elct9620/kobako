@@ -547,10 +547,9 @@ fn string_text(mrb: &Mrb, val: Value) -> Result<String, Error> {
 
 /// A `String`'s characters or a `Symbol`'s name, as MRI reads a match
 /// subject or a text to escape; anything else raises `TypeError`.
-fn string_or_symbol_text(mrb: &Mrb, arg: Value) -> Result<String, Error> {
-    if Symbol::from_value(arg).is_some() {
-        text_of(mrb, arg)
-    } else {
-        string_text(mrb, arg)
+pub(crate) fn string_or_symbol_text(mrb: &Mrb, arg: Value) -> Result<String, Error> {
+    match Symbol::from_value(arg) {
+        Some(symbol) => chars_of(mrb, symbol.to_str(mrb)),
+        None => string_text(mrb, arg),
     }
 }
