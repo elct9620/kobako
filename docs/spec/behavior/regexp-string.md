@@ -8,6 +8,8 @@ A String handed a pattern searches, splits, substitutes or rewrites itself. Each
 
 Splitting and scanning disagree deliberately about a group that did not take part: splitting drops it, scanning keeps the hole. Both are witnessed on the same pattern, because the contrast is the contract.
 
+A String handed where a pattern goes is read two ways, as the language reads it: matching compiles it, while scanning and substituting look for its characters. Both are witnessed with a metacharacter, the one case where the two readings answer differently.
+
 Replacement text is a small language of its own, so its scenarios cover what expands, what stays literal, and what is refused — a name no group carries, and a name marker with no name behind it.
 
 ## Includes
@@ -511,3 +513,11 @@ Replacement text is a small language of its own, so its scenarios cover what exp
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code scans, substitutes once and substitutes globally with an Integer, and with a Symbol, as the pattern |
 | Then | each raises `TypeError` |
+
+## `RX-225` Matching reads a String as the pattern it spells
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a String, and asks whether it matches, against another String holding a pattern metacharacter |
+| Then | the other String is compiled as a pattern rather than read as literal text |

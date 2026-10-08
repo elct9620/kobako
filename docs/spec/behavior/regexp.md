@@ -243,15 +243,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code matches a String against a pattern with capture groups |
 | Then | it answers a match carrying the whole match and each capture |
 
-## `RX-028` A String is not a pattern, even where one is expected
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code asks a String whether it matches another String |
-| Then | a type error is raised |
-
-## `RX-029` Nor is anything else
+## `RX-029` A String does not match against a value that is no pattern
 
 | Step | Statement |
 | --- | --- |
@@ -991,14 +983,6 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code uses case equality on nil |
 | Then | it answers false |
-
-## `RX-193` A String pattern is refused by the match form too
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code matches a String against another String through the match form |
-| Then | it raises `TypeError` |
 
 ## `RX-194` A String coerced into a pattern must be text
 
