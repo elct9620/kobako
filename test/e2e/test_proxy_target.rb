@@ -8,7 +8,9 @@ require "test_helper"
 # its constant path. A receiver that mixed in the module without being either
 # has no target and is refused in-guest, emitting no wire Call; an object
 # merely bearing the reference's name carries no reference across as a value
-# either. The positive paths (bound constant, Handle) are pinned elsewhere.
+# either, and a reference the guest receives carries the id the host issued
+# whatever the guest redefined. The positive paths (bound constant, Handle)
+# are pinned elsewhere.
 class TestE2EProxyTarget < Minitest::Test
   include E2eGuestHelper
 
@@ -83,6 +85,31 @@ class TestE2EProxyTarget < Minitest::Test
     refute @sink_reached,
            "an object bearing a capability reference's name must not reach the Service the " \
            "id it carries names"
+  end
+
+  Labeled = Struct.new(:label)
+
+  # The guest reopens the reference type and pins every initialized reference
+  # to the first one's identifier, so a reference built through that hook
+  # would answer as "a". The second reference must still reach "b".
+  REDEFINED_INITIALIZE = <<~RUBY
+    $first_id = Factory::Make.call("a").instance_variable_get(:@__kobako_id__)
+    class Kobako::Handle
+      def initialize(_id)
+        @__kobako_id__ = $first_id
+      end
+    end
+    Factory::Make.call("b").label
+  RUBY
+
+  # @behavior T-265
+  def test_a_received_reference_ignores_a_redefined_initializer
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Factory::Make", ->(label) { Labeled.new(label) })
+
+    assert_equal "b", sandbox.eval(REDEFINED_INITIALIZE).value,
+                 "a reference received after the guest redefined Kobako::Handle#initialize " \
+                 "through #eval must reach the object the host issued it for"
   end
 
   private
