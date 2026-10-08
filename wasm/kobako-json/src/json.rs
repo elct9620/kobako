@@ -33,10 +33,8 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
 }
 
 fn json_parse(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
-    let args = scan_args::<(Value,), (), (), (), RHash, ()>(mrb)?;
-    let (source,) = args.required;
-    let rstr = RString::from_value(source)
-        .ok_or_else(|| errors::type_error(mrb, "no implicit conversion of argument into String"))?;
+    let args = scan_args::<(RString,), (), (), (), RHash, ()>(mrb)?;
+    let (rstr,) = args.required;
     // Read the option before borrowing the source bytes — the lookup is
     // an mruby call that may move the heap.
     let symbolize = symbolize_names(mrb, args.keywords)?;

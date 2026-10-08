@@ -25,13 +25,6 @@ pub(crate) fn generator_error(mrb: &Mrb, message: &str) -> Error {
     json_exception(mrb, c"GeneratorError", message)
 }
 
-pub(crate) fn type_error(mrb: &Mrb, message: &str) -> Error {
-    match mrb.exception_type_error() {
-        Ok(cls) => Error::new(mrb, cls, message),
-        Err(err) => err,
-    }
-}
-
 /// CRuby's generator refuses a Hash that grows while it is written, in
 /// these words.
 pub(crate) fn key_added_error(mrb: &Mrb) -> Error {
