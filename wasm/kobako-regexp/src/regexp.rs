@@ -254,7 +254,7 @@ fn rx_match(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if arg.is_nil() {
         return Ok(qnil().as_value());
     }
-    let subject = subject_string(mrb, arg)?;
+    let subject = string_or_symbol_text(mrb, arg)?;
     let Some(pos) = match_pos(&subject, args) else {
         return Ok(qnil().as_value());
     };
@@ -277,7 +277,7 @@ fn rx_match_p(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<bool, Error> {
     if arg.is_nil() {
         return Ok(false);
     }
-    let subject = subject_string(mrb, arg)?;
+    let subject = string_or_symbol_text(mrb, arg)?;
     let Some(pos) = match_pos(&subject, args) else {
         return Ok(false);
     };
@@ -294,7 +294,7 @@ fn rx_eqtilde(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, Error> {
     if arg.is_nil() {
         return Ok(qnil().as_value());
     }
-    let subject = subject_string(mrb, arg)?;
+    let subject = string_or_symbol_text(mrb, arg)?;
     let md = do_match(mrb, self_, subject, 0)?;
     if md.is_nil() {
         Ok(qnil().as_value())
@@ -307,7 +307,7 @@ fn rx_eqq(mrb: &Mrb, self_: Value, arg: Value) -> Result<bool, Error> {
     if arg.is_nil() {
         return Ok(false);
     }
-    let Ok(subject) = subject_string(mrb, arg) else {
+    let Ok(subject) = string_or_symbol_text(mrb, arg) else {
         return Ok(false);
     };
     Ok(!do_match(mrb, self_, subject, 0)?.is_nil())
@@ -426,7 +426,7 @@ fn rx_escape(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
         ));
     }
     Ok(mrb
-        .str_new(render::escape_str(&text_of(mrb, args[0])?).as_bytes())
+        .str_new(render::escape_str(&string_or_symbol_text(mrb, args[0])?).as_bytes())
         .as_value())
 }
 
@@ -522,9 +522,9 @@ fn string_text(mrb: &Mrb, val: Value) -> Result<String, Error> {
     text_of(mrb, val)
 }
 
-/// Coerces like the C `reg_operand`: a `String` or `Symbol` yields its
-/// characters, anything else raises `TypeError`.
-fn subject_string(mrb: &Mrb, arg: Value) -> Result<String, Error> {
+/// A `String`'s characters or a `Symbol`'s name, as MRI reads a match
+/// subject or a text to escape; anything else raises `TypeError`.
+fn string_or_symbol_text(mrb: &Mrb, arg: Value) -> Result<String, Error> {
     if Symbol::from_value(arg).is_some() {
         text_of(mrb, arg)
     } else {
