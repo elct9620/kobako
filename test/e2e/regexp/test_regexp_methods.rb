@@ -64,6 +64,18 @@ class TestRegexpMethods < Minitest::Test
                  "Regexp.escape leaves a slash unescaped (MRI) while still quoting a vertical tab"
   end
 
+  # @behavior RX-229
+  def test_escape_takes_only_a_string_or_a_symbol
+    %w[escape quote].each do |name|
+      assert_equal 'a\.b', eval_regexp("Regexp.#{name}(:'a.b')"),
+                   "a Symbol through Regexp.#{name} must be escaped by its name"
+      %w[1 nil].each do |text|
+        assert_equal "TypeError", guard_error("Regexp.#{name}(#{text})", "TypeError"),
+                     "#{text} through Regexp.#{name} must raise TypeError"
+      end
+    end
+  end
+
   # @behavior RX-011
   def test_compile_is_new_and_matches
     assert_equal "aaa", eval_regexp('Regexp.compile("a+").match("baaa")[0]'),
