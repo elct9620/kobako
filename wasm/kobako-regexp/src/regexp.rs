@@ -493,10 +493,10 @@ fn string_pattern(
     if is_regexp(mrb, arg) {
         return Ok(arg);
     }
-    if RString::from_value(arg).is_none() {
+    let Some(source) = RString::from_value(arg) else {
         return Err(not_a_pattern(mrb, arg));
-    }
-    compile(mrb, read(text_of(mrb, arg)?), 0)
+    };
+    compile(mrb, read(chars_of(mrb, source)?), 0)
 }
 
 /// The `TypeError` for a pattern that is neither a `Regexp` nor a
@@ -516,25 +516,33 @@ fn not_a_pattern(mrb: &Mrb, arg: Value) -> Error {
 }
 
 /// A String's own characters, or another value's `to_s`, as MRI renders a
-/// value it needs as text. Everything here works over `&str`, so non-UTF-8
-/// bytes are refused rather than rendered as an empty string, where an
-/// empty subject silently matches nothing and an empty pattern silently
-/// matches everywhere.
+/// value it needs as text.
 pub(crate) fn text_of(mrb: &Mrb, val: Value) -> Result<String, Error> {
-    let rendered = if RString::from_value(val).is_some() {
-        val
-    } else {
-        val.funcall(mrb, c"to_s", &[])?
+    let string = match RString::from_value(val) {
+        Some(string) => string,
+        None => {
+            let rendered = val.funcall(mrb, c"to_s", &[])?;
+            RString::from_value(rendered).ok_or_else(|| not_text(mrb))?
+        }
     };
-    String::from_value(rendered)
-        .ok_or_else(|| argument_error(mrb, "invalid byte sequence in UTF-8"))
+    chars_of(mrb, string)
+}
+
+/// Everything here works over `&str`, so non-UTF-8 bytes are refused rather
+/// than read as an empty string, where an empty subject silently matches
+/// nothing and an empty pattern silently matches everywhere.
+fn chars_of(mrb: &Mrb, string: RString) -> Result<String, Error> {
+    String::from_value(string.as_value()).ok_or_else(|| not_text(mrb))
+}
+
+fn not_text(mrb: &Mrb) -> Error {
+    argument_error(mrb, "invalid byte sequence in UTF-8")
 }
 
 /// A `String`'s characters; anything else raises the `TypeError` mruby
 /// raises for a value it cannot convert to a String.
 fn string_text(mrb: &Mrb, val: Value) -> Result<String, Error> {
-    RString::try_convert(val, mrb)?;
-    text_of(mrb, val)
+    chars_of(mrb, RString::try_convert(val, mrb)?)
 }
 
 /// A `String`'s characters or a `Symbol`'s name, as MRI reads a match
