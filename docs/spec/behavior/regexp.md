@@ -1071,3 +1071,11 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code lists the global variables after a match |
 | Then | none of them is named after the capability or its compile cache |
+
+## `RX-227` A pattern is built only from a String or another pattern
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code builds a pattern from an Integer, a Symbol and nil, by either construction name |
+| Then | each raises `TypeError` |
