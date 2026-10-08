@@ -1087,3 +1087,11 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code builds a pattern from a case-insensitive pattern, passing a different option alongside |
 | Then | the new pattern carries the original's source and options and equals it |
+
+## `RX-229` Escaping takes only a String or a Symbol
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code escapes and quotes a Symbol, an Integer and nil |
+| Then | the Symbol is escaped by its name, and the Integer and nil each raise `TypeError` |
