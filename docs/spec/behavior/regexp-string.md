@@ -521,3 +521,11 @@ Replacement text is a small language of its own, so its scenarios cover what exp
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code matches a String, and asks whether it matches, against another String holding a pattern metacharacter |
 | Then | the other String is compiled as a pattern rather than read as literal text |
+
+## `RX-226` A replacement must be a String or a Hash
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code substitutes once and substitutes globally with an Integer, and with nil, as the replacement, on a String the pattern does not match |
+| Then | each raises `TypeError` before any match is sought |
