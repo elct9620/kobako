@@ -33,4 +33,12 @@ class TestRegexpConstruction < Minitest::Test
                  "a non-Integer, non-String option through Regexp.new must make the pattern case-insensitive " \
                  "when true and leave it without options when false or nil"
   end
+
+  # @behavior RX-231
+  def test_a_flag_string_names_only_the_languages_letters
+    assert_equal [1, 4, 2, 7], eval_regexp('%w[i m x imx].map { |f| Regexp.new("a", f).options }'),
+                 "each named letter in a flag string through Regexp.new must become its own option"
+    assert_equal "ArgumentError", guard_error('Regexp.new("a", "iq")', "ArgumentError"),
+                 "a flag string with a letter the language does not name through Regexp.new must raise ArgumentError"
+  end
 end
