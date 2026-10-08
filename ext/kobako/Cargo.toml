@@ -10,7 +10,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-magnus = { version = "0.8.2", features = ["rb-sys"] }
+magnus = { version = "0.9.2", features = ["rb-sys"] }
 # Raw Ruby FFI for the GVL release/re-acquire calls magnus does not wrap
 # (`rb_thread_call_without_gvl` / `rb_thread_call_with_gvl`). Pinned to the
 # rb-sys magnus resolves so both share one binding instance.
