@@ -30,6 +30,7 @@ match offsets and substring slices are byte-based.
 | `MatchData` | copies | `dup`, `clone` |
 | `String` | pattern-taking methods | `=~`, `match`, `match?`, `sub`, `gsub`, `split`, `scan` |
 | `String` | pattern-taking methods | `index`, `[]`, `[]=`, `slice`, `slice!` |
+| `Symbol`, `nil` | match operator | `=~` |
 
 ## Limitations
 

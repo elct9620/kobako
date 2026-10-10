@@ -9,7 +9,7 @@
 
 mod args;
 mod errors;
-mod kernel_ext;
+mod match_operator;
 mod matchdata;
 mod regexp;
 mod string_ext;
@@ -28,7 +28,7 @@ impl Gem for KobakoRegexp {
         matchdata::init(mrb)?;
         regexp::init(mrb)?;
         string_ext::init(mrb)?;
-        kernel_ext::init(mrb)?;
+        match_operator::init(mrb)?;
         Ok(())
     }
 }

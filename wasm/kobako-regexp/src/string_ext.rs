@@ -46,10 +46,11 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     Ok(())
 }
 
-/// `String#=~` (MRI semantics): a `Regexp` operand matches; a `String`
-/// operand is a type error (a literal is not a pattern); any other operand is
-/// dispatched to its own `=~`, which falls through to `Kernel#=~` (nil).
-fn str_eqtilde(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, Error> {
+/// `String#=~` (MRI semantics): a `String` operand is a type error (a literal
+/// is not a pattern), and any other operand is asked to match through its own
+/// `=~`, so a `Regexp` matches, `nil` answers `nil`, and a receiver with none
+/// raises `NoMethodError`.
+pub(crate) fn str_eqtilde(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, Error> {
     if RString::from_value(arg).is_some() {
         return Err(type_error(mrb, "type mismatch: String given"));
     }
