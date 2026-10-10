@@ -965,7 +965,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code uses the match operator on nil |
+| When | guest code matches a pattern against a nil subject |
 | Then | it answers nil |
 
 ## `RX-192` Case equality answers false for a nil subject
