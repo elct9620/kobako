@@ -22,7 +22,7 @@ class TestE2EIoWrite < Minitest::Test
     end
 
     assert_includes err.message, "kobako IO only supports fd",
-                    "io_initialize must raise ArgumentError citing the fd constraint"
+                    "IO.new with fd 99 through Sandbox#eval must fail naming the fd constraint"
   end
 
   # @behavior IO-002 IO-035
