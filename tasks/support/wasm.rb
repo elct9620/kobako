@@ -3,12 +3,10 @@
 # wasm Rust crate (kobako-wasm) support module
 # ============================================
 #
-# Pure-Ruby helpers backing +tasks/wasm/+. Owns crate paths,
-# wasm32-wasip1 target detection, and the Stage C orchestrator. The
+# Pure-Ruby helpers backing +tasks/wasm/+. Owns crate paths, the
+# wasm32-wasip1 target name, and the Stage C orchestrator. The
 # .rake wrapper is the rake DSL surface that glues these helpers to
-# +rake wasm:check+ / +rake wasm:test+ / +rake wasm:build+.
-
-require "open3"
+# +rake wasm:test+ / +rake wasm:build+.
 
 # Stage C build helpers for the kobako-wasm crate. See
 # +tasks/wasm/+ for the rake DSL and +KobakoWasm::GuestBuilder+ for
@@ -50,21 +48,13 @@ module KobakoWasm
 
   # Variant build matrix: rake task name => [cargo features, output path].
   # The single source of truth for the capability variant set — drives the
-  # wasm:build:<variant> tasks, the wasm:clean artifact list, and (via
-  # VARIANT_FEATURES) the wasm:check feature gate.
+  # wasm:build:<variant> tasks and the wasm:clean artifact list.
   VARIANT_BUILDS = {
     "build:regexp" => [["regexp"], DATA_WASM_REGEXP],
     "build:regexp_unicode" => [["regexp-unicode"], DATA_WASM_REGEXP_UNICODE],
     "build:json" => [["json"], DATA_WASM_JSON],
     "build:full" => [["full"], DATA_WASM_FULL]
   }.freeze
-
-  # The shell cargo feature each variant enables. The default `--workspace`
-  # check builds every member at its default features; these change only the
-  # shell's composition (extra capability gems + their `cfg` blocks), so
-  # `wasm:check` compiles the shell under each to catch broken feature
-  # wiring before a release builds a variant.
-  VARIANT_FEATURES = VARIANT_BUILDS.values.map { |features, _output| features.first }.freeze
 
   # Every Guest Binary artifact, default plus variants — the set wasm:clean
   # removes.
@@ -109,24 +99,6 @@ module KobakoWasm
     return if llvm_cov_available?
 
     abort "cargo llvm-cov not installed; run `cargo install cargo-llvm-cov` to measure Rust coverage"
-  end
-
-  # Returns WASM_TARGET if the toolchain has it provisioned, otherwise nil
-  # so the caller falls back to the host target. Keeps the task useful in
-  # CI lanes that haven't yet installed the cross target.
-  def self.wasm_target_or_host
-    out, status = Open3.capture2("rustc", "--print", "target-list")
-    return nil unless status.success?
-    return nil unless out.include?(WASM_TARGET)
-
-    # Probe whether the target's sysroot is actually present; if absent,
-    # cargo check would fail. Degrade gracefully to host instead.
-    _probe, probe_status = Open3.capture2(
-      "rustc", "--target", WASM_TARGET, "--print", "sysroot"
-    )
-    probe_status.success? ? WASM_TARGET : nil
-  rescue StandardError
-    nil
   end
 end
 
