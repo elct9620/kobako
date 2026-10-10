@@ -11,7 +11,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "ruby_llm"
+  gem "ruby_llm", "~> 2.1"
   gem "reline"
   gem "kobako", "~> 0.27.0"
 end
@@ -206,7 +206,13 @@ module CodeMode
       is reused across calls, so values stored in KV::Store persist.
     DESC
 
-    param :code, type: :string, desc: "mruby source code to evaluate"
+    parameter :code, type: :string, description: "mruby source code to evaluate"
+
+    # The name SYSTEM_PROMPT tells the model to call; left to ruby_llm it
+    # would carry this class's CodeMode namespace.
+    def self.tool_name
+      "execute"
+    end
 
     def initialize(sandbox)
       super()
@@ -379,9 +385,9 @@ sandbox.bind("WebFetch::Client", CodeMode::WebFetchClient.new(allowlist))
 
 model = ENV.fetch("OPENAI_DEFAULT_MODEL", "gpt-5.4-mini")
 chat = RubyLLM
-       .chat(model: model, provider: :openai, assume_model_exists: true)
+       .chat(model: model, provider: :openai, protocol: :chat_completions, assume_model_exists: true)
        .with_instructions(CodeMode::SYSTEM_PROMPT)
-       .with_tool(CodeMode::Execute.new(sandbox))
+       .with_tools(CodeMode::Execute.new(sandbox))
 
 # Shared between before_tool_call/after_tool_result so the result line
 # can echo the tool name — ruby_llm's tool_result callback only carries

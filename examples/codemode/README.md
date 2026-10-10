@@ -1,8 +1,16 @@
 # CodeMode REPL
 
-A self-contained example that wires [ruby_llm](https://rubygems.org/gems/ruby_llm) to a `Kobako::Sandbox` so a chat agent can run mruby code through a single `execute(code:)` tool. The sandbox is preloaded with a shared in-memory KV store and a `WebFetch::Client`; outbound HTTP is gated by an operator-controlled domain allowlist that you mutate from the REPL.
+A self-contained example that wires [ruby_llm](https://rubygems.org/gems/ruby_llm) to a `Kobako::Sandbox`. A chat agent runs mruby code through a single `execute(code:)` tool.
 
-This is the canonical demonstration of the "code mode" pattern: the model writes a short script instead of orchestrating many narrow tool calls, and every script runs inside the same Wasm-isolated mruby interpreter the host process embeds.
+```
+operator --/allow--> allowlist
+   |                     |
+   v                     v
+ chat --execute(code:)--> Kobako::Sandbox --> KV::Store
+                                         \--> WebFetch::Client
+```
+
+This is the canonical demonstration of the "code mode" pattern. The model writes a short script instead of orchestrating many narrow tool calls. Every script runs inside the same Wasm-isolated mruby interpreter the host process embeds.
 
 ## Running
 
@@ -18,7 +26,7 @@ From a clone of the kobako repository:
 bundle exec ruby examples/codemode/main.rb
 ```
 
-First launch downloads `ruby_llm`, `reline`, and `kobako` (~0.27). Subsequent launches reuse the resolved set.
+First launch downloads `ruby_llm` (~2.1), `reline`, and `kobako` (~0.27). Subsequent launches reuse the resolved set.
 
 ## Configuration
 
@@ -30,9 +38,9 @@ The example talks to OpenAI by default. Three environment variables control wher
 | `OPENAI_BASE_URL`      | Override the API base URL. Leave unset to use OpenAI's hosted endpoint. | _(unset)_     |
 | `OPENAI_DEFAULT_MODEL` | Model identifier passed to `RubyLLM.chat(model:)`.                      | `gpt-5.4-mini`|
 
-The chat is constructed with `provider: :openai, assume_model_exists: true`, so any endpoint that speaks the OpenAI Chat Completions protocol works — the model string is forwarded verbatim without a local registry lookup.
+The chat is constructed with `provider: :openai, protocol: :chat_completions, assume_model_exists: true`. Any endpoint that speaks the OpenAI Chat Completions protocol works. The model string is forwarded verbatim without a local registry lookup.
 
-### Switching provider via OpenAI-compatible endpoints
+### Compatible endpoints
 
 Most providers ship an OpenAI-compatible surface. Point `OPENAI_BASE_URL` at it and set `OPENAI_DEFAULT_MODEL` to a model that endpoint serves.
 
@@ -66,7 +74,7 @@ OPENAI_DEFAULT_MODEL=llama-3.3-70b-versatile \
 
 Endpoints without an OpenAI-compatible surface (e.g. Anthropic's native API, Google's Gemini API) require changing the `provider:` argument in `main.rb` and configuring the matching `ruby_llm` provider block. The example intentionally keeps a single provider wired up; treat it as a starting point.
 
-## What the agent can do
+## Host modules
 
 Once the REPL is running, the system prompt tells the model the sandbox exposes two host modules. They are visible only inside the `execute(code:)` tool — the script writes mruby that calls into them.
 
@@ -89,7 +97,7 @@ module WebFetch
 end
 ```
 
-`KV::Store` persists across tool calls within one REPL session. `WebFetch::Client.get` only succeeds when the target host has been added to the allowlist from the REPL (see below); other URLs raise back to the agent so it can ask the operator to allow the host.
+`KV::Store` persists across tool calls within one REPL session. `WebFetch::Client.get` succeeds only for a host the operator allowed from the REPL. Other URLs raise back to the agent, so it can ask the operator to allow the host.
 
 ## REPL commands
 
@@ -106,4 +114,9 @@ Tab completion expands `/` prefixes; the leading verb is coloured cyan when reco
 
 ## Security caveats
 
-The `WebFetch::Client` performs a **textual** hostname match against the allowlist. Production deployments must layer on IP-level egress controls (block link-local, RFC1918, cloud metadata endpoints) and DNS-rebind protection — an allowed name can still resolve to an internal address between the allowlist check and the TCP connect. Treat this example as a teaching aid, not a hardened gateway.
+The `WebFetch::Client` performs a **textual** hostname match against the allowlist. Treat this example as a teaching aid, not a hardened gateway. A production deployment layers on the controls below.
+
+| Gap | Control |
+|-----|---------|
+| an allowed name resolves to an internal address | block link-local, RFC1918, and cloud metadata endpoints at the IP level |
+| the name re-resolves between the allowlist check and the TCP connect | DNS-rebind protection |
