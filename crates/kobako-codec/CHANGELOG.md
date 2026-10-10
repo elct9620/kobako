@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.17.0...kobako-codec-v0.18.0) (2026-10-10)
+
+
+### Bug Fixes
+
+* **codec:** name the payload, not the envelope, in a trailing-bytes fault ([9eaff87](https://github.com/elct9620/kobako/commit/9eaff870a9ecc4cf36ea0385a4e0ea8f3636a6a5))
+
 ## [0.17.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.16.0...kobako-codec-v0.17.0) (2026-09-20)
 
 
