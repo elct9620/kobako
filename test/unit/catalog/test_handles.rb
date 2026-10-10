@@ -66,7 +66,7 @@ module Kobako
     # next_id: reaches the cap without 2³¹ allocations. Callers rescuing
     # SandboxError must catch the exhaustion, so its class matters even though
     # the dispatcher turns the raise into a fault the guest observes.
-    # @behavior T-012 T-185 T-047
+    # @behavior T-012 T-185
     def test_alloc_at_max_id_succeeds_then_next_alloc_raises
       table = Table.new(next_id: Kobako::Handle::MAX_ID)
 

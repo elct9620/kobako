@@ -142,7 +142,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a Handle table filled to its highest id |
 | When | one more allocation is attempted |
-| Then | it raises |
+| Then | it raises a Sandbox failure |
 
 ## `T-013` The ceiling is a property of the wire, not of the table
 
@@ -442,14 +442,6 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | a run is given an argument needing a new reference |
 | Then | the run fails as a Sandbox failure before the guest runs |
 | unverifiable | exhausting the table takes every id the wire allows, and no public seam lowers that ceiling |
-
-## `T-047` An allocation past the highest id is a Sandbox failure
-
-| Step | Statement |
-| --- | --- |
-| Given | a Handle table filled to its highest id |
-| When | one more allocation is attempted |
-| Then | what it raises is a Sandbox failure |
 
 ## `T-048` A failure the host was not meant to catch is not caught
 
