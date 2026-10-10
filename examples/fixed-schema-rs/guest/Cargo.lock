@@ -19,18 +19,30 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "beni"
-version = "0.14.1"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6e3d0e2bd40999d4391056cd4fb41ad66e8f0faf3f857aa7a2e41d5691102a2"
+checksum = "56895f263934b842c09cd98f5528753b92d482b0a6fed116ed58db27d21cd53a"
 dependencies = [
+ "beni-macros",
  "beni-sys",
 ]
 
 [[package]]
-name = "beni-sys"
-version = "0.14.1"
+name = "beni-macros"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "827f16ec364cdf9dad950ab59cf3db8f1b633c4b73d66e0cb37c154495cad427"
+checksum = "a8e5f2d3c351f600ddd8b62bafcb79e9ad6ba6358a49b2703811e216e3b0a406"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "beni-sys"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "251dcbde3698a216e1e1f608d13bcc896d9dfca89a097cf37b7590c394044d40"
 dependencies = [
  "bindgen",
  "cc",
@@ -133,18 +145,18 @@ dependencies = [
 
 [[package]]
 name = "kobako-core"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcd226dc739d7851bb479d2b2ab242b27522861731146b31541cd9e56551cd0f"
+checksum = "3317594d6d88a13830390582f14e687f9d8e159805b21e8bc069e4f95e29e353"
 dependencies = [
  "kobako-transport",
 ]
 
 [[package]]
 name = "kobako-mruby"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a5f9ded54b26b150cfbc1b72cb1982058b987a08fdfe753e0f6baf0620eb3a6"
+checksum = "3e5be3f7efd5cc8a4aedafca44ca02890ec03b5d6c4724b259a7fd1d30aed6fc"
 dependencies = [
  "beni",
  "kobako-core",
@@ -153,9 +165,9 @@ dependencies = [
 
 [[package]]
 name = "kobako-transport"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9dd96957f71688e74589487d8baa3f2cfa39c806a9fa4add176aef24b8addb4"
+checksum = "0b7afdc3dee1c131a61a6b8638c5bd8cb92ce30c1c2fda4630841a0d17a152b4"
 
 [[package]]
 name = "kv"

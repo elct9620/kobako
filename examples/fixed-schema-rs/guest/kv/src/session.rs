@@ -30,7 +30,7 @@ pub(crate) fn init(mrb: &Mrb, service: RModule) -> Result<(), Error> {
     session.define_method(mrb, c"initialize", beni::method!(initialize, 1))?;
     // A `dup` would otherwise yield an unfrozen copy, and an unfrozen
     // copy is re-pointable at an id it was never given.
-    session.define_method(mrb, c"initialize_copy", beni::method!(initialize_copy, -1))?;
+    session.define_method(mrb, c"initialize_copy", beni::method!(initialize_copy, 1))?;
     session.define_singleton_method(mrb, c"new", beni::method!(not_constructible, -1))?;
     session.define_singleton_method(mrb, c"allocate", beni::method!(not_constructible, -1))?;
     session.define_method(mrb, c"get", beni::method!(session_get, 1))?;
@@ -63,7 +63,7 @@ pub(crate) fn handle_id(mrb: &Mrb, value: Value) -> Result<u32, Error> {
             "expected a MyService::Session, which only MyService::KV.open hands out",
         ));
     }
-    let id = value.iv_get(mrb, mrb.intern_cstr(HANDLE_IVAR));
+    let id = value.iv_get(mrb, HANDLE_IVAR);
     match i32::from_value(id) {
         Some(id) if id > 0 => Ok(id as u32),
         _ => Err(runtime_error(mrb, "this Session carries no Handle id")),
@@ -81,29 +81,23 @@ fn session_class(mrb: &Mrb) -> Result<RClass, Error> {
 fn initialize(mrb: &Mrb, self_: Value, id: i32) -> Result<Value, Error> {
     use beni::IntoValue;
 
-    self_.iv_set(mrb, mrb.intern_cstr(HANDLE_IVAR), id.into_value(mrb))?;
+    self_.iv_set(mrb, HANDLE_IVAR, id.into_value(mrb))?;
     Ok(Value::nil())
 }
 
-// Any-arity because `method!`'s typed-parameter form has no `Value`
-// identity conversion to ride, and the original this hook is handed is
-// exactly a `Value`. It goes unread: mruby copies the ivar before the
-// hook runs, so freezing the copy is all that is left to do.
-fn initialize_copy(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+// The original goes unread: mruby copies the ivar before the hook runs,
+// so freezing the copy is all that is left to do.
+fn initialize_copy(mrb: &Mrb, self_: Value, _original: Value) -> Result<Value, Error> {
     Ok(self_.freeze(mrb))
 }
 
-fn not_constructible(mrb: &Mrb, _self: Value) -> Value {
-    let nomethod = mrb
-        .exc_get(c"NoMethodError")
-        .expect("NoMethodError is an mruby core class");
-    // SAFETY: bridge frame — mruby unwinds through `mrb_raise`.
-    unsafe {
-        nomethod.raise(
-            mrb,
-            c"MyService::Session is a host-issued capability reference, not a constructible class",
-        )
-    }
+fn not_constructible(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
+    let nomethod = mrb.exc_get(c"NoMethodError")?;
+    Err(Error::new(
+        mrb,
+        nomethod,
+        "MyService::Session is a host-issued capability reference, not a constructible class",
+    ))
 }
 
 /// `session.get(key)` — the stored String, or `nil` on a miss.

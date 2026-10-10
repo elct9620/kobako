@@ -14,7 +14,7 @@
 //! serves the positions it implements and refuses at the rest, so leaving
 //! them alone is how this guest says it has no such path.
 
-use beni::{FromValue, RString, Value};
+use beni::{FromValue, Value};
 use kobako_mruby::{Arguments, CodecError, Kobako, PayloadCodec};
 
 /// The example's schema: a byte string in the outcome position.
@@ -42,9 +42,7 @@ impl PayloadCodec for RawBytes {
     /// reaches the host exactly as the gem wrote it, and a binary String
     /// is not re-encoded into something else on the way out.
     fn encode_value(kobako: &Kobako, value: Value) -> Result<Vec<u8>, CodecError> {
-        RString::from_value(value)
-            .map(RString::to_bytes)
-            .ok_or_else(|| CodecError::unrepresentable(kobako, value))
+        Vec::<u8>::from_value(value).ok_or_else(|| CodecError::unrepresentable(kobako, value))
     }
 
     /// A block's yielded arguments — read by the gem, which owns the

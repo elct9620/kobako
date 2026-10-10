@@ -13,7 +13,7 @@
 //! String or the invocation fails: one schema, one rule, wherever a value
 //! leaves the guest.
 
-use beni::{Error, Mrb, Value};
+use beni::{Error, Mrb, Proc, ReprValue, Value};
 use kobako_mruby::Target;
 use prost::Message;
 
@@ -22,12 +22,8 @@ use crate::schema::{EachResponse, YieldKey};
 
 /// `MyService::KV.each_key { |key| … }` — the host yields every stored
 /// key to the block and answers with how many it yielded.
-///
-/// Any-arity because the block is read off the call frame rather than the
-/// argument list.
-pub(crate) fn each_key(mrb: &Mrb, _self: Value) -> Result<i32, Error> {
-    let (_rest, block) = mrb.get_args::<beni::format::RestBlock>();
-    if block.is_nil() {
+pub(crate) fn each_key(mrb: &Mrb, _self: Value, block: Option<Proc>) -> Result<i32, Error> {
+    if block.is_none() {
         return Err(type_error(mrb, "MyService::KV.each_key needs a block"));
     }
 

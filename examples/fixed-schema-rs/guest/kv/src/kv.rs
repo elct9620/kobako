@@ -28,8 +28,8 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     kv.define_singleton_method(mrb, c"get", beni::method!(kv_get, 1))?;
     kv.define_singleton_method(mrb, c"put", beni::method!(kv_put, 2))?;
     kv.define_singleton_method(mrb, c"open", beni::method!(kv_open, 1))?;
-    kv.define_singleton_method(mrb, c"count", beni::method!(kv_count, -1))?;
-    kv.define_singleton_method(mrb, c"each_key", beni::method!(blocks::each_key, -1))?;
+    kv.define_singleton_method(mrb, c"count", beni::method!(kv_count, 1))?;
+    kv.define_singleton_method(mrb, c"each_key", beni::method!(blocks::each_key, 0, &))?;
     session::init(mrb, service)
 }
 
@@ -47,14 +47,14 @@ fn kv_put(mrb: &Mrb, _self: Value, key: RString, value: RString) -> Result<bool,
 /// `MyService::KV.open(prefix)` — a Session scoped to `prefix`.
 fn kv_open(mrb: &Mrb, _self: Value, prefix: RString) -> Result<Value, Error> {
     let request = OpenRequest {
-        prefix: prefix.to_bytes(),
+        prefix: dispatch::bytes(prefix),
     };
     let body = call(
         mrb,
         Target::Path(KV_PATH),
         "open",
         request.encode_to_vec(),
-        Value::nil(),
+        None,
     )?;
     let answer =
         OpenResponse::decode(&body[..]).map_err(|err| wire_error(mrb, &err.to_string()))?;
@@ -62,11 +62,7 @@ fn kv_open(mrb: &Mrb, _self: Value, prefix: RString) -> Result<Value, Error> {
 }
 
 /// `MyService::KV.count(session)` — how many keys that Session wrote.
-///
-/// Any-arity because the argument is a Session object and `method!`'s
-/// typed-parameter form has no `Value` identity conversion to ride.
-fn kv_count(mrb: &Mrb, _self: Value) -> Result<i32, Error> {
-    let session = mrb.get_args::<beni::format::O>();
+fn kv_count(mrb: &Mrb, _self: Value, session: Value) -> Result<i32, Error> {
     let request = CountRequest {
         handle: session::handle_id(mrb, session)?,
     };
@@ -75,7 +71,7 @@ fn kv_count(mrb: &Mrb, _self: Value) -> Result<i32, Error> {
         Target::Path(KV_PATH),
         "count",
         request.encode_to_vec(),
-        Value::nil(),
+        None,
     )?;
     CountResponse::decode(&body[..])
         .map(|answer| answer.keys as i32)

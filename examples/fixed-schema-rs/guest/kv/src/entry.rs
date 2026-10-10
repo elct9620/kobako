@@ -12,7 +12,7 @@
 //! entrypoint gets, which is the point — nothing ambient, nothing left
 //! over from a previous run.
 
-use beni::{Mrb, Value};
+use beni::{Mrb, ReprValue, Value};
 use prost::Message;
 
 use crate::schema::EntryRequest;

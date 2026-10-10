@@ -7,7 +7,7 @@
 //! name, and the refusal handling are the same either way, so they are
 //! written once here and the surfaces supply the target.
 
-use beni::{Error, Mrb, RString, Value};
+use beni::{Error, FromValue, Mrb, Proc, RString, ReprValue, Value};
 use kobako_mruby::{dispatch, DispatchError, Target};
 use prost::Message;
 
@@ -19,9 +19,9 @@ use crate::schema::{GetRequest, GetResponse, PutRequest, PutResponse};
 pub(crate) const KV_PATH: &str = "MyService::KV";
 
 /// Round one Call through the host and hand back the ok body. `block` is
-/// what the calling method received — `Value::nil()` when it took none,
-/// and the harness parks it for the call's duration either way, so this
-/// gem states a block once rather than twice.
+/// what the calling method received — `None` when it took none, and the
+/// harness parks it for the call's duration either way, so this gem
+/// states a block once rather than twice.
 ///
 /// A refusal arrives typed on the envelope rather than as payload bytes,
 /// so this gem reads the host's reason for saying no without owning a
@@ -31,7 +31,7 @@ pub(crate) fn call(
     target: Target<'_>,
     method: &str,
     payload: Vec<u8>,
-    block: Value,
+    block: Option<Proc>,
 ) -> Result<Vec<u8>, Error> {
     dispatch(target, method, block, &payload).map_err(|err| match err {
         DispatchError::Fault(fault) => runtime_error(
@@ -51,10 +51,8 @@ pub(crate) fn call(
 
 /// `get(key)` against `target` — the stored String, or `nil` on a miss.
 pub(crate) fn get(mrb: &Mrb, target: Target<'_>, key: RString) -> Result<Value, Error> {
-    let request = GetRequest {
-        key: key.to_bytes(),
-    };
-    let body = call(mrb, target, "get", request.encode_to_vec(), Value::nil())?;
+    let request = GetRequest { key: bytes(key) };
+    let body = call(mrb, target, "get", request.encode_to_vec(), None)?;
     let answer = GetResponse::decode(&body[..]).map_err(|err| wire_error(mrb, &err.to_string()))?;
     Ok(if answer.found {
         mrb.str_new(&answer.value).as_value()
@@ -72,13 +70,20 @@ pub(crate) fn put(
     value: RString,
 ) -> Result<bool, Error> {
     let request = PutRequest {
-        key: key.to_bytes(),
-        value: value.to_bytes(),
+        key: bytes(key),
+        value: bytes(value),
     };
-    let body = call(mrb, target, "put", request.encode_to_vec(), Value::nil())?;
+    let body = call(mrb, target, "put", request.encode_to_vec(), None)?;
     PutResponse::decode(&body[..])
         .map(|answer| answer.replaced)
         .map_err(|err| wire_error(mrb, &err.to_string()))
+}
+
+/// The bytes of a String argument, verbatim — the schema's fields are
+/// `bytes`, so nothing here asks them to be UTF-8.
+pub(crate) fn bytes(string: RString) -> Vec<u8> {
+    // Never the default: the typed parameter already checked the tag.
+    Vec::<u8>::from_value(string.as_value()).unwrap_or_default()
 }
 
 /// A schema-level failure: bytes this gem's schema cannot read.
