@@ -12,22 +12,23 @@ contract over mruby.
 | Item | What it provides |
 |---|---|
 | `MrbGuest` | the harness trait a guest shell implements |
-| `KobakoBridge` | the single built-in gem |
-| `BlockFrame` | the block seam a capability gem holds |
+| `dispatch` | a capability gem's path to the host |
+| `PayloadCodec` / `MsgpackCodec` | the codec seam and its default |
 | Value conversion | mruby ↔ wire, between `beni` values and [kobako-codec](https://crates.io/crates/kobako-codec) |
 
-The provided flows install `KobakoBridge` themselves. It carries the
+The provided flows install the built-in gem themselves. It carries the
 `Kobako` module, Service / Handle dispatch to the host, and the block
-machinery. A capability gem holds `BlockFrame` across its own dispatch,
-so a gem-defined method takes a block the same way the built-in proxy
-does.
+machinery. A capability gem hands `dispatch` the block its method
+received, so a gem-defined method takes a block the same way the
+built-in proxy does.
 
 ## Harness
 
-`MrbGuest` asks a shell for one hook and provides the rest.
+`MrbGuest` asks a shell for one hook and a codec, and provides the rest.
 
 | Member | Kind | Role |
 |---|---|---|
+| `Codec` | required type | the payload codec the flows speak |
 | `init_gems` | required hook | names the shell-chosen `beni::Gem` set |
 | `eval` / `run` / `yield_to_block` | provided flows | one invocation each |
 | `bake_boot` | build-time hook | behind the wizer pre-initialization entry |

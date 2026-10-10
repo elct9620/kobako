@@ -13,7 +13,7 @@ contract surface.
 | Compilation | process-wide Engine and compiled-Module caches, with an on-disk AOT (`.cwasm`) artifact cache keyed by Guest Binary content |
 | Instantiation | a pre-linked `InstancePre` per guest path; every invocation runs on a fresh instance and discards its Store afterwards |
 | Bounds | the epoch-based wall-clock timeout and the per-invocation linear-memory cap |
-| Ambient denial | frozen WASI clocks and a constant RNG, so a guest observes no real time and no real entropy |
+| Ambient denial | under the default hermetic profile, frozen clocks and a constant RNG |
 
 The kobako Ruby gem's native ext is the first frontend; a Rust host
 SDK consumes the same surface.

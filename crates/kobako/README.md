@@ -55,11 +55,11 @@ fn main() -> Result<(), kobako::Error> {
     // Load a prebuilt Guest Binary. Options::default() is secure by
     // default: a 60 s deadline, 1 MiB for memory and each output
     // channel, hermetic isolation (frozen clocks and entropy).
-    let mut sandbox = Sandbox::new("kobako.wasm", Options::default())?;
+    let sandbox = Sandbox::new("kobako.wasm", Options::default())?;
 
     // Run untrusted mruby on a fresh instance; the last expression
-    // comes back as a decoded wire Value.
-    let squares = sandbox.eval("[1, 2, 3].map { |n| n * n }")?;
+    // decodes into a wire Value.
+    let squares = sandbox.eval("[1, 2, 3].map { |n| n * n }")?.value()?;
     println!("{squares:?}");
     Ok(())
 }
