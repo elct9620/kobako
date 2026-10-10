@@ -144,4 +144,13 @@ class TestRegexpMethods < Minitest::Test
     assert_equal [], eval_regexp("/(.)(.)/.names"),
                  "Regexp#names is empty when no group is named"
   end
+
+  # @behavior RX-238
+  def test_escape_and_quote_refuse_a_second_argument
+    assert_equal %w[ArgumentError ArgumentError],
+                 [guard_error('Regexp.escape("a", "b")', "ArgumentError"),
+                  guard_error('Regexp.quote("a", "b")', "ArgumentError")],
+                 "Regexp.escape and Regexp.quote given two arguments through Sandbox#eval must " \
+                 "raise ArgumentError rather than ignore the second"
+  end
 end

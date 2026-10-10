@@ -80,4 +80,21 @@ class TestRegexpStringSubstitution < Minitest::Test
     assert_equal "a\\b", eval_regexp(DOUBLED_BACKSLASH),
                  "a doubled backslash in a String#sub replacement must write one literal backslash"
   end
+
+  # CRuby falls back to the object's default description when #to_s answers
+  # something other than a String, rather than refusing the substitution.
+  UNRENDERABLE_REPLACEMENT = <<~RUBY
+    class Opaque; def to_s = 1; end
+    value = Opaque.new
+    ["a".gsub(/a/) { value }, "a".gsub(/a/, "a" => value)]
+  RUBY
+
+  # @behavior RX-237
+  def test_a_replacement_rendering_as_no_text_is_described_instead
+    results = eval_regexp(UNRENDERABLE_REPLACEMENT)
+
+    assert(results.all? { |r| r.start_with?("#<Opaque") },
+           "a String#gsub block or Hash answering a value whose #to_s is no String must write " \
+           "that value's default description, got #{results.inspect}")
+  end
 end
