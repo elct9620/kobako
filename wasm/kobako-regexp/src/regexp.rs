@@ -114,8 +114,8 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 
     cls.define_singleton_method(mrb, c"new", beni::method!(rx_compile, -1))?;
     cls.define_singleton_method(mrb, c"compile", beni::method!(rx_compile, -1))?;
-    cls.define_singleton_method(mrb, c"escape", beni::method!(rx_escape, -1))?;
-    cls.define_singleton_method(mrb, c"quote", beni::method!(rx_escape, -1))?;
+    cls.define_singleton_method(mrb, c"escape", beni::method!(rx_escape, 1))?;
+    cls.define_singleton_method(mrb, c"quote", beni::method!(rx_escape, 1))?;
     cls.define_singleton_method(mrb, c"last_match", beni::method!(rx_last_match, 0))?;
     cls.define_singleton_method(mrb, c"last_match=", beni::method!(rx_set_last_match, 1))?;
 
@@ -156,10 +156,7 @@ const BACKTRACK_LIMIT: usize = 1_000_000;
 
 fn rx_compile(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
     if args.is_empty() {
-        return Err(argument_error(
-            mrb,
-            "wrong number of arguments (given 0, expected 1..3)",
-        ));
+        return Err(Error::argnum(mrb, 0, 1, 3));
     }
     // A pattern keeps its own source and options; MRI ignores any given
     // alongside.
@@ -427,15 +424,9 @@ fn rx_set_last_match(mrb: &Mrb, _self: Value, value: Value) -> Value {
     value
 }
 
-fn rx_escape(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
-    if args.is_empty() {
-        return Err(argument_error(
-            mrb,
-            "wrong number of arguments (given 0, expected 1)",
-        ));
-    }
+fn rx_escape(mrb: &Mrb, _self: Value, text: Value) -> Result<Value, Error> {
     Ok(mrb
-        .str_new(render::escape_str(&string_or_symbol_text(mrb, args[0])?).as_bytes())
+        .str_new(render::escape_str(&string_or_symbol_text(mrb, text)?).as_bytes())
         .as_value())
 }
 
@@ -516,13 +507,14 @@ fn not_a_pattern(mrb: &Mrb, arg: Value) -> Error {
 }
 
 /// A String's own characters, or another value's `to_s`, as MRI renders a
-/// value it needs as text.
+/// value it needs as text; a `to_s` that answers no String gives way to the
+/// value's default description, as `rb_obj_as_string` does.
 pub(crate) fn text_of(mrb: &Mrb, val: Value) -> Result<String, Error> {
     let string = match RString::from_value(val) {
         Some(string) => string,
         None => {
             let rendered = val.funcall(mrb, c"to_s", &[])?;
-            RString::from_value(rendered).ok_or_else(|| not_text(mrb))?
+            RString::from_value(rendered).unwrap_or_else(|| val.any_to_s(mrb))
         }
     };
     chars_of(mrb, string)

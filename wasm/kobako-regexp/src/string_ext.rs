@@ -6,7 +6,7 @@
 //! `slice!` / `index` / `split` keep their non-regexp behaviour by delegating
 //! back to the preserved core methods whenever the argument is not a `Regexp`.
 
-use crate::errors::{argument_error, index_error, type_error};
+use crate::errors::{index_error, type_error};
 use crate::regexp;
 use beni::prelude::*;
 use beni::value::qnil;
@@ -155,10 +155,7 @@ fn str_sub(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     // Unlike gsub, sub has no Enumerator form: a block or a replacement is
     // required.
     if block.is_none() && replacement.is_none() {
-        return Err(argument_error(
-            mrb,
-            "wrong number of arguments (given 1, expected 2)",
-        ));
+        return Err(Error::argnum(mrb, 1, 2, 2));
     }
     require_replacement(mrb, replacement)?;
     let re = regexp::literal_regexp(mrb, args[0])?;
@@ -313,12 +310,7 @@ fn str_aset(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (group, replacement) = match args.len() {
         2 => (0i32.into_value(mrb), args[1]),
         3 => (args[1], args[2]),
-        n => {
-            return Err(argument_error(
-                mrb,
-                &format!("wrong number of arguments ({n} for 2..3)"),
-            ))
-        }
+        n => return Err(Error::argnum(mrb, n, 2, 3)),
     };
     let md = args[0].funcall(mrb, c"match", &[self_])?;
     if md.is_nil() {
@@ -339,10 +331,7 @@ fn str_aset(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
 /// visible match stays the slice's own.
 fn str_slice_bang(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let Some(&nth) = args.first() else {
-        return Err(argument_error(
-            mrb,
-            "wrong number of arguments (given 0, expected 1..2)",
-        ));
+        return Err(Error::argnum(mrb, 0, 1, 2));
     };
     let result = self_.funcall(mrb, c"slice", args)?;
     let regexp_form = regexp::is_regexp(mrb, nth);
