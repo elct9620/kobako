@@ -63,7 +63,9 @@ impl Driver {
             .instance_pre
             .instantiate(store.as_context_mut())
             .map_err(|e| Trap::Other(format!("failed to instantiate the Sandbox runtime: {e}")))?;
-        Ok(Exports::resolve(&instance, store.as_context_mut()))
+        let exports = Exports::resolve(&instance, store.as_context_mut());
+        store.data_mut().set_exports(exports.clone());
+        Ok(exports)
     }
 
     /// Disarm runs whether the call returns or traps, so the `wall_time`

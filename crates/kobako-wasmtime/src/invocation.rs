@@ -21,6 +21,7 @@ use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 
 use kobako_runtime::dispatch::DispatchHandler;
 
+use crate::exports::Exports;
 use crate::limiter::MemoryLimiter;
 
 /// Per-invocation host state — the data half of the Single-Invocation
@@ -43,6 +44,7 @@ pub(crate) struct Invocation {
     wall_entry: Option<Instant>,
     wall_time: Duration,
     reentry_trap: Option<wasmtime::Error>,
+    exports: Option<Exports>,
 }
 
 impl Invocation {
@@ -57,7 +59,18 @@ impl Invocation {
             wall_entry: None,
             wall_time: Duration::ZERO,
             reentry_trap: None,
+            exports: None,
         }
+    }
+
+    pub(crate) fn set_exports(&mut self, exports: Exports) {
+        self.exports = Some(exports);
+    }
+
+    /// `None` until the instance exists, so a host import reached before
+    /// then finds no guest to call back into.
+    pub(crate) fn exports(&self) -> Option<Exports> {
+        self.exports.clone()
     }
 
     /// The first trap wins: the dispatch import ends the invocation with it,

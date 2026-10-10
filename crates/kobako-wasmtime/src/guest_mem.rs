@@ -1,17 +1,15 @@
-//! Caller-based guest linear-memory I/O shared by the host-import paths.
+//! Guest linear-memory I/O for every host↔guest buffer handoff, whether
+//! the invocation body drives it through its `Store` or a host import
+//! drives it through its `Caller`.
 //!
-//! Both directions of a host↔guest buffer handoff that run *inside* a wasm
-//! callback frame go through here: writing the transport Reply back
-//! (`crate::dispatch`) and shipping block-yield args into the guest
-//! (`drive_yield`, below) performed the same `__kobako_alloc` +
-//! bounds-check + `memory.write` dance with only the diagnostic strings
-//! differing. The Store-based write path (`frames::write_envelope`) is a
-//! separate beast — it holds the per-invocation `Store`, not a `Caller` —
-//! and stays in `frames`.
+//! The two shared steps answer an error kind, and each caller words it,
+//! because depth decides what the same problem means: before the export
+//! call it is a `Trap` or an intact runtime, inside a callback it is a
+//! wire failure the guest receives.
 
-use wasmtime::{Caller, Extern, Memory};
+use wasmtime::{AsContext, AsContextMut, Caller, Memory};
 
-use crate::exports::RUNTIME_INCOMPATIBLE;
+use crate::exports::{Exports, RUNTIME_INCOMPATIBLE};
 use crate::invocation::Invocation;
 use kobako_transport::abi::{unpack_ptr_len, MAX_DISPATCH_PAYLOAD};
 
@@ -20,17 +18,75 @@ use kobako_transport::abi::{unpack_ptr_len, MAX_DISPATCH_PAYLOAD};
 const _: () = assert!(MAX_DISPATCH_PAYLOAD == 16 << 20);
 
 /// User-facing message for the "the loaded Wasm module is not a
-/// Kobako-shaped runtime at all" failure mode — no linear memory export
-/// here, no `memory` module export on the instantiation path in
-/// `frames`. One constant so the two detection sites cannot drift.
+/// Kobako-shaped runtime at all" failure mode, such as an instance with no
+/// `memory` export.
 pub(crate) const SANDBOX_RUNTIME_NOT_KOBAKO: &str =
     "the loaded Wasm module is not a Kobako-compatible runtime";
 
-fn memory_export(caller: &mut Caller<'_, Invocation>) -> Result<Memory, &'static str> {
-    match caller.get_export("memory") {
-        Some(Extern::Memory(m)) => Ok(m),
-        _ => Err(SANDBOX_RUNTIME_NOT_KOBAKO),
+/// Why a host write into guest memory failed.
+pub(crate) enum WriteError {
+    TooLarge,
+    /// The allocator or the memory is missing or mistyped; carries the
+    /// message for it.
+    Incompatible(&'static str),
+    Trapped(wasmtime::Error),
+    /// The allocator ran and answered 0.
+    OutOfMemory,
+    OutOfBounds,
+}
+
+/// Why a host read of a guest-named buffer failed.
+pub(crate) enum ReadError {
+    TooLarge,
+    OutOfBounds,
+}
+
+/// Allocate a guest buffer through `__kobako_alloc` and copy `bytes` into
+/// it, answering the buffer's address.
+pub(crate) fn alloc_and_write(
+    mut ctx: impl AsContextMut,
+    exports: &Exports,
+    bytes: &[u8],
+) -> Result<u32, WriteError> {
+    let len = checked_payload_len(bytes.len()).map_err(|_| WriteError::TooLarge)?;
+    let alloc = exports
+        .alloc
+        .as_ref()
+        .ok_or(WriteError::Incompatible(RUNTIME_INCOMPATIBLE))?;
+    let memory = exports
+        .memory
+        .ok_or(WriteError::Incompatible(SANDBOX_RUNTIME_NOT_KOBAKO))?;
+    let ptr = alloc
+        .call(&mut ctx, len as u32)
+        .map_err(WriteError::Trapped)?;
+    if ptr == 0 {
+        return Err(WriteError::OutOfMemory);
     }
+    memory
+        .write(&mut ctx, ptr as usize, bytes)
+        .map_err(|_| WriteError::OutOfBounds)?;
+    Ok(ptr)
+}
+
+/// Copy out the buffer the guest names; a length past the 16 MiB cap is
+/// refused before memory is touched.
+pub(crate) fn read_buffer(
+    ctx: impl AsContext,
+    memory: Memory,
+    ptr: usize,
+    len: usize,
+) -> Result<Vec<u8>, ReadError> {
+    if len > MAX_DISPATCH_PAYLOAD {
+        return Err(ReadError::TooLarge);
+    }
+    let data = memory.data(&ctx);
+    let range = guest_buffer_range(ptr, len, data.len()).map_err(|_| ReadError::OutOfBounds)?;
+    Ok(data[range].to_vec())
+}
+
+/// The handles of the instance a host import runs inside.
+fn callback_exports(caller: &Caller<'_, Invocation>) -> Result<Exports, &'static str> {
+    caller.data().exports().ok_or(SANDBOX_RUNTIME_NOT_KOBAKO)
 }
 
 /// Keep a trap the guest raised during a callback into it for the dispatch
@@ -44,59 +100,49 @@ fn trapped(
     reason
 }
 
-/// A guest that has already trapped is not called again.
-pub(crate) fn alloc_and_write(
+/// The Call the guest hands the dispatch import. Its `(ptr, len)` are
+/// guest addresses, so they are read unsigned.
+pub(crate) fn read_request(
+    caller: &mut Caller<'_, Invocation>,
+    req_ptr: i32,
+    req_len: i32,
+) -> Result<Vec<u8>, &'static str> {
+    let memory = callback_exports(caller)?
+        .memory
+        .ok_or(SANDBOX_RUNTIME_NOT_KOBAKO)?;
+    read_buffer(
+        &*caller,
+        memory,
+        req_ptr as u32 as usize,
+        req_len as u32 as usize,
+    )
+    .map_err(|err| match err {
+        ReadError::TooLarge => "request payload exceeds the 16 MiB limit",
+        ReadError::OutOfBounds => "the Sandbox produced an out-of-bounds request",
+    })
+}
+
+/// Write `bytes` into the guest from inside a callback. A guest that has
+/// already trapped is not called again.
+pub(crate) fn write_from_callback(
     caller: &mut Caller<'_, Invocation>,
     bytes: &[u8],
 ) -> Result<u32, &'static str> {
     if caller.data().reentry_trapped() {
         return Err("the Sandbox already trapped during this invocation");
     }
-    let alloc = match caller.get_export("__kobako_alloc") {
-        Some(Extern::Func(f)) => f
-            .typed::<i32, i32>(&*caller)
-            .map_err(|_| RUNTIME_INCOMPATIBLE)?,
-        _ => return Err(RUNTIME_INCOMPATIBLE),
-    };
-    let len = checked_payload_len(bytes.len())?;
-    let ptr = alloc.call(&mut *caller, len).map_err(|trap| {
-        trapped(
+    let exports = callback_exports(caller)?;
+    alloc_and_write(&mut *caller, &exports, bytes).map_err(|err| match err {
+        WriteError::TooLarge => "payload exceeds the 16 MiB limit",
+        WriteError::Incompatible(message) => message,
+        WriteError::Trapped(trap) => trapped(
             caller,
             trap,
             "the Sandbox trapped while allocating memory for the request",
-        )
-    })?;
-    if ptr == 0 {
-        return Err("the Sandbox ran out of memory while preparing the request");
-    }
-
-    let mem = memory_export(caller)?;
-    mem.write(&mut *caller, ptr as usize, bytes)
-        .map_err(|_| "could not write the request into the Sandbox's memory")?;
-    Ok(ptr as u32)
-}
-
-/// A guest-claimed length past the 16 MiB cap is a wire violation that
-/// names the cap.
-pub(crate) fn read(
-    caller: &mut Caller<'_, Invocation>,
-    ptr: i32,
-    len: i32,
-) -> Result<Vec<u8>, &'static str> {
-    let len = usize::try_from(len).map_err(|_| "the Sandbox produced a negative request length")?;
-    if len > MAX_DISPATCH_PAYLOAD {
-        return Err("request payload exceeds the 16 MiB limit");
-    }
-    let mem = memory_export(caller)?;
-    let data = mem.data(&caller);
-    let start =
-        usize::try_from(ptr).map_err(|_| "the Sandbox produced a negative request pointer")?;
-    let end = start
-        .checked_add(len)
-        .ok_or("the Sandbox produced an out-of-range request")?;
-    data.get(start..end)
-        .map(|s| s.to_vec())
-        .ok_or("the Sandbox produced an out-of-bounds request")
+        ),
+        WriteError::OutOfMemory => "the Sandbox ran out of memory while preparing the request",
+        WriteError::OutOfBounds => "could not write the request into the Sandbox's memory",
+    })
 }
 
 /// Every host write boundary routes its length through here, so the
@@ -133,14 +179,11 @@ pub(crate) fn drive_yield(
     args: &[u8],
 ) -> Result<Vec<u8>, &'static str> {
     let len_i32 = checked_payload_len(args.len())?;
-    let req_ptr = alloc_and_write(caller, args)? as i32;
+    let req_ptr = write_from_callback(caller, args)? as i32;
 
-    let yield_fn = match caller.get_export("__kobako_yield_to_block") {
-        Some(Extern::Func(f)) => f
-            .typed::<(i32, i32), u64>(&*caller)
-            .map_err(|_| RUNTIME_INCOMPATIBLE)?,
-        _ => return Err(RUNTIME_INCOMPATIBLE),
-    };
+    let exports = callback_exports(caller)?;
+    let yield_fn = exports.yield_to_block.ok_or(RUNTIME_INCOMPATIBLE)?;
+    let memory = exports.memory.ok_or(SANDBOX_RUNTIME_NOT_KOBAKO)?;
     let packed = yield_fn
         .call(&mut *caller, (req_ptr, len_i32))
         .map_err(|trap| trapped(caller, trap, "the Sandbox trapped while invoking a block"))?;
@@ -148,15 +191,10 @@ pub(crate) fn drive_yield(
     if reply_len == 0 {
         return Err("the Sandbox returned an empty block result");
     }
-    if reply_len > MAX_DISPATCH_PAYLOAD {
-        return Err("block result payload exceeds the 16 MiB limit");
-    }
-
-    let mem = memory_export(caller)?;
-    let data = mem.data(&caller);
-    let range = guest_buffer_range(reply_ptr, reply_len, data.len())
-        .map_err(|_| "the Sandbox returned an out-of-bounds block result")?;
-    Ok(data[range].to_vec())
+    read_buffer(&*caller, memory, reply_ptr, reply_len).map_err(|err| match err {
+        ReadError::TooLarge => "block result payload exceeds the 16 MiB limit",
+        ReadError::OutOfBounds => "the Sandbox returned an out-of-bounds block result",
+    })
 }
 
 #[cfg(test)]

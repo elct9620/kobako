@@ -56,7 +56,7 @@ fn try_handle(
     req_ptr: i32,
     req_len: i32,
 ) -> Result<i64, &'static str> {
-    let req_bytes = guest_mem::read(caller, req_ptr, req_len)?;
+    let req_bytes = guest_mem::read_request(caller, req_ptr, req_len)?;
     // The driver decodes the core envelope so the frontend never sees a
     // frame; the payload inside it stays bytes the whole way through.
     let call = Call::decode(&req_bytes).map_err(|_| {
@@ -87,7 +87,7 @@ fn try_handle(
 }
 
 fn write_reply(caller: &mut Caller<'_, Invocation>, bytes: &[u8]) -> Result<i64, &'static str> {
-    let ptr = guest_mem::alloc_and_write(caller, bytes)?;
-    // `alloc_and_write` has already held the length to the payload cap.
+    let ptr = guest_mem::write_from_callback(caller, bytes)?;
+    // The write has already held the length to the payload cap.
     Ok(pack_ptr_len(ptr, bytes.len() as u32) as i64)
 }

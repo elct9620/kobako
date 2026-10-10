@@ -1,18 +1,12 @@
 //! Per-invocation wasmtime export handles for the host-driven ABI
 //! surface.
 //!
-//! `Driver::instantiate` resolves the ABI exports the run path drives
-//! (`__kobako_eval` / `__kobako_run` / `__kobako_take_outcome` /
-//! `__kobako_alloc`) plus the `memory` export against each fresh
-//! per-invocation instance and bundles their
-//! typed handles here, so the invocation body passes one struct around
-//! rather than re-resolving exports by name at every step. Distinct
-//! from `crate::cache` (the process-wide Engine / Module cache): this
-//! carries *which guest function to call*, per invocation.
-//!
-//! `crate::dispatch` does not reach this struct — a host import runs
-//! against a `Caller`, so the dispatch path resolves `__kobako_alloc`
-//! and `memory` through `Caller::get_export` instead.
+//! Each ABI export is named and typed once, here, against each fresh
+//! per-invocation instance. The invocation body and the host imports
+//! running inside it both drive the guest through these handles, never
+//! by looking an export up by name. Distinct from `crate::cache` (the
+//! process-wide Engine / Module cache): this carries *which guest
+//! function to call*, per invocation.
 
 use wasmtime::{AsContextMut, Instance as WtInstance, Memory, TypedFunc};
 
@@ -32,11 +26,14 @@ pub(crate) const RUNTIME_INCOMPATIBLE: &str =
 ///
 /// The handles are indices into the owning Store, not borrows of the
 /// `Instance` — they stay valid for the Store's lifetime, which is why
-/// no `Instance` field is kept.
+/// no `Instance` field is kept, and why a clone can ride in the Store's
+/// own data for the host imports to reach.
+#[derive(Clone)]
 pub(crate) struct Exports {
     pub(crate) eval: Option<TypedFunc<(), ()>>,
     pub(crate) run: Option<TypedFunc<(i32, i32), ()>>,
     pub(crate) take_outcome: Option<TypedFunc<(), u64>>,
+    pub(crate) yield_to_block: Option<TypedFunc<(i32, i32), u64>>,
     pub(crate) alloc: Option<TypedFunc<u32, u32>>,
     pub(crate) memory: Option<Memory>,
 }
@@ -54,6 +51,9 @@ impl Exports {
                 .ok(),
             take_outcome: instance
                 .get_typed_func::<(), u64>(&mut ctx, "__kobako_take_outcome")
+                .ok(),
+            yield_to_block: instance
+                .get_typed_func::<(i32, i32), u64>(&mut ctx, "__kobako_yield_to_block")
                 .ok(),
             alloc: instance
                 .get_typed_func::<u32, u32>(&mut ctx, "__kobako_alloc")

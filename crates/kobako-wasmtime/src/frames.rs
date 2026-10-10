@@ -1,6 +1,5 @@
-//! Per-invocation byte-shuttle between the host and guest linear memory:
-//! it resolves the required `memory` / ABI-export handles, writes the
-//! `#run` envelope into a freshly allocated guest buffer, builds the
+//! Per-invocation byte-shuttle between the host and the guest: it writes
+//! the `#run` envelope into a freshly allocated guest buffer, builds the
 //! stdin frame stream plus stdout / stderr capture pipes for the WASI
 //! context, and reads the OUTCOME_BUFFER back out. The driver owns no
 //! wire codec — these helpers move raw bytes; the frontend decodes them.
@@ -11,8 +10,9 @@ use wasmtime_wasi::WasiCtxBuilder;
 
 use crate::config::Config;
 use crate::exports::{self, Exports};
+use crate::guest_mem::{self, ReadError, WriteError};
 use crate::invocation::Invocation;
-use crate::{ambient, capture, guest_mem};
+use crate::{ambient, capture};
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
 use kobako_transport::abi::FRAME_LEN_SIZE;
@@ -24,27 +24,22 @@ pub(crate) fn write_envelope(
     exports: &Exports,
     envelope: &[u8],
 ) -> Result<(i32, i32), InvokeError> {
-    let len_i32 = guest_mem::checked_payload_len(envelope.len())
-        .map_err(|msg| Trap::Other(msg.to_string()))?;
-
-    let alloc = exports::require(exports.alloc.as_ref())?;
-    let memory = exports.require_memory()?;
-
-    let ptr = alloc
-        .call(store.as_context_mut(), len_i32 as u32)
-        .map_err(|e| Trap::Other(format!("failed to allocate input buffer: {e}")))?;
-    if ptr == 0 {
-        return Err(SetupError::Intact(
-            "could not allocate input buffer (out of memory)".to_string(),
-        )
-        .into());
-    }
-    let data = memory.data_mut(store.as_context_mut());
-    let range = guest_mem::guest_buffer_range(ptr as usize, envelope.len(), data.len())
-        .map_err(|msg| Trap::Other(msg.to_string()))?;
-    data[range].copy_from_slice(envelope);
-
-    Ok((ptr as i32, len_i32))
+    let trap = |message: String| -> InvokeError { Trap::Other(message).into() };
+    let ptr =
+        guest_mem::alloc_and_write(&mut *store, exports, envelope).map_err(|err| match err {
+            WriteError::OutOfMemory => {
+                SetupError::Intact("could not allocate input buffer (out of memory)".to_string())
+                    .into()
+            }
+            WriteError::TooLarge => trap("payload exceeds the 16 MiB limit".to_string()),
+            WriteError::Incompatible(message) => trap(message.to_string()),
+            WriteError::Trapped(e) => trap(format!("failed to allocate input buffer: {e}")),
+            WriteError::OutOfBounds => {
+                trap("the input buffer lies outside the Sandbox's memory".to_string())
+            }
+        })?;
+    // The write has already held the length to the payload cap.
+    Ok((ptr as i32, envelope.len() as i32))
 }
 
 /// An uncapped output channel relies on `memory_limit` for its real
@@ -110,16 +105,15 @@ pub(crate) fn fetch_outcome_bytes(
         .call(store.as_context_mut(), ())
         .map_err(|e| Trap::Other(format!("failed to read the Sandbox result: {e}")))?;
     let (ptr, len) = guest_mem::unpack_guest_buffer(packed);
-    if len > kobako_transport::abi::MAX_DISPATCH_PAYLOAD {
-        return Err(Trap::Other(
-            "result payload exceeds the 16 MiB limit".to_string(),
-        ));
-    }
-
-    let data = mem.data(store.as_context_mut());
-    let range = guest_mem::guest_buffer_range(ptr, len, data.len())
-        .map_err(|msg| Trap::Other(format!("the Sandbox result is out of bounds: {msg}")))?;
-    Ok(data[range].to_vec())
+    guest_mem::read_buffer(&*store, mem, ptr, len).map_err(|err| {
+        Trap::Other(
+            match err {
+                ReadError::TooLarge => "result payload exceeds the 16 MiB limit",
+                ReadError::OutOfBounds => "the Sandbox result is out of bounds",
+            }
+            .to_string(),
+        )
+    })
 }
 
 #[cfg(test)]
