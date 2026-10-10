@@ -7,13 +7,13 @@ module Kobako
 
       def initialize: () -> void
 
-      def register: (?code: String?, ?name: (Symbol | String)?, ?binary: String?) -> (Symbol | nil)
+      def register: (?code: String?, ?name: (Symbol | String)?, ?binary: String?) -> nil
 
       def entries: () -> Array[tuple]
 
       private
 
-      def register_source!: (String? code, (Symbol | String)? name) -> Symbol
+      def register_source!: (String? code, (Symbol | String)? name) -> nil
 
       def ensure_source_args!: (String? code, (Symbol | String)? name) -> [String, Symbol | String]
 

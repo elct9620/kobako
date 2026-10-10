@@ -23,7 +23,7 @@ module Kobako
 
       def self.caught_fault: (StandardError error, Kobako::Transport::Yielder? yielder) -> [String, String]
 
-      def self.invoke: (Kobako::Transport::Exposure exposure, String method, Array[untyped] args, Hash[Symbol, untyped] kwargs, ?Kobako::Transport::Yielder? yielder) -> untyped
+      def self.invoke: (Kobako::Transport::Exposure exposure, String method, Array[untyped] args, Hash[Symbol, untyped] kwargs, Kobako::Transport::Yielder? yielder) -> untyped
 
       def self.reject_unreachable!: (Kobako::Transport::Exposure exposure, Symbol name) -> void
 

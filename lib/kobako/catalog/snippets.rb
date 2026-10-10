@@ -39,7 +39,7 @@ module Kobako
         end
 
         @entries << Snippet::Source.new(name: name_sym, body: code.dup.force_encoding(Encoding::UTF_8))
-        name_sym
+        nil
       end
 
       # The +code:+ type check runs first so an explicit +code: nil+ reads

@@ -22,16 +22,12 @@ module Kobako
                    "a table with nothing preloaded through #entries must be empty, never absent"
     end
 
-    def test_register_returns_symbol_name_for_source_form
-      assert_equal :Helper, @table.register(code: "X = 1", name: :Helper)
-    end
+    # A name names one constant whichever spelling registered it, so the
+    # duplicate check is what shows a String name and a Symbol name agree.
+    def test_register_treats_a_string_name_as_its_symbol
+      @table.register(code: "Y = 2", name: "Worker")
 
-    def test_register_returns_nil_for_binary_form
-      assert_nil @table.register(binary: "RITE")
-    end
-
-    def test_register_accepts_string_name_and_normalizes_to_symbol
-      assert_equal :Worker, @table.register(code: "Y = 2", name: "Worker")
+      assert_raises(ArgumentError) { @table.register(code: "Z = 3", name: :Worker) }
     end
 
     # @behavior S-085

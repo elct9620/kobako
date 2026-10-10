@@ -104,7 +104,7 @@ module Kobako
 
         # The wire always carries a keyword map, so an empty one is left
         # unsplatted for methods that take no keywords.
-        def invoke(exposure, method, args, kwargs, yielder = nil)
+        def invoke(exposure, method, args, kwargs, yielder)
           name = method.to_sym
           reject_unreachable!(exposure, name)
           target = exposure.object
