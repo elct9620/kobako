@@ -10,8 +10,7 @@
 #
 # Deliberately NOT a member of the wasm/ sub-workspace: it depends on
 # host-only crates (wizer, wasmtime) that must never enter the
-# wasm32-wasip1 dependency graph that `rake wasm:check` / `wasm:build`
-# compile. The empty `[workspace]` table below keeps it standalone,
+# wasm32-wasip1 dependency graph that `rake wasm:build` compiles. The empty `[workspace]` table below keeps it standalone,
 # mirroring how the repository root excludes `wasm/` itself.
 
 [package]
