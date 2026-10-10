@@ -191,6 +191,6 @@ class TestE2EOutcomeValues < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     assert_equal({}, sandbox.eval("{}").value,
-                 "outcome path: empty Hash must arrive as `{}`, not the legacy `\"{}\"` sentinel")
+                 "an empty Hash returned through Sandbox#eval must arrive as an empty Hash, never a String")
   end
 end

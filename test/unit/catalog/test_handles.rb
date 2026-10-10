@@ -63,20 +63,18 @@ module Kobako
 
     # ---------- Cap exhaustion: alloc beyond Kobako::Handle::MAX_ID raises ----------
 
-    # @behavior T-012 T-185
+    # next_id: reaches the cap without 2³¹ allocations. Callers rescuing
+    # SandboxError must catch the exhaustion, so its class matters even though
+    # the dispatcher turns the raise into a fault the guest observes.
+    # @behavior T-012 T-185 T-047
     def test_alloc_at_max_id_succeeds_then_next_alloc_raises
-      # Internal seam: next_id: lets us exercise the cap without 2³¹ allocations.
-      # Test-only-visible; documented as internal.
       table = Table.new(next_id: Kobako::Handle::MAX_ID)
 
-      id = table.alloc(Object.new).id
-      assert_equal Kobako::Handle::MAX_ID, id
-      assert_equal 0x7fff_ffff, id
-
-      # Cap exhaustion raises the canonical
-      # HandleExhaustedError < SandboxError chain.
+      assert_equal 0x7fff_ffff, table.alloc(Object.new).id,
+                   "an allocation at the highest id through Handles#alloc must issue that id"
       err = assert_raises(Kobako::HandleExhaustedError) { table.alloc(Object.new) }
-      assert_kind_of Kobako::SandboxError, err
+      assert_kind_of Kobako::SandboxError, err,
+                     "an allocation past the highest id through Handles#alloc must raise a SandboxError"
     end
 
     # @behavior T-013

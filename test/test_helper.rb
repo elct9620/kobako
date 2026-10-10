@@ -2,26 +2,18 @@
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 
-# Loading kobako requires the native ext (lib/kobako/kobako.bundle on darwin).
-# In clean checkouts before `bundle exec rake compile` runs, that bundle is
-# absent — degrade gracefully so individual test files can `skip` rather
-# than the whole test suite blowing up at require time. Tests that need the
-# native ext check `defined?(Kobako::Runtime)` and skip.
+# A clean checkout has no native ext until `bundle exec rake compile`, so the
+# pure-Ruby tree loads on its own and the tests that need the ext skip on
+# `defined?(Kobako::Runtime)`.
 begin
   require "kobako"
 rescue LoadError => e
   warn "[test_helper] kobako native ext not loadable: #{e.message}"
   warn "[test_helper] tests requiring the ext will be skipped; run `bundle exec rake compile` to enable them"
 
-  # Only `kobako/kobako` (the ext) and `kobako/runtime` (which reopens the
-  # ext-defined Kobako::Runtime) need the compiled bundle. `kobako/sandbox`
-  # is the aggregator that transitively requires the whole pure-Ruby tree
-  # (errors / outcome / transport / catalog / codec), so loading it here lets
-  # codec / transport / catalog / outcome unit tests still run on a clean
-  # checkout — and a new pure-Ruby module wired into that graph is picked up
-  # automatically, no list to keep in sync with lib/kobako.rb. Kobako::Runtime
-  # stays undefined on purpose (sandbox.rb does not pull it), so the
-  # ext-dependent tests skip on `defined?(Kobako::Runtime)`.
+  # `kobako/sandbox` requires the whole pure-Ruby tree but not the
+  # ext-defined Kobako::Runtime, so it loads without the bundle and needs no
+  # list kept in sync with lib/kobako.rb.
   require "kobako/version"
   require "kobako/sandbox"
   # Pool sits above the sandbox aggregator (the checkout layer), so it is

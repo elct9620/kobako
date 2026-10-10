@@ -134,22 +134,6 @@ class TestTransportDispatchViolations < Minitest::Test
                  "exception crosses in, which would read as the Service having raised it")
   end
 
-  # @behavior T-047
-  def test_handle_exhaustion_propagates_as_sandbox_error_class
-    # Callers rescuing SandboxError must catch the exhaustion path, so the
-    # class identity matters even though the dispatcher turns the raise into
-    # a fault the guest can observe.
-    assert_operator Kobako::HandleExhaustedError, :<, Kobako::SandboxError
-
-    table = Kobako::Catalog::Handles.new(
-      next_id: Kobako::Handle::MAX_ID + 1
-    )
-    error = assert_raises(Kobako::SandboxError) do
-      table.alloc(Object.new)
-    end
-    assert_kind_of Kobako::HandleExhaustedError, error
-  end
-
   # ---------- Host-level fault escapes the rescue by design ----------
 
   # The dispatcher folds a Service's StandardError onto the fault arm so
