@@ -12,6 +12,7 @@ AllCops:
       - Exclude
   Exclude:
     - "**/target/**/*"
+    - "**/vendor/**/*"
 
 
 Style/StringLiterals:

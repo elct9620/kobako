@@ -1,3 +1,4 @@
 {
-  "root": "docs/spec"
+  "root": "docs/spec",
+  "exclude": ["vendor/"]
 }
