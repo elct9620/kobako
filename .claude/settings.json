@@ -51,7 +51,7 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-rake.sh",
             "timeout": 1800,
-            "statusMessage": "Running bundle exec rake (compile + test + rubocop + steep)"
+            "statusMessage": "Running bundle exec rake (the default task: compile, test, crates:test, rubocop, steep, gate)"
           }
         ]
       }
