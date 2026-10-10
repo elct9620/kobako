@@ -22,8 +22,6 @@
 //! what hold it to the layout document. They spell each tag as the literal
 //! byte that document fixes, never as the constant beside it: a golden
 //! written from the constant compares the implementation to itself.
-//!
-//! [core envelope]: ../../../docs/wire/envelope.md
 
 pub(crate) mod bytes;
 pub mod call;

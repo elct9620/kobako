@@ -7,8 +7,6 @@
 //! mruby ↔ wire value walk lives in the sibling `convert` module; this
 //! file is the codec's own face, framing those values into the payload
 //! positions the wire contract defines.
-//!
-//! [payload codec]: ../../../docs/wire/payload-msgpack.md
 
 mod convert;
 

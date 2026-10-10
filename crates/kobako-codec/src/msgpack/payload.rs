@@ -5,8 +5,6 @@
 //! receives. Splitting them is what lets an endpoint with its own schema
 //! replace this module and keep the envelope, so nothing here may reach
 //! for a routing field.
-//!
-//! [payload codec]: ../../../../docs/wire/payload-msgpack.md
 
 use super::codec::{self, Decode, Decoder, Encode, Encoder, Value};
 

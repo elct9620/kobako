@@ -16,8 +16,6 @@
 //! byte-level contract those positions are defined in. A codec serves the
 //! positions it implements and refuses at the rest, so the set of methods
 //! it writes is the set of capabilities it offers.
-//!
-//! [payload codec]: ../../../docs/wire/payload-msgpack.md
 
 use crate::runtime::{IntegerOutOfRange, Kobako};
 use beni::ReprValue;

@@ -14,8 +14,6 @@
 //! interpreter, or a schema — and nothing may come to: a tier every other
 //! tier composes against cannot carry a choice any of them might want to
 //! make differently.
-//!
-//! [core envelope]: ../../../docs/wire/envelope.md
 
 pub mod abi;
 pub mod envelope;
