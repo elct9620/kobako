@@ -4,11 +4,21 @@ What happens when a host Service calls back into the block the guest handed it.
 
 ### Why these scenarios
 
-A yield turns one dispatch into a conversation: the guest calls out, the host calls back, and either side may end it. The scenarios follow every way that conversation can close — a value, a break, a fall-through, a raise — because each unwinds a different distance.
+A yield turns one dispatch into a conversation. The guest calls out, the host calls back, and either side may end it. The scenarios follow every way that conversation can close: a value, a break, a fall-through, a raise. Each unwinds a different distance.
 
-The block-failure scenarios are about what a failure leaves behind. A Service that rescues one raise, holds it, and yields again must not answer the second block with the first block's failure, and a failure already rescued must not reappear as a later refusal. Both are witnessed because neither shows up in the single-yield case.
+The block-failure scenarios are about what a failure leaves behind. A Service may rescue one raise, hold it, and yield again. The second block's answer must then not be the first block's failure. A failure already rescued must not reappear as a later refusal.
 
-A block's answer is restored on its way in and a break's value is not, which is the one asymmetry here. The exits that raise are followed too: an unwind aimed past the boundary, an answer the wire cannot carry, and a Yielder reached after its frame returned each end the conversation somewhere the ordinary closes cannot reach. That last exit has no parity scenario, because the frontends close it at different times: one refuses the stored block when it runs, the other lends its Yielder for the frame alone so a Service storing it never builds. Each is witnessed on its own frontend.
+Both are witnessed because neither shows up in the single-yield case.
+
+A block's answer is restored on its way in, and a break's value is not. This is the one asymmetry here.
+
+The exits that raise are followed too. Each ends the conversation somewhere the ordinary closes cannot reach:
+
+- An unwind aimed past the boundary.
+- An answer the wire cannot carry.
+- A Yielder reached after its frame returned.
+
+That last exit has no parity scenario, because the frontends close it at different times. One refuses the stored block when it runs. The other lends its Yielder for the frame alone, so a Service storing it never builds. Each is witnessed on its own frontend.
 
 ## Includes
 
@@ -404,7 +414,8 @@ A block's answer is restored on its way in and a break's value is not, which is 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a Service yielding arguments nested to the deepest level the wire encodes, counted as the one list they travel in |
+| Given | a Sandbox with a Service yielding arguments nested to the deepest level the wire encodes |
+| Given | the depth counts the arguments as the one list they travel in |
 | When | guest code calls it with a block that measures what it received |
 | Then | the block receives them nested to that depth |
 

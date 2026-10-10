@@ -1,9 +1,12 @@
 # Wire-symmetric payload peers
 
-The payload types both Codec implementations carry, each registered on both
-sides so neither peer can drop or reshape its half alone. The round-trip fuzz
-holds what the bytes are, and the behavior specification holds that both
-peers carry the same set; this holds that each peer still answers for them.
+The payload types both Codec implementations carry. Each is registered on both
+sides so neither peer can drop or reshape its half alone.
+
+The round-trip fuzz holds what the bytes are. The behavior specification holds
+that both peers carry the same set. This holds that each peer still answers for
+them.
+
 The guest-side traits stay open, so a schema built on this codec implements
 them for its own documents.
 

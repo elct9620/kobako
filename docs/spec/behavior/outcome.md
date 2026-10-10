@@ -1,20 +1,24 @@
 # Outcome attribution
 
-What one invocation's result settles into, which side it is attributed to, and which class a Host App rescues it as.
+An invocation's outcome, which side it is attributed to, and which class a Host App rescues it as.
 
 ### Why these scenarios
 
-Every invocation writes exactly one Outcome, so what a Host App can do about a failure is decided entirely here: whether the Sandbox is still usable, whose mistake it was, and which class the rescue has to name. The scenarios follow that decision in the order it is made — the arm, then the origin, then the class the guest named.
+Every invocation writes exactly one Outcome. So this feature alone decides what a Host App can do about a failure. It decides whether the Sandbox is still usable, whose mistake it was, and which class the rescue must name.
 
-The origin decides the layer and the class name may only narrow inside it. Both halves are witnessed, because attribution that let a guest-chosen name cross a layer would hand the guest its own error taxonomy.
+The scenarios follow that decision in the order it is made. First comes the arm, then the origin, then the class the guest named.
 
-Two arms carry no record at all — nothing written, and bytes the envelope cannot frame — and both mean the guest runtime is past reasoning about. They are separated from every readable failure because they are the only ones that cost the Sandbox.
+The origin decides the layer and the class name may only narrow inside it. Both halves are witnessed. Attribution that let a guest-chosen name cross a layer would hand the guest its own error taxonomy.
 
-The class hierarchy is asserted as relations rather than through failures. A Host App writes one rescue and expects it to cover a family; what makes that true is the shape of the tree, which no single failure shows.
+Two arms carry no record at all: nothing written, and bytes the envelope cannot frame. Both mean the guest runtime is past reasoning about. They are separated from every readable failure because they are the only ones that cost the Sandbox.
 
-The parity scenarios settle that both frontends attribute the same origin, not that either is right — what is right is stated by the attribution scenarios. The one trap they cannot stage is an engine trap no cap caused: the guest turns runaway recursion into an exception of its own, so no scenario either frontend can run reaches one. Its parity is unverifiable, and each frontend routes it under its own witness.
+The class hierarchy is asserted as relations rather than through failures. A Host App writes one rescue and expects it to cover a family. The shape of the tree makes that true, and no single failure shows that shape.
 
-One block here is deliberately written in one frontend's own names: the ancestry scenarios say what the Ruby gem's error classes descend from, which is a promise that frontend makes and no other can answer for. Everything else states the attribution itself, so either frontend's tests witness it in its own spelling.
+The parity scenarios settle that both frontends attribute the same origin. They do not settle that either is right; the attribution scenarios state what is right.
+
+The parity scenarios cannot stage one trap: an engine trap no cap caused. The guest turns runaway recursion into its own exception, so no scenario either frontend can run reaches one. Its parity is unverifiable, and each frontend routes it under its own witness.
+
+One block here is deliberately written in one frontend's own names. The ancestry scenarios say what the Ruby gem's error classes descend from. That is a promise that frontend makes, and no other frontend can answer for it. Everything else states the attribution itself, so either frontend's tests witness it in its own spelling.
 
 ## Includes
 

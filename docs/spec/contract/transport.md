@@ -1,7 +1,7 @@
 # Core envelope and ABI values
 
-What every Frontend and Guest shares whatever Codec fills a payload: the
-Envelope each message rides in and the values the Guest ABI fixes. A Frontend
+What every Frontend and Guest shares, whatever Codec fills a payload. That is
+the Envelope each message rides in and the values the Guest ABI fixes. A Frontend
 of its own composes these with the engine seams; a Guest of its own answers
 them.
 

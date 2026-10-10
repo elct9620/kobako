@@ -4,15 +4,23 @@ What the payload codec will carry between host and guest, and what it refuses ra
 
 ### Why these scenarios
 
-A codec that changes a value on the way is worse than one that refuses it, because the caller reads a plausible answer and never learns it was not the one sent. So every refusal here is paired against the value just inside the bound it refuses: an integer at the guest's widest, nesting at the deepest the wire encodes, a keyword name that is text after all.
+A codec that changes a value on the way is worse than one that refuses it. The caller reads a plausible answer and never learns it was not the one sent. So every refusal here is paired against the value just inside the bound it refuses:
 
-The bounds are reached from three directions — an answer, an argument, a yield — and each is witnessed, since a check placed on one path leaves the others carrying whatever they were given.
+- An integer at the guest's widest.
+- Nesting at the deepest the wire encodes.
+- A keyword name that is text after all.
 
-Two implementations of this codec exist on the host and a third inside the guest. The first two are held to each other byte for byte; the third has no peer, so it is held to an identity law instead. Both are properties over generated values rather than statements about one, which is why each is a single scenario.
+The bounds are reached from three directions: an answer, an argument, a yield. Each direction is witnessed, since a check placed on one path leaves the others carrying whatever they were given.
 
-Whether a decode carried a capability reference only decides whether a later walk is worth taking, so a wrong answer costs time rather than correctness. It is declared anyway, in both directions and across two brackets, because the walk it skips is the one that resolves references — and a signal stuck at either answer stops being a signal quietly.
+Two implementations of this codec exist on the host and a third inside the guest. The first two are held to each other byte for byte. The third has no peer, so it is held to an identity law instead. Both are properties over generated values rather than statements about one, which is why each is a single scenario.
 
-What the codec does with a value it accepts — which of the eleven type mappings each shape takes, how a length is framed, what a malformed frame answers — is the encoding table rather than the boundary. It is specified with the wire format, and its scenarios are the payload encoding feature's.
+Whether a decode carried a capability reference only decides whether a later walk is worth taking. So a wrong answer costs time rather than correctness.
+
+It is declared anyway, in both directions and across two brackets. The walk it skips is the one that resolves references. A signal stuck at either answer stops being a signal quietly.
+
+What the codec does with a value it accepts is the encoding table rather than the boundary. That table names which of the eleven type mappings each shape takes, and how a length is framed. It also names what a malformed frame answers.
+
+The table is specified with the wire format, and its scenarios are the payload encoding feature's.
 
 ## Includes
 
@@ -344,7 +352,8 @@ What the codec does with a value it accepts — which of the eleven type mapping
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a Service answering a value nested one level past the deepest the wire encodes and holding a value the wire cannot represent |
+| Given | a Sandbox with a Service answering a value nested one level past the deepest the wire encodes |
+| Given | the answered value also holds a value the wire cannot represent |
 | When | guest code calls it and leaves the failure unrescued |
 | Then | it reaches the Host App as a Service failure |
 

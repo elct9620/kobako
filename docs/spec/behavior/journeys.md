@@ -4,11 +4,20 @@ The walks a Host App takes end to end, each one reaching what it set out for.
 
 ### Why these scenarios
 
-Every step in these walks is declared somewhere else, and that is the point: what a journey settles is that the steps compose, which no scenario about one step can say. A dispatch that works, a taxonomy that separates, a yield that unwinds and a pool that hands out warm Sandboxes are four correct pieces that still leave a Host App unable to run model-generated code, because composing them is its own thing to get wrong.
+Every step in these walks is declared somewhere else, and that is the point. A journey settles that the steps compose. No scenario about one step can say that. Four correct pieces can still leave a Host App unable to run model-generated code:
 
-So each journey is written as one walk with one destination, and the observation is arrival rather than mechanism. Where a walk has more than one thing to reach — a failure that must both carry a class and carry a backtrace — each is its own scenario, since a walk arriving half way is what a single observation would hide.
+- A dispatch that works.
+- A taxonomy that separates.
+- A yield that unwinds.
+- A pool that hands out warm Sandboxes.
 
-A walk that reuses one Sandbox across requests arrives somewhere a Sandbox scenario also states, so the lifecycle test that walks it claims both: the Sandbox scenario for the step, the journey for the arrival.
+Composing them is its own thing to get wrong.
+
+So each journey is written as one walk with one destination, and the observation is arrival rather than mechanism.
+
+A walk may have more than one thing to reach. A failure, for example, must carry both a class and a backtrace. Each such thing is its own scenario. A single observation would hide a walk arriving half way.
+
+A walk that reuses one Sandbox across requests arrives somewhere a Sandbox scenario also states. So the lifecycle test that walks it claims both: the Sandbox scenario for the step, the journey for the arrival.
 
 ## Includes
 

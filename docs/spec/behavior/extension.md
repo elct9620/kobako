@@ -4,11 +4,13 @@ What installing a guest idiom with an optional host backend composes, and what s
 
 ### Why these scenarios
 
-Installing an Extension is observable in two places: what the composition leaves behind — a snippet under one name, a Service under another — and what stands behind that path once an invocation begins, which the kind the backend declares decides. The dependency scenarios cover the third: when that composition is checked, and how little the check asks.
+Installing an Extension is observable in two places. The first is what the composition leaves behind: a snippet under one name and a Service under another. The second is what stands behind that path once an invocation begins. The kind the backend declares decides it.
 
-Installing after the seal, an unmet dependency, and a malformed Extension all raise rather than compose, and each is settled here by what the refusal names — the dependency ones twice over, because when the check fires and what it can say are separate observations.
+The dependency scenarios cover one more question: when that composition is checked, and how little the check asks.
 
-The `File` idiom the end-to-end witnesses install is an illustrative fixture — kobako ships no concrete Extension — so no scenario here states what that idiom does, only what installing one produces.
+Installing after the seal, an unmet dependency, and a malformed Extension all raise rather than compose. Each is settled here by what the refusal names. The dependency ones are settled twice over. When the check fires and what it can say are separate observations.
+
+The `File` idiom the end-to-end witnesses install is an illustrative fixture. kobako ships no concrete Extension. So no scenario here states what that idiom does, only what installing one produces.
 
 ## Includes
 

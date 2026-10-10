@@ -4,11 +4,11 @@ What a String does when a pattern is handed to it — searching, splitting, subs
 
 ### Why these scenarios
 
-A String handed a pattern searches, splits, substitutes or rewrites itself. Each of those takes the same pattern and answers differently, so each is witnessed separately, and where a String argument reaches the same method the scenario says the ordinary behavior still stands — the pattern surface layers over the language's own rather than replacing it.
+A String handed a pattern searches, splits, substitutes or rewrites itself. Each of those takes the same pattern and answers differently, so each is witnessed separately. Where a String argument reaches the same method, the scenario says the ordinary behavior still stands. The pattern surface layers over the language's own rather than replacing it.
 
 Splitting and scanning disagree deliberately about a group that did not take part: splitting drops it, scanning keeps the hole. Both are witnessed on the same pattern, because the contrast is the contract.
 
-Replacement text is a small language of its own, so its scenarios cover what expands, what stays literal, and what is refused — a name no group carries, and a name marker with no name behind it.
+Replacement text is a small language of its own. Its scenarios cover what expands, what stays literal, and what is refused. The refused cases are a name no group carries and a name marker with no name behind it.
 
 #### String Readings
 

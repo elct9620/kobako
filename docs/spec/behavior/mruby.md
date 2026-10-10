@@ -4,11 +4,11 @@ The state every invocation starts from, and what a raise inside a capability gem
 
 ### Why these scenarios
 
-Two invocations of one artifact begin from the same interpreter state, not merely from a clean one. The heap-slot replay is what settles the difference: an interpreter that reset everything correctly but started somewhere new each time would pass every leak test and fail this one.
+Two invocations of one artifact begin from the same interpreter state, not merely from a clean one. The heap-slot replay settles the difference. An interpreter that reset everything correctly but started somewhere new each time would pass every leak test. It would still fail this one.
 
-A capability gem servicing one guest operation calls back into guest code, and the raise that call may produce has to stay a guest exception. The two coercion entries are witnessed separately because they are separate frames, and the recovery scenario is what tells a guest error apart from a retired Sandbox.
+A capability gem servicing one guest operation calls back into guest code. The raise that call may produce has to stay a guest exception. The two coercion entries are witnessed separately because they are separate frames. The recovery scenario tells a guest error apart from a retired Sandbox.
 
-That the boot state may be computed at build time, and that per-invocation resources may be provisioned ahead of demand, are both stated to be unobservable, so neither is a scenario. The reproducible-build check holds the baking end. Leak-freedom between invocations is per-invocation isolation and belongs with the Sandbox behaviors, whose witnesses cite it alongside this one.
+The boot state may be computed at build time, and per-invocation resources may be provisioned ahead of demand. Both are stated to be unobservable, so neither is a scenario. The reproducible-build check holds the baking end. Leak-freedom between invocations is per-invocation isolation and belongs with the Sandbox behaviors, whose witnesses cite it alongside this one.
 
 ## Includes
 

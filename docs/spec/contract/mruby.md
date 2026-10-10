@@ -1,8 +1,8 @@
 # mruby Guest seams
 
-What a third party reaches when it builds its own mruby Guest: an invocation
-flow it writes in place of the bundled one, a Codec it supplies in place of
-MessagePack, and a capability gem whose methods reach the host.
+What a third party reaches when it builds its own mruby Guest. It can write an
+invocation flow in place of the bundled one and supply a Codec in place of
+MessagePack. It can also build a capability gem whose methods reach the host.
 
 ## Includes
 
@@ -19,8 +19,8 @@ pub struct Kobako {}
 
 ## `Kobako::init`
 
-Install kobako's own classes on a booted VM, then the gems the Guest composes,
-and return the registrations of kobako's classes.
+Install kobako's own classes on a booted VM, then the gems the Guest composes.
+Return the registrations of kobako's classes.
 
 ```rust
 impl Kobako {
@@ -138,8 +138,8 @@ impl IntegerOutOfRange {
 
 ## `PayloadCodec`
 
-The Codec a Guest names for every payload an Envelope carries: the
-Outcome, a Call and its Reply, a Run, and a Yield.
+The Codec a Guest names for every payload an Envelope carries. Those payloads
+are the Outcome, a Call and its Reply, a Run, and a Yield.
 
 ```rust
 pub trait PayloadCodec {}
@@ -156,8 +156,8 @@ pub struct Arguments {}
 
 ## `CodecError`
 
-Why a Codec could not do its part: a value with no form, bytes it cannot read, a
-position it does not serve, or the interpreter refusing.
+Why a Codec could not do its part. Causes: a value with no form, bytes it cannot
+read, a position it does not serve, or an interpreter refusal.
 
 ```rust
 pub enum CodecError {}
@@ -175,7 +175,7 @@ impl CodecError {
 
 ## `dispatch`
 
-Send a Call to the host and wait for its Reply, keeping the method's block
+Send a Call to the host and wait for its Reply. Keep the method's block
 reachable by the host's yields while the Call is out.
 
 ```rust
@@ -184,8 +184,8 @@ pub fn dispatch(target: Target<'_>, method: &str, block: Option<Proc>, payload: 
 
 ## `MrbGuest`
 
-An mruby Guest of its own: the Codec and gem set it names, and the bundled
-invocation flows it keeps or replaces.
+An mruby Guest of its own. It names its Codec and gem set, and keeps or replaces
+the bundled invocation flows.
 
 ```rust
 pub trait MrbGuest {}

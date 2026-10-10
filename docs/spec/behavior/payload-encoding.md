@@ -4,15 +4,25 @@ Which form each value takes on the payload wire, and what a frame that is not on
 
 ### Why these scenarios
 
-The boundary this codec keeps — which values it refuses rather than change — is specified with the codec itself. What is here is the other half: the form each accepted value takes, and what a frame that is not a value answers. A caller never sees this half directly, which is exactly why it is declared: the two independent implementations agree only if both read the same table, and a table nobody wrote down is one each side is free to drift from.
+This codec keeps a boundary: it refuses some values rather than change them. That boundary is specified with the codec itself. What is here is the other half. It covers the form each accepted value takes, and what a frame that is not a value answers.
 
-Both implementations witness this one table, which is what makes a scenario here worth more than a scenario each: where the two agree, the same statement is answered twice from independently written code, and where they do not, the difference has to be declared rather than discovered. The reader's and writer's own state is declared alongside the tiers, since a tier is only ever observed through them.
+A caller never sees this half directly, so it is declared here. The two independent implementations agree only if both read the same table. Each side is free to drift from a table nobody wrote down.
 
-Every encoding tier is witnessed at its bound and just past it, because a tier chosen one step too wide still round-trips through the writer that chose it. The byte vectors are what catch that: a value whose form is fixed to specific bytes cannot silently be promoted, and the narrowest tag for each empty container is pinned for the same reason.
+Both implementations witness this one table, so one scenario here is worth more than one scenario each. Where the two agree, independently written code answers the same statement twice. Where they disagree, the difference has to be declared rather than discovered.
 
-Round-trips answer for what survives; the refusals answer for what a reader is handed by something that is not this writer. Those are separate observations even where one value reaches both — a reference the writer would never emit with a zero identifier still arrives with one when the bytes were built by hand.
+The reader's and writer's own state is declared alongside the tiers. A tier is only ever observed through that state.
 
-Two asymmetries are declared as they are rather than as they should be. One writer carries no bound of its own and will emit nesting its own reader refuses, because the library beneath it bounds the reader alone; nothing crosses that should not, since every position that hands this writer a value measures it against the bound first, and the writer at the other end carries the bound itself. And a value nesting without end — a list or a map holding itself — is beyond this writer's reach entirely, where the writer at the other end refuses it: this writer's walk runs in frames carrying no guard, so it exhausts the stack rather than answering. Those values are left without a scenario here, since a test that cannot run safely witnesses nothing; they are refused where they are handed over.
+Every encoding tier is witnessed at its bound and just past it. A tier chosen one step too wide still round-trips through the writer that chose it. The byte vectors catch that: a value whose form is fixed to specific bytes cannot silently be promoted. The narrowest tag for each empty container is pinned for the same reason.
+
+Round-trips answer for what survives. The refusals answer for what a reader is handed by something other than this writer. Those are separate observations, even where one value reaches both. This writer never emits a reference with a zero identifier, yet hand-built bytes can still carry one.
+
+Two asymmetries are declared as they are rather than as they should be.
+
+One writer carries no bound of its own. It emits nesting its own reader refuses, because the library beneath it bounds only the reader. Still, nothing crosses that should not: every position that hands this writer a value first measures it against the bound. The writer at the other end carries the bound itself.
+
+A value nesting without end, such as a list or a map holding itself, is beyond this writer's reach entirely. The writer at the other end refuses it. This writer walks it in frames carrying no guard, so it exhausts the stack rather than answering.
+
+Those values are left without a scenario here, since a test that cannot run safely witnesses nothing. They are refused where they are handed over.
 
 ## Includes
 

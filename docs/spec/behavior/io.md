@@ -4,11 +4,13 @@ The two descriptors guest code may write to, and the writing surface it reaches 
 
 ### Why these scenarios
 
-Guest code can write to two descriptors and no others. The constraint is witnessed twice — where a stream is opened and where it is written through — because the descriptor a stream carries is guest-mutable, which makes the opening check a courtesy on its own.
+Guest code can write to two descriptors and no others. The constraint is witnessed twice: where a stream is opened and where it is written through. The descriptor a stream carries is guest-mutable, so the opening check alone is only a courtesy.
 
-The rest is fidelity. Bytes go out as bytes: inline and heap strings alike, zero bytes included, a String unchanged and anything else through its string form. The supplementary surface is spelled out one member at a time because a script written against the mruby IO it mirrors expects each of them, and a single collective assertion would let any one of them drift.
+The rest is fidelity. Bytes go out as bytes: inline and heap strings alike, zero bytes included. A String goes out unchanged, and anything else goes out through its string form.
 
-Which channel bytes land in, where they stop, and what survives a failed run are the host end of this surface and belong with the Sandbox behaviors.
+The supplementary surface is spelled out one member at a time. A script written against the mruby IO it mirrors expects each member. A single collective assertion would let any one of them drift.
+
+The host end of this surface belongs with the Sandbox behaviors. It covers which channel bytes land in, where they stop, and what survives a failed run.
 
 ## Includes
 

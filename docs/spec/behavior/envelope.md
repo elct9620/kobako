@@ -1,16 +1,27 @@
 # Core envelope
 
-The bytes that say where a message goes and how it turned out, and the fixed values both sides must already agree on to read them.
+The bytes that say where a message goes and how it turned out. It also holds the fixed values both sides must already agree on to read them.
 
 ### Why these scenarios
 
-This is the one tier with a single implementation: the envelope and the ABI's values are defined once and both sides read that definition, so nothing here is witnessed by a second implementation the way the payload wire is. What answers for it instead is the byte layout itself — a fixed-layout field order pinned to specific bytes, so a change that would leave one peer reading a different message cannot pass as a refactor.
+This is the one tier with a single implementation. The envelope and the ABI's values are defined once, and both sides read that definition. So no second implementation witnesses anything here, as one does for the payload wire.
 
-The envelope is readable without a Codec, and the scenarios are written to keep it that way. A payload crosses as bytes the envelope never parses, which is why one that is not a value at all still arrives intact; routing and attribution are read from the envelope's own fields alone.
+The byte layout itself answers for it instead: a fixed-layout field order pinned to specific bytes. A change that would leave one peer reading a different message cannot pass as a refactor.
 
-Every field is refused rather than repaired. A length that overruns the message, a count larger than what follows it, a tag outside the set, a flag that is neither of its two values — each is a wire violation, because a reader that repaired one would leave the two peers disagreeing about what was sent. The refusals are declared beside the round-trips because a shape that only round-trips says nothing about what a reader does with bytes this writer would never emit.
+The envelope is readable without a Codec, and the scenarios are written to keep it that way. A payload crosses as bytes the envelope never parses. So a payload that is not a value at all still arrives intact. Routing and attribution are read from the envelope's own fields alone.
 
-Two forward-compatibility rules are declared as behavior rather than left to a version bump: a Fault kind this reader predates still delivers its message, and a field it predates is skipped. They are what lets the reserved and unknown tags elsewhere be refusals — the extension point is named, so everything outside it can be closed.
+Every field is refused rather than repaired. Each of these is a wire violation:
+
+- A length that overruns the message.
+- A count larger than what follows it.
+- A tag outside the set.
+- A flag that is neither of its two values.
+
+A reader that repaired one would leave the two peers disagreeing about what was sent. The refusals are declared beside the round-trips. A shape that only round-trips says nothing about what a reader does with bytes this writer would never emit.
+
+Two forward-compatibility rules are declared as behavior rather than left to a version bump. A Fault kind this reader predates still delivers its message. A field this reader predates is skipped.
+
+These rules let the reserved and unknown tags elsewhere be refusals. The extension point is named, so everything outside it can be closed.
 
 ## Includes
 

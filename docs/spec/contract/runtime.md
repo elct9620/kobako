@@ -1,7 +1,7 @@
 # Engine seams
 
-What a third party implements to put its own wasm engine behind a Frontend, and
-the values that engine hands back for one invocation. Both frontends drive the
+What a third party implements to put its own wasm engine behind a Frontend. It
+also covers the values that engine hands back for one invocation. Both frontends drive the
 Guest through these, so an engine answering them serves either.
 
 ## Includes
@@ -59,8 +59,8 @@ pub trait DispatchHandler {
 
 ## `Yielder`
 
-The engine's way back into the Guest while a Call is out, so the host can run
-the block that rode along.
+The engine's way back into the Guest while a Call is out. The host uses it to
+run the block that rode along.
 
 ```rust
 pub trait Yielder {}

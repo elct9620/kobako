@@ -21,7 +21,7 @@ The application that embeds kobako. It holds every credential and policy decisio
 
 ### Host Gem
 
-kobako itself — the side of the boundary that owns the guest, routes what it asks for, and decides what each outcome means.
+kobako itself — the side of the boundary that owns the guest. It routes what the guest asks for and decides what each outcome means.
 
 ### Guest Binary
 
@@ -33,7 +33,7 @@ The contract a Guest Binary implements toward the host. mruby is one implementat
 
 ### Frontend
 
-An API a Host App drives the guest through. The Ruby gem and the Rust SDK are two Frontends held to the same behavior, each keeping its own language's idioms.
+An API a Host App drives the guest through. The Ruby gem and the Rust SDK are two Frontends held to the same behavior. Each keeps its own language's idioms.
 
 ### Sandbox
 
@@ -57,7 +57,7 @@ A host object the guest reaches by name. It is the only route from guest code to
 
 ### Handle
 
-An opaque reference the guest holds to a host object the Codec cannot carry by value. It names that object only within the Invocation that issued it, and is called a Capability Handle where the capability it grants is the point.
+An opaque reference the guest holds to a host object the Codec cannot carry by value. It names that object only within the Invocation that issued it. Where the capability it grants is the point, it is called a Capability Handle.
 
 ### Receiver
 
@@ -69,11 +69,11 @@ The guest-side behavior that turns a method call on a bound constant or a Handle
 
 ### Exposure
 
-The methods a host object lets the guest call through a reference to it, whether the guest names it or holds it as a Handle. The object may declare it itself; otherwise it is derived from what the object's own class and the object itself define, fixed when the reference is made. It only narrows: nothing it permits reopens what the boundary refuses.
+The methods a host object lets the guest call through a reference to it, by name or as a Handle. The object may declare its Exposure itself. Otherwise the Exposure derives from what the object and its own class define, fixed when the reference is made. It only narrows: nothing it permits reopens what the boundary refuses.
 
 #### Rejected
 
-- `allow-list` - Names the list rather than what it governs: the subset an object permits is its Exposure, not a second concept beside it.
+- `allow-list` - Names the list rather than what it governs. The subset an object permits is its Exposure, not a second concept.
 
 ### Extension
 
@@ -81,7 +81,7 @@ A guest idiom paired with an optional Backend, installed as one unit so guest co
 
 ### Backend
 
-The host side of an Extension: the object bound at its path, either fixed for the Sandbox, supplied afresh each Invocation, or left for the Host App to fill.
+The host side of an Extension: the object bound at its path. It is fixed for the Sandbox, supplied afresh each Invocation, or left for the Host App to fill.
 
 ### Wire Spec
 
@@ -157,11 +157,11 @@ An Invocation that names an entrypoint already loaded in the guest, instead of s
 
 ### Frame
 
-Setup data handed to the guest before an Invocation begins, so the guest starts knowing what this run was configured with.
+Setup data handed to the guest before an Invocation begins. The guest starts knowing what this run was configured with.
 
 ### Catalog
 
-What a Sandbox has registered — the bindings and preloads fixed at setup, together with the Handle table each Invocation mints for itself.
+What a Sandbox has registered: the bindings and preloads fixed at setup. It also holds the Handle table each Invocation mints for itself.
 
 ### Invocation
 

@@ -4,11 +4,11 @@ How a Pool hands out warm Sandboxes, and what a checkout leaves behind.
 
 ### Why these scenarios
 
-A Pool is observable in three places: which Sandbox a checkout receives, how many times the setup block has prepared one, and whether a slot survives what its holder did with it. Each scenario settles one of those and stops.
+A Pool is observable in three places. The first two are which Sandbox a checkout receives and how many times the setup block has prepared one. The third is whether a slot survives what its holder did with it. Each scenario settles one of those and stops.
 
-A rejected constructor argument and an exhausted pool raise rather than answer, so what each settles is the class a Host App rescues.
+A rejected constructor argument and an exhausted pool raise rather than answer. What each settles is the class a Host App rescues.
 
-That a pooled Sandbox satisfies every other behavior identically to a directly constructed one is a claim about the whole corpus rather than a difference one observation settles; this feature's isolation scenarios are its pool-side witnesses.
+A pooled Sandbox satisfies every other behavior identically to a directly constructed one. That is a claim about the whole corpus, not a difference one observation settles. This feature's isolation scenarios are its pool-side witnesses.
 
 ## Includes
 

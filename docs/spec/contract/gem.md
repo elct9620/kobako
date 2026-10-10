@@ -1,13 +1,13 @@
 # Gem interface
 
-The names a host application writes against the Ruby gem — the calls it
+The names a host application writes against the Ruby gem. They are the calls it
 makes, the values it reads, and the classes it rescues. Registered here is the
-way in — that each name exists and takes the shape a caller writes; what
-happens behind it is the behavior specification's to say.
+way in: that each name exists and takes the shape a caller writes. What happens
+behind it is the behavior specification's to say.
 
 The surface a caller reaches through `attr_reader`, `Forwardable`, or a
-`Data.define` member is deliberately absent: none of those is a definition in
-the syntax tree, so a contract naming one would answer undefined however
+`Data.define` member is deliberately absent. None of those is a definition in
+the syntax tree. So a contract naming one would answer undefined however
 plainly the code works.
 
 ## Includes

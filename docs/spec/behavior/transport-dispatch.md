@@ -4,13 +4,15 @@ How a guest call reaches a host object, what crosses in each direction, and how 
 
 ### Why these scenarios
 
-A guest call reaching a host object is the only route outward, so what it carries is witnessed in both directions and at three depths: the walk that decides what the wire can hold, the table that hands out references for what it cannot, and the dispatch that puts them back together.
+A guest call reaching a host object is the only route outward. What it carries is witnessed in both directions and at three depths. The walk decides what the wire can hold. The table hands out references for the rest, and the dispatch puts them back together.
 
-A reference lasts one invocation and belongs to one Sandbox. Both bounds are witnessed as a receiver and as an argument, because a table consulted on one path and not the other would pass either witness alone. A stale reference's parity is unverifiable: every invocation begins in a fresh guest, so nothing a scenario runs can present one, and each frontend's table is witnessed on its own.
+A reference lasts one invocation and belongs to one Sandbox. Both bounds are witnessed as a receiver and as an argument. A table consulted on only one of those paths would pass either witness alone.
 
-The two argument kinds are separated by how the guest wrote the call and not by what the value is, so a Hash appears on both sides of that line — as a positional literal, as a splatted keyword map, and as a keyword's value — and each is witnessed.
+A stale reference's parity is unverifiable. Every invocation begins in a fresh guest, so no scenario can present a stale reference. Each frontend's table is witnessed on its own.
 
-Everything that answers on the fault arm rather than raising is here, since the dispatcher never raises; what a Host App finally rescues is the error taxonomy's to state.
+The two argument kinds are separated by how the guest wrote the call, not by what the value is. So a Hash appears on both sides of that line. It appears as a positional literal, a splatted keyword map, and a keyword's value, and each is witnessed.
+
+Everything that answers on the fault arm rather than raising is here, since the dispatcher never raises. The error taxonomy states what a Host App finally rescues.
 
 ## Includes
 
@@ -1012,7 +1014,9 @@ Everything that answers on the fault arm rather than raising is here, since the 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a Service that raises, a path left unfilled, and a Service given an argument it does not take |
+| Given | a Sandbox with a Service that raises |
+| Given | a path the Sandbox leaves unfilled |
+| Given | a Service given an argument it does not take |
 | When | guest code calls each and rescues `Kobako::ServiceError` |
 | Then | every one of them is rescued |
 

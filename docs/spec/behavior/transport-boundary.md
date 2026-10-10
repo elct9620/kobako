@@ -4,13 +4,19 @@ What the host refuses to dispatch, and which methods a host object's Exposure le
 
 ### Why these scenarios
 
-The host is the boundary. Every refusal here is witnessed where the host decides it, and the guest-side mirror is witnessed separately as a convenience rather than as the thing that holds — a guest that skipped its own check would still be refused. A reflective object returned from a host method has no parity scenario: only one frontend has such objects to return, so that refusal is witnessed on that frontend alone.
+The host is the boundary. Every refusal here is witnessed where the host decides it. The guest-side mirror is witnessed separately, as a convenience rather than as the thing that holds. A guest that skipped its own check would still be refused.
 
-Refusal turns on who owns the method rather than on how it is spelled, so a bound object defining a method whose name matches a refused one is answered by its own. Without that scenario the rule would read as a list of forbidden words.
+A reflective object returned from a host method has no parity scenario. Only one frontend has such objects to return, so that refusal is witnessed on that frontend alone.
 
-An Exposure sits beneath the boundary, never above it: an object may close its surface as far as it likes and may not open what the boundary closed. Both directions are witnessed, along with the predicate staying unreachable — a narrowing an object could be asked to describe would be a surface of its own.
+Refusal turns on who owns the method rather than on how it is spelled. So when a bound object defines a method whose name matches a refused one, its own method answers. Without that scenario the rule would read as a list of forbidden words.
 
-An object carrying no narrowing predicate exposes what its own class and the object itself define, and nothing it acquired from elsewhere. The methods a Host App cannot foresee handing over are the ones it never wrote — inherited, mixed in, built into the platform, or forwarded — so the default is drawn around authorship rather than around a list of what is dangerous, and a new source of ambient methods needs no new refusal.
+An Exposure sits beneath the boundary, never above it. An object may close its surface as far as it likes. It may not open what the boundary closed.
+
+Both directions are witnessed, and so is the predicate staying unreachable. A narrowing an object could be asked to describe would be a surface of its own.
+
+An object carrying no narrowing predicate exposes what its own class and the object itself define. It exposes nothing it acquired from elsewhere.
+
+The methods a Host App cannot foresee handing over are the ones it never wrote. They are inherited, mixed in, built into the platform, or forwarded. So the default is drawn around authorship rather than around a list of what is dangerous. A new source of ambient methods then needs no new refusal.
 
 ## Includes
 
@@ -383,7 +389,8 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 
 | Step | Statement |
 | --- | --- |
-| Given | a bound Service that answers, or a run that receives as an argument, an object that transparently forwards unknown calls to a wrapped object |
+| Given | an object that transparently forwards unknown calls to a wrapped object |
+| Given | a bound Service answering it, or a run receiving it as an argument |
 | When | it would cross as a capability reference |
 | Then | it is refused rather than given a reference |
 

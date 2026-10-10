@@ -4,13 +4,15 @@ Where a host object becomes a name the guest can reach, and who may change what 
 
 ### Why these scenarios
 
-A binding is observable twice over: on the host, where a path resolves to an object, and in the guest, where the same path has become a constant to name. Both are witnessed, because a path that resolves correctly on the host and materializes under the wrong module reaches nobody.
+A binding is observable twice over. On the host, a path resolves to an object. In the guest, the same path has become a constant to name. Both are witnessed, because a path that resolves correctly on the host and materializes under the wrong module reaches nobody.
 
 The collision scenarios are three refusals and one survival. The survival is separate because a registry that raises and half-applies the bind would pass all three refusals.
 
-A path declared without an object and a name never declared at all fail differently, and that difference is the point: one is a capability the host has reserved, the other is nothing. The override scenarios then cover who may change what stands behind a declared name, and for how long — never for longer than one invocation, and never for a name that was not already there.
+A path declared without an object and a name never declared at all fail differently. That difference is the point. The first is a capability the host has reserved; the second is nothing.
 
-A malformed path segment and a bind after the seal both raise rather than answer, so each is settled by what `bind` refuses. The declared path set that every invocation ships belongs to the invocation, not to registration.
+The override scenarios cover who may change what stands behind a declared name, and for how long. An override never lasts longer than one invocation and never applies to a name not already declared.
+
+A malformed path segment and a bind after the seal both raise rather than answer. Each is settled by what `bind` refuses. The declared path set that every invocation ships belongs to the invocation, not to registration.
 
 ## Includes
 
@@ -94,7 +96,8 @@ A malformed path segment and a bind after the seal both raise rather than answer
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with Services bound so that two share a two-segment prefix and two more meet only at their root segment |
+| Given | a Sandbox with two Services bound under a shared two-segment prefix |
+| Given | two more Services that meet only at their root segment |
 | When | guest code calls each leaf by its full path |
 | Then | each answers from its own Service |
 

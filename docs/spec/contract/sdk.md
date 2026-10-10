@@ -1,7 +1,8 @@
 # Rust SDK interface
 
-What a Rust embedder builds a Sandbox with, what it implements to be reached
-from the guest, and what it reads off a finished invocation. The Ruby frontend
+What a Rust embedder builds a Sandbox with, and what it implements to be reached
+from the guest. It also covers what the embedder reads off a finished
+invocation. The Ruby frontend
 answers the same behaviors; this registers the shape the Rust caller writes for
 them.
 
@@ -80,8 +81,8 @@ pub struct Context<'a> {}
 
 ## `YieldError`
 
-How a yield into the guest block ended short of a value, which a Receiver
-matches to recover or hands up to stop.
+How a yield into the guest block ended short of a value. A Receiver matches it
+to recover, or hands it up to stop.
 
 ```rust
 pub enum YieldError {}
@@ -361,8 +362,8 @@ impl<'y> Yielder<'y> {
 
 ## `Detached`
 
-A Handle table with no invocation behind it, so a Receiver written outside this
-crate can be called on its own.
+A Handle table with no invocation behind it. It lets a Receiver written outside
+this crate be called on its own.
 
 ```rust
 pub struct Detached {}

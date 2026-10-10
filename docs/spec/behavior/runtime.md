@@ -4,17 +4,25 @@ What the host checks before a guest runs, which posture it builds, and how invoc
 
 ### Why these scenarios
 
-The runtime is what stands between a request and a guest that runs. Three checks happen before any guest does: the artifact states an ABI version the host implements, the requested isolation posture is one the ladder names, and the posture actually built is not weaker than the one accepted.
+The runtime is what stands between a request and a guest that runs. Three checks happen before any guest does:
 
-The scheduling scenarios pair off deliberately. Releasing the lock is a scheduling change and nothing else, so each witness runs one scenario under both modes and compares — a value, a dispatch, a nested dispatch, a capture. The host-parallel run is the one that shows what the mode is for.
+- The artifact states an ABI version the host implements.
+- The requested isolation posture is one the ladder names.
+- The posture actually built is not weaker than the one accepted.
 
-Ambient denial is read at the WASI layer rather than through guest code, because the default Guest Binary gives scripts no surface to reach it from. "Reaches nothing" cannot be witnessed whole, so it is held as what the host grants: no posture preopens a directory, sets a variable, or holds a socket, and the guest exports only the invocation entry points. What the determinism buys is witnessed where it shows — two invocations beginning from the same interpreter state.
+The scheduling scenarios pair off deliberately, because releasing the lock changes scheduling and nothing else. Each witness runs one scenario under both modes and compares them: a value, a dispatch, a nested dispatch, a capture. The host-parallel run is the one that shows what the mode is for.
+
+Ambient denial is read at the WASI layer, not through guest code. The default Guest Binary gives scripts no surface to reach it from.
+
+"Reaches nothing" cannot be witnessed whole, so it is held as what the host grants. No posture preopens a directory, sets a variable, or holds a socket. The guest exports only the invocation entry points.
+
+What the determinism buys is witnessed where it shows: two invocations beginning from the same interpreter state.
 
 Compiling an artifact is expensive enough to keep on disk, and a cache is a second way in. So each of its refusals is witnessed twice over: that construction still succeeds, and what the cache directory holds afterwards. A cache that quietly loaded a planted artifact would pass the first observation alone.
 
-What the runtime hands an invocation back is read here rather than through the Sandbox that usually reads it, because a binding that shifted a field's shape would still satisfy every assertion the Sandbox makes about the value it derived. Which is also why the two channels are separated twice: once at this seam, and once as a difference the two frontends must agree on.
+What the runtime hands an invocation back is read here, not through the Sandbox that usually reads it. A binding that shifted a field's shape would still pass every Sandbox assertion about the derived value. This is also why the two channels are separated twice. One separation is at this seam; the other is a difference the two frontends must agree on.
 
-An artifact that satisfies the whole invocation ABI while doing no guest work is what makes the host's own per-invocation cost measurable as a total. That is a claim about the artifact, so it is held to both verbs and to the capture it leaves — the ways it could satisfy the loader without satisfying the ABI.
+An artifact can satisfy the whole invocation ABI while doing no guest work. That artifact makes the host's own per-invocation cost measurable as a total. That is a claim about the artifact, so it is held to both verbs and to the capture it leaves. These are the ways it could satisfy the loader without satisfying the ABI.
 
 ## Includes
 

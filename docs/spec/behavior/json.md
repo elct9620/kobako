@@ -4,11 +4,13 @@ What the guest's JSON surface reads, what it writes, and what it refuses to let 
 
 ### Why these scenarios
 
-Reading and writing JSON is compute the guest does on its own, so the scenarios follow what each direction produces and, more importantly, what each refuses. A value with no JSON form is refused rather than approximated: an integer too large to represent exactly, a number that is not finite, bytes that are not text, a key that is not a scalar.
+Reading and writing JSON is compute the guest does on its own. The scenarios follow what each direction produces and, more importantly, what each refuses.
 
-The boundary scenarios are the reason this surface can be offered at all. Parsing yields data and never a capability, whatever the document is shaped like; generating refuses a capability reference wherever it sits — bare, nested inside what an object opted in, or standing as a key — and refuses it in the guest rather than by asking the host what to do with it.
+The guest refuses a value with no JSON form rather than approximating it. Such values include an integer too large to represent exactly and a number that is not finite. They also include bytes that are not text and a key that is not a scalar.
 
-The depth bound is witnessed on both directions at the same depth, because a reader and a writer that disagree about it would let a document in that cannot be written back out.
+The boundary scenarios are the reason this surface can be offered at all. Parsing yields data and never a capability, whatever the document is shaped like. Generating refuses a capability reference wherever it sits: bare, nested in what an object opted in, or as a key. The guest makes that refusal itself and does not ask the host what to do with it.
+
+The depth bound is witnessed on both directions at the same depth. A reader and a writer that disagree about it would let in a document that cannot be written back out.
 
 ## Includes
 

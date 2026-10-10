@@ -4,11 +4,13 @@ The pattern object the guest compiles and matches with, and what it refuses to r
 
 ### Why these scenarios
 
-Matching happens entirely inside the guest, so what is observable is what a pattern answers and what it refuses. Offsets are bytes throughout, and the scenarios say so wherever a character count would read the same on ASCII and differently on anything else.
+Matching happens entirely inside the guest, so what is observable is what a pattern answers and what it refuses. Offsets are bytes throughout. The scenarios say so wherever a character count would read the same on ASCII but differ elsewhere.
 
-Text that is not text is refused rather than read as empty. An empty subject reports no match for every pattern and an empty pattern matches everywhere, so both failures would be silent and both would be wrong; the refusal is witnessed at each place such bytes can enter, and once more where ordinary text still works, so the boundary is a boundary and not a regression.
+Text that is not text is refused rather than read as empty. An empty subject reports no match for every pattern, and an empty pattern matches everywhere. So both failures would be silent, and both would be wrong.
 
-Memoizing a compiled pattern is meant to be invisible, so its scenarios assert results rather than timings: distinct objects, options as part of the identity, and correct matching past the memo's capacity.
+The refusal is witnessed at each place such bytes can enter. It is witnessed once more where ordinary text still works. So the boundary is a boundary and not a regression.
+
+Memoizing a compiled pattern is meant to be invisible, so its scenarios assert results rather than timings. They cover distinct objects, options as part of the identity, and correct matching past the memo's capacity.
 
 ## Includes
 
@@ -874,7 +876,8 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code binds a value that is not a class over the name the match class carries, then takes a match |
+| Given | guest code that has bound a value that is not a class over the match class's name |
+| When | guest code takes a match |
 | Then | the invocation completes and the match's class is the one the capability registered |
 
 ## `RX-184` Inspecting keeps every whitespace control literal
@@ -1002,7 +1005,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code matches a wildcard across a line break, with the multiline flag written or passed by its constant, and without it |
+| When | guest code matches a wildcard across a line break with the multiline flag written, passed by constant, or absent |
 | Then | only the flagged patterns match |
 
 ## `RX-215` Only a regexp-capable Guest Binary defines the surface

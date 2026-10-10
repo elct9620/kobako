@@ -1,4 +1,5 @@
 {
   "root": "docs/spec",
-  "exclude": ["vendor/"]
+  "exclude": ["vendor/"],
+  "budget": { "sentence": 20, "paragraph": 4 }
 }

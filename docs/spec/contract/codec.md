@@ -1,7 +1,8 @@
 # MessagePack dialect
 
 What a schema author or an overlay builds on when it speaks the MessagePack
-dialect: the values the dialect carries and the reader and writer for them.
+dialect. It covers the values the dialect carries and the reader and writer for
+them.
 Which values both peers carry is the payload peers' to hold.
 
 ## Includes

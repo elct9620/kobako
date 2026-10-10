@@ -1,7 +1,7 @@
 # Guest ABI
 
 What a Guest of its own implements and calls to answer the host. The bundled
-export macro writes the exports into the Guest's own crate, so registered here
+export macro writes the exports into the Guest's own crate. So registered here
 is the trait it drives and what that expansion reaches.
 
 ## Includes

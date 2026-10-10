@@ -4,11 +4,11 @@ What a successful match hands the guest, and how it is read.
 
 ### Why these scenarios
 
-A match is a snapshot the guest reads several ways — as a list, by number, by name, and as offsets into the subject. Each reading is witnessed on its own because they are separate accessors over one state, and one of them drifting would not disturb the others.
+A match is a snapshot the guest reads several ways. The guest reads it as a list, by number, by name, and as offsets into the subject. Each reading is witnessed on its own, because each is a separate accessor over one state. One of them drifting would not disturb the others.
 
-The out-of-range readings are errors rather than absences, while a group that was in range and simply did not participate answers nothing. Telling those two apart is what lets guest code branch on an optional group without rescuing.
+The out-of-range readings are errors rather than absences. A group that was in range and simply did not participate answers nothing. Telling those two apart is what lets guest code branch on an optional group without rescuing.
 
-A match cannot be constructed. It exists because a pattern matched, which is what makes the offsets it carries mean anything about the subject it names.
+A match cannot be constructed. It exists because a pattern matched. That is what makes the offsets it carries mean anything about the subject it names.
 
 ## Includes
 
