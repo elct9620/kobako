@@ -48,7 +48,7 @@ use beni::ReprValue;
 ///     and the integer-range guard.
 ///   * **The invocation flow seam** (`MrbGuest::run` and friends) —
 ///     `init`, `resolve_raw`, `install_bindings`, `top_level_constants`,
-///     `extract_backtrace`, `set_handle_id`, `transport_error`.
+///     `extract_backtrace`, `transport_error`.
 ///     These look internal to the bundled flows, and are exactly what
 ///     someone writing their own flow reaches for.
 pub struct Kobako {

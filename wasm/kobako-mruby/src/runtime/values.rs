@@ -19,7 +19,7 @@ use beni::Value;
 
 use super::Kobako;
 
-/// Mangled instance-variable name that `Kobako::set_handle_id`
+/// Mangled instance-variable name that `Kobako::mint_handle`
 /// stores the Handle id under. Read back through `Kobako::extract_handle_id`
 /// at every method dispatch — keeping the literal in a single
 /// `const` makes the writer / reader pairing impossible to drift
@@ -92,12 +92,6 @@ impl Kobako {
         self.strings_from_funcall(object_value, c"constants")
     }
 
-    /// Store `id_val` as a fresh `Kobako::Handle`'s id.
-    pub fn set_handle_id(&self, target: Value, id_val: Value) -> Result<(), beni::Error> {
-        use beni::{Object, RObject, TryConvert};
-        RObject::try_convert(target, self.mrb())?.ivar_set(self.mrb(), HANDLE_ID_IVAR, id_val)
-    }
-
     /// Whether `val` is a `Kobako::Handle` the decoder minted. The class the
     /// registration holds answers it, never the value's class name: an
     /// anonymous class takes the name of the constant it is assigned to, so
@@ -144,7 +138,7 @@ impl Kobako {
     /// dispatch, which fails at its next call rather than silently naming
     /// something else.
     pub fn mint_handle(&self, id: u32) -> Value {
-        use beni::{Class, IntoValue};
+        use beni::{Class, IntoValue, Object, RObject, TryConvert};
         let nil = beni::value::qnil().as_value();
         if id > HANDLE_ID_MAX {
             return nil;
@@ -154,7 +148,11 @@ impl Kobako {
             .handle_class
             .obj_alloc(mrb)
             .and_then(|handle| {
-                self.set_handle_id(handle, (id as i32).into_value(mrb))?;
+                RObject::try_convert(handle, mrb)?.ivar_set(
+                    mrb,
+                    HANDLE_ID_IVAR,
+                    (id as i32).into_value(mrb),
+                )?;
                 Ok(handle.freeze(mrb))
             })
             .unwrap_or(nil)
