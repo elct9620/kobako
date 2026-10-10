@@ -1135,3 +1135,11 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code applies the match operator from a Symbol to a String |
 | Then | a type error is raised |
+
+## `RX-238` Escaping takes exactly one text
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code escapes and quotes with two arguments |
+| Then | each is refused for its argument count |

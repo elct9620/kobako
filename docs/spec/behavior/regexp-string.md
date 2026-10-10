@@ -536,3 +536,11 @@ scanning, substituting   reads a String as literal characters
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code substitutes into an unmatched String with an Integer or nil replacement |
 | Then | each raises `TypeError` before any match is sought |
+
+## `RX-237` A replacement that renders as no text is described instead
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | a substitution block or Hash answers a value whose rendering is not text |
+| Then | each match becomes that value's default description |
