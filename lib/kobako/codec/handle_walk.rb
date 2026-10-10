@@ -8,9 +8,8 @@ module Kobako
     module HandleWalk # :nodoc:
       # Inclusive Integer range the msgpack gem encodes without raising
       # +RangeError+ at encode time — signed +int 64+ minimum through
-      # unsigned +uint 64+ maximum
-      # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type
-      # Mapping #3, the +fixint+ / +int 8..64+ / +uint 8..64+ union).
+      # unsigned +uint 64+ maximum (docs/wire/payload-msgpack.md § Integer
+      # Range).
       # Anchored as a +Range+ so #primitive_type? stays a single
       # dispatch line. This is the codec's encode domain — not to
       # be confused with the Handle id range, which lives on
@@ -19,8 +18,8 @@ module Kobako
       MSGPACK_INT_RANGE = (-(2**63)..((2**64) - 1))
 
       # Whether +value+ falls in the codec's type set
-      # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Type
-      # Mapping). The +depth+ bound makes a self-referential container —
+      # (docs/wire/payload-msgpack.md § Type Mapping). The +depth+ bound
+      # makes a self-referential container —
       # reachable as a cyclic Hash key on the +#run+ argument path — read as
       # non-representable rather than looping.
       def self.representable?(value, depth = 0)

@@ -11,13 +11,13 @@ module Kobako
   module Codec # :nodoc:
     module ExtTypes # :nodoc:
       # MessagePack ext type code reserved for Symbol
-      # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Ext Types
-      # → ext 0x00). Module-private — mirrors +codec::EXT_SYMBOL+ on the
+      # (docs/wire/payload-msgpack.md § ext 0x00 — Symbol). Module-private —
+      # mirrors +codec::EXT_SYMBOL+ on the
       # Rust side.
       EXT_SYMBOL = 0x00
       # MessagePack ext type code reserved for Capability Handle
-      # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § Ext Types
-      # → ext 0x01). Module-private — mirrors +codec::EXT_HANDLE+ on the
+      # (docs/wire/payload-msgpack.md § ext 0x01 — Handle). Module-private —
+      # mirrors +codec::EXT_HANDLE+ on the
       # Rust side.
       EXT_HANDLE = 0x01
       private_constant :EXT_SYMBOL, :EXT_HANDLE

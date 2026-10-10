@@ -78,8 +78,7 @@ module Kobako
         raise wire_error("Sandbox produced an invalid result value", diagnostic: e.message)
       end
 
-      # The +klass+ field is still populated so operator-side tooling that
-      # greps on the string continues to work.
+      # +klass+ names the class raised, as on every other Diagnosable.
       def wire_error(message, diagnostic: nil)
         Kobako::Transport::Error.new(
           message,

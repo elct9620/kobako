@@ -30,8 +30,8 @@ module Kobako
       end
 
       # +str+ family payloads must be UTF-8
-      # ({docs/wire/payload-msgpack.md}[link:../../../docs/wire/payload-msgpack.md] § str/bin
-      # Encoding Rules). The msgpack gem returns UTF-8-tagged Strings for
+      # (docs/wire/payload-msgpack.md § Text and Bytes). The msgpack gem
+      # returns UTF-8-tagged Strings for
       # str family but does not validate the bytes; +bin+ family decodes
       # to ASCII-8BIT. Walk the tree once and reject invalid UTF-8 in any
       # str-typed leaf via Utils.assert_utf8!.
