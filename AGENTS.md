@@ -115,7 +115,7 @@ Every Ruby test lives under `test/`, grouped by kind, and `tasks/` holds none.
 | a test's home follows what it needs | a home picked by subject alone |
 | paths and skips via `TestPaths` and `GuestGuard` | hand-rolled `__dir__` paths or guards |
 
-An assertion message is a contract: "<input> through <public API> must <behaviour>". Witness rationale goes in the comment above the test; `test/e2e/test_io_write.rb` is the worked example.
+A scenario test's assertion message is a contract: "<input> through <public API> must <behaviour>". One that lacks it gains it the next time the test is touched. Witness rationale goes in the comment above the test; `test/e2e/test_io_write.rb` is the worked example.
 
 ## Architecture
 
