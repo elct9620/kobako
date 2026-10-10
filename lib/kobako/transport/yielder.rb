@@ -4,9 +4,6 @@ require_relative "../codec"
 require_relative "../errors"
 
 module Kobako
-  # See lib/kobako/transport.rb for the umbrella module doc; this file
-  # owns the host-side object that materialises a guest-supplied block as
-  # a Ruby callable the Service method can yield into.
   module Transport
     class Yielder # :nodoc:
       def initialize(guest_yielder, break_tag, handles)

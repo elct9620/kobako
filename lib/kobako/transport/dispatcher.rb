@@ -8,11 +8,10 @@ require_relative "reflection"
 require_relative "yielder"
 
 module Kobako
-  # See lib/kobako/transport.rb for the umbrella module doc; this file
-  # owns the pure-function dispatcher that answers a routed Call.
   module Transport
-    # Answers a routed Call with +[ok, bytes]+ and never raises, so every
-    # failure reaches the guest as a fault.
+    # Answers a routed Call with +[true, body, nil]+ or
+    # +[false, message, fault_type]+ and never raises, so every failure
+    # reaches the guest as a fault.
     module Dispatcher # :nodoc:
       # Throw tag for the Yielder's break unwind back to the
       # dispatcher's +catch+ frame. +private_constant+ is a

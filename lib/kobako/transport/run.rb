@@ -6,9 +6,6 @@ require_relative "../codec"
 require_relative "../payload"
 
 module Kobako
-  # See lib/kobako/transport.rb for the umbrella module doc; this file
-  # owns +Run+, the host-side value object for one +#run+ request — the
-  # native side frames it into the envelope +__kobako_run+ consumes.
   module Transport
     # A Handle already in the arguments is refused, since a caller never
     # legitimately holds one.
