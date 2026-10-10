@@ -342,15 +342,15 @@ scanning, substituting   reads a String as literal characters
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code cuts a match out of a String |
-| Then | it answers the matched substring and the String no longer holds it |
+| Then | it answers the matched substring |
 
-## `RX-158` Cutting a pattern that does not match changes nothing
+## `RX-158` Cutting a pattern that does not match answers nothing
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code cuts by a pattern that does not occur |
-| Then | it answers nothing and the String is unchanged |
+| Then | it answers nothing |
 
 ## `RX-159` Cutting leaves the last match as its own
 
@@ -407,15 +407,6 @@ scanning, substituting   reads a String as literal characters
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code substitutes globally with neither a block nor a replacement |
 | Then | the invocation fails naming the enumerator it could not build |
-
-## `RX-220` Global substitution with nothing to substitute enumerates where the guest can
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox over a Guest Binary composing both the regexp capability and Enumerator support |
-| When | guest code substitutes globally with neither a block nor a replacement |
-| Then | it answers an Enumerator over the matches |
-| unverifiable | no shipped Guest Binary composes Enumerator support |
 
 ## `RX-166` Single substitution with nothing to substitute is an error
 
@@ -505,6 +496,18 @@ scanning, substituting   reads a String as literal characters
 | When | guest code slices a String by a pattern that matches and by one that does not |
 | Then | each answers what indexing by that pattern answers |
 
+## `RX-220` Global substitution with nothing to substitute enumerates where the guest can
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | no shipped Guest Binary composes Enumerator support |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over a Guest Binary composing both the regexp capability and Enumerator support |
+| When | guest code substitutes globally with neither a block nor a replacement |
+| Then | it answers an Enumerator over the matches |
+
 ## `RX-223` A String pattern matches its own characters
 
 | Step | Statement |
@@ -544,3 +547,19 @@ scanning, substituting   reads a String as literal characters
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | a substitution block or Hash answers a value whose rendering is not text |
 | Then | each match becomes that value's default description |
+
+## `RX-240` Cutting by a pattern removes the match from the String
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code cuts a match out of a String |
+| Then | the String no longer holds it |
+
+## `RX-241` Cutting a pattern that does not match leaves the String unchanged
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code cuts by a pattern that does not occur |
+| Then | the String is unchanged |

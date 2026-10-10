@@ -246,15 +246,6 @@ One block here is deliberately written in one frontend's own names: the ancestry
 | When | both frontends run it |
 | Then | they observe the same failure |
 
-## `OC-051` Both attribute an engine trap no cap caused the same way
-
-| Step | Statement |
-| --- | --- |
-| Given | a scenario whose guest code traps the engine without reaching either cap |
-| When | both frontends run it |
-| Then | they observe the same failure |
-| unverifiable | the guest turns runaway recursion into its own exception, so no guest code reaches such a trap |
-
 ## `OC-028` A failure neither cap caused is still a trap
 
 | Step | Statement |
@@ -382,3 +373,15 @@ One block here is deliberately written in one frontend's own names: the ancestry
 | Given | a guest that wrote a well-formed result and then trapped |
 | When | either invocation verb runs it |
 | Then | the invocation settles as a trap |
+
+## `OC-051` Both attribute an engine trap no cap caused the same way
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the guest turns runaway recursion into its own exception, so no guest code reaches such a trap |
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario whose guest code traps the engine without reaching either cap |
+| When | both frontends run it |
+| Then | they observe the same failure |

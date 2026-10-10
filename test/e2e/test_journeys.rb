@@ -52,15 +52,13 @@ class TestE2EJourneys < Minitest::Test
   # runs the statements preceding the error.
   # @behavior J-003
   def test_j01_syntax_error_source_raises_sandbox_error_before_execution
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-
-    err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval('puts "reached execution"; 1 +')
-    end
-
-    assert_equal "sandbox", err.origin,
+    assert_equal "sandbox", syntax_error_failure.origin,
                  "syntactically invalid source through #eval must raise a sandbox-origin SandboxError"
-    assert_empty err.execution.stdout,
+  end
+
+  # @behavior J-017
+  def test_j01_syntax_error_source_writes_nothing
+    assert_empty syntax_error_failure.execution.stdout,
                  "source that fails to compile through #eval must not execute the statements preceding the error"
   end
 
@@ -128,5 +126,14 @@ class TestE2EJourneys < Minitest::Test
 
     refute_empty err.backtrace_lines,
                  "guest must populate Panic.backtrace for service-origin panics too"
+  end
+
+  private
+
+  # Source that writes output and then fails to parse.
+  def syntax_error_failure
+    assert_raises(Kobako::SandboxError) do
+      Kobako::Sandbox.new(wasm_path: REAL_WASM).eval('puts "reached execution"; 1 +')
+    end
   end
 end

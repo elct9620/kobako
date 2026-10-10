@@ -352,7 +352,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | --- | --- |
 | Given | a backend declaring a callable as its fixed object |
 | When | the Extension is installed and an invocation resolves its backends |
-| Then | the callable itself is bound at the path and is never called |
+| Then | the callable itself is bound at the path |
 
 ## `EX-045` An Extension name is refused as a snippet name is
 
@@ -386,3 +386,11 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | Given | a Sandbox whose installed Extension resolves its backend through a provider |
 | When | several invocations hold their backend at once |
 | Then | each keeps its own object and none sees another's |
+
+## `EX-049` A callable declared as the fixed object is never called
+
+| Step | Statement |
+| --- | --- |
+| Given | a backend declaring a callable as its fixed object |
+| When | the Extension is installed and an invocation resolves its backends |
+| Then | the callable is never called |

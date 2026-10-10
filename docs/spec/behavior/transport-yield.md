@@ -28,14 +28,6 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code calls it with a block |
 | Then | the Service reports that it was |
 
-## `T-253` The block reaches the Service as an ordinary block
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox with a bound Service that hands its block on to code knowing nothing of kobako |
-| When | guest code calls it with a block |
-| Then | that code runs the guest block as it would any other |
-
 ## `T-084` And that it was not
 
 | Step | Statement |
@@ -66,7 +58,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | --- | --- |
 | Given | a Sandbox with two bound Services, one of which yields |
 | When | guest code's block calls the other Service |
-| Then | the nested call answers and the outer yield receives the block's value |
+| Then | the outer yield receives the block's value, built from the nested call's answer |
 
 ## `T-088` A Service given a block need not use it
 
@@ -74,7 +66,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | --- | --- |
 | Given | a Sandbox with a bound Service that never yields |
 | When | guest code calls it with a block |
-| Then | the call answers and the block never runs |
+| Then | the call answers without running the block |
 
 ## `T-089` Breaking out of a block unwinds the Service
 
@@ -90,7 +82,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | --- | --- |
 | Given | a Sandbox with a bound Service that yields to a lambda |
 | When | the lambda breaks with a value |
-| Then | the yield receives that value and the Service continues |
+| Then | the Service goes on to answer with that value |
 
 ## `T-091` A break value the wire cannot carry is refused
 
@@ -252,14 +244,6 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | a later dispatch calls that stored block |
 | Then | the invocation fails naming a local jump |
 
-## `T-255` A frontend lending its Yielder for the frame alone cannot store it
-
-| Step | Statement |
-| --- | --- |
-| Given | a frontend whose Yielder borrows the dispatch frame |
-| When | a Service is written to keep that Yielder for a later dispatch |
-| Then | the Service does not build |
-
 ## `T-154` A yield argument the host cannot write is the Service's to handle
 
 | Step | Statement |
@@ -310,15 +294,6 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code calls it with a block |
 | Then | the invocation answers what the Service returned |
 
-## `T-262` Nested yields carry no depth limit of their own
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox with a Service that yields to a block calling the Service again |
-| When | guest code nests those yields ever deeper |
-| Then | only the guest's stack bounds the depth |
-| unverifiable | no depth is the last, so a finite test cannot show there is no limit |
-
 ## `T-165` A guest that trapped inside a block aborts the yield
 
 | Step | Statement |
@@ -327,14 +302,6 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | the guest traps before answering |
 | Then | the yield is abandoned rather than answered |
 
-## `T-264` A guest that trapped is not entered again
-
-| Step | Statement |
-| --- | --- |
-| Given | a Service that rescues the failure of a yield whose block trapped |
-| When | the Service yields to the block again |
-| Then | the block does not run again, and the invocation fails as the first trap |
-
 ## `T-166` A yield answer the envelope cannot frame aborts the yield
 
 | Step | Statement |
@@ -342,14 +309,6 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | Given | a Service yielding to a block |
 | When | the answer is bytes the envelope cannot frame |
 | Then | the yield is abandoned rather than answered |
-
-## `T-250` An unframeable yield answer fails the Service's yield as a trap
-
-| Step | Statement |
-| --- | --- |
-| Given | a Service yielding to a block |
-| When | the guest answers with no bytes, or with an arm outside the live set |
-| Then | the Service's yield fails as a trap |
 
 ## `T-170` A yield on the byte seam carries the Host App's own bytes
 
@@ -365,7 +324,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | --- | --- |
 | Given | a Service yielding values rather than bytes |
 | When | the block answers |
-| Then | the arguments crossed as one frame and the answer is read for the Service |
+| Then | the arguments crossed as one frame |
 
 ## `T-184` A yield failure is categorised by whose failure it is
 
@@ -487,4 +446,64 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | --- | --- |
 | Given | a Sandbox whose Service yields to a block that grows memory |
 | When | the budget is too small for what the block grows |
-| Then | the invocation fails as the budget's own trap, though a larger budget lets the same block finish |
+| Then | the invocation fails as the budget's own trap |
+
+## `T-250` An unframeable yield answer fails the Service's yield as a trap
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service yielding to a block |
+| When | the guest answers with no bytes, or with an arm outside the live set |
+| Then | the Service's yield fails as a trap |
+
+## `T-253` The block reaches the Service as an ordinary block
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service that hands its block on to code knowing nothing of kobako |
+| When | guest code calls it with a block |
+| Then | that code runs the guest block as it would any other |
+
+## `T-255` A frontend lending its Yielder for the frame alone cannot store it
+
+| Step | Statement |
+| --- | --- |
+| Given | a frontend whose Yielder borrows the dispatch frame |
+| When | a Service is written to keep that Yielder for a later dispatch |
+| Then | the Service does not build |
+
+## `T-262` Nested yields carry no depth limit of their own
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | no depth is the last, so a finite test cannot show there is no limit |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service that yields to a block calling the Service again |
+| When | guest code nests those yields ever deeper |
+| Then | only the guest's stack bounds the depth |
+
+## `T-264` A guest that trapped is not entered again
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service that rescues the failure of a yield whose block trapped |
+| When | the Service yields to the block again |
+| Then | the block does not run again |
+
+## `T-268` A yield through the schema seam reads the block's answer back as a value
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service yielding values rather than bytes |
+| When | the block answers |
+| Then | the Service receives the answer as this schema's value |
+
+## `T-276` A Service rescuing a trapped yield does not hide the trap
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service that rescues the failure of a yield whose block trapped |
+| When | the Service yields to the block again |
+| Then | the invocation fails as the first trap |

@@ -74,9 +74,14 @@ class TestCodecScalars < Minitest::Test
     [0.0, -0.0, 1.0, -1.0, 0.1, 1e308, -1e308, Float::INFINITY, -Float::INFINITY].each do |f|
       _, decoded = roundtrip(f)
       assert_equal f, decoded, "float #{f} must round-trip with bit fidelity"
-      # negative zero must preserve its sign bit
-      assert_equal 1.0 / f, 1.0 / decoded, "signed zero must round-trip preserving its sign" if f.zero?
     end
+  end
+
+  # Zero equals its signed twin, so only the reciprocal tells them apart.
+  # @behavior WP-099
+  def test_float_negative_zero_keeps_its_sign
+    _, decoded = roundtrip(-0.0)
+    assert_equal(-Float::INFINITY, 1.0 / decoded, "negative zero must round-trip preserving its sign")
   end
 
   # @behavior WP-017
@@ -135,11 +140,14 @@ class TestCodecScalars < Minitest::Test
 
   # @behavior WP-024
   def test_bin_explicit_binary_encoding
-    s = "abc".b
-    bytes = Encoder.encode(s)
-    assert_equal 0xc4, bytes.getbyte(0), "an ASCII-8BIT String must encode with the bin8 marker (0xc4)"
-    decoded = Decoder.decode(bytes)
-    assert_equal Encoding::ASCII_8BIT, decoded.encoding, "a bin value must decode as ASCII-8BIT"
+    assert_equal 0xc4, Encoder.encode("abc".b).getbyte(0),
+                 "an ASCII-8BIT String must encode with the bin8 marker (0xc4)"
+  end
+
+  # @behavior WP-100
+  def test_bin_explicit_binary_decodes_as_bytes
+    _, decoded = roundtrip("abc".b)
     assert_equal "abc".b, decoded, "the binary payload must round-trip unchanged"
+    assert_equal Encoding::ASCII_8BIT, decoded.encoding, "a bin value must decode as ASCII-8BIT"
   end
 end

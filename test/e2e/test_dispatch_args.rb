@@ -146,7 +146,7 @@ class TestE2EDispatchArgs < Minitest::Test
   # a conversion correct in one direction only would pass either alone.
   NESTED_AOH = [{ x: 1 }, { y: 2 }].freeze
 
-  # @behavior T-152
+  # @behavior T-152 T-267
   def test_rpc_nested_array_of_hash_round_trip
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     seen = []

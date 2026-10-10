@@ -118,15 +118,6 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | When | a checkout runs again inside that block |
 | Then | the inner block receives a different Sandbox than the outer one |
 
-## `PL-032` A trap costs the Pool nothing
-
-| Step | Statement |
-| --- | --- |
-| Given | a Pool of one slot |
-| Given | a checkout whose block met a trap |
-| When | a checkout runs again |
-| Then | the block receives the Sandbox the trap left, and it evaluates guest code |
-
 ## `PL-017` A guest error costs no construction
 
 | Step | Statement |
@@ -176,15 +167,6 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | Given | a checkout bound written as nothing |
 | When | a Pool is constructed |
 | Then | a Pool is constructed |
-
-## `PL-031` A Pool with no checkout bound waits however long it takes
-
-| Step | Statement |
-| --- | --- |
-| Given | a Pool whose checkout bound is nothing, with every slot held |
-| When | a caller checks out |
-| Then | the caller waits until a slot is returned, however long that takes |
-| unverifiable | a wait without end outlasts every test that observes it |
 
 ## `PL-023` A checkout timeout is one of kobako's own failures
 
@@ -241,4 +223,42 @@ That a pooled Sandbox satisfies every other behavior identically to a directly c
 | --- | --- |
 | Given | a Pool of one slot whose holder has bound a Service |
 | When | another checkout times out |
-| Then | the holder still drives its Sandbox and the next checkout receives it |
+| Then | the holder still drives its Sandbox |
+
+## `PL-031` A Pool with no checkout bound waits however long it takes
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | a wait without end outlasts every test that observes it |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool whose checkout bound is nothing, with every slot held |
+| When | a caller checks out |
+| Then | the caller waits until a slot is returned, however long that takes |
+
+## `PL-032` A trap costs the Pool nothing
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool of one slot |
+| Given | a checkout whose block met a trap |
+| When | a checkout runs again |
+| Then | the block receives the Sandbox the trap left |
+
+## `PL-033` A timed-out checkout leaves the held Sandbox in the Pool
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool of one slot whose holder has bound a Service |
+| When | another checkout times out |
+| Then | the next checkout receives the held Sandbox |
+
+## `PL-034` A Sandbox a trap left still evaluates guest code
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool of one slot |
+| Given | a checkout whose block met a trap |
+| When | a checkout runs again |
+| Then | its Sandbox evaluates guest code |

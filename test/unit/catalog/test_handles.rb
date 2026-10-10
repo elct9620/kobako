@@ -28,7 +28,7 @@ module Kobako
       assert_equal 3, table.alloc(c).id
     end
 
-    # @behavior T-254
+    # @behavior T-254 T-275
     def test_alloc_mints_a_fresh_reference_each_time_the_same_object_crosses
       table = Table.new
       object = Object.new

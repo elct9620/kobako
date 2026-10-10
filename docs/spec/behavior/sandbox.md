@@ -57,15 +57,6 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | one is constructed naming no artifact |
 | Then | it reports the bundled Guest Binary's path |
 
-## `S-172` Constructing a Sandbox runs no guest code
-
-| Step | Statement |
-| --- | --- |
-| Given | no Sandbox |
-| When | one is constructed |
-| Then | no guest code runs until its first invocation |
-| unverifiable | guest code that never ran leaves nothing to observe |
-
 ## `S-002` The caps a Sandbox was given are the caps it reports
 
 | Step | Statement |
@@ -813,14 +804,6 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the entrypoint verb is given a target spelling a nested constant |
 | Then | the refusal names the constraint |
 
-## `S-175` An entrypoint name too long to be a symbol is refused before the run
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox |
-| When | the entrypoint verb is given a constant name longer than the interpreter can hold as a symbol |
-| Then | the refusal names the constraint |
-
 ## `S-095` A capability reference among a run's arguments
 
 | Step | Statement |
@@ -1038,13 +1021,13 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the guest grows its memory past it |
 | Then | the growth is refused as the budget's own failure |
 
-## `S-124` A registry seals once and refuses what arrives after
+## `S-124` A sealed registry refuses what arrives after
 
 | Step | Statement |
 | --- | --- |
 | Given | a registry that has sealed |
 | When | a registration is attempted afterward |
-| Then | it is refused, and the seal does not happen a second time |
+| Then | it is refused |
 
 ## `S-125` A snippet's compile failure says where the parse stopped
 
@@ -1312,14 +1295,13 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | two invocations replay it |
 | Then | both fail the same way |
 
-## `S-158` Bytecode without debug information keeps everything but its frames
+## `S-158` Bytecode without debug information keeps its failure's class, message and origin
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox with a preloaded bytecode snippet that raises, compiled without debug information |
 | When | an invocation replays it |
 | Then | the failure keeps its class, message and origin |
-| Then | the backtrace carries none of the snippet's frames |
 
 ## `S-159` An evaluation failure names its source as `(eval)`
 
@@ -1407,15 +1389,15 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | --- | --- |
 | Given | a Sandbox whose Service runs past the deadline |
 | When | guest code calls it |
-| Then | the Service completes and the run is cut short once control returns to the guest |
+| Then | the Service completes |
 
 ## `S-170` A Service's time counts against the deadline
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose Service takes a measurable time |
-| When | guest code calls it |
-| Then | that time counts toward the deadline and toward the wall time the run reports |
+| Given | a Sandbox whose Service runs past the deadline |
+| When | guest code calls it and has nothing left to run |
+| Then | the run is cut short once control returns to the guest |
 
 ## `S-171` An object held by reference costs the guest only the reference
 
@@ -1424,6 +1406,18 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a Sandbox whose memory budget is smaller than the host objects a Service hands out |
 | When | guest code holds references to them all |
 | Then | the invocation completes within the budget |
+
+## `S-172` Constructing a Sandbox runs no guest code
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | guest code that never ran leaves nothing to observe |
+
+| Step | Statement |
+| --- | --- |
+| Given | no Sandbox |
+| When | one is constructed |
+| Then | no guest code runs until its first invocation |
 
 ## `S-173` An answer the budget cannot hold ends the invocation at the budget
 
@@ -1440,3 +1434,35 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | Given | a snippet table |
 | When | a source snippet is registered from text tagged as binary |
 | Then | the table holds it as text |
+
+## `S-175` An entrypoint name too long to be a symbol is refused before the run
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | the entrypoint verb is given a constant name longer than the interpreter can hold as a symbol |
+| Then | the refusal names the constraint |
+
+## `S-176` Bytecode without debug information leaves its frames out of the backtrace
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a preloaded bytecode snippet that raises, compiled without debug information |
+| When | an invocation replays it |
+| Then | the backtrace carries none of the snippet's frames |
+
+## `S-177` A registry seals only once
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry that has sealed |
+| When | it is sealed again |
+| Then | it answers the catalog its first seal answered |
+
+## `S-179` A Service's time counts in the wall time a run reports
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Service takes a measurable time |
+| When | guest code calls it |
+| Then | the wall time the run reports includes that time |

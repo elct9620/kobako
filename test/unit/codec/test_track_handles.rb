@@ -16,20 +16,25 @@ class TestCodecTrackHandles < Minitest::Test
   # @behavior CD-023
   def test_handle_carrying_decode_reports_true
     bytes = Encoder.encode(["payload", Handle.restore(7)])
-    value, carried = Kobako::Codec.track_handles { Decoder.decode(bytes) }
+    _, carried = Kobako::Codec.track_handles { Decoder.decode(bytes) }
     assert carried,
            "a decode whose tree carries a Handle through Codec.track_handles must report carried_handle true"
-    assert_equal ["payload", Handle.restore(7)], value,
-                 "track_handles must return the block's decoded value unchanged"
   end
 
   # @behavior CD-024
   def test_handle_free_decode_reports_false
     bytes = Encoder.encode(["payload", { "count" => 42 }])
-    value, carried = Kobako::Codec.track_handles { Decoder.decode(bytes) }
+    _, carried = Kobako::Codec.track_handles { Decoder.decode(bytes) }
     refute carried, "a Handle-free decode through Codec.track_handles must report carried_handle false"
-    assert_equal ["payload", { "count" => 42 }], value,
-                 "track_handles must return the block's decoded value unchanged"
+  end
+
+  # @behavior CD-051
+  def test_the_bracket_answers_the_decoded_value_unchanged
+    [["payload", Handle.restore(7)], ["payload", { "count" => 42 }]].each do |payload|
+      value, = Kobako::Codec.track_handles { Decoder.decode(Encoder.encode(payload)) }
+      assert_equal payload, value,
+                   "a decode through Codec.track_handles must answer the block's decoded value unchanged"
+    end
   end
 
   # @behavior CD-025

@@ -19,19 +19,24 @@ class TestE2EGuestValueRefusal < Minitest::Test
   }.freeze
 
   # The guest built the argument, so its own call is where the refusal
-  # belongs: the Service never hears of it.
+  # belongs.
   # @behavior CD-043
   def test_an_argument_the_wire_cannot_nest_is_refused_at_the_guest_call_site
     UNENCODABLE.each do |shape, build|
-      reached = []
-      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-      sandbox.bind("Echo::Identity", ->(arg) { reached << arg })
+      outcome, = call_site_outcome(build)
 
-      outcome = sandbox.eval(rescued_at_call_site(build, "Echo::Identity.call(a)")).value
-
-      assert_equal [:refused, []], [outcome, reached],
+      assert_equal :refused, outcome,
                    "#{shape} passed to a Service through #eval must be refused at the guest " \
-                   "call site, where the guest may rescue it, before the Service is reached"
+                   "call site, where the guest may rescue it"
+    end
+  end
+
+  # @behavior CD-052
+  def test_an_argument_the_wire_cannot_nest_never_reaches_the_service
+    UNENCODABLE.each do |shape, build|
+      _, reached = call_site_outcome(build)
+
+      assert_empty reached, "#{shape} passed to a Service through #eval must never reach the Service"
     end
   end
 
@@ -67,6 +72,15 @@ class TestE2EGuestValueRefusal < Minitest::Test
   end
 
   private
+
+  # Pass the value +build+ makes to a Service recording what reaches it,
+  # and answer the guest's outcome with what the Service received.
+  def call_site_outcome(build)
+    reached = []
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Echo::Identity", ->(arg) { reached << arg })
+    [sandbox.eval(rescued_at_call_site(build, "Echo::Identity.call(a)")).value, reached]
+  end
 
   def rescued_at_call_site(build, call)
     "#{build}\nbegin\n  #{call}\n  :carried\nrescue StandardError\n  :refused\nend"

@@ -60,7 +60,7 @@ class TestTransportDispatchInvalidity < Minitest::Test
     assert_equal "undefined", answer.payload.type
   end
 
-  # @behavior T-229
+  # @behavior T-229 T-271
   def test_a_stale_reference_fails_only_its_own_call
     @registry.bind("Cfg::Ping", pinger)
     stale = dispatch_handle_target(foreign_handle_id(pinger), "ping")

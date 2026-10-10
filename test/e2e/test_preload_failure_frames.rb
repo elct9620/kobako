@@ -58,8 +58,15 @@ class TestE2EPreloadFailureFrames < Minitest::Test
                  [err.klass, err.message[/boom from snippet/], err.origin],
                  "a raise from bytecode with no debug information through #eval must keep its " \
                  "class, message and origin"
+  end
+
+  # @behavior S-176
+  def test_bytecode_without_debug_information_leaves_its_frames_out_of_the_backtrace
+    err = replay_failure(binary: File.binread(RAISE_BOOM_NO_DEBUG))
+
     refute(err.backtrace_lines.any? { |line| line.include?("snippet_raise_boom.rb") },
-           "bytecode with no debug information must leave the snippet's frames out of the backtrace")
+           "a raise from bytecode with no debug information through #eval must leave the " \
+           "snippet's frames out of the backtrace")
   end
 
   private

@@ -397,13 +397,20 @@ mod tests {
     // parity harness against the real guest binary.
     // @behavior S-124
     #[test]
-    fn registry_seals_once_and_refuses_late_mutation() {
+    fn registry_refuses_late_mutation() {
         let mut registry = Registry::Open(Catalog::default());
         assert!(registry.open_mut().is_ok());
+        registry.seal();
+        assert!(matches!(registry.open_mut(), Err(Error::Sealed(_))));
+    }
+
+    // @behavior S-177
+    #[test]
+    fn registry_seals_once() {
+        let mut registry = Registry::Open(Catalog::default());
         let first = registry.seal();
         let second = registry.seal();
         assert!(Arc::ptr_eq(&first, &second));
-        assert!(matches!(registry.open_mut(), Err(Error::Sealed(_))));
     }
 
     // Pins the literal values rather than a shared constant, so a drift

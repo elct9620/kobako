@@ -40,7 +40,7 @@ class TestE2EYieldBudget < Minitest::Test
 
   # A trap leaves the guest mid-step, so a Service that shrugs off the
   # first failed yield must not resume it with a second.
-  # @behavior T-264
+  # @behavior T-264 T-276
   def test_a_guest_that_trapped_is_not_entered_again
     entries = 0
     sandbox = retrying_sandbox(memory_limit: 1 << 20)

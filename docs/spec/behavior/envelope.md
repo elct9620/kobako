@@ -14,7 +14,8 @@ Two forward-compatibility rules are declared as behavior rather than left to a v
 
 ## Includes
 
-- `crates/kobako-transport/src/**/*.rs`
+- `crates/kobako-transport/src/abi.rs`
+- `crates/kobako-transport/src/envelope/*.rs`
 - `crates/kobako-wasmtime/src/guest_mem.rs`
 - `wasm/kobako-core/src/frames.rs`
 - `crates/kobako/src/snippet.rs`

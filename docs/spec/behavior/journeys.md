@@ -37,7 +37,7 @@ A walk that reuses one Sandbox across requests arrives somewhere a Sandbox scena
 | --- | --- |
 | Given | a Sandbox |
 | When | generated source that writes output and then fails to parse is evaluated |
-| Then | it fails as a Sandbox failure, attributed to the sandbox, and nothing was written |
+| Then | it fails as a Sandbox failure, attributed to the sandbox |
 
 ## `J-004` A script failure says where in the script it happened
 
@@ -142,3 +142,11 @@ A walk that reuses one Sandbox across requests arrives somewhere a Sandbox scena
 | Given | a Sandbox that preloaded a worker entrypoint once |
 | When | the worker runs per request, each with its own arguments and keywords |
 | Then | each request reads the worker's answer for its own arguments |
+
+## `J-017` Source that will not compile writes nothing
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | generated source that writes output and then fails to parse is evaluated |
+| Then | the failure's Execution captured no output |

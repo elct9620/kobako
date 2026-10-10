@@ -21,7 +21,7 @@ class TestE2EGuestStringCap < Minitest::Test
                  "where guest code can rescue it, though the message cap is 16 MiB"
   end
 
-  # @behavior MR-008
+  # @behavior MR-015
   def test_a_string_just_under_one_mib_is_built
     assert_equal ONE_MIB - 1, roomy_sandbox.eval(BUILD_UNDER_ONE_MIB).value,
                  "a String one byte under 1 MiB built through #eval must be built in full, so " \

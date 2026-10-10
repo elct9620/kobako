@@ -66,13 +66,16 @@ class TestRegexpMethods < Minitest::Test
 
   # @behavior RX-229
   def test_escape_takes_only_a_string_or_a_symbol
+    %w[escape quote].product(%w[1 nil]).each do |name, text|
+      assert_equal "TypeError", guard_error("Regexp.#{name}(#{text})", "TypeError"),
+                   "#{text} through Regexp.#{name} must raise TypeError"
+    end
+  end
+
+  # @behavior RX-242
+  def test_escape_takes_a_symbol_by_its_name
     %w[escape quote].each do |name|
-      assert_equal 'a\.b', eval_regexp("Regexp.#{name}(:'a.b')"),
-                   "a Symbol through Regexp.#{name} must be escaped by its name"
-      %w[1 nil].each do |text|
-        assert_equal "TypeError", guard_error("Regexp.#{name}(#{text})", "TypeError"),
-                     "#{text} through Regexp.#{name} must raise TypeError"
-      end
+      assert_equal 'a\.b', eval_regexp("Regexp.#{name}(:'a.b')"), "a Symbol through Regexp.#{name} must escape its name"
     end
   end
 
@@ -106,10 +109,10 @@ class TestRegexpMethods < Minitest::Test
   # wildcard cross a line break, whether written as /m or passed to new.
   # @behavior RX-214
   def test_multiline_lets_the_wildcard_cross_a_line_break
-    assert_equal [4, true, false, true],
-                 eval_regexp('s = "a\nb"; [Regexp::MULTILINE, /a.b/m.match?(s), /a.b/.match?(s), ' \
+    assert_equal [true, false, true],
+                 eval_regexp('s = "a\nb"; [/a.b/m.match?(s), /a.b/.match?(s), ' \
                              'Regexp.new("a.b", Regexp::MULTILINE).match?(s)]'),
-                 "Regexp::MULTILINE through /m and Regexp.new must be 4 and let . match a newline"
+                 "the multiline flag through /m and Regexp.new must let . match a newline, and only it"
   end
 
   # @behavior RX-015

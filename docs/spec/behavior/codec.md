@@ -194,7 +194,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | --- | --- |
 | Given | generated values covering the shapes the wire carries |
 | When | each is written by both host implementations and read back by each |
-| Then | the bytes match and every value comes back as itself |
+| Then | the bytes match |
 
 ## `CD-022` The guest's own walk returns what it was given
 
@@ -210,15 +210,15 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | --- | --- |
 | Given | a payload whose tree carries a capability reference |
 | When | it is decoded inside a tracking bracket |
-| Then | the bracket reports a reference was carried, and answers the decoded value unchanged |
+| Then | the bracket reports a reference was carried |
 
-## `CD-024` And says so when it carried none
+## `CD-024` A decode says when the value it read carried no reference
 
 | Step | Statement |
 | --- | --- |
 | Given | a payload whose tree carries no capability reference |
 | When | it is decoded inside a tracking bracket |
-| Then | the bracket reports none was carried, and answers the decoded value unchanged |
+| Then | the bracket reports none was carried |
 
 ## `CD-025` One bracket's sighting is not the next one's
 
@@ -370,7 +370,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | --- | --- |
 | Given | a Sandbox with a bound Service |
 | When | guest code passes it a value nesting past the wire's bound, or one referring to itself |
-| Then | the guest can rescue the refusal at its call and the Service is never reached |
+| Then | the guest can rescue the refusal at its call |
 
 ## `CD-044` A block answer the wire cannot nest is refused at the yield
 
@@ -419,3 +419,27 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | Given | a Service answering a String tagged UTF-8 whose bytes are not UTF-8 |
 | When | guest code calls it |
 | Then | the invocation fails as a malformed payload does, rather than delivering the bytes |
+
+## `CD-050` Either host implementation reads back what the other wrote
+
+| Step | Statement |
+| --- | --- |
+| Given | generated values covering the shapes the wire carries |
+| When | each is written by both host implementations and read back by each |
+| Then | every value comes back as itself |
+
+## `CD-051` A tracking bracket answers what its decode read
+
+| Step | Statement |
+| --- | --- |
+| Given | a payload, whether or not its tree carries a capability reference |
+| When | it is decoded inside a tracking bracket |
+| Then | the bracket answers the decoded value unchanged |
+
+## `CD-052` A dispatch argument the wire cannot nest never reaches the Service
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service |
+| When | guest code passes it a value nesting past the wire's bound, or one referring to itself |
+| Then | the Service is never reached |

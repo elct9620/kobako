@@ -89,7 +89,8 @@ class TestE2EHandleProxy < Minitest::Test
     end
   RUBY
 
-  # @behavior T-234 T-235
+  # Reaching the method call shows each instance was built.
+  # @behavior T-234 T-235 T-272
   def test_a_bound_proxy_instance_is_built_in_the_guest_and_forwards_nothing
     counter = Counter.new
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -97,9 +98,11 @@ class TestE2EHandleProxy < Minitest::Test
 
     result = sandbox.eval(INERT_INSTANCES).value
 
-    assert_equal [%i[no_method no_method], 0], [result, counter.calls],
-                 "constructing a bound proxy by new or allocate through #eval must succeed without " \
-                 "reaching the host, and a method on the instance must raise NoMethodError in the guest"
+    assert_equal %i[no_method no_method], result,
+                 "constructing a bound proxy by new or allocate through #eval must succeed, and a " \
+                 "method on the instance must raise NoMethodError in the guest"
+    assert_equal 0, counter.calls,
+                 "constructing a bound proxy by new or allocate through #eval must never call the bound object"
   end
 
   # A proxy minted from a bare id would dispatch against an arbitrary

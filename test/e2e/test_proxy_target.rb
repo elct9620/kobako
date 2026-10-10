@@ -46,7 +46,7 @@ class TestE2EProxyTarget < Minitest::Test
     RUBY
   }.freeze
 
-  # @behavior T-243
+  # @behavior T-243 T-274
   def test_an_impostor_of_the_reference_type_is_refused_before_the_host_is_asked
     FORWARDING_IMPOSTORS.each do |shape, script|
       asked = []
@@ -55,8 +55,8 @@ class TestE2EProxyTarget < Minitest::Test
 
       err = assert_raises(Kobako::SandboxError) { sandbox.eval(script) }
 
-      assert_equal ["NoMethodError", []], [err.klass, asked],
-                   "#{shape} must be refused in the guest through #eval before the host is asked"
+      assert_equal "NoMethodError", err.klass, "#{shape} through #eval must be refused in the guest"
+      assert_empty asked, "#{shape} through #eval must never reach the Service"
     end
   end
 
@@ -73,7 +73,7 @@ class TestE2EProxyTarget < Minitest::Test
     Sink::Receive.call(fake)
   RUBY
 
-  # @behavior T-220
+  # @behavior T-220 T-269
   def test_look_alike_reference_carries_nothing_across_as_a_value
     sandbox = look_alike_sandbox
 

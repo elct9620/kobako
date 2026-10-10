@@ -254,13 +254,21 @@ mod tests {
 
     // @behavior MR-014
     #[test]
-    fn a_hook_installing_nothing_boots_a_guest_already_carrying_the_bridge() {
+    fn a_hook_installing_nothing_boots() {
         let mrb = Mrb::open().expect("the interpreter must open");
 
         assert!(
             Kobako::init::<BridgeOnly>(&mrb).is_ok(),
             "a shell whose init_gems installs nothing must still boot"
         );
+    }
+
+    // @behavior MR-016
+    #[test]
+    fn a_hook_finds_the_bridge_already_installed() {
+        let mrb = Mrb::open().expect("the interpreter must open");
+        Kobako::init::<BridgeOnly>(&mrb).expect("a bridge-only shell must boot");
+
         assert!(
             BRIDGE_SEEN_BY_HOOK.with(Cell::get),
             "the bridge must already be installed when init_gems runs"

@@ -392,7 +392,7 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 | --- | --- |
 | Given | a Sandbox over the JSON-capable Guest Binary whose guest replaced a JSON error class |
 | When | guest code reaches a failure that would raise it |
-| Then | the guest sees the lookup's own error and the invocation goes on |
+| Then | the guest rescues the lookup's own error |
 
 ## `JS-048` A bound constant has no JSON form, and the host never hears of it
 
@@ -488,7 +488,7 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 | --- | --- |
 | Given | a Sandbox over the JSON-capable Guest Binary, with a guest class ready to build itself from a document |
 | When | guest code parses a document whose class-naming member names that class |
-| Then | it answers a plain Hash and the class is never asked to build |
+| Then | it answers a plain Hash |
 
 ## `JS-060` A key removed while generating is not written
 
@@ -513,3 +513,11 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 | Given | a Sandbox over the JSON-capable Guest Binary |
 | When | guest code parses an Integer, a Symbol and nil |
 | Then | each raises `TypeError` |
+
+## `JS-063` A member naming a class never builds that class
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary, with a guest class ready to build itself from a document |
+| When | guest code parses a document whose class-naming member names that class |
+| Then | the class is never asked to build |

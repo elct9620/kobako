@@ -398,7 +398,7 @@ mod tests {
         );
     }
 
-    // @behavior WP-016 WP-017
+    // @behavior WP-016 WP-017 WP-099
     #[test]
     fn roundtrip_floats_special() {
         match roundtrip(Value::Float(0.0)) {

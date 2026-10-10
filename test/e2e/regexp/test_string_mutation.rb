@@ -42,15 +42,27 @@ class TestRegexpStringMutation < Minitest::Test
   end
 
   # @behavior RX-157
+  def test_slice_bang_answers_the_regexp_match
+    assert_equal "ll", eval_regexp('"hello".slice!(/l+/)'),
+                 "String#slice! with a Regexp must answer the matched substring"
+  end
+
+  # @behavior RX-240
   def test_slice_bang_removes_regexp_match
-    assert_equal %w[ll heo], eval_regexp('s = "hello"; r = s.slice!(/l+/); [r, s]'),
-                 "String#slice! with a Regexp returns and removes the matched substring"
+    assert_equal "heo", eval_regexp('s = "hello"; s.slice!(/l+/); s'),
+                 "String#slice! with a Regexp must remove the matched substring from the String"
   end
 
   # @behavior RX-158
   def test_slice_bang_returns_nil_when_regexp_does_not_match
-    assert_equal [nil, "abc"], eval_regexp('s = "abc"; r = s.slice!(/\d/); [r, s]'),
-                 "String#slice! returns nil and leaves the string when the Regexp misses"
+    assert_nil eval_regexp('"abc".slice!(/\d/)'),
+               "String#slice! must answer nil when the Regexp misses"
+  end
+
+  # @behavior RX-241
+  def test_slice_bang_leaves_the_string_when_regexp_does_not_match
+    assert_equal "abc", eval_regexp('s = "abc"; s.slice!(/\d/); s'),
+                 "String#slice! must leave the String unchanged when the Regexp misses"
   end
 
   # @behavior RX-159

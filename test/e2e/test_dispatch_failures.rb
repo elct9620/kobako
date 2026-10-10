@@ -24,7 +24,7 @@ class TestE2EDispatchFailures < Minitest::Test
                  "Kobako::Transport::Error at the guest call site, where the guest may rescue it"
   end
 
-  # @behavior T-244
+  # @behavior T-266
   def test_an_unrescued_internal_failure_fails_the_invocation_as_a_sandbox_failure
     assert_raises(Kobako::SandboxError,
                   "an internal dispatch failure left unrescued through #eval must fail the " \

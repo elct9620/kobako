@@ -22,7 +22,10 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 - `test/unit/codec/test_ext_types.rb`
 - `test/unit/codec/test_malformed.rb`
 - `test/unit/codec/test_golden_vectors.rb`
-- `crates/kobako-codec/src/msgpack/**/*.rs`
+- `crates/kobako-codec/src/msgpack/payload.rs`
+- `crates/kobako-codec/src/msgpack/codec/decoder.rs`
+- `crates/kobako-codec/src/msgpack/codec/encoder.rs`
+- `crates/kobako-codec/src/msgpack/codec/value.rs`
 
 ## `WP-001` An invocation's arguments cross in both positions
 
@@ -88,14 +91,6 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | the peer implementation reads it and writes it back |
 | Then | the bytes are identical |
 
-## `WP-098` Both implementations carry the same kinds of frame
-
-| Step | Statement |
-| --- | --- |
-| Given | the kinds of payload frame this host encodes and decodes |
-| When | the peer implementation is asked which kinds it carries |
-| Then | it names the same kinds |
-
 ## `WP-009` Nothing crosses as nothing
 
 | Step | Statement |
@@ -158,7 +153,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | --- | --- |
 | Given | zero and its signed twin, the unit values, a fraction, the widest magnitudes and both infinities |
 | When | each is written and read back |
-| Then | each arrives equal, and signed zero keeps its sign |
+| Then | each arrives equal |
 
 ## `WP-017` A float that is not a number arrives as one that is not
 
@@ -222,7 +217,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | --- | --- |
 | Given | bytes whose holder declares them binary though they read as text |
 | When | they are written and read back |
-| Then | they are written under the byte-string tag and arrive as bytes |
+| Then | they are written under the byte-string tag |
 
 ## `WP-025` A list of nothing crosses
 
@@ -309,8 +304,8 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | Step | Statement |
 | --- | --- |
 | Given | a value nesting one step past the wire bound |
-| When | it is written and the bytes are read back |
-| Then | the write succeeds and the read refuses |
+| When | it is written |
+| Then | the write succeeds |
 
 ## `WP-037` The depth the reader refuses at is the one the wire states
 
@@ -799,3 +794,35 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | Given | bytes declaring a number of a width the payload does not reach |
 | When | they are read |
 | Then | the input is refused as truncated |
+
+## `WP-098` Both implementations carry the same kinds of frame
+
+| Step | Statement |
+| --- | --- |
+| Given | the kinds of payload frame this host encodes and decodes |
+| When | the peer implementation is asked which kinds it carries |
+| Then | it names the same kinds |
+
+## `WP-099` Signed zero crosses with its sign
+
+| Step | Statement |
+| --- | --- |
+| Given | the negative zero float |
+| When | it is written and read back |
+| Then | it arrives as zero with its sign negative |
+
+## `WP-100` Bytes declared as bytes arrive as bytes
+
+| Step | Statement |
+| --- | --- |
+| Given | bytes whose holder declares them binary though they read as text |
+| When | they are written and read back |
+| Then | they arrive unchanged and as bytes |
+
+## `WP-101` This reader refuses nesting its own writer wrote
+
+| Step | Statement |
+| --- | --- |
+| Given | the bytes this writer wrote for a value nesting one step past the wire bound |
+| When | they are read back |
+| Then | the read refuses them |

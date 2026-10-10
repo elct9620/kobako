@@ -64,7 +64,7 @@ mod tests {
         }
     }
 
-    // @behavior T-172
+    // @behavior T-172 T-268
     #[test]
     fn call_ships_the_args_as_one_msgpack_array_and_reads_the_answer_back() {
         let reply = YieldReply::Ok(Encoder::encode(&Value::Int(42)).unwrap()).encode();
@@ -75,11 +75,15 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            (answer, channel.sent),
+            channel.sent,
             // msgpack fixarray of one element (0x91) holding int 21 (0x15).
-            (Value::Int(42), vec![vec![0x91, 0x15]]),
-            "positional yield arguments through Yielder::call must ride as one msgpack \
-             array, and the block's answer must read back as this schema's value"
+            vec![vec![0x91, 0x15]],
+            "positional yield arguments through Yielder::call must ride as one msgpack array"
+        );
+        assert_eq!(
+            answer,
+            Value::Int(42),
+            "the block's answer through Yielder::call must read back as this schema's value"
         );
     }
 

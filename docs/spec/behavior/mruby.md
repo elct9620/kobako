@@ -85,9 +85,7 @@ That the boot state may be computed at build time, and that per-invocation resou
 | --- | --- |
 | Given | a Sandbox whose memory budget is far above 1 MiB |
 | When | guest code builds a String of 1 MiB |
-| Then | an `ArgumentError` the guest can rescue is raised, though the message cap is 16 MiB |
-| When | guest code builds one a byte shorter |
-| Then | it is built in full |
+| Then | an `ArgumentError` the guest can rescue is raised |
 
 ## `MR-009` The permissive profile starts from the same state too
 
@@ -135,4 +133,20 @@ That the boot state may be computed at build time, and that per-invocation resou
 | --- | --- |
 | Given | a guest shell whose gem hook installs nothing |
 | When | the interpreter boots |
-| Then | it boots, and the bridge was in place before the hook ran |
+| Then | it boots |
+
+## `MR-015` A String a byte under the interpreter's bound is built
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose memory budget is far above 1 MiB |
+| When | guest code builds a String a byte shorter than 1 MiB |
+| Then | it is built in full |
+
+## `MR-016` A shell's gem hook runs with the bridge already in place
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest shell whose gem hook installs nothing |
+| When | the interpreter boots |
+| Then | the hook finds the bridge already installed |

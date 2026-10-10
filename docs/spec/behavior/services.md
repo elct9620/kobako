@@ -376,7 +376,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | --- | --- |
 | Given | a Sandbox with a bound Service |
 | When | an invocation whose guest code would call it has a block that raises |
-| Then | the guest never runs and the invocation answers no Execution |
+| Then | the guest never runs |
 
 ## `SV-048` A binding belongs to its own Sandbox
 

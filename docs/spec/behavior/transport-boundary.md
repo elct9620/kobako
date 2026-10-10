@@ -466,7 +466,7 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | --- | --- |
 | Given | a Sandbox whose guest built an object carrying the reference's shape and naming an identifier the host issued |
 | When | guest code hands it across as a dispatch argument |
-| Then | the guest refuses it and the object that identifier names is never reached |
+| Then | the guest refuses it |
 
 ## `T-221` The copy hook takes the one reference it copies from
 
@@ -506,7 +506,7 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | --- | --- |
 | Given | a container that crossed as a capability reference and holds a reflective gadget |
 | When | the guest extracts the gadget from it |
-| Then | the answer is refused as a runtime failure and no reference is made for it |
+| Then | the answer is refused as a runtime failure |
 
 ## `T-227` An ordinary object keeps its singleton methods
 
@@ -530,7 +530,7 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | --- | --- |
 | Given | a Sandbox with an object bound at a path |
 | When | guest code builds an instance of the bound constant by either construction entry |
-| Then | it succeeds and the object is never called |
+| Then | the object is never called |
 
 ## `T-235` Such an instance has no methods
 
@@ -594,7 +594,7 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | --- | --- |
 | Given | a Sandbox whose guest holds a reference |
 | When | guest code copies it |
-| Then | the copy keeps its identifier and dispatches to the same host object |
+| Then | the copy keeps its identifier |
 
 ## `T-243` An impostor of the reference type is refused in the guest
 
@@ -602,7 +602,7 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | --- | --- |
 | Given | a Sandbox with a bound Service |
 | When | guest code reaches for it through a subclass of the reference type, or a guest module mixing in the forwarding seam |
-| Then | it raises `NoMethodError` in the guest and the Service is never asked |
+| Then | it raises `NoMethodError` in the guest |
 
 ## `T-251` A method its own class keeps non-public is not exposed
 
@@ -651,3 +651,43 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | Given | a Sandbox whose guest redefined how the reference type initializes |
 | When | a Service answers a stateful object |
 | Then | the guest's reference reaches that object |
+
+## `T-269` A look-alike reference never reaches the object its identifier names
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose guest built an object carrying the reference's shape and naming an identifier the host issued |
+| When | guest code hands it across as a dispatch argument |
+| Then | the object that identifier names is never reached |
+
+## `T-270` A gadget pulled out of a container reference is given no reference
+
+| Step | Statement |
+| --- | --- |
+| Given | a container that crossed as a capability reference and holds a reflective gadget |
+| When | the guest extracts the gadget from it |
+| Then | no reference is made for the gadget |
+
+## `T-272` An instance of a bound constant can be built in the guest
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with an object bound at a path |
+| When | guest code builds an instance of the bound constant by either construction entry |
+| Then | it answers an instance |
+
+## `T-273` A copy of a held reference dispatches to the same host object
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose guest holds a reference |
+| When | guest code calls a method on a copy of it |
+| Then | the call reaches the host object the reference names |
+
+## `T-274` An impostor of the reference type never reaches the Service
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service |
+| When | guest code reaches for it through a subclass of the reference type, or a guest module mixing in the forwarding seam |
+| Then | the Service is never asked |

@@ -80,7 +80,7 @@ class TestDispatchGadgetReturn < Minitest::Test
 
   # A container the codec cannot carry crosses as a reference; what the
   # guest pulls out of it later is an answer like any other.
-  # @behavior T-226
+  # @behavior T-226 T-270
   def test_a_gadget_extracted_from_a_container_reference_is_refused
     container = Struct.new(:held).new(binding)
     id = @handles.alloc(container).id

@@ -56,17 +56,18 @@ class TestE2EHandleImmutable < Minitest::Test
     [rewrite, g.clone.frozen?, same_id, copy.greet]
   RUBY
 
-  # @behavior T-240 T-241 T-242
+  # @behavior T-240 T-241 T-242 T-273
   def test_a_held_reference_resists_rewriting_and_its_copies_stay_the_same_reference
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
 
-    result = sandbox.eval(COPY_AND_REWRITE_SCRIPT).value
+    rewrite, clone_frozen, same_id, greeting = sandbox.eval(COPY_AND_REWRITE_SCRIPT).value
 
-    assert_equal ["FrozenError", true, true, "hi,Bob"], result,
-                 "rewriting a held reference's identifier by instance_eval must raise FrozenError, " \
-                 "its clone must be frozen, and its copy must keep the identifier and dispatch to " \
-                 "the same host object"
+    assert_equal "FrozenError", rewrite,
+                 "rewriting a held reference's identifier by instance_eval through #eval must raise FrozenError"
+    assert clone_frozen, "a clone of a held reference through #eval must be frozen"
+    assert same_id, "a copy of a held reference through #eval must keep its identifier"
+    assert_equal "hi,Bob", greeting, "a copy of a held reference through #eval must dispatch to the same host object"
   end
 
   # dup and clone pass exactly one original, so reaching the hook with another

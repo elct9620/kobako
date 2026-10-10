@@ -411,7 +411,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code matches a pattern with a block |
-| Then | the block receives the match and the call answers the block's value |
+| Then | the call answers what the block made of the match |
 
 ## `RX-049` A block that had nothing to receive is not run
 
@@ -853,33 +853,6 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code rescues the pattern error around a match past the engine's bound and returns a value |
 | Then | the invocation answers that value |
 
-## `RX-217` A pattern with nothing to backtrack into never reaches the bound
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code matches a pattern with no backreference and no look-around against any subject |
-| Then | the match never reaches the engine's bound |
-| unverifiable | it holds for every subject, and a test reaches finitely many |
-
-## `RX-218` A deadline interrupts a match still running
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox over the regexp-capable Guest Binary, under a deadline |
-| When | guest code runs a match that outlasts the deadline without reaching the engine's bound |
-| Then | the invocation ends as the deadline's own trap rather than a pattern error |
-| unverifiable | no match is known to outlast a deadline before it reaches the engine's bound |
-
-## `RX-219` A match answers as the language does or refuses
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code runs a match the language reaches an answer for |
-| Then | it answers what the language answers, or raises the pattern error |
-| unverifiable | it holds for every pattern the language answers, and a test reaches finitely many |
-
 ## `RX-181` A Symbol's or nil's match operator takes one operand
 
 | Step | Statement |
@@ -1030,7 +1003,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code matches a wildcard across a line break, with the multiline flag written or passed by its constant, and without it |
-| Then | only the flagged patterns match, and the constant carries the language's value |
+| Then | only the flagged patterns match |
 
 ## `RX-215` Only a regexp-capable Guest Binary defines the surface
 
@@ -1047,6 +1020,42 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the Guest Binary composing JSON beside the regexp capability without Unicode |
 | When | guest code uses a case-insensitive pattern |
 | Then | it raises `RegexpError` |
+
+## `RX-217` A pattern with nothing to backtrack into never reaches the bound
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | it holds for every subject, and a test reaches finitely many |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern with no backreference and no look-around against any subject |
+| Then | the match never reaches the engine's bound |
+
+## `RX-218` A deadline interrupts a match still running
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | no match is known to outlast a deadline before it reaches the engine's bound |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary, under a deadline |
+| When | guest code runs a match that outlasts the deadline without reaching the engine's bound |
+| Then | the invocation ends as the deadline's own trap rather than a pattern error |
+
+## `RX-219` A match answers as the language does or refuses
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | it holds for every pattern the language answers, and a test reaches finitely many |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code runs a match the language reaches an answer for |
+| Then | it answers what the language answers, or raises the pattern error |
 
 ## `RX-221` The capability's preserved String methods are not callable from guest code
 
@@ -1085,24 +1094,24 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code escapes and quotes a Symbol, an Integer and nil |
-| Then | the Symbol is escaped by its name, and the Integer and nil each raise `TypeError` |
+| When | guest code escapes and quotes an Integer and nil |
+| Then | each raises `TypeError` |
 
-## `RX-230` An option that is neither a number nor text is read by its truth
+## `RX-230` A truthy option that is neither a number nor text makes a pattern case-insensitive
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code passes true, a Float, a Symbol, false and nil as the option |
-| Then | the first three make it case-insensitive, and the last two leave it with no option |
+| When | guest code passes true, a Float and a Symbol as the option |
+| Then | each pattern is case-insensitive |
 
 ## `RX-231` A flag string names only the language's letters
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code builds patterns from flag strings, one carrying a letter the language lacks |
-| Then | each named letter becomes its own option, and the other raises `ArgumentError` |
+| When | guest code builds a pattern from a flag string carrying a letter the language lacks |
+| Then | it raises `ArgumentError` |
 
 ## `RX-233` A String is read as its own characters
 
@@ -1143,3 +1152,35 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code escapes and quotes with two arguments |
 | Then | each is refused for its argument count |
+
+## `RX-239` The multiline constant carries the language's value
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads the multiline flag's constant |
+| Then | it is the value the language gives it |
+
+## `RX-242` Escaping a Symbol escapes its name
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code escapes and quotes a Symbol |
+| Then | the Symbol is escaped by its name |
+
+## `RX-243` A false or nil option leaves a pattern with no option
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code passes false and nil as the option |
+| Then | each pattern carries no option |
+
+## `RX-244` Each letter a flag string names becomes its own option
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code builds patterns from flag strings naming the language's letters |
+| Then | each named letter becomes its own option |

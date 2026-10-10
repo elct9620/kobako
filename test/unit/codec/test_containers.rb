@@ -99,13 +99,22 @@ class TestCodecContainers < Minitest::Test
   # its packer, so this host writes a value its own reader refuses. Nothing
   # crosses that should not: every position that hands this writer a value
   # bounds it first, and the guest's encoder carries the bound itself.
+  PAST_BOUND = (1..(Kobako::Codec::MAX_NESTING_DEPTH + 1)).reduce([]) { |inner, _| [inner] }
+
   # @behavior WP-036
   def test_the_encoder_writes_past_the_bound_its_own_decoder_enforces
-    past_bound = (1..(Kobako::Codec::MAX_NESTING_DEPTH + 1)).reduce([]) { |inner, _| [inner] }
+    refute_empty Encoder.encode(PAST_BOUND),
+                 "a value nesting past the wire bound through Encoder.encode must be written"
+  end
 
-    bytes = Encoder.encode(past_bound)
+  # @behavior WP-101
+  def test_the_decoder_refuses_what_its_own_encoder_wrote_past_the_bound
+    bytes = Encoder.encode(PAST_BOUND)
 
-    assert_raises(InvalidTypeError) { Decoder.decode(bytes) }
+    assert_raises(InvalidTypeError,
+                  "bytes nesting past the wire bound through Decoder.decode must be refused") do
+      Decoder.decode(bytes)
+    end
   end
 
   # @behavior WP-037

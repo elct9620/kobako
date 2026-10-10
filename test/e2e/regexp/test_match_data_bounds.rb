@@ -53,17 +53,19 @@ class TestRegexpMatchDataBounds < Minitest::Test
     end
   end
 
-  # Group 2 begins where the whole match does not, so a Float read as
-  # anything but its whole part shows.
   # @behavior RX-232
   def test_a_group_is_asked_for_by_a_number_or_a_name
+    %w[begin end offset].product(%w[nil Object.new]).each do |reader, group|
+      assert_equal "TypeError", guard_error("/(a)/.match('a').#{reader}(#{group})", "TypeError"),
+                   "#{group} as the group through MatchData##{reader} must raise TypeError"
+    end
+  end
+
+  # Group 2 begins where the whole match does not, so a Float read as
+  # anything but its whole part shows.
+  # @behavior RX-245
+  def test_a_float_group_reads_as_its_whole_part
     assert_equal [2, 3, [2, 3]], eval_regexp('m = /(a)(b)/.match("xab"); [m.begin(2.9), m.end(2.9), m.offset(2.9)]'),
                  "a Float group through MatchData#begin, #end and #offset must read as its whole part"
-    %w[begin end offset].each do |reader|
-      %w[nil Object.new].each do |group|
-        assert_equal "TypeError", guard_error("/(a)/.match('a').#{reader}(#{group})", "TypeError"),
-                     "#{group} as the group through MatchData##{reader} must raise TypeError"
-      end
-    end
   end
 end

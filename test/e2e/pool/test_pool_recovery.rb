@@ -13,15 +13,18 @@ class TestPoolRecovery < Minitest::Test
   # met it serves the next checkout unchanged.
   def test_trap_error_checks_the_sandbox_back_in
     constructed = []
-    pool = Kobako::Pool.new(slots: 1, timeout: 0.05) { |sandbox| constructed << sandbox }
-    assert_raises(Kobako::TimeoutError) { pool.with { |sandbox| sandbox.eval("loop do end") } }
+    pool = trapped_pool { |sandbox| constructed << sandbox }
 
-    value = pool.with do |sandbox|
+    pool.with do |sandbox|
       assert_same constructed.first, sandbox,
                   "a checkout after a TrapError through Pool#with must receive the Sandbox the trap left"
-      sandbox.eval("1").value
     end
-    assert_equal 1, value, "the Sandbox a trap left through Pool#with must evaluate guest code"
+  end
+
+  # @behavior PL-034
+  def test_the_sandbox_a_trap_left_evaluates_guest_code
+    assert_equal 1, trapped_pool.with { |sandbox| sandbox.eval("1").value },
+                 "the Sandbox a trap left through Pool#with must evaluate guest code"
   end
 
   # @behavior PL-017
@@ -49,5 +52,14 @@ class TestPoolRecovery < Minitest::Test
     assert_equal "setup boom", err.message
     assert_equal 2, pool.with { |sandbox| sandbox.eval("2").value },
                  "a checkout after a failed construction must retry construction in the freed slot"
+  end
+
+  private
+
+  # A one-slot Pool whose only Sandbox has met a trap.
+  def trapped_pool(&setup)
+    pool = Kobako::Pool.new(slots: 1, timeout: 0.05, &setup)
+    assert_raises(Kobako::TimeoutError) { pool.with { |sandbox| sandbox.eval("loop do end") } }
+    pool
   end
 end

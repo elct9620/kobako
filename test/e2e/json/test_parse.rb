@@ -20,19 +20,27 @@ class TestJsonParse < Minitest::Test
 
   # The class-naming key is what lets a document build objects of its
   # choosing, so a class standing ready to answer it must not be asked.
+  CLASS_NAMING_DOCUMENT = <<~RUBY
+    $built = false
+    class Widget
+      def self.json_create(_object) = ($built = true)
+    end
+    [JSON.parse('{"json_class":"Widget","v":1}'), $built]
+  RUBY
+
   # @behavior JS-059
   def test_parse_answers_a_class_naming_member_as_plain_data
-    result = eval_json(<<~RUBY)
-      $built = false
-      class Widget
-        def self.json_create(_object) = ($built = true)
-      end
-      [JSON.parse('{"json_class":"Widget","v":1}'), $built]
-    RUBY
+    parsed, = eval_json(CLASS_NAMING_DOCUMENT)
 
-    assert_equal [{ "json_class" => "Widget", "v" => 1 }, false], result,
-                 "JSON.parse through the json guest must answer a json_class member as a plain Hash " \
-                 "without building the class it names"
+    assert_equal({ "json_class" => "Widget", "v" => 1 }, parsed,
+                 "JSON.parse through the json guest must answer a json_class member as a plain Hash")
+  end
+
+  # @behavior JS-063
+  def test_parse_never_builds_the_class_a_member_names
+    _, built = eval_json(CLASS_NAMING_DOCUMENT)
+
+    refute built, "JSON.parse through the json guest must never build the class a json_class member names"
   end
 
   # @behavior JS-002
@@ -83,8 +91,8 @@ class TestJsonParse < Minitest::Test
   # @behavior JS-047
   def test_a_replaced_error_class_is_reported_not_fatal
     assert_equal "TypeError", eval_json(REPLACED_ERROR_CLASS),
-                 "a parse failure whose error class the guest replaced must reach the guest as " \
-                 "the lookup's own error rather than ending the invocation"
+                 "a parse failure whose error class the guest replaced through #eval must reach " \
+                 "the guest as the lookup's own error, which the guest rescues"
   end
 
   # @behavior JS-062

@@ -112,14 +112,6 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | several references are allocated in turn |
 | Then | their ids run upward from one |
 
-## `T-254` An object crossing twice is referenced twice
-
-| Step | Statement |
-| --- | --- |
-| Given | a Handle table |
-| When | the same object is allocated a reference twice |
-| Then | the two references differ and both resolve to that object |
-
 ## `T-010` A reference answers with the object it was made for
 
 | Step | Statement |
@@ -191,24 +183,6 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | an invocation whose wrap failed partway |
 | When | the ids it had minted are presented afterward |
 | Then | they resolve to no object |
-
-## `T-260` Discarding a Sandbox releases every host object its invocations referenced
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox whose invocations referenced host objects |
-| When | the Sandbox is discarded |
-| Then | none of those objects outlives it |
-| unverifiable | release shows only through garbage collection, whose timing no test controls |
-
-## `T-261` Every id a table holds names an object the guest was handed
-
-| Step | Statement |
-| --- | --- |
-| Given | an invocation's Handle table |
-| When | any id it holds is resolved |
-| Then | it names an object that was handed to the guest |
-| unverifiable | it holds for every id of every table, and a test reaches finitely many |
 
 ## `T-019` The wire's own scalars are recognised as themselves
 
@@ -433,15 +407,6 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | an invocation whose Handle table is exhausted |
 | When | a Service answers a value needing a new reference |
 | Then | the dispatch answers on the fault arm |
-
-## `T-259` Running out of references while wrapping an entrypoint's arguments fails the run
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox whose Handle table cannot issue another reference |
-| When | a run is given an argument needing a new reference |
-| Then | the run fails as a Sandbox failure before the guest runs |
-| unverifiable | exhausting the table takes every id the wire allows, and no public seam lowers that ceiling |
 
 ## `T-048` A failure the host was not meant to catch is not caught
 
@@ -723,15 +688,6 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they observe the same answer |
 
-## `T-263` Both refuse a stale reference the same way
-
-| Step | Statement |
-| --- | --- |
-| Given | a scenario presenting a reference an earlier invocation issued |
-| When | both frontends run it |
-| Then | they observe the same refusal |
-| unverifiable | every invocation begins in a fresh guest, so no guest code can present an earlier reference |
-
 ## `T-137` A dispatch to a bound path answers on the ok arm
 
 | Step | Statement |
@@ -858,7 +814,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a Sandbox with a Service echoing what it receives |
 | When | guest code passes an Array of Hashes |
-| Then | the Service received that structure and the guest receives it back |
+| Then | the Service received that structure |
 
 ## `T-153` An argument's size is read from the value, not asked of the guest
 
@@ -914,7 +870,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a Receiver written against a schema's values rather than bytes |
 | When | the guest dispatches to it |
-| Then | the payload is read for it and its answer is written back |
+| Then | the answer it made from the payload's values comes back as this schema's bytes |
 
 ## `T-173` A reference resolves as the type it was bound as
 
@@ -1034,7 +990,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | an invocation in which the guest dispatches through a reference that is no longer live |
 | When | it then dispatches to a bound Service |
-| Then | the stale call is refused as an undefined target and the later one still answers |
+| Then | the later call still answers |
 
 ## `T-230` An argument error from a Service's own body is an argument failure
 
@@ -1051,7 +1007,6 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a Sandbox whose Service the host answers as an internal failure |
 | When | guest code calls it |
 | Then | the call raises `Kobako::Transport::Error`, which the guest may rescue |
-| Then | left unrescued, the invocation fails as a Sandbox failure |
 
 ## `T-245` The Service failure base class covers every failed call
 
@@ -1076,3 +1031,91 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | an entrypoint answering a reference a Service handed it, or one wrapped from its own argument |
 | When | the entrypoint verb runs it |
 | Then | the Host App receives the original object |
+
+## `T-254` An object crossing twice is referenced twice
+
+| Step | Statement |
+| --- | --- |
+| Given | a Handle table |
+| When | the same object is allocated a reference twice |
+| Then | the two references differ |
+
+## `T-259` Running out of references while wrapping an entrypoint's arguments fails the run
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | exhausting the table takes every id the wire allows, and no public seam lowers that ceiling |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Handle table cannot issue another reference |
+| When | a run is given an argument needing a new reference |
+| Then | the run fails as a Sandbox failure before the guest runs |
+
+## `T-260` Discarding a Sandbox releases every host object its invocations referenced
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | release shows only through garbage collection, whose timing no test controls |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose invocations referenced host objects |
+| When | the Sandbox is discarded |
+| Then | none of those objects outlives it |
+
+## `T-261` Every id a table holds names an object the guest was handed
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | it holds for every id of every table, and a test reaches finitely many |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation's Handle table |
+| When | any id it holds is resolved |
+| Then | it names an object that was handed to the guest |
+
+## `T-263` Both refuse a stale reference the same way
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | every invocation begins in a fresh guest, so no guest code can present an earlier reference |
+
+| Step | Statement |
+| --- | --- |
+| Given | a scenario presenting a reference an earlier invocation issued |
+| When | both frontends run it |
+| Then | they observe the same refusal |
+
+## `T-266` An unrescued internal failure fails the invocation as a Sandbox failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Service the host answers as an internal failure |
+| When | guest code calls it without rescuing |
+| Then | the invocation fails as a Sandbox failure |
+
+## `T-267` A nested structure a Service answers crosses back unchanged
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service echoing what it receives |
+| When | guest code passes an Array of Hashes |
+| Then | the guest receives that structure back |
+
+## `T-271` A call through a stale reference is refused as an undefined target
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation |
+| When | the guest dispatches through a reference that is no longer live |
+| Then | the call is refused as an undefined target |
+
+## `T-275` Both references to one object resolve to it
+
+| Step | Statement |
+| --- | --- |
+| Given | a Handle table |
+| When | the same object is allocated a reference twice |
+| Then | both references resolve to that object |

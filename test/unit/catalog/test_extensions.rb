@@ -217,14 +217,22 @@ module Kobako
     # The kind is read off the keyword, never off whether the value is
     # callable: a callable declared as the fixed object is bound as itself.
     # @behavior EX-044
-    def test_a_callable_declared_as_the_fixed_object_is_bound_rather_than_called
-      callable = -> { flunk "a callable declared with object: must never be called as a provider" }
+    def test_a_callable_declared_as_the_fixed_object_is_bound_as_itself
+      callable = -> {}
       install(extension(name: :File, source: "1", backend: static_backend("File", callable)))
 
       assert_same callable, @services.lookup("File").object,
                   "a callable declared with object: through #install must be bound as itself"
-      refute @extensions.resolve.key?("File"),
-             "a callable declared with object: through #install must take no part in per-invocation resolution"
+    end
+
+    # @behavior EX-049
+    def test_a_callable_declared_as_the_fixed_object_is_never_called
+      called = false
+      install(extension(name: :File, source: "1", backend: static_backend("File", -> { called = true })))
+
+      @extensions.resolve
+
+      refute called, "a callable declared with object: through #install must never be called on resolution"
     end
 
     # @behavior EX-045

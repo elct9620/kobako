@@ -9,20 +9,30 @@ require "test_helper"
 class TestE2EDeadlineHostTime < Minitest::Test
   include E2eGuestHelper
 
-  # What follows the call takes no measurable time, so the run ending
-  # there is the deadline having counted the Service's time.
-  # @behavior S-169 S-170
-  def test_the_deadline_never_interrupts_a_service_and_cuts_the_run_after_it
+  # @behavior S-169
+  def test_the_deadline_never_interrupts_a_service
     finished = []
     sandbox = slow_service_sandbox(timeout: 0.05, finished: finished)
 
-    assert_raises(Kobako::TimeoutError, "the run must be cut short once control returns to the guest") do
-      sandbox.eval("Slow::Wait.call; :after")
-    end
-    assert_equal [true], finished, "a Service running past the deadline must complete"
+    assert_raises(Kobako::TimeoutError) { sandbox.eval("Slow::Wait.call; :after") }
+
+    assert_equal [true], finished, "a Service running past the deadline through #eval must complete"
   end
 
+  # What follows the call takes no measurable time, so the run ending
+  # there is the deadline having counted the Service's time.
   # @behavior S-170
+  def test_the_deadline_cuts_the_run_once_control_returns_to_the_guest
+    sandbox = slow_service_sandbox(timeout: 0.05, finished: [])
+
+    assert_raises(Kobako::TimeoutError,
+                  "a Service running past the deadline through #eval must cut the run short " \
+                  "once control returns to the guest") do
+      sandbox.eval("Slow::Wait.call; :after")
+    end
+  end
+
+  # @behavior S-179
   def test_a_services_time_counts_in_the_reported_wall_time
     finished = []
 
