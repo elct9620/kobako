@@ -38,7 +38,7 @@ One block here is deliberately written in one frontend's own names: the ancestry
 | When | the outcome is read |
 | Then | it fails as a trap saying the Sandbox exited without producing one |
 
-## `OC-002` So does a result the envelope cannot frame
+## `OC-002` A result the envelope cannot frame costs the Sandbox
 
 | Step | Statement |
 | --- | --- |
@@ -174,7 +174,7 @@ One block here is deliberately written in one frontend's own names: the ancestry
 | When | its ancestry is read |
 | Then | it descends from `Kobako::SandboxError` |
 
-## `OC-019` So is an entrypoint that did not resolve
+## `OC-019` An entrypoint that did not resolve is a Sandbox failure
 
 | Step | Statement |
 | --- | --- |
@@ -206,7 +206,7 @@ One block here is deliberately written in one frontend's own names: the ancestry
 | When | its ancestry is read |
 | Then | it descends from `Kobako::TrapError` |
 
-## `OC-023` So is a memory budget reached
+## `OC-023` A memory budget reached is a trap
 
 | Step | Statement |
 | --- | --- |
@@ -222,7 +222,7 @@ One block here is deliberately written in one frontend's own names: the ancestry
 | When | both frontends run it |
 | Then | they observe the same failures |
 
-## `OC-025` Both attribute a source that will not compile the same way
+## `OC-025` Both frontends attribute a source that will not compile the same way
 
 | Step | Statement |
 | --- | --- |
@@ -230,7 +230,7 @@ One block here is deliberately written in one frontend's own names: the ancestry
 | When | both frontends run it |
 | Then | they observe the same failure |
 
-## `OC-026` Both interrupt a runaway invocation at the same cap
+## `OC-026` Both frontends interrupt a runaway invocation at the same cap
 
 | Step | Statement |
 | --- | --- |
@@ -238,7 +238,7 @@ One block here is deliberately written in one frontend's own names: the ancestry
 | When | both frontends run it |
 | Then | they observe the same failure |
 
-## `OC-027` And both stop a runaway allocation at the same cap
+## `OC-027` Both frontends stop a runaway allocation at the same cap
 
 | Step | Statement |
 | --- | --- |
@@ -374,7 +374,7 @@ One block here is deliberately written in one frontend's own names: the ancestry
 | When | either invocation verb runs it |
 | Then | the invocation settles as a trap |
 
-## `OC-051` Both attribute an engine trap no cap caused the same way
+## `OC-051` Both frontends attribute an engine trap no cap caused the same way
 
 | Attribute | Value |
 | --- | --- |

@@ -62,7 +62,7 @@ That the boot state may be computed at build time, and that per-invocation resou
 | When | the invocation runs |
 | Then | it fails as a Sandbox failure rather than as a trap |
 
-## `MR-006` The guest's own message survives the inspect frame too
+## `MR-006` The guest's own message survives the inspect frame
 
 | Step | Statement |
 | --- | --- |
@@ -87,7 +87,7 @@ That the boot state may be computed at build time, and that per-invocation resou
 | When | guest code builds a String of 1 MiB |
 | Then | an `ArgumentError` the guest can rescue is raised |
 
-## `MR-009` The permissive profile starts from the same state too
+## `MR-009` The permissive profile starts every invocation from the same state
 
 | Step | Statement |
 | --- | --- |

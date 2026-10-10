@@ -130,7 +130,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | When | a path extending it is bound |
 | Then | the bind is refused |
 
-## `SV-014` A grouping cannot become a Service either
+## `SV-014` A grouping cannot become a Service
 
 | Step | Statement |
 | --- | --- |
@@ -221,7 +221,7 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | When | guest code calls that path during an invocation whose block filled it |
 | Then | the filled object's answer comes back |
 
-## `SV-025` The override block serves the entrypoint verb too
+## `SV-025` The override block serves the entrypoint verb
 
 | Step | Statement |
 | --- | --- |

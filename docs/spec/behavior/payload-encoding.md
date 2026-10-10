@@ -83,7 +83,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | the peer implementation reads it and writes it back |
 | Then | the bytes are identical |
 
-## `WP-008` And agree on one carrying a wrapped leaf
+## `WP-008` The two implementations agree on an argument frame carrying a wrapped leaf
 
 | Step | Statement |
 | --- | --- |
@@ -107,7 +107,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | it is written and read back |
 | Then | it arrives as it was given |
 
-## `WP-011` And falsity as falsity
+## `WP-011` Falsity crosses as falsity
 
 | Step | Statement |
 | --- | --- |
@@ -179,7 +179,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | it is written and read back |
 | Then | it arrives unchanged and as text |
 
-## `WP-020` Text beyond one byte a character arrives as text too
+## `WP-020` Text beyond one byte a character arrives as text
 
 | Step | Statement |
 | --- | --- |
@@ -195,7 +195,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | each is written and read back |
 | Then | each arrives as it was given |
 
-## `WP-022` And either side of the second
+## `WP-022` Text crosses either side of the second length tier
 
 | Step | Statement |
 | --- | --- |
@@ -267,7 +267,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | it is written and read back |
 | Then | it arrives as it was given |
 
-## `WP-031` A map keyed by anything the mapping names crosses too
+## `WP-031` A map keyed by anything the mapping names crosses
 
 | Step | Statement |
 | --- | --- |
@@ -347,7 +347,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | it is written and read back |
 | Then | it arrives as it was given |
 
-## `WP-042` And at its highest
+## `WP-042` A capability reference crosses at its highest identifier
 
 | Step | Statement |
 | --- | --- |
@@ -363,7 +363,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | a capability reference is made from it |
 | Then | it is refused |
 
-## `WP-044` Nor does one past the highest
+## `WP-044` An identifier past the highest names no reference
 
 | Step | Statement |
 | --- | --- |
@@ -371,7 +371,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | a capability reference is made from it |
 | Then | it is refused |
 
-## `WP-045` The reserved identifier is refused off the wire too
+## `WP-045` The reserved identifier is refused off the wire
 
 | Step | Statement |
 | --- | --- |
@@ -427,7 +427,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | they are read |
 | Then | a wire violation is raised |
 
-## `WP-052` An extension the mapping does not name is one too
+## `WP-052` An extension the mapping does not name is a wire violation
 
 | Step | Statement |
 | --- | --- |
@@ -443,7 +443,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | they are read |
 | Then | the encoding is refused |
 
-## `WP-054` A map key is checked the same way
+## `WP-054` A map key whose bytes are not text is refused
 
 | Step | Statement |
 | --- | --- |
@@ -451,7 +451,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | they are read |
 | Then | the encoding is refused |
 
-## `WP-055` And so is a map value
+## `WP-055` A map value whose bytes are not text is refused
 
 | Step | Statement |
 | --- | --- |
@@ -539,7 +539,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | it is written |
 | Then | the bytes are the ones the wire states |
 
-## `WP-066` And so does one at the highest identifier
+## `WP-066` A capability reference at its highest identifier takes the bytes the wire states
 
 | Step | Statement |
 | --- | --- |
@@ -643,7 +643,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | they are read |
 | Then | the input is refused as truncated |
 
-## `WP-079` A map declaring more than the bytes carry is refused the same way
+## `WP-079` A map declaring more than the bytes carry is refused before anything is allocated
 
 | Step | Statement |
 | --- | --- |
@@ -683,7 +683,7 @@ Two asymmetries are declared as they are rather than as they should be. One writ
 | When | it is written |
 | Then | the bytes are the ones the wire states |
 
-## `WP-084` And falsity the byte the wire states
+## `WP-084` Falsity takes the byte the wire states
 
 | Step | Statement |
 | --- | --- |

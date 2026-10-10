@@ -55,7 +55,7 @@ A walk that reuses one Sandbox across requests arrives somewhere a Sandbox scena
 | When | generated source calls that Service and nothing rescues |
 | Then | it fails as a Service failure, attributed to the service and not as a script failure |
 
-## `J-006` A capability failure says where too
+## `J-006` A capability failure carries the guest's backtrace
 
 | Step | Statement |
 | --- | --- |

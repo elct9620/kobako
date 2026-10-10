@@ -129,7 +129,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | a later invocation evaluates ordinary guest source |
 | Then | it answers its value |
 
-## `S-011` A memory budget reached is not a Sandbox spent either
+## `S-011` A memory budget reached is not a Sandbox spent
 
 | Step | Statement |
 | --- | --- |
@@ -338,7 +338,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the capture is read off the raised error's Execution |
 | Then | it holds what was written before the deadline |
 
-## `S-037` The error channel survives a deadline too
+## `S-037` The error channel survives a deadline
 
 | Step | Statement |
 | --- | --- |
@@ -354,7 +354,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the truncation predicate is read off the raised error's Execution |
 | Then | it is true |
 
-## `S-039` A memory budget does not take back what was written either
+## `S-039` A memory budget does not take back what was already written
 
 | Step | Statement |
 | --- | --- |
@@ -491,7 +491,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation names that constant |
 | Then | it resolves |
 
-## `S-056` A bytecode snippet replays for every invocation too
+## `S-056` A bytecode snippet replays for every invocation
 
 | Step | Statement |
 | --- | --- |
@@ -516,7 +516,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation completes and its usage is read |
 | Then | the wall time is above zero |
 
-## `S-059` The entrypoint verb reports its time too
+## `S-059` The entrypoint verb reports the time it spent
 
 | Step | Statement |
 | --- | --- |
@@ -620,7 +620,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an evaluation returns a String carrying a zero byte |
 | Then | the host receives every byte including the zero |
 
-## `S-072` A raised message keeps its zero bytes too
+## `S-072` A raised message keeps its zero bytes
 
 | Step | Statement |
 | --- | --- |
@@ -877,7 +877,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | both are read |
 | Then | each answers what it was made with |
 
-## `S-104` Nor can any other capture be changed
+## `S-104` A capture is frozen
 
 | Step | Statement |
 | --- | --- |
@@ -941,7 +941,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | the capture is taken |
 | Then | every byte is there and no mark is set |
 
-## `S-112` Output filling the cap exactly is unmarked too
+## `S-112` Output filling the cap exactly is kept whole and unmarked
 
 | Step | Statement |
 | --- | --- |
@@ -1086,7 +1086,7 @@ The guest-side output surface — how `IO` and the Kernel writers behave inside 
 | When | an invocation writes past it |
 | Then | the capture holds exactly the leading bytes that fit, with nothing appended |
 
-## `S-132` The error channel keeps exactly what fit too
+## `S-132` Error output past its cap keeps exactly what fit
 
 | Step | Statement |
 | --- | --- |

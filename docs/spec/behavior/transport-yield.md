@@ -28,7 +28,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | guest code calls it with a block |
 | Then | the Service reports that it was |
 
-## `T-084` And that it was not
+## `T-084` A Service can tell that the guest passed it no block
 
 | Step | Statement |
 | --- | --- |
@@ -188,7 +188,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | both frontends run it |
 | Then | they observe the same value |
 
-## `T-104` Both unwind a break and fall through a next the same way
+## `T-104` Both frontends unwind a break and fall through a next the same way
 
 | Step | Statement |
 | --- | --- |
@@ -196,7 +196,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | both frontends run it |
 | Then | they observe the same values |
 
-## `T-105` Both carry a nested dispatch through a block the same way
+## `T-105` Both frontends carry a nested dispatch through a block the same way
 
 | Step | Statement |
 | --- | --- |
@@ -204,7 +204,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | both frontends run it |
 | Then | they observe the same value |
 
-## `T-106` Both refuse a block exit aimed past the boundary the same way
+## `T-106` Both frontends refuse a block exit aimed past the boundary the same way
 
 | Step | Statement |
 | --- | --- |
@@ -212,7 +212,7 @@ A block's answer is restored on its way in and a break's value is not, which is 
 | When | both frontends run it |
 | Then | they refuse it the same way |
 
-## `T-107` Both surface an unrescued block raise the same way
+## `T-107` Both frontends surface an unrescued block raise the same way
 
 | Step | Statement |
 | --- | --- |

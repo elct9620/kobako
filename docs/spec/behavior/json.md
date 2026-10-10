@@ -62,7 +62,7 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 | When | guest code parses the largest value the guest's Integer width holds |
 | Then | it yields an Integer |
 
-## `JS-007` A small negative integer stays an integer too
+## `JS-007` A small negative integer stays an integer
 
 | Step | Statement |
 | --- | --- |
@@ -190,7 +190,7 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 | When | guest code generates from a Hash keyed by an Integer |
 | Then | the key appears as that Integer's string form |
 
-## `JS-023` A Float key is written as a String too
+## `JS-023` A Float key is written as a String
 
 | Step | Statement |
 | --- | --- |
@@ -222,7 +222,7 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 | When | guest code generates from a String whose bytes are not valid text |
 | Then | a generator error is raised |
 
-## `JS-027` A Symbol whose name is not text is refused as well
+## `JS-027` A Symbol whose name is not text is refused
 
 | Step | Statement |
 | --- | --- |
@@ -360,7 +360,7 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 | When | guest code generates from that object |
 | Then | a generator error is raised |
 
-## `JS-044` Using a capability reference as a key does not hide it either
+## `JS-044` Using a capability reference as a key does not hide it
 
 | Step | Statement |
 | --- | --- |
@@ -486,7 +486,8 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox over the JSON-capable Guest Binary, with a guest class ready to build itself from a document |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| Given | a guest class ready to build itself from a document |
 | When | guest code parses a document whose class-naming member names that class |
 | Then | it answers a plain Hash |
 
@@ -518,6 +519,7 @@ The depth bound is witnessed on both directions at the same depth, because a rea
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox over the JSON-capable Guest Binary, with a guest class ready to build itself from a document |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| Given | a guest class ready to build itself from a document |
 | When | guest code parses a document whose class-naming member names that class |
 | Then | the class is never asked to build |

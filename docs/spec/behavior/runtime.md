@@ -66,7 +66,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | When | each Thread restores the Handles its own invocation minted |
 | Then | each restores only its own |
 
-## `RT-005` Releasing the lock does not cross the Handle arguments either
+## `RT-005` Releasing the lock does not cross the Handle arguments
 
 | Step | Statement |
 | --- | --- |
@@ -333,7 +333,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | When | a runtime is built over the artifact that entry names |
 | Then | it is built by compiling |
 
-## `RT-038` And nothing is written back into it
+## `RT-038` A cache directory others may write is not written back into
 
 | Step | Statement |
 | --- | --- |
@@ -389,7 +389,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | When | source is evaluated against it |
 | Then | the invocation completes with no value |
 
-## `RT-045` And answers an entrypoint run carrying arguments
+## `RT-045` A guest that does no work still answers an entrypoint run carrying arguments
 
 | Step | Statement |
 | --- | --- |
@@ -453,7 +453,7 @@ An artifact that satisfies the whole invocation ABI while doing no guest work is
 | When | an invocation runs |
 | Then | that engine is driven once for it |
 
-## `RT-053` And is handed the registrations the Sandbox sealed
+## `RT-053` An engine behind the contract is handed the registrations the Sandbox sealed
 
 | Step | Statement |
 | --- | --- |

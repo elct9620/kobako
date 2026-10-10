@@ -83,7 +83,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code asks a case-insensitive pattern whether it folds case |
 | Then | it answers true |
 
-## `RX-008` A pattern without the flag says so too
+## `RX-008` A pattern without the case flag says it does not fold case
 
 | Step | Statement |
 | --- | --- |
@@ -195,7 +195,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code matches a pattern against an Integer |
 | Then | a type error is raised |
 
-## `RX-022` The match operator refuses one too
+## `RX-022` The match operator refuses a subject that is not text
 
 | Step | Statement |
 | --- | --- |
@@ -219,7 +219,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code matches a pattern that would match emptiness against nothing |
 | Then | it answers nothing |
 
-## `RX-025` The predicate reads nothing as no match too
+## `RX-025` The predicate reads nothing as no match
 
 | Step | Statement |
 | --- | --- |
@@ -397,7 +397,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code matches a zero-width pattern from the subject's length |
 | Then | the match begins at that position |
 
-## `RX-047` The predicate reads a position the same way
+## `RX-047` The predicate finds no match from a position past the end
 
 | Step | Statement |
 | --- | --- |
@@ -725,7 +725,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code matches against a String whose bytes are not text |
 | Then | an argument error is raised |
 
-## `RX-088` Substitution refuses such a subject too
+## `RX-088` Substitution refuses a subject that is not text
 
 | Step | Statement |
 | --- | --- |
@@ -749,7 +749,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code substitutes with a replacement whose bytes are not text |
 | Then | an argument error is raised |
 
-## `RX-091` Escaping refuses one as well
+## `RX-091` Escaping refuses a String that is not text
 
 | Step | Statement |
 | --- | --- |
@@ -805,7 +805,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | it is compiled |
 | Then | each stands for the characters the language means, not the wider set beneath |
 
-## `RX-171` A shorthand class inside a character class is rewritten too
+## `RX-171` A shorthand class inside a character class is rewritten to its own characters
 
 | Step | Statement |
 | --- | --- |
@@ -885,7 +885,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code inspects a pattern whose source holds a tab, vertical tab, form feed, carriage return and newline |
 | Then | each renders literally, as the language renders it |
 
-## `RX-185` A whole-source flag group lifts its disabled flags too
+## `RX-185` A whole-source flag group lifts its disabled flags
 
 | Step | Statement |
 | --- | --- |
@@ -909,7 +909,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code takes a match that finds nothing after one that found something |
 | Then | the match global holds nothing |
 
-## `RX-188` So are the numbered and special globals
+## `RX-188` A match that finds nothing clears the numbered and special globals
 
 | Step | Statement |
 | --- | --- |
@@ -1013,7 +1013,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code looks for `Regexp` and `MatchData` on each |
 | Then | only the regexp-capable one defines them |
 
-## `RX-216` The variant composing JSON refuses case-insensitive patterns too
+## `RX-216` The variant composing JSON without Unicode refuses case-insensitive patterns
 
 | Step | Statement |
 | --- | --- |

@@ -200,7 +200,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk classifies it |
 | Then | it is recognised as wire-representable |
 
-## `T-021` An integer past the wire's width is not
+## `T-021` An integer past the wire's width is refused by the walk
 
 | Step | Statement |
 | --- | --- |
@@ -208,7 +208,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk classifies it |
 | Then | it is refused |
 
-## `T-022` Nor is a scalar the wire has no shape for
+## `T-022` A scalar the wire has no shape for is refused by the walk
 
 | Step | Statement |
 | --- | --- |
@@ -352,7 +352,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | another Sandbox presents it as a receiver |
 | Then | the dispatch answers as an undefined target |
 
-## `T-040` Nor as an argument
+## `T-040` A reference does not travel between Sandboxes as an argument
 
 | Step | Statement |
 | --- | --- |
@@ -424,7 +424,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code passes the reference back as a positional argument |
 | Then | the Service acts on the original host object |
 
-## `T-050` And as a keyword argument
+## `T-050` A reference passed by keyword reaches the host as its object
 
 | Step | Statement |
 | --- | --- |
@@ -432,7 +432,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code passes the reference back as a keyword argument |
 | Then | the Service acts on the original host object |
 
-## `T-051` And in both positions at once
+## `T-051` References passed positionally and by keyword at once reach the host as their objects
 
 | Step | Statement |
 | --- | --- |
@@ -440,7 +440,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code passes references back positionally and by keyword together |
 | Then | the Service acts on the original host objects |
 
-## `T-052` And nested inside an Array argument
+## `T-052` A reference nested inside an Array argument reaches the host as its object
 
 | Step | Statement |
 | --- | --- |
@@ -448,7 +448,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code passes the reference back inside an Array |
 | Then | the Service acts on the original host object |
 
-## `T-053` And nested inside a keyword's Hash value
+## `T-053` A reference nested inside a keyword's Hash value reaches the host as its object
 
 | Step | Statement |
 | --- | --- |
@@ -464,7 +464,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code returns the reference as the invocation's value |
 | Then | the host receives the original object |
 
-## `T-055` Even nested in a container
+## `T-055` A reference returned nested in a container becomes its object again
 
 | Step | Statement |
 | --- | --- |
@@ -472,7 +472,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code returns the reference inside nested containers |
 | Then | the host receives the original object in place |
 
-## `T-056` Even standing as a Hash key
+## `T-056` A reference returned as a Hash key becomes its object again
 
 | Step | Statement |
 | --- | --- |
@@ -480,7 +480,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code returns the reference as a Hash key |
 | Then | the host receives the original object in that position |
 
-## `T-057` And when it comes back through a yield block
+## `T-057` A reference a yield block answers becomes its object again
 
 | Step | Statement |
 | --- | --- |
@@ -560,7 +560,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | it runs with a stateful host object as a positional argument |
 | Then | the guest reaches that object and the call answers |
 
-## `T-067` And so does one passed by keyword
+## `T-067` An entrypoint keyword the wire cannot carry becomes a reference
 
 | Step | Statement |
 | --- | --- |
@@ -592,7 +592,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code dispatches repeatedly through references |
 | Then | every dispatch answers |
 
-## `T-071` So does unwinding out of a block under compaction
+## `T-071` Unwinding out of a block survives collection pressure
 
 | Step | Statement |
 | --- | --- |
@@ -608,7 +608,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | guest code builds a nested structure through a receiver-less idiom |
 | Then | the host receives the structure the idiom described |
 
-## `T-073` So does the block-parameter form
+## `T-073` A receiver-less guest idiom written with a block parameter composes over references
 
 | Step | Statement |
 | --- | --- |
@@ -632,7 +632,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they observe the same answer |
 
-## `T-076` Both make a Service's own failure rescuable the same way
+## `T-076` Both frontends make a Service's own failure rescuable the same way
 
 | Step | Statement |
 | --- | --- |
@@ -640,7 +640,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they observe the same rescued value |
 
-## `T-077` Both refuse an unknown method the same way
+## `T-077` Both frontends refuse an unknown method the same way
 
 | Step | Statement |
 | --- | --- |
@@ -648,7 +648,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they refuse it the same way |
 
-## `T-078` Both attribute an argument fault the same way
+## `T-078` Both frontends attribute an argument fault the same way
 
 | Step | Statement |
 | --- | --- |
@@ -656,7 +656,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they attribute the failure the same way |
 
-## `T-079` Both narrow a host object the same way
+## `T-079` Both frontends narrow a host object the same way
 
 | Step | Statement |
 | --- | --- |
@@ -664,7 +664,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they observe the same reachable surface |
 
-## `T-080` Both carry a reference through its life the same way
+## `T-080` Both frontends carry a reference through its life the same way
 
 | Step | Statement |
 | --- | --- |
@@ -672,7 +672,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they observe the same values |
 
-## `T-081` Both refuse a reference the guest tried to mint
+## `T-081` Both frontends refuse a reference the guest tried to mint
 
 | Step | Statement |
 | --- | --- |
@@ -680,7 +680,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | both frontends run it |
 | Then | they refuse it the same way |
 
-## `T-082` Both wrap an entrypoint's unwrappable argument the same way
+## `T-082` Both frontends wrap an entrypoint's unwrappable argument the same way
 
 | Step | Statement |
 | --- | --- |
@@ -744,7 +744,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | a dispatch carries a keyword anyway |
 | Then | it answers on the fault arm as an argument failure |
 
-## `T-144` So is a keyword the method does not name
+## `T-144` A keyword the method does not name is an argument failure
 
 | Step | Statement |
 | --- | --- |
@@ -1076,7 +1076,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | any id it holds is resolved |
 | Then | it names an object that was handed to the guest |
 
-## `T-263` Both refuse a stale reference the same way
+## `T-263` Both frontends refuse a stale reference the same way
 
 | Attribute | Value |
 | --- | --- |

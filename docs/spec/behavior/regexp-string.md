@@ -160,7 +160,7 @@ scanning, substituting   reads a String as literal characters
 | When | guest code slices a String with a pattern and a group index |
 | Then | it answers that capture |
 
-## `RX-135` A block decides the single replacement too
+## `RX-135` A block decides the single replacement
 
 | Step | Statement |
 | --- | --- |
@@ -232,7 +232,7 @@ scanning, substituting   reads a String as literal characters
 | When | guest code substitutes globally with a replacement naming a group by number |
 | Then | each replacement carries that group's capture |
 
-## `RX-144` A named backreference expands too
+## `RX-144` A named backreference in the replacement expands
 
 | Step | Statement |
 | --- | --- |
@@ -240,7 +240,7 @@ scanning, substituting   reads a String as literal characters
 | When | guest code substitutes globally with a replacement naming a group by name |
 | Then | each replacement carries that group's capture |
 
-## `RX-145` Single substitution expands them as well
+## `RX-145` Single substitution expands a backreference in the replacement
 
 | Step | Statement |
 | --- | --- |
@@ -320,7 +320,7 @@ scanning, substituting   reads a String as literal characters
 | When | guest code assigns into a String through another String |
 | Then | it behaves as the language's own assignment does |
 
-## `RX-155` Assigning through indices is too
+## `RX-155` Assigning through indices is still the ordinary assignment
 
 | Step | Statement |
 | --- | --- |
@@ -368,7 +368,7 @@ scanning, substituting   reads a String as literal characters
 | When | guest code cuts a String by an Integer index |
 | Then | that character is removed |
 
-## `RX-161` Cutting by a start and a length is too
+## `RX-161` Cutting by a start and a length is still the ordinary cut
 
 | Step | Statement |
 | --- | --- |
@@ -376,7 +376,7 @@ scanning, substituting   reads a String as literal characters
 | When | guest code cuts a String by an Integer start and length |
 | Then | that range is removed |
 
-## `RX-162` And cutting by a String
+## `RX-162` Cutting by a String is still the ordinary cut
 
 | Step | Statement |
 | --- | --- |
@@ -392,7 +392,7 @@ scanning, substituting   reads a String as literal characters
 | When | guest code scans with a block that raises and rescues around the call |
 | Then | the block's exception is what it rescues |
 
-## `RX-164` A raise inside a substitution block reaches the caller too
+## `RX-164` A raise inside a substitution block reaches the caller
 
 | Step | Statement |
 | --- | --- |
@@ -432,7 +432,7 @@ scanning, substituting   reads a String as literal characters
 | When | guest code slices a String with another String |
 | Then | it answers what the language's own slice answers |
 
-## `RX-180` Slicing by a start and a length is too
+## `RX-180` Slicing by a start and a length is still the ordinary slice
 
 | Step | Statement |
 | --- | --- |

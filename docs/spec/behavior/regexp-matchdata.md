@@ -31,7 +31,7 @@ A match cannot be constructed. It exists because a pattern matched, which is wha
 | When | guest code indexes a match by a capture name written as a Symbol |
 | Then | it answers that capture |
 
-## `RX-097` The same name written as a String reaches it too
+## `RX-097` A named capture is reachable by its name as a String
 
 | Step | Statement |
 | --- | --- |
@@ -167,7 +167,7 @@ A match cannot be constructed. It exists because a pattern matched, which is wha
 | When | guest code reads a match's beginning for an index past its group count |
 | Then | an index error is raised |
 
-## `RX-114` So is an end past the group count
+## `RX-114` An end past the group count is an error
 
 | Step | Statement |
 | --- | --- |
@@ -175,7 +175,7 @@ A match cannot be constructed. It exists because a pattern matched, which is wha
 | When | guest code reads a match's end for an index past its group count |
 | Then | an index error is raised |
 
-## `RX-115` And an offset past it
+## `RX-115` An offset past the group count is an error
 
 | Step | Statement |
 | --- | --- |

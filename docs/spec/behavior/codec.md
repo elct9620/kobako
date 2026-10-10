@@ -132,7 +132,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | When | the wrap walk carries it |
 | Then | it fails as a Sandbox failure |
 
-## `CD-014` So is one standing as a key
+## `CD-014` A value that refers to itself through a key is refused
 
 | Step | Statement |
 | --- | --- |
@@ -148,7 +148,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | When | the encoder is asked to write it |
 | Then | it refuses the type rather than writing what the probe answered |
 
-## `CD-016` An object with no class surface at all is refused the same way
+## `CD-016` An object with no class surface at all is refused, not probed
 
 | Step | Statement |
 | --- | --- |
@@ -332,7 +332,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | When | guest code calls it and leaves the failure unrescued |
 | Then | it reaches the Host App as a Service failure |
 
-## `CD-039` So is an answer that is a map holding itself
+## `CD-039` A Service answering a map that holds itself fails as the Service's failure
 
 | Step | Statement |
 | --- | --- |
@@ -356,7 +356,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | When | an evaluation answers an object whose class carries a list's name without being one |
 | Then | the invocation fails naming the unsupported type |
 
-## `CD-042` So is one bearing a map's name as a dispatch argument
+## `CD-042` A value whose class only bears a map's name is refused as a dispatch argument
 
 | Step | Statement |
 | --- | --- |
@@ -369,7 +369,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox with a bound Service |
-| When | guest code passes it a value nesting past the wire's bound, or one referring to itself |
+| When | guest code passes it a value nesting past the wire bound or holding itself |
 | Then | the guest can rescue the refusal at its call |
 
 ## `CD-044` A block answer the wire cannot nest is refused at the yield
@@ -380,7 +380,7 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | When | the block answers a value nesting past the wire's bound, or one referring to itself |
 | Then | the Service's yield fails with the guest's `TypeError` rather than receiving it |
 
-## `CD-045` So is a break value
+## `CD-045` A break value the wire cannot nest is refused at the yield
 
 | Step | Statement |
 | --- | --- |
@@ -441,5 +441,5 @@ What the codec does with a value it accepts — which of the eleven type mapping
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox with a bound Service |
-| When | guest code passes it a value nesting past the wire's bound, or one referring to itself |
+| When | guest code passes it a value nesting past the wire bound or holding itself |
 | Then | the Service is never reached |

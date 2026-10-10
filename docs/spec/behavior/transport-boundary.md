@@ -107,7 +107,7 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | When | the host reads it |
 | Then | it is refused rather than forwarded |
 
-## `T-117` A reflective name is refused too
+## `T-117` A reflective name is refused, not dispatched
 
 | Step | Statement |
 | --- | --- |
@@ -259,7 +259,7 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | When | it calls the reference type's constructor with that integer |
 | Then | `NoMethodError` is raised |
 
-## `T-162` Nor derive one carrying an identifier it chose
+## `T-162` A Host App cannot derive a capability reference carrying an identifier it chose
 
 | Step | Statement |
 | --- | --- |
@@ -275,7 +275,7 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | When | the guest's denylist is read |
 | Then | each of them is on it |
 
-## `T-183` And leaves the callable names off
+## `T-183` The guest's denylist leaves the callable names off
 
 | Step | Statement |
 | --- | --- |
@@ -363,7 +363,7 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | When | guest code reflectively reassigns the reference's identifier |
 | Then | `FrozenError` is raised in the guest |
 
-## `T-200` A copy of a held reference is frozen too
+## `T-200` A copy of a held reference is frozen
 
 | Step | Statement |
 | --- | --- |
@@ -464,7 +464,8 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose guest built an object carrying the reference's shape and naming an identifier the host issued |
+| Given | a Sandbox whose guest built an object carrying the reference's shape |
+| Given | the object names an identifier the host issued |
 | When | guest code hands it across as a dispatch argument |
 | Then | the guest refuses it |
 
@@ -532,7 +533,7 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | When | guest code builds an instance of the bound constant by either construction entry |
 | Then | the object is never called |
 
-## `T-235` Such an instance has no methods
+## `T-235` An instance built from a bound constant has no methods
 
 | Step | Statement |
 | --- | --- |
@@ -601,7 +602,8 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox with a bound Service |
-| When | guest code reaches for it through a subclass of the reference type, or a guest module mixing in the forwarding seam |
+| Given | a guest class subclassing the reference type, or a module mixing in its forwarding seam |
+| When | guest code reaches for the Service through it |
 | Then | it raises `NoMethodError` in the guest |
 
 ## `T-251` A method its own class keeps non-public is not exposed
@@ -656,7 +658,8 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose guest built an object carrying the reference's shape and naming an identifier the host issued |
+| Given | a Sandbox whose guest built an object carrying the reference's shape |
+| Given | the object names an identifier the host issued |
 | When | guest code hands it across as a dispatch argument |
 | Then | the object that identifier names is never reached |
 
@@ -689,5 +692,6 @@ An object carrying no narrowing predicate exposes what its own class and the obj
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox with a bound Service |
-| When | guest code reaches for it through a subclass of the reference type, or a guest module mixing in the forwarding seam |
+| Given | a guest class subclassing the reference type, or a module mixing in its forwarding seam |
+| When | guest code reaches for the Service through it |
 | Then | the Service is never asked |

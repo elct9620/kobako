@@ -256,7 +256,7 @@ The `File` idiom the end-to-end witnesses install is an illustrative fixture —
 | When | the first invocation begins |
 | Then | the refusal names the missing Extension |
 
-## `EX-030` The refusal names the Extension that asked as well
+## `EX-030` An unmet dependency's refusal names the Extension that asked
 
 | Step | Statement |
 | --- | --- |
