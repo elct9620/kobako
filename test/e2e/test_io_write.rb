@@ -25,19 +25,20 @@ class TestE2EIoWrite < Minitest::Test
                     "io_initialize must raise ArgumentError citing the fd constraint"
   end
 
-  # @behavior IO-002
-  # Mirror of fd validation for the mode argument — only "w" is
-  # supported because mruby-io's read-path is intentionally out of
-  # scope (see the kobako-io IO surface, wasm/kobako-io/src/io.rs).
-  def test_io_new_rejects_unsupported_mode
+  # @behavior IO-002 IO-035
+  # Only "w" is supported, since only the write path exists. A Symbol
+  # renders as "w" through #to_s, so only a mode read as a String tells it
+  # apart from the write mode it names.
+  def test_io_new_rejects_a_mode_other_than_write
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    err = assert_raises(Kobako::SandboxError) do
-      sandbox.eval('IO.new(1, "r")')
-    end
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval('IO.new(1, "r")') }
 
     assert_includes err.message, 'kobako IO only supports mode "w"',
-                    "io_initialize must raise ArgumentError citing the mode constraint"
+                    'IO.new with mode "r" through Sandbox#eval must fail naming the write-only mode'
+    assert_equal "TypeError",
+                 sandbox.eval('begin; IO.new(1, :w); "no-error"; rescue TypeError; "TypeError"; end').value,
+                 "IO.new with a Symbol mode through Sandbox#eval must raise TypeError"
   end
 
   # A guest that rebinds the stdout IO's fd ivar to an arbitrary descriptor
