@@ -41,11 +41,11 @@ impl MrbSlot {
     }
 
     /// After `clear`, any `&Mrb` borrow previously returned by
-    /// `Self::as_ref` is dangling, so the borrow must not outlive the frame
-    /// that owns the install/clear bracket.
+    /// `Self::as_ref` is dangling, so no such borrow may be live.
     pub(super) fn clear(&self) {
-        // SAFETY: see type doc — `clear` runs at frame exit, after all
-        // body-scoped `&Mrb` borrows from `as_ref` have ended.
+        // SAFETY: see type doc — `clear` runs only on `boot_vm`'s failure
+        // path, after boot's own borrow has ended and before any entry body
+        // borrows through `as_ref`.
         unsafe { *self.0.get() = None };
     }
 

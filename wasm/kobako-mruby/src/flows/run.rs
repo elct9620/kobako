@@ -30,10 +30,6 @@
 //!    Panic Outcome.
 
 pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
-    run_body::<G>(env);
-}
-
-fn run_body<G: crate::MrbGuest>(env: &[u8]) {
     use super::{boot, panic};
     use crate::codec::PayloadCodec;
     use beni::{Module, ReprValue};

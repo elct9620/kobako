@@ -17,10 +17,6 @@
 //! returns.
 
 pub(crate) fn eval<G: crate::MrbGuest>() {
-    eval_body::<G>();
-}
-
-fn eval_body<G: crate::MrbGuest>() {
     use super::{boot, panic};
     use beni::Ccontext;
     use kobako_core::abi::write_panic;

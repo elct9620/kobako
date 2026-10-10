@@ -31,10 +31,6 @@ use kobako_core::abi::pack_ptr_len;
 use kobako_transport::envelope::{ErrorRecord, YieldReply};
 
 pub(crate) fn yield_to_block<G: crate::MrbGuest>(req: &[u8]) -> u64 {
-    yield_to_block_body::<G>(req)
-}
-
-fn yield_to_block_body<G: crate::MrbGuest>(req: &[u8]) -> u64 {
     use super::mrb_slot::MRB;
     use crate::codec::PayloadCodec;
     use crate::runtime::block_stack::BLOCK_STACK;
