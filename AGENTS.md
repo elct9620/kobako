@@ -166,6 +166,8 @@ The default task and CI reference `gate`, never its members, so joining it stays
 | one test file | `bundle exec ruby -Ilib -Itest <file>` |
 | one test by name | append `-n /pattern/` |
 | check against the specification | `sumi verify` |
+| where a scenario is declared and claimed | `sumi inspect <id>`, or `<path:line>` for the reverse |
+| what each feature's tests witness | `sumi stats` |
 | one module's statistics | `rake stats:<module>`, hidden from `rake -T` |
 
 ## Entry points
