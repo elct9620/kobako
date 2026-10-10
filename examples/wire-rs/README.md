@@ -12,28 +12,29 @@ A Fault is typed on the envelope rather than encoded in the payload, so refusing
 
 What the SDK layers on top of this seam — the Handle table for non-wire values, block yields, snippet replay, seal-once registration — is exactly the glue `plugin-rs` shows from the other side. Reach for the SDK unless you need this level of control.
 
-## Getting a Guest Binary
+## Guest Binary
 
-Either download the platform-agnostic artifact attached to a [GitHub Release](https://github.com/elct9620/kobako/releases) (`kobako-<version>.wasm`), or build it from a clone of this repository:
+The 0.17 crates release together with kobako 0.27.0, so the host runs the default Guest Binary from that [GitHub Release](https://github.com/elct9620/kobako/releases/tag/v0.27.0).
 
 ```bash
-bundle exec rake wasm:build   # produces data/kobako.wasm
+cd examples/wire-rs
+curl -LO https://github.com/elct9620/kobako/releases/download/v0.27.0/kobako-0.27.0.wasm
 ```
 
 ## Running
 
-```bash
-cd examples/wire-rs
+The host takes the Guest Binary first and an optional mruby source second.
 
+```bash
 # Default demo: a store round-trip, a rescued Service fault, and a miss
-cargo run -- ../../data/kobako.wasm
+cargo run -- kobako-0.27.0.wasm
 
 # Your own mruby source as the second argument
-cargo run -- ../../data/kobako.wasm 'MyService::KV.set("n", 41); MyService::KV.get("n") + 1'
+cargo run -- kobako-0.27.0.wasm 'MyService::KV.set("n", 41); MyService::KV.get("n") + 1'
 
 # A guest failure comes back as a decoded Panic; an engine fault as a trap
-cargo run -- ../../data/kobako.wasm 'raise ArgumentError, "boom"'
-cargo run -- ../../data/kobako.wasm 'loop { }'   # trips the 5s wall-clock cap
+cargo run -- kobako-0.27.0.wasm 'raise ArgumentError, "boom"'
+cargo run -- kobako-0.27.0.wasm 'loop { }'   # trips the 5s wall-clock cap
 ```
 
 ## Options

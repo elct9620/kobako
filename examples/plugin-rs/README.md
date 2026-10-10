@@ -12,30 +12,31 @@ A **block yield** runs a guest block the host drives. `note.each_tag { |name| â€
 
 What `eval` hands back is an **`Execution`** â€” the record of one run. Whether the plugin returned a value or raised rides `Execution::value`, while the run's captured output and usage stay readable on either arm, so the host prints what a failing plugin managed to write before it raised. Only a refusal that never reached the guest is the outer `Err`.
 
-## Getting a Guest Binary
+## Guest Binary
 
-Either download the platform-agnostic artifact attached to a [GitHub Release](https://github.com/elct9620/kobako/releases) (`kobako-<version>.wasm`), or build it from a clone of this repository:
+The 0.17 crates release together with kobako 0.27.0, so the host runs the default Guest Binary from that [GitHub Release](https://github.com/elct9620/kobako/releases/tag/v0.27.0).
 
 ```bash
-bundle exec rake wasm:build   # produces data/kobako.wasm
+cd examples/plugin-rs
+curl -LO https://github.com/elct9620/kobako/releases/download/v0.27.0/kobako-0.27.0.wasm
 ```
 
 ## Running
 
-```bash
-cd examples/plugin-rs
+The host takes the Guest Binary first and an optional plugin source second.
 
+```bash
 # Default plugin: opens the seeded "welcome" note, edits it, iterates its tags
-cargo run -- ../../data/kobako.wasm
+cargo run -- kobako-0.27.0.wasm
 
 # Your own plugin as the second argument
-cargo run -- ../../data/kobako.wasm 'Notes::Store.open("draft").tag("idea")'
+cargo run -- kobako-0.27.0.wasm 'Notes::Store.open("draft").tag("idea")'
 
 # A Service misuse surfaces in the plugin as a rescuable Kobako::ServiceError
-cargo run -- ../../data/kobako.wasm 'begin; Notes::Store.frobnicate; rescue => e; e.class.to_s; end'
+cargo run -- kobako-0.27.0.wasm 'begin; Notes::Store.frobnicate; rescue => e; e.class.to_s; end'
 
 # An uncaught guest exception comes back as a decoded failure, exit code 1
-cargo run -- ../../data/kobako.wasm 'raise ArgumentError, "boom"'
+cargo run -- kobako-0.27.0.wasm 'raise ArgumentError, "boom"'
 ```
 
 ## What the plugin can reach
