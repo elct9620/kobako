@@ -89,7 +89,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 /// `IO.new(fd, mode)` refuses any `fd` but 1 or 2, since the sandbox
 /// routes no other descriptor to the host capture pipe, and any `mode`
 /// but `"w"`, since only the write path exists.
-fn io_initialize(mrb: &Mrb, self_: RObject, fd: i32, mode_val: Value) -> Result<(), Error> {
+fn io_initialize(mrb: &Mrb, self_: RObject, fd: i32, mode: RString) -> Result<(), Error> {
     if !is_captured_fd(fd) {
         return Err(argument_error(
             mrb,
@@ -97,8 +97,7 @@ fn io_initialize(mrb: &Mrb, self_: RObject, fd: i32, mode_val: Value) -> Result<
         ));
     }
 
-    let mode = mode_val.to_string(mrb);
-    if mode != "w" {
+    if String::from_value(mode.as_value()).as_deref() != Some("w") {
         return Err(argument_error(mrb, "kobako IO only supports mode \"w\""));
     }
 
