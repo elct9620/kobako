@@ -288,3 +288,11 @@ Which channel bytes land in, where they stop, and what survives a failed run are
 | Given | a Sandbox |
 | When | guest code writes several values to the output stream in one call |
 | Then | the capture holds each value's string form in the order given |
+
+## `IO-035` A mode is only ever a String
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code constructs an IO with a Symbol naming the write mode |
+| Then | a type error is raised |
