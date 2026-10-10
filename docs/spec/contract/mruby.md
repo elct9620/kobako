@@ -88,16 +88,6 @@ impl Kobako {
 }
 ```
 
-## `Kobako::set_handle_id`
-
-Write the id a guest Handle stands for.
-
-```rust
-impl Kobako {
-    pub fn set_handle_id(&self, target: Value, id_val: Value) -> Result<(), beni::Error> {}
-}
-```
-
 ## `Kobako::extract_handle_id`
 
 Read the id a guest Handle stands for.
