@@ -69,7 +69,7 @@ The guest sees exactly these constructs.
 | `MatchData` readers | `[]`, `begin`, `end`, `offset`, `captures`, `named_captures`, `names`, `size` / `length` |
 | `MatchData` context | `pre_match`, `post_match`, `string`, `regexp`, `to_a`, `to_s`, `dup` / `clone` |
 | `String` integration | `=~`, `match`, `match?`, `scan`, `gsub`, `sub`, `split`, `index`, `[]` / `slice`, `[]=`, `slice!` |
-| `Kernel` | `=~` |
+| `Symbol` and `nil` | `=~` |
 | Match globals | `$~`, `$1`..`$9`, `$&`, `` $` ``, `$'`, `$+` |
 | Errors | `RegexpError` |
 

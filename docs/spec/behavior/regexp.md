@@ -17,7 +17,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 - `test/e2e/regexp/test_match_globals.rb`
 - `test/e2e/regexp/test_match_position.rb`
 - `test/e2e/regexp/test_match_block.rb`
-- `test/e2e/regexp/test_kernel.rb`
+- `test/e2e/regexp/test_match_operator.rb`
 - `test/e2e/regexp/test_compile_cache.rb`
 - `test/e2e/regexp/test_object_copy.rb`
 - `test/e2e/regexp/test_pattern_errors.rb`
@@ -429,21 +429,21 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code matches a String against a pattern with a block |
 | Then | the block receives the match |
 
-## `RX-051` A receiver that is not text answers nothing rather than raising
+## `RX-051` A receiver with no match operator refuses it
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code applies the match operator with an Integer on the left |
-| Then | it answers nothing |
+| Then | it raises `NoMethodError` |
 
-## `RX-052` A Symbol on the left answers nothing too
+## `RX-052` A Symbol on the left matches as its name
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code applies the match operator with a Symbol on the left |
-| Then | it answers nothing |
+| When | guest code matches a pattern with a Symbol on the left |
+| Then | it answers the byte offset of the match in the Symbol's name |
 
 ## `RX-053` A String on the left still matches
 
@@ -461,13 +461,13 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code applies the match operator between two Strings |
 | Then | a type error is raised |
 
-## `RX-055` Anything else on the right answers nothing
+## `RX-055` Anything else on the right is asked to match
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code applies the match operator with a String on the left and an Integer on the right |
-| Then | it answers nothing |
+| Then | it raises `NoMethodError`, since the Integer has no match operator |
 
 ## `RX-056` Reusing a pattern's engine does not reuse the pattern
 
@@ -880,13 +880,13 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Then | it answers what the language answers, or raises the pattern error |
 | unverifiable | it holds for every pattern the language answers, and a test reaches finitely many |
 
-## `RX-181` The match operator's fallback takes one operand
+## `RX-181` A Symbol's or nil's match operator takes one operand
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code reaches the fallback with two operands |
-| Then | it is refused for its argument count |
+| When | guest code sends the match operator to a Symbol and to nil with two operands |
+| Then | each is refused for its argument count |
 
 ## `RX-182` A match's class is the one the capability registered
 
@@ -1119,3 +1119,19 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code redefines Symbol rendering, then matches, escapes and locates a group by a Symbol |
 | Then | each reads the Symbol's own name, not its rendering |
+
+## `RX-235` Nothing matches on either side of the match operator
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches with nil on the left, and a String against nil |
+| Then | both answer nothing |
+
+## `RX-236` A String on the right of a Symbol is not a pattern
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code applies the match operator from a Symbol to a String |
+| Then | a type error is raised |
