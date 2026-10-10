@@ -12,10 +12,9 @@
 #                         crate's `target/` cache directory.
 #
 # The pure default and the two regexp variants share one GuestBuilder,
-# parameterised by cargo features and output path. The compile-only signal
-# tasks (check / test) live in tasks/wasm/check.rake; shared helpers
-# (paths, target detection, mtime idempotency, cargo env) in
-# tasks/support/wasm.rb.
+# parameterised by cargo features and output path. The host test and
+# coverage tasks live in tasks/wasm/check.rake; shared helpers (paths,
+# mtime idempotency, cargo env) in tasks/support/wasm.rb.
 
 require_relative "../support/wasm"
 

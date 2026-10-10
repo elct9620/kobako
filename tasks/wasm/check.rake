@@ -15,7 +15,7 @@
 # Both compile `beni-sys`, which links the host archive, so each depends
 # on Stage B (`beni:build`). The Stage C artifact tasks
 # (build / variants / clean) live in tasks/wasm/build.rake; shared helpers
-# (paths, target detection, cargo env) in tasks/support/wasm.rb.
+# (paths, cargo env) in tasks/support/wasm.rb.
 
 require_relative "../support/wasm"
 require_relative "../support/rust_coverage"

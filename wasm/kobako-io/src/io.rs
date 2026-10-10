@@ -22,9 +22,9 @@
 //! ## Scope restriction
 //!
 //! Only `fd == 1` (stdout) and `fd == 2` (stderr) are accepted at
-//! construction. `mode` must be `"w"`. Anything else raises
-//! `ArgumentError` immediately; the sandbox has no other captured fds
-//! to route to.
+//! construction, since the sandbox has no other captured fds to route to,
+//! and only the String `"w"` as `mode`. A mode that is not a String raises
+//! `TypeError`; any other fd or mode raises `ArgumentError` immediately.
 
 use beni::prelude::*;
 use beni::value::{qnil, qtrue};

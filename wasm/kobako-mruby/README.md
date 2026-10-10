@@ -64,7 +64,7 @@ impl kobako_mruby::MrbGuest for MyGuest {
     // leaves the feature off.
     type Codec = kobako_mruby::MsgpackCodec;
 
-    // KobakoBridge is the harness built-in; the hook names only the
+    // The harness installs the built-in gem; the hook names only the
     // shell's additional gems — Ok(()) yields a bridge-only guest.
     fn init_gems(_mrb: &Mrb) -> Result<(), Error> {
         Ok(())

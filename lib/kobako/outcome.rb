@@ -78,7 +78,8 @@ module Kobako
         raise wire_error("Sandbox produced an invalid result value", diagnostic: e.message)
       end
 
-      # +klass+ names the class raised, as on every other Diagnosable.
+      # No guest class stands behind a result kobako cannot decode, so
+      # +klass+ names the host class raised.
       def wire_error(message, diagnostic: nil)
         Kobako::Transport::Error.new(
           message,

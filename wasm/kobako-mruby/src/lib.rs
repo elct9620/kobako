@@ -1,8 +1,8 @@
 //! kobako-mruby — the assembled mruby implementation of the kobako
 //! Guest ABI.
 //!
-//! `MrbGuest` is the harness: one required `init_gems` hook naming
-//! the shell-chosen `beni::Gem` set, plus provided `eval` / `run` /
+//! `MrbGuest` is the harness: a required `Codec` and one required
+//! `init_gems` hook naming the shell-chosen `beni::Gem` set, plus provided `eval` / `run` /
 //! `yield_to_block` flows implementing the `kobako_core::Guest`
 //! contract over mruby (canonical-boot-state acquisition per
 //! invocation, frame reading, codec
