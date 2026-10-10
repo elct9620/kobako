@@ -60,14 +60,20 @@ class TestTransportDispatchInvalidity < Minitest::Test
     assert_equal "undefined", answer.payload.type
   end
 
-  # @behavior T-229 T-271
-  def test_a_stale_reference_fails_only_its_own_call
-    @registry.bind("Cfg::Ping", pinger)
+  # @behavior T-271
+  def test_a_stale_reference_is_refused_as_an_undefined_target
     stale = dispatch_handle_target(foreign_handle_id(pinger), "ping")
-    live = reify(dispatch(build_call("Cfg::Ping", "ping")))
 
     assert_equal [false, "undefined"], [stale.ok?, stale.payload.type],
                  "a stale reference through dispatch must fail its own call as undefined"
+  end
+
+  # @behavior T-229
+  def test_a_stale_reference_fails_only_its_own_call
+    @registry.bind("Cfg::Ping", pinger)
+    dispatch_handle_target(foreign_handle_id(pinger), "ping")
+    live = reify(dispatch(build_call("Cfg::Ping", "ping")))
+
     assert_equal [true, "pong"], [live.ok?, live.payload],
                  "a dispatch after a stale reference's refusal in the same invocation must still answer"
   end

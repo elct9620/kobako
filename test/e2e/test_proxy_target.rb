@@ -46,16 +46,20 @@ class TestE2EProxyTarget < Minitest::Test
     RUBY
   }.freeze
 
-  # @behavior T-243 T-274
-  def test_an_impostor_of_the_reference_type_is_refused_before_the_host_is_asked
+  # @behavior T-243
+  def test_an_impostor_of_the_reference_type_is_refused_in_the_guest
     FORWARDING_IMPOSTORS.each do |shape, script|
-      asked = []
-      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-      sandbox.bind("KV::Lookup", ->(key) { asked << key })
-
-      err = assert_raises(Kobako::SandboxError) { sandbox.eval(script) }
+      err, = run_impostor(script)
 
       assert_equal "NoMethodError", err.klass, "#{shape} through #eval must be refused in the guest"
+    end
+  end
+
+  # @behavior T-274
+  def test_an_impostor_of_the_reference_type_never_reaches_the_service
+    FORWARDING_IMPOSTORS.each do |shape, script|
+      _, asked = run_impostor(script)
+
       assert_empty asked, "#{shape} through #eval must never reach the Service"
     end
   end
@@ -73,15 +77,19 @@ class TestE2EProxyTarget < Minitest::Test
     Sink::Receive.call(fake)
   RUBY
 
-  # @behavior T-220 T-269
+  # @behavior T-220
   def test_look_alike_reference_carries_nothing_across_as_a_value
-    sandbox = look_alike_sandbox
-
-    err = assert_raises(Kobako::SandboxError) { sandbox.eval(LOOK_ALIKE_REFERENCE) }
+    err = assert_raises(Kobako::SandboxError) { look_alike_sandbox.eval(LOOK_ALIKE_REFERENCE) }
 
     assert_equal "TypeError", err.klass,
                  "an object bearing a capability reference's name passed as a dispatch " \
                  "argument must be refused as the script's own type error"
+  end
+
+  # @behavior T-269
+  def test_look_alike_reference_never_reaches_the_object_its_id_names
+    assert_raises(Kobako::SandboxError) { look_alike_sandbox.eval(LOOK_ALIKE_REFERENCE) }
+
     refute @sink_reached,
            "an object bearing a capability reference's name must not reach the Service the " \
            "id it carries names"
@@ -113,6 +121,15 @@ class TestE2EProxyTarget < Minitest::Test
   end
 
   private
+
+  # Run an impostor +script+ against a recording Service, then answer the
+  # guest's failure and the keys the Service was asked for.
+  def run_impostor(script)
+    asked = []
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("KV::Lookup", ->(key) { asked << key })
+    [assert_raises(Kobako::SandboxError) { sandbox.eval(script) }, asked]
+  end
 
   # A Sandbox whose first Service answers an object the wire cannot carry, so
   # the guest holds a real reference, and whose second records being reached.

@@ -57,16 +57,19 @@ class TestCodecRoundtripFuzz < Minitest::Test
     initialize_fuzzer_params
   end
 
-  # One oracle run witnesses both: each iteration asserts the bytes and the
-  # read-back on its own.
-  # @behavior CD-021 CD-050
+  # @behavior CD-021
   def test_round_trip_fuzz
-    ORACLE.open do |channel|
-      @iterations.times do |i|
-        run_one(@generator.generate, i, channel)
-      end
+    each_exchange do |iter, value, encoded_a, encoded_b|
+      assert_byte_identical_encodings(iter, value, encoded_a, encoded_b)
     end
-    assert_coverage_complete
+  end
+
+  # @behavior CD-050
+  def test_round_trip_fuzz_reads_back_what_either_wrote
+    each_exchange do |iter, value, encoded_a, encoded_b|
+      assert_ruby_roundtrip(iter, value, encoded_a, "Ruby encode -> Ruby decode mismatch")
+      assert_ruby_roundtrip(iter, value, encoded_b, "Ruby encode -> Rust re-encode -> Ruby decode mismatch")
+    end
   end
 
   private
@@ -85,12 +88,17 @@ class TestCodecRoundtripFuzz < Minitest::Test
     assert missing.empty?, msg
   end
 
-  def run_one(value, iter, process)
-    encoded_a = Encoder.encode(value)
-    encoded_b = exchange_frame(process, iter, value, encoded_a)
-    assert_byte_identical_encodings(iter, value, encoded_a, encoded_b)
-    assert_ruby_roundtrip(iter, value, encoded_a, "Ruby encode -> Ruby decode mismatch")
-    assert_ruby_roundtrip(iter, value, encoded_b, "Ruby encode -> Rust re-encode -> Ruby decode mismatch")
+  # Yield each generated value with the bytes Ruby wrote for it and the bytes
+  # the Rust oracle re-wrote after reading them, then check coverage.
+  def each_exchange
+    ORACLE.open do |channel|
+      @iterations.times do |iter|
+        value = @generator.generate
+        encoded_a = Encoder.encode(value)
+        yield iter, value, encoded_a, exchange_frame(channel, iter, value, encoded_a)
+      end
+    end
+    assert_coverage_complete
   end
 
   def exchange_frame(process, iter, value, encoded_a)

@@ -40,18 +40,29 @@ class TestE2EYieldBudget < Minitest::Test
 
   # A trap leaves the guest mid-step, so a Service that shrugs off the
   # first failed yield must not resume it with a second.
-  # @behavior T-264 T-276
+  # @behavior T-264
   def test_a_guest_that_trapped_is_not_entered_again
     entries = 0
     sandbox = retrying_sandbox(memory_limit: 1 << 20)
     sandbox.bind("Probe::Enter", -> { entries += 1 })
 
-    assert_raises(Kobako::MemoryLimitError,
-                  "a Service rescuing a trapped yield through #eval must not hide the trap") do
-      sandbox.eval("Probe::Yields.call { Probe::Enter.call; Array.new(4) { 'a' * 900_000 }.size }")
-    end
+    assert_raises(Kobako::MemoryLimitError) { sandbox.eval(TRAPPING_BLOCK) }
+
     assert_equal 1, entries, "a second yield after the guest trapped through #eval must not run the block again"
   end
+
+  # @behavior T-276
+  def test_a_service_rescuing_a_trapped_yield_does_not_hide_the_trap
+    sandbox = retrying_sandbox(memory_limit: 1 << 20)
+    sandbox.bind("Probe::Enter", -> {})
+
+    assert_raises(Kobako::MemoryLimitError,
+                  "a Service rescuing a trapped yield through #eval must not hide the trap") do
+      sandbox.eval(TRAPPING_BLOCK)
+    end
+  end
+
+  TRAPPING_BLOCK = "Probe::Yields.call { Probe::Enter.call; Array.new(4) { 'a' * 900_000 }.size }"
 
   private
 

@@ -64,13 +64,13 @@ mod tests {
         }
     }
 
-    // @behavior T-172 T-268
+    // @behavior T-172
     #[test]
-    fn call_ships_the_args_as_one_msgpack_array_and_reads_the_answer_back() {
+    fn call_ships_the_args_as_one_msgpack_array() {
         let reply = YieldReply::Ok(Encoder::encode(&Value::Int(42)).unwrap()).encode();
         let mut channel = scripted(vec![reply]);
 
-        let answer = Yielder::new(&mut channel)
+        Yielder::new(&mut channel)
             .call_values(&[Value::Int(21)])
             .unwrap();
 
@@ -80,6 +80,18 @@ mod tests {
             vec![vec![0x91, 0x15]],
             "positional yield arguments through Yielder::call must ride as one msgpack array"
         );
+    }
+
+    // @behavior T-268
+    #[test]
+    fn call_reads_the_answer_back() {
+        let reply = YieldReply::Ok(Encoder::encode(&Value::Int(42)).unwrap()).encode();
+        let mut channel = scripted(vec![reply]);
+
+        let answer = Yielder::new(&mut channel)
+            .call_values(&[Value::Int(21)])
+            .unwrap();
+
         assert_eq!(
             answer,
             Value::Int(42),

@@ -56,18 +56,26 @@ class TestE2EHandleImmutable < Minitest::Test
     [rewrite, g.clone.frozen?, same_id, copy.greet]
   RUBY
 
-  # @behavior T-240 T-241 T-242 T-273
-  def test_a_held_reference_resists_rewriting_and_its_copies_stay_the_same_reference
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
-
-    rewrite, clone_frozen, same_id, greeting = sandbox.eval(COPY_AND_REWRITE_SCRIPT).value
-
-    assert_equal "FrozenError", rewrite,
+  # @behavior T-240
+  def test_a_held_reference_resists_rewriting
+    assert_equal "FrozenError", copy_and_rewrite[0],
                  "rewriting a held reference's identifier by instance_eval through #eval must raise FrozenError"
-    assert clone_frozen, "a clone of a held reference through #eval must be frozen"
-    assert same_id, "a copy of a held reference through #eval must keep its identifier"
-    assert_equal "hi,Bob", greeting, "a copy of a held reference through #eval must dispatch to the same host object"
+  end
+
+  # @behavior T-241
+  def test_a_clone_of_a_held_reference_is_frozen
+    assert copy_and_rewrite[1], "a clone of a held reference through #eval must be frozen"
+  end
+
+  # @behavior T-242
+  def test_a_copy_of_a_held_reference_keeps_its_identifier
+    assert copy_and_rewrite[2], "a copy of a held reference through #eval must keep its identifier"
+  end
+
+  # @behavior T-273
+  def test_a_copy_of_a_held_reference_dispatches_to_the_same_host_object
+    assert_equal "hi,Bob", copy_and_rewrite[3],
+                 "a copy of a held reference through #eval must dispatch to the same host object"
   end
 
   # dup and clone pass exactly one original, so reaching the hook with another
@@ -93,5 +101,14 @@ class TestE2EHandleImmutable < Minitest::Test
     assert_equal "ArgumentError", seen,
                  "a held Handle's copy hook reached with two arguments must be refused for " \
                  "its argument count"
+  end
+
+  private
+
+  # Run COPY_AND_REWRITE_SCRIPT and answer its four observations in order.
+  def copy_and_rewrite
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
+    sandbox.eval(COPY_AND_REWRITE_SCRIPT).value
   end
 end

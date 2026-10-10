@@ -141,23 +141,6 @@ class TestE2EDispatchArgs < Minitest::Test
                  "with its Symbol keys preserved"
   end
 
-  # The Service captures into +seen+ before echoing, so one call shows
-  # both the host-side arrival shape and the guest-side return shape —
-  # a conversion correct in one direction only would pass either alone.
-  NESTED_AOH = [{ x: 1 }, { y: 2 }].freeze
-
-  # @behavior T-152 T-267
-  def test_rpc_nested_array_of_hash_round_trip
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    seen = []
-    sandbox.bind("Echo::Identity", ->(arg) { arg.tap { seen << arg } })
-
-    result = sandbox.eval("Echo::Identity.call([{x: 1}, {y: 2}])").value
-
-    assert_equal NESTED_AOH, seen.first, "transport arg: nested Array-of-Hash must arrive natively"
-    assert_equal NESTED_AOH, result, "transport return: nested Array-of-Hash must round-trip losslessly"
-  end
-
   # Argument conversion sizes a buffer from the array length, so it reads
   # the element count directly rather than dispatching `#length`, which
   # untrusted guest code can override per instance — an inflated one would

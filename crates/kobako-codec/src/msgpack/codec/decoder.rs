@@ -398,7 +398,7 @@ mod tests {
         );
     }
 
-    // @behavior WP-016 WP-017 WP-099
+    // @behavior WP-016
     #[test]
     fn roundtrip_floats_special() {
         match roundtrip(Value::Float(0.0)) {
@@ -409,10 +409,7 @@ mod tests {
             other => panic!("unexpected: {:?}", other),
         }
         match roundtrip(Value::Float(-0.0)) {
-            Value::Float(f) => {
-                assert_eq!(f, 0.0);
-                assert!(f.is_sign_negative());
-            }
+            Value::Float(f) => assert_eq!(f, 0.0),
             other => panic!("unexpected: {:?}", other),
         }
         match roundtrip(Value::Float(f64::INFINITY)) {
@@ -423,14 +420,28 @@ mod tests {
             Value::Float(f) => assert!(f.is_infinite() && f.is_sign_negative()),
             other => panic!("unexpected: {:?}", other),
         }
-        match roundtrip(Value::Float(f64::NAN)) {
-            Value::Float(f) => assert!(f.is_nan()),
-            other => panic!("unexpected: {:?}", other),
-        }
         assert_eq!(
             roundtrip(Value::Float(std::f64::consts::PI)),
             Value::Float(std::f64::consts::PI)
         );
+    }
+
+    // @behavior WP-017
+    #[test]
+    fn roundtrip_float_nan() {
+        match roundtrip(Value::Float(f64::NAN)) {
+            Value::Float(f) => assert!(f.is_nan()),
+            other => panic!("unexpected: {:?}", other),
+        }
+    }
+
+    // @behavior WP-099
+    #[test]
+    fn roundtrip_negative_zero_keeps_its_sign() {
+        match roundtrip(Value::Float(-0.0)) {
+            Value::Float(f) => assert!(f.is_sign_negative()),
+            other => panic!("unexpected: {:?}", other),
+        }
     }
 
     // @behavior WP-018 WP-019 WP-020 WP-021 WP-022

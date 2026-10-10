@@ -89,20 +89,27 @@ class TestE2EHandleProxy < Minitest::Test
     end
   RUBY
 
-  # Reaching the method call shows each instance was built.
-  # @behavior T-234 T-235 T-272
-  def test_a_bound_proxy_instance_is_built_in_the_guest_and_forwards_nothing
+  BUILT_INSTANCES = "%w[new allocate].map { |e| Models::User.public_send(e).is_a?(Models::User) }"
+
+  # @behavior T-272
+  def test_a_bound_proxy_instance_is_built_in_the_guest
+    assert_equal [true, true], proxy_sandbox(Counter.new).eval(BUILT_INSTANCES).value,
+                 "constructing a bound proxy by new or allocate through #eval must answer an instance"
+  end
+
+  # @behavior T-234
+  def test_building_a_bound_proxy_instance_never_calls_the_bound_object
     counter = Counter.new
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.bind("Models::User", counter)
+    proxy_sandbox(counter).eval(INERT_INSTANCES)
 
-    result = sandbox.eval(INERT_INSTANCES).value
-
-    assert_equal %i[no_method no_method], result,
-                 "constructing a bound proxy by new or allocate through #eval must succeed, and a " \
-                 "method on the instance must raise NoMethodError in the guest"
     assert_equal 0, counter.calls,
                  "constructing a bound proxy by new or allocate through #eval must never call the bound object"
+  end
+
+  # @behavior T-235
+  def test_a_bound_proxy_instance_forwards_nothing
+    assert_equal %i[no_method no_method], proxy_sandbox(Counter.new).eval(INERT_INSTANCES).value,
+                 "a method on a bound proxy instance through #eval must raise NoMethodError in the guest"
   end
 
   # A proxy minted from a bare id would dispatch against an arbitrary
@@ -123,5 +130,11 @@ class TestE2EHandleProxy < Minitest::Test
       assert_match(/Kobako::Handle/, err.message,
                    "the error must name Kobako::Handle so the author can locate it")
     end
+  end
+
+  private
+
+  def proxy_sandbox(bound)
+    Kobako::Sandbox.new(wasm_path: REAL_WASM).tap { |sandbox| sandbox.bind("Models::User", bound) }
   end
 end
