@@ -18,10 +18,10 @@ ABI names, return conventions, and the byte values in either layer change only w
 Every message is a core envelope around an opaque payload. The envelope carries what routing and attribution need, so a side reaches those decisions without decoding a payload byte.
 
 ```
-┌───────────── core envelope ─────────────┐
-│ routing fields │ tag │ payload (opaque) │
-└──────────────────────────────┬──────────┘
-                               └── payload codec
+┌─────────── core envelope ───────────┐
+│ envelope fields │ payload (opaque)  │
+└──────────────────────────┬──────────┘
+                           └── payload codec
 ```
 
 | Layer | Carries | Read by | Implemented in |

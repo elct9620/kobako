@@ -180,11 +180,11 @@ Each row names an entry point and only what reading it will not tell you.
 | guest payload codec | `crates/kobako-codec/src/msgpack/` | wire-symmetric peer of `lib/` |
 | vocabulary | `docs/spec/glossary.md` | a later term replaces an earlier one |
 | sandbox lifecycle | `lib/kobako/sandbox.rb` | each run settles into an `Execution` |
-| dispatch | `lib/kobako/transport/dispatcher.rb` | answers `[ok, bytes]`, never raises |
+| dispatch | `lib/kobako/transport/dispatcher.rb` | answers an ok or fault triple, never raises |
 | Handles | `lib/kobako/catalog/handles.rb` | minted per invocation by `Context` |
 | Extensions | `docs/guides/extensions.md` | a backend's kind is a keyword |
 | guest capabilities | `wasm/kobako-{io,regexp,json}/src/` | pure-Rust `beni::Gem`, no mrblib |
-| ABI surface | `wasm/kobako-core/src/guest.rs` | bodies in `flows.rs` and `driver.rs` |
+| ABI surface | `wasm/kobako-core/src/guest.rs` | bodies in `wasm/kobako-mruby/src/flows.rs`; host side in `crates/kobako-wasmtime/src/driver.rs` |
 | security | `docs/guides/security.md` | the host is the boundary |
 | customization | `docs/guides/customization.md` | grades are commitments |
 | parity | `docs/parity.md` | behavior aligns; APIs stay idiomatic |

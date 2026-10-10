@@ -9,8 +9,13 @@ same in every assembly. This crate is both of them, and nothing else.
 
 | Module | What it fixes |
 |---|---|
-| `envelope` | the **core envelope**, the outer frame each message rides in: `Call` / `Reply` / `YieldReply` for a dispatch round-trip, `Outcome` / `Panic` for how an invocation ended, `Run` / `Preamble` / `Snippets` for what an invocation is handed, and the `ErrorRecord` a guest failure carries |
-| `abi` | the values a host and a guest must already agree on to exchange a byte: the version, the packed `(ptr, len)` return layout, the invocation-channel frame prefix, and the message size cap |
+| `envelope` | the **core envelope**, the outer frame each message rides in |
+| `abi` | the values both sides agree on before exchanging a byte |
+
+The envelope covers a dispatch round-trip, how an invocation ended, and
+what an invocation is handed, and re-exports every message type. The ABI
+values are the version, the packed `(ptr, len)` return layout, the
+invocation-channel frame prefix, and the message size cap.
 
 ## What the envelope does not read
 

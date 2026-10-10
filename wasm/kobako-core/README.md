@@ -6,19 +6,19 @@ an in-process Wasm sandbox for running untrusted mruby scripts from
 Ruby.
 
 A kobako Guest Binary is any `wasm32-wasip1` module implementing the
-kobako Guest ABI; the bundled guest embeds mruby, but conformance is
+kobako Guest ABI. The bundled guest embeds mruby, but conformance is
 the ABI, not the interpreter. This crate turns that ABI into a
 compiler-checked contract.
 
 | Item | What it provides |
 |---|---|
-| `Guest` trait + `export_guest!` | the export enumeration as a trait; the macro emits every `#[no_mangle]` export in the invoking crate |
-| `transport::proxy` | the guest dispatch path to the host over `__kobako_dispatch` |
+| `Guest` trait + `export_guest!` | the export set as a trait; the macro emits each `#[no_mangle]` export |
+| `proxy` / `dispatch` | the guest dispatch path to the host over `__kobako_dispatch` |
 | `abi` / `frames` | outcome buffer, packed-u64 helpers, stdin frame reader, and `ABI_VERSION` |
 
-The messages themselves — the Call / Reply / Yield Reply envelopes, the
-Outcome / Panic records, and the ABI's own values — live in
-[kobako-transport](https://crates.io/crates/kobako-transport), this
+The messages themselves live in
+[kobako-transport](https://crates.io/crates/kobako-transport): the
+envelopes, the Outcome records, and the ABI's own values. It is this
 crate's only dependency and the tier every kobako assembly shares. A
 payload codec is not among them: this crate routes messages without
 reading one, so a guest speaking its own schema builds on it unchanged.
