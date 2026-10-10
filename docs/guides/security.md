@@ -15,8 +15,8 @@ The behavior itself is specified in [`spec/behavior/`](../spec/behavior/).
 ```
 
 The guest's only path outward is a Service you injected. Guest code can name any
-`MyService::KV` path, but a forged name resolves only to something you bound. **Your
-host-side allowlist is the real authorization gate.**
+`MyService::KV` path, but a forged name resolves only to something you bound. **What
+you bind, and each object's Exposure, is the real authorization gate.**
 
 ## Built-in Guarantees
 
