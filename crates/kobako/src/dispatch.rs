@@ -52,13 +52,13 @@ impl CatalogHandler {
     fn answer(&self, call: &Call<'_>, channel: &mut dyn RawYielder) -> Reply {
         let object = match self.resolve_target(&call.target) {
             Ok(object) => object,
-            Err(fault) => return fault_reply(fault),
+            Err(fault) => return Reply::Fault(fault),
         };
         // The target's own narrowing predicate answers before any
         // method runs; the rejection shares the `undefined` fault kind
         // of an unresolved target and the Ruby frontend's wording.
         if !object.respond_to_guest(call.method) {
-            return fault_reply(Fault::new(
+            return Reply::Fault(Fault::new(
                 FaultKind::Undefined,
                 format!("method :{} is not exposed to the guest", call.method),
             ));
@@ -74,7 +74,9 @@ impl CatalogHandler {
         }
         match result {
             Ok(body) => Reply::Ok(body),
-            Err(fault) => fault_reply(fault),
+            // The Fault is an envelope shape, so it goes on as itself rather
+            // than encoded, leaving every other position to the host's schema.
+            Err(fault) => Reply::Fault(fault),
         }
     }
 
@@ -110,13 +112,6 @@ impl DispatchHandler for CatalogHandler {
     fn dispatch(&self, call: Call<'_>, channel: &mut dyn RawYielder) -> Option<Reply> {
         Some(self.answer(&call, channel))
     }
-}
-
-/// The fault arm carries the Fault itself: it is an envelope shape, so
-/// this frontend hands it on rather than encoding it — which is what
-/// leaves a host free to answer every other position in its own schema.
-fn fault_reply(fault: Fault) -> Reply {
-    Reply::Fault(fault)
 }
 
 // The handler routes bytes, but a test needs a Service with behaviour to
