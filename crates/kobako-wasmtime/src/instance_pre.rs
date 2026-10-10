@@ -9,8 +9,8 @@
 //! version check it guards (`crate::abi`) — takes both off the
 //! `Driver::new` hot path.
 //!
-//! Concurrency: see `crate::cache` — under Ruby's GVL the Mutex serves
-//! `Sync` bounds rather than real contention.
+//! Concurrency: the same as `crate::cache` — the Mutex covers lookup and
+//! insert only, and a concurrent miss builds an equivalent `InstancePre`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

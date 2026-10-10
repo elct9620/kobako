@@ -89,7 +89,7 @@ impl GuestYielder {
     /// The arm is named here off the core envelope, so the host
     /// `Transport::Yielder` decodes only a payload.
     fn call(&self, args: RString) -> Result<(Symbol, RString, Option<String>), MagnusError> {
-        let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_yield");
+        let ruby = Ruby::get().expect("Ruby handle unavailable in the block bridge");
         let Some(mut ptr) = self.yielder.get() else {
             return Err(super::errors::trap_err(
                 &ruby,

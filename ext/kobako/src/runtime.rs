@@ -216,8 +216,8 @@ impl Runtime {
     // Run-path methods. Each takes the run's dispatch handler as its first
     // argument and returns a `Snapshot` for any completed invocation —
     // success or trap alike. Only a could-not-start fault (a missing export
-    // or a fault before the export call) raises a `Kobako::TrapError`
-    // directly, since it yields no `Snapshot`.
+    // or a fault before the export call) raises directly, as the class
+    // `errors::to_magnus` gives its cause, since it yields no `Snapshot`.
     // -----------------------------------------------------------------
 
     fn eval(

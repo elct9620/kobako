@@ -13,10 +13,10 @@
 //! Binary bytes; every cache failure falls
 //! back to in-process compilation.
 //!
-//! Concurrency: under Ruby's GVL only one thread can execute Rust code
-//! at a time, so the Mutex is held briefly during HashMap insert/lookup
-//! and serves to satisfy `Sync` bounds rather than to arbitrate real
-//! contention.
+//! Concurrency: the Mutex is held only for the HashMap lookup and insert,
+//! never across a compile, so threads building Drivers at once do not
+//! wait on each other. Two concurrent misses on one path both compile,
+//! and the later insert wins with an equivalent Module.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
