@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.17.0...kobako-regexp-v0.18.0) (2026-10-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **regexp:** Regexp.escape and Regexp.quote raise ArgumentError for more than one argument, and a substitution result whose to_s is not a String is written as its default description instead of raising.
+* **regexp:** `=~` on a receiver other than String, Regexp, Symbol or nil raises NoMethodError instead of answering nil, and a Symbol on the left now matches its name instead of answering nil.
+* **guest:** the kobako guest crates name beni 0.22's types, so a shell or codec built on them moves to beni 0.22 with them.
+* **regexp:** Regexp#match, #match?, #=~, Regexp.escape and the MatchData group readers read a Symbol argument by its own name, where they used to read what a redefined Symbol#to_s answered. Pass the rendered text as a String to keep the old reading.
+* **regexp:** Regexp, String and MatchData methods of the regexp capability read a String argument or receiver as its own characters, where they used to read what a redefined String#to_s answered. Pass the rendered text explicitly to keep the old reading.
+* **regexp:** MatchData#begin, #end and #offset raise TypeError for a group that is neither a number nor a name, and read a Float as its whole part, where they used to answer for the whole match. Pass 0 to ask for the whole match.
+* **regexp:** Regexp.new and Regexp.compile raise ArgumentError for a flag string carrying a letter other than i, m or x, where they used to ignore it. Drop the unknown letters from the flag string.
+* **regexp:** Regexp.new and Regexp.compile read an option that is neither an Integer nor a String by its truth, giving IGNORECASE or no option, where they used to read the letters of its #to_s. Pass the option as a String ("m") or an Integer (Regexp::MULTILINE) instead.
+* **regexp:** Regexp.escape and Regexp.quote raise TypeError for a value that is neither a String nor a Symbol, where they used to escape
+* **regexp:** Regexp.new and Regexp.compile given a Regexp answer that pattern's own source and options, where they used to answer its inline-flag rendering with no options; options passed alongside are ignored. Pass regexp.to_s to keep the old reading.
+* **regexp:** Regexp.new and Regexp.compile raise TypeError for a source that is neither a String nor a Regexp, where they used to compile its #to_s. Pass source.to_s instead.
+* **regexp:** String#sub and #gsub raise TypeError for a replacement that is neither a String nor a Hash, where they used to substitute its #to_s. Pass replacement.to_s, or a block, instead.
+* **regexp:** String#scan, #sub and #gsub raise TypeError for a pattern that is neither a Regexp nor a String, where they used to match its #to_s literally. Pass the pattern as a String (pattern.to_s) or a Regexp instead.
+* **guest:** the kobako-mruby harness names beni 0.21's types — the keyword Hash in `Arguments` and `PayloadCodec::encode_call_arguments` is `beni::RHash` — so a shell or codec built on these crates moves to beni 0.21 with them.
+
+### Features
+
+* **guest:** rebuild the guest crates on beni 0.21 ([8ec00ff](https://github.com/elct9620/kobako/commit/8ec00ff94ec21b6bbfe8b88e0a4e75f4489dd692))
+
+
+### Bug Fixes
+
+* **regexp:** compile a String pattern handed to String#match ([0669dcd](https://github.com/elct9620/kobako/commit/0669dcd675a6187a0e86122f93068707038b8031))
+* **regexp:** convert a MatchData group that is neither number nor name ([f1b3be0](https://github.com/elct9620/kobako/commit/f1b3be088644c4100dc8b897c5b55be0030b2c79))
+* **regexp:** define the match operator on Symbol and nil, not Kernel ([32d65c8](https://github.com/elct9620/kobako/commit/32d65c8c490b369294f28acd20702db2781fbfa4))
+* **regexp:** describe an unrenderable replacement, and refuse a second escape text ([d95ae85](https://github.com/elct9620/kobako/commit/d95ae850c74b8025df6bad1477fa7ecd1ad4b199))
+* **regexp:** hide the preserved String methods and the compile cache from guest code ([ceea471](https://github.com/elct9620/kobako/commit/ceea47172f2292e3a4b0ffae221b67fba797d19c))
+* **regexp:** keep a pattern's source and options in Regexp.new ([c0d3874](https://github.com/elct9620/kobako/commit/c0d38745738e2c043ebfeb9759f3eea70df58575))
+* **regexp:** read a non-Integer, non-String option by its truth ([a261e6f](https://github.com/elct9620/kobako/commit/a261e6f2cf3c8be457c50ad04b8c084c9ead806a))
+* **regexp:** read a String as itself rather than through its #to_s ([ff99ff8](https://github.com/elct9620/kobako/commit/ff99ff8e4dc10b5774b4a98edf3075e231a36690))
+* **regexp:** read a Symbol by its own name rather than its #to_s ([f29e37a](https://github.com/elct9620/kobako/commit/f29e37a749bb6653d5ddbe328a93c0b6c27492cc))
+* **regexp:** refuse a pattern that is neither a Regexp nor a String ([0e6e061](https://github.com/elct9620/kobako/commit/0e6e061e670f82b167d4864a558569cf991c1655))
+* **regexp:** refuse a replacement that is neither a String nor a Hash ([7a5327b](https://github.com/elct9620/kobako/commit/7a5327b49303bd93eaa29b2c85cf54d4425b82a6))
+* **regexp:** refuse an unknown letter in a Regexp.new flag string ([e53f909](https://github.com/elct9620/kobako/commit/e53f9092340bc24facffab392d7e2a03855e6e0c))
+* **regexp:** refuse to build a pattern from a value that is no String ([73aefe0](https://github.com/elct9620/kobako/commit/73aefe06c84af23022849262c4e48dac3d86e900))
+* **regexp:** refuse to escape a value that is neither String nor Symbol ([55122bb](https://github.com/elct9620/kobako/commit/55122bb176abcf7a2e93faf9436e85f622fdac38))
+* **regexp:** word a subject that is not text the way mruby does ([45f1f8c](https://github.com/elct9620/kobako/commit/45f1f8ca831012beb74a9ee73ccfb6bed288c7ca))
+
+
+### Build System
+
+* **guest:** rebuild the guest crates on beni 0.22 ([fd6aeb9](https://github.com/elct9620/kobako/commit/fd6aeb92705fa53c52e2cd75b4918a58baa6637e))
+
 ## [0.17.0](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.16.0...kobako-regexp-v0.17.0) (2026-09-20)
 
 

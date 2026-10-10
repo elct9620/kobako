@@ -46,7 +46,7 @@ byte-layout document, not from this code.
 
 ```toml
 [dependencies]
-kobako-transport = "0.17.0" # x-release-please-version
+kobako-transport = "0.18.0" # x-release-please-version
 ```
 
 ## License

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.17.0...kobako-sdk-v0.18.0) (2026-10-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sdk:** give Options::default() the caps the Ruby frontend defaults to
+
+### Bug Fixes
+
+* refuse a constant name longer than the guest can intern ([2a3237f](https://github.com/elct9620/kobako/commit/2a3237fa7bb7b7fdbbde05487ba0d5c4a8fdc33b))
+* **sdk:** give Options::default() the caps the Ruby frontend defaults to ([af36434](https://github.com/elct9620/kobako/commit/af364348345e8e6dfe9c383facea388f3e12f8c0))
+* stop telling callers to discard a Sandbox over an unframeable outcome ([f7938e9](https://github.com/elct9620/kobako/commit/f7938e9887b9cdccf611b56be28dc3385a6cef00))
+* word an unwritable Service answer as the gem does and an empty Reply as a Reply ([200beb5](https://github.com/elct9620/kobako/commit/200beb5f472118061ee3897f489190ca090b92a8))
+
 ## [0.17.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.16.0...kobako-sdk-v0.17.0) (2026-09-20)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.17.0...kobako-core-v0.18.0) (2026-10-10)
+
+
+### Bug Fixes
+
+* word an unwritable Service answer as the gem does and an empty Reply as a Reply ([200beb5](https://github.com/elct9620/kobako/commit/200beb5f472118061ee3897f489190ca090b92a8))
+
 ## [0.17.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.16.0...kobako-core-v0.17.0) (2026-09-20)
 
 

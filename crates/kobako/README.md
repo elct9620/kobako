@@ -45,7 +45,7 @@ host objects cross as opaque tokens the guest can call back into.
 
 ```toml
 [dependencies]
-kobako = "0.17.0" # x-release-please-version
+kobako = "0.18.0" # x-release-please-version
 ```
 
 ```rust

@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.28.0](https://github.com/elct9620/kobako/compare/v0.27.0...v0.28.0) (2026-10-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **guest:** the kobako guest crates name beni 0.22's types, so a shell or codec built on them moves to beni 0.22 with them.
+* **guest:** the kobako-mruby harness names beni 0.21's types — the keyword Hash in `Arguments` and `PayloadCodec::encode_call_arguments` is `beni::RHash` — so a shell or codec built on these crates moves to beni 0.21 with them.
+* a memory budget or deadline reached during a Service answer or a yielded block now raises Kobako::MemoryLimitError or
+* **pool:** a Pool no longer replaces a Sandbox after its holder raises Kobako::TrapError; the next checkout receives the same Sandbox and the setup block does not run again.
+* **sdk:** give Options::default() the caps the Ruby frontend defaults to
+
+### Features
+
+* **guest:** rebuild the guest crates on beni 0.21 ([8ec00ff](https://github.com/elct9620/kobako/commit/8ec00ff94ec21b6bbfe8b88e0a4e75f4489dd692))
+
+
+### Bug Fixes
+
+* end the invocation as the trap a host callback into the guest hits ([b8f47d3](https://github.com/elct9620/kobako/commit/b8f47d3699a19adcfd5596af93136401a286c761))
+* **pool:** keep a Sandbox whose holder met a trap ([27730b9](https://github.com/elct9620/kobako/commit/27730b9e4f05985d07bc5c801501333735266d05))
+* refuse a constant name longer than the guest can intern ([2a3237f](https://github.com/elct9620/kobako/commit/2a3237fa7bb7b7fdbbde05487ba0d5c4a8fdc33b))
+* **sdk:** give Options::default() the caps the Ruby frontend defaults to ([af36434](https://github.com/elct9620/kobako/commit/af364348345e8e6dfe9c383facea388f3e12f8c0))
+* stop telling callers to discard a Sandbox over an unframeable outcome ([f7938e9](https://github.com/elct9620/kobako/commit/f7938e9887b9cdccf611b56be28dc3385a6cef00))
+* **wasmtime:** tell every frontend how to recover, not only the gem ([cab805a](https://github.com/elct9620/kobako/commit/cab805ab62441a0ca2c78775b7a0d7ce9cc05c43))
+* **wasmtime:** word a missing or mistyped export one way ([8ab0aee](https://github.com/elct9620/kobako/commit/8ab0aeec8bda2960b6cab0502ef51860ea9093b8))
+
+
+### Build System
+
+* **guest:** rebuild the guest crates on beni 0.22 ([fd6aeb9](https://github.com/elct9620/kobako/commit/fd6aeb92705fa53c52e2cd75b4918a58baa6637e))
+
 ## [0.27.0](https://github.com/elct9620/kobako/compare/v0.26.0...v0.27.0) (2026-09-20)
 
 
