@@ -2,7 +2,7 @@
 
 The walks a Host App takes end to end, each one reaching what it set out for.
 
-### Why these scenarios
+### Step composition
 
 Every step in these walks is declared somewhere else, and that is the point. A journey settles that the steps compose. No scenario about one step can say that. Four correct pieces can still leave a Host App unable to run model-generated code:
 
@@ -14,6 +14,8 @@ Every step in these walks is declared somewhere else, and that is the point. A j
 Composing them is its own thing to get wrong.
 
 So each journey is written as one walk with one destination, and the observation is arrival rather than mechanism.
+
+### Walk destinations
 
 A walk may have more than one thing to reach. A failure, for example, must carry both a class and a backtrace. Each such thing is its own scenario. A single observation would hide a walk arriving half way.
 

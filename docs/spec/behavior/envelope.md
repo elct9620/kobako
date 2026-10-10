@@ -2,13 +2,15 @@
 
 The bytes that say where a message goes and how it turned out. It also holds the fixed values both sides must already agree on to read them.
 
-### Why these scenarios
+### Single implementation
 
 This is the one tier with a single implementation. The envelope and the ABI's values are defined once, and both sides read that definition. So no second implementation witnesses anything here, as one does for the payload wire.
 
 The byte layout itself answers for it instead: a fixed-layout field order pinned to specific bytes. A change that would leave one peer reading a different message cannot pass as a refactor.
 
 The envelope is readable without a Codec, and the scenarios are written to keep it that way. A payload crosses as bytes the envelope never parses. So a payload that is not a value at all still arrives intact. Routing and attribution are read from the envelope's own fields alone.
+
+### Wire violations
 
 Every field is refused rather than repaired. Each of these is a wire violation:
 
@@ -18,6 +20,8 @@ Every field is refused rather than repaired. Each of these is a wire violation:
 - A flag that is neither of its two values.
 
 A reader that repaired one would leave the two peers disagreeing about what was sent. The refusals are declared beside the round-trips. A shape that only round-trips says nothing about what a reader does with bytes this writer would never emit.
+
+### Forward compatibility
 
 Two forward-compatibility rules are declared as behavior rather than left to a version bump. A Fault kind this reader predates still delivers its message. A field this reader predates is skipped.
 

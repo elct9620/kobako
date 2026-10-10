@@ -2,7 +2,7 @@
 
 What happens when a host Service calls back into the block the guest handed it.
 
-### Why these scenarios
+### Conversation closes
 
 A yield turns one dispatch into a conversation. The guest calls out, the host calls back, and either side may end it. The scenarios follow every way that conversation can close: a value, a break, a fall-through, a raise. Each unwinds a different distance.
 
@@ -11,6 +11,8 @@ The block-failure scenarios are about what a failure leaves behind. A Service ma
 Both are witnessed because neither shows up in the single-yield case.
 
 A block's answer is restored on its way in, and a break's value is not. This is the one asymmetry here.
+
+### Raising exits
 
 The exits that raise are followed too. Each ends the conversation somewhere the ordinary closes cannot reach:
 
@@ -405,7 +407,7 @@ That last exit has no parity scenario, because the frontends close it at differe
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a Service yielding arguments nested one level past the deepest the wire encodes |
+| Given | a Sandbox with a Service yielding arguments one level past the wire's deepest nesting |
 | Given | the Service rescuing that refusal |
 | When | guest code calls it with a block |
 | Then | the invocation answers what the Service returned |
@@ -414,7 +416,7 @@ That last exit has no parity scenario, because the frontends close it at differe
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a Service yielding arguments nested to the deepest level the wire encodes |
+| Given | a Sandbox with a Service yielding arguments at the wire's deepest nesting |
 | Given | the depth counts the arguments as the one list they travel in |
 | When | guest code calls it with a block that measures what it received |
 | Then | the block receives them nested to that depth |

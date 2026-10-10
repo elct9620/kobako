@@ -2,7 +2,7 @@
 
 What the host refuses to dispatch, and which methods a host object's Exposure lets the guest reach.
 
-### Why these scenarios
+### Host boundary
 
 The host is the boundary. Every refusal here is witnessed where the host decides it. The guest-side mirror is witnessed separately, as a convenience rather than as the thing that holds. A guest that skipped its own check would still be refused.
 
@@ -10,9 +10,13 @@ A reflective object returned from a host method has no parity scenario. Only one
 
 Refusal turns on who owns the method rather than on how it is spelled. So when a bound object defines a method whose name matches a refused one, its own method answers. Without that scenario the rule would read as a list of forbidden words.
 
+### Exposure narrowing
+
 An Exposure sits beneath the boundary, never above it. An object may close its surface as far as it likes. It may not open what the boundary closed.
 
 Both directions are witnessed, and so is the predicate staying unreachable. A narrowing an object could be asked to describe would be a surface of its own.
+
+### Default surface
 
 An object carrying no narrowing predicate exposes what its own class and the object itself define. It exposes nothing it acquired from elsewhere.
 

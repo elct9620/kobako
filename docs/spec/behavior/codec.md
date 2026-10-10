@@ -2,7 +2,7 @@
 
 What the payload codec will carry between host and guest, and what it refuses rather than change on the way.
 
-### Why these scenarios
+### Refusal bounds
 
 A codec that changes a value on the way is worse than one that refuses it. The caller reads a plausible answer and never learns it was not the one sent. So every refusal here is paired against the value just inside the bound it refuses:
 
@@ -12,11 +12,17 @@ A codec that changes a value on the way is worse than one that refuses it. The c
 
 The bounds are reached from three directions: an answer, an argument, a yield. Each direction is witnessed, since a check placed on one path leaves the others carrying whatever they were given.
 
+### Three implementations
+
 Two implementations of this codec exist on the host and a third inside the guest. The first two are held to each other byte for byte. The third has no peer, so it is held to an identity law instead. Both are properties over generated values rather than statements about one, which is why each is a single scenario.
+
+### Reference signal
 
 Whether a decode carried a capability reference only decides whether a later walk is worth taking. So a wrong answer costs time rather than correctness.
 
 It is declared anyway, in both directions and across two brackets. The walk it skips is the one that resolves references. A signal stuck at either answer stops being a signal quietly.
+
+### Encoding table
 
 What the codec does with a value it accepts is the encoding table rather than the boundary. That table names which of the eleven type mappings each shape takes, and how a length is framed. It also names what a malformed frame answers.
 
@@ -328,7 +334,7 @@ The table is specified with the wire format, and its scenarios are the payload e
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a Service answering a value nested to the deepest level the wire encodes |
+| Given | a Sandbox with a Service answering a value at the wire's deepest nesting |
 | When | guest code calls it and measures what it received |
 | Then | the value arrives nested to that depth |
 
@@ -336,7 +342,7 @@ The table is specified with the wire format, and its scenarios are the payload e
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a Service answering a value nested one level past the deepest the wire encodes |
+| Given | a Sandbox with a Service answering a value one level past the wire's deepest nesting |
 | When | guest code calls it and leaves the failure unrescued |
 | Then | it reaches the Host App as a Service failure |
 
@@ -352,7 +358,7 @@ The table is specified with the wire format, and its scenarios are the payload e
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a Service answering a value nested one level past the deepest the wire encodes |
+| Given | a Sandbox with a Service answering a value one level past the wire's deepest nesting |
 | Given | the answered value also holds a value the wire cannot represent |
 | When | guest code calls it and leaves the failure unrescued |
 | Then | it reaches the Host App as a Service failure |

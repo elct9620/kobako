@@ -2,7 +2,7 @@
 
 Which form each value takes on the payload wire, and what a frame that is not one answers.
 
-### Why these scenarios
+### Encoding table
 
 This codec keeps a boundary: it refuses some values rather than change them. That boundary is specified with the codec itself. What is here is the other half. It covers the form each accepted value takes, and what a frame that is not a value answers.
 
@@ -10,11 +10,15 @@ A caller never sees this half directly, so it is declared here. The two independ
 
 Both implementations witness this one table, so one scenario here is worth more than one scenario each. Where the two agree, independently written code answers the same statement twice. Where they disagree, the difference has to be declared rather than discovered.
 
+### Tier bounds
+
 The reader's and writer's own state is declared alongside the tiers. A tier is only ever observed through that state.
 
 Every encoding tier is witnessed at its bound and just past it. A tier chosen one step too wide still round-trips through the writer that chose it. The byte vectors catch that: a value whose form is fixed to specific bytes cannot silently be promoted. The narrowest tag for each empty container is pinned for the same reason.
 
 Round-trips answer for what survives. The refusals answer for what a reader is handed by something other than this writer. Those are separate observations, even where one value reaches both. This writer never emits a reference with a zero identifier, yet hand-built bytes can still carry one.
+
+### Writer asymmetries
 
 Two asymmetries are declared as they are rather than as they should be.
 

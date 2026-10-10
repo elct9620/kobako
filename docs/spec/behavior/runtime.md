@@ -2,7 +2,7 @@
 
 What the host checks before a guest runs, which posture it builds, and how invocations share a process.
 
-### Why these scenarios
+### Startup checks
 
 The runtime is what stands between a request and a guest that runs. Three checks happen before any guest does:
 
@@ -10,7 +10,11 @@ The runtime is what stands between a request and a guest that runs. Three checks
 - The requested isolation posture is one the ladder names.
 - The posture actually built is not weaker than the one accepted.
 
+### Scheduling modes
+
 The scheduling scenarios pair off deliberately, because releasing the lock changes scheduling and nothing else. Each witness runs one scenario under both modes and compares them: a value, a dispatch, a nested dispatch, a capture. The host-parallel run is the one that shows what the mode is for.
+
+### Isolation and determinism
 
 Ambient denial is read at the WASI layer, not through guest code. The default Guest Binary gives scripts no surface to reach it from.
 
@@ -18,9 +22,15 @@ Ambient denial is read at the WASI layer, not through guest code. The default Gu
 
 What the determinism buys is witnessed where it shows: two invocations beginning from the same interpreter state.
 
+### Compile cache
+
 Compiling an artifact is expensive enough to keep on disk, and a cache is a second way in. So each of its refusals is witnessed twice over: that construction still succeeds, and what the cache directory holds afterwards. A cache that quietly loaded a planted artifact would pass the first observation alone.
 
+### Invocation results
+
 What the runtime hands an invocation back is read here, not through the Sandbox that usually reads it. A binding that shifted a field's shape would still pass every Sandbox assertion about the derived value. This is also why the two channels are separated twice. One separation is at this seam; the other is a difference the two frontends must agree on.
+
+### Empty artifact
 
 An artifact can satisfy the whole invocation ABI while doing no guest work. That artifact makes the host's own per-invocation cost measurable as a total. That is a claim about the artifact, so it is held to both verbs and to the capture it leaves. These are the ways it could satisfy the loader without satisfying the ABI.
 

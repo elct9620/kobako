@@ -2,7 +2,7 @@
 
 What a Sandbox is built with, what one invocation leaves for the next, and what a run hands back.
 
-### Why these scenarios
+### Scenario groups
 
 A Sandbox is set up once and run many times. So the scenarios fall into three groups. They are what construction fixes, what an invocation may not carry into the next, and what a run hands back.
 
@@ -10,9 +10,13 @@ The isolation half is witnessed on both verbs and on their interleaving. A mecha
 
 Captures are read after failures as often as after successes. So the trap paths carry their own scenarios rather than resting on the success ones. A Host App triaging the failure has to read exactly what a run wrote before it was cut short.
 
+### Raised refusals
+
 Everything that raises is a behavior too. It settles on the class a Host App rescues and where the failure is attributed. The option checks belong to the runtime that performs them and are specified there. The entrypoint, snippet and preload refusals are here, each witnessed at whatever level shows it.
 
 No public surface shows what the registries do internally. That covers how a name is normalized and what order entries keep. So it is pinned by unit tests and is not a behavior.
+
+### Output surface
 
 The guest-side output surface is how `IO` and the Kernel writers behave inside the guest. It belongs to the capability gem that implements it. What is here is the host end: which channel bytes land in, where they stop, and what survives a failure.
 

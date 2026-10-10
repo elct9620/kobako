@@ -2,13 +2,15 @@
 
 How a guest call reaches a host object, what crosses in each direction, and how long a capability reference lasts.
 
-### Why these scenarios
+### Outward route
 
 A guest call reaching a host object is the only route outward. What it carries is witnessed in both directions and at three depths. The walk decides what the wire can hold. The table hands out references for the rest, and the dispatch puts them back together.
 
 A reference lasts one invocation and belongs to one Sandbox. Both bounds are witnessed as a receiver and as an argument. A table consulted on only one of those paths would pass either witness alone.
 
 A stale reference's parity is unverifiable. Every invocation begins in a fresh guest, so no scenario can present a stale reference. Each frontend's table is witnessed on its own.
+
+### Argument kinds
 
 The two argument kinds are separated by how the guest wrote the call, not by what the value is. So a Hash appears on both sides of that line. It appears as a positional literal, a splatted keyword map, and a keyword's value, and each is witnessed.
 

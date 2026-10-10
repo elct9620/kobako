@@ -2,7 +2,7 @@
 
 An invocation's outcome, which side it is attributed to, and which class a Host App rescues it as.
 
-### Why these scenarios
+### Attribution order
 
 Every invocation writes exactly one Outcome. So this feature alone decides what a Host App can do about a failure. It decides whether the Sandbox is still usable, whose mistake it was, and which class the rescue must name.
 
@@ -10,9 +10,13 @@ The scenarios follow that decision in the order it is made. First comes the arm,
 
 The origin decides the layer and the class name may only narrow inside it. Both halves are witnessed. Attribution that let a guest-chosen name cross a layer would hand the guest its own error taxonomy.
 
+### Recordless arms
+
 Two arms carry no record at all: nothing written, and bytes the envelope cannot frame. Both mean the guest runtime is past reasoning about. They are separated from every readable failure because they are the only ones that cost the Sandbox.
 
 The class hierarchy is asserted as relations rather than through failures. A Host App writes one rescue and expects it to cover a family. The shape of the tree makes that true, and no single failure shows that shape.
+
+### Frontend parity
 
 The parity scenarios settle that both frontends attribute the same origin. They do not settle that either is right; the attribution scenarios state what is right.
 

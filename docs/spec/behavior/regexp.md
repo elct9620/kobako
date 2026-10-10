@@ -876,7 +876,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| Given | guest code that has bound a value that is not a class over the match class's name |
+| Given | guest code that has bound a non-class value over the match class's name |
 | When | guest code takes a match |
 | Then | the invocation completes and the match's class is the one the capability registered |
 
@@ -1005,7 +1005,8 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code matches a wildcard across a line break with the multiline flag written, passed by constant, or absent |
+| Given | wildcard patterns with the multiline flag written, passed by constant, or absent |
+| When | guest code matches each pattern across a line break |
 | Then | only the flagged patterns match |
 
 ## `RX-215` Only a regexp-capable Guest Binary defines the surface
