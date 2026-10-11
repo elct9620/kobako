@@ -177,7 +177,7 @@ An Invocation that names an entrypoint already loaded in the guest, instead of s
 
 ### Preamble
 
-What the guest reads before an Invocation's entry runs: the Catalog's bindings and preloads, and the Flags. The guest starts knowing what this run was configured with.
+What the guest reads before an Invocation's entry runs: the Catalog's bindings, preloads, and Flags. The guest starts knowing what this run was configured with.
 
 ### Flag
 
@@ -185,7 +185,7 @@ A named switch the host sets for an Invocation's interpreter. A Guest Binary tha
 
 ### Catalog
 
-What a Sandbox has registered: the bindings and preloads fixed at setup. It also holds the Handle table each Invocation mints for itself.
+What a Sandbox has registered: the bindings, preloads, and Flags fixed at setup. It also holds the Handle table each Invocation mints for itself.
 
 ### Invocation
 
