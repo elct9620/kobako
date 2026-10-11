@@ -226,7 +226,7 @@ the difference.
 
 | Replace | Implement | Obligation |
 |---|---|---|
-| one invocation flow | that `Guest` method, not forwarded | exactly one Outcome envelope per entry |
+| one invocation flow | that `Guest` method, not forwarded | answer with its Outcome or Yield Reply |
 | the whole guest | `kobako_core::Guest` + `export_guest!` | the ABI's exports, import, and version |
 
 `MrbGuest` provides `eval`, `run`, and `yield_to_block` over mruby. A non-mruby guest
