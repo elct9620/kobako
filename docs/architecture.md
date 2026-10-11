@@ -6,6 +6,7 @@ kobako is assembled from parts. This document is the baseline for where a change
 |---|---|
 | which part owns this | The Parts |
 | what every assembly shares | The Fixed Pillar |
+| where a replacement plugs in | The Seams |
 | what holds across builds | Build Rules |
 | where a Ruby type goes | Ruby Tiers |
 
@@ -36,8 +37,8 @@ Every other part is an endpoint assembling those two into a model of its own.
         │                   │ kobako-codec — the dialect     │
   ┌─────▼──────┐            │ one namespace per schema       │
   │ ext/       │            └────────────────────────────────┘
-  │ shuttle    │  no dialect: Ruby's values on one side of it,
-  └─────┬──────┘  the driver's bytes on the other
+  │ bridge     │  no dialect: Ruby's values on one side of it,
+  └─────┬──────┘  the driver's envelopes on the other
         │
         │      ┌─ the SDK drives this too, or an engine you bring
   ┌─────▼──────▼───────────┐                  ┌──────────────────┐
@@ -63,7 +64,7 @@ Each part owns one concern, and its dependencies on other kobako parts may only 
 | `kobako-wasmtime` | one engine behind that contract | runtime, transport |
 | `kobako` | the Rust host model: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
 | `lib/` | the Ruby host model and its own dialect | the native ext |
-| `ext/` | the magnus byte shuttle between Ruby and the driver | runtime, transport, wasmtime |
+| `ext/` | the magnus bridge between Ruby values and the driver's envelopes | runtime, transport, wasmtime |
 | `kobako-core` | the guest ABI: `Guest`, `export_guest!`, the dispatch proxy | transport |
 | `kobako-mruby` | the mruby guest model: `MrbGuest` flows and the bridge gem | core, transport, codec *(optional)* |
 | `kobako-io` · `-regexp` · `-json` | capability gems: guest-local behaviour, no wire | none |
@@ -103,6 +104,49 @@ Everything depends on it, which is why a host, a payload codec, and a guest can 
 A payload rides inside that envelope untouched, and that is what makes the schema replaceable.
 Routing a message and attributing its outcome never read a payload byte.
 Swapping the schema therefore leaves the envelope, the ABI, and the version alone (→ [`wire/README.md`](wire/README.md)).
+
+## The Seams
+
+An assembly composes replaceable parts around the fixed pillar.
+Each line names what can be swapped on its right-hand side.
+
+```
+Sandbox      = host model . engine . Guest Binary
+engine       = engine mechanics + host ABI endpoint     (kobako-wasmtime)
+Guest Binary = guest ABI endpoint + guest model + gems  (kobako-wasm)
+host model   = frontend + codec                         (ext/ + lib/ | kobako)
+guest model  = flows + codec                            (kobako-mruby | own Guest)
+message      = envelope . payload                       (transport . codec)
+```
+
+Three boundaries separate them.
+The wasm ABI is what a Guest Binary is built against; the two seams are where a replacement plugs in.
+
+```
+        seam H                 wasm ABI                 seam G
+          :                       :                       :
+  host    :    host ABI           :        guest ABI      :    guest
+  model <-:->  endpoint  <--------:-------->  endpoint <--:->  model
+          :    (driver)           :     (kobako-core)     :    (flows)
+          :         \______ kobako-transport ______/      :
+  contract: kobako-runtime            contract: Guest + proxy::dispatch
+```
+
+### Seam Rule
+
+A seam carries typed envelopes and payload bytes, so only the two ABI endpoints read or write an envelope's bytes.
+A frontend or a guest model never encodes, decodes, allocates, or packs.
+A change to the wire therefore stays inside the endpoints and `kobako-transport`.
+
+| Crosses a seam | As |
+|---|---|
+| Call, Run, Reply, Yield Reply, Outcome | the `kobako-transport` type |
+| a payload | bytes only a codec reads |
+| a result that does not frame | a `Trap` |
+
+The two sides replace different units.
+The host ABI endpoint shares `kobako-wasmtime` with the engine mechanics, so an engine is replaced whole.
+A guest replaces only its model and keeps `kobako-core`.
 
 ## Build Rules
 
