@@ -110,15 +110,15 @@ class TestE2EYield < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
 
-    # A bare Object has no wire representation, so the round-trip answers with
-    # a 0x04 error and the Service's block.call raises at the yield site.
+    # A bare Object has no wire representation, so the round-trip answers on
+    # the error arm and the Service's block.call raises at the yield site.
     err = assert_raises(Kobako::ServiceError) do
       sandbox.eval("Probe::OnceX.call(1) { |_x| Object.new }")
     end
 
     assert_match(/not a supported sandbox value type/, err.message,
-                 "a guest block returning a value of an unsupported type " \
-                 "must surface as a 0x04 error at the yield site, not a coerced String")
+                 "a guest block returning a value of a type the wire cannot represent " \
+                 "must surface as an error answer at the yield site, not a coerced String")
   end
 
   # @behavior T-091 T-203
@@ -129,15 +129,15 @@ class TestE2EYield < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
 
-    # `break Object.new` is a real break, but its value cannot ride the 0x02
-    # break tag, so the guest emits a 0x04 error instead of coercing it.
+    # `break Object.new` is a real break, but its value cannot ride the
+    # break arm, so the guest answers on the error arm instead of coercing it.
     err = assert_raises(Kobako::ServiceError) do
       sandbox.eval("Probe::Each.call([1, 2, 3]) { |_x| break Object.new }")
     end
 
     assert_match(/not a supported sandbox value type/, err.message,
-                 "a break value of an unsupported type must surface as a " \
-                 "0x04 error, not unwind the Service method with a coerced String")
+                 "a break value of a type the wire cannot represent must surface as an " \
+                 "error answer, not unwind the Service method with a coerced String")
   end
 
   # @behavior T-088

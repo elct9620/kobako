@@ -1124,7 +1124,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | --- | --- |
 | Given | a Sandbox |
 | When | an evaluation's last expression is an object with no wire representation |
-| Then | it fails as a Sandbox failure naming the unsupported type |
+| Then | it fails as a Sandbox failure naming the type it cannot represent |
 
 ## `S-136` Usage reports time in fractional seconds
 

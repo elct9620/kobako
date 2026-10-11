@@ -80,7 +80,7 @@ mod tests {
 
         assert_eq!(
             answer[0], 0x15,
-            "a downcall under an unserved tag through serve must answer on the unsupported arm"
+            "a downcall under an unassigned tag through serve must answer on the unsupported arm"
         );
     }
 

@@ -114,7 +114,7 @@ impl Position {
     /// failed instead. A Reply is the exception: a codec that wrote the
     /// Call owes its answer, so refusing there leaves the exchange
     /// half-served rather than a feature unoffered.
-    fn unsupported_class(self) -> &'static str {
+    fn unserved_class(self) -> &'static str {
         match self {
             Position::CallArguments
             | Position::YieldArguments
@@ -138,8 +138,8 @@ pub(crate) fn at(position: Position, err: CodecError) -> Refusal {
         },
         CodecError::Interpreter(err) => Refusal::transport(err.message()),
         CodecError::Malformed => Refusal::transport(position.unreadable_message()),
-        CodecError::Unsupported => Refusal {
-            class: position.unsupported_class(),
+        CodecError::Unserved => Refusal {
+            class: position.unserved_class(),
             message: format!(
                 "this guest's schema does not serve the {} position",
                 position.value_name()
@@ -149,7 +149,7 @@ pub(crate) fn at(position: Position, err: CodecError) -> Refusal {
 }
 
 /// Attribution coverage for every position × kind, pure string work that
-/// needs no interpreter booted. The `Unsupported` cases are a refusing
+/// needs no interpreter booted. The `Unserved` cases are a refusing
 /// codec's only witness: no codec kobako ships refuses at a position, so
 /// no frontend reaches that behavior.
 #[cfg(test)]
@@ -284,7 +284,7 @@ mod tests {
                 CodecError::Interpreter(IntegerOutOfRange(1 << 40)),
             ),
             at(Position::RunArguments, CodecError::Malformed),
-            at(Position::RunArguments, CodecError::Unsupported),
+            at(Position::RunArguments, CodecError::Unserved),
         ];
         let messages: Vec<_> = refusals.iter().map(|r| r.message.as_str()).collect();
 
@@ -305,7 +305,7 @@ mod tests {
         let argument_refusals = [
             CodecError::Interpreter(IntegerOutOfRange(1 << 40)),
             CodecError::Malformed,
-            CodecError::Unsupported,
+            CodecError::Unserved,
             unrepresentable(),
         ]
         .map(|err| at(Position::RunArguments, err).message);
@@ -345,7 +345,7 @@ mod tests {
             Position::BreakValue,
         ] {
             assert_eq!(
-                at(position, CodecError::Unsupported).class,
+                at(position, CodecError::Unserved).class,
                 "NotImplementedError",
                 "a position this schema does not serve must refuse as unimplemented at \
                  {position:?}, so a script's bare rescue does not swallow a missing capability"
@@ -360,7 +360,7 @@ mod tests {
     #[test]
     fn a_reply_the_schema_does_not_serve_is_an_incomplete_exchange() {
         assert_eq!(
-            at(Position::ReplyValue, CodecError::Unsupported).class,
+            at(Position::ReplyValue, CodecError::Unserved).class,
             TRANSPORT_ERROR,
             "a schema that serves a Call but not its Reply must refuse as an exchange that \
              did not complete, since the guest was assembled with half a dispatch"
@@ -374,7 +374,7 @@ mod tests {
     fn an_absent_capability_the_host_reads_fails_the_invocation() {
         for position in [Position::RunArguments, Position::InvocationValue] {
             assert_eq!(
-                at(position, CodecError::Unsupported).class,
+                at(position, CodecError::Unserved).class,
                 "Kobako::SandboxError",
                 "a position only the host reads must refuse as the invocation failing at \
                  {position:?}, since no guest frame is left to raise into"
@@ -394,7 +394,7 @@ mod tests {
                 unrepresentable(),
                 CodecError::Interpreter(IntegerOutOfRange(1 << 40)),
                 CodecError::Malformed,
-                CodecError::Unsupported,
+                CodecError::Unserved,
             ] {
                 let class = at(position, err).class;
 
@@ -410,18 +410,18 @@ mod tests {
     }
 
     // `encode_value` is the capability floor, so nothing stops a codec
-    // returning `Unsupported` from it anyway — the two positions it serves
+    // returning `Unserved` from it anyway — the two positions it serves
     // still need a real answer rather than an unreachable assertion.
     // @behavior CD-036
     #[test]
-    fn the_floor_s_own_positions_still_answer_an_unsupported_refusal() {
+    fn the_floor_s_own_positions_still_answer_an_unserved_refusal() {
         for position in [
             Position::BlockReturnValue,
             Position::BreakValue,
             Position::InvocationValue,
         ] {
             assert!(
-                !at(position, CodecError::Unsupported).message.is_empty(),
+                !at(position, CodecError::Unserved).message.is_empty(),
                 "a codec refusing at {position:?} must still be reported, since the trait \
                  requires the method but cannot forbid the refusal"
             );

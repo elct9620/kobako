@@ -88,7 +88,7 @@ The table is specified with the wire format, and its scenarios are the payload e
 | --- | --- |
 | Given | a Sandbox |
 | When | an evaluation answers a Symbol whose bytes are not text |
-| Then | the invocation fails naming the unsupported type |
+| Then | the invocation fails naming the type it cannot represent |
 
 ## `CD-007` A dispatch argument's bytes reach the Service intact
 
@@ -369,7 +369,7 @@ The table is specified with the wire format, and its scenarios are the payload e
 | --- | --- |
 | Given | a Sandbox |
 | When | an evaluation answers an object whose class carries a list's name without being one |
-| Then | the invocation fails naming the unsupported type |
+| Then | the invocation fails naming the type it cannot represent |
 
 ## `CD-042` A value whose class only bears a map's name is refused as a dispatch argument
 

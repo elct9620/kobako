@@ -49,7 +49,7 @@ pub enum CodecError {
     /// value: the capability is absent, and a reader that cannot tell the
     /// two apart cannot tell a broken message from a guest that never
     /// offered the feature.
-    Unsupported,
+    Unserved,
 }
 
 impl CodecError {
@@ -81,7 +81,7 @@ impl std::fmt::Display for CodecError {
             }
             CodecError::Malformed => f.write_str("bytes this schema cannot read"),
             CodecError::Interpreter(err) => f.write_str(&err.message()),
-            CodecError::Unsupported => f.write_str("a position this schema does not serve"),
+            CodecError::Unserved => f.write_str("a position this schema does not serve"),
         }
     }
 }
@@ -131,20 +131,20 @@ pub trait PayloadCodec {
         kwargs: beni::RHash,
     ) -> Result<Vec<u8>, CodecError> {
         let _ = (kobako, rest, kwargs);
-        Err(CodecError::Unsupported)
+        Err(CodecError::Unserved)
     }
 
     /// Read the ok body of the Reply that dispatch came back with.
     fn decode_reply_value(kobako: &Kobako, bytes: &[u8]) -> Result<beni::Value, CodecError> {
         let _ = (kobako, bytes);
-        Err(CodecError::Unsupported)
+        Err(CodecError::Unserved)
     }
 
     /// Read the Run payload — the arguments an invocation's entrypoint is
     /// called with.
     fn decode_run_arguments(kobako: &Kobako, bytes: &[u8]) -> Result<Arguments, CodecError> {
         let _ = (kobako, bytes);
-        Err(CodecError::Unsupported)
+        Err(CodecError::Unserved)
     }
 
     /// Read a Yield Call's arguments, which are a plain list rather than
@@ -154,6 +154,6 @@ pub trait PayloadCodec {
         bytes: &[u8],
     ) -> Result<Vec<beni::Value>, CodecError> {
         let _ = (kobako, bytes);
-        Err(CodecError::Unsupported)
+        Err(CodecError::Unserved)
     }
 }

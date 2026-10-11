@@ -9,7 +9,7 @@ use super::{tag, DecodeError};
 
 /// The only kind defined. A kind this reader predates reads as this one,
 /// so a later kind still delivers its message.
-const KIND_UNSERVED: u8 = 0;
+const KIND_UNSUPPORTED: u8 = 0;
 
 /// The refusal a receiver answers with when it does not serve an
 /// operation.
@@ -45,7 +45,7 @@ impl Unsupported {
     }
 
     pub(crate) fn write(&self, writer: &mut Writer) {
-        writer.u8(KIND_UNSERVED).bytes(self.message.as_bytes());
+        writer.u8(KIND_UNSUPPORTED).bytes(self.message.as_bytes());
     }
 }
 

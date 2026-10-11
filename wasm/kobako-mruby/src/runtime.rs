@@ -254,7 +254,7 @@ mod tests {
 
     impl PayloadCodec for FloorCodec {
         fn encode_value(_kobako: &Kobako, _value: beni::Value) -> Result<Vec<u8>, CodecError> {
-            Err(CodecError::Unsupported)
+            Err(CodecError::Unserved)
         }
     }
 

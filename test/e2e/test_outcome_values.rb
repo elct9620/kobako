@@ -135,7 +135,7 @@ class TestE2EOutcomeValues < Minitest::Test
     end
 
     assert_match(/not a supported sandbox value type/, err.message,
-                 "an #eval return value of an unsupported type must take " \
+                 "an #eval return value of a type the wire cannot represent must take " \
                  "the Panic path as Kobako::SandboxError, never an implicit inspect String")
   end
 
