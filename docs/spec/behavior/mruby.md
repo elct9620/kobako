@@ -24,6 +24,7 @@ A host may keep the guest's compiled snippets and replay them in place of the so
 - `wasm/kobako-mruby/src/runtime.rs`
 - `wasm/kobako-mruby/src/flows/compile.rs`
 - `crates/kobako-wasmtime/tests/preamble_flags.rs`
+- `crates/kobako-wasmtime/tests/snippet_compile.rs`
 
 ## `MR-001` Two invocations begin from the same state, not merely a clean one
 
@@ -232,3 +233,28 @@ A host may keep the guest's compiled snippets and replay them in place of the so
 | Given | the same snippets |
 | When | two fresh interpreters each compile them |
 | Then | both answer byte-identical bytecode |
+
+## `MR-024` The default Guest Binary's compiled snippets replay in a later invocation
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MR-019` |
+| relates | `S-055` |
+
+| Step | Statement |
+| --- | --- |
+| Given | the default Guest Binary's bytecode for a source snippet |
+| When | a later invocation is sent that bytecode as its snippet |
+| Then | the invocation reaches what the source defined |
+
+## `MR-025` A critical flag the guest does not recognise leaves nothing compiled
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MR-017`, `MR-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Preamble carrying a critical flag the default Guest Binary does not recognise |
+| When | the guest compiles its snippets |
+| Then | nothing is compiled |

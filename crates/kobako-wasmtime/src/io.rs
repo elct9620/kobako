@@ -15,7 +15,7 @@ use crate::{ambient, capture};
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
 use kobako_transport::abi::FRAME_LEN_SIZE;
-use kobako_transport::envelope::Outcome;
+use kobako_transport::envelope::{CompileReply, Outcome};
 
 /// A missing or trapping allocator is an engine fault, a `Trap`; one that
 /// runs but returns 0 leaves the runtime intact, so it is a `SetupError`.
@@ -107,6 +107,18 @@ pub(crate) fn read_outcome(
             .to_string(),
         )
     })
+}
+
+/// Held to the same 16 MiB bound as an Outcome; an answer that does not
+/// frame is a `Trap` the caller treats like any other failed compile.
+pub(crate) fn read_compile_reply(
+    store: &WtStore<Invocation>,
+    exports: &Exports,
+    packed: u64,
+) -> Result<CompileReply, Trap> {
+    let bytes = read_answer(store, exports, packed)?;
+    CompileReply::decode(&bytes)
+        .map_err(|_| Trap::Other("Sandbox produced an unrecognised compile answer".to_string()))
 }
 
 fn read_answer(

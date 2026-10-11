@@ -38,6 +38,17 @@ pub trait Runtime {
 }
 ```
 
+## `Runtime::compile`
+
+The bytecode of a Preamble's source Snippets, compiled on an instance no script
+runs on. The default compiles nothing, and the Frontend keeps the source.
+
+```rust
+pub trait Runtime {
+    fn compile(&self, _preamble: &Preamble) -> Option<Vec<Vec<u8>>>;
+}
+```
+
 ## `DispatchHandler`
 
 The Frontend's side of a Call: the engine hands it each Call and relays the

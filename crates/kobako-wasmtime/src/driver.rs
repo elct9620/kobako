@@ -25,7 +25,7 @@ use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
-use kobako_transport::envelope::{Downcall, Preamble, Run};
+use kobako_transport::envelope::{CompileReply, Downcall, Preamble, Run};
 
 /// The wasmtime execution unit behind one sandbox runtime.
 pub struct Driver {
@@ -184,6 +184,25 @@ impl ContractRuntime for Driver {
     /// and the linker adds only `__kobako_upcall` beyond that WASI surface.
     fn profile(&self) -> Profile {
         self.config.profile
+    }
+
+    /// Bounded by the same caps as an invocation, on an instance of its
+    /// own that no script ever runs on, so what it answers carries
+    /// nothing a script could have written.
+    fn compile(&self, preamble: &Preamble) -> Option<Vec<Vec<u8>>> {
+        let mut store = self.new_store().ok()?;
+        io::install_wasi(&mut store, &self.config, &preamble.encode()).ok()?;
+        let exports = self.instantiate(&mut store).ok()?;
+        let downcall = exports::require(exports.downcall.as_ref()).ok()?;
+        let (ptr, len) =
+            io::write_request(&mut store, &exports, &Downcall::Compile.encode()).ok()?;
+        let packed = self
+            .call_with_caps(&mut store, &exports, downcall, (ptr, len))
+            .ok()?;
+        match io::read_compile_reply(&store, &exports, packed).ok()? {
+            CompileReply::Ok(bytecodes) => Some(bytecodes),
+            CompileReply::Error(_) | CompileReply::Unsupported(_) => None,
+        }
     }
 }
 

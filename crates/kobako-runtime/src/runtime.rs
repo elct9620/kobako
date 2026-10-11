@@ -61,4 +61,15 @@ pub trait Runtime {
     /// and a frontend refuses construction when the declaration falls
     /// below the floor its host application requested.
     fn profile(&self) -> Profile;
+
+    /// The bytecode of the Preamble's source Snippets, one per snippet in
+    /// order, compiled on a fresh instance that runs none of them. A
+    /// frontend replays it in place of the source, so every invocation
+    /// after skips the compiler. `None` whenever there is nothing to
+    /// replay, whatever the reason: the frontend keeps the source. The
+    /// default compiles nothing, so an engine that does not offer it
+    /// still serves every invocation.
+    fn compile(&self, _preamble: &Preamble) -> Option<Vec<Vec<u8>>> {
+        None
+    }
 }
