@@ -23,8 +23,8 @@ module Kobako
     end
 
     def context
-      Kobako::Context.new(runtime: Object.new, services: @services,
-                          snippets: @snippets, extensions: @extensions)
+      Kobako::Context.new(runtime: Object.new, services: @services, snippets: @snippets,
+                          flags: Kobako::Catalog::Flags.new, extensions: @extensions)
     end
 
     # @behavior SV-001

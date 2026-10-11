@@ -106,7 +106,7 @@ class TestRuntime < Minitest::Test
   end
 
   # Same fail-closed posture one layer in: the ext names a snippet's form
-  # when it builds the snippets for Frame 3, so an unrecognized kind must raise rather than
+  # when it builds the Preamble's snippets, so an unrecognized kind must raise rather than
   # default to either form. +Catalog::Snippets+ only ever emits the two,
   # so this exercises the guard on a direct +#eval+ call.
   def test_eval_raises_argument_error_for_an_unrecognized_snippet_kind
@@ -114,7 +114,7 @@ class TestRuntime < Minitest::Test
 
     runtime = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :hold)
     err = assert_raises(ArgumentError) do
-      runtime.eval(nil, [], [[:mrbc, "Helper", "X = 1"]], "nil".b)
+      runtime.eval(nil, [], [[:mrbc, "Helper", "X = 1"]], [], "nil".b)
     end
     assert_match(/snippet kind must be :source or :bytecode/, err.message)
   end

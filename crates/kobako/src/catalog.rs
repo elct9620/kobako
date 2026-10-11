@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use kobako_transport::envelope::Bindings;
+use kobako_transport::envelope::{Bindings, Flag};
 
 use crate::error::Error;
 use crate::receiver::Receiver;
@@ -22,11 +22,13 @@ fn is_constant_path(path: &str) -> bool {
     path.split("::").all(constant_name)
 }
 
-/// Bind-ordered Service registry plus the snippet table for one Sandbox.
+/// Bind-ordered Service registry plus the snippet and flag tables for one
+/// Sandbox.
 #[derive(Default)]
 pub(crate) struct Catalog {
     bindings: Vec<(String, Arc<dyn Receiver>)>,
     pub(crate) snippets: Snippets,
+    pub(crate) flags: Vec<Flag>,
 }
 
 impl Catalog {
@@ -61,6 +63,19 @@ impl Catalog {
             .iter()
             .find(|(p, _)| p == path)
             .map(|(_, object)| object.clone())
+    }
+
+    /// A name set twice is refused, so one flag never carries two values.
+    pub(crate) fn flag(&mut self, name: &str, value: &str, critical: bool) -> Result<(), Error> {
+        if self.flags.iter().any(|flag| flag.name == name) {
+            return Err(Error::Argument(format!("flag {name:?} already set")));
+        }
+        self.flags.push(Flag {
+            name: name.to_string(),
+            value: value.to_string(),
+            critical,
+        });
+        Ok(())
     }
 
     pub(crate) fn bound_paths(&self) -> Bindings {

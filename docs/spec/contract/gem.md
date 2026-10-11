@@ -64,6 +64,19 @@ module Kobako
 end
 ```
 
+## `Kobako::Sandbox#flag`
+
+Set a Flag every invocation carries, critical unless marked advisory.
+
+```ruby
+module Kobako
+  class Sandbox
+    def flag(name, value = "", advisory: false)
+    end
+  end
+end
+```
+
 ## `Kobako::Sandbox#run`
 
 Invoke an entrypoint already loaded in the guest.
@@ -333,6 +346,17 @@ Preloaded bytecode that will not load.
 ```ruby
 module Kobako
   class BytecodeError
+  end
+end
+```
+
+## `Kobako::UnsupportedFlagError`
+
+A critical Flag the Guest Binary does not recognise.
+
+```ruby
+module Kobako
+  class UnsupportedFlagError
   end
 end
 ```

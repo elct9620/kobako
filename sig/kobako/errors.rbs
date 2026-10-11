@@ -69,6 +69,9 @@ module Kobako
   class BytecodeError < SandboxError
   end
 
+  class UnsupportedFlagError < SandboxError
+  end
+
   class UndefinedEntrypointError < SandboxError
     attr_reader name: Symbol?
     attr_reader available: Array[Symbol]

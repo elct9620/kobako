@@ -168,6 +168,26 @@ impl Sandbox {
 }
 ```
 
+## `Sandbox::flag`
+
+Set a critical Flag every invocation carries.
+
+```rust
+impl Sandbox {
+    pub fn flag(&mut self, name: &str, value: &str) -> Result<(), Error> {}
+}
+```
+
+## `Sandbox::flag_advisory`
+
+Set a Flag every invocation carries, which a Guest Binary may skip.
+
+```rust
+impl Sandbox {
+    pub fn flag_advisory(&mut self, name: &str, value: &str) -> Result<(), Error> {}
+}
+```
+
 ## `Sandbox::eval`
 
 Run a script as one invocation.

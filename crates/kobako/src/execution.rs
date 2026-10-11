@@ -159,6 +159,8 @@ fn classify_panic(panic: Panic) -> Error {
         Error::Service(failure)
     } else if failure.name == "Kobako::BytecodeError" {
         Error::Bytecode(failure)
+    } else if failure.name == "Kobako::UnsupportedFlagError" {
+        Error::UnsupportedFlag(failure)
     } else {
         Error::Sandbox(failure)
     }

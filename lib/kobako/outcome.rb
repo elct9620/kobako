@@ -16,6 +16,7 @@ module Kobako
     SUBCLASSES = {
       "Kobako::BytecodeError" => BytecodeError,
       "Kobako::UndefinedEntrypointError" => UndefinedEntrypointError,
+      "Kobako::UnsupportedFlagError" => UnsupportedFlagError,
       "Kobako::Transport::Error" => Kobako::Transport::Error,
       "Kobako::NoServiceError" => NoServiceError,
       "Kobako::ServiceArgumentError" => ServiceArgumentError

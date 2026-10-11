@@ -17,14 +17,14 @@ module Kobako
   #
   #   sandbox.eval("Req::Current.user_id") { |ctx| ctx.bind("Req::Current", request) }
   class Context
-    def initialize(runtime:, services:, snippets:, extensions:) # :nodoc:
+    def initialize(runtime:, services:, snippets:, flags:, extensions:) # :nodoc:
       @runtime = runtime
       @services = services
       @snippets = snippets
+      @flags = flags
       @extensions = extensions
       @resolved = {} # : Hash[String, Transport::Exposure]
       @overrides = {} # : Hash[String, Transport::Exposure]
-      @spent = false
       @handles = Catalog::Handles.new
       @stdout_capture = @stderr_capture = Capture::EMPTY
       @usage = Usage::EMPTY
@@ -58,14 +58,14 @@ module Kobako
     def eval(code, &block) # :nodoc:
       collect_overrides(&block) if block
       invoke!(:eval) do
-        @runtime.eval(dispatch_handler, @services.paths, @snippets.entries, code.b)
+        @runtime.eval(dispatch_handler, @services.paths, @snippets.entries, @flags.entries, code.b)
       end
     end
 
     def run(request, &block) # :nodoc:
       collect_overrides(&block) if block
       invoke!(:run, entrypoint: request.entrypoint) do
-        @runtime.run(dispatch_handler, @services.paths, @snippets.entries,
+        @runtime.run(dispatch_handler, @services.paths, @snippets.entries, @flags.entries,
                      request.entrypoint.to_s, request.payload(@handles))
       end
     end

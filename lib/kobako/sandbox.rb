@@ -38,6 +38,7 @@ module Kobako
       @options = SandboxOptions.new(**)
       @services = Kobako::Catalog::Services.new
       @snippets = Catalog::Snippets.new
+      @flags = Catalog::Flags.new
       @extensions = Catalog::Extensions.new
       @sealed = false
       @runtime = build_runtime!
@@ -94,6 +95,22 @@ module Kobako
       self
     end
 
+    # Set the flag +name+, a Symbol or String, to +value+ for every
+    # invocation; an empty +value+ is a plain switch. A Guest Binary that
+    # does not recognise the flag fails each invocation with
+    # UnsupportedFlagError, unless +advisory+ says the guest may skip it.
+    # Mark a flag advisory only when a script cannot tell it was skipped.
+    # Returns +self+.
+    #
+    # Raises ArgumentError for a malformed or duplicate flag, or a call after
+    # the first invocation.
+    def flag(name, value = "", advisory: false)
+      refuse_once_invoked!("flag")
+
+      @flags.register(name, value, advisory: advisory)
+      self
+    end
+
     # Call +call+ on the preloaded top-level constant +target+ with +args+
     # and +kwargs+, and return the Execution. A given block receives the
     # invocation's Context before the guest runs.
@@ -136,11 +153,12 @@ module Kobako
     # does is written back onto the shared config.
     def new_invocation
       begin_invocation!
-      Context.new(runtime: @runtime, services: @services, snippets: @snippets, extensions: @extensions)
+      Context.new(runtime: @runtime, services: @services, snippets: @snippets, flags: @flags,
+                  extensions: @extensions)
     end
 
     # Registration closes at the first invocation, so every invocation ships
-    # the same Services, snippets and Extensions.
+    # the same Services, snippets, flags and Extensions.
     def refuse_once_invoked!(verb)
       raise ArgumentError, "cannot #{verb} after first Sandbox invocation" if @sealed
     end

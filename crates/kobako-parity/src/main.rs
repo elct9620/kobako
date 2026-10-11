@@ -83,6 +83,9 @@ fn run_scenario(frame: &[u8]) -> Result<Json, String> {
     for preload in scenario["preloads"].as_array().unwrap_or(&Vec::new()) {
         apply_preload(&mut sandbox, preload)?;
     }
+    for flag in scenario["flags"].as_array().unwrap_or(&Vec::new()) {
+        apply_flag(&mut sandbox, flag)?;
+    }
     for extension in scenario["extensions"].as_array().unwrap_or(&Vec::new()) {
         install_extension(&mut sandbox, extension)?;
     }
@@ -95,6 +98,22 @@ fn run_scenario(frame: &[u8]) -> Result<Json, String> {
         observables.push(observe(&mut sandbox, invocation, &mut opaques)?);
     }
     Ok(Json::Array(observables))
+}
+
+/// Whether the guest recognises a flag is an invocation-time observable,
+/// so setting one here never fails on a well-formed scenario.
+fn apply_flag(sandbox: &mut Sandbox, flag: &Json) -> Result<(), String> {
+    let name = flag["name"].as_str().ok_or("flag must carry name")?;
+    let value = flag["value"].as_str().ok_or("flag must carry value")?;
+    if flag["advisory"]
+        .as_bool()
+        .ok_or("flag must carry advisory")?
+    {
+        sandbox.flag_advisory(name, value)
+    } else {
+        sandbox.flag(name, value)
+    }
+    .map_err(|err| format!("flag failed: {err}"))
 }
 
 /// Snippet failures are invocation-time observables (replay), so a
@@ -662,6 +681,7 @@ fn classify(error: &Error) -> (&'static str, Option<&kobako::Failure>) {
         Error::Trap(_) => ("trap", None),
         Error::Sandbox(failure) => ("sandbox", Some(failure)),
         Error::Bytecode(failure) => ("bytecode", Some(failure)),
+        Error::UnsupportedFlag(failure) => ("unsupported_flag", Some(failure)),
         Error::Service(failure) => ("service", Some(failure)),
         Error::Setup(_) => ("setup", None),
         Error::Sealed(_) => ("sealed", None),

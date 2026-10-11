@@ -204,6 +204,22 @@ impl Sandbox {
         Ok(())
     }
 
+    /// Set the flag `name` to `value` for every invocation; an empty
+    /// `value` is a plain switch. A Guest Binary that does not recognise it
+    /// answers each invocation's `Execution::payload` with
+    /// `Error::UnsupportedFlag`. Refused once sealed, or for a name already
+    /// set.
+    pub fn flag(&mut self, name: &str, value: &str) -> Result<(), Error> {
+        open_catalog(&mut self.registry)?.flag(name, value, true)
+    }
+
+    /// Set a flag a Guest Binary that does not recognise it may skip. Use it
+    /// only when a script cannot tell the flag was skipped. Refused once
+    /// sealed, or for a name already set.
+    pub fn flag_advisory(&mut self, name: &str, value: &str) -> Result<(), Error> {
+        open_catalog(&mut self.registry)?.flag(name, value, false)
+    }
+
     /// Run one mruby source on a fresh guest instance and return its
     /// `Execution` — the record of the run. `Ok` means the guest ran (its
     /// last expression, or a guest failure, rides `Execution::value`); the
@@ -285,6 +301,7 @@ impl Sandbox {
         let mut preamble = Preamble::default();
         preamble.bindings = catalog.bound_paths();
         preamble.snippets = catalog.snippets.preloaded().clone();
+        preamble.flags = catalog.flags.clone();
         let verb = match entry {
             Entry::Eval { .. } => "eval",
             Entry::Run { .. } => "run",

@@ -97,6 +97,11 @@ module Kobako
   # and then raises is a plain SandboxError.
   class BytecodeError < SandboxError; end
 
+  # The Guest Binary does not support a flag the Sandbox set, so no script
+  # ran. Retrying without the flag, or on a Guest Binary that supports it,
+  # can succeed.
+  class UnsupportedFlagError < SandboxError; end
+
   # Sandbox#run named no top-level constant.
   class UndefinedEntrypointError < SandboxError
     # The constant asked for, and the ones the preloaded snippets define.

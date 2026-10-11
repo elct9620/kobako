@@ -2,7 +2,7 @@
 
 module Parity
   # Assembles a +Kobako::Sandbox+ from a Scenario's declarative setup —
-  # caps, Services, stubs, preloads. Invocation-side
+  # caps, Services, stubs, preloads, flags. Invocation-side
   # observation stays in +RubyExecutor+; the Rust runner interprets the
   # same closed tag sets on its side.
   class SandboxBuilder
@@ -50,6 +50,7 @@ module Parity
       sandbox = Kobako::Sandbox.new(wasm_path: @wasm_path, **sandbox_options(scenario.options))
       scenario.services.each { |service| bind_service(sandbox, service) }
       scenario.preloads.each { |preload| apply_preload(sandbox, preload) }
+      scenario.flags.each { |flag| apply_flag(sandbox, flag) }
       scenario.extensions.each { |extension| install_extension(sandbox, extension) }
       sandbox
     end
@@ -104,14 +105,17 @@ module Parity
       end
     end
 
+    # Whether the guest recognises a flag is an invocation-time observable,
+    # so setting one here never raises on a well-formed scenario.
+    def apply_flag(sandbox, flag)
+      sandbox.flag(flag.fetch(:name), flag.fetch(:value), advisory: flag.fetch(:advisory))
+    end
+
     # Scenario caps ride in the runner's neutral spelling; translate
     # to the Ruby keyword surface (ms → seconds, profile → Symbol).
     def sandbox_options(options)
-      translated = {}
+      translated = options.slice(:memory_limit, :stdout_limit, :stderr_limit)
       translated[:timeout] = options[:timeout_ms] / 1000.0 if options[:timeout_ms]
-      %i[memory_limit stdout_limit stderr_limit].each do |cap|
-        translated[cap] = options[cap] if options.key?(cap)
-      end
       translated[:profile] = options[:profile].to_sym if options[:profile]
       translated
     end

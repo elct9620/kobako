@@ -34,7 +34,7 @@ use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Completion, Snapshot as RuntimeSnapshot};
-use kobako_transport::envelope::{Bindings, Outcome, Preamble, Snippet, Snippets};
+use kobako_transport::envelope::{Bindings, Flag, Outcome, Preamble, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
 /// A Panic's fields as they cross to Ruby: origin, class, message,
@@ -90,8 +90,8 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
 
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
     runtime.define_singleton_method("from_path", function!(Runtime::from_path, 7))?;
-    runtime.define_method("eval", method!(Runtime::eval, 4))?;
-    runtime.define_method("run", method!(Runtime::run, 5))?;
+    runtime.define_method("eval", method!(Runtime::eval, 5))?;
+    runtime.define_method("run", method!(Runtime::run, 6))?;
     runtime.define_method("profile", method!(Runtime::profile, 0))?;
     // The guest re-enters for a block yield through a frame-scoped
     // `Kobako::Runtime::GuestYielder` the dispatcher hands the Proc, not a
@@ -216,10 +216,17 @@ impl Runtime {
         dispatch: Value,
         paths: RArray,
         snippets: RArray,
+        flags: RArray,
         source: RString,
     ) -> Result<Snapshot, MagnusError> {
         let source = rstring_to_vec(source);
-        self.invoke(dispatch, paths, snippets, Entry::Eval { source: &source })
+        self.invoke(
+            dispatch,
+            paths,
+            snippets,
+            flags,
+            Entry::Eval { source: &source },
+        )
     }
 
     fn run(
@@ -227,6 +234,7 @@ impl Runtime {
         dispatch: Value,
         paths: RArray,
         snippets: RArray,
+        flags: RArray,
         entrypoint: String,
         payload: RString,
     ) -> Result<Snapshot, MagnusError> {
@@ -234,6 +242,7 @@ impl Runtime {
             dispatch,
             paths,
             snippets,
+            flags,
             Entry::Run {
                 entrypoint: &entrypoint,
                 payload: rstring_to_vec(payload),
@@ -248,6 +257,7 @@ impl Runtime {
         dispatch: Value,
         paths: RArray,
         snippets: RArray,
+        flags: RArray,
         entry: Entry<'_>,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
@@ -261,6 +271,15 @@ impl Runtime {
             paths: paths.to_vec()?,
         };
         preamble.snippets = snippets_from(&ruby, snippets)?;
+        preamble.flags = flags
+            .to_vec::<(String, String, bool)>()?
+            .into_iter()
+            .map(|(name, value, critical)| Flag {
+                name,
+                value,
+                critical,
+            })
+            .collect();
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // the closure touches no Ruby VALUE (the driver is magnus-free, and a
         // guest→host dispatch re-acquires the GVL through the bridge).

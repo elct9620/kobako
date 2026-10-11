@@ -12,7 +12,7 @@ Captures are read after failures as often as after successes. So the trap paths 
 
 ### Raised refusals
 
-Everything that raises is a behavior too. It settles on the class a Host App rescues and where the failure is attributed. The option checks belong to the runtime that performs them and are specified there. The entrypoint, snippet and preload refusals are here, each witnessed at whatever level shows it.
+Everything that raises is a behavior too. It settles on the class a Host App rescues and where the failure is attributed. The option checks belong to the runtime that performs them and are specified there. The entrypoint, snippet, preload and flag refusals are here, each witnessed at whatever level shows it.
 
 No public surface shows what the registries do internally. That covers how a name is normalized and what order entries keep. So it is pinned by unit tests and is not a behavior.
 
@@ -25,12 +25,14 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/unit/values/test_sandbox_options.rb`
 - `test/unit/catalog/test_services.rb`
 - `test/unit/catalog/test_snippets.rb`
+- `test/unit/catalog/test_flags.rb`
 - `test/e2e/sandbox/test_sandbox.rb`
 - `test/e2e/sandbox/test_run.rb`
 - `test/e2e/sandbox/test_run_as_eval.rb`
 - `test/e2e/sandbox/test_run_preflight.rb`
 - `test/e2e/sandbox/test_run_envelope.rb`
 - `test/e2e/sandbox/test_preload.rb`
+- `test/e2e/sandbox/test_flag.rb`
 - `test/e2e/sandbox/test_usage.rb`
 - `test/e2e/test_caps.rb`
 - `test/e2e/test_reference_memory.rb`
@@ -49,6 +51,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/parity/test_run_snippets.rb`
 - `test/parity/test_caps_usage.rb`
 - `test/parity/test_seal.rb`
+- `test/parity/test_flags.rb`
 - `test/unit/values/test_capture.rb`
 - `crates/kobako-wasmtime/src/capture.rs`
 - `crates/kobako-wasmtime/src/limiter.rs`
@@ -56,6 +59,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `crates/kobako/src/sandbox.rs`
 - `crates/kobako/src/snippet.rs`
 - `crates/kobako/src/catalog.rs`
+- `crates/kobako/tests/flags.rs`
 
 ## `S-001` A Sandbox names the artifact it was built over
 
@@ -1474,3 +1478,63 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox whose Service takes a measurable time |
 | When | guest code calls it |
 | Then | the wall time the run reports includes that time |
+
+## `S-180` Setting a flag chains
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox before its first invocation |
+| When | a flag is set on it |
+| Then | the call answers the Sandbox |
+
+## `S-181` A flag after the Sandbox is sealed is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-087` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose first invocation has begun |
+| When | a flag is set |
+| Then | the refusal names the first invocation |
+
+## `S-182` A flag name set twice is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox that has set a flag |
+| When | a flag of the same name is set again |
+| Then | it is refused |
+
+## `S-183` A critical flag the Guest Binary does not recognise fails each invocation
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MR-017` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox that set a critical flag its Guest Binary does not recognise |
+| When | an invocation runs |
+| Then | it raises the unsupported-flag failure naming the flag, and no script has run |
+
+## `S-184` An advisory flag the Guest Binary does not recognise is skipped
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MR-018` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox that set an advisory flag its Guest Binary does not recognise |
+| When | an invocation runs |
+| Then | it answers as it would without the flag |
+
+## `S-185` A flag name or value of the wrong kind is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a flag whose name is neither a Symbol nor a String, or whose value is not a String |
+| When | it is set |
+| Then | it is refused |

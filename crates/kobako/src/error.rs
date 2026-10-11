@@ -80,6 +80,9 @@ pub enum Error {
     Sandbox(Box<Failure>),
     /// Rejected RITE bytecode at replay (Ruby: `Kobako::BytecodeError`).
     Bytecode(Box<Failure>),
+    /// The Guest Binary does not support a flag the Sandbox set, so no
+    /// script ran (Ruby: `Kobako::UnsupportedFlagError`).
+    UnsupportedFlag(Box<Failure>),
     /// Service-origin failure — the bound object raised or the
     /// dispatch refused the call (Ruby: `Kobako::ServiceError`).
     Service(Box<Failure>),
@@ -100,7 +103,10 @@ impl fmt::Display for Error {
         match self {
             Error::Timeout(msg) | Error::MemoryLimit(msg) | Error::Trap(msg) => f.write_str(msg),
             Error::Argument(msg) => f.write_str(msg),
-            Error::Sandbox(failure) | Error::Bytecode(failure) | Error::Service(failure) => {
+            Error::Sandbox(failure)
+            | Error::Bytecode(failure)
+            | Error::UnsupportedFlag(failure)
+            | Error::Service(failure) => {
                 write!(f, "{failure}")
             }
             Error::Setup(setup) => write!(f, "{setup}"),

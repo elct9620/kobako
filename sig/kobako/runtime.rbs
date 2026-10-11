@@ -16,6 +16,7 @@ module Kobako
       Kobako::Transport::dispatch_proc dispatch,
       Array[String] paths,
       Array[Kobako::Catalog::Snippets::tuple] snippets,
+      Array[Kobako::Catalog::Flags::tuple] flags,
       String source
     ) -> Kobako::Runtime::Snapshot
 
@@ -23,6 +24,7 @@ module Kobako
       Kobako::Transport::dispatch_proc dispatch,
       Array[String] paths,
       Array[Kobako::Catalog::Snippets::tuple] snippets,
+      Array[Kobako::Catalog::Flags::tuple] flags,
       String entrypoint,
       String payload
     ) -> Kobako::Runtime::Snapshot

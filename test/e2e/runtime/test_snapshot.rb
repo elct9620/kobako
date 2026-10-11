@@ -82,8 +82,8 @@ class TestRuntimeSnapshot < Minitest::Test
   private
 
   # Minimal Runtime driver that mirrors +Sandbox#eval+'s wiring without the
-  # Sandbox wrapper. Builds an empty Catalog::Services / Snippet table so both
-  # invocation frames are present and empty, hands the per-call dispatch
+  # Sandbox wrapper. Builds an empty Catalog::Services / Snippet table so the
+  # Preamble carries nothing, hands the per-call dispatch
   # handler a guard Proc (no Service callbacks expected from the simple eval
   # sources used here), and returns the +Kobako::Runtime::Snapshot+.
   def drive_eval(code)
@@ -92,6 +92,6 @@ class TestRuntimeSnapshot < Minitest::Test
     runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil, :hermetic, :hold)
     dispatch = ->(_, _) { raise "unexpected dispatch in eval-only captures test" }
 
-    runtime.eval(dispatch, services.paths, snippets.entries, code.b)
+    runtime.eval(dispatch, services.paths, snippets.entries, [], code.b)
   end
 end

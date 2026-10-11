@@ -16,6 +16,7 @@ module Parity
 
     GUEST_FAILURES = [
       [Kobako::BytecodeError, "bytecode"],
+      [Kobako::UnsupportedFlagError, "unsupported_flag"],
       [Kobako::ServiceError, "service"],
       [Kobako::SandboxError, "sandbox"]
     ].freeze

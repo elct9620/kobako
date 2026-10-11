@@ -1,0 +1,13 @@
+module Kobako
+  module Catalog
+    class Flags
+      type tuple = [String, String, bool]
+
+      def initialize: () -> void
+
+      def entries: () -> Array[tuple]
+
+      def register: (Symbol | String name, String value, advisory: bool) -> nil
+    end
+  end
+end

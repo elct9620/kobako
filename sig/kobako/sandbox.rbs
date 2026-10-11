@@ -27,6 +27,8 @@ module Kobako
     def preload: (code: String, name: Symbol | String) -> Kobako::Sandbox
                | (binary: String) -> Kobako::Sandbox
 
+    def flag: (Symbol | String name, ?String value, ?advisory: bool) -> Kobako::Sandbox
+
     def run: (Symbol | String target, *untyped args, **untyped kwargs) ?{ (Kobako::Context) -> void } -> Kobako::Execution
 
     def eval: (String code) ?{ (Kobako::Context) -> void } -> Kobako::Execution
