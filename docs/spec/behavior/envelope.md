@@ -625,7 +625,7 @@ These rules let every other undefined value be a refusal. The extension point is
 
 | Step | Statement |
 | --- | --- |
-| Given | a request under another channel's request tag or an answer's arm |
+| Given | a request under the other direction's request tag or an answer's arm |
 | When | it is read |
 | Then | it is refused rather than read as unknown |
 

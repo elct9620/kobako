@@ -137,7 +137,7 @@ The agreement two endpoints reach about how values become bytes. It is replaceab
 
 ### Outcome
 
-The final result of one Invocation. Every Invocation writes exactly one, whether it succeeded or failed.
+The final result of one Invocation. Every Invocation answers exactly one, whether it succeeded or failed.
 
 ### Panic
 
@@ -165,7 +165,7 @@ The answer that the receiver does not serve the operation it was sent, returned 
 
 ### Error Record
 
-A failure's name, message, and backtrace as one unit. Every channel that reports a guest failure carries this same shape.
+A failure's name, message, and backtrace as one unit. Every answer that reports a guest failure carries this same shape.
 
 ### Entrypoint
 
@@ -190,3 +190,7 @@ One run of guest code, from entry until it settles. It is the act; the Execution
 ### Execution
 
 The record one Invocation leaves — what it produced, what it wrote, and what it consumed. Frozen once the Invocation settles, and never revised.
+
+### Channel
+
+One of the two streams guest code writes to: output and error. Each is captured apart, so what a script printed never mixes with what it warned.

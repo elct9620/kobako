@@ -12,15 +12,15 @@ same in every assembly. This crate is both of them, and nothing else.
 | `envelope` | the **core envelope**, the outer frame each message rides in |
 | `abi` | the values both sides agree on before exchanging a byte |
 
-The envelope covers each channel's requests under one tag registry. It
-also covers a dispatch round-trip, how an invocation ended, and what an
-invocation is handed, and re-exports every message type. The ABI
-values are the version, the packed `(ptr, len)` return layout, the
-invocation-channel frame prefix, and the message size cap.
+The envelope covers the downcall's and the upcall's requests under one
+tag registry. It also covers a dispatch round-trip, how an invocation
+ended, and what an invocation is handed, and re-exports every message
+type. The ABI values are the version, the packed `(ptr, len)` return
+layout, the stdin frame length prefix, and the message size cap.
 
 ## Opaque Payload
 
-The envelope reads a message's routing fields and its ok-versus-fault tag
+The envelope reads a message's routing fields and its answer's tag
 without decoding a payload byte. Everything the resolved method consumes
 rides through opaque. A decoded envelope borrows the buffer it came from,
 so that payload reaches its reader as a view rather than a copy.

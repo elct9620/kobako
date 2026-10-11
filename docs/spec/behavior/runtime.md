@@ -18,7 +18,7 @@ The scheduling scenarios pair off deliberately, because releasing the lock chang
 
 Ambient denial is read at the WASI layer, not through guest code. The default Guest Binary gives scripts no surface to reach it from.
 
-"Reaches nothing" cannot be witnessed whole, so it is held as what the host grants. No posture preopens a directory, sets a variable, or holds a socket. The guest exports only the invocation entry points.
+"Reaches nothing" cannot be witnessed whole, so it is held as what the host grants. No posture preopens a directory, sets a variable, or holds a socket. The guest exports only what the ABI names.
 
 What the determinism buys is witnessed where it shows: two invocations beginning from the same interpreter state.
 

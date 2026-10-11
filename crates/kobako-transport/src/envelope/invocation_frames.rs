@@ -5,7 +5,7 @@
 //!
 //! Both are mandatory-presence even when empty, so a reader never has to
 //! tell an absent frame from an empty one, and each frame's length reaches
-//! the guest from the channel's own prefix rather than from the envelope.
+//! the guest from its stdin length prefix rather than from the envelope.
 
 use super::bytes::{Reader, Writer};
 use super::DecodeError;

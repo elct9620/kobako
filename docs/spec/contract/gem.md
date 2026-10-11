@@ -440,7 +440,7 @@ end
 
 ## `Kobako::UnsupportedError`
 
-A peer that does not serve an operation, raised on either side under the same name.
+A guest that does not serve a Service's yield, raised at that yield.
 
 ```ruby
 module Kobako

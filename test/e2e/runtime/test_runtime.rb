@@ -106,7 +106,7 @@ class TestRuntime < Minitest::Test
   end
 
   # Same fail-closed posture one layer in: the ext names a snippet's form
-  # when it frames Frame 3, so an unrecognized kind must raise rather than
+  # when it builds the snippets for Frame 3, so an unrecognized kind must raise rather than
   # default to either form. +Catalog::Snippets+ only ever emits the two,
   # so this exercises the guard on a direct +#eval+ call.
   def test_eval_raises_argument_error_for_an_unrecognized_snippet_kind

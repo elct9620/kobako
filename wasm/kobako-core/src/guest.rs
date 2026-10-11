@@ -1,6 +1,6 @@
 //! The Guest ABI contract as a Rust trait.
 //!
-//! `Guest` turns the operations the downcall channel carries
+//! `Guest` turns the operations a downcall carries
 //! (docs/wire/abi.md § ABI Signatures) into a compiler-checked type;
 //! `export_guest!` emits every `#[no_mangle]` export in the invoking
 //! crate, so export signatures cannot drift per-guest and this crate
@@ -33,7 +33,7 @@ pub trait Guest {
 }
 
 /// Emit every wasm export of the Guest ABI in the invoking crate: the
-/// downcall channel, answered through `crate::abi::serve`, and the
+/// downcall, answered through `crate::abi::serve`, and the
 /// pre-message shims (`__kobako_alloc` / `__kobako_abi_version`).
 ///
 /// No `_initialize` is emitted — rustc links a wasm32-wasip1 `cdylib`

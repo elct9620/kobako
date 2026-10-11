@@ -13,7 +13,7 @@
 //!    yield-block result, and the dispatch Call args / kwargs. A value
 //!    with no wire representation yields `None`, never a coerced
 //!    `Object#to_s` string: the outcome caller emits a Panic envelope, the
-//!    yield caller a `0x04` error Yield Reply, and the dispatch caller
+//!    yield caller an error Yield Reply, and the dispatch caller
 //!    raises at the guest call site. No guest→host value path performs an
 //!    implicit `inspect` / `to_h` / `to_s` conversion.
 //! 2. **Args / kwargs unpacking** (`extract_hash_kwargs` /

@@ -33,9 +33,9 @@ built-in proxy does.
 | `eval` / `run` / `yield_to_block` | provided flows | one invocation each |
 | `bake_boot` | build-time hook | behind the wizer pre-initialization entry |
 
-Each provided flow acquires the canonical boot state per invocation,
-reads the frame, converts through the codec, and re-enters for a block
-yield.
+Each provided flow acquires the canonical boot state per invocation and
+installs the Frames it is handed. It then converts through the codec and
+re-enters for a block yield.
 
 ## Usage
 

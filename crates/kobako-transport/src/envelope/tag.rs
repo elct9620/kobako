@@ -1,4 +1,4 @@
-//! The tag registry: the first byte of every message on either channel.
+//! The tag registry: the first byte of every downcall and upcall message.
 //!
 //! One number space covers requests and answers alike, so a byte means
 //! one thing in every message and an answer's arm never collides across

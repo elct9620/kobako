@@ -43,7 +43,7 @@ pub const MAX_FRAME_LEN: usize;
 
 ## `pack_ptr_len`
 
-Pack a guest pointer and length into the one value an ABI export returns.
+Pack a guest pointer and length into the one value a downcall or an upcall returns.
 
 ```rust
 pub fn pack_ptr_len(ptr: u32, len: u32) -> u64 {}
@@ -51,7 +51,7 @@ pub fn pack_ptr_len(ptr: u32, len: u32) -> u64 {}
 
 ## `unpack_ptr_len`
 
-Split an ABI export's return value back into its pointer and length.
+Split a downcall's or an upcall's return value back into its pointer and length.
 
 ```rust
 pub fn unpack_ptr_len(packed: u64) -> (u32, u32) {}
@@ -337,7 +337,7 @@ impl FaultKind {
 
 ## `Outcome`
 
-How an invocation ended: its value, or a Panic.
+How an invocation ended: its value, a Panic, or that the guest does not serve it.
 
 ```rust
 pub enum Outcome {}

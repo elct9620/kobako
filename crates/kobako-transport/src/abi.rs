@@ -12,8 +12,8 @@
 /// neither, but a new answer arm is an increment.
 pub const ABI_VERSION: u32 = 4;
 
-/// Width in bytes of the length prefix that precedes each invocation-channel
-/// frame.
+/// Width in bytes of the length prefix that precedes each frame on WASI
+/// stdin.
 pub const FRAME_LEN_SIZE: usize = 4;
 
 /// Single-dispatch size cap: 16 MiB in either direction, applied to the
@@ -32,7 +32,7 @@ pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 // names the cap rather than the allocation ceiling.
 const _: () = assert!(MAX_FRAME_LEN > MAX_DISPATCH_PAYLOAD);
 
-/// Pack `(ptr, len)` into the u64 both message channels answer with: the high 32 bits carry the linear-memory pointer,
+/// Pack `(ptr, len)` into the u64 the downcall and the upcall answer with: the high 32 bits carry the linear-memory pointer,
 /// the low 32 the byte length. A `len` of zero is the failure signal.
 ///
 /// ```text

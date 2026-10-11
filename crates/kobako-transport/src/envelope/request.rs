@@ -1,9 +1,9 @@
-//! The requests each channel carries: a tag naming the operation, then
-//! that operation's body.
+//! The requests a downcall and an upcall carry: a tag naming the
+//! operation, then that operation's body.
 //!
 //! A tag the registry has not assigned reads as `Unknown` with its body
 //! intact, so a receiver can serve it or answer it as unsupported. An
-//! assigned tag already means one thing, so one this channel does not
+//! assigned tag already means one thing, so one this direction does not
 //! carry as a request is a wire violation, as are an empty request and
 //! the invalid tag; each body's own layout refuses what it cannot frame.
 
@@ -113,7 +113,7 @@ fn read_tag(reader: &mut Reader<'_>) -> Result<u8, DecodeError> {
 
 fn unknown(tag: u8) -> Result<UnknownTag, DecodeError> {
     UnknownTag::new(tag).ok_or(DecodeError::new(
-        "request tag is assigned to another channel or to an answer",
+        "request tag is assigned to the other direction or to an answer",
     ))
 }
 
@@ -234,7 +234,7 @@ mod tests {
                 Upcall::decode(&[0x15, 0x00]).is_err(),
             ),
             (true, true, true, true),
-            "a request under another channel's tag or an answer's arm through Downcall and \
+            "a request under the other direction's tag or an answer's arm through Downcall and \
              Upcall must be refused rather than read as unknown"
         );
     }

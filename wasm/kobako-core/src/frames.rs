@@ -1,9 +1,9 @@
 //! The Frames an invocation reads from stdin before it runs anything.
 //!
 //! Each frame is a 4-byte big-endian u32 length plus its bytes
-//! (docs/wire/abi.md § Invocation channels). Reading and decoding them
+//! (docs/wire/abi.md § Invocation inputs). Reading and decoding them
 //! here means a flow starts from the bound paths and snippets, never
-//! from the channel; a frame that does not read or decode answers the
+//! from stdin; a frame that does not read or decode answers the
 //! invocation as a boot failure before any flow runs.
 
 use std::io::Read;
@@ -123,7 +123,7 @@ mod tests {
                     }]
                 },
             }),
-            "the stdin channel through read_frames must yield Frame 1, then Frame 3"
+            "stdin through read_frames must yield Frame 1, then Frame 3"
         );
     }
 
@@ -135,7 +135,7 @@ mod tests {
         assert_eq!(
             boot_message(read_frames_from(&mut input).unwrap_err()),
             "failed to read the preloaded snippets",
-            "a run channel that ends before Frame 3 through read_frames must answer the \
+            "stdin that ends before Frame 3 through read_frames must answer the \
              invocation as a boot failure"
         );
     }

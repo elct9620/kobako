@@ -5,7 +5,7 @@
 //! `init_gems` hook naming the shell-chosen `beni::Gem` set, plus provided `eval` / `run` /
 //! `yield_to_block` flows implementing the `kobako_core::Guest`
 //! contract over mruby (canonical-boot-state acquisition per
-//! invocation, frame reading, codec
+//! invocation, preamble and snippet replay, codec
 //! conversion, block-yield re-entry) and the build-time `bake_boot`
 //! hook the wizer pre-initialization entry calls. The crate ships
 //! exactly one built-in gem — the wire-tied `KobakoBridge` (Service

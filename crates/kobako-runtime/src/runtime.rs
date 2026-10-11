@@ -22,10 +22,10 @@ use crate::snapshot::Snapshot;
 /// a frontend never encodes either. The payload is owned so that framing it needs no
 /// second copy.
 ///
-/// Closed rather than `#[non_exhaustive]`: the arms are the ABI's
-/// invocation exports, so the set only grows with an ABI version, and a
-/// runtime that has not implemented the new export should fail to
-/// compile rather than fall into a wildcard.
+/// Closed rather than `#[non_exhaustive]`: each arm is an invocation the
+/// downcall carries under its own tag, and a runtime that has not
+/// learned a new one should fail to compile rather than fall into a
+/// wildcard.
 pub enum Entry<'a> {
     Eval {
         source: &'a [u8],

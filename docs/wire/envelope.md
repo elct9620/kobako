@@ -54,7 +54,7 @@ A decode consumes the message exactly or fails, so a framing desync fails loudly
 
 ## Message Layer
 
-Every message on either channel is a tag and a body. The framing rule applies once more: the body is the remainder.
+Every downcall and upcall message is a tag and a body. The framing rule applies once more: the body is the remainder.
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -91,7 +91,7 @@ A request tag the registry has not assigned reads as unknown, with its body inta
 |---|---|
 | a request tag it serves | the operation's own answer |
 | a request tag it does not serve | `unsupported` |
-| another channel's request tag, or an answer's arm | refused |
+| the other direction's request tag, or an answer's arm | refused |
 | request tag `0x00` | refused |
 | an answer arm its operation does not allow | refused |
 
@@ -250,7 +250,7 @@ It carries no `method`, since the entrypoint is invoked through `#call`, and no 
 
 ## Invocation Frames
 
-These are the stdin frames each invocation reads (→ [`abi.md`](abi.md) § Invocation channels). The `#eval` source rides the `eval` downcall instead, and the numbers keep its old gap so each frame keeps one name.
+These are the stdin frames each invocation reads (→ [`abi.md`](abi.md) § Invocation inputs). The `#eval` source rides the `eval` downcall instead, and Frame 2 stays unused so each frame keeps one name.
 
 | Frame | Field | Type | Meaning |
 |-------|-------|------|---------|

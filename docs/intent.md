@@ -34,7 +34,7 @@ host memory, I/O, or credentials. The scenarios under
 | Service injection | Services are guest code's only reach outside the Sandbox |
 | Block yield | a Service method yields to a guest block, still isolated |
 | Error attribution | each failure is a trap, a Sandbox failure, or a Service failure |
-| Output capture | guest stdout and stderr, apart from the Transport channel |
+| Output capture | guest stdout and stderr, apart from the Transport |
 | Extension installation | `#install` gives guest code a native-style constant |
 | Host-parallel execution | `gvl: :release` runs Sandboxes in parallel, changing scheduling only |
 

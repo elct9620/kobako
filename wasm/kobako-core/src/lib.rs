@@ -1,8 +1,8 @@
 //! kobako-core — Guest ABI contract crate root.
 //!
 //! Language-agnostic building blocks for a kobako Guest Binary: the
-//! `Guest` trait + `export_guest!` macro turn the ABI export
-//! enumeration into a compiler-checked contract, and `abi` / `frames`
+//! `Guest` trait + `export_guest!` macro turn the operations a downcall
+//! carries into a compiler-checked contract, and `abi` / `frames`
 //! / `proxy` carry the guest-bound machinery behind it.
 //! The messages themselves — the envelopes and the ABI's own values —
 //! live in `kobako-transport`, this crate's only dependency and the tier

@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Unit-level coverage of the +Kobako::Runtime::Snapshot+ each invocation
-# entry point hands back — its outcome bytes, the two output captures, and
+# entry point hands back — its decoded outcome, the two output captures, and
 # the usage readout. Drives +Runtime+ directly (bypassing +Sandbox+)
 # against the real +data/kobako.wasm+ so the contract being pinned is "what
 # the ext hands back", not the Sandbox-side decomposition.

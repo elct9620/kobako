@@ -41,7 +41,7 @@ One block here is deliberately written in one frontend's own names. The ancestry
 - `wasm/kobako-core/src/abi/downcall.rs`
 - `wasm/kobako-core/src/frames.rs`
 
-## `OC-001` A guest that wrote nothing costs the Sandbox
+## `OC-001` A guest that answered nothing costs the Sandbox
 
 | Step | Statement |
 | --- | --- |

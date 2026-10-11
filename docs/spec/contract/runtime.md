@@ -78,7 +78,7 @@ pub trait Yielder {
 
 ## `Entry`
 
-Which invocation export an invocation enters through.
+Which invocation the downcall starts, by the tag it carries.
 
 ```rust
 pub enum Entry {}

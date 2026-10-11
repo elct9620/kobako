@@ -205,7 +205,7 @@ Host-initiated counterpart of #2 — a Service method `yield`s into a guest-supp
 
 | Case                            | What it isolates                                                                          |
 |---------------------------------|--------------------------------------------------------------------------------------------|
-| `6a-single-yield`               | One yield (tag 0x01 ok) above the no-block #2 baseline.                                    |
+| `6a-single-yield`               | One yield (tag 0x10 ok) above the no-block #2 baseline.                                    |
 | `6b-block-no-yield`             | `block_given` flag travels, Yielder built, never invoked — re-entry-free floor. |
 | `6c-1000-yields-in-one-call`    | 1 000 yields in one dispatch — load-bearing for `each`-style Services.        |
 | `6d-yield-break`                | Block runs `break` on first yield (tag 0x02), unwinding via catch/throw. |

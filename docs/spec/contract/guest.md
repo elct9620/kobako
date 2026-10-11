@@ -67,8 +67,8 @@ pub trait Guest {
 
 ## `DispatchError`
 
-Why a Call came back without a value: the Service's own Fault, or an exchange
-that did not complete.
+Why a Call came back without a value. It names the Service's own Fault, a host
+that does not serve it, or an unfinished exchange.
 
 ```rust
 pub enum DispatchError {}
@@ -76,7 +76,7 @@ pub enum DispatchError {}
 
 ## `alloc`
 
-Hand the host a buffer in the Guest Binary's memory to write a request into.
+Hand the host a buffer in the Guest Binary's memory to write a request or an answer into.
 
 ```rust
 pub fn alloc(size: u32) -> u32 {}

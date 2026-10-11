@@ -5,8 +5,8 @@ The ABI is the set of Wasm functions that carry both [wire](README.md) layers be
 | Section | Holds |
 |---------|-------|
 | ABI Signatures | the four symbols and the two layers they form |
-| Channels | how a message and its answer cross |
-| Invocation channels | what each invocation reads, and from where |
+| Downcall and Upcall | how a message and its answer cross |
+| Invocation inputs | what each invocation reads, and from where |
 | ABI Version | what the version pins, and how it moves |
 
 ## ABI Signatures
@@ -22,11 +22,11 @@ The surface is four symbols. Signatures here use Wasm's own types; a Rust side s
 
 The pre-message layer works before any message exists. The version is agreed before a tag can be read. `__kobako_alloc` gives the host guest memory to write a message into, answering `0` on failure. Adding, removing, or renaming a symbol is an ABI version increment (→ [`spec/behavior/runtime.md`](../spec/behavior/runtime.md)).
 
-### Message Channels
+### Downcall and Upcall
 
-Each direction has one channel, named for the way it crosses. An operation is a tag in the message rather than a symbol (→ [`envelope.md`](envelope.md) § Message Layer).
+Each direction has one symbol, named for the way it crosses. An operation is a tag in the message rather than a symbol (→ [`envelope.md`](envelope.md) § Message Layer).
 
-| Channel | Caller | Carries |
+| Symbol | Caller | Carries |
 |---|---|---|
 | `__kobako_downcall` | host | eval, run, yield |
 | `__kobako_upcall` | guest | call |
@@ -52,7 +52,7 @@ A yield nests inside the upcall the host is still answering. The Yield Call and 
 
 ### Packed Return
 
-Both channels return a location packed as two u32 values in one i64. Every pointer refers to guest linear memory.
+Both message symbols return a location packed as two u32 values in one i64. Every pointer refers to guest linear memory.
 
 ```
  63        32 31         0
@@ -66,7 +66,7 @@ The reader copies the answer during the call frame and keeps no reference to it.
 
 ---
 
-## Invocation channels
+## Invocation inputs
 
 An invocation reads its Frames from WASI stdin and its entry message from the downcall.
 
@@ -109,7 +109,7 @@ Version `4` carries the operation in the message, so an added operation is a reg
 
 | Decision | Consequence |
 |----------|-------------|
-| one channel per direction | the symbol set stays at four |
+| one message symbol per direction | the symbol set stays at four |
 | one tag space for every message | an answer's tag never collides across operations |
 | every answer is a return value | no outcome buffer to drain after a call |
 | field placement follows whose data it is | a Fault rides the envelope, readable without a codec |
