@@ -125,21 +125,12 @@ impl fmt::Debug for Execution {
 
 /// Reads no payload byte, so attribution works for a host whose Receivers
 /// speak a schema this crate does not know. The Ruby gem's
-/// `Kobako::Outcome` is its twin, so both frontends reading the same bytes
-/// reach the same variant.
-pub(crate) fn classify(bytes: &[u8]) -> Result<Vec<u8>, Error> {
-    match Outcome::decode(bytes) {
-        Ok(Outcome::Ok(payload)) => Ok(payload),
-        Ok(Outcome::Panic(panic)) => Err(classify_panic(panic)),
-        // Framing the outcome is the one thing the host does before
-        // attribution, so a message it cannot frame — an empty buffer
-        // included — leaves nothing to attribute to.
-        Err(_) if bytes.is_empty() => Err(Error::Trap(
-            "Sandbox exited without producing a result".into(),
-        )),
-        Err(_) => Err(Error::Trap(
-            "Sandbox produced an unrecognised result".into(),
-        )),
+/// `Kobako::Outcome` is its twin, so both frontends reading the same
+/// Outcome reach the same variant.
+pub(crate) fn classify(outcome: Outcome) -> Result<Vec<u8>, Error> {
+    match outcome {
+        Outcome::Ok(payload) => Ok(payload),
+        Outcome::Panic(panic) => Err(classify_panic(panic)),
     }
 }
 
@@ -221,7 +212,7 @@ mod classify_tests {
 
     use super::*;
 
-    fn panic_bytes(origin: Origin, name: &str) -> Vec<u8> {
+    fn panic_outcome(origin: Origin, name: &str) -> Outcome {
         Outcome::Panic(Panic {
             origin,
             error: ErrorRecord {
@@ -231,14 +222,13 @@ mod classify_tests {
             },
             available: Vec::new(),
         })
-        .encode()
     }
 
     // @behavior OC-006
     #[test]
     fn the_ok_arm_yields_the_payload_bytes_it_carried() {
         assert_eq!(
-            classify(&Outcome::Ok(vec![0x2a]).encode()).unwrap(),
+            classify(Outcome::Ok(vec![0x2a])).unwrap(),
             vec![0x2a],
             "an ok arm through classify must hand back its payload bytes untouched, \
              since attribution reads no payload byte"
@@ -248,49 +238,22 @@ mod classify_tests {
     // @behavior OC-008
     #[test]
     fn service_origin_panic_becomes_service_error() {
-        let result = classify(&panic_bytes(Origin::Service, "Kobako::ServiceError"));
+        let result = classify(panic_outcome(Origin::Service, "Kobako::ServiceError"));
         assert!(matches!(result, Err(Error::Service(f)) if f.message == "boom"));
     }
 
     // @behavior OC-013
     #[test]
     fn bytecode_class_panic_becomes_bytecode_error() {
-        let result = classify(&panic_bytes(Origin::Sandbox, "Kobako::BytecodeError"));
+        let result = classify(panic_outcome(Origin::Sandbox, "Kobako::BytecodeError"));
         assert!(matches!(result, Err(Error::Bytecode(_))));
     }
 
     // @behavior OC-009
     #[test]
     fn sandbox_origin_panic_becomes_sandbox_error() {
-        let result = classify(&panic_bytes(Origin::Sandbox, "RuntimeError"));
+        let result = classify(panic_outcome(Origin::Sandbox, "RuntimeError"));
         assert!(matches!(result, Err(Error::Sandbox(f)) if f.name == "RuntimeError"));
-    }
-
-    // @behavior OC-001
-    #[test]
-    fn empty_bytes_walk_the_trap_path() {
-        assert!(matches!(classify(&[]), Err(Error::Trap(_))));
-    }
-
-    // @behavior OC-002
-    #[test]
-    fn unknown_tag_walks_the_trap_path() {
-        let result = classify(&[0x7f, 0x2a]);
-        assert!(
-            matches!(&result, Err(Error::Trap(msg)) if msg == "Sandbox produced an unrecognised result"),
-            "an unknown outcome tag must trap with a message that asks nothing of the Sandbox, got {result:?}"
-        );
-    }
-
-    // @behavior OC-002
-    #[test]
-    fn a_panic_record_the_envelope_cannot_frame_walks_the_trap_path() {
-        // The Panic arm followed by a truncated origin length prefix.
-        let result = classify(&[0x02, 0x00, 0x00]);
-        assert!(
-            matches!(result, Err(Error::Trap(_))),
-            "a Panic the envelope cannot frame leaves nothing to attribute to, got {result:?}"
-        );
     }
 
     // An unresolved entrypoint reaches the caller with the names it
@@ -299,7 +262,7 @@ mod classify_tests {
     // @behavior OC-014
     #[test]
     fn an_unresolved_entrypoint_carries_the_names_it_could_have_been() {
-        let bytes = Outcome::Panic(Panic {
+        let outcome = Outcome::Panic(Panic {
             origin: Origin::Sandbox,
             error: ErrorRecord {
                 name: "Kobako::UndefinedEntrypointError".into(),
@@ -307,9 +270,8 @@ mod classify_tests {
                 backtrace: Vec::new(),
             },
             available: vec!["Worker".into(), "Helper".into()],
-        })
-        .encode();
-        let result = classify(&bytes);
+        });
+        let result = classify(outcome);
         assert!(
             matches!(result, Err(Error::Sandbox(ref f)) if f.available == ["Worker", "Helper"]),
             "an unresolved entrypoint must reach the caller with its correction, got {result:?}"

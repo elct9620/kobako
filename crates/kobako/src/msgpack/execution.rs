@@ -84,10 +84,10 @@ mod tests {
     // @behavior OC-006
     #[test]
     fn the_ok_arm_yields_payload_bytes_the_codec_reads_back() {
-        let bytes = Outcome::Ok(Encoder::encode(&Value::Int(42)).unwrap()).encode();
+        let outcome = Outcome::Ok(Encoder::encode(&Value::Int(42)).unwrap());
 
         assert_eq!(
-            decode_value(&classify(&bytes).unwrap()).unwrap(),
+            decode_value(&classify(outcome).unwrap()).unwrap(),
             Value::Int(42),
             "an ok arm carrying an encodable value must read back through the codec unchanged"
         );
@@ -98,7 +98,7 @@ mod tests {
     fn a_malformed_value_body_is_a_wire_violation_sandbox_error() {
         // The ok arm followed by a truncated msgpack str header.
         let result =
-            classify(&Outcome::Ok(vec![0xd9]).encode()).and_then(|body| decode_value(&body));
+            classify(Outcome::Ok(vec![0xd9])).and_then(|body| decode_value(&body));
 
         assert!(
             matches!(result, Err(Error::Sandbox(f)) if f.name == WIRE_ERROR_CLASS),

@@ -39,7 +39,7 @@ module Kobako
 
     # One invocation's result — the whole Snapshot the driver produced.
     class Snapshot
-      def outcome: () -> [Symbol, String, Kobako::Outcome::panic_fields?]
+      def outcome: () -> [String, Kobako::Outcome::panic_fields?]
 
       def trap_error: () -> Kobako::TrapError?
 

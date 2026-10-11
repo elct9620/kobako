@@ -322,7 +322,7 @@ fn open_catalog(registry: &mut Mutex<Registry>) -> Result<&mut Catalog, Error> {
 /// Execution, which is also where the payload meets a schema.
 fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>) -> Execution {
     let outcome = match snapshot.completion {
-        Completion::Outcome(bytes) => classify(&bytes),
+        Completion::Outcome(outcome) => classify(outcome),
         Completion::Trap(trap) => Err(trap.into()),
     };
     Execution::new(

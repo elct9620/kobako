@@ -21,7 +21,7 @@ class TestOutcomeValueSharing < Minitest::Test
 
   # @behavior OC-007
   def test_a_large_invocation_value_decodes_without_copying_its_bytes
-    value = Kobako::Outcome.reify(:ok, Kobako::Codec::Encoder.encode(LARGE), nil)
+    value = Kobako::Outcome.reify(Kobako::Codec::Encoder.encode(LARGE), nil)
 
     assert_equal LARGE, value
     assert_operator ObjectSpace.memsize_of(value), :<, LARGE.bytesize,

@@ -179,8 +179,8 @@ impl ContractRuntime for Driver {
             }
         };
         let completion = match called {
-            Ok(()) => match frames::fetch_outcome_bytes(&mut store, &exports) {
-                Ok(bytes) => Completion::Outcome(bytes),
+            Ok(()) => match frames::fetch_outcome(&mut store, &exports) {
+                Ok(outcome) => Completion::Outcome(outcome),
                 Err(t) => Completion::Trap(t),
             },
             Err(e) => Completion::Trap(trap::trap_from(e)),

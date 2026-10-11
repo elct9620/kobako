@@ -41,14 +41,16 @@ class TestRuntimeSnapshot < Minitest::Test
   end
 
   # The ext splits the outcome off the core envelope, so what reaches Ruby
-  # is the arm plus the fields that arm carries — pin the shape for the
-  # arm every successful run takes.
+  # is the payload plus the record a failure carries — pin the shape for
+  # the arm every successful run takes.
   # @behavior RT-041
   def test_snapshot_splits_a_successful_outcome_into_its_ok_arm
-    kind, payload, panic = drive_eval("42").outcome
+    payload, panic = drive_eval("42").outcome
 
-    assert_equal :ok, kind
-    assert_kind_of String, payload
+    # MessagePack's positive fixint for 42, spelled as the literal byte so
+    # the assertion does not follow a change in the encoder.
+    assert_equal "\x2a".b, payload,
+                 "a successful run through Snapshot#outcome must carry its value's payload bytes"
     assert_nil panic,
                "an arm carrying no attribution record must answer nil rather than an empty tuple"
   end

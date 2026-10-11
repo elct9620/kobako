@@ -6,15 +6,13 @@ module Kobako
 
     type panic_fields = [String, String, String, Array[String], Array[String]]
 
-    def self.reify: (Symbol kind, String payload, panic_fields? panic, ?entrypoint: Symbol?) -> Kobako::Codec::wire_value
+    def self.reify: (String payload, panic_fields? panic, ?entrypoint: Symbol?) -> Kobako::Codec::wire_value
 
     private
 
     def self.panic_error: (panic_fields panic, Symbol? entrypoint) -> (SandboxError | ServiceError)
 
     def self.error_class: (String origin, String klass) -> (singleton(SandboxError) | singleton(ServiceError))
-
-    def self.trap_error: (Symbol kind) -> TrapError
 
     def self.decode_value: (String payload) -> Kobako::Codec::wire_value
 

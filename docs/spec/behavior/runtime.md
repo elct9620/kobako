@@ -381,7 +381,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a runtime driven without a Sandbox around it |
 | When | an invocation completes |
-| Then | the outcome names its successful arm, carries payload bytes, and carries no record |
+| Then | the outcome carries payload bytes and no record |
 
 ## `RT-042` The two channels are already apart at this seam
 

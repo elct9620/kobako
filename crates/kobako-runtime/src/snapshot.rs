@@ -11,6 +11,7 @@
 //! so the Rust host SDK re-exports these types themselves.
 
 use crate::error::Trap;
+use kobako_transport::envelope::Outcome;
 
 /// One captured output channel: the bytes the guest wrote (already clipped
 /// to the channel's cap) and whether the cap was reached. `Default` is the
@@ -22,22 +23,19 @@ pub struct Capture {
     pub truncated: bool,
 }
 
-/// How the guest invocation completed: `Outcome` carries the bytes the
-/// guest left as its result, still undecoded; `Trap` is an engine fault
-/// after the export call started, kept as a value so the rest of the
-/// `Snapshot` survives it.
+/// How the guest invocation completed: `Outcome` is the result the guest
+/// left, already framed; `Trap` is an engine fault after the export call
+/// started, kept as a value so the rest of the `Snapshot` survives it.
 ///
-/// The bytes may be empty: a guest that wrote nothing still returned from
-/// its export, so it ended the first way. Telling "wrote nothing" from
-/// "wrote something unframeable" is the frontend's attribution, not a
-/// third way to end.
+/// A guest that returned without an Outcome the envelope can frame —
+/// nothing written included — ends as a `Trap`: with no record to read,
+/// there is nothing a frontend could attribute.
 ///
 /// Closed rather than `#[non_exhaustive]`: an invocation either returned
-/// from its export or the engine stopped it, and there is no third way
-/// for one to end. A wildcard would only hide a frontend that had not
-/// been told otherwise.
+/// a result or failed to, and there is no third way for one to end. A
+/// wildcard would only hide a frontend that had not been told otherwise.
 pub enum Completion {
-    Outcome(Vec<u8>),
+    Outcome(Outcome),
     Trap(Trap),
 }
 

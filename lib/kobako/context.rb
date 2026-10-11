@@ -116,8 +116,8 @@ module Kobako
     # +entrypoint+ is known to the host and never carried by the wire, so an
     # unresolved one names itself on the error it raises.
     def settle_outcome(snapshot, verb, entrypoint)
-      kind, payload, panic = snapshot.outcome
-      value, carried = Codec.track_handles { Outcome.reify(kind, payload, panic, entrypoint: entrypoint) }
+      payload, panic = snapshot.outcome
+      value, carried = Codec.track_handles { Outcome.reify(payload, panic, entrypoint: entrypoint) }
       value = Codec::HandleWalk.deep_restore(value, @handles) if carried
       build_execution(value, failed: false)
     rescue Kobako::TrapError => e

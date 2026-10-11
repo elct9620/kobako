@@ -22,14 +22,13 @@ module Kobako
     }.freeze
     private_constant :ORIGIN_SANDBOX, :ORIGIN_SERVICE, :SUBCLASSES
 
-    # +panic+ is present only on the panic arm, which is what tells the
-    # failure that has a record to attribute from apart from the two that
-    # do not. +entrypoint+ is known to the host and never carried by the
-    # wire.
-    def self.reify(kind, payload, panic, entrypoint: nil)
-      return decode_value(payload) if kind == :ok
+    # +panic+ is present only on the panic arm, which is what tells it from
+    # the ok arm's +payload+. +entrypoint+ is known to the host and never
+    # carried by the wire.
+    def self.reify(payload, panic, entrypoint: nil)
+      return decode_value(payload) unless panic
 
-      raise panic ? panic_error(panic, entrypoint) : trap_error(kind)
+      raise panic_error(panic, entrypoint)
     end
 
     # +reify+ is the whole seam: one call settles one invocation, matching
@@ -60,14 +59,6 @@ module Kobako
         return base unless selected <= base
 
         selected
-      end
-
-      # The guest wrote nothing, or bytes the envelope cannot frame; either
-      # leaves nothing to attribute to.
-      def trap_error(kind)
-        return TrapError.new("Sandbox exited without producing a result") if kind == :absent
-
-        TrapError.new("Sandbox produced an unrecognised result")
       end
 
       # A decode fault means the framing was fine but the carried value is

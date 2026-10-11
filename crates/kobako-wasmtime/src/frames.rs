@@ -1,8 +1,7 @@
-//! Per-invocation byte-shuttle between the host and the guest: it writes
-//! the `#run` envelope into a freshly allocated guest buffer, builds the
+//! Per-invocation I/O between the host and the guest: it writes the
+//! `#run` envelope into a freshly allocated guest buffer, builds the
 //! stdin frame stream plus stdout / stderr capture pipes for the WASI
-//! context, and reads the OUTCOME_BUFFER back out. The driver owns no
-//! wire codec — these helpers move raw bytes; the frontend decodes them.
+//! context, and reads the Outcome back out of the OUTCOME_BUFFER.
 
 use wasmtime::{AsContextMut, Store as WtStore};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
@@ -16,6 +15,7 @@ use crate::{ambient, capture};
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
 use kobako_transport::abi::FRAME_LEN_SIZE;
+use kobako_transport::envelope::Outcome;
 
 /// A missing or trapping allocator is an engine fault, a `Trap`; one that
 /// runs but returns 0 leaves the runtime intact, so it is a `SetupError`.
@@ -94,7 +94,27 @@ pub(crate) fn install_wasi_frames(
     Ok(())
 }
 
-pub(crate) fn fetch_outcome_bytes(
+/// A guest that returned without an Outcome the envelope can frame — an
+/// empty buffer included — has nothing left to attribute, so it is a
+/// `Trap` like every other way of failing to read the result.
+pub(crate) fn fetch_outcome(
+    store: &mut WtStore<Invocation>,
+    exports: &Exports,
+) -> Result<Outcome, Trap> {
+    let bytes = fetch_outcome_bytes(store, exports)?;
+    Outcome::decode(&bytes).map_err(|_| {
+        Trap::Other(
+            if bytes.is_empty() {
+                "Sandbox exited without producing a result"
+            } else {
+                "Sandbox produced an unrecognised result"
+            }
+            .to_string(),
+        )
+    })
+}
+
+fn fetch_outcome_bytes(
     store: &mut WtStore<Invocation>,
     exports: &Exports,
 ) -> Result<Vec<u8>, Trap> {

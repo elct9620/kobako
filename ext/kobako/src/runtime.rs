@@ -309,7 +309,7 @@ fn build_handler(dispatch: Value) -> Option<Arc<dyn DispatchHandler>> {
 /// driver produced, exposed as `Kobako::Runtime::Snapshot`. Usage and the
 /// two output captures are present on every outcome, so the trap path
 /// carries them just like the value path; the completion is read as either
-/// the outcome bytes (`#outcome`) or a trap (`#trap_error`).
+/// the Outcome (`#outcome`) or a trap (`#trap_error`).
 #[derive(TypedData)]
 #[magnus(class = "Kobako::Runtime::Snapshot", free_immediately, size)]
 struct Snapshot(RuntimeSnapshot);
@@ -318,29 +318,27 @@ impl DataTypeFunctions for Snapshot {}
 
 impl Snapshot {
     /// Already split off the core envelope, so the Ruby side maps a failure
-    /// onto its error taxonomy without decoding a payload byte. A trap
-    /// answers `:absent`; `#trap_error` is the discriminator there.
-    fn outcome(&self) -> (Symbol, RString, Option<PanicFields>) {
+    /// onto its error taxonomy without decoding a payload byte: the ok
+    /// arm's payload, or a Panic's fields beside an empty payload. A trap
+    /// has no Outcome; `#trap_error` is the discriminator there.
+    fn outcome(&self) -> Result<(RString, Option<PanicFields>), MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let empty = || ruby.str_from_slice(&[]);
-        let Completion::Outcome(bytes) = &self.0.completion else {
-            return (ruby.to_symbol("absent"), empty(), None);
-        };
-        match Outcome::decode(bytes) {
-            Ok(Outcome::Ok(value)) => (ruby.to_symbol("ok"), ruby.str_from_slice(&value), None),
-            Ok(Outcome::Panic(panic)) => (
-                ruby.to_symbol("panic"),
-                empty(),
+        match &self.0.completion {
+            Completion::Outcome(Outcome::Ok(value)) => Ok((ruby.str_from_slice(value), None)),
+            Completion::Outcome(Outcome::Panic(panic)) => Ok((
+                ruby.str_from_slice(&[]),
                 Some((
                     panic.origin.name().to_owned(),
-                    panic.error.name,
-                    panic.error.message,
-                    panic.error.backtrace,
-                    panic.available,
+                    panic.error.name.clone(),
+                    panic.error.message.clone(),
+                    panic.error.backtrace.clone(),
+                    panic.available.clone(),
                 )),
-            ),
-            Err(_) if bytes.is_empty() => (ruby.to_symbol("absent"), empty(), None),
-            Err(_) => (ruby.to_symbol("malformed"), empty(), None),
+            )),
+            Completion::Trap(_) => Err(MagnusError::new(
+                ruby.exception_runtime_error(),
+                "a trapped run has no outcome",
+            )),
         }
     }
 

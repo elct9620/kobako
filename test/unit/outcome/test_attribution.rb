@@ -9,7 +9,7 @@ require "test_helper"
 
 class TestOutcomeAttributionEdgeCases < Minitest::Test
   def reify_panic(origin:, klass:, message:, payload: "".b)
-    Kobako::Outcome.reify(:panic, payload, [origin, klass, message, []])
+    Kobako::Outcome.reify(payload, [origin, klass, message, []])
   end
 
   # @behavior OC-010
@@ -45,7 +45,7 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
   # has to say what a Host App can act on while still leaving the codec's
   # own account reachable through Ruby's +#detailed_message+ channel.
   def test_ok_arm_with_an_empty_payload_raises_sandbox_error
-    err = assert_raises(Kobako::Transport::Error) { Kobako::Outcome.reify(:ok, "".b, nil) }
+    err = assert_raises(Kobako::Transport::Error) { Kobako::Outcome.reify("".b, nil) }
 
     refute_kind_of Kobako::TrapError, err
     assert_kind_of Kobako::SandboxError, err
