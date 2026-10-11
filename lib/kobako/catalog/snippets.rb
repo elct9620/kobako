@@ -17,18 +17,19 @@ module Kobako
         @entries.map { |entry| entry_tuple(entry) }
       end
 
-      # Has +runtime+ compile the source snippets, once, so every invocation
-      # after replays their bytecode instead of compiling them again. When
-      # nothing comes back the source keeps replaying, and the attempt is not
-      # repeated.
-      def compile(runtime, flags)
+      # Has the block compile the source snippets, once, so every invocation
+      # after replays their bytecode instead of compiling them again. The
+      # block takes the #entries and answers one bytecode per source, or
+      # +nil+; when nothing comes back the source keeps replaying, and the
+      # attempt is not repeated.
+      def compile
         return if @compile_tried
 
         @compile_tried = true
         sources = @entries.grep(Snippet::Source)
         return if sources.empty?
 
-        bytecodes = runtime.compile(entries, flags) or return
+        bytecodes = yield(entries) or return
         @compiled = sources.zip(bytecodes).to_h.compact
         nil
       end

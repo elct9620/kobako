@@ -11,7 +11,7 @@ module Kobako
 
       def entries: () -> Array[tuple]
 
-      def compile: (Kobako::Runtime runtime, Array[Kobako::Catalog::Flags::tuple] flags) -> nil
+      def compile: () { (Array[tuple] entries) -> Array[String]? } -> nil
 
       private
 
