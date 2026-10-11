@@ -153,7 +153,7 @@ module Kobako
     def bound_object(path) = @services.lookup(path).object
   end
 
-  # The declared path set every invocation ships on Frame 1, including the
+  # The declared path set every invocation's Preamble carries, including the
   # sealing snapshot — every invocation after the seal ships the bindings
   # that existed at that moment.
   class CatalogServicesPathsTest < Minitest::Test

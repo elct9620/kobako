@@ -109,8 +109,8 @@ module Kobako
     end
   end
 
-  # The projection every invocation frames into Frame 3
-  # (docs/wire/abi.md § Invocation inputs): one +[kind, name, body]+
+  # The projection every invocation's Preamble carries
+  # (docs/wire/envelope.md § Preamble): one +[kind, name, body]+
   # triple per entry in insertion order. Source entries name themselves;
   # Binary entries carry no name, because a bytecode snippet's canonical
   # name lives in its RITE debug_info and is read by the guest at load

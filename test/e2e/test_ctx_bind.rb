@@ -4,7 +4,7 @@ require "test_helper"
 
 # E2E — the per-eval override block. #eval / #run yield a Context
 # before the guest drives, so `ctx.bind` fills a fillable or shadows any
-# declared binding for that one invocation, without touching Frame 1.
+# declared binding for that one invocation, without touching the bound paths.
 class TestE2ECtxBind < Minitest::Test
   include E2eGuestHelper
 
@@ -110,14 +110,14 @@ class TestE2ECtxBind < Minitest::Test
   end
 
   # @behavior SV-023
-  # Raising inside the block keeps the Frame 1 key set fixed; the guest never
+  # Raising inside the block keeps the bound paths fixed; the guest never
   # runs.
   def test_ctx_bind_on_an_undeclared_path_raises_inside_the_block
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Store")
 
     assert_raises(ArgumentError,
-                  "ctx.bind on a path never declared must raise inside the block, keeping Frame 1 fixed") do
+                  "ctx.bind on a path never declared must raise inside the block, keeping the bound paths fixed") do
       sandbox.eval("1") { |ctx| ctx.bind("Undeclared", Kv.new("x")) }
     end
   end

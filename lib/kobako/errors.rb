@@ -55,7 +55,8 @@ module Kobako
     end
   end
 
-  # The guest's own code failed, or what it produced could not be read.
+  # The guest failed: the script raised or did not compile, the Guest Binary
+  # could not start the run, or what it produced could not be read.
   class SandboxError < Error
     include Diagnosable
     include CarriesExecution

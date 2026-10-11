@@ -128,9 +128,10 @@ module Kobako
     # invocation's Context before the guest runs.
     #
     # Raises TrapError when the engine stopped the guest, a deadline or
-    # memory budget included; SandboxError when the guest's code failed,
-    # +code+ not being a String included; and ServiceError when a Service
-    # call failed and the guest left it unrescued.
+    # memory budget included; SandboxError when the guest failed, +code+ not
+    # being a String or the Guest Binary not starting the run included; and
+    # ServiceError when a Service call failed and the guest left it
+    # unrescued.
     def eval(code, &block)
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 

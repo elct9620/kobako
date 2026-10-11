@@ -222,6 +222,32 @@ That tier carries no payload codec, so the gem still names its own schema. It
 encodes the payload before calling and decodes the answer after, which keeps a
 guest-side raise clear of the parked block.
 
+## Flags
+
+`MrbGuest::apply_flag` receives each flag the host set, before any binding or snippet,
+and answers whether the shell recognises it. The default recognises none. An `Err`
+means the Guest Binary could not start the run, which the host raises as `SandboxError`.
+
+```rust
+fn apply_flag(mrb: &Mrb, flag: &Flag) -> Result<bool, Error> {
+    match flag.name.as_str() {
+        "strict_mode" => {
+            mrb.define_global_const(c"STRICT", true)?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+```
+
+The host marks each flag, so the marking follows what a skipped flag would change.
+
+| A skipped flag | Mark it | Unrecognised, the run |
+|---|---|---|
+| changes nothing a script observes | advisory | goes on without it |
+| enables something a script uses | critical | fails with `UnsupportedFlagError` |
+| imposes a restriction | critical | fails rather than run unrestricted |
+
 ## Guest Replacement
 
 A shell replaces one invocation flow, or the whole guest, and the host cannot tell

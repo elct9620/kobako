@@ -75,8 +75,9 @@ pub enum Error {
     /// Any other engine trap, or an absent / corrupt result
     /// (Ruby: `Kobako::TrapError`).
     Trap(String),
-    /// Guest-origin failure — uncaught exception, compile failure, or
-    /// a wire violation (Ruby: `Kobako::SandboxError`).
+    /// Guest-origin failure — uncaught exception, compile failure, a Guest
+    /// Binary that could not start the run, or a wire violation (Ruby:
+    /// `Kobako::SandboxError`).
     Sandbox(Box<Failure>),
     /// Rejected RITE bytecode at replay (Ruby: `Kobako::BytecodeError`).
     Bytecode(Box<Failure>),

@@ -112,6 +112,13 @@ When no variant matches your capability set, build a Guest Binary of your own in
 
 Build the shell as a `cdylib` for `wasm32-wasip1`, then bake its boot state into the artifact with `kobako-baker input.wasm output.wasm`.
 
+A shell may also define flags, switches the Host App sets for every invocation. A flag is critical by default, so a Guest Binary that does not recognise it raises `Kobako::UnsupportedFlagError` rather than run without it. Mark it `advisory: true` only when a script cannot tell the flag was skipped.
+
+```ruby
+sandbox.flag(:strict_mode)                      # critical: refused where unrecognised
+sandbox.flag(:compile_cache, "on", advisory: true) # skipped where unrecognised
+```
+
 ## Glossary
 
 These terms name the concepts the rest of this README builds on.
@@ -205,7 +212,8 @@ rescue Kobako::TrapError
 rescue Kobako::ServiceError
   # A host Service call failed and the script did not rescue it.
 rescue Kobako::SandboxError => e
-  # The script raised, failed to compile, or returned an unrepresentable value.
+  # The script raised, failed to compile, or returned an unrepresentable value,
+  # or the Guest Binary could not start the run.
   logger.warn(e.execution.stderr)  # the failed run's own captures and usage
 end
 ```
@@ -220,6 +228,7 @@ Each of these carries the failed run's Execution on `#execution`. A rescue reads
 | `Kobako::ServiceArgumentError`  | `ServiceError` | The arguments did not fit the Service method         |
 | `Kobako::HandleExhaustedError` | `SandboxError` | Handle counter reached its 2³¹ − 1 cap               |
 | `Kobako::BytecodeError`         | `SandboxError` | `#preload(binary:)` failed RITE validation at replay |
+| `Kobako::UnsupportedFlagError`  | `SandboxError` | The Guest Binary does not recognise a critical `#flag`; no script ran |
 | `Kobako::UndefinedEntrypointError` | `SandboxError` | `#run` named a constant no snippet defined; carries `#name` and `#available` |
 
 `SandboxError` and `ServiceError` carry structured `origin` / `klass` / `backtrace_lines` fields when the guest produced a panic envelope.

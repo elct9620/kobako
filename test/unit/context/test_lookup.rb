@@ -89,13 +89,13 @@ module Kobako
 
     # @behavior SV-023
     # ctx.bind on an undeclared path raises, so a per-eval override can never
-    # grow the Frame 1 key set sealed at the first invocation.
+    # grow the bound paths sealed at the first invocation.
     def test_ctx_bind_rejects_an_undeclared_path
       @services.bind("Store", Object.new)
       ctx = context
 
       assert_raises(ArgumentError,
-                    "ctx.bind on an undeclared path must raise so the Frame 1 key set stays fixed") do
+                    "ctx.bind on an undeclared path must raise so the bound paths stay fixed") do
         ctx.bind("Undeclared", Object.new)
       end
     end
