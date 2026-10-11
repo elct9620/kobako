@@ -58,7 +58,7 @@ module Kobako
     def eval(code, &block) # :nodoc:
       collect_overrides(&block) if block
       invoke!(:eval) do
-        @runtime.eval(dispatch_handler, @services.paths, code.b, @snippets.entries)
+        @runtime.eval(dispatch_handler, @services.paths, @snippets.entries, code.b)
       end
     end
 

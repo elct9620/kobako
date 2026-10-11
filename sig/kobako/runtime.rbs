@@ -15,8 +15,8 @@ module Kobako
     def eval: (
       Kobako::Transport::dispatch_proc dispatch,
       Array[String] paths,
-      String source,
-      Array[Kobako::Catalog::Snippets::tuple] snippets
+      Array[Kobako::Catalog::Snippets::tuple] snippets,
+      String source
     ) -> Kobako::Runtime::Snapshot
 
     def run: (

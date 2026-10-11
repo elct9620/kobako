@@ -224,8 +224,8 @@ impl Runtime {
         &self,
         dispatch: Value,
         paths: RArray,
-        source: RString,
         snippets: RArray,
+        source: RString,
     ) -> Result<Snapshot, MagnusError> {
         let source = rstring_to_vec(source);
         self.invoke(dispatch, paths, snippets, Entry::Eval { source: &source })

@@ -114,7 +114,7 @@ class TestRuntime < Minitest::Test
 
     runtime = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :hold)
     err = assert_raises(ArgumentError) do
-      runtime.eval(nil, [], "nil".b, [[:mrbc, "Helper", "X = 1"]])
+      runtime.eval(nil, [], [[:mrbc, "Helper", "X = 1"]], "nil".b)
     end
     assert_match(/snippet kind must be :source or :bytecode/, err.message)
   end
