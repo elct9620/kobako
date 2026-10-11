@@ -9,7 +9,8 @@
 //! present, lives in the RITE `debug_info` the guest reads at load
 //! time.
 
-use kobako_transport::envelope::{Snippet, Snippets as Preloaded};
+use kobako_runtime::runtime::Runtime;
+use kobako_transport::envelope::{Flag, Preamble, Snippet, Snippets as Preloaded};
 
 use crate::error::Error;
 
@@ -52,6 +53,35 @@ impl Snippets {
 
     pub(crate) fn preloaded(&self) -> &Preloaded {
         &self.preloaded
+    }
+
+    /// Has `runtime` compile the source entries under `flags`, and puts
+    /// each bytecode it answers in place of its source, so every
+    /// invocation after replays it instead of compiling again. When
+    /// nothing comes back the source stays.
+    pub(crate) fn compile(&mut self, runtime: &dyn Runtime, flags: &[Flag]) {
+        let has_source = self
+            .preloaded
+            .entries
+            .iter()
+            .any(|entry| matches!(entry, Snippet::Source { .. }));
+        if !has_source {
+            return;
+        }
+        let mut preamble = Preamble::default();
+        preamble.snippets = self.preloaded.clone();
+        preamble.flags = flags.to_vec();
+        let Some(bytecodes) = runtime.compile(&preamble) else {
+            return;
+        };
+        let sources = self
+            .preloaded
+            .entries
+            .iter_mut()
+            .filter(|entry| matches!(entry, Snippet::Source { .. }));
+        for (entry, body) in sources.zip(bytecodes) {
+            *entry = Snippet::Bytecode { body };
+        }
     }
 }
 

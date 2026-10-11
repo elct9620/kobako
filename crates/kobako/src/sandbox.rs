@@ -85,8 +85,11 @@ impl Registry {
         }
     }
 
-    fn seal(&mut self) -> Arc<Catalog> {
+    /// The snippets are compiled here, once, so every invocation replays
+    /// the same sealed table.
+    fn seal(&mut self, runtime: &dyn Runtime) -> Arc<Catalog> {
         if let Registry::Open(catalog) = self {
+            catalog.snippets.compile(runtime, &catalog.flags);
             let sealed = Arc::new(std::mem::take(catalog));
             *self = Registry::Sealed(sealed);
         }
@@ -318,7 +321,7 @@ impl Sandbox {
             .registry
             .lock()
             .expect("the registry mutex is never poisoned")
-            .seal();
+            .seal(self.runtime.as_ref());
         self.extensions.assert_dependencies()?;
         Ok((catalog, Arc::new(Mutex::new(HandleTable::default()))))
     }
@@ -403,6 +406,26 @@ const _: fn() = || {
 mod tests {
     use super::*;
 
+    /// Sealing an empty table asks the engine for nothing, so one that
+    /// cannot run is enough.
+    struct NoEngine;
+
+    impl Runtime for NoEngine {
+        fn invoke(
+            &self,
+            _entry: kobako_runtime::runtime::Entry<'_>,
+            _preamble: &kobako_transport::envelope::Preamble,
+            _handler: Option<Arc<dyn kobako_runtime::dispatch::DispatchHandler>>,
+        ) -> Result<kobako_runtime::snapshot::Snapshot, kobako_runtime::error::InvokeError>
+        {
+            unreachable!("sealing never invokes")
+        }
+
+        fn profile(&self) -> Profile {
+            Profile::Hermetic
+        }
+    }
+
     // The seal-once lifecycle is pure state and testable without a
     // driver; the invocation path itself is pinned end-to-end by the
     // parity harness against the real guest binary.
@@ -411,7 +434,7 @@ mod tests {
     fn registry_refuses_late_mutation() {
         let mut registry = Registry::Open(Catalog::default());
         assert!(registry.open_mut().is_ok());
-        registry.seal();
+        registry.seal(&NoEngine);
         assert!(matches!(registry.open_mut(), Err(Error::Sealed(_))));
     }
 
@@ -419,8 +442,8 @@ mod tests {
     #[test]
     fn registry_seals_once() {
         let mut registry = Registry::Open(Catalog::default());
-        let first = registry.seal();
-        let second = registry.seal();
+        let first = registry.seal(&NoEngine);
+        let second = registry.seal(&NoEngine);
         assert!(Arc::ptr_eq(&first, &second));
     }
 

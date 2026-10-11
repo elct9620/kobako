@@ -279,6 +279,9 @@ The Rust host SDK takes an engine at `Sandbox::with_runtime` and keeps the whole
 above it: Catalog, Handles, snippet replay, Extension composition. `Sandbox::new` is
 the same path with the bundled wasmtime engine.
 
+`Runtime::compile` is optional. An engine that keeps its default compiles nothing, and
+the SDK replays the preloaded source on every invocation instead of its bytecode.
+
 Only the isolation floor crosses that seam. The engine's own caps are configured
 where the engine is built, while the SDK checks the posture it declares
 (→ [runtime](../spec/behavior/runtime.md)).
