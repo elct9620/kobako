@@ -66,7 +66,7 @@ fn try_handle(
     // the whole way through.
     let call = match Upcall::decode(&req_bytes) {
         Ok(Upcall::Call(call)) => call,
-        Ok(Upcall::Unserved(_)) => {
+        Ok(_) => {
             let refusal = Unsupported::new("the host does not serve this request");
             return write_reply(caller, &refusal.encode());
         }

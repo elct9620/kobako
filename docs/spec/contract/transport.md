@@ -131,7 +131,7 @@ pub enum Downcall {}
 
 ## `Downcall::decode`
 
-Read a request the host sent, or the tag of one this reader does not serve.
+Read a request the host sent; a tag outside the registry keeps its body.
 
 ```rust
 impl Downcall {
@@ -159,7 +159,7 @@ pub enum Upcall {}
 
 ## `Upcall::decode`
 
-Read a request the guest sent, or the tag of one this reader does not serve.
+Read a request the guest sent; a tag outside the registry keeps its body.
 
 ```rust
 impl Upcall {

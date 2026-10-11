@@ -23,9 +23,9 @@ A reader that repaired one would leave the two peers disagreeing about what was 
 
 ### Forward compatibility
 
-Forward-compatibility rules are declared as behavior rather than left to a version bump. A Fault or Unsupported kind this reader predates still delivers its message. A field this reader predates is skipped. A request tag this reader does not serve is read as unserved, so it can be answered.
+Forward-compatibility rules are declared as behavior rather than left to a version bump. A Fault or Unsupported kind this reader predates still delivers its message. A field this reader predates is skipped. A request tag outside the registry is read as unknown, body intact, so it can be served or answered.
 
-These rules let the reserved and unknown tags elsewhere be refusals. The extension point is named, so everything outside it can be closed.
+These rules let every other undefined value be a refusal. The extension point is named, so everything outside it can be closed.
 
 ## Includes
 
@@ -596,18 +596,26 @@ These rules let the reserved and unknown tags elsewhere be refusals. The extensi
 | When | each is written |
 | Then | each opens with its operation's tag, followed by its body alone |
 
-## `WE-072` A request tag this reader does not serve is read as unserved
+## `WE-072` A request tag outside the registry is read as unknown
 
 | Step | Statement |
 | --- | --- |
-| Given | a request under a tag this reader does not serve |
+| Given | a request under a tag outside the registry |
 | When | it is read |
-| Then | it reads as unserved rather than refused, so the reader can answer it |
+| Then | it reads as unknown with its tag and body intact |
 
 ## `WE-073` A request carrying nothing is refused
 
 | Step | Statement |
 | --- | --- |
 | Given | a request of no length |
+| When | it is read |
+| Then | it is refused |
+
+## `WE-074` A request under the invalid tag is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a request under tag `0x00` |
 | When | it is read |
 | Then | it is refused |

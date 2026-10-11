@@ -5,6 +5,8 @@
 //! operations. The registry grows append-only; a receiver answers a
 //! request tag it does not serve as unsupported.
 
+/// Never assigned, so a zeroed message cannot pass for one that was written.
+pub(crate) const INVALID: u8 = 0x00;
 pub(crate) const EVAL: u8 = 0x01;
 pub(crate) const RUN: u8 = 0x02;
 pub(crate) const YIELD: u8 = 0x03;

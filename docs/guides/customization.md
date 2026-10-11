@@ -56,6 +56,7 @@ The types those seams carry, by grade:
 | **stable · exhaustive** | `kobako_runtime::{Profile, Entry, Completion}` · `kobako_codec::msgpack::Value` · `kobako::{Provider, msgpack::RunArg}` |
 | **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension}` · `kobako::msgpack::ValueReceiver` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |
+| **append-only, read by an older peer as `Unknown`** | `kobako_transport::envelope::{Downcall, Upcall}` |
 | **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · every other `kobako_transport::envelope::*`, five re-exported from `kobako_core` |
 
 Two things stay fixed. The **core envelope** and the **ABI surface** are the same for

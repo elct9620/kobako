@@ -18,8 +18,8 @@ pub fn serve<G: Guest>(request: &[u8]) -> Vec<u8> {
         Ok(Downcall::Eval(source)) => invoke(|frames| G::eval(frames, source)),
         Ok(Downcall::Run(run)) => invoke(|frames| G::run(frames, run)),
         Ok(Downcall::Yield(args)) => G::yield_to_block(&args).encode(),
-        Ok(Downcall::Unserved(tag)) => {
-            Unsupported::new(format!("this guest does not serve tag {tag:#04x}")).encode()
+        Ok(_) => {
+            Unsupported::new(format!("this guest does not serve tag {:#04x}", request[0])).encode()
         }
         Err(_) => Outcome::Panic(Panic {
             origin: Origin::Sandbox,
