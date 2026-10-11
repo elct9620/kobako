@@ -30,14 +30,16 @@ mod tests {
 
     #[test]
     fn a_framed_run_reaches_the_flow_whole() {
-        let run = Run {
-            entrypoint: "Main".into(),
-            payload: vec![0x90],
-        };
+        // Spelled as the literal layout bytes rather than through
+        // `Run::encode`, so the expectation does not follow the encoder.
+        let env = [0, 0, 0, 4, b'M', b'a', b'i', b'n', 0x90];
 
         assert_eq!(
-            decode_run(&run.encode()),
-            Ok(run),
+            decode_run(&env),
+            Ok(Run {
+                entrypoint: "Main".into(),
+                payload: vec![0x90],
+            }),
             "a Run the host framed must reach the flow with its entrypoint and payload intact"
         );
     }
