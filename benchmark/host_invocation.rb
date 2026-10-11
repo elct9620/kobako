@@ -6,7 +6,7 @@
 # Every other sandbox-driven suite reports a total that bundles host and
 # guest, and gates on `wall_time` — the guest export alone. That leaves
 # the host half of an invocation with no metric of its own: the
-# Context and its Catalog::Handles, the Run envelope, the frame stream,
+# Context and its Catalog::Handles, the Run envelope, the Preamble,
 # the boundary crossing, the Outcome decode, and the frozen Execution.
 # The one derived stand-in, `1/ips - wall_time`, is a difference of two
 # near-equal numbers, and on the thousand-call rows it loses every
