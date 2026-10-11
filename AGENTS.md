@@ -119,7 +119,7 @@ A scenario test's assertion message is a contract: "<input> through <public API>
 
 ## Architecture
 
-`docs/architecture.md` draws the crate map, the Ruby tiers, and the placement rules that keep those tiers acyclic. Read it before adding a type or a crate.
+`docs/architecture.md` draws the crate map, the seams a replacement plugs in at, the Ruby tiers, and the placement rules that keep those tiers acyclic. Read it before adding a type or a crate.
 
 ```
 lib/  Orchestration → Catalog → Transport · Outcome → Payload → Codec → Root
