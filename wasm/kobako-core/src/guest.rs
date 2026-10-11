@@ -7,36 +7,36 @@
 //! `#[no_mangle]` symbol (dependency-rlib exports are unreliable —
 //! they get dead-code-GC'd by wasm-ld and break on native ELF).
 
+use kobako_transport::envelope::{Outcome, Run, YieldReply};
+
 /// One Guest Binary's invocation surface — the three entry
 /// points behind the wasm exports `export_guest!` emits.
 ///
-/// `eval` and `run` are required: each runs one invocation and writes
-/// a single Outcome envelope via `crate::abi::write_outcome` /
-/// `crate::abi::write_panic` before returning. `yield_to_block`
-/// carries a trapping default — a guest without block support panics,
-/// which reaches the host as a wasm trap through its existing trap
-/// path (no dedicated "no blocks" wire value needed).
+/// Each entry answers with a value and never touches the wire:
+/// `export_guest!` reads the Run and frames each answer, so a guest
+/// cannot speak a different envelope than the host reads. `eval` and
+/// `run` are required. `yield_to_block` carries a trapping default — a
+/// guest without block support panics, which reaches the host as a
+/// wasm trap through its existing trap path (no dedicated "no blocks"
+/// wire value needed).
 pub trait Guest {
     /// `__kobako_eval` — runs one-shot user source from stdin Frame 2.
-    fn eval();
+    fn eval() -> Outcome;
 
-    /// `__kobako_run` — entrypoint dispatch; `env` is the invocation
-    /// envelope the host wrote into linear memory.
-    fn run(env: &[u8]);
+    /// `__kobako_run` — calls the entrypoint the host's Run names.
+    fn run(run: Run) -> Outcome;
 
     /// `__kobako_yield_to_block` — host-initiated re-entry into a
-    /// guest block; `req` carries the yield
-    /// arguments, the return value is the packed `(ptr, len)` of the
-    /// Yield Reply buffer.
-    fn yield_to_block(_req: &[u8]) -> u64 {
+    /// guest block; `req` carries the yield arguments.
+    fn yield_to_block(_req: &[u8]) -> YieldReply {
         panic!("no block support")
     }
 }
 
 /// Emit every wasm export of the Guest ABI in the invoking crate:
-/// the three `Guest` trait forwarders and the `crate::abi` shims
-/// (`__kobako_alloc` / `__kobako_take_outcome` /
-/// `__kobako_abi_version`).
+/// the three `Guest` trait forwarders, each framing its answer through
+/// `crate::abi`, and the `crate::abi` shims (`__kobako_alloc` /
+/// `__kobako_take_outcome` / `__kobako_abi_version`).
 ///
 /// No `_initialize` is emitted — rustc links a wasm32-wasip1 `cdylib`
 /// with `--no-entry`, and wasm-ld runs any static constructors
@@ -52,7 +52,7 @@ macro_rules! export_guest {
     ($guest:ty) => {
         #[no_mangle]
         pub extern "C" fn __kobako_eval() {
-            <$guest as $crate::Guest>::eval()
+            $crate::abi::write_outcome(<$guest as $crate::Guest>::eval())
         }
 
         #[no_mangle]
@@ -64,7 +64,11 @@ macro_rules! export_guest {
             let env = unsafe {
                 ::core::slice::from_raw_parts(env_ptr as usize as *const u8, env_len as usize)
             };
-            <$guest as $crate::Guest>::run(env)
+            let outcome = match $crate::abi::decode_run(env) {
+                Ok(run) => <$guest as $crate::Guest>::run(run),
+                Err(refused) => refused,
+            };
+            $crate::abi::write_outcome(outcome)
         }
 
         #[no_mangle]
@@ -74,7 +78,7 @@ macro_rules! export_guest {
             let req = unsafe {
                 ::core::slice::from_raw_parts(req_ptr as usize as *const u8, req_len as usize)
             };
-            <$guest as $crate::Guest>::yield_to_block(req)
+            $crate::abi::write_reply(<$guest as $crate::Guest>::yield_to_block(req))
         }
 
         #[no_mangle]
@@ -97,14 +101,19 @@ macro_rules! export_guest {
 #[cfg(test)]
 mod tests {
     use super::Guest;
+    use kobako_transport::envelope::{Outcome, Run};
 
     /// A guest that opts out of block support by leaving the
     /// `yield_to_block` default in place.
     struct NoBlockGuest;
 
     impl Guest for NoBlockGuest {
-        fn eval() {}
-        fn run(_env: &[u8]) {}
+        fn eval() -> Outcome {
+            Outcome::Ok(Vec::new())
+        }
+        fn run(_run: Run) -> Outcome {
+            Outcome::Ok(Vec::new())
+        }
     }
 
     // @behavior T-181

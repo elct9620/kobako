@@ -14,7 +14,7 @@ compiler-checked contract.
 |---|---|
 | `Guest` trait + `export_guest!` | the export set as a trait; the macro emits each `#[no_mangle]` export |
 | `proxy` / `dispatch` | the guest dispatch path to the host over `__kobako_dispatch` |
-| `abi` / `frames` | outcome buffer, packed-u64 helpers, stdin frame reader, and `ABI_VERSION` |
+| `abi` / `frames` | the framing each export applies, stdin frame reader, and `ABI_VERSION` |
 
 The messages themselves live in
 [kobako-transport](https://crates.io/crates/kobako-transport): the
@@ -31,16 +31,18 @@ crate-type = ["cdylib"]
 
 [dependencies]
 kobako-core = "0.17.0" # x-release-please-version
+kobako-transport = "0.17.0" # x-release-please-version
 ```
 
 ```rust
 use kobako_core::Guest;
+use kobako_transport::envelope::{Outcome, Run};
 
 struct MyGuest;
 
 impl Guest for MyGuest {
-    fn eval() { /* run one invocation, write the outcome */ }
-    fn run(env: &[u8]) { /* entrypoint dispatch */ }
+    fn eval() -> Outcome { /* run one invocation */ }
+    fn run(run: Run) -> Outcome { /* call run.entrypoint */ }
     // yield_to_block keeps its trapping default for guests
     // without block support
 }
@@ -56,10 +58,14 @@ sandbox = Kobako::Sandbox.new(wasm_path: "path/to/my_guest.wasm")
 
 ## Contract
 
-The crate reports `abi::ABI_VERSION` through the macro-emitted
-`__kobako_abi_version` export; the host validates it by equality at
-Sandbox construction and rejects skew with `Kobako::SetupError`.
+The host checks a Guest Binary's ABI version before it runs anything.
+
+| Side | What it does |
+|---|---|
+| Guest | reports `abi::ABI_VERSION` through `__kobako_abi_version` |
+| Host | requires an equal version at Sandbox construction |
+| Host, on skew | rejects the Guest Binary with `Kobako::SetupError` |
 
 ## License
 
-Apache-2.0
+Licensed under [Apache-2.0](https://github.com/elct9620/kobako/blob/main/LICENSE).

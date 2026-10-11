@@ -1,6 +1,7 @@
-//! Guest ABI machinery: the `__kobako_dispatch` host-import declaration
-//! and the per-invocation outcome-buffer (`alloc` / `take_outcome` /
-//! `write_outcome` / `write_panic`).
+//! Guest ABI machinery: the `__kobako_dispatch` host-import declaration,
+//! the per-invocation outcome buffer (`alloc` / `take_outcome` /
+//! `write_outcome`), the Run read before a flow sees it (`decode_run`),
+//! and the Yield Reply framed after one answers (`write_reply`).
 //!
 //! The values the ABI fixes — the version, the packed-return layout —
 //! are `kobako_transport::abi`'s and are re-exported here so
@@ -9,9 +10,13 @@
 //! this module carries only what they delegate to.
 
 mod outcome_buffer;
+mod reply;
+mod run;
 
 pub use kobako_transport::abi::{pack_ptr_len, unpack_ptr_len, ABI_VERSION};
-pub use outcome_buffer::{alloc, take_outcome, write_outcome, write_panic};
+pub use outcome_buffer::{alloc, take_outcome, write_outcome};
+pub use reply::write_reply;
+pub use run::decode_run;
 
 // ---------------------------------------------------------------------------
 // Host import declaration.

@@ -8,39 +8,29 @@
 //! 2. Evaluate the user script under a `(eval)` ccontext so its IREP
 //!    carries `debug_info` (needed for a populated
 //!    `Exception#backtrace`).
-//! 3. Serialize the last-expression value as an ok Outcome, or
+//! 3. Answer with the last-expression value as an ok Outcome, or
 //!    convert the parse failure or raised exception into a Panic
-//!    Outcome, and write the bytes into the kobako-core outcome buffer.
+//!    Outcome.
 //!
-//! `__kobako_eval` never traps or calls `exit` — the host reads the
-//! outcome tag from `__kobako_take_outcome()` after this function
-//! returns.
+//! `__kobako_eval` never traps or calls `exit` — every failure is an
+//! Outcome the host reads after this function returns.
 
-pub(crate) fn eval<G: crate::MrbGuest>() {
+use kobako_transport::envelope::{Outcome, Panic};
+
+pub(crate) fn eval<G: crate::MrbGuest>() -> Outcome {
+    evaluate::<G>().unwrap_or_else(Outcome::Panic)
+}
+
+fn evaluate<G: crate::MrbGuest>() -> Result<Outcome, Panic> {
     use super::{boot, panic};
     use beni::Ccontext;
-    use kobako_core::abi::write_panic;
     use kobako_core::frames;
 
-    let preamble = match boot::read_preamble() {
-        Ok(p) => p,
-        Err(panic) => return write_panic(panic),
-    };
-
-    let frame2 = match frames::read_frame() {
-        Some(b) => b,
-        None => return write_panic(panic::boot_panic("failed to read the script")),
-    };
-
-    let snippets = match boot::read_snippets() {
-        Ok(s) => s,
-        Err(panic) => return write_panic(panic),
-    };
-
-    let kobako = match boot::enter::<G>(&preamble, &snippets) {
-        Ok(k) => k,
-        Err(panic) => return write_panic(panic),
-    };
+    let preamble = boot::read_preamble()?;
+    let frame2 =
+        frames::read_frame().ok_or_else(|| panic::boot_panic("failed to read the script"))?;
+    let snippets = boot::read_snippets()?;
+    let kobako = boot::enter::<G>(&preamble, &snippets)?;
     let mrb = kobako.mrb();
 
     // Compile under a ccontext with filename so the resulting IREP
@@ -50,19 +40,16 @@ pub(crate) fn eval<G: crate::MrbGuest>() {
     // array when scripts are loaded via the bare `mrb_load_nstring`.
     let filename = c"(eval)";
     let result = {
-        let Some(cxt) = Ccontext::new(mrb, filename) else {
-            return write_panic(panic::boot_panic(
-                "failed to initialize the Sandbox interpreter",
-            ));
-        };
+        let cxt = Ccontext::new(mrb, filename)
+            .ok_or_else(|| panic::boot_panic("failed to initialize the Sandbox interpreter"))?;
         cxt.load_nstring(&frame2)
         // `cxt` drops here — `mrb_ccontext_free` runs automatically.
     };
 
-    match result {
-        Ok(value) => panic::write_value_outcome::<G>(&kobako, value),
-        Err(err) => write_panic(panic::load_panic(&kobako, filename, err)),
-    }
     // The VM stays in the slot — the host discards the whole instance
     // after draining the outcome (the per-invocation discipline).
+    match result {
+        Ok(value) => Ok(panic::value_outcome::<G>(&kobako, value)),
+        Err(err) => Err(panic::load_panic(&kobako, filename, err)),
+    }
 }

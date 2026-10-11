@@ -50,11 +50,13 @@ crate-type = ["cdylib"]
 [dependencies]
 kobako-mruby = { version = "0.17.0", features = ["msgpack"] } # x-release-please-version
 kobako-core = "0.17.0" # x-release-please-version
+kobako-transport = "0.17.0" # x-release-please-version
 beni = "0.22"
 ```
 
 ```rust
 use beni::{Error, Mrb};
+use kobako_transport::envelope::{Outcome, Run, YieldReply};
 
 struct MyGuest;
 
@@ -72,15 +74,15 @@ impl kobako_mruby::MrbGuest for MyGuest {
 }
 
 impl kobako_core::Guest for MyGuest {
-    fn eval() {
-        <MyGuest as kobako_mruby::MrbGuest>::eval();
+    fn eval() -> Outcome {
+        <MyGuest as kobako_mruby::MrbGuest>::eval()
     }
 
-    fn run(env: &[u8]) {
-        <MyGuest as kobako_mruby::MrbGuest>::run(env);
+    fn run(run: Run) -> Outcome {
+        <MyGuest as kobako_mruby::MrbGuest>::run(run)
     }
 
-    fn yield_to_block(req: &[u8]) -> u64 {
+    fn yield_to_block(req: &[u8]) -> YieldReply {
         <MyGuest as kobako_mruby::MrbGuest>::yield_to_block(req)
     }
 }

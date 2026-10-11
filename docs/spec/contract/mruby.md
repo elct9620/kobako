@@ -203,21 +203,21 @@ pub trait MrbGuest {
 
 ## `MrbGuest::eval`
 
-The flow that runs one invocation of a script.
+The flow that runs one invocation of a script and answers with its Outcome.
 
 ```rust
 pub trait MrbGuest {
-    fn eval();
+    fn eval() -> Outcome;
 }
 ```
 
 ## `MrbGuest::run`
 
-The flow that calls one Entrypoint from the Run the host wrote.
+The flow that calls the Entrypoint the host's Run names and answers with its Outcome.
 
 ```rust
 pub trait MrbGuest {
-    fn run(env: &[u8]);
+    fn run(run: Run) -> Outcome;
 }
 ```
 
@@ -227,7 +227,7 @@ The flow that re-enters the guest to run a block for the host.
 
 ```rust
 pub trait MrbGuest {
-    fn yield_to_block(req: &[u8]) -> u64;
+    fn yield_to_block(req: &[u8]) -> YieldReply;
 }
 ```
 

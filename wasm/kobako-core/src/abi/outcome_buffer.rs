@@ -13,7 +13,7 @@
 //! emitted by `export_guest!` in the shell crate; these are the plain
 //! functions they delegate to.
 
-use kobako_transport::envelope::{Outcome, Panic};
+use kobako_transport::envelope::Outcome;
 
 use std::sync::Mutex;
 
@@ -33,16 +33,10 @@ fn lock_buffer() -> std::sync::MutexGuard<'static, Vec<u8>> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// Write `bytes` into the outcome buffer, replacing whatever was left
+/// Frame `outcome` into the outcome buffer, replacing whatever was left
 /// from the previous invocation.
-pub fn write_outcome(bytes: Vec<u8>) {
-    *lock_buffer() = bytes;
-}
-
-/// Encode `panic` as an Outcome envelope and stamp it into the
-/// outcome buffer.
-pub fn write_panic(panic: Panic) {
-    write_outcome(Outcome::Panic(panic).encode());
+pub fn write_outcome(outcome: Outcome) {
+    *lock_buffer() = outcome.encode();
 }
 
 /// Guest allocator behind the `__kobako_alloc` export: a `size`-byte

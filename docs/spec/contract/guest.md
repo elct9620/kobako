@@ -28,21 +28,21 @@ pub trait Guest {}
 
 ## `Guest::eval`
 
-Run one invocation of a script and write its Outcome.
+Run one invocation of a script and answer with its Outcome.
 
 ```rust
 pub trait Guest {
-    fn eval();
+    fn eval() -> Outcome;
 }
 ```
 
 ## `Guest::run`
 
-Call one Entrypoint from the Run the host wrote and write its Outcome.
+Call the Entrypoint the host's Run names and answer with its Outcome.
 
 ```rust
 pub trait Guest {
-    fn run(env: &[u8]);
+    fn run(run: Run) -> Outcome;
 }
 ```
 
@@ -52,7 +52,7 @@ Re-enter the guest to run a block for the host, answering with its Reply.
 
 ```rust
 pub trait Guest {
-    fn yield_to_block(_req: &[u8]) -> u64;
+    fn yield_to_block(_req: &[u8]) -> YieldReply;
 }
 ```
 
@@ -78,15 +78,23 @@ pub fn read_frame() -> Option<Vec<u8>> {}
 Leave the invocation's Outcome for the host to take.
 
 ```rust
-pub fn write_outcome(bytes: Vec<u8>) {}
+pub fn write_outcome(outcome: Outcome) {}
 ```
 
-## `write_panic`
+## `decode_run`
 
-Leave a Panic as the invocation's Outcome.
+Read the Run the host wrote, or answer with the Panic an unframed one fails under.
 
 ```rust
-pub fn write_panic(panic: Panic) {}
+pub fn decode_run(env: &[u8]) -> Result<Run, Outcome> {}
+```
+
+## `write_reply`
+
+Frame a block's Yield Reply where the host can read it.
+
+```rust
+pub fn write_reply(reply: YieldReply) -> u64 {}
 ```
 
 ## `alloc`

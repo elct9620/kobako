@@ -21,11 +21,6 @@ pub(crate) const TRANSPORT_ERROR: &str = "Kobako::Transport::Error";
 /// mruby exception names one.
 pub(crate) const SANDBOX_ERROR: &str = "Kobako::SandboxError";
 
-/// The wording a Run whose envelope does not frame fails under. It differs
-/// from every refusal of the Run's arguments, so a host reading the Panic
-/// can tell a framing desync from a payload the codec could not read.
-pub(crate) const UNFRAMED_RUN: &str = "failed to decode the invocation request";
-
 /// A place a payload codec is asked to carry a value across.
 ///
 /// Two of these — a block's return and its `break` value — share one
@@ -313,11 +308,14 @@ mod tests {
             unrepresentable(),
         ]
         .map(|err| at(Position::RunArguments, err).message);
+        let Err(kobako_transport::envelope::Outcome::Panic(unframed)) =
+            kobako_core::abi::decode_run(&[0xff])
+        else {
+            panic!("a Run whose envelope does not frame must answer with a Panic");
+        };
 
         assert!(
-            !argument_refusals
-                .iter()
-                .any(|message| message == UNFRAMED_RUN),
+            !argument_refusals.contains(&unframed.error.message),
             "a Run whose envelope does not frame must fail under wording distinct from every \
              refusal of its arguments: {argument_refusals:?}"
         );

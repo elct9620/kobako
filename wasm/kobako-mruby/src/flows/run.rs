@@ -1,24 +1,23 @@
 //! `__kobako_run` — entrypoint dispatch entry.
 //!
-//! `(env_ptr, env_len)` locate the host-supplied Run envelope on linear
-//! memory. Frames read from stdin: Frame 1 preamble + Frame 3 snippets
-//! (docs/wire/abi.md § Invocation channels). Frame 2 is the `#eval`
-//! user source and never reaches here — the entrypoint is already
-//! resident as a top-level constant a preloaded snippet contributed.
+//! `export_guest!` has already read the host-supplied Run envelope, so
+//! this flow starts from its fields. Frames read from stdin: Frame 1
+//! preamble + Frame 3 snippets (docs/wire/abi.md § Invocation
+//! channels). Frame 2 is the `#eval` user source and never reaches
+//! here — the entrypoint is already resident as a top-level constant a
+//! preloaded snippet contributed.
 //!
 //! Body sequence:
 //!
 //! 1. Read preamble + snippets; init mrb; install kobako runtime +
-//!    preamble proxy classes; replay snippets. Any failure writes a Panic envelope
-//!    with the snippet's backtrace attribution
-//!    and returns.
-//! 2. Decode the Run envelope from `(env_ptr, env_len)`, then its
-//!    payload through the codec. Either failure writes a Panic
-//!    envelope.
+//!    preamble proxy classes; replay snippets. Any failure answers a
+//!    Panic Outcome with the snippet's backtrace attribution.
+//! 2. Decode the Run's payload through the codec. A failure answers a
+//!    Panic Outcome.
 //! 3. Resolve the entrypoint Symbol against top-level `Object` via
 //!    `sys::mrb_const_defined` and confirm the constant
-//!    responds to `:call` via `sys::mrb_respond_to`. Each failure writes
-//!    a Panic envelope directly, naming the host class the host raises:
+//!    responds to `:call` via `sys::mrb_respond_to`. Each failure answers
+//!    a Panic Outcome directly, naming the host class the host raises:
 //!    `Kobako::UndefinedEntrypointError` for an unresolved name, which
 //!    also carries the names it could have been, and
 //!    `Kobako::SandboxError` for a constant that answers no `:call`.
@@ -29,46 +28,31 @@
 //!    value as an ok Outcome or convert the raised exception into a
 //!    Panic Outcome.
 
-pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
+use kobako_transport::envelope::{Outcome, Panic, Run};
+
+pub(crate) fn run<G: crate::MrbGuest>(run: Run) -> Outcome {
+    call_entrypoint::<G>(run).unwrap_or_else(Outcome::Panic)
+}
+
+fn call_entrypoint<G: crate::MrbGuest>(run: Run) -> Result<Outcome, Panic> {
     use super::{boot, panic};
     use crate::codec::PayloadCodec;
     use beni::{Module, ReprValue};
-    use kobako_core::abi::write_panic;
-    use kobako_transport::envelope::{Panic, Run};
 
-    let preamble = match boot::read_preamble() {
-        Ok(p) => p,
-        Err(panic) => return write_panic(panic),
-    };
-    let snippets = match boot::read_snippets() {
-        Ok(s) => s,
-        Err(panic) => return write_panic(panic),
-    };
-
-    let kobako = match boot::enter::<G>(&preamble, &snippets) {
-        Ok(k) => k,
-        Err(panic) => return write_panic(panic),
-    };
+    let preamble = boot::read_preamble()?;
+    let snippets = boot::read_snippets()?;
+    let kobako = boot::enter::<G>(&preamble, &snippets)?;
     let mrb = kobako.mrb();
 
-    // Wire faults reject here, before entrypoint resolution: a request
-    // that is both malformed and aimed at a missing entrypoint reports
-    // its wire-shape violation, not the entrypoint miss. The two layers
-    // report separately, so a caller can tell a framing desync from a
-    // payload the codec could not read.
-    let run = match Run::decode(env) {
-        Ok(run) => run,
-        Err(_) => {
-            return write_panic(panic::transport_panic(crate::refusal::UNFRAMED_RUN));
-        }
-    };
-    let arguments = match G::Codec::decode_run_arguments(&kobako, &run.payload) {
-        Ok(arguments) => arguments,
-        Err(err) => {
-            let refusal = crate::refusal::at(crate::refusal::Position::RunArguments, err);
-            return write_panic(panic::panic_for(&refusal));
-        }
-    };
+    // A payload the codec cannot read rejects here, before entrypoint
+    // resolution: a request that is both unreadable and aimed at a
+    // missing entrypoint reports the payload, not the entrypoint miss.
+    let arguments = G::Codec::decode_run_arguments(&kobako, &run.payload).map_err(|err| {
+        panic::panic_for(&crate::refusal::at(
+            crate::refusal::Position::RunArguments,
+            err,
+        ))
+    })?;
 
     // Resolve entrypoint Symbol against top-level `Object`. The whole
     // dispatch — const lookup, `respond_to?(:call)` gate,
@@ -84,7 +68,7 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
         .filter(|&sym| object_class.const_defined(mrb, sym));
     let Some(target_sym) = defined else {
         let available = super::boot_constants::snippet_constants(&kobako, &preamble);
-        return write_panic(Panic {
+        return Err(Panic {
             available,
             ..panic::sandbox_panic(
                 "Kobako::UndefinedEntrypointError",
@@ -93,17 +77,16 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
         });
     };
 
-    let target_val = match object_class.const_get::<_, beni::Value>(mrb, target_sym) {
-        Ok(v) => v,
-        // The `const_defined` gate above makes a plain undefined-constant
-        // miss unreachable here; a surfaced error is the exotic case
-        // (e.g. an autoload hook raised). Attribute it verbatim rather
-        // than silently swallow it.
-        Err(err) => return write_panic(panic::panic_from_error(&kobako, err)),
-    };
+    // The `const_defined` gate above makes a plain undefined-constant
+    // miss unreachable here; a surfaced error is the exotic case (e.g.
+    // an autoload hook raised). Attribute it verbatim rather than
+    // silently swallow it.
+    let target_val = object_class
+        .const_get::<_, beni::Value>(mrb, target_sym)
+        .map_err(|err| panic::panic_from_error(&kobako, err))?;
 
     if !target_val.respond_to(mrb, c"call") {
-        return write_panic(panic::flow_panic(format!(
+        return Err(panic::flow_panic(format!(
             "entrypoint {} does not respond to :call",
             run.entrypoint
         )));
@@ -130,10 +113,9 @@ pub(crate) fn run<G: crate::MrbGuest>(env: &[u8]) {
         argv.push(kwargs.as_value());
     }
 
-    let result_val = match target_val.funcall(mrb, c"call", &argv) {
-        Ok(v) => v,
-        Err(err) => return write_panic(panic::panic_from_error(&kobako, err)),
-    };
+    let result_val = target_val
+        .funcall(mrb, c"call", &argv)
+        .map_err(|err| panic::panic_from_error(&kobako, err))?;
 
-    panic::write_value_outcome::<G>(&kobako, result_val);
+    Ok(panic::value_outcome::<G>(&kobako, result_val))
 }

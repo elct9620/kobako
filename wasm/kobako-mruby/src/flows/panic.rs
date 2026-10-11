@@ -2,21 +2,15 @@
 //! and the rules that attribute an mruby exception to the sandbox or to a
 //! Service.
 
-use crate::refusal::{Refusal, SANDBOX_ERROR, TRANSPORT_ERROR};
+use crate::refusal::{Refusal, SANDBOX_ERROR};
 use crate::runtime::Kobako;
 use beni::ReprValue;
-use kobako_transport::envelope::{ErrorRecord, Origin, Panic};
+use kobako_transport::envelope::{ErrorRecord, Origin, Outcome, Panic};
 
 /// Every boot-time failure passes through here, so the host-visible
 /// attribution stays uniform.
 pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
     sandbox_panic("Kobako::BootError", message)
-}
-
-/// Every envelope decode or encode fault on the invocation channel passes
-/// through here, so the host-visible attribution stays uniform.
-pub(super) fn transport_panic(message: impl Into<String>) -> Panic {
-    sandbox_panic(TRANSPORT_ERROR, message)
 }
 
 /// The class and wording are the refusal's; this only gives them the
@@ -46,15 +40,16 @@ pub(super) fn sandbox_panic(class: &str, message: impl Into<String>) -> Panic {
 
 /// Shared by the eval and run entries, so the outcome attribution cannot
 /// drift between them.
-pub(super) fn write_value_outcome<G: crate::MrbGuest>(kobako: &Kobako, result_val: beni::Value) {
+pub(super) fn value_outcome<G: crate::MrbGuest>(
+    kobako: &Kobako,
+    result_val: beni::Value,
+) -> Outcome {
     use crate::codec::PayloadCodec;
     use crate::refusal::Position;
-    use kobako_core::abi::{write_outcome, write_panic};
-    use kobako_transport::envelope::Outcome;
 
     match G::Codec::encode_value(kobako, result_val) {
-        Ok(payload) => write_outcome(Outcome::Ok(payload).encode()),
-        Err(err) => write_panic(panic_for(&crate::refusal::at(
+        Ok(payload) => Outcome::Ok(payload),
+        Err(err) => Outcome::Panic(panic_for(&crate::refusal::at(
             Position::InvocationValue,
             err,
         ))),
@@ -166,17 +161,6 @@ mod tests {
         assert_eq!(p.origin, Origin::Sandbox);
         assert_eq!(p.error.name, "Kobako::BootError");
         assert_eq!(p.error.message, "failed to read preamble frame");
-        assert!(p.error.backtrace.is_empty());
-        assert!(p.available.is_empty());
-    }
-
-    // @behavior OC-044
-    #[test]
-    fn transport_panic_carries_kobako_transport_defaults() {
-        let p = transport_panic("failed to decode the invocation request");
-        assert_eq!(p.origin, Origin::Sandbox);
-        assert_eq!(p.error.name, "Kobako::Transport::Error");
-        assert_eq!(p.error.message, "failed to decode the invocation request");
         assert!(p.error.backtrace.is_empty());
         assert!(p.available.is_empty());
     }
