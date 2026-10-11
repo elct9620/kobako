@@ -528,3 +528,11 @@ That last exit has no parity scenario, because the frontends close it at differe
 | Given | a Service yielding to a block of a guest that serves no block |
 | When | the guest answers the yield as unsupported |
 | Then | the Service's yield raises that the guest does not serve it, rather than trapping |
+
+## `T-280` An unsupported yield left unrescued is worded as kobako's own
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Service left an unsupported yield unrescued |
+| When | the Host App reads the failure's message |
+| Then | it does not wear the shape a Service's own exception crosses in |

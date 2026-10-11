@@ -36,6 +36,7 @@ module Kobako
         UndefinedTargetError => "undefined",
         ArgumentError => "argument",
         YieldValueError => "runtime",
+        UnsupportedError => "runtime",
         Kobako::Codec::Error => "internal",
         Kobako::SandboxError => "runtime"
       }.freeze
@@ -161,13 +162,9 @@ module Kobako
           Kobako::Codec::Nesting.assert_within_bound!(value)
           Kobako::Codec::Encoder.encode(value)
         rescue Kobako::Codec::UnsupportedTypeError
-          encode_ok(wrap_as_handle(value, handles), handles)
+          encode_ok(handles.alloc(value), handles)
         rescue Kobako::Codec::Error => e
           raise Kobako::SandboxError, "Sandbox could not write the Service's answer: #{e.message}"
-        end
-
-        def wrap_as_handle(value, handles)
-          handles.alloc(value)
         end
 
         # Ruby core builds some exception messages as ASCII-8BIT (the arity

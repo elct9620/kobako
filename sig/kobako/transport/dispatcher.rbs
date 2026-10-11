@@ -37,8 +37,6 @@ module Kobako
 
       def self.encode_ok: (untyped value, Kobako::Codec::_HandleTable handles) -> String
 
-      def self.wrap_as_handle: (untyped value, Kobako::Codec::_HandleTable handles) -> Kobako::Handle
-
       def self.fault: (String type, String message) -> [String, String]
     end
   end
