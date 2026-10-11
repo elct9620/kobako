@@ -1142,3 +1142,15 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a host that answers a guest's Service call as unsupported |
 | When | the guest script makes the call |
 | Then | the call raises `Kobako::UnsupportedError` with the host's message |
+
+## `T-281` A guest that does not compile answers a compile as unsupported
+
+| Attribute | Value |
+| --- | --- |
+| relates | `T-181` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest that did not implement compiling its Snippets |
+| When | a compile reaches it |
+| Then | it answers that it does not serve the operation |

@@ -21,7 +21,7 @@ The messages themselves live in
 envelopes, the Outcome records, and the ABI's own values. It is this
 crate's only dependency and the tier every kobako assembly shares. The
 messages a `Guest` takes and answers with — `Preamble`, `Flag`, `Outcome`,
-`Run`, `Unsupported` and `YieldReply` — are re-exported here. A payload codec is not among them:
+`Run`, `Unsupported`, `YieldReply` and `CompileReply` — are re-exported here. A payload codec is not among them:
 this crate routes messages without reading one, so a guest speaking its
 own schema builds on it unchanged.
 

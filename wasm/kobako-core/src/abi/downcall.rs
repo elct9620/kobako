@@ -2,7 +2,7 @@
 //! the `Guest` entry, and whatever it answers is framed here.
 
 use kobako_transport::envelope::{
-    Downcall, ErrorRecord, Origin, Outcome, Panic, Preamble, Unsupported,
+    CompileReply, Downcall, ErrorRecord, Origin, Outcome, Panic, Preamble, Unsupported,
 };
 
 use crate::{preamble, Guest};
@@ -18,6 +18,7 @@ pub fn serve<G: Guest>(request: &[u8]) -> Vec<u8> {
         Ok(Downcall::Eval(source)) => invoke(|preamble| G::eval(preamble, source)),
         Ok(Downcall::Run(run)) => invoke(|preamble| G::run(preamble, run)),
         Ok(Downcall::Yield(args)) => G::yield_to_block(&args).encode(),
+        Ok(Downcall::Compile) => compile::<G>().encode(),
         Ok(_) => {
             Unsupported::new(format!("this guest does not serve tag {:#04x}", request[0])).encode()
         }
@@ -39,8 +40,16 @@ pub fn serve<G: Guest>(request: &[u8]) -> Vec<u8> {
 fn invoke(entry: impl FnOnce(Preamble) -> Outcome) -> Vec<u8> {
     preamble::read_preamble()
         .map(entry)
-        .unwrap_or_else(|refused| refused)
+        .unwrap_or_else(Outcome::Panic)
         .encode()
+}
+
+/// A compile reads the Preamble an invocation would, and reports one it
+/// cannot read with the same record.
+fn compile<G: Guest>() -> CompileReply {
+    preamble::read_preamble()
+        .map(G::compile)
+        .unwrap_or_else(|refused| CompileReply::Error(refused.error))
 }
 
 #[cfg(test)]
@@ -70,6 +79,19 @@ mod tests {
             matches!(YieldReply::decode(&answer), Ok(YieldReply::Unsupported(_))),
             "a yield through serve against a guest with the default yield_to_block must \
              answer as unsupported rather than trap"
+        );
+    }
+
+    // @behavior T-281
+    #[test]
+    fn a_guest_that_does_not_compile_answers_a_compile_as_unsupported() {
+        assert!(
+            matches!(
+                NoBlockGuest::compile(Preamble::default()),
+                CompileReply::Unsupported(_)
+            ),
+            "a compile against a guest with the default Guest::compile must answer as \
+             unsupported rather than fail"
         );
     }
 

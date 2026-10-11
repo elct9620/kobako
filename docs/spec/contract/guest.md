@@ -65,6 +65,17 @@ pub trait Guest {
 }
 ```
 
+## `Guest::compile`
+
+Compile the Preamble's source Snippets without running them, answering their
+bytecode. The default answers as unsupported.
+
+```rust
+pub trait Guest {
+    fn compile(_preamble: Preamble) -> CompileReply;
+}
+```
+
 ## `DispatchError`
 
 Why a Call came back without a value. It names the Service's own Fault, a host

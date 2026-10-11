@@ -12,6 +12,8 @@ The boot state may be computed at build time, and per-invocation resources may b
 
 The default Guest Binary recognises no flag, so only the unrecognised paths are scenarios. A critical flag refuses, because a restriction must never lapse silently.
 
+A host may keep the guest's compiled snippets and replay them in place of the source. That is safe only if the bytecode replays as the source would. So the scenarios pin what is defined, how a raise is attributed, and that compiling runs nothing. Identical bytes let two compiles of one Sandbox stand in for each other.
+
 ## Includes
 
 - `test/e2e/test_canonical_boot.rb`
@@ -20,6 +22,7 @@ The default Guest Binary recognises no flag, so only the unrecognised paths are 
 - `test/e2e/regexp/test_raising_lookup.rb`
 - `test/e2e/json/test_raising_hook.rb`
 - `wasm/kobako-mruby/src/runtime.rs`
+- `wasm/kobako-mruby/src/flows/compile.rs`
 - `crates/kobako-wasmtime/tests/preamble_flags.rs`
 
 ## `MR-001` Two invocations begin from the same state, not merely a clean one
@@ -177,3 +180,55 @@ The default Guest Binary recognises no flag, so only the unrecognised paths are 
 | Given | a Sandbox over the default Guest Binary and an advisory flag it does not recognise |
 | When | an invocation runs |
 | Then | it answers as it would without the flag |
+
+## `MR-019` Compiled snippets replay what their source defines
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-055` |
+
+| Step | Statement |
+| --- | --- |
+| Given | source snippets compiled by the guest |
+| When | their bytecode is replayed in order in another interpreter |
+| Then | it defines what the source defined |
+
+## `MR-020` Compiled snippets keep their name in backtraces
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MR-019`, `S-088` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a compiled snippet defining a method that raises |
+| When | the replayed method raises |
+| Then | its backtrace names the snippet and the line, as the source replay does |
+
+## `MR-021` Compiling runs nothing in the snippet
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet that raises when it runs |
+| When | the guest compiles it |
+| Then | it compiles |
+
+## `MR-022` One snippet that does not compile fails the whole compile
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MR-019`, `S-084` |
+
+| Step | Statement |
+| --- | --- |
+| Given | snippets of which one does not parse |
+| When | the guest compiles them |
+| Then | the compile fails as a syntax error naming that snippet, with no bytecode |
+
+## `MR-023` The same snippets compile to the same bytes
+
+| Step | Statement |
+| --- | --- |
+| Given | the same snippets |
+| When | two fresh interpreters each compile them |
+| Then | both answer byte-identical bytecode |

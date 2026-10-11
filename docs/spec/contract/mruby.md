@@ -242,6 +242,17 @@ pub trait MrbGuest {
 }
 ```
 
+## `MrbGuest::compile`
+
+The flow that compiles the source snippets under the flags a replay applies,
+without running them.
+
+```rust
+pub trait MrbGuest {
+    fn compile(preamble: Preamble) -> CompileReply;
+}
+```
+
 ## `MrbGuest::bake_boot`
 
 Boot the VM and install the gem set once at build time, so each invocation

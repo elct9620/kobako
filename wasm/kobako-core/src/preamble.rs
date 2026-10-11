@@ -9,14 +9,14 @@
 use std::io::Read;
 
 use kobako_transport::abi::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
-use kobako_transport::envelope::{ErrorRecord, Origin, Outcome, Panic, Preamble};
+use kobako_transport::envelope::{ErrorRecord, Origin, Panic, Preamble};
 
 /// The Preamble every invocation reads before its entry runs.
-pub(crate) fn read_preamble() -> Result<Preamble, Outcome> {
+pub(crate) fn read_preamble() -> Result<Preamble, Panic> {
     read_preamble_from(&mut std::io::stdin().lock())
 }
 
-fn read_preamble_from<R: Read>(input: &mut R) -> Result<Preamble, Outcome> {
+fn read_preamble_from<R: Read>(input: &mut R) -> Result<Preamble, Panic> {
     let bytes = read_framed(input)
         .ok_or_else(|| boot_failure("failed to read the Sandbox's Preamble".into()))?;
     Preamble::decode(&bytes)
@@ -25,8 +25,8 @@ fn read_preamble_from<R: Read>(input: &mut R) -> Result<Preamble, Outcome> {
 
 /// The failure a guest reports when it cannot start the Sandbox, under
 /// the class the host raises for it.
-fn boot_failure(message: String) -> Outcome {
-    Outcome::Panic(Panic {
+fn boot_failure(message: String) -> Panic {
+    Panic {
         origin: Origin::Sandbox,
         error: ErrorRecord {
             name: "Kobako::BootError".into(),
@@ -34,7 +34,7 @@ fn boot_failure(message: String) -> Outcome {
             backtrace: Vec::new(),
         },
         available: Vec::new(),
-    })
+    }
 }
 
 /// `None` on EOF, a short read, or a length past the cap, so a hostile
@@ -62,10 +62,7 @@ mod tests {
         std::io::Cursor::new(bytes)
     }
 
-    fn boot_message(outcome: Outcome) -> String {
-        let Outcome::Panic(panic) = outcome else {
-            panic!("a Preamble that fails must answer with a Panic");
-        };
+    fn boot_message(panic: Panic) -> String {
         assert_eq!(
             (panic.origin, panic.error.name.as_str()),
             (Origin::Sandbox, "Kobako::BootError"),

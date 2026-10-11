@@ -4,10 +4,10 @@
 //! `MrbGuest` is the harness: a required `Codec` and one required
 //! `init_gems` hook naming the shell-chosen `beni::Gem` set, an
 //! `apply_flag` hook for the flags the shell recognises, plus provided `eval` / `run` /
-//! `yield_to_block` flows implementing the `kobako_core::Guest`
+//! `yield_to_block` / `compile` flows implementing the `kobako_core::Guest`
 //! contract over mruby (canonical-boot-state acquisition per
 //! invocation, flag, binding, and snippet replay, codec
-//! conversion, block-yield re-entry) and the build-time `bake_boot`
+//! conversion, block-yield re-entry, snippet compilation) and the build-time `bake_boot`
 //! hook the wizer pre-initialization entry calls. The crate ships
 //! exactly one built-in gem — the wire-tied `KobakoBridge` (Service
 //! / Handle dispatch + block machinery) — which the boot path
@@ -35,7 +35,7 @@ pub use msgpack::MsgpackCodec;
 pub use runtime::{InstallError, IntegerOutOfRange, Kobako};
 
 use beni::{Error, Mrb};
-use kobako_transport::envelope::{Flag, Outcome, Preamble, Run, YieldReply};
+use kobako_transport::envelope::{CompileReply, Flag, Outcome, Preamble, Run, YieldReply};
 
 /// The assembled mruby guest as a template: implement `init_gems`
 /// and inherit the provided flows.
@@ -92,6 +92,16 @@ pub trait MrbGuest {
         Self: Sized,
     {
         flows::yield_to_block::<Self>(req)
+    }
+
+    /// The `compile` operation — compiles the Preamble's source snippets
+    /// under the flags a replay applies, without running them, and
+    /// answers their bytecode.
+    fn compile(preamble: Preamble) -> CompileReply
+    where
+        Self: Sized,
+    {
+        flows::compile::<Self>(preamble)
     }
 
     /// Bake the canonical boot state — the VM, the Kobako runtime, and the

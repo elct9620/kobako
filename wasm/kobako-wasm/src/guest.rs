@@ -6,7 +6,7 @@
 //! + `kobako-io`.
 
 use beni::{Error, Mrb};
-use kobako_core::{Outcome, Preamble, Run, YieldReply};
+use kobako_core::{CompileReply, Outcome, Preamble, Run, YieldReply};
 
 /// The bundled mruby guest behind `data/kobako.wasm`.
 pub(crate) struct KobakoGuest;
@@ -45,6 +45,10 @@ impl kobako_core::Guest for KobakoGuest {
 
     fn yield_to_block(req: &[u8]) -> YieldReply {
         <KobakoGuest as kobako_mruby::MrbGuest>::yield_to_block(req)
+    }
+
+    fn compile(preamble: Preamble) -> CompileReply {
+        <KobakoGuest as kobako_mruby::MrbGuest>::compile(preamble)
     }
 }
 

@@ -20,5 +20,7 @@ pub mod proxy;
 // its entries take and answer with, the call it makes, and what comes
 // back when the exchange does not complete.
 pub use guest::Guest;
-pub use kobako_transport::envelope::{Flag, Outcome, Preamble, Run, Unsupported, YieldReply};
+pub use kobako_transport::envelope::{
+    CompileReply, Flag, Outcome, Preamble, Run, Unsupported, YieldReply,
+};
 pub use proxy::{dispatch, DispatchError};

@@ -59,7 +59,7 @@ The types those seams carry, by grade:
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |
 | **append-only, read by an older peer as `Unknown`** | `kobako_transport::envelope::{Downcall, Upcall}` |
 | **append-only, a record an older peer skips or refuses as its sender marked** | `kobako_transport::envelope::Preamble`, re-exported from `kobako_core` |
-| **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · every other `kobako_transport::envelope::*`, five re-exported from `kobako_core` |
+| **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · every other `kobako_transport::envelope::*`, six re-exported from `kobako_core` |
 
 Two things stay fixed. The **core envelope** and the **ABI surface** are the same for
 every assembly, which makes the parts interchangeable at all
@@ -255,10 +255,10 @@ the difference.
 
 | Replace | Implement | Obligation |
 |---|---|---|
-| one invocation flow | that `Guest` method, not forwarded | answer with its Outcome or Yield Reply |
+| one invocation flow | that `Guest` method, not forwarded | answer with its Outcome, Yield Reply, or Compile Reply |
 | the whole guest | `kobako_core::Guest` + `export_guest!` | the ABI's exports, import, and version |
 
-`MrbGuest` provides `eval`, `run`, and `yield_to_block` over mruby. A non-mruby guest
+`MrbGuest` provides `eval`, `run`, `yield_to_block`, and `compile` over mruby. A non-mruby guest
 skips `kobako-mruby` entirely. `wasm/kobako-wasm` takes this same path, so the
 shipped shell is not privileged. The ABI is in
 [`wire/abi.md`](../wire/abi.md).

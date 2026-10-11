@@ -32,6 +32,7 @@ built-in proxy does.
 | `init_gems` | required hook | names the shell-chosen `beni::Gem` set |
 | `apply_flag` | provided hook | applies a flag the shell recognises; recognises none by default |
 | `eval` / `run` / `yield_to_block` | provided flows | one invocation each |
+| `compile` | provided flow | the source snippets as bytecode, run by nothing |
 | `bake_boot` | build-time hook | behind the wizer pre-initialization entry |
 
 Each provided flow acquires the canonical boot state per invocation and
@@ -56,7 +57,7 @@ beni = "0.22"
 
 ```rust
 use beni::{Error, Mrb};
-use kobako_core::{Outcome, Preamble, Run, YieldReply};
+use kobako_core::{CompileReply, Outcome, Preamble, Run, YieldReply};
 
 struct MyGuest;
 
@@ -84,6 +85,10 @@ impl kobako_core::Guest for MyGuest {
 
     fn yield_to_block(req: &[u8]) -> YieldReply {
         <MyGuest as kobako_mruby::MrbGuest>::yield_to_block(req)
+    }
+
+    fn compile(preamble: Preamble) -> CompileReply {
+        <MyGuest as kobako_mruby::MrbGuest>::compile(preamble)
     }
 }
 

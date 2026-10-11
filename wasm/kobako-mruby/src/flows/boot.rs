@@ -26,10 +26,18 @@ use kobako_transport::envelope::{ErrorRecord, Flag, Origin, Panic, Preamble, Sni
 /// body runs on is set up in one place. Flags come first, since a
 /// preloaded snippet may use what a flag turned on.
 pub(super) fn enter<G: crate::MrbGuest>(preamble: &Preamble) -> Result<Kobako, Panic> {
-    let kobako = acquire_vm::<G>()?;
-    apply_flags::<G>(&kobako, &preamble.flags)?;
+    let kobako = boot_with_flags::<G>(preamble)?;
     install_bindings(&kobako, &preamble.bindings.paths)?;
     replay_snippets(&kobako, &preamble.snippets.entries)?;
+    Ok(kobako)
+}
+
+/// The VM as an invocation has it just before its snippets: booted, with
+/// the Preamble's flags applied. A compile starts here, so what it
+/// compiles under is what a replay would.
+pub(super) fn boot_with_flags<G: crate::MrbGuest>(preamble: &Preamble) -> Result<Kobako, Panic> {
+    let kobako = acquire_vm::<G>()?;
+    apply_flags::<G>(&kobako, &preamble.flags)?;
     Ok(kobako)
 }
 
@@ -128,17 +136,28 @@ fn replay_panic(panic: Panic) -> Panic {
     }
 }
 
-/// The `(snippet:Name)` filename lets a backtrace point back at the
-/// originating `#preload` call.
 fn load_source_snippet(kobako: &Kobako, name: &str, body: &str) -> Result<(), Panic> {
-    let filename = std::ffi::CString::new(format!("(snippet:{})", name))
-        .map_err(|_| boot_panic("snippet name contains an invalid character"))?;
-    let Some(cxt) = Ccontext::new(kobako.mrb(), &filename) else {
-        return Err(boot_panic("failed to initialize the Sandbox interpreter"));
-    };
-    cxt.load_nstring(body.as_bytes())
+    let filename = snippet_filename(name)?;
+    snippet_context(kobako, &filename)?
+        .load_nstring(body.as_bytes())
         .map(drop)
         .map_err(|err| replay_panic(load_panic(kobako, &filename, err)))
+}
+
+/// The `(snippet:Name)` filename lets a backtrace point back at the
+/// originating `#preload` call, whether the snippet replays as source or
+/// as the bytecode compiled from it.
+pub(super) fn snippet_filename(name: &str) -> Result<std::ffi::CString, Panic> {
+    std::ffi::CString::new(format!("(snippet:{})", name))
+        .map_err(|_| boot_panic("snippet name contains an invalid character"))
+}
+
+pub(super) fn snippet_context<'mrb>(
+    kobako: &'mrb Kobako,
+    filename: &std::ffi::CStr,
+) -> Result<Ccontext<'mrb>, Panic> {
+    Ccontext::new(kobako.mrb(), filename)
+        .ok_or_else(|| boot_panic("failed to initialize the Sandbox interpreter"))
 }
 
 /// The class a bytecode load answers when the blob fails its

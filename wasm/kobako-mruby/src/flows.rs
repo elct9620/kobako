@@ -5,6 +5,7 @@
 
 mod boot;
 mod boot_constants;
+mod compile;
 mod eval;
 mod mrb_slot;
 mod panic;
@@ -12,6 +13,7 @@ mod run;
 mod yield_block;
 
 pub(crate) use boot::bake_boot;
+pub(crate) use compile::compile;
 pub(crate) use eval::eval;
 pub(crate) use run::run;
 pub(crate) use yield_block::yield_to_block;

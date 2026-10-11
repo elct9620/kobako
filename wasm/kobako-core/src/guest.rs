@@ -8,7 +8,7 @@
 //! unreliable — they get dead-code-GC'd by wasm-ld and break on native
 //! ELF).
 
-use kobako_transport::envelope::{Outcome, Preamble, Run, Unsupported, YieldReply};
+use kobako_transport::envelope::{CompileReply, Outcome, Preamble, Run, Unsupported, YieldReply};
 
 /// One Guest Binary's invocation surface — the operations a downcall
 /// names.
@@ -17,7 +17,8 @@ use kobako_transport::envelope::{Outcome, Preamble, Run, Unsupported, YieldReply
 /// `export_guest!` reads the request and the Preamble and frames each
 /// answer, so a guest cannot speak a different envelope than the host
 /// reads. `eval` and `run` are required. A guest without block support
-/// keeps the `yield_to_block` default, which answers as unsupported.
+/// keeps the `yield_to_block` default, and one that does not compile
+/// keeps the `compile` default; both answer as unsupported.
 pub trait Guest {
     /// The `eval` operation — runs one-shot user source.
     fn eval(preamble: Preamble, source: Vec<u8>) -> Outcome;
@@ -29,6 +30,14 @@ pub trait Guest {
     /// block; `req` carries the yield arguments.
     fn yield_to_block(_req: &[u8]) -> YieldReply {
         YieldReply::Unsupported(Unsupported::new("this guest serves no block"))
+    }
+
+    /// The `compile` operation — compiles the Preamble's source Snippets
+    /// without running them, so the host can replay their bytecode
+    /// instead. A guest that keeps this default answers as unsupported
+    /// and the host keeps sending the source.
+    fn compile(_preamble: Preamble) -> CompileReply {
+        CompileReply::Unsupported(Unsupported::new("this guest does not compile"))
     }
 }
 
