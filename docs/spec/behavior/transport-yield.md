@@ -314,12 +314,12 @@ That last exit has no parity scenario, because the frontends close it at differe
 | When | the guest traps before answering |
 | Then | the yield is abandoned rather than answered |
 
-## `T-166` A yield answer the envelope cannot frame aborts the yield
+## `T-166` A yield answer the schema cannot read aborts the yield
 
 | Step | Statement |
 | --- | --- |
-| Given | a Service yielding to a block |
-| When | the answer is bytes the envelope cannot frame |
+| Given | a Service yielding to a block through the schema seam |
+| When | the answer is framed, but its payload is bytes the schema cannot read |
 | Then | the yield is abandoned rather than answered |
 
 ## `T-170` A yield on the byte seam carries the Host App's own bytes

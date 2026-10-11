@@ -68,11 +68,11 @@ pub trait Yielder {}
 
 ## `Yielder::yield_to_block`
 
-Run the block once with the given arguments and return its Reply.
+Run the block once with the given arguments and return its decoded Reply.
 
 ```rust
 pub trait Yielder {
-    fn yield_to_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap>;
+    fn yield_to_block(&mut self, args: &[u8]) -> Result<YieldReply, Trap>;
 }
 ```
 

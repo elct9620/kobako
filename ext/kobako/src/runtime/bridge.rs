@@ -86,7 +86,7 @@ impl GuestYielder {
         self.yielder.set(None);
     }
 
-    /// The arm is named here off the core envelope, so the host
+    /// The arm is named here off the decoded Yield Reply, so the host
     /// `Transport::Yielder` decodes only a payload.
     fn call(&self, args: RString) -> Result<(Symbol, RString, Option<String>), MagnusError> {
         let ruby = Ruby::get().expect("Ruby handle unavailable in the block bridge");
@@ -102,23 +102,20 @@ impl GuestYielder {
         // Rust stack, and the Single-Invocation Slot guarantees no other
         // frame aliases it. The borrow ends with this method.
         let yielder: &mut dyn Yielder = unsafe { ptr.as_mut() };
-        let resp = yielder
+        let reply = yielder
             .yield_to_block(&bytes)
             .map_err(|t| super::errors::trap_to_magnus(&ruby, t))?;
-        match YieldReply::decode(&resp) {
-            Ok(YieldReply::Ok(body)) => {
-                Ok((ruby.to_symbol(ARM_OK), ruby.str_from_slice(&body), None))
+        Ok(match reply {
+            YieldReply::Ok(body) => (ruby.to_symbol(ARM_OK), ruby.str_from_slice(&body), None),
+            YieldReply::Break(body) => {
+                (ruby.to_symbol(ARM_BREAK), ruby.str_from_slice(&body), None)
             }
-            Ok(YieldReply::Break(body)) => {
-                Ok((ruby.to_symbol(ARM_BREAK), ruby.str_from_slice(&body), None))
-            }
-            Ok(YieldReply::Error(record)) => Ok((
+            YieldReply::Error(record) => (
                 ruby.to_symbol(ARM_ERROR),
                 ruby.str_new(&record.message),
                 Some(record.name),
-            )),
-            Err(err) => Err(super::errors::trap_err(&ruby, err.to_string())),
-        }
+            ),
+        })
     }
 }
 

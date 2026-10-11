@@ -15,7 +15,7 @@ use wasmtime::Caller;
 use kobako_runtime::error::Trap;
 use kobako_runtime::yielder::Yielder;
 use kobako_transport::abi::pack_ptr_len;
-use kobako_transport::envelope::Call;
+use kobako_transport::envelope::{Call, YieldReply};
 
 use crate::guest_mem;
 use crate::invocation::Invocation;
@@ -28,8 +28,10 @@ struct CallerYielder<'a, 'c> {
 }
 
 impl Yielder for CallerYielder<'_, '_> {
-    fn yield_to_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap> {
-        guest_mem::drive_yield(self.caller, args).map_err(|msg| Trap::Other(msg.to_string()))
+    fn yield_to_block(&mut self, args: &[u8]) -> Result<YieldReply, Trap> {
+        let bytes = guest_mem::drive_yield(self.caller, args)
+            .map_err(|msg| Trap::Other(msg.to_string()))?;
+        YieldReply::decode(&bytes).map_err(|err| Trap::Other(err.to_string()))
     }
 }
 
@@ -57,8 +59,9 @@ fn try_handle(
     req_len: i32,
 ) -> Result<i64, &'static str> {
     let req_bytes = guest_mem::read_request(caller, req_ptr, req_len)?;
-    // The driver decodes the core envelope so the frontend never sees a
-    // frame; the payload inside it stays bytes the whole way through.
+    // The driver decodes the core envelope, here and in `CallerYielder`, so
+    // the frontend never sees a frame; the payload inside it stays bytes
+    // the whole way through.
     let call = Call::decode(&req_bytes).map_err(|_| {
         "the guest sent a malformed Call envelope — please report this as a kobako bug"
     })?;

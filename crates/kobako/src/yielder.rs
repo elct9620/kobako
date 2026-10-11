@@ -130,12 +130,10 @@ impl<'y> Yielder<'y> {
         if self.broke.is_some() {
             return Err(YieldError::Break);
         }
-        let bytes = self
+        let reply = self
             .channel
             .yield_to_block(args)
             .map_err(|trap| YieldError::Aborted(format!("yield re-entry trapped: {trap:?}")))?;
-        let reply = YieldReply::decode(&bytes)
-            .map_err(|err| YieldError::Aborted(format!("malformed Yield Reply: {err}")))?;
         match reply {
             YieldReply::Ok(body) => Ok(body),
             YieldReply::Break(body) => {
@@ -169,12 +167,12 @@ mod tests {
     /// A raw yield channel answering from a canned script, recording
     /// what the Yielder sent into the guest.
     struct Scripted {
-        replies: VecDeque<Result<Vec<u8>, Trap>>,
+        replies: VecDeque<Result<YieldReply, Trap>>,
         sent: Vec<Vec<u8>>,
     }
 
     impl Scripted {
-        fn new(replies: Vec<Result<Vec<u8>, Trap>>) -> Self {
+        fn new(replies: Vec<Result<YieldReply, Trap>>) -> Self {
             Scripted {
                 replies: replies.into(),
                 sent: Vec::new(),
@@ -183,7 +181,7 @@ mod tests {
     }
 
     impl RawYielder for Scripted {
-        fn yield_to_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap> {
+        fn yield_to_block(&mut self, args: &[u8]) -> Result<YieldReply, Trap> {
             self.sent.push(args.to_vec());
             self.replies.pop_front().expect("script exhausted")
         }
@@ -192,7 +190,7 @@ mod tests {
     // @behavior T-085
     #[test]
     fn call_payload_ships_the_bytes_it_was_handed_and_returns_the_ok_body() {
-        let mut channel = Scripted::new(vec![Ok(YieldReply::Ok(vec![0x2a]).encode())]);
+        let mut channel = Scripted::new(vec![Ok(YieldReply::Ok(vec![0x2a]))]);
         let mut block = Yielder::new(&mut channel);
 
         let body = block.call_payload(&[0x15]).unwrap();
@@ -208,7 +206,7 @@ mod tests {
     // @behavior T-089
     #[test]
     fn break_records_the_body_and_stops_re_entering_the_guest() {
-        let mut channel = Scripted::new(vec![Ok(YieldReply::Break(vec![0x2a]).encode())]);
+        let mut channel = Scripted::new(vec![Ok(YieldReply::Break(vec![0x2a]))]);
         let mut block = Yielder::new(&mut channel);
 
         assert_eq!(block.call_payload(&[]), Err(YieldError::Break));
@@ -229,7 +227,7 @@ mod tests {
             message: "boom".into(),
             backtrace: vec!["(eval):1".into()],
         });
-        let mut channel = Scripted::new(vec![Ok(record.encode())]);
+        let mut channel = Scripted::new(vec![Ok(record)]);
         let mut block = Yielder::new(&mut channel);
 
         assert_eq!(
@@ -251,18 +249,6 @@ mod tests {
         assert!(
             matches!(block.call_payload(&[]), Err(YieldError::Aborted(_))),
             "a guest that trapped mid-block must abort the yield rather than answer it"
-        );
-    }
-
-    // @behavior T-166
-    #[test]
-    fn malformed_reply_bytes_abort() {
-        let mut channel = Scripted::new(vec![Ok(vec![0x03, 0xc0])]);
-        let mut block = Yielder::new(&mut channel);
-
-        assert!(
-            matches!(block.call_payload(&[]), Err(YieldError::Aborted(_))),
-            "bytes the envelope cannot frame as a Yield Reply must abort the yield"
         );
     }
 

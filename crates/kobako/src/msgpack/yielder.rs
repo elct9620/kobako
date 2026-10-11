@@ -46,18 +46,18 @@ mod tests {
     /// A raw yield channel answering from a canned script, recording
     /// what the Yielder sent into the guest.
     struct Scripted {
-        replies: VecDeque<Result<Vec<u8>, Trap>>,
+        replies: VecDeque<Result<YieldReply, Trap>>,
         sent: Vec<Vec<u8>>,
     }
 
     impl RawYielder for Scripted {
-        fn yield_to_block(&mut self, args: &[u8]) -> Result<Vec<u8>, Trap> {
+        fn yield_to_block(&mut self, args: &[u8]) -> Result<YieldReply, Trap> {
             self.sent.push(args.to_vec());
             self.replies.pop_front().expect("script exhausted")
         }
     }
 
-    fn scripted(replies: Vec<Vec<u8>>) -> Scripted {
+    fn scripted(replies: Vec<YieldReply>) -> Scripted {
         Scripted {
             replies: replies.into_iter().map(Ok).collect(),
             sent: Vec::new(),
@@ -67,7 +67,7 @@ mod tests {
     // @behavior T-172
     #[test]
     fn call_ships_the_args_as_one_msgpack_array() {
-        let reply = YieldReply::Ok(Encoder::encode(&Value::Int(42)).unwrap()).encode();
+        let reply = YieldReply::Ok(Encoder::encode(&Value::Int(42)).unwrap());
         let mut channel = scripted(vec![reply]);
 
         Yielder::new(&mut channel)
@@ -85,7 +85,7 @@ mod tests {
     // @behavior T-268
     #[test]
     fn call_reads_the_answer_back() {
-        let reply = YieldReply::Ok(Encoder::encode(&Value::Int(42)).unwrap()).encode();
+        let reply = YieldReply::Ok(Encoder::encode(&Value::Int(42)).unwrap());
         let mut channel = scripted(vec![reply]);
 
         let answer = Yielder::new(&mut channel)
@@ -102,7 +102,7 @@ mod tests {
     // @behavior T-166
     #[test]
     fn an_ok_arm_this_schema_cannot_read_aborts() {
-        let mut channel = scripted(vec![YieldReply::Ok(vec![0xc1]).encode()]);
+        let mut channel = scripted(vec![YieldReply::Ok(vec![0xc1])]);
 
         let answer = Yielder::new(&mut channel).call_values(&[]);
 
