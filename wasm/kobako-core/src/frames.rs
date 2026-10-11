@@ -82,7 +82,8 @@ mod tests {
         };
         assert_eq!(
             (panic.origin, panic.error.name.as_str()),
-            (Origin::Sandbox, "Kobako::BootError")
+            (Origin::Sandbox, "Kobako::BootError"),
+            "a frame that fails through read_frames must answer as the Sandbox's boot failure"
         );
         panic.error.message
     }
@@ -91,7 +92,11 @@ mod tests {
     #[test]
     fn read_frame_from_round_trips_a_prefixed_payload() {
         let mut cursor = framed(&[b"hello"]);
-        assert_eq!(read_frame_from(&mut cursor), Some(b"hello".to_vec()));
+        assert_eq!(
+            read_frame_from(&mut cursor),
+            Some(b"hello".to_vec()),
+            "a length-prefixed frame through read_frame_from must yield its bytes unchanged"
+        );
     }
 
     // @behavior WE-067
@@ -100,7 +105,12 @@ mod tests {
         let mut framed = ((MAX_FRAME_LEN as u32) + 1).to_be_bytes().to_vec();
         framed.extend_from_slice(b"x");
         let mut cursor = std::io::Cursor::new(framed);
-        assert_eq!(read_frame_from(&mut cursor), None);
+        assert_eq!(
+            read_frame_from(&mut cursor),
+            None,
+            "a length prefix past the frame cap through read_frame_from must be refused \
+             before anything is allocated for it"
+        );
     }
 
     #[test]

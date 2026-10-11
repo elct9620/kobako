@@ -334,7 +334,7 @@ One block here is deliberately written in one frontend's own names. The ancestry
 | Step | Statement |
 | --- | --- |
 | Given | a guest that could not read the invocation it was handed |
-| When | the Outcome is written |
+| When | the Outcome is answered |
 | Then | it attributes to the Sandbox under the wire failure's own name |
 
 ## `OC-045` Every class a failed Service call raises attributes to the Service

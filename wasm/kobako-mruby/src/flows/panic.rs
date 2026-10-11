@@ -157,11 +157,24 @@ mod tests {
     #[test]
     fn boot_panic_carries_kobako_boot_defaults() {
         let p = boot_panic("failed to start the Sandbox interpreter");
-        assert_eq!(p.origin, Origin::Sandbox);
-        assert_eq!(p.error.name, "Kobako::BootError");
-        assert_eq!(p.error.message, "failed to start the Sandbox interpreter");
-        assert!(p.error.backtrace.is_empty());
-        assert!(p.available.is_empty());
+        assert_eq!(
+            (
+                p.origin,
+                p.error.name.as_str(),
+                p.error.message.as_str(),
+                p.error.backtrace.is_empty(),
+                p.available.is_empty(),
+            ),
+            (
+                Origin::Sandbox,
+                "Kobako::BootError",
+                "failed to start the Sandbox interpreter",
+                true,
+                true,
+            ),
+            "a boot failure through boot_panic must attribute to the Sandbox as \
+             Kobako::BootError with its message and nothing else"
+        );
     }
 
     // @behavior OC-045
@@ -180,16 +193,19 @@ mod tests {
     // @behavior OC-046
     #[test]
     fn origin_for_class_defaults_to_sandbox() {
-        assert_eq!(origin_for_class("RuntimeError"), Origin::Sandbox);
-        assert_eq!(
-            origin_for_class("Kobako::Transport::Error"),
-            Origin::Sandbox
-        );
-        assert_eq!(origin_for_class("NoMethodError"), Origin::Sandbox);
-        assert_eq!(
-            origin_for_class("Kobako::UnsupportedError"),
-            Origin::Sandbox
-        );
+        for class in [
+            "RuntimeError",
+            "Kobako::Transport::Error",
+            "NoMethodError",
+            "Kobako::UnsupportedError",
+        ] {
+            assert_eq!(
+                origin_for_class(class),
+                Origin::Sandbox,
+                "{class} through origin_for_class is not a Service failure, so a Panic \
+                 naming it must attribute to the Sandbox"
+            );
+        }
     }
 
     // @behavior OC-047

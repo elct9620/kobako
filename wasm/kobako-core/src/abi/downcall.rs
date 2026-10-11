@@ -101,4 +101,25 @@ mod tests {
         assert!(panic.error.backtrace.is_empty());
         assert!(panic.available.is_empty());
     }
+
+    // The invalid tag and a tag another direction carries are refused
+    // when read, so the guest never reaches an entry for either.
+    // @behavior OC-044
+    #[test]
+    fn a_request_the_wire_refuses_answers_as_the_sandboxs_wire_failure() {
+        for request in [&[0x00][..], &[0x04, 0x90][..]] {
+            let answer = serve::<NoBlockGuest>(request);
+
+            assert!(
+                matches!(
+                    Outcome::decode(&answer),
+                    Ok(Outcome::Panic(Panic { origin: Origin::Sandbox, ref error, .. }))
+                        if error.name == "Kobako::Transport::Error"
+                ),
+                "a downcall under tag {:#04x} through serve must answer as the Sandbox's \
+                 wire failure rather than as unsupported",
+                request[0]
+            );
+        }
+    }
 }
