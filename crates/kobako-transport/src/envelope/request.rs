@@ -1,10 +1,11 @@
 //! The requests each channel carries: a tag naming the operation, then
 //! that operation's body.
 //!
-//! A tag outside this registry reads as `Unknown` with its body intact,
-//! so a receiver can serve it or answer it as unsupported. An empty
-//! request and the invalid tag are wire violations; each body's own
-//! layout refuses what it cannot frame.
+//! A tag the registry has not assigned reads as `Unknown` with its body
+//! intact, so a receiver can serve it or answer it as unsupported. An
+//! assigned tag already means one thing, so one this channel does not
+//! carry as a request is a wire violation, as are an empty request and
+//! the invalid tag; each body's own layout refuses what it cannot frame.
 
 use super::bytes::{Reader, Writer};
 use super::{tag, Call, DecodeError, Run};
@@ -20,8 +21,8 @@ pub enum Downcall {
     /// Re-enter the block bound to the active dispatch; the bytes are
     /// its arguments, codec-encoded.
     Yield(Vec<u8>),
-    /// A tag outside this registry, with the body it carried.
-    Unknown { tag: u8, body: Vec<u8> },
+    /// A tag the registry has not assigned, with the body it carried.
+    Unknown { tag: UnknownTag, body: Vec<u8> },
 }
 
 impl Downcall {
@@ -34,7 +35,7 @@ impl Downcall {
             tag::RUN => Downcall::Run(Run::decode(body)?),
             tag::YIELD => Downcall::Yield(body.to_vec()),
             tag => Downcall::Unknown {
-                tag,
+                tag: unknown(tag)?,
                 body: body.to_vec(),
             },
         })
@@ -46,7 +47,7 @@ impl Downcall {
             Downcall::Eval(source) => writer.u8(tag::EVAL).remainder(source),
             Downcall::Run(run) => writer.u8(tag::RUN).remainder(&run.encode()),
             Downcall::Yield(args) => writer.u8(tag::YIELD).remainder(args),
-            Downcall::Unknown { tag, body } => writer.u8(*tag).remainder(body),
+            Downcall::Unknown { tag, body } => writer.u8(tag.get()).remainder(body),
         };
         writer.into_bytes()
     }
@@ -58,8 +59,8 @@ impl Downcall {
 pub enum Upcall<'a> {
     /// Dispatch the Call to a Receiver.
     Call(Call<'a>),
-    /// A tag outside this registry, with the body it carried.
-    Unknown { tag: u8, body: &'a [u8] },
+    /// A tag the registry has not assigned, with the body it carried.
+    Unknown { tag: UnknownTag, body: &'a [u8] },
 }
 
 impl<'a> Upcall<'a> {
@@ -69,7 +70,10 @@ impl<'a> Upcall<'a> {
         let body = reader.remaining();
         Ok(match tag {
             tag::CALL => Upcall::Call(Call::decode(body)?),
-            tag => Upcall::Unknown { tag, body },
+            tag => Upcall::Unknown {
+                tag: unknown(tag)?,
+                body,
+            },
         })
     }
 
@@ -77,9 +81,26 @@ impl<'a> Upcall<'a> {
         let mut writer = Writer::new();
         match self {
             Upcall::Call(call) => writer.u8(tag::CALL).remainder(&call.encode()),
-            Upcall::Unknown { tag, body } => writer.u8(*tag).remainder(body),
+            Upcall::Unknown { tag, body } => writer.u8(tag.get()).remainder(body),
         };
         writer.into_bytes()
+    }
+}
+
+/// A request tag the registry has not assigned. Only such a tag can name
+/// an unknown request, so an unknown request never encodes as an
+/// operation the registry already has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnknownTag(u8);
+
+impl UnknownTag {
+    /// `None` when the registry assigns `tag`, the invalid tag included.
+    pub fn new(tag: u8) -> Option<Self> {
+        (!tag::is_assigned(tag)).then_some(UnknownTag(tag))
+    }
+
+    pub fn get(self) -> u8 {
+        self.0
     }
 }
 
@@ -88,6 +109,12 @@ fn read_tag(reader: &mut Reader<'_>) -> Result<u8, DecodeError> {
         tag::INVALID => Err(DecodeError::new("request tag 0x00 is invalid")),
         tag => Ok(tag),
     }
+}
+
+fn unknown(tag: u8) -> Result<UnknownTag, DecodeError> {
+    UnknownTag::new(tag).ok_or(DecodeError::new(
+        "request tag is assigned to another channel or to an answer",
+    ))
 }
 
 #[cfg(test)]
@@ -143,7 +170,7 @@ mod tests {
             }),
             Downcall::Yield(vec![0x91, 0x01]),
             Downcall::Unknown {
-                tag: 0xf0,
+                tag: UnknownTag::new(0xf0).unwrap(),
                 body: vec![0xaa, 0xbb],
             },
         ] {
@@ -157,7 +184,7 @@ mod tests {
 
     // @behavior WE-072
     #[test]
-    fn a_tag_outside_the_registry_reads_as_unknown_with_its_body() {
+    fn an_unassigned_tag_reads_as_unknown_with_its_body() {
         assert_eq!(
             (
                 Downcall::decode(&[0x05, 0xff]),
@@ -165,16 +192,16 @@ mod tests {
             ),
             (
                 Ok(Downcall::Unknown {
-                    tag: 0x05,
+                    tag: UnknownTag::new(0x05).unwrap(),
                     body: vec![0xff]
                 }),
                 Ok(Upcall::Unknown {
-                    tag: 0xf0,
+                    tag: UnknownTag::new(0xf0).unwrap(),
                     body: &[0x01, 0x02]
                 })
             ),
-            "a request under a tag outside the registry through Downcall and Upcall must \
-             read as unknown with its body intact"
+            "a request under a tag the registry has not assigned through Downcall and Upcall \
+             must read as unknown with its body intact"
         );
     }
 
@@ -194,5 +221,55 @@ mod tests {
             Downcall::decode(&[0x00, 0x01]).is_err() && Upcall::decode(&[0x00]).is_err(),
             "a request under tag 0x00 through Downcall and Upcall must be refused"
         );
+    }
+
+    // @behavior WE-075
+    #[test]
+    fn a_request_under_a_tag_assigned_elsewhere_is_refused() {
+        assert_eq!(
+            (
+                Downcall::decode(&[0x04, 0x90]).is_err(),
+                Downcall::decode(&[0x10, 0x90]).is_err(),
+                Upcall::decode(&[0x01, b'1']).is_err(),
+                Upcall::decode(&[0x15, 0x00]).is_err(),
+            ),
+            (true, true, true, true),
+            "a request under another channel's tag or an answer's arm through Downcall and \
+             Upcall must be refused rather than read as unknown"
+        );
+    }
+
+    // @behavior WE-076
+    #[test]
+    fn an_unknown_tag_cannot_be_made_from_an_assigned_one() {
+        assert_eq!(
+            [0x00, 0x01, 0x04, 0x10, 0x15].map(UnknownTag::new),
+            [None; 5],
+            "an assigned tag or tag 0x00 through UnknownTag::new must be refused, so an \
+             unknown request never encodes as a known operation"
+        );
+    }
+
+    #[test]
+    fn every_upcall_round_trips() {
+        let call = Call {
+            target: Target::Handle(7),
+            method: "m",
+            block_given: true,
+            payload: &[0x90],
+        };
+        for request in [
+            Upcall::Call(call),
+            Upcall::Unknown {
+                tag: UnknownTag::new(0xf1).unwrap(),
+                body: &[0xaa],
+            },
+        ] {
+            assert_eq!(
+                Upcall::decode(&request.encode()),
+                Ok(request),
+                "an upcall request must survive an encode and decode unchanged"
+            );
+        }
     }
 }

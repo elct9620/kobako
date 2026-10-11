@@ -131,7 +131,7 @@ pub enum Downcall {}
 
 ## `Downcall::decode`
 
-Read a request the host sent; a tag outside the registry keeps its body.
+Read a request the host sent; a tag the registry has not assigned keeps its body.
 
 ```rust
 impl Downcall {
@@ -159,11 +159,11 @@ pub enum Upcall {}
 
 ## `Upcall::decode`
 
-Read a request the guest sent; a tag outside the registry keeps its body.
+Read a request the guest sent; a tag the registry has not assigned keeps its body.
 
 ```rust
 impl Upcall {
-    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {}
+    pub fn decode(bytes: &'a [u8]) -> Result<Self, DecodeError> {}
 }
 ```
 
@@ -174,6 +174,34 @@ Write a request under its operation's tag.
 ```rust
 impl Upcall {
     pub fn encode(&self) -> Vec<u8> {}
+}
+```
+
+## `UnknownTag`
+
+A request tag the registry has not assigned, the only tag an unknown request can carry.
+
+```rust
+pub struct UnknownTag {}
+```
+
+## `UnknownTag::new`
+
+Take a tag as unknown, or refuse one the registry assigns.
+
+```rust
+impl UnknownTag {
+    pub fn new(tag: u8) -> Option<Self> {}
+}
+```
+
+## `UnknownTag::get`
+
+The tag's byte.
+
+```rust
+impl UnknownTag {
+    pub fn get(self) -> u8 {}
 }
 ```
 

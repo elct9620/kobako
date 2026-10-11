@@ -16,14 +16,15 @@ Every field is refused rather than repaired. Each of these is a wire violation:
 
 - A length that overruns the message.
 - A count larger than what follows it.
-- A tag outside the set.
+- An answer tag outside its operation's arms.
+- A request tag the registry assigns to something else.
 - A flag that is neither of its two values.
 
 A reader that repaired one would leave the two peers disagreeing about what was sent. The refusals are declared beside the round-trips. A shape that only round-trips says nothing about what a reader does with bytes this writer would never emit.
 
 ### Forward compatibility
 
-Forward-compatibility rules are declared as behavior rather than left to a version bump. A Fault or Unsupported kind this reader predates still delivers its message. A field this reader predates is skipped. A request tag outside the registry is read as unknown, body intact, so it can be served or answered.
+Forward-compatibility rules are declared as behavior rather than left to a version bump. A Fault or Unsupported kind this reader predates still delivers its message. A field this reader predates is skipped. A request tag the registry has not assigned is read as unknown, so it can be served or answered.
 
 These rules let every other undefined value be a refusal. The extension point is named, so everything outside it can be closed.
 
@@ -596,11 +597,11 @@ These rules let every other undefined value be a refusal. The extension point is
 | When | each is written |
 | Then | each opens with its operation's tag, followed by its body alone |
 
-## `WE-072` A request tag outside the registry is read as unknown
+## `WE-072` A request tag the registry has not assigned is read as unknown
 
 | Step | Statement |
 | --- | --- |
-| Given | a request under a tag outside the registry |
+| Given | a request under a tag the registry has not assigned |
 | When | it is read |
 | Then | it reads as unknown with its tag and body intact |
 
@@ -618,4 +619,20 @@ These rules let every other undefined value be a refusal. The extension point is
 | --- | --- |
 | Given | a request under tag `0x00` |
 | When | it is read |
+| Then | it is refused |
+
+## `WE-075` A request under a tag assigned elsewhere is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a request under another channel's request tag or an answer's arm |
+| When | it is read |
+| Then | it is refused rather than read as unknown |
+
+## `WE-076` An unknown request cannot take an assigned tag
+
+| Step | Statement |
+| --- | --- |
+| Given | an assigned tag or tag `0x00` |
+| When | an unknown request tag is made from it |
 | Then | it is refused |

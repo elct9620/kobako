@@ -9,7 +9,7 @@ The wire is every message between the Host Gem and the Guest Binary during an in
 | [`envelope.md`](envelope.md) | each message's fields, meaning, and bytes |
 | [`payload-msgpack.md`](payload-msgpack.md) | the default payload codec |
 
-ABI names, return conventions, and the byte values in either layer change only with an ABI version increment (→ [`abi.md`](abi.md) § ABI Version). An added field or closed-set value is not such a change, because a reader degrades what it predates (→ [`envelope.md`](envelope.md) § Fault). A new tag is not one either, because a reader answers a tag it does not serve as unsupported (→ [`envelope.md`](envelope.md) § Unknown Tags).
+ABI names, return conventions, and the byte values in either layer change only with an ABI version increment (→ [`abi.md`](abi.md) § ABI Version). An added field or closed-set value is not such a change, because a reader degrades what it predates (→ [`envelope.md`](envelope.md) § Fault). A new request tag is not one either, because a reader answers a request it does not serve as unsupported (→ [`envelope.md`](envelope.md) § Unknown Tags). A new answer arm is one, since a reader refuses an arm it predates.
 
 ---
 

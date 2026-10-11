@@ -115,6 +115,22 @@ The host-side stand-in for a Block, valid only while the dispatch that received 
 
 The part of a message that says where it goes and how it turned out. It is readable without a Codec, so routing and attribution never depend on one.
 
+### Tag
+
+The first byte of every message, naming its operation or its answer's arm. One registry covers both directions, so an assigned tag means one thing everywhere.
+
+### Request
+
+A message asking the receiver to run the operation its tag names. A request under a tag the registry has not assigned is unknown rather than broken.
+
+### Downcall
+
+A request from the host to the guest. It starts an Invocation or a Yield.
+
+### Upcall
+
+A request from the guest to the host. It carries a Call.
+
 ### Codec
 
 The agreement two endpoints reach about how values become bytes. It is replaceable: only the two endpoints need to share one.

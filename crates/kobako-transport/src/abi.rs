@@ -8,7 +8,8 @@
 
 /// The Guest ABI version. A host accepts a Guest Binary only when the
 /// version it reports equals this one, so a framing or symbol change is
-/// an increment rather than a negotiation; a new tag needs neither.
+/// an increment rather than a negotiation. A new request tag needs
+/// neither, but a new answer arm is an increment.
 pub const ABI_VERSION: u32 = 4;
 
 /// Width in bytes of the length prefix that precedes each invocation-channel

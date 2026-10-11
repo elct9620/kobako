@@ -85,9 +85,9 @@ The ABI version is one u32 defined in `kobako-transport`, independent of every p
 
 | Inside the version | Outside the version |
 |--------------------|---------------------|
-| the symbol set, names, signatures | a new tag in the registry |
+| the symbol set, names, signatures | a new request tag in the registry |
 | the packed return convention | an additive contract change |
-| the message framing and any redefined byte value | a payload codec swap |
+| the message framing, a redefined byte value, a new answer arm | a payload codec swap |
 
 `__kobako_abi_version` is a constant function, callable before any entry runs, so one call can serve every Sandbox built from the artifact. The host accepts a Guest Binary only on equality, checked at Sandbox construction (→ [`spec/behavior/runtime.md`](../spec/behavior/runtime.md)).
 
@@ -99,7 +99,7 @@ A host implements exactly one ABI version, so an increment is the cost of a chan
 |------|-------------|
 | No in-band version field | alignment checked once, not per message |
 | No negotiation | each side implements one wire shape |
-| Unsupported answer | a peer refuses an unknown tag, so a tag joins without a bump |
+| Unsupported answer | a peer answers an unknown request, so a request tag joins without a bump |
 
 A sandbox is short-lived, so no connection or stored payload outlasts a version. An independently built Guest Binary conforms by rebuilding against the new one. Release notes list wire-affecting changes under Breaking Changes.
 

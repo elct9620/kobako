@@ -85,12 +85,13 @@ All tags share one number space, so a byte means one thing in every message. The
 
 ### Unknown Tags
 
-A request tag outside the registry reads as unknown, with its body intact. Reading and serving are separate: a receiver of its own may serve an unknown tag, and kobako's endpoints answer it with `unsupported`. Tag `0x00` and an answer arm its operation does not allow are wire violations (→ § Framing Rule).
+A request tag the registry has not assigned reads as unknown, with its body intact. A receiver of its own may serve one, and kobako's endpoints answer it with `unsupported`. An assigned tag already means one thing, so it is never unknown, and a writer cannot make an unknown request under one. A misplaced assigned tag is a wire violation (→ § Framing Rule).
 
 | Received | Reader's answer |
 |---|---|
 | a request tag it serves | the operation's own answer |
 | a request tag it does not serve | `unsupported` |
+| another channel's request tag, or an answer's arm | refused |
 | request tag `0x00` | refused |
 | an answer arm its operation does not allow | refused |
 

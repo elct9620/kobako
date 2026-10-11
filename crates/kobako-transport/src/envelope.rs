@@ -11,12 +11,13 @@
 //! past that buffer's life — a binding's path and a snippet's body, read
 //! from a frame at boot and consumed later — are copied at decode.
 //!
-//! Every type here but `FaultKind` is exhaustive. Each arm is a tag byte
-//! the layout document fixes, so the set grows only with an ABI version —
-//! and when it does, a peer that has not been taught the new arm should
-//! fail to compile rather than fall into a wildcard and answer a message
-//! it cannot read. A Fault's category is the exception: a reader degrades
-//! one it predates instead of refusing the Reply.
+//! Every answer is exhaustive. Each arm is a tag byte the layout document
+//! fixes, so an answer's set grows only with an ABI version — and when it
+//! does, a peer that has not been taught the new arm should fail to
+//! compile rather than fall into a wildcard and answer a message it
+//! cannot read. Two kinds of type are the exception, because a reader
+//! answers what it predates instead of refusing it: a request reads an
+//! unassigned tag as unknown, and a Fault's category degrades.
 //!
 //! This layer has one implementation, so its `golden_layout_*` tests are
 //! what hold it to the layout document. They spell each tag as the literal
@@ -41,7 +42,7 @@ pub use fault::{Fault, FaultKind};
 pub use invocation_frames::{Bindings, Frames, Snippet, Snippets};
 pub use outcome::{Origin, Outcome, Panic};
 pub use reply::{Reply, YieldReply};
-pub use request::{Downcall, Upcall};
+pub use request::{Downcall, UnknownTag, Upcall};
 pub use run::Run;
 pub use unsupported::Unsupported;
 
