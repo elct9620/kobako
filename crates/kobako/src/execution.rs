@@ -126,8 +126,9 @@ impl fmt::Debug for Execution {
 /// Reads no payload byte, so attribution works for a host whose Receivers
 /// speak a schema this crate does not know. The Ruby gem's
 /// `Kobako::Outcome` is its twin, so both frontends reading the same
-/// Outcome reach the same variant.
-pub(crate) fn classify(outcome: Outcome) -> Result<Vec<u8>, Error> {
+/// Outcome reach the same variant. `verb` names the invocation, so an
+/// unsupported one says which operation the Guest Binary lacks.
+pub(crate) fn classify(outcome: Outcome, verb: &str) -> Result<Vec<u8>, Error> {
     match outcome {
         Outcome::Ok(payload) => Ok(payload),
         Outcome::Panic(panic) => Err(classify_panic(panic)),
@@ -135,7 +136,10 @@ pub(crate) fn classify(outcome: Outcome) -> Result<Vec<u8>, Error> {
         // the Sandbox's, worded by the host as for a yield it does not serve.
         Outcome::Unsupported(_) => Err(Error::Sandbox(Box::new(Failure::host(
             "Kobako::SandboxError",
-            "the Sandbox runtime does not support this invocation",
+            format!(
+                "the Sandbox runtime does not support #{verb}; \
+                 rebuild it against the kobako version in use"
+            ),
         )))),
     }
 }
@@ -234,7 +238,7 @@ mod classify_tests {
     #[test]
     fn the_ok_arm_yields_the_payload_bytes_it_carried() {
         assert_eq!(
-            classify(Outcome::Ok(vec![0x2a])).unwrap(),
+            classify(Outcome::Ok(vec![0x2a]), "eval").unwrap(),
             vec![0x2a],
             "an ok arm through classify must hand back its payload bytes untouched, \
              since attribution reads no payload byte"
@@ -244,34 +248,41 @@ mod classify_tests {
     // @behavior OC-008
     #[test]
     fn service_origin_panic_becomes_service_error() {
-        let result = classify(panic_outcome(Origin::Service, "Kobako::ServiceError"));
+        let result = classify(
+            panic_outcome(Origin::Service, "Kobako::ServiceError"),
+            "eval",
+        );
         assert!(matches!(result, Err(Error::Service(f)) if f.message == "boom"));
     }
 
     // @behavior OC-013
     #[test]
     fn bytecode_class_panic_becomes_bytecode_error() {
-        let result = classify(panic_outcome(Origin::Sandbox, "Kobako::BytecodeError"));
+        let result = classify(
+            panic_outcome(Origin::Sandbox, "Kobako::BytecodeError"),
+            "eval",
+        );
         assert!(matches!(result, Err(Error::Bytecode(_))));
     }
 
     // @behavior OC-009
     #[test]
     fn sandbox_origin_panic_becomes_sandbox_error() {
-        let result = classify(panic_outcome(Origin::Sandbox, "RuntimeError"));
+        let result = classify(panic_outcome(Origin::Sandbox, "RuntimeError"), "eval");
         assert!(matches!(result, Err(Error::Sandbox(f)) if f.name == "RuntimeError"));
     }
 
     // @behavior OC-052
     #[test]
     fn an_unsupported_invocation_becomes_sandbox_error() {
-        let result = classify(Outcome::Unsupported(
-            kobako_transport::envelope::Unsupported::new("no"),
-        ));
+        let result = classify(
+            Outcome::Unsupported(kobako_transport::envelope::Unsupported::new("no")),
+            "run",
+        );
         assert!(
-            matches!(result, Err(Error::Sandbox(_))),
+            matches!(result, Err(Error::Sandbox(ref f)) if f.message.contains("#run")),
             "an Outcome answered as unsupported through classify must be the Sandbox's \
-             failure rather than a trap"
+             failure naming the invocation, got {result:?}"
         );
     }
 
@@ -290,7 +301,7 @@ mod classify_tests {
             },
             available: vec!["Worker".into(), "Helper".into()],
         });
-        let result = classify(outcome);
+        let result = classify(outcome, "run");
         assert!(
             matches!(result, Err(Error::Sandbox(ref f)) if f.available == ["Worker", "Helper"]),
             "an unresolved entrypoint must reach the caller with its correction, got {result:?}"

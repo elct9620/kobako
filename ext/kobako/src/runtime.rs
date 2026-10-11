@@ -251,6 +251,10 @@ impl Runtime {
         entry: Entry<'_>,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
+        let verb = match entry {
+            Entry::Eval { .. } => "eval",
+            Entry::Run { .. } => "run",
+        };
         let handler = build_handler(dispatch);
         let frames = Frames {
             bindings: Bindings {
@@ -265,7 +269,7 @@ impl Runtime {
             self.driver.invoke(entry, &frames, handler)
         });
         result
-            .map(Snapshot)
+            .map(|snapshot| Snapshot(snapshot, verb))
             .map_err(|e| errors::to_magnus(&ruby, e))
     }
 
@@ -297,10 +301,11 @@ fn build_handler(dispatch: Value) -> Option<Arc<dyn DispatchHandler>> {
 /// driver produced, exposed as `Kobako::Runtime::Snapshot`. Usage and the
 /// two output captures are present on every outcome, so the trap path
 /// carries them just like the value path; the completion is read as either
-/// the Outcome (`#outcome`) or a trap (`#trap_error`).
+/// the Outcome (`#outcome`) or a trap (`#trap_error`). The verb names the
+/// invocation, so an unsupported one says which operation is lacking.
 #[derive(TypedData)]
 #[magnus(class = "Kobako::Runtime::Snapshot", free_immediately, size)]
-struct Snapshot(RuntimeSnapshot);
+struct Snapshot(RuntimeSnapshot, &'static str);
 
 impl DataTypeFunctions for Snapshot {}
 
@@ -330,7 +335,11 @@ impl Snapshot {
                 Some((
                     "sandbox".to_owned(),
                     "Kobako::SandboxError".to_owned(),
-                    "the Sandbox runtime does not support this invocation".to_owned(),
+                    format!(
+                        "the Sandbox runtime does not support #{}; \
+                         rebuild it against the kobako version in use",
+                        self.1
+                    ),
                     Vec::new(),
                     Vec::new(),
                 )),

@@ -24,5 +24,8 @@ class TestUnsupportedOutcome < Minitest::Test
     refute_kind_of Kobako::TrapError, err,
                    "an invocation answered as unsupported through Sandbox#eval must fail as the " \
                    "Sandbox's failure rather than a trap"
+    assert_includes err.message, "#eval",
+                    "an invocation answered as unsupported through Sandbox#eval must name the " \
+                    "operation the Sandbox runtime lacks"
   end
 end

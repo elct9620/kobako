@@ -286,9 +286,13 @@ impl Sandbox {
             bindings: catalog.bound_paths(),
             snippets: catalog.snippets.frame().clone(),
         };
+        let verb = match entry {
+            Entry::Eval { .. } => "eval",
+            Entry::Run { .. } => "run",
+        };
         let handler = Arc::new(CatalogHandler::new(catalog, handles.clone(), resolved));
         let snapshot = self.runtime.invoke(entry, &frames, Some(handler))?;
-        Ok(build_execution(snapshot, handles))
+        Ok(build_execution(snapshot, handles, verb))
     }
 
     /// The seal locks the registry, so concurrent first invocations serialize
@@ -316,9 +320,9 @@ fn open_catalog(registry: &mut Mutex<Registry>) -> Result<&mut Catalog, Error> {
 
 /// The `handles` table rides along so the result's Handles resolve on the
 /// Execution, which is also where the payload meets a schema.
-fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>) -> Execution {
+fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>, verb: &str) -> Execution {
     let outcome = match snapshot.completion {
-        Completion::Outcome(outcome) => classify(outcome),
+        Completion::Outcome(outcome) => classify(outcome, verb),
         Completion::Trap(trap) => Err(trap.into()),
     };
     Execution::new(

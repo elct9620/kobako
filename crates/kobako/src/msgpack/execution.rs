@@ -71,7 +71,7 @@ mod tests {
         let outcome = Outcome::Ok(Encoder::encode(&Value::Int(42)).unwrap());
 
         assert_eq!(
-            decode_value(&classify(outcome).unwrap()).unwrap(),
+            decode_value(&classify(outcome, "eval").unwrap()).unwrap(),
             Value::Int(42),
             "an ok arm carrying an encodable value must read back through the codec unchanged"
         );
@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn a_malformed_value_body_is_a_wire_violation_sandbox_error() {
         // The ok arm followed by a truncated msgpack str header.
-        let result = classify(Outcome::Ok(vec![0xd9])).and_then(|body| decode_value(&body));
+        let result = classify(Outcome::Ok(vec![0xd9]), "eval").and_then(|body| decode_value(&body));
 
         assert!(
             matches!(result, Err(Error::Sandbox(f)) if f.name == WIRE_ERROR_CLASS),
