@@ -623,6 +623,11 @@ These rules let every other undefined value be a refusal. The extension point is
 
 ## `WE-075` A request under a tag assigned elsewhere is refused
 
+| Attribute | Value |
+| --- | --- |
+| refines | `WE-072` |
+| relates | `WE-074` |
+
 | Step | Statement |
 | --- | --- |
 | Given | a request under the other direction's request tag or an answer's arm |
@@ -630,6 +635,10 @@ These rules let every other undefined value be a refusal. The extension point is
 | Then | it is refused rather than read as unknown |
 
 ## `WE-076` An unknown request cannot take an assigned tag
+
+| Attribute | Value |
+| --- | --- |
+| relates | `WE-075` |
 
 | Step | Statement |
 | --- | --- |

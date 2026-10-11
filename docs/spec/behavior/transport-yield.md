@@ -531,6 +531,10 @@ That last exit has no parity scenario, because the frontends close it at differe
 
 ## `T-280` An unsupported yield left unrescued is worded as kobako's own
 
+| Attribute | Value |
+| --- | --- |
+| relates | `T-158`, `T-278` |
+
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox whose Service left an unsupported yield unrescued |
