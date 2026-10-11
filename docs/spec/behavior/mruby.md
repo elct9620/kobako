@@ -10,18 +10,7 @@ A capability gem servicing one guest operation calls back into guest code. The r
 
 The boot state may be computed at build time, and per-invocation resources may be provisioned ahead of demand. Both are stated to be unobservable, so neither is a scenario. The reproducible-build check holds the baking end. Leak-freedom between invocations is per-invocation isolation and belongs with the Sandbox behaviors, whose witnesses cite it alongside this one.
 
-### Flag scenarios
-
 The default Guest Binary recognises no flag, so only the unrecognised paths are scenarios. A critical flag refuses, because a restriction must never lapse silently.
-
-```
-recognised  critical  answer
-no          yes       refused
-no          no        skipped
-yes         either    applied, before any snippet replays
-```
-
-The last row waits for a flag that can witness it.
 
 ## Includes
 
@@ -167,6 +156,10 @@ The last row waits for a flag that can witness it.
 
 ## `MR-017` A critical flag the guest does not recognise refuses the invocation
 
+| Attribute | Value |
+| --- | --- |
+| relates | `WE-078` |
+
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the default Guest Binary and a critical flag it does not recognise |
@@ -177,7 +170,7 @@ The last row waits for a flag that can witness it.
 
 | Attribute | Value |
 | --- | --- |
-| relates | `MR-017` |
+| relates | `MR-017`, `WE-077` |
 
 | Step | Statement |
 | --- | --- |
