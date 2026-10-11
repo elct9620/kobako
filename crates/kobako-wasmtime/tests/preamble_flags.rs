@@ -2,37 +2,16 @@
 //! the unrecognised path: a critical one must refuse the invocation under
 //! its own class, and an advisory one must leave the run untouched.
 
-use std::path::Path;
-use std::time::Duration;
+mod support;
 
-use kobako_runtime::{Completion, Entry, Profile, Runtime};
+use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Origin, Outcome, Preamble};
-use kobako_wasmtime::{Config, Driver};
-
-const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
 /// The Outcome and what the script printed, or `None` when the Guest
 /// Binary has not been built outside CI. The script prints before it
 /// answers, so empty stdout means it never ran.
 fn eval_with_flag(critical: bool) -> Option<(Outcome, Vec<u8>)> {
-    if !Path::new(WASM).exists() {
-        assert!(
-            std::env::var_os("CI").is_none(),
-            "data/kobako.wasm missing under CI — run `bundle exec rake wasm:build`"
-        );
-        return None;
-    }
-    let driver = Driver::new(
-        Path::new(WASM),
-        Config {
-            timeout: Some(Duration::from_secs(10)),
-            memory_limit: None,
-            stdout_limit: None,
-            stderr_limit: None,
-            profile: Profile::Hermetic,
-        },
-    )
-    .expect("the Guest Binary must load");
+    let driver = support::bundled_driver()?;
     let mut preamble = Preamble::default();
     preamble.flags = vec![Flag {
         name: "no_such_flag".into(),

@@ -3,15 +3,12 @@
 //! rather than a broken exchange. The default frontends serve every Call,
 //! so only a handler written here reaches that answer.
 
-use std::path::Path;
+mod support;
+
 use std::sync::Arc;
-use std::time::Duration;
 
-use kobako_runtime::{Completion, DispatchHandler, Entry, Profile, Runtime, Yielder};
+use kobako_runtime::{Completion, DispatchHandler, Entry, Runtime, Yielder};
 use kobako_transport::envelope::{Bindings, Call, Outcome, Preamble, Reply, Unsupported};
-use kobako_wasmtime::{Config, Driver};
-
-const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
 struct ServesNoCall;
 
@@ -24,24 +21,9 @@ impl DispatchHandler for ServesNoCall {
 // @behavior T-279
 #[test]
 fn a_call_the_host_does_not_serve_raises_unsupported_error_in_the_guest() {
-    if !Path::new(WASM).exists() {
-        assert!(
-            std::env::var_os("CI").is_none(),
-            "data/kobako.wasm missing under CI — run `bundle exec rake wasm:build`"
-        );
+    let Some(driver) = support::bundled_driver() else {
         return;
-    }
-    let driver = Driver::new(
-        Path::new(WASM),
-        Config {
-            timeout: Some(Duration::from_secs(10)),
-            memory_limit: None,
-            stdout_limit: None,
-            stderr_limit: None,
-            profile: Profile::Hermetic,
-        },
-    )
-    .expect("the Guest Binary must load");
+    };
     let mut preamble = Preamble::default();
     preamble.bindings = Bindings {
         paths: vec!["Svc".into()],
