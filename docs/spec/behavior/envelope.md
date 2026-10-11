@@ -729,6 +729,10 @@ These rules let every other undefined value be a refusal. The extension point is
 
 ## `WE-085` Every arm of a compile's Reply round-trips
 
+| Attribute | Value |
+| --- | --- |
+| relates | `WE-022` |
+
 | Step | Statement |
 | --- | --- |
 | Given | a compile's Reply on each of its arms |
@@ -739,7 +743,7 @@ These rules let every other undefined value be a refusal. The extension point is
 
 | Attribute | Value |
 | --- | --- |
-| relates | `WE-085` |
+| relates | `WE-085`, `WE-026` |
 
 | Step | Statement |
 | --- | --- |
@@ -751,7 +755,7 @@ These rules let every other undefined value be a refusal. The extension point is
 
 | Attribute | Value |
 | --- | --- |
-| relates | `WE-085` |
+| relates | `WE-085`, `WE-024` |
 
 | Step | Statement |
 | --- | --- |
