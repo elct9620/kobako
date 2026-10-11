@@ -81,7 +81,8 @@ impl Gem for KobakoBridge {
         )?;
 
         // `Kobako::ServiceError` / `Kobako::Transport::Error` /
-        // `Kobako::BytecodeError` — all subclass `RuntimeError`.
+        // `Kobako::UnsupportedError` / `Kobako::BytecodeError` — all
+        // subclass `RuntimeError`.
         // ServiceError and BytecodeError stay at the Kobako top level
         // (public API); Error lives under Transport since it is a
         // transport-layer fault.

@@ -27,8 +27,9 @@ use kobako_transport::envelope::{self, Call, Reply, Target, Upcall};
 ///
 /// Non-exhaustive: a guest matches on this, and a later way for the
 /// exchange to fail should not break the ones already written. Keep a
-/// wildcard arm and treat it the way `Wire` is treated — anything that is
-/// not the Service's own fault means the exchange did not complete.
+/// wildcard arm and treat it the way `Envelope` is treated: the exchange
+/// did not complete. `Unsupported` is the exception, an answer the caller
+/// may fall back from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum DispatchError {
