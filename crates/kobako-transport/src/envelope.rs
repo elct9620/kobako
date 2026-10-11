@@ -35,7 +35,7 @@ pub mod run;
 pub use call::{Call, Target};
 pub use error_record::ErrorRecord;
 pub use fault::{Fault, FaultKind};
-pub use invocation_frames::{Bindings, Snippet, Snippets};
+pub use invocation_frames::{Bindings, Frames, Snippet, Snippets};
 pub use outcome::{Origin, Outcome, Panic};
 pub use reply::{Reply, YieldReply};
 pub use run::Run;

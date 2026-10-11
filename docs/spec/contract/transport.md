@@ -323,6 +323,14 @@ impl Run {
 }
 ```
 
+## `Frames`
+
+The registrations and Snippets an invocation replays before its entry runs.
+
+```rust
+pub struct Frames {}
+```
+
 ## `Bindings`
 
 The Service paths a Sandbox registers, as the preamble Frame carries them.

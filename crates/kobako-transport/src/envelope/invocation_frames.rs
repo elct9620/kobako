@@ -13,6 +13,14 @@ use super::DecodeError;
 const SNIPPET_SOURCE: u8 = 0;
 const SNIPPET_BYTECODE: u8 = 1;
 
+/// What the host sets a Sandbox up with, read by the guest before any
+/// entry runs: the paths it bound and the snippets it preloaded.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Frames {
+    pub bindings: Bindings,
+    pub snippets: Snippets,
+}
+
 /// Frame 1 — the bound constant paths the guest installs proxies from.
 /// Always present; an empty list means no Service is bound.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
