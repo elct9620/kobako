@@ -74,7 +74,7 @@ binding is a capability you hand out. Ask these questions before you bind one.
 A Sandbox's bindings *are* its capability set, so one Sandbox shared across contexts
 turns every binding into ambient authority for all of them. Build one per principal
 — per user, agent session, or submission — and bind only what that context may
-touch. Finish every `bind` and `preload` before the first invocation, which seals
+touch. Finish every `bind`, `preload`, and `flag` before the first invocation, which seals
 the registry.
 
 ```ruby
