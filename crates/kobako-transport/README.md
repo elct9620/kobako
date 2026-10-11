@@ -12,8 +12,9 @@ same in every assembly. This crate is both of them, and nothing else.
 | `envelope` | the **core envelope**, the outer frame each message rides in |
 | `abi` | the values both sides agree on before exchanging a byte |
 
-The envelope covers a dispatch round-trip, how an invocation ended, and
-what an invocation is handed, and re-exports every message type. The ABI
+The envelope covers each channel's requests under one tag registry. It
+also covers a dispatch round-trip, how an invocation ended, and what an
+invocation is handed, and re-exports every message type. The ABI
 values are the version, the packed `(ptr, len)` return layout, the
 invocation-channel frame prefix, and the message size cap.
 

@@ -72,7 +72,7 @@ pub enum Error {
     Timeout(String),
     /// The linear-memory cap fired (Ruby: `Kobako::MemoryLimitError`).
     MemoryLimit(String),
-    /// Any other engine trap, or an absent / corrupt outcome buffer
+    /// Any other engine trap, or an absent / corrupt result
     /// (Ruby: `Kobako::TrapError`).
     Trap(String),
     /// Guest-origin failure — uncaught exception, compile failure, or

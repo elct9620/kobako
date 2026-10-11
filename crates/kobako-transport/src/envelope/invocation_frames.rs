@@ -1,7 +1,7 @@
 //! The invocation frames — Frame 1's bound constant paths and Frame 3's
 //! preloaded snippets, the two both entry points read before running
 //! anything. The numbering skips Frame 2 because the `#eval` user source
-//! is raw UTF-8 with no envelope of its own.
+//! rides the `eval` downcall instead.
 //!
 //! Both are mandatory-presence even when empty, so a reader never has to
 //! tell an absent frame from an empty one, and each frame's length reaches

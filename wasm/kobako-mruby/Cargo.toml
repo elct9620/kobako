@@ -40,9 +40,9 @@ kobako-transport = { path = "../../crates/kobako-transport", version = "0.17.0" 
 # naming its own `MrbGuest::Codec` carries none of this.
 kobako-codec = { path = "../../crates/kobako-codec", version = "0.17.0", default-features = false, optional = true }
 
-# Guest ABI contract crate — the ABI primitives (outcome buffer,
-# frames, dispatch proxy) the provided flows implement the contract
-# with.
+# Guest ABI contract crate — the `Guest` trait the provided flows
+# implement, the downcall that drives them, and the dispatch proxy
+# they call the host through.
 kobako-core = { path = "../kobako-core", version = "0.17.0" }
 
 # Typed mruby wrapper — `Mrb` / `Value` seams, the `Gem` trait, and
