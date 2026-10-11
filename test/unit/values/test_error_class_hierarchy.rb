@@ -49,12 +49,12 @@ class TestErrorClassHierarchy < Minitest::Test
     end
   end
 
-  # Both yield-site classes are raised inside a dispatch the host is still
-  # answering, where the Service may rescue and go on, so neither reaches
-  # the Host App as an invocation outcome and both stay outside the three
-  # that do. BlockError carries what the block sent back, YieldValueError
-  # what the Service could not send.
-  YIELD_SITE_CLASSES = [Kobako::BlockError, Kobako::YieldValueError].freeze
+  # Every yield-site class is raised inside a dispatch the host is still
+  # answering, where the Service may rescue and go on, so none reaches the
+  # Host App as an invocation outcome and all stay outside the three that
+  # do. BlockError carries what the block sent back, YieldValueError what
+  # the Service could not send, UnsupportedError a guest serving no block.
+  YIELD_SITE_CLASSES = [Kobako::BlockError, Kobako::YieldValueError, Kobako::UnsupportedError].freeze
   INVOCATION_OUTCOMES = [Kobako::TrapError, Kobako::SandboxError, Kobako::ServiceError].freeze
 
   # @behavior OC-021

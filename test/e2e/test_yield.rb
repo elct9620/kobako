@@ -5,10 +5,9 @@ require "test_helper"
 # E2E — the block / yield round-trip through real mruby: a guest
 # call site supplying a block
 # surfaces as a non-nil +&block+ on the host Service method, and each
-# +yield+ / +block.call+ is a synchronous round-trip into the guest via
-# +__kobako_yield_to_block+, returning the block result (tag 0x01), a
-# +break+ value (tag 0x02), or an error (tag 0x04) to the Service's yield
-# site. The break / return unwind discrimination lives in
+# +yield+ / +block.call+ is a synchronous round-trip into the guest via a
+# +yield+ downcall, returning the block result (tag 0x10), a +break+ value
+# (tag 0x12), or an error (tag 0x13) to the Service's yield site. The break / return unwind discrimination lives in
 # test_yield_unwind.rb, and the error arm across its three shapes in
 # test_yield_block_failure.rb, test_yield_block_spent.rb, and
 # test_yield_value_refusal.rb.

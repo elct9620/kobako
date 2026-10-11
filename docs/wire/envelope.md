@@ -52,6 +52,49 @@ A decode consumes the message exactly or fails, so a framing desync fails loudly
 
 ---
 
+## Message Layer
+
+Every message on either channel is a tag and a body. The framing rule applies once more: the body is the remainder.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `tag` | `u8` | the operation, or the arm of its answer |
+| `body` | remainder | that tag's layout, below |
+
+A request's body is a Call, a Run, or a payload. An answer's tag is its arm, so a Reply, a Yield Reply, and an Outcome are each this layer with the arms its operation allows.
+
+### Tag Registry
+
+All tags share one number space, so a byte means one thing in every message. The registry grows append-only; the framing does not.
+
+| Tag | Name | Sent on | Body |
+|---|---|---|---|
+| `0x00` | — | — | invalid |
+| `0x01` | eval | downcall | user source, UTF-8 |
+| `0x02` | run | downcall | a Run |
+| `0x03` | yield | downcall | a Yield Call |
+| `0x04` | call | upcall | a Call |
+| `0x10` | ok | an answer to any | that operation's value |
+| `0x11` | fault | an answer to call | a Fault |
+| `0x12` | break | an answer to yield | the break value |
+| `0x13` | error | an answer to yield | an Error Record |
+| `0x14` | panic | an answer to eval, run | a Panic |
+| `0x15` | unsupported | an answer to any | an Unsupported |
+
+`0x05`–`0x0F` and `0x16`–`0x7F` are kobako's, unassigned. `0x80`–`0xEF` are left for either side later, and `0xF0`–`0xFF` for third parties. A field's own `kind`, such as a Call's target form, picks a field rather than a message, so it keeps its own numbers.
+
+### Unknown Tags
+
+A receiver answers a request tag it does not serve with `unsupported` rather than failing. An answer arm outside what its operation allows is a wire violation, refused like any other (→ § Framing Rule).
+
+| Received | Reader's answer |
+|---|---|
+| a request tag it serves | the operation's own answer |
+| a request tag it does not serve | `unsupported` |
+| an answer arm its operation does not allow | refused |
+
+---
+
 ## Call
 
 A Call is the guest→host dispatch. Its envelope fields route it; its payload feeds the method.
@@ -74,12 +117,24 @@ The method is one name, reached only through its public surface ([transport-boun
 
 A Reply answers one Call. Success versus fault is decided by one byte, whatever the payload schema, so a fault rides its own arm rather than a reserved payload value.
 
-| Field | Type | Meaning |
-|-------|------|---------|
-| `tag` | `u8` | `0` success · `1` fault |
-| `body` | remainder | the codec-encoded value · or a Fault |
+| Tag | Arm | Body |
+|-----|-----|------|
+| `0x10` | ok | the codec-encoded value |
+| `0x11` | fault | a Fault |
+| `0x15` | unsupported | an Unsupported |
 
 There is no partial success or streaming answer.
+
+### Unsupported
+
+An Unsupported is a receiver saying it does not serve the operation it was sent. It answers rather than fails, so the caller decides whether to fall back or give up.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `kind` | `u8` | `0`, the only kind defined |
+| `message` | `bytes` | a UTF-8 description |
+
+It carries no tag of its own, since the caller knows what it sent. A reader takes a kind it predates as `0`, the same way a Fault degrades.
 
 ### Fault
 
@@ -125,20 +180,14 @@ To the Service method, `yield` is an ordinary synchronous call ([transport-yield
 
 ### Yield Layouts
 
-A Yield Call carries only the arguments, since its dispatch frame already supplies target and block. The ABI's `req_len` frames it, so no prefix repeats.
-
-| Message | Field | Type | Meaning |
-|---------|-------|------|---------|
-| Yield Call | payload | whole message | the arguments, codec-encoded |
-| Yield Reply | `tag` | `u8` | the variant, below |
-| Yield Reply | `body` | remainder | a value, or an Error Record |
+A Yield Call is the `yield` tag over the arguments alone, since its dispatch frame already supplies target and block. The arguments are the codec-encoded remainder.
 
 | Tag | Variant | Body | Host yield site |
 |-----|---------|------|-----------------|
-| `0x01` | ok | the block value | returns it to the Service |
-| `0x02` | break | the `break` value | ends the Service with it |
-| `0x03` | reserved | — | wire violation |
-| `0x04` | error | an Error Record | re-raises the named class |
+| `0x10` | ok | the block value | returns it to the Service |
+| `0x12` | break | the `break` value | ends the Service with it |
+| `0x13` | error | an Error Record | re-raises the named class |
+| `0x15` | unsupported | an Unsupported | raises that the guest serves no block |
 
 An ok value's Handles are restored, because host code consumes it. A break value returns to the guest, so its Handles ride back unchanged. Any other tag, or a reply the host cannot frame, fails the yield as a trap.
 
@@ -158,14 +207,15 @@ It differs from a Fault, which travels host to guest with a category instead of 
 
 ## Outcome
 
-The Outcome is the per-invocation result. The guest writes it at the end of `__kobako_eval` or `__kobako_run`; the host takes it through `__kobako_take_outcome`.
+The Outcome is the per-invocation result, the answer to an `eval` or `run` downcall.
 
-| Field | Type | Meaning |
-|-------|------|---------|
-| `tag` | `u8` | `0x01` ok · `0x02` Panic |
-| `body` | remainder | the codec-encoded value · or a Panic |
+| Tag | Arm | Body |
+|-----|-----|------|
+| `0x10` | ok | the codec-encoded value |
+| `0x14` | panic | a Panic |
+| `0x15` | unsupported | an Unsupported |
 
-The ok value becomes `Execution#value`. An empty buffer or unknown tag is refused, and bytes the host cannot frame take the trap path ([outcome](../spec/behavior/outcome.md)). Guest stdout and stderr never join attribution.
+The ok value becomes `Execution#value`. An empty answer or unknown tag is refused, and bytes the host cannot frame take the trap path ([outcome](../spec/behavior/outcome.md)). Guest stdout and stderr never join attribution.
 
 ### Panic
 
@@ -185,7 +235,7 @@ Only `"service"` attributes to the Service (`Kobako::ServiceError`); anything el
 
 ## Run
 
-Run is the host→guest entrypoint dispatch, delivered on the command buffer to `__kobako_run`.
+Run is the host→guest entrypoint dispatch, the body of a `run` downcall.
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -198,7 +248,7 @@ It carries no `method`, since the entrypoint is invoked through `#call`, and no 
 
 ## Invocation Frames
 
-These are the stdin frames each entry point reads (→ [`abi.md`](abi.md) § Invocation channels). Frame 2 is raw `#eval` source with no envelope; the other two have these layouts.
+These are the stdin frames each invocation reads (→ [`abi.md`](abi.md) § Invocation channels). The `#eval` source rides the `eval` downcall instead, and the numbers keep its old gap so each frame keeps one name.
 
 | Frame | Field | Type | Meaning |
 |-------|-------|------|---------|

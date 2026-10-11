@@ -141,9 +141,9 @@ Guest builds a value in mruby and returns it from `#eval`. `wall_time` isolates 
 
 Note: mruby caps a single String at 1 MiB; the largest guest sample here is 512 KiB. Composite values can still approach the 16 MiB wire payload limit.
 
-#### Yield round-trip latency ([`yield_roundtrip.rb`](yield_roundtrip.rb))
+#### Yield latency ([`yield_roundtrip.rb`](yield_roundtrip.rb))
 
-Host-initiated counterpart of #2 — a Service method `yield`s into a guest-supplied block. The cost lives on a different path (Yield Reply codec, `__kobako_yield_to_block` export, guest `BLOCK_STACK`), so a regression here is invisible to #2. Per-yield steady state is `6c` `wall_time / 1000`.
+Host-initiated counterpart of #2 — a Service method `yield`s into a guest-supplied block. The cost lives on a different path (Yield Reply codec, `yield` downcall, guest `BLOCK_STACK`), so a regression here is invisible to #2. Per-yield steady state is `6c` `wall_time / 1000`.
 
 | Case                            | What it isolates                                                                          |
 |---------------------------------|--------------------------------------------------------------------------------------------|

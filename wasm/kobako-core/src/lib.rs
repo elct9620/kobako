@@ -12,7 +12,7 @@
 //! assembled mruby guest and any third-party guest build on it alike.
 
 pub mod abi;
-pub mod frames;
+mod frames;
 mod guest;
 pub mod proxy;
 
@@ -20,5 +20,5 @@ pub mod proxy;
 // its entries take and answer with, the call it makes, and what comes
 // back when the exchange does not complete.
 pub use guest::Guest;
-pub use kobako_transport::envelope::{Frames, Outcome, Run, YieldReply};
+pub use kobako_transport::envelope::{Frames, Outcome, Run, Unsupported, YieldReply};
 pub use proxy::{dispatch, DispatchError};

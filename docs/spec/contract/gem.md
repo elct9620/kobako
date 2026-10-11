@@ -438,6 +438,17 @@ module Kobako
 end
 ```
 
+## `Kobako::UnsupportedError`
+
+A yield to a guest that serves no block.
+
+```ruby
+module Kobako
+  class UnsupportedError
+  end
+end
+```
+
 ## `Kobako::PoolTimeoutError`
 
 A Pool checkout that waited past its bound.

@@ -11,22 +11,9 @@ use std::io::Read;
 use kobako_transport::abi::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
 use kobako_transport::envelope::{Bindings, ErrorRecord, Frames, Origin, Outcome, Panic, Snippets};
 
-/// `__kobako_eval`'s inputs: the Frames and the user source riding
-/// between them.
-pub fn read_eval_frames() -> Result<(Frames, Vec<u8>), Outcome> {
-    read_eval_frames_from(&mut std::io::stdin().lock())
-}
-
-/// `__kobako_run`'s inputs, which carry no source.
-pub fn read_frames() -> Result<Frames, Outcome> {
+/// The Frames every invocation reads before its entry runs.
+pub(crate) fn read_frames() -> Result<Frames, Outcome> {
     read_frames_from(&mut std::io::stdin().lock())
-}
-
-fn read_eval_frames_from<R: Read>(input: &mut R) -> Result<(Frames, Vec<u8>), Outcome> {
-    let bindings = read_bindings(input)?;
-    let source = read_frame_from(input).ok_or_else(|| boot_failure("failed to read the script"))?;
-    let snippets = read_snippets(input)?;
-    Ok((Frames { bindings, snippets }, source))
 }
 
 fn read_frames_from<R: Read>(input: &mut R) -> Result<Frames, Outcome> {
@@ -117,33 +104,30 @@ mod tests {
     }
 
     #[test]
-    fn eval_reads_the_source_between_the_two_frames() {
+    fn the_bindings_frame_precedes_the_snippets_frame() {
         // Frame 1: one path "A"; Frame 3: one source snippet "N" / "b".
         let bindings = [0, 0, 0, 1, 0, 0, 0, 1, b'A'];
         let snippets = [0, 0, 0, 1, 0, 0, 0, 0, 1, b'N', 0, 0, 0, 1, b'b'];
-        let mut input = framed(&[&bindings, b"1 + 1", &snippets]);
+        let mut input = framed(&[&bindings, &snippets]);
 
         assert_eq!(
-            read_eval_frames_from(&mut input),
-            Ok((
-                Frames {
-                    bindings: Bindings {
-                        paths: vec!["A".into()]
-                    },
-                    snippets: Snippets {
-                        entries: vec![Snippet::Source {
-                            name: "N".into(),
-                            body: "b".into()
-                        }]
-                    },
+            read_frames_from(&mut input),
+            Ok(Frames {
+                bindings: Bindings {
+                    paths: vec!["A".into()]
                 },
-                b"1 + 1".to_vec()
-            )),
-            "the eval channel through read_eval_frames must yield Frame 1, the source, and \
-             Frame 3 in that order"
+                snippets: Snippets {
+                    entries: vec![Snippet::Source {
+                        name: "N".into(),
+                        body: "b".into()
+                    }]
+                },
+            }),
+            "the stdin channel through read_frames must yield Frame 1, then Frame 3"
         );
     }
 
+    // @behavior OC-043
     #[test]
     fn a_missing_frame_answers_as_a_boot_failure() {
         let mut input = framed(&[&[0, 0, 0, 0]]);

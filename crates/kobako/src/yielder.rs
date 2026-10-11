@@ -40,6 +40,9 @@ pub enum YieldError {
     /// started and the block never ran. The receiver may recover, or
     /// propagate it as its own failure.
     Refused(String),
+    /// The guest serves no block, so the block never ran. The receiver
+    /// may recover, or propagate it as its own failure.
+    Unsupported(String),
 }
 
 impl fmt::Display for YieldError {
@@ -47,7 +50,9 @@ impl fmt::Display for YieldError {
         match self {
             YieldError::Break => f.write_str("guest block break crossed the receiver"),
             YieldError::Failure { name, message } => write!(f, "{name}: {message}"),
-            YieldError::Aborted(message) | YieldError::Refused(message) => f.write_str(message),
+            YieldError::Aborted(message)
+            | YieldError::Refused(message)
+            | YieldError::Unsupported(message) => f.write_str(message),
         }
     }
 }
@@ -144,6 +149,11 @@ impl<'y> Yielder<'y> {
                 name: record.name,
                 message: record.message,
             }),
+            // Worded by the host, since the guest's own message is not
+            // one a Host App should be shown.
+            YieldReply::Unsupported(_) => Err(YieldError::Unsupported(
+                "the Sandbox runtime does not support yielding to a block".into(),
+            )),
         }
     }
 
@@ -237,6 +247,20 @@ mod tests {
                 message: "boom".into(),
             }),
             "a block that raised must reach the receiver as its own error name and message"
+        );
+    }
+
+    // @behavior T-278
+    #[test]
+    fn a_yield_the_guest_does_not_serve_fails_at_the_yield_site() {
+        let refusal = YieldReply::Unsupported(kobako_transport::envelope::Unsupported::new("no"));
+        let mut channel = Scripted::new(vec![Ok(refusal)]);
+        let mut block = Yielder::new(&mut channel);
+
+        assert!(
+            matches!(block.call_payload(&[]), Err(YieldError::Unsupported(_))),
+            "a yield answered as unsupported through call_payload must reach the receiver \
+             as its own refusal rather than an aborted re-entry"
         );
     }
 

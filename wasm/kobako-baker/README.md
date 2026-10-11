@@ -12,7 +12,7 @@ snapshots the booted interpreter into the artifact's data segments.
 | Import reached during boot | What the linker answers |
 |---|---|
 | the WASI surface wasi-libc's reactor `_initialize` touches | constants, mirroring kobako's ambient denial |
-| `env::__kobako_dispatch` | a trap |
+| `env::__kobako_upcall` | a trap |
 | anything else | the bake aborts |
 
 Identical inputs produce identical baked bytes, so a double-bake

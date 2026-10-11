@@ -12,6 +12,7 @@ use wasmtime::{AsContext, AsContextMut, Caller, Memory};
 use crate::exports::{Exports, RUNTIME_INCOMPATIBLE};
 use crate::invocation::Invocation;
 use kobako_transport::abi::{unpack_ptr_len, MAX_DISPATCH_PAYLOAD};
+use kobako_transport::envelope::Downcall;
 
 // The size-limit messages here and in `frames` name the cap as 16 MiB, so
 // moving the cap fails the build until they are reworded with it.
@@ -100,7 +101,7 @@ fn trapped(
     reason
 }
 
-/// The Call the guest hands the dispatch import. Its `(ptr, len)` are
+/// The request the guest hands the upcall import. Its `(ptr, len)` are
 /// guest addresses, so they are read unsigned.
 pub(crate) fn read_request(
     caller: &mut Caller<'_, Invocation>,
@@ -167,7 +168,7 @@ pub(crate) fn guest_buffer_range(
     Ok(ptr..end)
 }
 
-/// The `(ptr, len)` the guest packs for any buffer it hands back, the
+/// The `(ptr, len)` the guest packs for any answer it hands back, the
 /// outcome and a block's result alike.
 pub(crate) fn unpack_guest_buffer(packed: u64) -> (usize, usize) {
     let (ptr, len) = unpack_ptr_len(packed);
@@ -178,11 +179,12 @@ pub(crate) fn drive_yield(
     caller: &mut Caller<'_, Invocation>,
     args: &[u8],
 ) -> Result<Vec<u8>, &'static str> {
-    let len_i32 = checked_payload_len(args.len())?;
-    let req_ptr = write_from_callback(caller, args)? as i32;
+    let request = Downcall::Yield(args.to_vec()).encode();
+    let len_i32 = checked_payload_len(request.len())?;
+    let req_ptr = write_from_callback(caller, &request)? as i32;
 
     let exports = callback_exports(caller)?;
-    let yield_fn = exports.yield_to_block.ok_or(RUNTIME_INCOMPATIBLE)?;
+    let yield_fn = exports.downcall.ok_or(RUNTIME_INCOMPATIBLE)?;
     let memory = exports.memory.ok_or(SANDBOX_RUNTIME_NOT_KOBAKO)?;
     let packed = yield_fn
         .call(&mut *caller, (req_ptr, len_i32))

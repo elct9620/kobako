@@ -36,6 +36,7 @@ module Kobako
         raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless @active
 
         arm, body, klass = @guest_yielder.call(encode_args(args))
+        raise UnsupportedError, "the Sandbox runtime does not support yielding to a block" if arm == :unsupported
         raise remember(BlockError.new(body, klass: klass)) if arm == :error
 
         value, carried_handle = decode_body(body)

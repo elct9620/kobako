@@ -60,6 +60,9 @@ module Kobako
   class YieldValueError < Error
   end
 
+  class UnsupportedError < Error
+  end
+
   class HandleExhaustedError < SandboxError
   end
 

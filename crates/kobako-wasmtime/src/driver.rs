@@ -25,7 +25,7 @@ use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
-use kobako_transport::envelope::{Frames, Run};
+use kobako_transport::envelope::{Downcall, Frames, Run};
 
 /// The wasmtime execution unit behind one sandbox runtime.
 pub struct Driver {
@@ -155,33 +155,24 @@ impl ContractRuntime for Driver {
         }
         let bindings = frames.bindings.encode();
         let snippets = frames.snippets.encode();
-        let frame_list: Vec<&[u8]> = match &entry {
-            Entry::Eval { source } => vec![&bindings, source, &snippets],
-            Entry::Run { .. } => vec![&bindings, &snippets],
-        };
-        frames::install_wasi_frames(&mut store, &self.config, &frame_list)?;
+        frames::install_wasi_frames(&mut store, &self.config, &[&bindings, &snippets])?;
         let exports = self.instantiate(&mut store)?;
-        let called = match entry {
-            Entry::Eval { .. } => {
-                let eval = exports::require(exports.eval.as_ref())?;
-                self.call_with_caps(&mut store, &exports, eval, ())
-            }
+        let downcall = exports::require(exports.downcall.as_ref())?;
+        let request = match entry {
+            Entry::Eval { source } => Downcall::Eval(source.to_vec()),
             Entry::Run {
                 entrypoint,
                 payload,
-            } => {
-                let run = exports::require(exports.run.as_ref())?;
-                let envelope = Run {
-                    entrypoint: entrypoint.to_owned(),
-                    payload,
-                }
-                .encode();
-                let (env_ptr, env_len) = frames::write_envelope(&mut store, &exports, &envelope)?;
-                self.call_with_caps(&mut store, &exports, run, (env_ptr, env_len))
-            }
-        };
+            } => Downcall::Run(Run {
+                entrypoint: entrypoint.to_owned(),
+                payload,
+            }),
+        }
+        .encode();
+        let (ptr, len) = frames::write_request(&mut store, &exports, &request)?;
+        let called = self.call_with_caps(&mut store, &exports, downcall, (ptr, len));
         let completion = match called {
-            Ok(()) => match frames::fetch_outcome(&mut store, &exports) {
+            Ok(packed) => match frames::read_outcome(&store, &exports, packed) {
                 Ok(outcome) => Completion::Outcome(outcome),
                 Err(t) => Completion::Trap(t),
             },
@@ -192,7 +183,7 @@ impl ContractRuntime for Driver {
 
     /// Exactly the rung `Config` requested. `Hermetic` freezes ambient time
     /// and entropy; both rungs wire no filesystem, environment, or network,
-    /// and the linker adds only `__kobako_dispatch` beyond that WASI surface.
+    /// and the linker adds only `__kobako_upcall` beyond that WASI surface.
     fn profile(&self) -> Profile {
         self.config.profile
     }

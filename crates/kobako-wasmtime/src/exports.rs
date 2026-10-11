@@ -30,10 +30,7 @@ pub(crate) const RUNTIME_INCOMPATIBLE: &str =
 /// own data for the host imports to reach.
 #[derive(Clone)]
 pub(crate) struct Exports {
-    pub(crate) eval: Option<TypedFunc<(), ()>>,
-    pub(crate) run: Option<TypedFunc<(i32, i32), ()>>,
-    pub(crate) take_outcome: Option<TypedFunc<(), u64>>,
-    pub(crate) yield_to_block: Option<TypedFunc<(i32, i32), u64>>,
+    pub(crate) downcall: Option<TypedFunc<(i32, i32), u64>>,
     pub(crate) alloc: Option<TypedFunc<u32, u32>>,
     pub(crate) memory: Option<Memory>,
 }
@@ -43,17 +40,8 @@ impl Exports {
     /// bare module; presence is enforced at invocation time.
     pub(crate) fn resolve(instance: &WtInstance, mut ctx: impl AsContextMut) -> Self {
         Self {
-            eval: instance
-                .get_typed_func::<(), ()>(&mut ctx, "__kobako_eval")
-                .ok(),
-            run: instance
-                .get_typed_func::<(i32, i32), ()>(&mut ctx, "__kobako_run")
-                .ok(),
-            take_outcome: instance
-                .get_typed_func::<(), u64>(&mut ctx, "__kobako_take_outcome")
-                .ok(),
-            yield_to_block: instance
-                .get_typed_func::<(i32, i32), u64>(&mut ctx, "__kobako_yield_to_block")
+            downcall: instance
+                .get_typed_func::<(i32, i32), u64>(&mut ctx, "__kobako_downcall")
                 .ok(),
             alloc: instance
                 .get_typed_func::<u32, u32>(&mut ctx, "__kobako_alloc")
@@ -80,10 +68,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    //! The invocation ABI is a closed set of guest exports, so the bundled
-    //! Guest Binary is read for what it exports rather than only for
-    //! whether `resolve` finds what it looks up — an extra entry point
-    //! would pass every lookup. A missing binary is a hard failure under
+    //! The ABI is a closed set of guest exports, so the bundled Guest
+    //! Binary is read for what it exports rather than only for whether
+    //! `resolve` finds what it looks up — an extra entry point would pass
+    //! every lookup. A missing binary is a hard failure under
     //! CI (which always builds it) and a silent skip locally.
     use std::path::Path;
 
@@ -93,18 +81,15 @@ mod tests {
 
     const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
-    const ABI_EXPORTS: [&str; 6] = [
+    const ABI_EXPORTS: [&str; 3] = [
         "__kobako_abi_version",
         "__kobako_alloc",
-        "__kobako_eval",
-        "__kobako_run",
-        "__kobako_take_outcome",
-        "__kobako_yield_to_block",
+        "__kobako_downcall",
     ];
 
     // @behavior RT-068
     #[test]
-    fn the_guest_binary_exports_the_six_abi_functions_and_nothing_else() {
+    fn the_guest_binary_exports_the_abi_functions_and_nothing_else() {
         let path = Path::new(WASM);
         if !path.exists() {
             assert!(
@@ -124,7 +109,7 @@ mod tests {
 
         assert_eq!(
             functions, ABI_EXPORTS,
-            "data/kobako.wasm read through its export section must export exactly the six ABI functions"
+            "data/kobako.wasm read through its export section must export exactly the ABI's functions"
         );
     }
 }

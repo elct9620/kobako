@@ -5,7 +5,7 @@
 //! `wizer.initialize` export (the `MrbGuest::bake_boot` body) against a
 //! deterministic linker: the WASI surface wasi-libc's reactor
 //! `_initialize` touches is stubbed with constant results (mirroring
-//! the host's ambient denial), `env::__kobako_dispatch` traps
+//! the host's ambient denial), `env::__kobako_upcall` traps
 //! (boot must never dispatch), and any other import fails instantiation
 //! loudly. Identical inputs therefore produce identical baked bytes;
 //! kobako's Stage C re-bakes and compares to gate reproducibility.
@@ -49,13 +49,9 @@ fn deterministic_linker(engine: &wasmtime::Engine) -> Result<wasmtime::Linker<()
     add_deterministic_wasi_stubs(&mut linker)?;
     // Boot must never reach the Transport: a dispatch during the bake
     // is a build bug, surfaced as a trap that aborts the bake.
-    linker.func_wrap(
-        "env",
-        "__kobako_dispatch",
-        |_req_ptr: u32, _req_len: u32| -> u64 {
-            panic!("__kobako_dispatch called during the canonical boot state bake");
-        },
-    )?;
+    linker.func_wrap("env", "__kobako_upcall", |_ptr: u32, _len: u32| -> u64 {
+        panic!("__kobako_upcall called during the canonical boot state bake");
+    })?;
     Ok(linker)
 }
 

@@ -56,8 +56,8 @@ pub trait MrbGuest {
     /// reaches the host as a `Kobako::BootError` Panic.
     fn init_gems(mrb: &Mrb) -> Result<(), Error>;
 
-    /// `__kobako_eval` — runs one-shot user source and answers with its
-    /// Outcome.
+    /// The `eval` operation — runs one-shot user source and answers with
+    /// its Outcome.
     fn eval(frames: Frames, source: Vec<u8>) -> Outcome
     where
         Self: Sized,
@@ -65,8 +65,8 @@ pub trait MrbGuest {
         flows::eval::<Self>(frames, source)
     }
 
-    /// `__kobako_run` — calls the entrypoint the host's Run names and
-    /// answers with its Outcome.
+    /// The `run` operation — calls the entrypoint the host's Run names
+    /// and answers with its Outcome.
     fn run(frames: Frames, run: Run) -> Outcome
     where
         Self: Sized,
@@ -74,8 +74,8 @@ pub trait MrbGuest {
         flows::run::<Self>(frames, run)
     }
 
-    /// `__kobako_yield_to_block` — host-initiated re-entry into the
-    /// guest block bound to the active dispatch frame.
+    /// The `yield` operation — host-initiated re-entry into the guest
+    /// block bound to the active dispatch frame.
     fn yield_to_block(req: &[u8]) -> YieldReply
     where
         Self: Sized,

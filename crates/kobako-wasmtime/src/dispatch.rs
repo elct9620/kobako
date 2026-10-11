@@ -1,5 +1,7 @@
-//! Host side of the `__kobako_dispatch` import: hand the guest's Call to
+//! Host side of the `__kobako_upcall` import: hand the guest's Call to
 //! the bound `DispatchHandler` and write its Reply back into guest memory.
+//! A request under a tag the host does not serve is answered as
+//! unsupported, so a guest asking for a later operation can fall back.
 //!
 //! A failure lands on whoever is answerable for it. A trap the guest
 //! raises during a callback into it ends the invocation as that trap; any
@@ -15,12 +17,12 @@ use wasmtime::Caller;
 use kobako_runtime::error::Trap;
 use kobako_runtime::yielder::Yielder;
 use kobako_transport::abi::pack_ptr_len;
-use kobako_transport::envelope::{Call, YieldReply};
+use kobako_transport::envelope::{Unsupported, Upcall, YieldReply};
 
 use crate::guest_mem;
 use crate::invocation::Invocation;
 
-/// The wasmtime-backed `Yielder`: built per `__kobako_dispatch` frame over
+/// The wasmtime-backed `Yielder`: built per `__kobako_upcall` frame over
 /// that frame's `Caller`, so nested dispatch frames each carry their own and
 /// stack on the Rust call stack with no shared slot.
 struct CallerYielder<'a, 'c> {
@@ -35,7 +37,7 @@ impl Yielder for CallerYielder<'_, '_> {
     }
 }
 
-/// Answer one `__kobako_dispatch` call: the packed `(ptr<<32)|len` of the
+/// Answer one `__kobako_upcall` call: the packed `(ptr<<32)|len` of the
 /// Reply, 0 for a failure the guest or the wire is answerable for, or the
 /// trap a callback into the guest raised.
 pub(crate) fn handle(
@@ -62,9 +64,18 @@ fn try_handle(
     // The driver decodes the core envelope, here and in `CallerYielder`, so
     // the frontend never sees a frame; the payload inside it stays bytes
     // the whole way through.
-    let call = Call::decode(&req_bytes).map_err(|_| {
-        "the guest sent a malformed Call envelope — please report this as a kobako bug"
-    })?;
+    let call = match Upcall::decode(&req_bytes) {
+        Ok(Upcall::Call(call)) => call,
+        Ok(Upcall::Unserved(_)) => {
+            let refusal = Unsupported::new("the host does not serve this request");
+            return write_reply(caller, &refusal.encode());
+        }
+        Err(_) => {
+            return Err(
+                "the guest sent a malformed Call envelope — please report this as a kobako bug",
+            )
+        }
+    };
 
     // `Kobako::Sandbox` always installs the dispatch handler before
     // invoking the runtime, so reaching this branch indicates a misuse

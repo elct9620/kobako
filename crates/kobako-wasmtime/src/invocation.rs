@@ -3,7 +3,7 @@
 //!
 //! Owned as the data of each per-invocation `wasmtime::Store`
 //! and threaded through every host import —
-//! the `__kobako_dispatch` dispatcher reads the bound dispatch handler,
+//! the `__kobako_upcall` dispatcher reads the bound dispatch handler,
 //! while `Driver::invoke` installs the invocation's WASI
 //! context + pipes (via `frames::install_wasi_frames`) before the guest
 //! export call.

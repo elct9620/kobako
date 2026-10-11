@@ -15,10 +15,11 @@ use crate::error::Trap;
 /// Host-initiated re-entry into the in-flight guest instance to run a
 /// yielded block.
 ///
-/// `yield_to_block` ships `args` to `__kobako_yield_to_block` and returns
-/// the decoded Yield Reply, or a `Trap` — surfaced through the frontend's
-/// trap-error mapping — when the re-entry traps, the guest returns an empty
-/// or unframeable result, or a payload exceeds the 16 MiB cap.
+/// `yield_to_block` ships `args` as a `yield` downcall and returns the
+/// decoded Yield Reply, `Unsupported` arm included, or a `Trap` — surfaced
+/// through the frontend's trap-error mapping — when the re-entry traps,
+/// the guest returns an empty or unframeable result, or a payload exceeds
+/// the 16 MiB cap.
 pub trait Yielder {
     fn yield_to_block(&mut self, args: &[u8]) -> Result<YieldReply, Trap>;
 }

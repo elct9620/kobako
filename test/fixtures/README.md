@@ -30,7 +30,7 @@ Hand-written text-format modules around the construction-time ABI version check.
 
 | Fixture | Reports | Stands in for |
 |---|---|---|
-| `minimal_abi_ok.wat` | the current ABI version, plus `minimal.wasm`'s stubs | tests that never invoke end-to-end |
+| `minimal_abi_ok.wat` | the current ABI version, plus a no-op downcall | tests that never invoke end-to-end |
 | `minimal_abi_mismatch.wat` | `9999` | the mismatch branch |
 
 `9999` stays a mismatch regardless of future bumps, the same convention as `snippet_wrong_version.mrb`.
@@ -41,9 +41,9 @@ Hand-written text-format module that passes the ABI version check but whose `__k
 
 | Step | What happens |
 |---|---|
-| host reserves the Run envelope | the guest returns no memory |
+| host reserves the downcall | the guest returns no memory |
 | the failure surfaces | as `Kobako::SandboxError`, never a trap |
-| the guest entry point | is never reached |
+| the downcall | is never reached |
 
 The runtime stays intact, which is why the failure is not a trap.
 
@@ -56,14 +56,6 @@ Hand-written text-format modules that pass the ABI version check yet cannot beco
 | `minimal_unlinkable.wat` | link — it imports a function no host provides |
 | `minimal_uninstantiable.wat` | instantiation — its start function traps |
 
-## `minimal_trap_after_result.wat`
-
-`minimal_null_guest.wat` with both entry points replaced by `unreachable`. Its Outcome buffer still holds a well-formed nil Result. A host that read the buffer after a trap would answer nil where the invocation trapped.
-
-```wat
-(func (export "__kobako_eval") unreachable)
-```
-
 ## `minimal_unframed_yield.wat`
 
 Hand-written text-format module whose one dispatch asks the host to yield. It answers that yield with bytes the envelope cannot frame, which the real Guest Binary never does.
@@ -75,19 +67,37 @@ Hand-written text-format module whose one dispatch asks the host to yield. It an
 
 ## `minimal_unframed_outcome.wat`
 
-Hand-written text-format module whose entry points return without an Outcome the envelope can frame — which the real Guest Binary never does. Each verb takes one of the two ways that leave no record.
+Hand-written text-format module whose downcall answers without an Outcome the envelope can frame — which the real Guest Binary never does. Each verb takes one of the two ways that leave no record.
 
-| Verb | What `__kobako_take_outcome` answers |
+| Verb | What the downcall answers |
 |---|---|
 | `#eval` | no bytes |
 | `#run` | a tag outside the live set |
 
+## `minimal_unsupported_guest.wat`
+
+Hand-written text-format module that serves neither an invocation nor a block. The real Guest Binary serves both, so this stands in for one built without them.
+
+| Verb | What it stages |
+|---|---|
+| `#eval` | the invocation answered as unsupported |
+| `#run` | a call to `S#each` whose yield is answered as unsupported |
+
+## `minimal_unknown_upcall.wat`
+
+Hand-written text-format module that sends the host an upcall under an unassigned tag. Its `#eval` result reports the arm that came back, so a test reads the host's answer.
+
+| The host answers | `#eval` returns |
+|---|---|
+| unsupported | `true` |
+| anything else | `false` |
+
 ## `minimal_null_guest.wat`
 
-Hand-written text-format module that satisfies the whole invocation ABI and does nothing else. Both entry points ignore their input, and `__kobako_take_outcome` answers a constant nil Result.
+Hand-written text-format module that satisfies the whole ABI and does nothing else. Its downcall ignores the request and answers a constant nil Result.
 
 ```
-0x01 0xc0   the fixed layout's result tag, then the payload codec's nil
+0x10 0xc0   the registry's ok tag, then the payload codec's nil
 ```
 
 Unlike the fixtures above it exists for measurement rather than for a behaviour branch. `benchmark/host_invocation.rb` drives it, so the host's per-invocation cost is the total rather than a subtraction of two near-equal numbers. `test/e2e/sandbox/test_null_guest.rb` keeps it honest.

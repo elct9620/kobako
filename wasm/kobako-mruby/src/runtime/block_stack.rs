@@ -3,7 +3,7 @@
 //! When guest code calls `Service.method(...) { ... }`, the C-bridge reads
 //! the block off its call frame and `crate::dispatch` parks it here for the
 //! host round-trip.
-//! The host's eventual `__kobako_yield_to_block` re-entry reads
+//! The host's eventual `yield` downcall reads
 //! `BLOCK_STACK.last()` to find the block bound to the active dispatch
 //! frame, which is why the park has to outlive the call.
 //!

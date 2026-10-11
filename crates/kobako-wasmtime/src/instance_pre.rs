@@ -1,7 +1,7 @@
 //! Per-path cache of pre-instantiated wasmtime artifacts.
 //!
 //! The `Linker` wiring (the WASI preview1 import set plus the
-//! `__kobako_dispatch` host import) and its type-check against the
+//! `__kobako_upcall` host import) and its type-check against the
 //! compiled Module are identical for every `Kobako::Runtime` on the
 //! same Guest Binary — both host closures read all their state from
 //! the `Invocation` inside the calling Store, never from the Runtime.
@@ -65,13 +65,13 @@ fn build_linker() -> Result<Linker<Invocation>, SetupError> {
     p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| state.wasi_mut())
         .map_err(|e| SetupError::Dead(format!("failed to set up the WASI runtime: {e}")))?;
 
-    // `__kobako_dispatch`, `(req_ptr: i32, req_len: i32) -> i64` per
+    // `__kobako_upcall`, `(ptr: i32, len: i32) -> i64` per
     // docs/wire/abi.md § ABI Signatures; `dispatch::handle` owns what it
     // answers.
     linker
         .func_wrap(
             "env",
-            "__kobako_dispatch",
+            "__kobako_upcall",
             |mut caller: Caller<'_, Invocation>,
              req_ptr: i32,
              req_len: i32|

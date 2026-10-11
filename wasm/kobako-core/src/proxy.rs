@@ -4,24 +4,24 @@
 //! consuming guest crate (for the bundled guest: the `method_missing`
 //! shims in `kobako-mruby`'s bridge module, whose shared
 //! `forward_to_dispatch` body calls `dispatch` here) and the wasm-level
-//! `__kobako_dispatch` host import declared in `crate::abi`.
+//! `__kobako_upcall` host import declared in `crate::abi`.
 //! docs/wire/envelope.md § Call / § Reply pins the contract
 //! this module implements.
 //!
-//! `dispatch` builds a `Call` around a payload it never reads, calls the
-//! host, and hands back the arm the Reply's tag named — the ok body to the
-//! caller, the fault body as an error. What either body means is the
+//! `dispatch` builds a `Call` around a payload it never reads, sends it
+//! as a `call` upcall, and hands back the arm the Reply's tag named — the
+//! ok body to the caller, the fault body as an error. What either body means is the
 //! payload codec's business, which is what lets a guest with its own
 //! schema drive this layer with no MessagePack in its dependency graph.
 //! On the host target a thread-local loopback hook stands in for
-//! `__kobako_dispatch` so the demux logic tests without a real wasm
+//! `__kobako_upcall` so the demux logic tests without a real wasm
 //! runtime.
 
 #[cfg(target_arch = "wasm32")]
-use crate::abi::__kobako_dispatch;
+use crate::abi::__kobako_upcall;
 #[cfg(target_arch = "wasm32")]
 use crate::abi::unpack_ptr_len;
-use kobako_transport::envelope::{self, Call, Reply, Target};
+use kobako_transport::envelope::{self, Call, Reply, Target, Upcall};
 
 /// Why a dispatch came back without a value.
 ///
@@ -40,6 +40,8 @@ pub enum DispatchError {
     /// bytes, an answer that is not a Reply envelope, or the host
     /// signalling `len == 0`.
     Envelope(envelope::DecodeError),
+    /// The host does not serve the request.
+    Unsupported(envelope::Unsupported),
 }
 
 impl From<envelope::DecodeError> for DispatchError {
@@ -53,6 +55,13 @@ impl std::fmt::Display for DispatchError {
         match self {
             DispatchError::Fault(_) => f.write_str("the Service answered on the fault arm"),
             DispatchError::Envelope(err) => write!(f, "Sandbox communication error: {err}"),
+            DispatchError::Unsupported(refusal) => {
+                write!(
+                    f,
+                    "the host does not serve this request: {}",
+                    refusal.message
+                )
+            }
         }
     }
 }
@@ -64,7 +73,7 @@ impl std::error::Error for DispatchError {}
 // ---------------------------------------------------------------------
 
 /// Function signature for the host-target loopback. Receives the
-/// *Call bytes* the caller would have written into wasm linear
+/// *upcall bytes* the caller would have written into wasm linear
 /// memory and returns the Reply bytes the host would have written
 /// back via `__kobako_alloc`. Pure in/out; no shared state.
 #[cfg(not(target_arch = "wasm32"))]
@@ -78,7 +87,7 @@ thread_local! {
 
 /// Install a loopback hook for the current thread. Returns the previous
 /// hook so test scaffolding can stack and restore. Test-only — the
-/// loopback is the host-target stand-in for the wasm `__kobako_dispatch`
+/// loopback is the host-target stand-in for the wasm `__kobako_upcall`
 /// import, exercised by this module's unit tests.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 fn set_loopback(hook: Option<LoopbackFn>) -> Option<LoopbackFn> {
@@ -102,10 +111,11 @@ pub fn dispatch(
         block_given,
         payload,
     };
-    let reply_bytes = host_call(&call.encode())?;
+    let reply_bytes = host_call(&Upcall::Call(call).encode())?;
     match Reply::decode(&reply_bytes)? {
         Reply::Ok(body) => Ok(body),
         Reply::Fault(fault) => Err(DispatchError::Fault(fault)),
+        Reply::Unsupported(refusal) => Err(DispatchError::Unsupported(refusal)),
     }
 }
 
@@ -120,13 +130,13 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     // out of our memory, writes the Reply into a buffer it allocated
     // via `__kobako_alloc`, and returns the packed (ptr, len) tuple.
     //
-    // The request bytes stay live for the synchronous `__kobako_dispatch`
+    // The request bytes stay live for the synchronous `__kobako_upcall`
     // call because `req_bytes` is borrowed by this frame, which is parked
     // on the wasm stack until the host returns — no copy into a guest
     // buffer is needed on the request side.
     let req_ptr = req_bytes.as_ptr() as u32;
     let req_len = req_bytes.len() as u32;
-    let packed = unsafe { __kobako_dispatch(req_ptr, req_len) };
+    let packed = unsafe { __kobako_upcall(req_ptr, req_len) };
     let (ptr, len) = unpack_ptr_len(packed);
     if len == 0 {
         // Wire violation per docs/wire/abi.md § ABI Signatures.
@@ -193,17 +203,17 @@ mod tests {
             "a Reply on its ok arm through dispatch must hand back the body no schema read"
         );
 
-        let expected = Call {
+        let expected = Upcall::Call(Call {
             target: Target::Path("MyService::Counter"),
             method: "value",
             block_given: false,
             payload: OPAQUE,
-        }
+        })
         .encode();
         assert_eq!(
             *captured.lock().unwrap(),
             expected,
-            "the bytes dispatch writes must be the Call envelope carrying the payload verbatim"
+            "the bytes dispatch writes must be a call upcall carrying the payload verbatim"
         );
     }
 
@@ -219,10 +229,10 @@ mod tests {
         assert!(out.is_ok(), "a Handle-targeted call must reach the host");
         let sent = captured.lock().unwrap().clone();
         assert_eq!(
-            sent[0..5],
-            [1, 0, 0, 0, 7],
-            "a Handle target must ride the envelope's kind tag and bare id, \
-             reachable without decoding the payload"
+            sent[0..6],
+            [0x04, 1, 0, 0, 0, 7],
+            "a Handle target must ride the envelope's kind tag and bare id after the call \
+             tag, reachable without decoding the payload"
         );
     }
 

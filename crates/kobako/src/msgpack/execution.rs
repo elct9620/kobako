@@ -9,22 +9,6 @@ use crate::execution::Execution;
 /// host-detected wire violations on both frontends.
 const WIRE_ERROR_CLASS: &str = "Kobako::Transport::Error";
 
-/// Only the overlay reads a value tree, so only it detects a failure the
-/// guest never reported.
-impl Failure {
-    /// A failure the host detected itself, so the guest left no backtrace
-    /// and offered no correction.
-    pub(crate) fn host(name: &str, message: impl Into<String>) -> Self {
-        Failure {
-            name: name.into(),
-            message: message.into(),
-            backtrace: Vec::new(),
-            available: Vec::new(),
-            diagnostic: None,
-        }
-    }
-}
-
 impl Execution {
     /// The outcome decoded through the default payload codec, with every
     /// Handle in it checked live. A guest cannot fabricate a Handle, so
@@ -97,8 +81,7 @@ mod tests {
     #[test]
     fn a_malformed_value_body_is_a_wire_violation_sandbox_error() {
         // The ok arm followed by a truncated msgpack str header.
-        let result =
-            classify(Outcome::Ok(vec![0xd9])).and_then(|body| decode_value(&body));
+        let result = classify(Outcome::Ok(vec![0xd9])).and_then(|body| decode_value(&body));
 
         assert!(
             matches!(result, Err(Error::Sandbox(f)) if f.name == WIRE_ERROR_CLASS),

@@ -40,6 +40,20 @@ pub struct Failure {
     pub diagnostic: Option<String>,
 }
 
+impl Failure {
+    /// A failure the host detected itself, so the guest left no backtrace
+    /// and offered no correction.
+    pub(crate) fn host(name: &str, message: impl Into<String>) -> Self {
+        Failure {
+            name: name.into(),
+            message: message.into(),
+            backtrace: Vec::new(),
+            available: Vec::new(),
+            diagnostic: None,
+        }
+    }
+}
+
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.name, self.message)

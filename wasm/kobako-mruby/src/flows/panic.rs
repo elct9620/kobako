@@ -154,13 +154,12 @@ pub(super) fn panic_from_error(kobako: &Kobako, err: beni::Error) -> Panic {
 mod tests {
     use super::*;
 
-    // @behavior OC-043
     #[test]
     fn boot_panic_carries_kobako_boot_defaults() {
-        let p = boot_panic("failed to read preamble frame");
+        let p = boot_panic("failed to start the Sandbox interpreter");
         assert_eq!(p.origin, Origin::Sandbox);
         assert_eq!(p.error.name, "Kobako::BootError");
-        assert_eq!(p.error.message, "failed to read preamble frame");
+        assert_eq!(p.error.message, "failed to start the Sandbox interpreter");
         assert!(p.error.backtrace.is_empty());
         assert!(p.available.is_empty());
     }

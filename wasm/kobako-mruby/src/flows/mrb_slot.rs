@@ -1,7 +1,7 @@
 //! Module-level static slot owning the live `Mrb` in canonical boot state.
 //!
 //! It is a static rather than a stack local because
-//! `__kobako_yield_to_block` must reach the *same* `mrb_state` while the
+//! a `yield` downcall must reach the *same* `mrb_state` while the
 //! dispatch frame that yielded is still on the wasm call stack. Once boot
 //! succeeds it stays installed, since the host drops the whole instance
 //! after each invocation.

@@ -2,18 +2,11 @@
 //!
 //! Success-versus-fault is decided by a tag byte rather than a reserved
 //! payload value, so a side learns the outcome of a Call whatever schema
-//! the payload carries.
+//! the payload carries. Each tag is the answer's arm in the shared
+//! registry, so the same byte means the same arm in every answer.
 
 use super::bytes::{Reader, Writer};
-use super::{DecodeError, ErrorRecord, Fault};
-
-const TAG_OK: u8 = 0;
-const TAG_FAULT: u8 = 1;
-
-const YIELD_OK: u8 = 0x01;
-const YIELD_BREAK: u8 = 0x02;
-const YIELD_RESERVED: u8 = 0x03;
-const YIELD_ERROR: u8 = 0x04;
+use super::{tag, DecodeError, ErrorRecord, Fault, Unsupported};
 
 /// The answer to one dispatch Call.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,18 +17,22 @@ pub enum Reply {
     /// every field of a Fault is kobako's, so a guest reads a refusal
     /// whatever schema it speaks.
     Fault(Fault),
+    /// The receiver does not serve the request it was sent.
+    Unsupported(Unsupported),
 }
 
 impl Reply {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
-        let tag = reader.u8()?;
-        match tag {
-            TAG_OK => Ok(Reply::Ok(reader.remaining().to_vec())),
+        match reader.u8()? {
+            tag::OK => Ok(Reply::Ok(reader.remaining().to_vec())),
             // No `finish` here: a Fault owns everything after the tag,
             // including the fields a later contract version appends.
-            TAG_FAULT => Ok(Reply::Fault(Fault::read(&mut reader)?)),
-            _ => Err(DecodeError::new("Reply tag must be 0 (ok) or 1 (fault)")),
+            tag::FAULT => Ok(Reply::Fault(Fault::read(&mut reader)?)),
+            tag::UNSUPPORTED => Ok(Reply::Unsupported(Unsupported::read(&mut reader)?)),
+            _ => Err(DecodeError::new(
+                "Reply tag must be 0x10 (ok), 0x11 (fault), or 0x15 (unsupported)",
+            )),
         }
     }
 
@@ -43,11 +40,15 @@ impl Reply {
         let mut writer = Writer::new();
         match self {
             Reply::Ok(body) => {
-                writer.u8(TAG_OK).remainder(body);
+                writer.u8(tag::OK).remainder(body);
             }
             Reply::Fault(fault) => {
-                writer.u8(TAG_FAULT);
+                writer.u8(tag::FAULT);
                 fault.write(&mut writer);
+            }
+            Reply::Unsupported(refusal) => {
+                writer.u8(tag::UNSUPPORTED);
+                refusal.write(&mut writer);
             }
         }
         writer.into_bytes()
@@ -66,21 +67,22 @@ pub enum YieldReply {
     /// The block raised, or failed in a way the host re-raises at the
     /// yield site.
     Error(ErrorRecord),
+    /// The guest serves no block.
+    Unsupported(Unsupported),
 }
 
 impl YieldReply {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
-        let tag = reader.u8()?;
-        match tag {
-            YIELD_OK => Ok(YieldReply::Ok(reader.remaining().to_vec())),
-            YIELD_BREAK => Ok(YieldReply::Break(reader.remaining().to_vec())),
-            YIELD_ERROR => {
+        match reader.u8()? {
+            tag::OK => Ok(YieldReply::Ok(reader.remaining().to_vec())),
+            tag::BREAK => Ok(YieldReply::Break(reader.remaining().to_vec())),
+            tag::ERROR => {
                 let record = ErrorRecord::read(&mut reader)?;
                 reader.finish()?;
                 Ok(YieldReply::Error(record))
             }
-            YIELD_RESERVED => Err(DecodeError::new("Yield Reply tag 0x03 is reserved")),
+            tag::UNSUPPORTED => Ok(YieldReply::Unsupported(Unsupported::read(&mut reader)?)),
             _ => Err(DecodeError::new("Yield Reply tag is not recognised")),
         }
     }
@@ -89,14 +91,18 @@ impl YieldReply {
         let mut writer = Writer::new();
         match self {
             YieldReply::Ok(body) => {
-                writer.u8(YIELD_OK).remainder(body);
+                writer.u8(tag::OK).remainder(body);
             }
             YieldReply::Break(body) => {
-                writer.u8(YIELD_BREAK).remainder(body);
+                writer.u8(tag::BREAK).remainder(body);
             }
             YieldReply::Error(record) => {
-                writer.u8(YIELD_ERROR);
+                writer.u8(tag::ERROR);
                 record.write(&mut writer);
+            }
+            YieldReply::Unsupported(refusal) => {
+                writer.u8(tag::UNSUPPORTED);
+                refusal.write(&mut writer);
             }
         }
         writer.into_bytes()
@@ -109,19 +115,20 @@ mod tests {
 
     // @behavior WE-018
     #[test]
-    fn both_reply_arms_round_trip() {
+    fn every_reply_arm_round_trips() {
         for reply in [
             Reply::Ok(vec![0x2a]),
             Reply::Fault(Fault::new(
                 super::super::FaultKind::Undefined,
                 "no such method",
             )),
+            Reply::Unsupported(Unsupported::new("no such operation")),
         ] {
             let encoded = reply.encode();
             assert_eq!(
                 Reply::decode(&encoded),
                 Ok(reply),
-                "a Reply must survive a host encode and decode on both arms"
+                "a Reply must survive a host encode and decode on every arm"
             );
         }
     }
@@ -141,8 +148,8 @@ mod tests {
     #[test]
     fn an_unknown_reply_tag_is_refused() {
         assert!(
-            Reply::decode(&[9, 0]).is_err(),
-            "a Reply tag that is neither ok nor fault must be rejected as a wire violation"
+            Reply::decode(&[0x12, 0]).is_err(),
+            "a Reply tag outside its arms must be rejected as a wire violation"
         );
     }
 
@@ -166,6 +173,7 @@ mod tests {
                 message: "no block".into(),
                 backtrace: vec!["(eval):1".into()],
             }),
+            YieldReply::Unsupported(Unsupported::new("no block support")),
         ];
         for arm in arms {
             let encoded = arm.encode();
@@ -177,22 +185,16 @@ mod tests {
         }
     }
 
-    // @behavior WE-023
-    #[test]
-    fn the_reserved_yield_tag_is_refused() {
-        assert!(
-            YieldReply::decode(&[0x03]).is_err(),
-            "Yield Reply tag 0x03 must be rejected by both peers so it stays reserved"
-        );
-    }
-
     // @behavior WE-024
     #[test]
     fn an_unknown_yield_tag_is_refused() {
-        assert!(
-            YieldReply::decode(&[0x7f]).is_err(),
-            "a Yield Reply tag outside the live set must be rejected as a wire violation"
-        );
+        for tag in [0x03, 0x11, 0x7f] {
+            assert!(
+                YieldReply::decode(&[tag]).is_err(),
+                "a Yield Reply tag {tag:#04x} outside the live set must be rejected as a \
+                 wire violation"
+            );
+        }
     }
 
     // @behavior WE-025
@@ -203,14 +205,36 @@ mod tests {
         // is what lets a side read the outcome without a payload codec.
         assert_eq!(
             Reply::Ok(vec![0x2a]).encode(),
-            vec![0, 0x2a],
-            "a successful Reply must encode as tag byte 0 followed by the body alone"
+            vec![0x10, 0x2a],
+            "a successful Reply must encode as tag byte 0x10 followed by the body alone"
         );
         assert_eq!(
             Reply::Fault(Fault::new(super::super::FaultKind::Runtime, "x")).encode(),
-            vec![1, 0, 0, 0, 0, 1, b'x'],
-            "a fault Reply must encode as tag byte 1 followed by the Fault's own fixed \
+            vec![0x11, 0, 0, 0, 0, 1, b'x'],
+            "a fault Reply must encode as tag byte 0x11 followed by the Fault's own fixed \
              layout, so a guest reads a refusal without reaching a payload codec"
+        );
+        assert_eq!(
+            Reply::Unsupported(Unsupported::new("x")).encode(),
+            vec![0x15, 0, 0, 0, 0, 1, b'x'],
+            "an unsupported Reply must encode as tag byte 0x15 followed by kind 0 and the \
+             message"
+        );
+    }
+
+    // @behavior WE-068
+    #[test]
+    fn every_answer_takes_its_ok_tag_from_one_registry() {
+        let body = vec![0x2a];
+        assert_eq!(
+            [
+                Reply::Ok(body.clone()).encode()[0],
+                YieldReply::Ok(body.clone()).encode()[0],
+                super::super::Outcome::Ok(body).encode()[0],
+            ],
+            [0x10, 0x10, 0x10],
+            "a Reply, a Yield Reply and an Outcome on their ok arm must all open with \
+             tag byte 0x10"
         );
     }
 
@@ -219,13 +243,18 @@ mod tests {
     fn golden_layout_pins_the_yield_tags() {
         assert_eq!(
             YieldReply::Ok(vec![0xc0]).encode(),
-            vec![0x01, 0xc0],
-            "a Yield Reply carrying the block's value must encode as tag byte 0x01"
+            vec![0x10, 0xc0],
+            "a Yield Reply carrying the block's value must encode as tag byte 0x10"
         );
         assert_eq!(
             YieldReply::Break(vec![0xc0]).encode(),
-            vec![0x02, 0xc0],
-            "a Yield Reply carrying a break value must encode as tag byte 0x02"
+            vec![0x12, 0xc0],
+            "a Yield Reply carrying a break value must encode as tag byte 0x12"
+        );
+        assert_eq!(
+            YieldReply::Unsupported(Unsupported::new("x")).encode(),
+            vec![0x15, 0, 0, 0, 0, 1, b'x'],
+            "a Yield Reply from a guest serving no block must encode as tag byte 0x15"
         );
         assert_eq!(
             YieldReply::Error(ErrorRecord {
@@ -235,12 +264,12 @@ mod tests {
             })
             .encode(),
             vec![
-                0x04, // tag: error
+                0x13, // tag: error
                 0, 0, 0, 1, b'E', // name
                 0, 0, 0, 1, b'm', // message
                 0, 0, 0, 0, // backtrace count
             ],
-            "a Yield Reply carrying a guest failure must encode as tag byte 0x04 followed \
+            "a Yield Reply carrying a guest failure must encode as tag byte 0x13 followed \
              by an Error Record rather than a codec-encoded body"
         );
     }

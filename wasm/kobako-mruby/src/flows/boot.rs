@@ -1,4 +1,4 @@
-//! Boot helpers shared by `__kobako_eval` and `__kobako_run`.
+//! Boot helpers shared by the `eval` and `run` downcalls.
 //!
 //! Both entry points acquire a VM in the canonical boot state —
 //! reusing the slot a build-time pre-initialized image baked, or

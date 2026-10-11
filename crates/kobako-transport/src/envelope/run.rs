@@ -3,8 +3,7 @@
 //! Run is Call's reverse-direction sibling — `entrypoint` routes it, the
 //! payload feeds it. It carries no `method` because the entrypoint is
 //! invoked through its own `#call`, and no `block_given` because `#run`
-//! supplies no block. It rides the command buffer rather than a stdin
-//! frame, so its length reaches the guest as an export argument.
+//! supplies no block. It is the body of a `run` downcall.
 
 use super::bytes::{Reader, Writer};
 use super::DecodeError;

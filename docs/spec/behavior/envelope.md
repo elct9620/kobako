@@ -23,7 +23,7 @@ A reader that repaired one would leave the two peers disagreeing about what was 
 
 ### Forward compatibility
 
-Two forward-compatibility rules are declared as behavior rather than left to a version bump. A Fault kind this reader predates still delivers its message. A field this reader predates is skipped.
+Forward-compatibility rules are declared as behavior rather than left to a version bump. A Fault or Unsupported kind this reader predates still delivers its message. A field this reader predates is skipped. A request tag this reader does not serve is read as unserved, so it can be answered.
 
 These rules let the reserved and unknown tags elsewhere be refusals. The extension point is named, so everything outside it can be closed.
 
@@ -172,11 +172,11 @@ These rules let the reserved and unknown tags elsewhere be refusals. The extensi
 | When | it is read |
 | Then | it is refused rather than truncated |
 
-## `WE-018` Both Reply arms round-trip
+## `WE-018` Every Reply arm round-trips
 
 | Step | Statement |
 | --- | --- |
-| Given | a Reply on each of its two arms |
+| Given | a Reply on each of its arms |
 | When | each is written and read back |
 | Then | each arrives as it was given |
 
@@ -188,11 +188,11 @@ These rules let the reserved and unknown tags elsewhere be refusals. The extensi
 | When | it is read |
 | Then | it arrives as an empty body rather than a truncation |
 
-## `WE-020` A Reply tag outside the pair is refused
+## `WE-020` A Reply tag outside its arms is refused
 
 | Step | Statement |
 | --- | --- |
-| Given | a Reply tagged as neither of its two arms |
+| Given | a Reply tagged as none of its arms |
 | When | it is read |
 | Then | it is refused |
 
@@ -212,14 +212,6 @@ These rules let the reserved and unknown tags elsewhere be refusals. The extensi
 | When | each is written and read back |
 | Then | each arrives as it was given |
 
-## `WE-023` The reserved yield tag is refused
-
-| Step | Statement |
-| --- | --- |
-| Given | a yield's Reply carrying the tag held in reserve |
-| When | it is read |
-| Then | it is refused |
-
 ## `WE-024` A yield tag outside the live set is refused
 
 | Step | Statement |
@@ -232,7 +224,7 @@ These rules let the reserved and unknown tags elsewhere be refusals. The extensi
 
 | Step | Statement |
 | --- | --- |
-| Given | a Reply on each of its two arms |
+| Given | a Reply on each of its arms |
 | When | each is written |
 | Then | each carries its own tag byte followed by that arm's body alone |
 
@@ -316,19 +308,19 @@ These rules let the reserved and unknown tags elsewhere be refusals. The extensi
 | When | it is written |
 | Then | the origin stands before the Error Record |
 
-## `WE-036` An outcome buffer carrying nothing is refused
+## `WE-036` An Outcome carrying nothing is refused
 
 | Step | Statement |
 | --- | --- |
-| Given | an outcome buffer of no length |
+| Given | an Outcome of no length |
 | When | it is read |
 | Then | it is refused |
 
-## `WE-037` An Outcome tag outside the pair is refused
+## `WE-037` An Outcome tag outside its arms is refused
 
 | Step | Statement |
 | --- | --- |
-| Given | an Outcome tagged as neither of its two arms |
+| Given | an Outcome tagged as none of its arms |
 | When | it is read |
 | Then | it is refused |
 
@@ -571,3 +563,51 @@ These rules let the reserved and unknown tags elsewhere be refusals. The extensi
 | Given | a frame whose length prefix declares more than the allocation ceiling |
 | When | it is read |
 | Then | it is refused before anything is allocated for it |
+
+## `WE-068` Every answer's ok arm carries the same tag
+
+| Step | Statement |
+| --- | --- |
+| Given | a Reply, a yield's Reply, and an Outcome, each on its ok arm |
+| When | each is written |
+| Then | all three carry the one tag byte the registry gives ok |
+
+## `WE-069` An Unsupported answer round-trips on every operation
+
+| Step | Statement |
+| --- | --- |
+| Given | a Reply, a yield's Reply, and an Outcome, each answering as unsupported |
+| When | each is written and read back |
+| Then | each arrives as it was given |
+
+## `WE-070` An Unsupported kind this reader predates still delivers its message
+
+| Step | Statement |
+| --- | --- |
+| Given | an Unsupported whose kind this reader does not know |
+| When | it is read |
+| Then | it reads as the one kind defined, with its message intact |
+
+## `WE-071` A request carries its operation in its first byte
+
+| Step | Statement |
+| --- | --- |
+| Given | an eval, a run, a yield, and a call request |
+| When | each is written |
+| Then | each opens with its operation's tag, followed by its body alone |
+
+## `WE-072` A request tag this reader does not serve is read as unserved
+
+| Step | Statement |
+| --- | --- |
+| Given | a request under a tag this reader does not serve |
+| When | it is read |
+| Then | it reads as unserved rather than refused, so the reader can answer it |
+
+## `WE-073` A request carrying nothing is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a request of no length |
+| When | it is read |
+| Then | it is refused |

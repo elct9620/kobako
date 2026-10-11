@@ -30,7 +30,10 @@ pub mod fault;
 pub mod invocation_frames;
 pub mod outcome;
 pub mod reply;
+pub mod request;
 pub mod run;
+pub(crate) mod tag;
+pub mod unsupported;
 
 pub use call::{Call, Target};
 pub use error_record::ErrorRecord;
@@ -38,7 +41,9 @@ pub use fault::{Fault, FaultKind};
 pub use invocation_frames::{Bindings, Frames, Snippet, Snippets};
 pub use outcome::{Origin, Outcome, Panic};
 pub use reply::{Reply, YieldReply};
+pub use request::{Downcall, Upcall};
 pub use run::Run;
+pub use unsupported::Unsupported;
 
 use std::fmt;
 

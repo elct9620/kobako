@@ -309,6 +309,7 @@ mod tests {
         match reply {
             Reply::Ok(body) => Answer::Ok(Decoder::new(&body).read_only_value().unwrap()),
             Reply::Fault(fault) => Answer::Fault(fault),
+            Reply::Unsupported(_) => unreachable!("a dispatch handler serves every Call"),
         }
     }
 

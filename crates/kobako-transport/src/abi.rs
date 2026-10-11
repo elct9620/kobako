@@ -1,18 +1,18 @@
 //! The ABI's fixed values — the numbers and layouts a host and a guest
 //! must already agree on before either can read the other's bytes.
 //!
-//! The exports and the host import that carry the ABI are declared where
-//! they are implemented: the guest contract crate emits the exports, the
-//! driver resolves them. What lives here is what both sides must spell the
+//! The symbols that carry the ABI are declared where they are
+//! implemented: the guest contract crate emits the exports, the driver
+//! resolves them and provides the import. What lives here is what both sides must spell the
 //! same way, and each value is spelled once.
 
 /// The Guest ABI version. A host accepts a Guest Binary only when the
 /// version it reports equals this one, so a wire change is an increment
 /// rather than a negotiation.
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 
 /// Width in bytes of the length prefix that precedes each invocation-channel
-/// frame and the outcome buffer.
+/// frame.
 pub const FRAME_LEN_SIZE: usize = 4;
 
 /// Single-dispatch size cap: 16 MiB in either direction, applied to the
@@ -31,8 +31,7 @@ pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 // names the cap rather than the allocation ceiling.
 const _: () = assert!(MAX_FRAME_LEN > MAX_DISPATCH_PAYLOAD);
 
-/// Pack `(ptr, len)` into the u64 the ABI's three buffer-returning
-/// functions answer with: the high 32 bits carry the linear-memory pointer,
+/// Pack `(ptr, len)` into the u64 both message channels answer with: the high 32 bits carry the linear-memory pointer,
 /// the low 32 the byte length. A `len` of zero is the failure signal.
 ///
 /// ```text

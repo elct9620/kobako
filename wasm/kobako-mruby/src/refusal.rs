@@ -156,6 +156,7 @@ pub(crate) fn at(position: Position, err: CodecError) -> Refusal {
 mod tests {
     use super::*;
     use crate::runtime::IntegerOutOfRange;
+    use kobako_transport::envelope::Outcome;
 
     const EVERY_POSITION: [Position; 7] = [
         Position::CallArguments,
@@ -308,9 +309,19 @@ mod tests {
             unrepresentable(),
         ]
         .map(|err| at(Position::RunArguments, err).message);
-        let Err(kobako_transport::envelope::Outcome::Panic(unframed)) =
-            kobako_core::abi::decode_run(&[0xff])
-        else {
+
+        // Never entered: the run's body fails to frame before any entry.
+        struct Unentered;
+        impl kobako_core::Guest for Unentered {
+            fn eval(_: kobako_core::Frames, _: Vec<u8>) -> Outcome {
+                unreachable!()
+            }
+            fn run(_: kobako_core::Frames, _: kobako_core::Run) -> Outcome {
+                unreachable!()
+            }
+        }
+        let answer = kobako_core::abi::serve::<Unentered>(&[0x02, 0xff]);
+        let Ok(Outcome::Panic(unframed)) = Outcome::decode(&answer) else {
             panic!("a Run whose envelope does not frame must answer with a Panic");
         };
 

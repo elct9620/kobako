@@ -97,7 +97,7 @@ A message asking the other side to run one method. The guest issues one to reach
 
 ### Reply
 
-The answer to one Call: a value, or a Fault. The answer to a Yield may instead be a break.
+The answer to one Call: a value, a Fault, or Unsupported. The answer to a Yield may instead be a break.
 
 ### Block
 
@@ -142,6 +142,10 @@ A failed Invocation a Service is answerable for.
 ### Fault
 
 The reason a Call is refused, returned to whoever issued it. It is kobako's own data rather than the caller's, so it rides the Envelope.
+
+### Unsupported
+
+The answer that the receiver does not serve the operation it was sent, returned to whoever sent it. It is an answer, not a breakage, so it is never a Trap.
 
 ### Error Record
 

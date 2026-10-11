@@ -11,7 +11,7 @@
 /// `Hermetic` is the full ambient-denial posture: ambient time and
 /// entropy denied at the WASI boundary, no filesystem / environment /
 /// network reachability, and no host import beyond the wire ABI's
-/// `__kobako_dispatch`. `Permissive` differs in exactly one grant —
+/// `__kobako_upcall`. `Permissive` differs in exactly one grant —
 /// live ambient time and entropy at the WASI boundary. Ordering
 /// follows strength (`Permissive < Hermetic`), so a floor check is a
 /// plain comparison.

@@ -121,9 +121,93 @@ What a Call is addressed to: a Service path or a Handle.
 pub enum Target {}
 ```
 
+## `Downcall`
+
+A request the host sends the guest, under the tag of its operation.
+
+```rust
+pub enum Downcall {}
+```
+
+## `Downcall::decode`
+
+Read a request the host sent, or the tag of one this reader does not serve.
+
+```rust
+impl Downcall {
+    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {}
+}
+```
+
+## `Downcall::encode`
+
+Write a request under its operation's tag.
+
+```rust
+impl Downcall {
+    pub fn encode(&self) -> Vec<u8> {}
+}
+```
+
+## `Upcall`
+
+A request the guest sends the host, under the tag of its operation.
+
+```rust
+pub enum Upcall {}
+```
+
+## `Upcall::decode`
+
+Read a request the guest sent, or the tag of one this reader does not serve.
+
+```rust
+impl Upcall {
+    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {}
+}
+```
+
+## `Upcall::encode`
+
+Write a request under its operation's tag.
+
+```rust
+impl Upcall {
+    pub fn encode(&self) -> Vec<u8> {}
+}
+```
+
+## `Unsupported`
+
+A receiver's answer that it does not serve the operation it was sent.
+
+```rust
+pub struct Unsupported {}
+```
+
+## `Unsupported::new`
+
+A refusal carrying a description.
+
+```rust
+impl Unsupported {
+    pub fn new(message: impl Into<String>) -> Self {}
+}
+```
+
+## `Unsupported::encode`
+
+Write the refusal as a whole answer, the same for every operation.
+
+```rust
+impl Unsupported {
+    pub fn encode(&self) -> Vec<u8> {}
+}
+```
+
 ## `Reply`
 
-The host's answer to a Call: a value, or a Fault.
+The host's answer to a Call: a value, a Fault, or that it does not serve it.
 
 ```rust
 pub enum Reply {}

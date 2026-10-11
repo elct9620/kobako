@@ -42,7 +42,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 - `crates/kobako/src/msgpack/handles.rs`
 - `crates/kobako/tests/byte_surface.rs`
 - `wasm/kobako-core/src/proxy.rs`
-- `wasm/kobako-core/src/guest.rs`
+- `wasm/kobako-core/src/abi/downcall.rs`
 
 ## `T-001` An answer the wire cannot carry becomes a reference to it
 
@@ -940,13 +940,13 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | it dispatches |
 | Then | it fails as a wire failure naming what is missing |
 
-## `T-181` A guest that serves no block traps when one is yielded to
+## `T-181` A guest that serves no block answers a yield as unsupported
 
 | Step | Statement |
 | --- | --- |
 | Given | a guest that did not implement yielding to a block |
 | When | a yield reaches it |
-| Then | it traps rather than answering |
+| Then | it answers that it does not serve the operation |
 
 ## `T-185` The highest id is itself issued
 
@@ -1125,3 +1125,11 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a Handle table |
 | When | the same object is allocated a reference twice |
 | Then | both references resolve to that object |
+
+## `T-277` A message the host does not serve is answered as unsupported
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest sending the host a message under a tag the host does not serve |
+| When | the host reads it |
+| Then | it answers that it does not serve the operation, rather than failing the exchange |

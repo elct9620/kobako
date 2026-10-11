@@ -3,10 +3,10 @@
 require "test_helper"
 
 # E2E — break / lambda-break / Proc-return discrimination at the
-# yield boundary. The guest yield export classifies the post-protect RBreak by comparing its
+# yield boundary. The guest's yield flow classifies the post-protect RBreak by comparing its
 # `ci_break_index` against the pre-yield baseline: an index ≥ baseline lands
-# on the yielder's frame (a real `break`, tag 0x02); an index < baseline
-# aims past the yielder (a non-orphan Proc `return`) and emits tag 0x04
+# on the yielder's frame (a real `break`, tag 0x12); an index < baseline
+# aims past the yielder (a non-orphan Proc `return`) and emits tag 0x13
 # LocalJumpError. The basic yield round-trip lives in test_yield.rb.
 class TestE2EYieldUnwind < Minitest::Test
   include E2eGuestHelper
@@ -31,7 +31,7 @@ class TestE2EYieldUnwind < Minitest::Test
     # mruby treats lambda `break` as a silent normal return
     # (MRB_PROC_STRICT_P → NORMAL_RETURN, vm.c:2749) — `mrb->exc`
     # stays nil and the block evaluates to the break value via
-    # tag 0x01 ok. From the Service method's view, this is
+    # tag 0x10 ok. From the Service method's view, this is
     # indistinguishable from a regular `next val` return.
     result = sandbox.eval("Probe::OnceX.call(7, &->(x) { break x * 3 })").value
 

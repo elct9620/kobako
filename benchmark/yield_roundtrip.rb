@@ -3,11 +3,11 @@
 # Regression benchmark #6 — Yield round-trip latency.
 # Detects regressions on the host-initiated re-entry path that #2
 # (guest-initiated Call/Reply) does not exercise: the Yield Reply
-# codec, the `__kobako_yield_to_block` dispatch, and the guest-side
-# BLOCK_STACK push/pop.
+# codec, the `yield` downcall, and the guest-side BLOCK_STACK
+# push/pop.
 #
 #   6a — Single yield: Service yields once, block returns its arg
-#        (tag 0x01 ok). The one-yield latency above the no-block #2
+#        (tag 0x10 ok). The one-yield latency above the no-block #2
 #        baseline.
 #   6b — Block given, never yielded: the call site supplies a block so
 #        block_given travels and the host constructs a Yielder, but the
@@ -17,7 +17,7 @@
 #        iteration shape): per-yield steady-state cost once the
 #        per-dispatch setup is amortized. Per-yield cost is wall_time / 1000.
 #   6d — Break unwind: the block runs `break` on the first yield
-#        (tag 0x02), unwinding the Service via catch/throw. The
+#        (tag 0x12), unwinding the Service via catch/throw. The
 #        delta over 6a isolates the break classification + unwind path.
 #
 # Every case wraps one #eval per iteration; the absolute number includes

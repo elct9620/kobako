@@ -8,13 +8,22 @@ is the trait it drives and what that expansion reaches.
 
 - `wasm/kobako-core/src/**/*.rs`
 
-## `take_outcome`
+## `serve`
 
-Hand the host the finished invocation's Outcome bytes, packed as their place
-and length in the Guest Binary's memory.
+Answer one downcall: the entry its tag names, or unsupported for a tag the
+Guest does not serve.
 
 ```rust
-pub fn take_outcome() -> u64 {}
+pub fn serve<G: Guest>(request: &[u8]) -> Vec<u8> {}
+```
+
+## `answer`
+
+Hand the host an encoded answer, packed as its place and length in the Guest
+Binary's memory.
+
+```rust
+pub fn answer(bytes: &[u8]) -> u64 {}
 ```
 
 ## `Guest`
@@ -65,49 +74,9 @@ that did not complete.
 pub enum DispatchError {}
 ```
 
-## `read_eval_frames`
-
-Read an eval's Frames and the source between them, or the boot failure that stops it.
-
-```rust
-pub fn read_eval_frames() -> Result<(Frames, Vec<u8>), Outcome> {}
-```
-
-## `read_frames`
-
-Read a run's Frames, or the boot failure that stops it.
-
-```rust
-pub fn read_frames() -> Result<Frames, Outcome> {}
-```
-
-## `write_outcome`
-
-Leave the invocation's Outcome for the host to take.
-
-```rust
-pub fn write_outcome(outcome: Outcome) {}
-```
-
-## `decode_run`
-
-Read the Run the host wrote, or answer with the Panic an unframed one fails under.
-
-```rust
-pub fn decode_run(env: &[u8]) -> Result<Run, Outcome> {}
-```
-
-## `write_reply`
-
-Frame a block's Yield Reply where the host can read it.
-
-```rust
-pub fn write_reply(reply: YieldReply) -> u64 {}
-```
-
 ## `alloc`
 
-Hand the host a buffer in the Guest Binary's memory to write a Reply into.
+Hand the host a buffer in the Guest Binary's memory to write a request into.
 
 ```rust
 pub fn alloc(size: u32) -> u32 {}

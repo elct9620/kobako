@@ -590,7 +590,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | the bundled Guest Binary |
 | When | its exports are read |
-| Then | it exports exactly the six functions the invocation ABI names |
+| Then | it exports exactly the functions the ABI names |
 
 ## `RT-069` Released Sandboxes on distinct Threads run in parallel
 

@@ -131,6 +131,12 @@ pub(crate) fn classify(outcome: Outcome) -> Result<Vec<u8>, Error> {
     match outcome {
         Outcome::Ok(payload) => Ok(payload),
         Outcome::Panic(panic) => Err(classify_panic(panic)),
+        // The Guest Binary answered rather than broke, so the failure is
+        // the Sandbox's, worded by the host as for a yield it does not serve.
+        Outcome::Unsupported(_) => Err(Error::Sandbox(Box::new(Failure::host(
+            "Kobako::SandboxError",
+            "the Sandbox runtime does not support this invocation",
+        )))),
     }
 }
 
@@ -254,6 +260,19 @@ mod classify_tests {
     fn sandbox_origin_panic_becomes_sandbox_error() {
         let result = classify(panic_outcome(Origin::Sandbox, "RuntimeError"));
         assert!(matches!(result, Err(Error::Sandbox(f)) if f.name == "RuntimeError"));
+    }
+
+    // @behavior OC-052
+    #[test]
+    fn an_unsupported_invocation_becomes_sandbox_error() {
+        let result = classify(Outcome::Unsupported(
+            kobako_transport::envelope::Unsupported::new("no"),
+        ));
+        assert!(
+            matches!(result, Err(Error::Sandbox(_))),
+            "an Outcome answered as unsupported through classify must be the Sandbox's \
+             failure rather than a trap"
+        );
     }
 
     // An unresolved entrypoint reaches the caller with the names it

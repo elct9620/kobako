@@ -1,4 +1,4 @@
-//! `__kobako_eval` — one-shot source invocation entry.
+//! The `eval` downcall — one-shot source invocation entry.
 //!
 //! Reactor entry that runs three jobs in sequence:
 //!
@@ -10,7 +10,7 @@
 //!    convert the parse failure or raised exception into a Panic
 //!    Outcome.
 //!
-//! `__kobako_eval` never traps or calls `exit` — every failure is an
+//! This flow never traps or calls `exit` — every failure is an
 //! Outcome the host reads after this function returns.
 
 use kobako_transport::envelope::{Frames, Outcome, Panic};

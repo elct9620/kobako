@@ -520,3 +520,11 @@ That last exit has no parity scenario, because the frontends close it at differe
 | Given | a Service that rescues the failure of a yield whose block trapped |
 | When | the Service yields to the block again |
 | Then | the invocation fails as the first trap |
+
+## `T-278` A yield the guest does not serve fails at the Service's yield
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service yielding to a block of a guest that serves no block |
+| When | the guest answers the yield as unsupported |
+| Then | the Service's yield raises that the guest does not serve it, rather than trapping |

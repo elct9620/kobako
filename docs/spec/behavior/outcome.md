@@ -12,7 +12,7 @@ The origin decides the layer and the class name may only narrow inside it. Both 
 
 ### Recordless arms
 
-Two arms carry no record at all: nothing written, and bytes the envelope cannot frame. Both mean the guest runtime is past reasoning about. They are separated from every readable failure because they are the only ones that cost the Sandbox.
+Two arms carry no record at all: nothing answered, and bytes the envelope cannot frame. Both mean the guest runtime is past reasoning about. They are separated from every readable failure because they are the only ones that cost the Sandbox.
 
 The class hierarchy is asserted as relations rather than through failures. A Host App writes one rescue and expects it to cover a family. The shape of the tree makes that true, and no single failure shows that shape.
 
@@ -31,20 +31,21 @@ One block here is deliberately written in one frontend's own names. The ancestry
 - `test/parity/test_errors.rb`
 - `test/e2e/test_caps.rb`
 - `test/e2e/sandbox/test_sandbox.rb`
-- `test/e2e/sandbox/test_trap_over_result.rb`
 - `test/e2e/sandbox/test_unframed_outcome.rb`
+- `test/e2e/sandbox/test_unsupported_outcome.rb`
 - `crates/kobako-wasmtime/src/trap.rs`
 - `crates/kobako/src/execution.rs`
 - `crates/kobako/src/error.rs`
 - `crates/kobako/src/msgpack/execution.rs`
 - `wasm/kobako-mruby/src/flows/panic.rs`
-- `wasm/kobako-core/src/abi/run.rs`
+- `wasm/kobako-core/src/abi/downcall.rs`
+- `wasm/kobako-core/src/frames.rs`
 
 ## `OC-001` A guest that wrote nothing costs the Sandbox
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation whose guest wrote no result |
+| Given | an invocation whose guest answered with no result |
 | When | the outcome is read |
 | Then | it fails as a trap saying the Sandbox exited without producing one |
 
@@ -376,14 +377,6 @@ One block here is deliberately written in one frontend's own names. The ancestry
 | When | one is raised |
 | Then | it carries no Execution, since no invocation has settled |
 
-## `OC-050` A trap outranks a result already written
-
-| Step | Statement |
-| --- | --- |
-| Given | a guest that wrote a well-formed result and then trapped |
-| When | either invocation verb runs it |
-| Then | the invocation settles as a trap |
-
 ## `OC-051` Both frontends attribute an engine trap no cap caused the same way
 
 | Attribute | Value |
@@ -395,3 +388,11 @@ One block here is deliberately written in one frontend's own names. The ancestry
 | Given | a scenario whose guest code traps the engine without reaching either cap |
 | When | both frontends run it |
 | Then | they observe the same failure |
+
+## `OC-052` An invocation the guest does not serve is the Sandbox's failure
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest answering an invocation as unsupported |
+| When | the outcome is read |
+| Then | it fails as a Sandbox failure rather than a trap |

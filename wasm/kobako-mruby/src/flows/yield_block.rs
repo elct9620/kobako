@@ -1,7 +1,7 @@
-//! `__kobako_yield_to_block` — host-initiated re-entry into a guest
-//! block (docs/wire/abi.md § ABI Signatures).
+//! The `yield` downcall — host-initiated re-entry into a guest block
+//! (docs/wire/abi.md § ABI Signatures).
 //!
-//! The host calls this from inside a `__kobako_dispatch` callback when
+//! The host sends it from inside an upcall it is still answering when
 //! a Service method invokes its Yielder. The flow answers with a value;
 //! `export_guest!` frames it into a buffer the host reads.
 //!

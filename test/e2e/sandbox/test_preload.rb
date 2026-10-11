@@ -33,8 +33,8 @@ class TestSandboxPreload < Minitest::Test
 
   # @behavior S-087
   # The seal fires as the invocation begins, so it holds even when that
-  # invocation then fails: the minimal_abi_ok.wat fixture stubs the entry
-  # points without __kobako_take_outcome, and the TrapError that follows
+  # invocation then fails: the minimal_abi_ok.wat fixture stubs the
+  # downcall with no allocator behind it, and the TrapError that follows
   # does not reopen the table.
   def test_preload_rejects_calls_after_first_invocation
     @sandbox.preload(code: "X = 1", name: :Early)

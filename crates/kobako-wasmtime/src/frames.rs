@@ -1,14 +1,14 @@
 //! Per-invocation I/O between the host and the guest: it writes the
-//! `#run` envelope into a freshly allocated guest buffer, builds the
+//! entry's downcall into a freshly allocated guest buffer, builds the
 //! stdin frame stream plus stdout / stderr capture pipes for the WASI
-//! context, and reads the Outcome back out of the OUTCOME_BUFFER.
+//! context, and reads the Outcome the downcall answered with.
 
-use wasmtime::{AsContextMut, Store as WtStore};
+use wasmtime::Store as WtStore;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::WasiCtxBuilder;
 
 use crate::config::Config;
-use crate::exports::{self, Exports};
+use crate::exports::Exports;
 use crate::guest_mem::{self, ReadError, WriteError};
 use crate::invocation::Invocation;
 use crate::{ambient, capture};
@@ -19,7 +19,7 @@ use kobako_transport::envelope::Outcome;
 
 /// A missing or trapping allocator is an engine fault, a `Trap`; one that
 /// runs but returns 0 leaves the runtime intact, so it is a `SetupError`.
-pub(crate) fn write_envelope(
+pub(crate) fn write_request(
     store: &mut WtStore<Invocation>,
     exports: &Exports,
     envelope: &[u8],
@@ -94,14 +94,15 @@ pub(crate) fn install_wasi_frames(
     Ok(())
 }
 
-/// A guest that returned without an Outcome the envelope can frame — an
-/// empty buffer included — has nothing left to attribute, so it is a
+/// A guest that answered without an Outcome the envelope can frame — an
+/// empty answer included — has nothing left to attribute, so it is a
 /// `Trap` like every other way of failing to read the result.
-pub(crate) fn fetch_outcome(
-    store: &mut WtStore<Invocation>,
+pub(crate) fn read_outcome(
+    store: &WtStore<Invocation>,
     exports: &Exports,
+    packed: u64,
 ) -> Result<Outcome, Trap> {
-    let bytes = fetch_outcome_bytes(store, exports)?;
+    let bytes = read_answer(store, exports, packed)?;
     Outcome::decode(&bytes).map_err(|_| {
         Trap::Other(
             if bytes.is_empty() {
@@ -114,18 +115,14 @@ pub(crate) fn fetch_outcome(
     })
 }
 
-fn fetch_outcome_bytes(
-    store: &mut WtStore<Invocation>,
+fn read_answer(
+    store: &WtStore<Invocation>,
     exports: &Exports,
+    packed: u64,
 ) -> Result<Vec<u8>, Trap> {
-    let take = exports::require(exports.take_outcome.as_ref())?;
     let mem = exports.require_memory()?;
-
-    let packed = take
-        .call(store.as_context_mut(), ())
-        .map_err(|e| Trap::Other(format!("failed to read the Sandbox result: {e}")))?;
     let (ptr, len) = guest_mem::unpack_guest_buffer(packed);
-    guest_mem::read_buffer(&*store, mem, ptr, len).map_err(|err| {
+    guest_mem::read_buffer(store, mem, ptr, len).map_err(|err| {
         Trap::Other(
             match err {
                 ReadError::TooLarge => "result payload exceeds the 16 MiB limit",
@@ -142,7 +139,7 @@ mod tests {
     //! each profile rung: `wasi:clocks` / `wasi:random` frozen under
     //! `Hermetic` and live under `Permissive`, and no filesystem,
     //! environment, or socket under either.
-    use wasmtime::{Linker, Module};
+    use wasmtime::{AsContextMut, Linker, Module};
     use wasmtime_wasi::p1;
 
     use super::*;

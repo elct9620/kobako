@@ -323,6 +323,18 @@ impl Snapshot {
                     panic.available.clone(),
                 )),
             )),
+            // The Guest Binary answered rather than broke, so it reads as
+            // the Sandbox's failure, worded by the host.
+            Completion::Outcome(Outcome::Unsupported(_)) => Ok((
+                ruby.str_from_slice(&[]),
+                Some((
+                    "sandbox".to_owned(),
+                    "Kobako::SandboxError".to_owned(),
+                    "the Sandbox runtime does not support this invocation".to_owned(),
+                    Vec::new(),
+                    Vec::new(),
+                )),
+            )),
             Completion::Trap(_) => Err(MagnusError::new(
                 ruby.exception_runtime_error(),
                 "a trapped run has no outcome",

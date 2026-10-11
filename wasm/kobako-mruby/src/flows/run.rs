@@ -1,4 +1,4 @@
-//! `__kobako_run` — entrypoint dispatch entry.
+//! The `run` downcall — entrypoint dispatch entry.
 //!
 //! `export_guest!` has already read the Frames and the host-supplied
 //! Run envelope, so this flow starts from their fields. The entrypoint

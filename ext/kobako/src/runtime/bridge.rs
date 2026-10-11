@@ -22,6 +22,7 @@ use kobako_transport::envelope::{Call, Fault, FaultKind, Reply, Target, YieldRep
 const ARM_OK: &str = "ok";
 const ARM_BREAK: &str = "break";
 const ARM_ERROR: &str = "error";
+const ARM_UNSUPPORTED: &str = "unsupported";
 
 /// Runs after `Kobako::Runtime` is defined, so the `#[magnus::wrap]` class
 /// name resolves before any object is wrapped.
@@ -114,6 +115,13 @@ impl GuestYielder {
                 ruby.to_symbol(ARM_ERROR),
                 ruby.str_new(&record.message),
                 Some(record.name),
+            ),
+            // The guest's own message stays behind: the host words this
+            // refusal itself.
+            YieldReply::Unsupported(_) => (
+                ruby.to_symbol(ARM_UNSUPPORTED),
+                ruby.str_from_slice(&[]),
+                None,
             ),
         })
     }

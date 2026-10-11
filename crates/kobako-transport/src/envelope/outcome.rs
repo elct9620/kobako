@@ -5,10 +5,7 @@
 //! byte. Only the ok arm carries codec-encoded bytes.
 
 use super::bytes::{Reader, Writer};
-use super::{DecodeError, ErrorRecord};
-
-const TAG_OK: u8 = 0x01;
-const TAG_PANIC: u8 = 0x02;
+use super::{tag, DecodeError, ErrorRecord, Unsupported};
 
 /// Who a failed invocation attributes to.
 ///
@@ -52,6 +49,8 @@ pub enum Outcome {
     Ok(Vec<u8>),
     /// The invocation terminated with an uncaught exception.
     Panic(Panic),
+    /// The guest does not serve the invocation it was sent.
+    Unsupported(Unsupported),
 }
 
 /// An uncaught top-level failure, plus what attribution and correction need.
@@ -68,8 +67,8 @@ impl Outcome {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
         match reader.u8()? {
-            TAG_OK => Ok(Outcome::Ok(reader.remaining().to_vec())),
-            TAG_PANIC => {
+            tag::OK => Ok(Outcome::Ok(reader.remaining().to_vec())),
+            tag::PANIC => {
                 let origin = Origin::from_name(reader.text()?);
                 let error = ErrorRecord::read(&mut reader)?;
                 let available = reader.text_list()?;
@@ -80,8 +79,9 @@ impl Outcome {
                     available,
                 }))
             }
+            tag::UNSUPPORTED => Ok(Outcome::Unsupported(Unsupported::read(&mut reader)?)),
             _ => Err(DecodeError::new(
-                "Outcome tag must be 0x01 (ok) or 0x02 (panic)",
+                "Outcome tag must be 0x10 (ok), 0x14 (panic), or 0x15 (unsupported)",
             )),
         }
     }
@@ -90,12 +90,16 @@ impl Outcome {
         let mut writer = Writer::new();
         match self {
             Outcome::Ok(value) => {
-                writer.u8(TAG_OK).remainder(value);
+                writer.u8(tag::OK).remainder(value);
             }
             Outcome::Panic(panic) => {
-                writer.u8(TAG_PANIC).bytes(panic.origin.name().as_bytes());
+                writer.u8(tag::PANIC).bytes(panic.origin.name().as_bytes());
                 panic.error.write(&mut writer);
                 writer.list(&panic.available);
+            }
+            Outcome::Unsupported(refusal) => {
+                writer.u8(tag::UNSUPPORTED);
+                refusal.write(&mut writer);
             }
         }
         writer.into_bytes()
@@ -203,7 +207,7 @@ mod tests {
         // this is the shape a third-party guest can legally produce and the
         // one the fallback rule exists for.
         let mut writer = Writer::new();
-        writer.u8(TAG_PANIC).bytes(b"something-else");
+        writer.u8(tag::PANIC).bytes(b"something-else");
         panic_sample().error.write(&mut writer);
         writer.list::<&[u8]>(&[]);
         assert_eq!(
@@ -219,8 +223,8 @@ mod tests {
     fn golden_layout_pins_the_ok_tag() {
         assert_eq!(
             Outcome::Ok(vec![0x2a]).encode(),
-            vec![0x01, 0x2a],
-            "an ok Outcome must encode as tag byte 0x01 followed by the value alone"
+            vec![0x10, 0x2a],
+            "an ok Outcome must encode as tag byte 0x10 followed by the value alone"
         );
     }
 
@@ -239,7 +243,7 @@ mod tests {
         assert_eq!(
             Outcome::Panic(panic).encode(),
             vec![
-                0x02, // tag: panic
+                0x14, // tag: panic
                 0, 0, 0, 7, b's', b'e', b'r', b'v', b'i', b'c', b'e', // origin
                 0, 0, 0, 1, b'E', // name
                 0, 0, 0, 1, b'm', // message
@@ -257,7 +261,7 @@ mod tests {
     fn a_zero_length_outcome_is_refused() {
         assert!(
             Outcome::decode(&[]).is_err(),
-            "a zero-length outcome buffer must be rejected as a wire violation"
+            "a zero-length Outcome must be rejected as a wire violation"
         );
     }
 
@@ -265,8 +269,8 @@ mod tests {
     #[test]
     fn an_unknown_outcome_tag_is_refused() {
         assert!(
-            Outcome::decode(&[0x03, 0x00]).is_err(),
-            "an Outcome tag that is neither ok nor panic must be rejected as a wire violation"
+            Outcome::decode(&[0x11, 0x00]).is_err(),
+            "an Outcome tag outside its arms must be rejected as a wire violation"
         );
     }
 }

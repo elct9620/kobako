@@ -70,7 +70,7 @@ class TestSandbox < Minitest::Test
   # @behavior OC-028
   def test_eval_against_minimal_fixture_raises_trap_error_when_export_missing
     # The minimal_abi_ok.wat fixture passes construction but stubs only
-    # the entry points — `__kobako_take_outcome` is absent, so the eval
+    # the downcall — it has no allocator to take the request, so the eval
     # step raises Kobako::TrapError directly from the ext; `#eval` only
     # adds the verb prefix. The user-facing message attributes the
     # failure to the public verb (`Sandbox#eval`) rather than the

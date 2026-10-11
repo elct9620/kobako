@@ -52,11 +52,11 @@ The types those seams carry, by grade:
 
 | Grade | Names |
 |---|---|
-| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_core::frames::{read_eval_frames, read_frames}` · `kobako_mruby::{Kobako, Arguments, dispatch, IntegerOutOfRange, MsgpackCodec}` · `kobako_runtime::{Snapshot, Capture, Usage}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, Arguments, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Options, Execution, Context, Handles, RunPayload, Backend, Yielder}` · `kobako::handles::Detached` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::{Config, Driver}` |
+| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, Arguments, dispatch, IntegerOutOfRange, MsgpackCodec}` · `kobako_runtime::{Snapshot, Capture, Usage}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, Arguments, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Options, Execution, Context, Handles, RunPayload, Backend, Yielder}` · `kobako::handles::Detached` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::{Config, Driver}` |
 | **stable · exhaustive** | `kobako_runtime::{Profile, Entry, Completion}` · `kobako_codec::msgpack::Value` · `kobako::{Provider, msgpack::RunArg}` |
 | **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension}` · `kobako::msgpack::ValueReceiver` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |
-| **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · every other `kobako_transport::envelope::*` |
+| **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · every other `kobako_transport::envelope::*`, five re-exported from `kobako_core` |
 
 Two things stay fixed. The **core envelope** and the **ABI surface** are the same for
 every assembly, which makes the parts interchangeable at all
@@ -211,7 +211,7 @@ is not mruby calls `kobako_core::proxy::dispatch` directly and states the
   gem ──► dispatch(target, method, Option<Proc>, payload) ──► Service
            │                                                    │
            └─ block parks for the call ◄── yield ───────────────┘
-              (a separate export re-enters while the dispatch
+              (a yield downcall re-enters while the dispatch
                frame is still on the stack)
 ```
 
