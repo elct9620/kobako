@@ -270,7 +270,7 @@ Every message, invocation frames included, is at most 16 MiB. The host enforces 
 | Direction | The host checks |
 |-----------|-----------------|
 | guest → host | a Call, Outcome, or Yield Reply, before reading it |
-| host → guest | a Reply, Yield Call, or Run, before writing it |
+| host → guest | a downcall request or a Reply, before writing it |
 | host → guest frames | each invocation frame, before sending it |
 
 The guest's frame reader caps a declared length at 64 MiB. That ceiling only guards an allocation from a length prefix; the contract is the 16 MiB. A `memory_limit` below 16 MiB binds first, since the guest grows memory to hold what it reads.

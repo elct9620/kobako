@@ -73,7 +73,7 @@ impl Invocation {
         self.exports.clone()
     }
 
-    /// The first trap wins: the dispatch import ends the invocation with it,
+    /// The first trap wins: the upcall import ends the invocation with it,
     /// so the trap keeps its own kind.
     pub(crate) fn record_reentry_trap(&mut self, trap: wasmtime::Error) {
         self.reentry_trap.get_or_insert(trap);

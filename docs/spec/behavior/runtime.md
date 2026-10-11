@@ -552,11 +552,11 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a Sandbox is built over each |
 | Then | each fails as a construction failure at the step it cannot pass |
 
-## `RT-064` The host links nothing beyond the dispatch entry
+## `RT-064` The host links nothing beyond the import the ABI names
 
 | Step | Statement |
 | --- | --- |
-| Given | an artifact importing one host function besides the dispatch entry |
+| Given | an artifact importing one host function besides the one the ABI names |
 | When | a Sandbox is built over it at either posture |
 | Then | the import is unknown and construction fails |
 
@@ -584,7 +584,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it asks for a preopened directory, its environment, or a connection |
 | Then | it finds no directory, no variable, and no socket |
 
-## `RT-068` The Guest Binary exports the invocation entry points and nothing else
+## `RT-068` The Guest Binary exports the ABI's functions and nothing else
 
 | Step | Statement |
 | --- | --- |

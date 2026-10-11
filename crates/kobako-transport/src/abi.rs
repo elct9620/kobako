@@ -7,8 +7,8 @@
 //! same way, and each value is spelled once.
 
 /// The Guest ABI version. A host accepts a Guest Binary only when the
-/// version it reports equals this one, so a wire change is an increment
-/// rather than a negotiation.
+/// version it reports equals this one, so a framing or symbol change is
+/// an increment rather than a negotiation; a new tag needs neither.
 pub const ABI_VERSION: u32 = 4;
 
 /// Width in bytes of the length prefix that precedes each invocation-channel

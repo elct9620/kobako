@@ -50,8 +50,8 @@ pub(crate) fn install_wasi_frames(
     config: &Config,
     frames: &[&[u8]],
 ) -> Result<(), Trap> {
-    // Every frame carries the same 16 MiB cap as the `#run` envelope
-    // (`write_envelope`): the length prefix is a `u32`, so a frame past
+    // Every frame carries the same 16 MiB cap as a downcall request
+    // (`write_request`): the length prefix is a `u32`, so a frame past
     // the cap would silently wrap and corrupt the stdin frame stream.
     for &frame in frames {
         guest_mem::checked_payload_len(frame.len()).map_err(|msg| Trap::Other(msg.to_string()))?;

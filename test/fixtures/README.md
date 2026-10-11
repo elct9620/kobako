@@ -14,7 +14,7 @@ The hand-written `.wat` fixtures carry the ABI version as an `i32.const`. Update
 
 ## `minimal.wasm`
 
-Minimal `wasm32-wasip1` Reactor module that exposes `__kobako_eval` / `__kobako_run` as no-op stubs and omits `__kobako_abi_version`. It is the frozen stand-in for a guest missing the ABI version export.
+Minimal `wasm32-wasip1` Reactor module that exports only a `ping` function, so it lacks `__kobako_abi_version`. It is the frozen stand-in for a guest missing the ABI version export.
 
 | Fact | Detail |
 |---|---|

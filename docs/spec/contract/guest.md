@@ -28,8 +28,8 @@ pub fn answer(bytes: &[u8]) -> u64 {}
 
 ## `Guest`
 
-A Guest Binary's invocation surface: the entry points behind the exports the
-bundled macro writes.
+A Guest Binary's invocation surface: the entry points the bundled macro's
+downcall export serves.
 
 ```rust
 pub trait Guest {}

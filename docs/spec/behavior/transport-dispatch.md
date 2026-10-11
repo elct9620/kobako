@@ -1127,12 +1127,12 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the same object is allocated a reference twice |
 | Then | both references resolve to that object |
 
-## `T-277` A message the host does not serve is answered as unsupported
+## `T-277` A request its receiver does not serve is answered as unsupported
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest sending the host a message under a tag the host does not serve |
-| When | the host reads it |
+| Given | a request under a tag the host or the guest does not serve |
+| When | that receiver reads it |
 | Then | it answers that it does not serve the operation, rather than failing the exchange |
 
 ## `T-279` A call the host does not serve raises a rescuable refusal
