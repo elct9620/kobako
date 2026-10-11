@@ -50,7 +50,7 @@ module Kobako
       # replacing +benchmark/baseline.json+. This is the only way the
       # anchor moves; the cumulative budget then resets to the blessed
       # numbers, so the accepted shift and its justification must be
-      # recorded in the benchmark README's "What changed" section.
+      # recorded in the benchmark README's "Baseline changes" section.
       def bless!(run)
         raise "bench:bless needs a results JSON to bless as the anchor" unless run
         raise "bench:bless: #{run} does not exist" unless File.exist?(run)
@@ -58,7 +58,7 @@ module Kobako
 
         FileUtils.cp(run, ANCHOR_PATH)
         puts "blessed anchor: #{File.basename(run)} -> #{File.basename(ANCHOR_PATH)}"
-        puts "record the accepted shift and why in benchmark/README.md \"What changed\" before committing."
+        puts "record the accepted shift and why in benchmark/README.md \"Baseline changes\" before committing."
       end
 
       # Resolve [current, anchor]: +current+ defaults to the newest run
