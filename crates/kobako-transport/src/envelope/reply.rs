@@ -46,10 +46,7 @@ impl Reply {
                 writer.u8(tag::FAULT);
                 fault.write(&mut writer);
             }
-            Reply::Unsupported(refusal) => {
-                writer.u8(tag::UNSUPPORTED);
-                refusal.write(&mut writer);
-            }
+            Reply::Unsupported(refusal) => return refusal.encode(),
         }
         writer.into_bytes()
     }
@@ -100,10 +97,7 @@ impl YieldReply {
                 writer.u8(tag::ERROR);
                 record.write(&mut writer);
             }
-            YieldReply::Unsupported(refusal) => {
-                writer.u8(tag::UNSUPPORTED);
-                refusal.write(&mut writer);
-            }
+            YieldReply::Unsupported(refusal) => return refusal.encode(),
         }
         writer.into_bytes()
     }

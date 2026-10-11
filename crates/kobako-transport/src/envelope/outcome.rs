@@ -97,10 +97,7 @@ impl Outcome {
                 panic.error.write(&mut writer);
                 writer.list(&panic.available);
             }
-            Outcome::Unsupported(refusal) => {
-                writer.u8(tag::UNSUPPORTED);
-                refusal.write(&mut writer);
-            }
+            Outcome::Unsupported(refusal) => return refusal.encode(),
         }
         writer.into_bytes()
     }

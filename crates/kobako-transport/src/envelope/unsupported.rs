@@ -30,8 +30,10 @@ impl Unsupported {
     /// read needs no answer type to refuse it in.
     pub fn encode(&self) -> Vec<u8> {
         let mut writer = Writer::new();
-        writer.u8(tag::UNSUPPORTED);
-        self.write(&mut writer);
+        writer
+            .u8(tag::UNSUPPORTED)
+            .u8(KIND_UNSUPPORTED)
+            .bytes(self.message.as_bytes());
         writer.into_bytes()
     }
 
@@ -42,10 +44,6 @@ impl Unsupported {
         // to a later version of these fields, as for a Fault.
         reader.skip_unknown_fields();
         Ok(Unsupported { message })
-    }
-
-    pub(crate) fn write(&self, writer: &mut Writer) {
-        writer.u8(KIND_UNSUPPORTED).bytes(self.message.as_bytes());
     }
 }
 
