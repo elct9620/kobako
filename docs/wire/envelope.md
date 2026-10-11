@@ -262,7 +262,7 @@ Snippets replay in insertion order, and a source snippet's backtraces show `(sni
 
 ---
 
-## Size and Depth Bounds
+## Message Bounds
 
 Every message, invocation frames included, is at most 16 MiB. The host enforces it in both directions, so a guest-supplied length never makes the host allocate past it.
 

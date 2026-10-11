@@ -18,7 +18,7 @@ snapshots the booted interpreter into the artifact's data segments.
 Identical inputs produce identical baked bytes, so a double-bake
 byte-identity check gates reproducibility.
 
-## What the host gets
+## Baked Instances
 
 A kobako host instantiates the baked module afresh per invocation.
 Instantiation rides wasmtime's copy-on-write image mapping, so every
@@ -52,4 +52,4 @@ let baked = kobako_baker::bake(&linked_wasm_bytes)?;
 
 ## License
 
-Apache-2.0
+Licensed under [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0).

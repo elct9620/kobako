@@ -18,19 +18,19 @@ invocation is handed, and re-exports every message type. The ABI
 values are the version, the packed `(ptr, len)` return layout, the
 invocation-channel frame prefix, and the message size cap.
 
-## What the envelope does not read
+## Opaque Payload
 
 The envelope reads a message's routing fields and its ok-versus-fault tag
 without decoding a payload byte. Everything the resolved method consumes
-rides through opaque, and a decoded envelope borrows the buffer it came
-from, so that payload reaches its reader as a view rather than a copy.
+rides through opaque. A decoded envelope borrows the buffer it came from,
+so that payload reaches its reader as a view rather than a copy.
 
 ```text
 Call { method, payload }
                   └── opaque here; read by whoever owns the schema
 ```
 
-## Where it sits
+## Dependency Position
 
 This crate depends on no other, and every kobako tier depends on it —
 including any third-party engine, codec, or guest composing against them.
@@ -45,6 +45,9 @@ byte-layout document, not from this code.
 
 ## Usage
 
+Depend on it directly only to build a tier of your own; a guest shell
+reaches the same types through `kobako-core`.
+
 ```toml
 [dependencies]
 kobako-transport = "0.17.0" # x-release-please-version
@@ -52,4 +55,4 @@ kobako-transport = "0.17.0" # x-release-please-version
 
 ## License
 
-Apache-2.0
+Licensed under [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0).
