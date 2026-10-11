@@ -19,9 +19,11 @@ compiler-checked contract.
 The messages themselves live in
 [kobako-transport](https://crates.io/crates/kobako-transport): the
 envelopes, the Outcome records, and the ABI's own values. It is this
-crate's only dependency and the tier every kobako assembly shares. A
-payload codec is not among them: this crate routes messages without
-reading one, so a guest speaking its own schema builds on it unchanged.
+crate's only dependency and the tier every kobako assembly shares. The
+messages a `Guest` takes and answers with — `Outcome`, `Run` and
+`YieldReply` — are re-exported here. A payload codec is not among them:
+this crate routes messages without reading one, so a guest speaking its
+own schema builds on it unchanged.
 
 ## Usage
 
@@ -31,12 +33,10 @@ crate-type = ["cdylib"]
 
 [dependencies]
 kobako-core = "0.17.0" # x-release-please-version
-kobako-transport = "0.17.0" # x-release-please-version
 ```
 
 ```rust
-use kobako_core::Guest;
-use kobako_transport::envelope::{Outcome, Run};
+use kobako_core::{Guest, Outcome, Run};
 
 struct MyGuest;
 

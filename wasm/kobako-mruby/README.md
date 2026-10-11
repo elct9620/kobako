@@ -50,13 +50,12 @@ crate-type = ["cdylib"]
 [dependencies]
 kobako-mruby = { version = "0.17.0", features = ["msgpack"] } # x-release-please-version
 kobako-core = "0.17.0" # x-release-please-version
-kobako-transport = "0.17.0" # x-release-please-version
 beni = "0.22"
 ```
 
 ```rust
 use beni::{Error, Mrb};
-use kobako_transport::envelope::{Outcome, Run, YieldReply};
+use kobako_core::{Outcome, Run, YieldReply};
 
 struct MyGuest;
 

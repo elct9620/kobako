@@ -6,7 +6,7 @@
 //! + `kobako-io`.
 
 use beni::{Error, Mrb};
-use kobako_transport::envelope::{Outcome, Run, YieldReply};
+use kobako_core::{Outcome, Run, YieldReply};
 
 /// The bundled mruby guest behind `data/kobako.wasm`.
 pub(crate) struct KobakoGuest;

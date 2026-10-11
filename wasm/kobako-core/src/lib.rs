@@ -16,7 +16,9 @@ pub mod frames;
 mod guest;
 pub mod proxy;
 
-// The three names a guest writes: the contract it implements, the call it
-// makes, and what comes back when the exchange does not complete.
+// The names a guest writes: the contract it implements and the messages
+// its entries take and answer with, the call it makes, and what comes
+// back when the exchange does not complete.
 pub use guest::Guest;
+pub use kobako_transport::envelope::{Outcome, Run, YieldReply};
 pub use proxy::{dispatch, DispatchError};
