@@ -35,7 +35,7 @@ pub(super) fn register(runtime_class: RClass) -> Result<(), MagnusError> {
 
 /// Frame-scoped Ruby handle that lets the dispatch `Proc` re-enter the
 /// guest to run a yielded block. It wraps the active `&mut dyn Yielder`
-/// for exactly one `__kobako_dispatch` frame: the bridge builds one, hands
+/// for exactly one `__kobako_upcall` frame: the bridge builds one, hands
 /// it to the `Proc` as the second argument, and `invalidate`s it the
 /// instant the `Proc` returns. A guest block stashed and called after that
 /// frame normally raises `LocalJumpError` at the Ruby
@@ -56,7 +56,7 @@ struct GuestYielder {
 }
 
 // SAFETY: magnus requires `Send + Sync` on wrapped types. The raw pointer
-// is created, used, and invalidated within a single `__kobako_dispatch`
+// is created, used, and invalidated within a single `__kobako_upcall`
 // frame on the one Ruby thread that owns the active Invocation; it is
 // never read from another thread.
 unsafe impl Send for GuestYielder {}
@@ -158,7 +158,7 @@ impl DispatchHandler for RubyDispatchHandler {
             // is available here once the GVL is held.
             // Panicking with `expect` localises the violation rather than
             // letting a nonsense error propagate.
-            let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_dispatch");
+            let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_upcall");
             let proc_value: Value = ruby.get_inner(self.on_dispatch);
             // The target crosses in one slot, already discriminated: a
             // String for a bound constant's path, an Integer for a Handle

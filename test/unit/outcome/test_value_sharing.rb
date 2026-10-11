@@ -6,7 +6,7 @@ require "objspace"
 # The invocation value's decode cost floor.
 #
 # A large invocation value crosses the boundary once: decoding the ok arm
-# hands back a view onto the outcome buffer rather than a second copy.
+# hands back a view onto the Outcome's bytes rather than a second copy.
 # Nothing else here would notice if that changed — the value compares
 # equal either way, so only its footprint tells a view from a copy.
 #
@@ -26,6 +26,6 @@ class TestOutcomeValueSharing < Minitest::Test
     assert_equal LARGE, value
     assert_operator ObjectSpace.memsize_of(value), :<, LARGE.bytesize,
                     "a large invocation value through Kobako::Outcome.reify must decode as a view onto " \
-                    "the outcome buffer — owning its bytes means it was copied a second time on the way in"
+                    "the Outcome's bytes — owning them means it was copied a second time on the way in"
   end
 end
