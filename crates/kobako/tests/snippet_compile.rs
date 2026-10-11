@@ -4,6 +4,9 @@
 //! answer a real guest cannot be made to give on demand; the bundled guest
 //! then shows the first invocation pays nothing for it.
 
+// Only the last case loads a real Guest Binary; the others stand in any
+// build, since the engine they drive is the one written here.
+#[cfg(feature = "wasmtime")]
 mod common;
 
 use std::sync::{Arc, Mutex};
@@ -105,6 +108,7 @@ fn source_nothing_compiled_keeps_replaying_and_is_not_compiled_again() {
 }
 
 // @behavior S-189
+#[cfg(feature = "wasmtime")]
 #[test]
 fn compiling_counts_against_no_invocation() {
     let Some(mut sandbox) = common::real_sandbox() else {
