@@ -446,7 +446,7 @@ A target no snippet defined raises `Kobako::UndefinedEntrypointError`. Its `#ava
 | Source   | `preload(code: "...", name: :Const)` | The `name:` keyword                   | First invocation's replay; compile errors raise `Kobako::SandboxError`     |
 | Bytecode | `preload(binary: bytes)`             | Read from the bytecode's `debug_info` | First invocation's replay; structural failure raises `Kobako::BytecodeError` |
 
-Use the source form for snippets authored in your repo; use the bytecode form when snippets ship as build artifacts from a separate `mrbc` pipeline. Both replay through the same per-invocation path, so no snippet content failure surfaces at `#preload` — force the first replay with a no-op invocation (e.g. `sandbox.eval("nil")`) when you want validation before real traffic.
+Use the source form for snippets authored in your repo; use the bytecode form when snippets ship as build artifacts from a separate `mrbc` pipeline. Source is compiled once, before the first invocation, and replays as bytecode from then on, so the bytecode form saves only that one compile. Both replay through the same per-invocation path, so no snippet content failure surfaces at `#preload` — force the first replay with a no-op invocation (e.g. `sandbox.eval("nil")`) when you want validation before real traffic.
 
 ### Extensions
 

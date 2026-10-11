@@ -14,11 +14,10 @@
 # code across one-shot scripts. The cases below isolate each new
 # verb's contribution.
 #
-#   9a — Preload registration cost (host-side trial-compile path).
-#        Steady-state cost of `Sandbox.new + N #preload(code:,
-#        name:)`. Each #preload trial-compiles the source against a
-#        fresh host mrb_state to catch a compile error early,
-#        so registration is non-trivial. The 1 / 8 / 64 waypoints
+#   9a — Preload registration cost. Steady-state cost of
+#        `Sandbox.new + N #preload(code:, name:)`. Registration only
+#        records each snippet: the guest compiles them once, before
+#        the first invocation, which no case here reaches. The 1 / 8 / 64 waypoints
 #        characterize linearity — a regression that adds per-snippet
 #        O(N) work would show as super-linear growth in the delta
 #        between waypoints, whose constant Sandbox.new term cancels.
@@ -52,8 +51,9 @@
 #
 #   9e — Per-invocation snippet replay overhead. Same #run(:Noop)
 #        dispatch, but with 0 / 8 / 64 additional helper snippets
-#        preloaded alongside `Noop`. Every snippet is replayed
-#        against the fresh mrb_state on every invocation,
+#        preloaded alongside `Noop`. Every snippet replays as the
+#        bytecode compiled before the first invocation, against the
+#        fresh mrb_state of every invocation,
 #        so the slope between waypoints characterizes per-snippet
 #        replay cost on the steady-state #run path. A regression
 #        that makes replay super-linear in snippet count would show
