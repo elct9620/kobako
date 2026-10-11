@@ -18,6 +18,7 @@ Every field is refused rather than repaired. Each of these is a wire violation:
 - A count larger than what follows it.
 - An answer tag outside its operation's arms.
 - A request tag or record kind the registry assigns to something else.
+- A body on a request whose operation carries none.
 - A record that appears once, repeated.
 - A flag that is neither of its two values.
 
@@ -572,15 +573,15 @@ These rules let every other undefined value be a refusal. The extension point is
 
 | Step | Statement |
 | --- | --- |
-| Given | a Reply, a yield's Reply, and an Outcome, each on its ok arm |
+| Given | a Reply, a yield's Reply, a compile's Reply, and an Outcome, each on its ok arm |
 | When | each is written |
-| Then | all three carry the one tag byte the registry gives ok |
+| Then | all four carry the one tag byte the registry gives ok |
 
 ## `WE-069` An Unsupported answer round-trips on every operation
 
 | Step | Statement |
 | --- | --- |
-| Given | a Reply, a yield's Reply, and an Outcome, each answering as unsupported |
+| Given | a Reply, a yield's Reply, a compile's Reply, and an Outcome, each answering as unsupported |
 | When | each is written and read back |
 | Then | each arrives as it was given |
 
@@ -596,7 +597,7 @@ These rules let every other undefined value be a refusal. The extension point is
 
 | Step | Statement |
 | --- | --- |
-| Given | an eval, a run, a yield, and a call request |
+| Given | an eval, a run, a yield, a compile, and a call request |
 | When | each is written |
 | Then | each opens with its operation's tag, followed by its body alone |
 
@@ -713,3 +714,59 @@ These rules let every other undefined value be a refusal. The extension point is
 | Given | the same records written in two orders |
 | When | each Preamble is read |
 | Then | both read as the same Preamble |
+
+## `WE-084` A compile request carrying a body is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `WE-071` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a compile request with bytes after its tag |
+| When | it is read |
+| Then | it is refused |
+
+## `WE-085` Every arm of a compile's Reply round-trips
+
+| Step | Statement |
+| --- | --- |
+| Given | a compile's Reply on each of its arms |
+| When | each is written and read back |
+| Then | each arrives as it was given |
+
+## `WE-086` Each compile arm's tag byte is fixed
+
+| Attribute | Value |
+| --- | --- |
+| relates | `WE-085` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a compile's Reply on each of its arms |
+| When | each is written |
+| Then | each carries its own tag byte followed by that arm's body alone |
+
+## `WE-087` A compile tag outside its arms is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `WE-085` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a compile's Reply tagged outside its arms, or of no length |
+| When | it is read |
+| Then | it is refused |
+
+## `WE-088` A compiled answer with bytes past its list is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `WE-085` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a compile's ok Reply with bytes after its bytecode list |
+| When | it is read |
+| Then | it is refused rather than read short |

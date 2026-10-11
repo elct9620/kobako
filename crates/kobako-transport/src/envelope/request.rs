@@ -21,6 +21,10 @@ pub enum Downcall {
     /// Re-enter the block bound to the active dispatch; the bytes are
     /// its arguments, codec-encoded.
     Yield(Vec<u8>),
+    /// Compile the Preamble's source Snippets without running them. It
+    /// carries no body: what it compiles is the Preamble an invocation
+    /// would read.
+    Compile,
     /// A tag the registry has not assigned, with the body it carried.
     Unknown { tag: UnknownTag, body: Vec<u8> },
 }
@@ -34,6 +38,8 @@ impl Downcall {
             tag::EVAL => Downcall::Eval(body.to_vec()),
             tag::RUN => Downcall::Run(Run::decode(body)?),
             tag::YIELD => Downcall::Yield(body.to_vec()),
+            tag::COMPILE if body.is_empty() => Downcall::Compile,
+            tag::COMPILE => return Err(DecodeError::new("a compile request carries no body")),
             tag => Downcall::Unknown {
                 tag: unknown(tag)?,
                 body: body.to_vec(),
@@ -47,6 +53,7 @@ impl Downcall {
             Downcall::Eval(source) => writer.u8(tag::EVAL).remainder(source),
             Downcall::Run(run) => writer.u8(tag::RUN).remainder(&run.encode()),
             Downcall::Yield(args) => writer.u8(tag::YIELD).remainder(args),
+            Downcall::Compile => writer.u8(tag::COMPILE),
             Downcall::Unknown { tag, body } => writer.u8(tag.get()).remainder(body),
         };
         writer.into_bytes()
@@ -140,12 +147,14 @@ mod tests {
                 Downcall::Eval(b"1".to_vec()).encode(),
                 Downcall::Run(run).encode(),
                 Downcall::Yield(vec![0x90]).encode(),
+                Downcall::Compile.encode(),
                 Upcall::Call(call).encode(),
             ),
             (
                 vec![0x01, b'1'],
                 vec![0x02, 0, 0, 0, 1, b'M', 0x90],
                 vec![0x03, 0x90],
+                vec![0x08],
                 vec![
                     0x04, // tag: call
                     0,    // kind: path
@@ -169,6 +178,7 @@ mod tests {
                 payload: vec![0x90],
             }),
             Downcall::Yield(vec![0x91, 0x01]),
+            Downcall::Compile,
             Downcall::Unknown {
                 tag: UnknownTag::new(0xf0).unwrap(),
                 body: vec![0xaa, 0xbb],
@@ -187,12 +197,12 @@ mod tests {
     fn an_unassigned_tag_reads_as_unknown_with_its_body() {
         assert_eq!(
             (
-                Downcall::decode(&[0x08, 0xff]),
+                Downcall::decode(&[0x09, 0xff]),
                 Upcall::decode(&[0xf0, 0x01, 0x02])
             ),
             (
                 Ok(Downcall::Unknown {
-                    tag: UnknownTag::new(0x08).unwrap(),
+                    tag: UnknownTag::new(0x09).unwrap(),
                     body: vec![0xff]
                 }),
                 Ok(Upcall::Unknown {
@@ -239,12 +249,22 @@ mod tests {
         );
     }
 
+    // @behavior WE-084
+    #[test]
+    fn a_compile_request_carrying_a_body_is_refused() {
+        assert!(
+            Downcall::decode(&[0x08, 0x90]).is_err(),
+            "a compile request with bytes after its tag through Downcall::decode must be \
+             refused, since the operation reads its input from the Preamble"
+        );
+    }
+
     // @behavior WE-076
     #[test]
     fn an_unknown_tag_cannot_be_made_from_an_assigned_one() {
         assert_eq!(
-            [0x00, 0x01, 0x04, 0x10, 0x15].map(UnknownTag::new),
-            [None; 5],
+            [0x00, 0x01, 0x04, 0x08, 0x10, 0x15].map(UnknownTag::new),
+            [None; 6],
             "an assigned tag or tag 0x00 through UnknownTag::new must be refused, so an \
              unknown request never encodes as a known operation"
         );

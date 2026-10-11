@@ -289,6 +289,35 @@ impl YieldReply {
 }
 ```
 
+## `CompileReply`
+
+How compiling the Preamble's source Snippets ended: their bytecode, why
+there is none, or that the guest does not compile.
+
+```rust
+pub enum CompileReply {}
+```
+
+## `CompileReply::decode`
+
+Read a compile's answer from its Envelope.
+
+```rust
+impl CompileReply {
+    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {}
+}
+```
+
+## `CompileReply::encode`
+
+Write a compile's answer into its Envelope.
+
+```rust
+impl CompileReply {
+    pub fn encode(&self) -> Vec<u8> {}
+}
+```
+
 ## `Fault`
 
 A Service failure as the wire carries it: its category and message.

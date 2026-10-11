@@ -54,12 +54,24 @@ impl<'a> Reader<'a> {
     }
 
     /// A `u32` count followed by that many byte strings, each carrying
-    /// UTF-8. Every list the envelope defines is a list of names, so this
-    /// is the only list shape a reader needs.
+    /// UTF-8.
     ///
     /// The elements are copied rather than borrowed: a binding's path and
     /// a panic's `available` names outlive the frame buffer they arrive in.
     pub(crate) fn text_list(&mut self) -> Result<Vec<String>, DecodeError> {
+        self.list(|reader| Ok(reader.text()?.to_owned()))
+    }
+
+    /// A `u32` count followed by that many byte strings of any content,
+    /// copied for the same reason as `text_list`.
+    pub(crate) fn bytes_list(&mut self) -> Result<Vec<Vec<u8>>, DecodeError> {
+        self.list(|reader| Ok(reader.bytes()?.to_vec()))
+    }
+
+    fn list<T>(
+        &mut self,
+        mut element: impl FnMut(&mut Self) -> Result<T, DecodeError>,
+    ) -> Result<Vec<T>, DecodeError> {
         let count = self.u32()? as usize;
         // A count larger than the bytes left cannot be satisfied; refusing
         // it here bounds the allocation below by the message size.
@@ -68,7 +80,7 @@ impl<'a> Reader<'a> {
         }
         let mut out = Vec::with_capacity(count);
         for _ in 0..count {
-            out.push(self.text()?.to_owned());
+            out.push(element(self)?);
         }
         Ok(out)
     }

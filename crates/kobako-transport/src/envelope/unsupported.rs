@@ -49,7 +49,7 @@ impl Unsupported {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Outcome, Reply, YieldReply};
+    use super::super::{CompileReply, Outcome, Reply, YieldReply};
     use super::*;
 
     // @behavior WE-069
@@ -65,11 +65,13 @@ mod tests {
             (
                 Reply::decode(&Reply::Unsupported(refusal.clone()).encode()),
                 YieldReply::decode(&YieldReply::Unsupported(refusal.clone()).encode()),
+                CompileReply::decode(&CompileReply::Unsupported(refusal.clone()).encode()),
                 Outcome::decode(&Outcome::Unsupported(refusal.clone()).encode()),
             ),
             (
                 Ok(Reply::Unsupported(refusal.clone())),
                 Ok(YieldReply::Unsupported(refusal.clone())),
+                Ok(CompileReply::Unsupported(refusal.clone())),
                 Ok(Outcome::Unsupported(refusal)),
             ),
             "an Unsupported through each answer's encode and decode must arrive as it was \

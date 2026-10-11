@@ -61,7 +61,7 @@ Every downcall and upcall message is a tag and a body. The framing rule applies 
 | `tag` | `u8` | the operation, or the arm of its answer |
 | `body` | remainder | that tag's layout, below |
 
-A request's body is a Call, a Run, or a payload. An answer's tag is its arm, so a Reply, a Yield Reply, and an Outcome are each this layer with the arms its operation allows.
+A request's body is a Call, a Run, a payload, or nothing. An answer's tag is its arm. A Reply, a Yield Reply, a Compile Reply, and an Outcome are each this layer, with the arms its operation allows.
 
 ### Tag Registry
 
@@ -77,14 +77,15 @@ All tags share one number space, so a byte means one thing in every message. The
 | `0x05` | bindings | Preamble | the bound paths |
 | `0x06` | snippets | Preamble | the preloaded Snippets |
 | `0x07` | flag | Preamble | a Flag |
+| `0x08` | compile | downcall | none |
 | `0x10` | ok | an answer to any | that operation's value |
 | `0x11` | fault | an answer to call | a Fault |
 | `0x12` | break | an answer to yield | the break value |
-| `0x13` | error | an answer to yield | an Error Record |
+| `0x13` | error | an answer to yield, compile | an Error Record |
 | `0x14` | panic | an answer to eval, run | a Panic |
 | `0x15` | unsupported | an answer to any | an Unsupported |
 
-`0x08`–`0x0F` and `0x16`–`0x7F` are kobako's, unassigned. `0x80`–`0xEF` are left for either side later, and `0xF0`–`0xFF` for third parties. A field's own `kind`, such as a Call's target form, picks a field rather than a message, so it keeps its own numbers.
+`0x09`–`0x0F` and `0x16`–`0x7F` are kobako's, unassigned. `0x80`–`0xEF` are left for either side later, and `0xF0`–`0xFF` for third parties. A field's own `kind`, such as a Call's target form, picks a field rather than a message, so it keeps its own numbers.
 
 ### Unknown Tags
 
@@ -210,6 +211,20 @@ It differs from a Fault, which travels host to guest with a category instead of 
 
 ---
 
+## Compile Reply
+
+The Compile Reply answers a `compile` downcall. The guest compiles the Preamble's source Snippets without running them, so a host can send bytecode in their place.
+
+| Tag | Arm | Body |
+|-----|-----|------|
+| `0x10` | ok | `list<bytes>`: one bytecode per source Snippet, in Preamble order |
+| `0x13` | error | an Error Record |
+| `0x15` | unsupported | an Unsupported |
+
+A bytecode entry is what a bytecode Snippet carries, so the host replays it unchanged. The host treats every arm but ok the same way: it keeps sending the source.
+
+---
+
 ## Outcome
 
 The Outcome is the per-invocation result, the answer to an `eval` or `run` downcall.
@@ -288,7 +303,7 @@ Every message, the Preamble included, is at most 16 MiB. The host enforces it in
 
 | Direction | The host checks |
 |-----------|-----------------|
-| guest → host | a Call, Outcome, or Yield Reply, before reading it |
+| guest → host | a Call, Outcome, Yield Reply, or Compile Reply, before reading it |
 | host → guest | a downcall request or a Reply, before writing it |
 | host → guest stdin | the Preamble, before sending it |
 

@@ -15,6 +15,7 @@ pub(crate) const CALL: u8 = 0x04;
 pub(crate) const BINDINGS: u8 = 0x05;
 pub(crate) const SNIPPETS: u8 = 0x06;
 pub(crate) const FLAG: u8 = 0x07;
+pub(crate) const COMPILE: u8 = 0x08;
 
 pub(crate) const OK: u8 = 0x10;
 pub(crate) const FAULT: u8 = 0x11;
@@ -37,6 +38,7 @@ pub(crate) fn is_assigned(tag: u8) -> bool {
             | BINDINGS
             | SNIPPETS
             | FLAG
+            | COMPILE
             | OK
             | FAULT
             | BREAK

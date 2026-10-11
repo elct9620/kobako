@@ -224,11 +224,12 @@ mod tests {
             [
                 Reply::Ok(body.clone()).encode()[0],
                 YieldReply::Ok(body.clone()).encode()[0],
+                super::super::CompileReply::Ok(vec![body.clone()]).encode()[0],
                 super::super::Outcome::Ok(body).encode()[0],
             ],
-            [0x10, 0x10, 0x10],
-            "a Reply, a Yield Reply and an Outcome on their ok arm must all open with \
-             tag byte 0x10"
+            [0x10, 0x10, 0x10, 0x10],
+            "a Reply, a Yield Reply, a Compile Reply and an Outcome on their ok arm must all \
+             open with tag byte 0x10"
         );
     }
 

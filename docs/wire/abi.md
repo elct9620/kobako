@@ -28,7 +28,7 @@ Each direction has one symbol, named for the way it crosses. An operation is a t
 
 | Symbol | Caller | Carries |
 |---|---|---|
-| `__kobako_downcall` | host | eval, run, yield |
+| `__kobako_downcall` | host | eval, run, yield, compile |
 | `__kobako_upcall` | guest | call |
 
 1. The caller writes a message at `[ptr, ptr + len)` in guest memory.
@@ -70,10 +70,13 @@ The reader copies the answer during the call frame and keeps no reference to it.
 
 An invocation reads its Preamble from WASI stdin and its entry message from the downcall.
 
-| Entry | WASI stdin | Downcall |
+| Operation | WASI stdin | Downcall |
 |---|---|---|
 | eval | the Preamble | `eval` with the user source |
 | run | the Preamble | `run` with the Run envelope |
+| compile | the Preamble | `compile`, with no body |
+
+A compile reads the same Preamble an invocation would, so its bytecode matches what that invocation replays, and runs none of it.
 
 The Preamble arrives as a `u32` big-endian length followed by that many bytes. It is always sent, even with no records, so no entry meets an end-of-input ambiguity. What it holds is in [`envelope.md`](envelope.md) § Preamble.
 

@@ -125,7 +125,7 @@ A message asking the receiver to run the operation its tag names. A request unde
 
 ### Downcall
 
-A request from the host to the guest. It starts an Invocation or a Yield.
+A request from the host to the guest. It starts an Invocation or a Yield, or asks the guest to compile its Snippets.
 
 ### Upcall
 

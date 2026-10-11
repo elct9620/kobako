@@ -27,6 +27,7 @@
 
 pub(crate) mod bytes;
 pub mod call;
+pub mod compile_reply;
 pub mod error_record;
 pub mod fault;
 pub mod outcome;
@@ -38,6 +39,7 @@ pub(crate) mod tag;
 pub mod unsupported;
 
 pub use call::{Call, Target};
+pub use compile_reply::CompileReply;
 pub use error_record::ErrorRecord;
 pub use fault::{Fault, FaultKind};
 pub use outcome::{Origin, Outcome, Panic};
