@@ -11,12 +11,12 @@ use std::sync::{Arc, Mutex};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::runtime::{Entry, Runtime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
-use kobako_transport::envelope::{Frames, Outcome};
+use kobako_transport::envelope::{Outcome, Preamble};
 
 use kobako::{Error, Options, Profile, RunPayload, Sandbox};
 
 /// A runtime that runs no wasm: it answers every invocation with one
-/// canned outcome and records the frames it was driven with.
+/// canned outcome and records the bound paths it was driven with.
 struct Canned {
     payload: Vec<u8>,
     profile: Profile,
@@ -37,13 +37,13 @@ impl Runtime for Canned {
     fn invoke(
         &self,
         _entry: Entry<'_>,
-        frames: &Frames,
+        preamble: &Preamble,
         _handler: Option<Arc<dyn DispatchHandler>>,
     ) -> Result<Snapshot, kobako_runtime::error::InvokeError> {
         self.bound
             .lock()
             .unwrap()
-            .push(frames.bindings.paths.clone());
+            .push(preamble.bindings.paths.clone());
         Ok(Snapshot {
             completion: Completion::Outcome(Outcome::Ok(self.payload.clone())),
             stdout: Capture::default(),

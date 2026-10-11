@@ -30,11 +30,12 @@ built-in proxy does.
 |---|---|---|
 | `Codec` | required type | the payload codec the flows speak |
 | `init_gems` | required hook | names the shell-chosen `beni::Gem` set |
+| `apply_flag` | provided hook | applies a flag the shell recognises; recognises none by default |
 | `eval` / `run` / `yield_to_block` | provided flows | one invocation each |
 | `bake_boot` | build-time hook | behind the wizer pre-initialization entry |
 
 Each provided flow acquires the canonical boot state per invocation and
-installs the Frames it is handed. It then converts through the codec and
+sets up from the Preamble it is handed. It then converts through the codec and
 re-enters for a block yield.
 
 ## Usage
@@ -55,7 +56,7 @@ beni = "0.22"
 
 ```rust
 use beni::{Error, Mrb};
-use kobako_core::{Frames, Outcome, Run, YieldReply};
+use kobako_core::{Outcome, Preamble, Run, YieldReply};
 
 struct MyGuest;
 
@@ -73,12 +74,12 @@ impl kobako_mruby::MrbGuest for MyGuest {
 }
 
 impl kobako_core::Guest for MyGuest {
-    fn eval(frames: Frames, source: Vec<u8>) -> Outcome {
-        <MyGuest as kobako_mruby::MrbGuest>::eval(frames, source)
+    fn eval(preamble: Preamble, source: Vec<u8>) -> Outcome {
+        <MyGuest as kobako_mruby::MrbGuest>::eval(preamble, source)
     }
 
-    fn run(frames: Frames, run: Run) -> Outcome {
-        <MyGuest as kobako_mruby::MrbGuest>::run(frames, run)
+    fn run(preamble: Preamble, run: Run) -> Outcome {
+        <MyGuest as kobako_mruby::MrbGuest>::run(preamble, run)
     }
 
     fn yield_to_block(req: &[u8]) -> YieldReply {

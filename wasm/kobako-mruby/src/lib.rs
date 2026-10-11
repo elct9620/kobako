@@ -2,10 +2,11 @@
 //! Guest ABI.
 //!
 //! `MrbGuest` is the harness: a required `Codec` and one required
-//! `init_gems` hook naming the shell-chosen `beni::Gem` set, plus provided `eval` / `run` /
+//! `init_gems` hook naming the shell-chosen `beni::Gem` set, an
+//! `apply_flag` hook for the flags the shell recognises, plus provided `eval` / `run` /
 //! `yield_to_block` flows implementing the `kobako_core::Guest`
 //! contract over mruby (canonical-boot-state acquisition per
-//! invocation, preamble and snippet replay, codec
+//! invocation, flag, binding, and snippet replay, codec
 //! conversion, block-yield re-entry) and the build-time `bake_boot`
 //! hook the wizer pre-initialization entry calls. The crate ships
 //! exactly one built-in gem — the wire-tied `KobakoBridge` (Service
@@ -34,7 +35,7 @@ pub use msgpack::MsgpackCodec;
 pub use runtime::{InstallError, IntegerOutOfRange, Kobako};
 
 use beni::{Error, Mrb};
-use kobako_transport::envelope::{Frames, Outcome, Run, YieldReply};
+use kobako_transport::envelope::{Flag, Outcome, Preamble, Run, YieldReply};
 
 /// The assembled mruby guest as a template: implement `init_gems`
 /// and inherit the provided flows.
@@ -56,22 +57,32 @@ pub trait MrbGuest {
     /// reaches the host as a `Kobako::BootError` Panic.
     fn init_gems(mrb: &Mrb) -> Result<(), Error>;
 
+    /// Apply one of the host's flags to this invocation's VM, before any
+    /// binding or snippet. `Ok(false)` says the shell does not recognise
+    /// it, which the flows skip when it is advisory and refuse as a
+    /// `Kobako::UnsupportedFlagError` Panic when it is critical; an `Err`
+    /// reaches the host as a `Kobako::BootError` Panic. The default
+    /// recognises no flag.
+    fn apply_flag(_mrb: &Mrb, _flag: &Flag) -> Result<bool, Error> {
+        Ok(false)
+    }
+
     /// The `eval` operation — runs one-shot user source and answers with
     /// its Outcome.
-    fn eval(frames: Frames, source: Vec<u8>) -> Outcome
+    fn eval(preamble: Preamble, source: Vec<u8>) -> Outcome
     where
         Self: Sized,
     {
-        flows::eval::<Self>(frames, source)
+        flows::eval::<Self>(preamble, source)
     }
 
     /// The `run` operation — calls the entrypoint the host's Run names
     /// and answers with its Outcome.
-    fn run(frames: Frames, run: Run) -> Outcome
+    fn run(preamble: Preamble, run: Run) -> Outcome
     where
         Self: Sized,
     {
-        flows::run::<Self>(frames, run)
+        flows::run::<Self>(preamble, run)
     }
 
     /// The `yield` operation — host-initiated re-entry into the guest

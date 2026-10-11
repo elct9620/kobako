@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kobako_runtime::{Completion, DispatchHandler, Entry, Profile, Runtime, Yielder};
-use kobako_transport::envelope::{Bindings, Call, Frames, Outcome, Reply, Snippets, Unsupported};
+use kobako_transport::envelope::{Bindings, Call, Outcome, Preamble, Reply, Unsupported};
 use kobako_wasmtime::{Config, Driver};
 
 const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
@@ -42,20 +42,16 @@ fn a_call_the_host_does_not_serve_raises_unsupported_error_in_the_guest() {
         },
     )
     .expect("the Guest Binary must load");
-    let frames = Frames {
-        bindings: Bindings {
-            paths: vec!["Svc".into()],
-        },
-        snippets: Snippets {
-            entries: Vec::new(),
-        },
+    let mut preamble = Preamble::default();
+    preamble.bindings = Bindings {
+        paths: vec!["Svc".into()],
     };
     let source = b"begin; Svc.go; rescue Kobako::UnsupportedError => e; e.message; end";
 
     let snapshot = driver
         .invoke(
             Entry::Eval { source },
-            &frames,
+            &preamble,
             Some(Arc::new(ServesNoCall)),
         )
         .expect("the invocation must start");

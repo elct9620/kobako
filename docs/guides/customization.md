@@ -43,6 +43,7 @@ Each row is one seam a third party can fill, with the endpoint it sits on.
 | Payload codec | `MrbGuest::Codec: PayloadCodec` | guest | replaceable · methods append-only |
 | Payload codec | the byte-level payload surface, `msgpack` feature off | Rust host SDK | stable |
 | Capability set | `MrbGuest::init_gems` | guest | replaceable |
+| Flags | `MrbGuest::apply_flag` | guest | replaceable |
 | Invocation flow | a `Guest` method implemented rather than forwarded | guest | replaceable · methods append-only |
 | The whole guest | `impl kobako_core::Guest` + `export_guest!` | guest | replaceable · methods append-only |
 | Wasm engine | `impl Runtime`, handed to `Sandbox::with_runtime` | Rust host SDK | replaceable |
@@ -57,6 +58,7 @@ The types those seams carry, by grade:
 | **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension}` · `kobako::msgpack::ValueReceiver` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |
 | **append-only, read by an older peer as `Unknown`** | `kobako_transport::envelope::{Downcall, Upcall}` |
+| **append-only, a record an older peer skips or refuses as its sender marked** | `kobako_transport::envelope::Preamble`, re-exported from `kobako_core` |
 | **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · every other `kobako_transport::envelope::*`, five re-exported from `kobako_core` |
 
 Two things stay fixed. The **core envelope** and the **ABI surface** are the same for

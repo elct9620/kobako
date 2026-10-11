@@ -1,6 +1,6 @@
 //! Per-invocation I/O between the host and the guest: it writes the
-//! entry's downcall into a freshly allocated guest buffer, builds the
-//! stdin frame stream plus stdout / stderr capture pipes for the WASI
+//! entry's downcall into a freshly allocated guest buffer, puts the
+//! Preamble on stdin beside stdout / stderr capture pipes for the WASI
 //! context, and reads the Outcome the downcall answered with.
 
 use wasmtime::Store as WtStore;
@@ -43,26 +43,20 @@ pub(crate) fn write_request(
 }
 
 /// An uncapped output channel relies on `memory_limit` for its real
-/// ceiling. The 16 MiB frame cap keeps each `u32` length prefix from
+/// ceiling. The 16 MiB cap keeps the Preamble's `u32` length prefix from
 /// wrapping.
-pub(crate) fn install_wasi_frames(
+pub(crate) fn install_wasi(
     store: &mut WtStore<Invocation>,
     config: &Config,
-    frames: &[&[u8]],
+    preamble: &[u8],
 ) -> Result<(), Trap> {
-    // Every frame carries the same 16 MiB cap as a downcall request
-    // (`write_request`): the length prefix is a `u32`, so a frame past
-    // the cap would silently wrap and corrupt the stdin frame stream.
-    for &frame in frames {
-        guest_mem::checked_payload_len(frame.len()).map_err(|msg| Trap::Other(msg.to_string()))?;
-    }
+    // The Preamble carries the same 16 MiB cap as a downcall request
+    // (`write_request`): past it, the length prefix would silently wrap.
+    guest_mem::checked_payload_len(preamble.len()).map_err(|msg| Trap::Other(msg.to_string()))?;
 
-    let total: usize = frames.iter().map(|&f| FRAME_LEN_SIZE + f.len()).sum();
-    let mut stdin_content: Vec<u8> = Vec::with_capacity(total);
-    for &frame in frames {
-        stdin_content.extend_from_slice(&(frame.len() as u32).to_be_bytes());
-        stdin_content.extend_from_slice(frame);
-    }
+    let mut stdin_content: Vec<u8> = Vec::with_capacity(FRAME_LEN_SIZE + preamble.len());
+    stdin_content.extend_from_slice(&(preamble.len() as u32).to_be_bytes());
+    stdin_content.extend_from_slice(preamble);
 
     let stdin_pipe = MemoryInputPipe::new(stdin_content);
     let stdout_pipe = MemoryOutputPipe::new(capture::pipe_capacity(config.stdout_limit));
@@ -135,7 +129,7 @@ fn read_answer(
 
 #[cfg(test)]
 mod tests {
-    //! Witness what the context `install_wasi_frames` builds grants at
+    //! Witness what the context `install_wasi` builds grants at
     //! each profile rung: `wasi:clocks` / `wasi:random` frozen under
     //! `Hermetic` and live under `Permissive`, and no filesystem,
     //! environment, or socket under either.
@@ -195,7 +189,7 @@ mod tests {
         };
         let mut store = WtStore::new(engine, Invocation::new(None));
         store.set_epoch_deadline(crate::trap::NO_TIMEOUT_EPOCH_DELTA);
-        install_wasi_frames(&mut store, &config, &[]).expect("WASI context must install");
+        install_wasi(&mut store, &config, &[]).expect("WASI context must install");
 
         let mut linker: Linker<Invocation> = Linker::new(engine);
         p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| state.wasi_mut())

@@ -68,14 +68,14 @@ The reader copies the answer during the call frame and keeps no reference to it.
 
 ## Invocation inputs
 
-An invocation reads its Frames from WASI stdin and its entry message from the downcall.
+An invocation reads its Preamble from WASI stdin and its entry message from the downcall.
 
-| Entry | WASI stdin frames | Downcall |
+| Entry | WASI stdin | Downcall |
 |---|---|---|
-| eval | Frame 1 · Frame 3 | `eval` with the user source |
-| run | Frame 1 · Frame 3 | `run` with the Run envelope |
+| eval | the Preamble | `eval` with the user source |
+| run | the Preamble | `run` with the Run envelope |
 
-A stdin frame is a `u32` big-endian length followed by that many bytes. Both frames are always sent, even empty, so no entry meets an end-of-input ambiguity. What each frame holds is in [`envelope.md`](envelope.md) § Invocation Frames.
+The Preamble arrives as a `u32` big-endian length followed by that many bytes. It is always sent, even with no records, so no entry meets an end-of-input ambiguity. What it holds is in [`envelope.md`](envelope.md) § Preamble.
 
 ---
 
@@ -85,7 +85,7 @@ The ABI version is one u32 defined in `kobako-transport`, independent of every p
 
 | Inside the version | Outside the version |
 |--------------------|---------------------|
-| the symbol set, names, signatures | a new request tag in the registry |
+| the symbol set, names, signatures | a new request tag or Preamble record kind in the registry |
 | the packed return convention | an additive contract change |
 | the message framing, a redefined byte value, a new answer arm | a payload codec swap |
 
@@ -113,5 +113,6 @@ Version `4` carries the operation in the message, so an added operation is a reg
 | one tag space for every message | an answer's tag never collides across operations |
 | every answer is a return value | no outcome buffer to drain after a call |
 | field placement follows whose data it is | a Fault rides the envelope, readable without a codec |
+| setup is a counted list of records, each marked critical or advisory | a new kind of setup joins without a version |
 | a fresh instance per invocation entry | the guest may exit with dirty interpreter state |
 | boot state may live in data segments | the guest may arrive pre-initialized |

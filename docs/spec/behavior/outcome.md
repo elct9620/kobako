@@ -39,7 +39,7 @@ One block here is deliberately written in one frontend's own names. The ancestry
 - `crates/kobako/src/msgpack/execution.rs`
 - `wasm/kobako-mruby/src/flows/panic.rs`
 - `wasm/kobako-core/src/abi/downcall.rs`
-- `wasm/kobako-core/src/frames.rs`
+- `wasm/kobako-core/src/preamble.rs`
 
 ## `OC-001` A guest that answered nothing costs the Sandbox
 

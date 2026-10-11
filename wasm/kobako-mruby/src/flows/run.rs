@@ -1,14 +1,15 @@
 //! The `run` downcall — entrypoint dispatch entry.
 //!
-//! `export_guest!` has already read the Frames and the host-supplied
+//! `export_guest!` has already read the Preamble and the host-supplied
 //! Run envelope, so this flow starts from their fields. The entrypoint
 //! is already resident as a top-level constant a preloaded snippet
 //! contributed.
 //!
 //! Body sequence:
 //!
-//! 1. Init mrb; install kobako runtime + the bound paths' proxy
-//!    classes; replay snippets. Any failure answers a Panic Outcome
+//! 1. Init mrb; install kobako runtime; apply the flags; install the
+//!    bound paths' proxy classes; replay snippets. Any failure answers a
+//!    Panic Outcome
 //!    with the snippet's backtrace attribution.
 //! 2. Decode the Run's payload through the codec. A failure answers a
 //!    Panic Outcome.
@@ -26,18 +27,18 @@
 //!    value as an ok Outcome or convert the raised exception into a
 //!    Panic Outcome.
 
-use kobako_transport::envelope::{Frames, Outcome, Panic, Run};
+use kobako_transport::envelope::{Outcome, Panic, Preamble, Run};
 
-pub(crate) fn run<G: crate::MrbGuest>(frames: Frames, run: Run) -> Outcome {
-    call_entrypoint::<G>(&frames, run).unwrap_or_else(Outcome::Panic)
+pub(crate) fn run<G: crate::MrbGuest>(preamble: Preamble, run: Run) -> Outcome {
+    call_entrypoint::<G>(&preamble, run).unwrap_or_else(Outcome::Panic)
 }
 
-fn call_entrypoint<G: crate::MrbGuest>(frames: &Frames, run: Run) -> Result<Outcome, Panic> {
+fn call_entrypoint<G: crate::MrbGuest>(preamble: &Preamble, run: Run) -> Result<Outcome, Panic> {
     use super::{boot, panic};
     use crate::codec::PayloadCodec;
     use beni::{Module, ReprValue};
 
-    let kobako = boot::enter::<G>(frames)?;
+    let kobako = boot::enter::<G>(preamble)?;
     let mrb = kobako.mrb();
 
     // A payload the codec cannot read rejects here, before entrypoint
@@ -63,7 +64,7 @@ fn call_entrypoint<G: crate::MrbGuest>(frames: &Frames, run: Run) -> Result<Outc
         .check_id(run.entrypoint.as_bytes())
         .filter(|&sym| object_class.const_defined(mrb, sym));
     let Some(target_sym) = defined else {
-        let available = super::boot_constants::snippet_constants(&kobako, &frames.bindings.paths);
+        let available = super::boot_constants::snippet_constants(&kobako, &preamble.bindings.paths);
         return Err(Panic {
             available,
             ..panic::sandbox_panic(

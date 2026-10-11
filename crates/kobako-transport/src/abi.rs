@@ -12,8 +12,8 @@
 /// neither, but a new answer arm is an increment.
 pub const ABI_VERSION: u32 = 4;
 
-/// Width in bytes of the length prefix that precedes each frame on WASI
-/// stdin.
+/// Width in bytes of the length prefix that frames a message on WASI
+/// stdin, such as the Preamble.
 pub const FRAME_LEN_SIZE: usize = 4;
 
 /// Single-dispatch size cap: 16 MiB in either direction, applied to the

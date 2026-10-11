@@ -1,6 +1,6 @@
 //! Denial of guest ambient authority at the WASI layer — the one grant
 //! that separates the hermetic rung from permissive;
-//! `frames::install_wasi_frames` wires these sources on `Hermetic` only.
+//! `io::install_wasi` wires these sources on `Hermetic` only.
 //!
 //! `wasmtime-wasi`'s `WasiCtxBuilder` defaults the guest's `wasi:clocks` to
 //! the host wall / monotonic clock and `wasi:random` to a fresh per-context

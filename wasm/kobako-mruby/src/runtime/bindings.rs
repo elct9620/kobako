@@ -1,11 +1,11 @@
-//! Installing the Frame 1 bind paths: one proxy class per path, nested
+//! Installing the Preamble's bind paths: one proxy class per path, nested
 //! under a module per prefix segment.
 
 use beni::Mrb;
 
 use super::Kobako;
 
-/// Failures returned by `Kobako::install_bindings` when a preamble entry
+/// Failures returned by `Kobako::install_bindings` when a bind path
 /// cannot be registered — a path segment that cannot pass through the
 /// mruby C API (which expects NUL-terminated strings), or a registration
 /// mruby itself rejected.

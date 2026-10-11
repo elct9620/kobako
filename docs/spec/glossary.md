@@ -175,9 +175,13 @@ The constant a Snippet defines for a Run to call.
 
 An Invocation that names an entrypoint already loaded in the guest, instead of supplying source to execute.
 
-### Frame
+### Preamble
 
-Setup data handed to the guest before an Invocation begins. The guest starts knowing what this run was configured with.
+What the guest reads before an Invocation's entry runs: the Catalog's bindings and preloads, and the Flags. The guest starts knowing what this run was configured with.
+
+### Flag
+
+A named switch the host sets for an Invocation's interpreter. A Guest Binary that does not recognise it skips it, unless the host marked it critical.
 
 ### Catalog
 

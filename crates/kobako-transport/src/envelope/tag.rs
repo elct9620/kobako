@@ -1,8 +1,9 @@
-//! The tag registry: the first byte of every downcall and upcall message.
+//! The tag registry: the first byte of every downcall and upcall message,
+//! and the kind of every Preamble record.
 //!
-//! One number space covers requests and answers alike, so a byte means
-//! one thing in every message and an answer's arm never collides across
-//! operations. The registry grows append-only; a receiver answers a
+//! One number space covers requests, answers, and records alike, so a byte
+//! means one thing in every message and an answer's arm never collides
+//! across operations. The registry grows append-only; a receiver answers a
 //! request tag it does not serve as unsupported.
 
 /// Never assigned, so a zeroed message cannot pass for one that was written.
@@ -11,6 +12,9 @@ pub(crate) const EVAL: u8 = 0x01;
 pub(crate) const RUN: u8 = 0x02;
 pub(crate) const YIELD: u8 = 0x03;
 pub(crate) const CALL: u8 = 0x04;
+pub(crate) const BINDINGS: u8 = 0x05;
+pub(crate) const SNIPPETS: u8 = 0x06;
+pub(crate) const FLAG: u8 = 0x07;
 
 pub(crate) const OK: u8 = 0x10;
 pub(crate) const FAULT: u8 = 0x11;
@@ -25,6 +29,19 @@ pub(crate) const UNSUPPORTED: u8 = 0x15;
 pub(crate) fn is_assigned(tag: u8) -> bool {
     matches!(
         tag,
-        INVALID | EVAL | RUN | YIELD | CALL | OK | FAULT | BREAK | ERROR | PANIC | UNSUPPORTED
+        INVALID
+            | EVAL
+            | RUN
+            | YIELD
+            | CALL
+            | BINDINGS
+            | SNIPPETS
+            | FLAG
+            | OK
+            | FAULT
+            | BREAK
+            | ERROR
+            | PANIC
+            | UNSUPPORTED
     )
 }

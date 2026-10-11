@@ -17,7 +17,8 @@ Every field is refused rather than repaired. Each of these is a wire violation:
 - A length that overruns the message.
 - A count larger than what follows it.
 - An answer tag outside its operation's arms.
-- A request tag the registry assigns to something else.
+- A request tag or record kind the registry assigns to something else.
+- A record that appears once, repeated.
 - A flag that is neither of its two values.
 
 A reader that repaired one would leave the two peers disagreeing about what was sent. The refusals are declared beside the round-trips. A shape that only round-trips says nothing about what a reader does with bytes this writer would never emit.
@@ -26,6 +27,8 @@ A reader that repaired one would leave the two peers disagreeing about what was 
 
 Forward-compatibility rules are declared as behavior rather than left to a version bump. A Fault or Unsupported kind this reader predates still delivers its message. A field this reader predates is skipped. A request tag the registry has not assigned is read as unknown, so it can be served or answered.
 
+A Preamble record of a kind this reader predates is skipped when advisory and refused when critical. The sender marks which, since only it knows whether the record may lapse.
+
 These rules let every other undefined value be a refusal. The extension point is named, so everything outside it can be closed.
 
 ## Includes
@@ -33,7 +36,7 @@ These rules let every other undefined value be a refusal. The extension point is
 - `crates/kobako-transport/src/abi.rs`
 - `crates/kobako-transport/src/envelope/*.rs`
 - `crates/kobako-wasmtime/src/guest_mem.rs`
-- `wasm/kobako-core/src/frames.rs`
+- `wasm/kobako-core/src/preamble.rs`
 - `crates/kobako/src/snippet.rs`
 - `crates/kobako/src/catalog.rs`
 
@@ -421,20 +424,20 @@ These rules let every other undefined value be a refusal. The extension point is
 | When | it is written |
 | Then | the name stands before the message, and the message before the backtrace |
 
-## `WE-050` A Sandbox with no bindings still sends the Frame
+## `WE-050` A Preamble with nothing set up counts no records
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox that has bound nothing |
-| When | its bindings Frame is written and read back |
-| Then | the Frame is present and empty |
+| Given | a Sandbox that has bound, preloaded, and flagged nothing |
+| When | its Preamble is written and read back |
+| Then | it counts no records and reads back empty |
 
 ## `WE-051` Every binding path round-trips
 
 | Step | Statement |
 | --- | --- |
 | Given | a binding at each shape of path a Sandbox accepts |
-| When | the Frame is written and read back |
+| When | the Preamble is written and read back |
 | Then | each path arrives as it was given |
 
 ## `WE-052` Both preload kinds round-trip in order
@@ -442,54 +445,54 @@ These rules let every other undefined value be a refusal. The extension point is
 | Step | Statement |
 | --- | --- |
 | Given | preloads of both kinds |
-| When | the Frame is written and read back |
+| When | the Preamble is written and read back |
 | Then | they arrive in the order they were given |
 
-## `WE-053` A Sandbox with no preloads still sends the Frame
+## `WE-053` A record the Preamble leaves out reads as empty
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox that has preloaded nothing |
-| When | its preload Frame is written and read back |
-| Then | the Frame is present and counts nothing |
+| Given | a Preamble carrying neither bindings nor preloads |
+| When | it is read |
+| Then | both read as empty |
 
-## `WE-054` The bindings Frame is a counted list
+## `WE-054` The Preamble is a counted list of records
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox carrying bindings |
-| When | the Frame is written |
-| Then | a count stands before the paths it counts |
+| Given | a Preamble carrying bindings and a flag |
+| When | it is written |
+| Then | a count stands first, then each record's criticality, kind, and length-prefixed body |
 
 ## `WE-055` A preload entry's shape is fixed
 
 | Step | Statement |
 | --- | --- |
 | Given | a preload |
-| When | the Frame is written |
+| When | the Preamble is written |
 | Then | the entry's fields stand in the order both peers read them in |
 
 ## `WE-056` A preload kind that is neither is refused
 
 | Step | Statement |
 | --- | --- |
-| Given | a preload whose kind is neither of the two the Frame serves |
-| When | the Frame is read |
+| Given | a preload whose kind is neither of the two the Preamble serves |
+| When | the Preamble is read |
 | Then | it is refused |
 
-## `WE-057` A preload count the Frame cannot satisfy is refused
+## `WE-057` A count the Preamble cannot satisfy is refused
 
 | Step | Statement |
 | --- | --- |
-| Given | a Frame counting more preloads than it carries |
+| Given | a Preamble counting more records or preloads than it carries |
 | When | it is read |
 | Then | it is refused before anything is allocated for it |
 
-## `WE-058` Bytes past a Frame's last field are refused
+## `WE-058` Bytes past a Preamble's last field are refused
 
 | Step | Statement |
 | --- | --- |
-| Given | a Frame carrying bytes past its last field |
+| Given | a Preamble carrying bytes past its last record, or past a record body's last field |
 | When | it is read |
 | Then | it is refused as a framing desync |
 
@@ -645,3 +648,68 @@ These rules let every other undefined value be a refusal. The extension point is
 | Given | an assigned tag or tag `0x00` |
 | When | an unknown request tag is made from it |
 | Then | it is refused |
+
+## `WE-077` An advisory record of an unknown kind is skipped
+
+| Step | Statement |
+| --- | --- |
+| Given | an advisory record whose kind the registry has not assigned, among known records |
+| When | the Preamble is read |
+| Then | the record is skipped and the others arrive intact |
+
+## `WE-078` A critical record of an unknown kind is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `WE-077` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a critical record whose kind the registry has not assigned |
+| When | the Preamble is read |
+| Then | it is refused |
+
+## `WE-079` A record of a kind assigned elsewhere is refused
+
+| Attribute | Value |
+| --- | --- |
+| refines | `WE-077` |
+| relates | `WE-075` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an advisory record whose kind the registry assigns to a request, an answer, or nothing |
+| When | the Preamble is read |
+| Then | it is refused rather than skipped |
+
+## `WE-080` A record that appears once is refused when repeated
+
+| Step | Statement |
+| --- | --- |
+| Given | a Preamble carrying two binding records, or two preload records |
+| When | it is read |
+| Then | it is refused |
+
+## `WE-081` Flags round-trip with their criticality in order
+
+| Step | Statement |
+| --- | --- |
+| Given | a critical flag and an advisory flag carrying a value |
+| When | the Preamble is written and read back |
+| Then | each arrives in order, with its value and criticality |
+
+## `WE-082` A criticality that is neither value is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a record whose criticality is neither advisory nor critical |
+| When | the Preamble is read |
+| Then | it is refused |
+
+## `WE-083` Records read the same in any order
+
+| Step | Statement |
+| --- | --- |
+| Given | the same records written in two orders |
+| When | each Preamble is read |
+| Then | both read as the same Preamble |

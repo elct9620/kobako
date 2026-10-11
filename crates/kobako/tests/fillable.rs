@@ -1,6 +1,6 @@
 //! Integration coverage for a fillable Service path: declared
 //! with `bind_fillable`, or as an Extension backend with `Provider::Fillable`,
-//! and left unfilled, it enters Frame 1 so the guest sees the constant, but a
+//! and left unfilled, it enters the Preamble so the guest sees the constant, but a
 //! dispatch to it fails closed as a Service failure — the same fail-closed
 //! channel as an idiom with no backend. A `ctx.bind` override fills it for one
 //! invocation.

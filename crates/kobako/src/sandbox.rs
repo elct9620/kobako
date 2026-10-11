@@ -17,7 +17,7 @@ use std::time::Duration;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime};
 use kobako_runtime::snapshot::{Completion, Snapshot};
-use kobako_transport::envelope::Frames;
+use kobako_transport::envelope::Preamble;
 #[cfg(feature = "wasmtime")]
 use kobako_wasmtime::{Config, Driver};
 
@@ -282,16 +282,15 @@ impl Sandbox {
         mut resolved: Resolved,
     ) -> Result<Execution, Error> {
         resolved.extend(self.extensions.resolve());
-        let frames = Frames {
-            bindings: catalog.bound_paths(),
-            snippets: catalog.snippets.frame().clone(),
-        };
+        let mut preamble = Preamble::default();
+        preamble.bindings = catalog.bound_paths();
+        preamble.snippets = catalog.snippets.preloaded().clone();
         let verb = match entry {
             Entry::Eval { .. } => "eval",
             Entry::Run { .. } => "run",
         };
         let handler = Arc::new(CatalogHandler::new(catalog, handles.clone(), resolved));
-        let snapshot = self.runtime.invoke(entry, &frames, Some(handler))?;
+        let snapshot = self.runtime.invoke(entry, &preamble, Some(handler))?;
         Ok(build_execution(snapshot, handles, verb))
     }
 

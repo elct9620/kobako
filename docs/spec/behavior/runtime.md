@@ -45,7 +45,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `test/fuzz/test_dispatch_scheduling_fuzz.rb`
 - `test/parity/test_hermetic.rb`
 - `crates/kobako-wasmtime/src/ambient.rs`
-- `crates/kobako-wasmtime/src/frames.rs`
+- `crates/kobako-wasmtime/src/io.rs`
 - `crates/kobako-wasmtime/src/exports.rs`
 - `crates/kobako/tests/concurrency.rs`
 - `crates/kobako/tests/runtime_injection.rs`

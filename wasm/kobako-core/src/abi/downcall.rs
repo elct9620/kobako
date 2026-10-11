@@ -2,10 +2,10 @@
 //! the `Guest` entry, and whatever it answers is framed here.
 
 use kobako_transport::envelope::{
-    Downcall, ErrorRecord, Frames, Origin, Outcome, Panic, Unsupported,
+    Downcall, ErrorRecord, Origin, Outcome, Panic, Preamble, Unsupported,
 };
 
-use crate::{frames, Guest};
+use crate::{preamble, Guest};
 
 /// Answer one downcall request as the encoded message the host reads.
 ///
@@ -15,8 +15,8 @@ use crate::{frames, Guest};
 /// invocation, in wording apart from every refusal of its arguments.
 pub fn serve<G: Guest>(request: &[u8]) -> Vec<u8> {
     match Downcall::decode(request) {
-        Ok(Downcall::Eval(source)) => invoke(|frames| G::eval(frames, source)),
-        Ok(Downcall::Run(run)) => invoke(|frames| G::run(frames, run)),
+        Ok(Downcall::Eval(source)) => invoke(|preamble| G::eval(preamble, source)),
+        Ok(Downcall::Run(run)) => invoke(|preamble| G::run(preamble, run)),
         Ok(Downcall::Yield(args)) => G::yield_to_block(&args).encode(),
         Ok(_) => {
             Unsupported::new(format!("this guest does not serve tag {:#04x}", request[0])).encode()
@@ -34,10 +34,10 @@ pub fn serve<G: Guest>(request: &[u8]) -> Vec<u8> {
     }
 }
 
-/// An invocation starts from its Frames; one that cannot be read answers
-/// as the boot failure it is.
-fn invoke(entry: impl FnOnce(Frames) -> Outcome) -> Vec<u8> {
-    frames::read_frames()
+/// An invocation starts from its Preamble; one that cannot be read
+/// answers as the boot failure it is.
+fn invoke(entry: impl FnOnce(Preamble) -> Outcome) -> Vec<u8> {
+    preamble::read_preamble()
         .map(entry)
         .unwrap_or_else(|refused| refused)
         .encode()
@@ -46,17 +46,17 @@ fn invoke(entry: impl FnOnce(Frames) -> Outcome) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kobako_transport::envelope::{Frames, Run, YieldReply};
+    use kobako_transport::envelope::{Run, YieldReply};
 
     /// A guest that opts out of block support by leaving the
     /// `yield_to_block` default in place.
     struct NoBlockGuest;
 
     impl Guest for NoBlockGuest {
-        fn eval(_frames: Frames, _source: Vec<u8>) -> Outcome {
+        fn eval(_preamble: Preamble, _source: Vec<u8>) -> Outcome {
             Outcome::Ok(Vec::new())
         }
-        fn run(_frames: Frames, _run: Run) -> Outcome {
+        fn run(_preamble: Preamble, _run: Run) -> Outcome {
             Outcome::Ok(Vec::new())
         }
     }
@@ -76,7 +76,7 @@ mod tests {
     // @behavior T-277
     #[test]
     fn a_tag_the_guest_does_not_serve_is_answered_as_unsupported() {
-        let answer = serve::<NoBlockGuest>(&[0x05]);
+        let answer = serve::<NoBlockGuest>(&[0x08]);
 
         assert_eq!(
             answer[0], 0x15,

@@ -10,6 +10,19 @@ A capability gem servicing one guest operation calls back into guest code. The r
 
 The boot state may be computed at build time, and per-invocation resources may be provisioned ahead of demand. Both are stated to be unobservable, so neither is a scenario. The reproducible-build check holds the baking end. Leak-freedom between invocations is per-invocation isolation and belongs with the Sandbox behaviors, whose witnesses cite it alongside this one.
 
+### Flag scenarios
+
+The default Guest Binary recognises no flag, so only the unrecognised paths are scenarios. A critical flag refuses, because a restriction must never lapse silently.
+
+```
+recognised  critical  answer
+no          yes       refused
+no          no        skipped
+yes         either    applied, before any snippet replays
+```
+
+The last row waits for a flag that can witness it.
+
 ## Includes
 
 - `test/e2e/test_canonical_boot.rb`
@@ -18,6 +31,7 @@ The boot state may be computed at build time, and per-invocation resources may b
 - `test/e2e/regexp/test_raising_lookup.rb`
 - `test/e2e/json/test_raising_hook.rb`
 - `wasm/kobako-mruby/src/runtime.rs`
+- `crates/kobako-wasmtime/tests/preamble_flags.rs`
 
 ## `MR-001` Two invocations begin from the same state, not merely a clean one
 
@@ -150,3 +164,23 @@ The boot state may be computed at build time, and per-invocation resources may b
 | Given | a guest shell whose gem hook installs nothing |
 | When | the interpreter boots |
 | Then | the hook finds the bridge already installed |
+
+## `MR-017` A critical flag the guest does not recognise refuses the invocation
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the default Guest Binary and a critical flag it does not recognise |
+| When | an invocation runs |
+| Then | it fails as the Sandbox's unsupported-flag failure before any script runs |
+
+## `MR-018` An advisory flag the guest does not recognise is skipped
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MR-017` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the default Guest Binary and an advisory flag it does not recognise |
+| When | an invocation runs |
+| Then | it answers as it would without the flag |

@@ -6,7 +6,7 @@
 //! + `kobako-io`.
 
 use beni::{Error, Mrb};
-use kobako_core::{Frames, Outcome, Run, YieldReply};
+use kobako_core::{Outcome, Preamble, Run, YieldReply};
 
 /// The bundled mruby guest behind `data/kobako.wasm`.
 pub(crate) struct KobakoGuest;
@@ -35,12 +35,12 @@ impl kobako_mruby::MrbGuest for KobakoGuest {
 // overriding a flow would mean implementing it in place of the
 // forward.
 impl kobako_core::Guest for KobakoGuest {
-    fn eval(frames: Frames, source: Vec<u8>) -> Outcome {
-        <KobakoGuest as kobako_mruby::MrbGuest>::eval(frames, source)
+    fn eval(preamble: Preamble, source: Vec<u8>) -> Outcome {
+        <KobakoGuest as kobako_mruby::MrbGuest>::eval(preamble, source)
     }
 
-    fn run(frames: Frames, run: Run) -> Outcome {
-        <KobakoGuest as kobako_mruby::MrbGuest>::run(frames, run)
+    fn run(preamble: Preamble, run: Run) -> Outcome {
+        <KobakoGuest as kobako_mruby::MrbGuest>::run(preamble, run)
     }
 
     fn yield_to_block(req: &[u8]) -> YieldReply {

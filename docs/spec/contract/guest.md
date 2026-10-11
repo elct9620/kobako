@@ -41,7 +41,7 @@ Run one invocation of a script and answer with its Outcome.
 
 ```rust
 pub trait Guest {
-    fn eval(frames: Frames, source: Vec<u8>) -> Outcome;
+    fn eval(preamble: Preamble, source: Vec<u8>) -> Outcome;
 }
 ```
 
@@ -51,7 +51,7 @@ Call the Entrypoint the host's Run names and answer with its Outcome.
 
 ```rust
 pub trait Guest {
-    fn run(frames: Frames, run: Run) -> Outcome;
+    fn run(preamble: Preamble, run: Run) -> Outcome;
 }
 ```
 

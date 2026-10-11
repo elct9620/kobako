@@ -66,8 +66,8 @@ pub(super) fn record(kobako: &Kobako) {
 /// The top-level constants the preloaded snippets contributed — the names
 /// an unresolved `#run` target could have been. The boot-state snapshot
 /// and the namespace each declared bind path roots at are both subtracted,
-/// so neither the runtime's own classes nor the Services the preamble
-/// materialised read as a snippet's contribution.
+/// so neither the runtime's own classes nor the bound Services read as a
+/// snippet's contribution.
 pub(super) fn snippet_constants(kobako: &Kobako, bind_paths: &[String]) -> Vec<String> {
     use std::collections::HashSet;
 

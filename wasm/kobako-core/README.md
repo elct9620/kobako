@@ -20,8 +20,8 @@ The messages themselves live in
 [kobako-transport](https://crates.io/crates/kobako-transport): the
 envelopes, the Outcome records, and the ABI's own values. It is this
 crate's only dependency and the tier every kobako assembly shares. The
-messages a `Guest` takes and answers with — `Frames`, `Outcome`, `Run`,
-`Unsupported` and `YieldReply` — are re-exported here. A payload codec is not among them:
+messages a `Guest` takes and answers with — `Preamble`, `Flag`, `Outcome`,
+`Run`, `Unsupported` and `YieldReply` — are re-exported here. A payload codec is not among them:
 this crate routes messages without reading one, so a guest speaking its
 own schema builds on it unchanged.
 
@@ -36,13 +36,13 @@ kobako-core = "0.17.0" # x-release-please-version
 ```
 
 ```rust
-use kobako_core::{Frames, Guest, Outcome, Run};
+use kobako_core::{Guest, Outcome, Preamble, Run};
 
 struct MyGuest;
 
 impl Guest for MyGuest {
-    fn eval(frames: Frames, source: Vec<u8>) -> Outcome { /* run the source */ }
-    fn run(frames: Frames, run: Run) -> Outcome { /* call run.entrypoint */ }
+    fn eval(preamble: Preamble, source: Vec<u8>) -> Outcome { /* run the source */ }
+    fn run(preamble: Preamble, run: Run) -> Outcome { /* call run.entrypoint */ }
     // yield_to_block keeps its default, which answers a yield as
     // unsupported, for guests without block support
 }

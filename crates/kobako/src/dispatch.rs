@@ -29,7 +29,7 @@ pub(crate) struct CatalogHandler {
     catalog: Arc<Catalog>,
     handles: Arc<Mutex<HandleTable>>,
     /// Answered first, so an override or a fresh backend serves its path
-    /// while Frame 1 stays fixed.
+    /// while the bound paths stay fixed.
     resolved: Resolved,
 }
 

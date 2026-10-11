@@ -74,6 +74,9 @@ All tags share one number space, so a byte means one thing in every message. The
 | `0x02` | run | downcall | a Run |
 | `0x03` | yield | downcall | a Yield Call |
 | `0x04` | call | upcall | a Call |
+| `0x05` | bindings | Preamble | the bound paths |
+| `0x06` | snippets | Preamble | the preloaded Snippets |
+| `0x07` | flag | Preamble | a Flag |
 | `0x10` | ok | an answer to any | that operation's value |
 | `0x11` | fault | an answer to call | a Fault |
 | `0x12` | break | an answer to yield | the break value |
@@ -81,7 +84,7 @@ All tags share one number space, so a byte means one thing in every message. The
 | `0x14` | panic | an answer to eval, run | a Panic |
 | `0x15` | unsupported | an answer to any | an Unsupported |
 
-`0x05`–`0x0F` and `0x16`–`0x7F` are kobako's, unassigned. `0x80`–`0xEF` are left for either side later, and `0xF0`–`0xFF` for third parties. A field's own `kind`, such as a Call's target form, picks a field rather than a message, so it keeps its own numbers.
+`0x08`–`0x0F` and `0x16`–`0x7F` are kobako's, unassigned. `0x80`–`0xEF` are left for either side later, and `0xF0`–`0xFF` for third parties. A field's own `kind`, such as a Call's target form, picks a field rather than a message, so it keeps its own numbers.
 
 ### Unknown Tags
 
@@ -248,32 +251,47 @@ It carries no `method`, since the entrypoint is invoked through `#call`, and no 
 
 ---
 
-## Invocation Frames
+## Preamble
 
-These are the stdin frames each invocation reads (→ [`abi.md`](abi.md) § Invocation inputs). The `#eval` source rides the `eval` downcall instead, and Frame 2 stays unused so each frame keeps one name.
+The Preamble is what each invocation reads from stdin before its entry runs (→ [`abi.md`](abi.md) § Invocation inputs). It is a counted list of records, so a new kind of setup joins as a registry entry rather than a new position.
 
-| Frame | Field | Type | Meaning |
-|-------|-------|------|---------|
-| 1 preamble | `paths` | `list<bytes>` | each bound constant's path; may be empty |
-| 3 snippets | `count` | `u32` | entries that follow |
-| 3, per entry | `kind` | `u8` | `0` mruby source · `1` RITE bytecode |
-| 3, per entry | `name` | `bytes` | only when `kind=0` |
-| 3, per entry | `body` | `bytes` | the source or the bytecode |
+| Field | Type | Meaning |
+|-------|------|---------|
+| `count` | `u32` | records that follow |
+| per record `critical` | `u8` | `0` advisory · `1` critical |
+| per record `kind` | `u8` | a tag from the registry's Preamble rows |
+| per record `body` | `bytes` | that kind's layout, below |
 
-Snippets replay in insertion order, and a source snippet's backtraces show `(snippet:<name>)`. A bytecode entry carries no name, because its filename comes from its own debug info ([sandbox](../spec/behavior/sandbox.md)).
+A reader that does not know a record's kind skips it when advisory and refuses the invocation when critical. A kind the registry assigns to a message is refused either way. Bindings and snippets each appear at most once, and an absent one reads as empty, so an empty Preamble is `count = 0`.
+
+### Preamble Records
+
+Each body's shape is fixed by its kind.
+
+| Kind | Field | Type | Meaning |
+|------|-------|------|---------|
+| bindings | `paths` | `list<bytes>` | each bound constant's path |
+| snippets | `count` | `u32` | entries that follow |
+| snippets, per entry | `kind` | `u8` | `0` mruby source · `1` RITE bytecode |
+| snippets, per entry | `name` | `bytes` | only when `kind=0` |
+| snippets, per entry | `body` | `bytes` | the source or the bytecode |
+| flag | `name` | `bytes` | the switch, UTF-8 |
+| flag | `value` | `bytes` | UTF-8; empty for a plain switch |
+
+Snippets replay in insertion order, and a source snippet's backtraces show `(snippet:<name>)`. A bytecode entry carries no name, because its filename comes from its own debug info ([sandbox](../spec/behavior/sandbox.md)). A Guest Binary that does not recognise a flag's name treats it as it would an unknown kind, by the record's `critical`.
 
 ---
 
 ## Message Bounds
 
-Every message, invocation frames included, is at most 16 MiB. The host enforces it in both directions, so a guest-supplied length never makes the host allocate past it.
+Every message, the Preamble included, is at most 16 MiB. The host enforces it in both directions, so a guest-supplied length never makes the host allocate past it.
 
 | Direction | The host checks |
 |-----------|-----------------|
 | guest → host | a Call, Outcome, or Yield Reply, before reading it |
 | host → guest | a downcall request or a Reply, before writing it |
-| host → guest frames | each invocation frame, before sending it |
+| host → guest stdin | the Preamble, before sending it |
 
-The guest's frame reader caps a declared length at 64 MiB. That ceiling only guards an allocation from a length prefix; the contract is the 16 MiB. A `memory_limit` below 16 MiB binds first, since the guest grows memory to hold what it reads.
+The guest's Preamble reader caps a declared length at 64 MiB. That ceiling only guards an allocation from a length prefix; the contract is the 16 MiB. A `memory_limit` below 16 MiB binds first, since the guest grows memory to hold what it reads.
 
 This layer is non-recursive, so it has no depth to budget. Each payload has its own (→ [`payload-msgpack.md`](payload-msgpack.md) § Structural Nesting Depth).

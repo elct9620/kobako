@@ -5,7 +5,7 @@
 //! and threaded through every host import —
 //! the `__kobako_upcall` dispatcher reads the bound dispatch handler,
 //! while `Driver::invoke` installs the invocation's WASI
-//! context + pipes (via `frames::install_wasi_frames`) before the guest
+//! context + pipes (via `io::install_wasi`) before the guest
 //! export call.
 //!
 //! The slot also carries the per-invocation wall-clock deadline and the
@@ -125,9 +125,9 @@ impl Invocation {
     }
 
     pub(crate) fn wasi_mut(&mut self) -> &mut WasiP1Ctx {
-        self.wasi.as_mut().expect(
-            "WASI context not initialised — the driver must install frames before any WASI use",
-        )
+        self.wasi
+            .as_mut()
+            .expect("WASI context not initialised — the driver must install it before any WASI use")
     }
 
     pub(crate) fn set_deadline(&mut self, deadline: Option<Instant>) {

@@ -14,7 +14,7 @@ use crate::invocation::Invocation;
 use kobako_transport::abi::{unpack_ptr_len, MAX_DISPATCH_PAYLOAD};
 use kobako_transport::envelope::Downcall;
 
-// The size-limit messages here and in `frames` name the cap as 16 MiB, so
+// The size-limit messages here and in `io` name the cap as 16 MiB, so
 // moving the cap fails the build until they are reworded with it.
 const _: () = assert!(MAX_DISPATCH_PAYLOAD == 16 << 20);
 

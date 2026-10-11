@@ -1,10 +1,10 @@
 //! Per-Sandbox Service registry: the flat path→object bindings, the
-//! Frame the guest installs them from, and the preloaded snippet table
+//! paths the guest installs them from, and the preloaded snippet table
 //! sealed alongside them.
 //!
 //! The SDK twin of the Ruby gem's `Kobako::Catalog`: the registration
 //! tables fill during setup, seal on the first invocation, and from
-//! then on every dispatch and frame read sees one immutable state. The
+//! then on every dispatch and Preamble sees one immutable state. The
 //! per-invocation capability Handle table lives separately in
 //! `crate::handles` — it mutates during dispatch, so it sits outside
 //! the sealed state.

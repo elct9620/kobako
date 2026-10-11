@@ -23,7 +23,7 @@ Run one invocation through the given entry, routing each Call to the handler.
 
 ```rust
 pub trait Runtime {
-    fn invoke(&self, entry: Entry<'_>, frames: &Frames, handler: Option<Arc<dyn DispatchHandler>>) -> Result<Snapshot, InvokeError>;
+    fn invoke(&self, entry: Entry<'_>, preamble: &Preamble, handler: Option<Arc<dyn DispatchHandler>>) -> Result<Snapshot, InvokeError>;
 }
 ```
 

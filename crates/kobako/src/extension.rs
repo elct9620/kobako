@@ -81,7 +81,7 @@ pub enum Provider {
 /// The sentinel backing an unresolved Service path: the install-time
 /// placeholder for a `PerInvocation` backend (whose resolution runs ahead of
 /// it every invocation) and the object a fillable path stays bound to until
-/// the host supplies one. It reserves the path's Frame 1 slot so the guest
+/// the host supplies one. It keeps the path among the bound paths so the guest
 /// sees the constant; a dispatch that reaches it — an unfilled fillable —
 /// fails closed as an undefined target, surfacing as a guest `ServiceError`.
 struct Unresolved;
@@ -103,8 +103,8 @@ impl Receiver for Unresolved {
     }
 }
 
-/// The `Unresolved` sentinel, bound at a fillable path so it enters Frame 1
-/// and fails closed until an override fills it.
+/// The `Unresolved` sentinel, bound at a fillable path so it enters the
+/// Preamble and fails closed until an override fills it.
 pub(crate) fn unresolved() -> Arc<dyn Receiver> {
     Arc::new(Unresolved)
 }

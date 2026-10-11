@@ -8,22 +8,22 @@
 //! unreliable — they get dead-code-GC'd by wasm-ld and break on native
 //! ELF).
 
-use kobako_transport::envelope::{Frames, Outcome, Run, Unsupported, YieldReply};
+use kobako_transport::envelope::{Outcome, Preamble, Run, Unsupported, YieldReply};
 
 /// One Guest Binary's invocation surface — the operations a downcall
 /// names.
 ///
 /// Each entry answers with a value and never touches the wire:
-/// `export_guest!` reads the request and the Frames and frames each
+/// `export_guest!` reads the request and the Preamble and frames each
 /// answer, so a guest cannot speak a different envelope than the host
 /// reads. `eval` and `run` are required. A guest without block support
 /// keeps the `yield_to_block` default, which answers as unsupported.
 pub trait Guest {
     /// The `eval` operation — runs one-shot user source.
-    fn eval(frames: Frames, source: Vec<u8>) -> Outcome;
+    fn eval(preamble: Preamble, source: Vec<u8>) -> Outcome;
 
     /// The `run` operation — calls the entrypoint the host's Run names.
-    fn run(frames: Frames, run: Run) -> Outcome;
+    fn run(preamble: Preamble, run: Run) -> Outcome;
 
     /// The `yield` operation — host-initiated re-entry into a guest
     /// block; `req` carries the yield arguments.

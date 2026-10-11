@@ -1,7 +1,7 @@
 //! Engine-neutral host runtime contract.
 //!
 //! The contract a wasm engine must satisfy to drive a kobako guest: take a
-//! per-invocation entry plus its stdin frames, run one invocation on a
+//! per-invocation entry plus its Preamble, run one invocation on a
 //! fresh instance, and return the observable `Snapshot` — `Ok` iff the
 //! guest export ran, `Err` when the invocation never started. Nothing here
 //! mentions `magnus` or a Ruby type — a frontend supplies the dispatch
@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use kobako_transport::envelope::Frames;
+use kobako_transport::envelope::Preamble;
 
 use crate::dispatch::DispatchHandler;
 use crate::error::InvokeError;
@@ -18,8 +18,8 @@ use crate::snapshot::Snapshot;
 
 /// The per-invocation entry: a one-shot mruby source (`Eval`) or an
 /// entrypoint and its payload (`Run`). Both ride alongside the Sandbox's
-/// `Frames`; the runtime frames `Run` and the `Frames` onto the wire, so
-/// a frontend never encodes either. The payload is owned so that framing it needs no
+/// `Preamble`; the runtime frames `Run` and the `Preamble` onto the wire,
+/// so a frontend never encodes either. The payload is owned so that framing it needs no
 /// second copy.
 ///
 /// Closed rather than `#[non_exhaustive]`: each arm is an invocation the
@@ -52,7 +52,7 @@ pub trait Runtime {
     fn invoke(
         &self,
         entry: Entry<'_>,
-        frames: &Frames,
+        preamble: &Preamble,
         handler: Option<Arc<dyn DispatchHandler>>,
     ) -> Result<Snapshot, InvokeError>;
 

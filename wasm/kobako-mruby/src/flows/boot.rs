@@ -2,11 +2,13 @@
 //!
 //! Both entry points acquire a VM in the canonical boot state —
 //! reusing the slot a build-time pre-initialized image baked, or
-//! booting lazily — then materialise the bound paths' proxy classes
-//! and replay any preloaded snippets before running the entry-specific
-//! body. A step that fails
+//! booting lazily — then apply the Preamble's flags, materialise the
+//! bound paths' proxy classes, and replay any preloaded snippets before
+//! running the entry-specific body. A step that fails
 //! before any guest code runs surfaces as a Panic with
-//! `origin = sandbox` and `name = "Kobako::BootError"`.
+//! `origin = sandbox` and `name = "Kobako::BootError"`, except a
+//! critical flag the shell does not recognise, which names
+//! `Kobako::UnsupportedFlagError` so the host can retry without it.
 //!
 //! Snippet replay compiles each snippet under a
 //! `(snippet:Name)` filename so any uncaught exception's backtrace
@@ -14,19 +16,45 @@
 //! are always sandbox-origin even when the raised class would otherwise
 //! map to "service" — preloaded snippets are sandbox code.
 
-use super::panic::{boot_panic, load_panic, panic_from_error};
+use super::panic::{boot_panic, load_panic, panic_from_error, sandbox_panic};
 use crate::runtime::Kobako;
 use beni::Ccontext;
 use beni::Mrb;
-use kobako_transport::envelope::{ErrorRecord, Frames, Origin, Panic, Snippet};
+use kobako_transport::envelope::{ErrorRecord, Flag, Origin, Panic, Preamble, Snippet};
 
-/// Every entry starts the same way from its Frames, so the VM an entry
-/// body runs on is set up in one place.
-pub(super) fn enter<G: crate::MrbGuest>(frames: &Frames) -> Result<Kobako, Panic> {
+/// Every entry starts the same way from its Preamble, so the VM an entry
+/// body runs on is set up in one place. Flags come first, since a
+/// preloaded snippet may use what a flag turned on.
+pub(super) fn enter<G: crate::MrbGuest>(preamble: &Preamble) -> Result<Kobako, Panic> {
     let kobako = acquire_vm::<G>()?;
-    install_preamble(&kobako, &frames.bindings.paths)?;
-    replay_snippets(&kobako, &frames.snippets.entries)?;
+    apply_flags::<G>(&kobako, &preamble.flags)?;
+    install_bindings(&kobako, &preamble.bindings.paths)?;
+    replay_snippets(&kobako, &preamble.snippets.entries)?;
     Ok(kobako)
+}
+
+/// An unrecognised flag is skipped unless it is critical, so a
+/// restriction the host relies on never lapses on a shell that predates it.
+fn apply_flags<G: crate::MrbGuest>(kobako: &Kobako, flags: &[Flag]) -> Result<(), Panic> {
+    for flag in flags {
+        let recognised = G::apply_flag(kobako.mrb(), flag).map_err(|e| {
+            boot_panic(format!(
+                "failed to apply the flag {:?}: {}",
+                flag.name,
+                e.message(kobako.mrb())
+            ))
+        })?;
+        if !recognised && flag.critical {
+            return Err(sandbox_panic(
+                "Kobako::UnsupportedFlagError",
+                format!(
+                    "this Guest Binary does not support the flag {:?}",
+                    flag.name
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// On `Err` the slot is cleared, so no caller observes a half-set state.
@@ -75,7 +103,7 @@ pub(crate) fn bake_boot<G: crate::MrbGuest>() {
     }
 }
 
-fn install_preamble(kobako: &Kobako, paths: &[String]) -> Result<(), Panic> {
+fn install_bindings(kobako: &Kobako, paths: &[String]) -> Result<(), Panic> {
     kobako
         .install_bindings(paths)
         .map_err(|err| boot_panic(err.to_string()))

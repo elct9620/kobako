@@ -201,13 +201,24 @@ pub trait MrbGuest {
 }
 ```
 
+## `MrbGuest::apply_flag`
+
+Apply one of the host's flags to an invocation's VM, answering whether the Guest
+recognises it.
+
+```rust
+pub trait MrbGuest {
+    fn apply_flag(_mrb: &Mrb, _flag: &Flag) -> Result<bool, Error>;
+}
+```
+
 ## `MrbGuest::eval`
 
 The flow that runs one invocation of a script and answers with its Outcome.
 
 ```rust
 pub trait MrbGuest {
-    fn eval(frames: Frames, source: Vec<u8>) -> Outcome;
+    fn eval(preamble: Preamble, source: Vec<u8>) -> Outcome;
 }
 ```
 
@@ -217,7 +228,7 @@ The flow that calls the Entrypoint the host's Run names and answers with its Out
 
 ```rust
 pub trait MrbGuest {
-    fn run(frames: Frames, run: Run) -> Outcome;
+    fn run(preamble: Preamble, run: Run) -> Outcome;
 }
 ```
 

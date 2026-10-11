@@ -313,10 +313,10 @@ mod tests {
         // Never entered: the run's body fails to frame before any entry.
         struct Unentered;
         impl kobako_core::Guest for Unentered {
-            fn eval(_: kobako_core::Frames, _: Vec<u8>) -> Outcome {
+            fn eval(_: kobako_core::Preamble, _: Vec<u8>) -> Outcome {
                 unreachable!()
             }
-            fn run(_: kobako_core::Frames, _: kobako_core::Run) -> Outcome {
+            fn run(_: kobako_core::Preamble, _: kobako_core::Run) -> Outcome {
                 unreachable!()
             }
         }

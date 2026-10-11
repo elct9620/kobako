@@ -1,5 +1,5 @@
-//! Preloaded snippets: the per-Sandbox replay table the runtime frames
-//! for the guest.
+//! Preloaded snippets: the per-Sandbox replay table the Preamble carries
+//! to the guest.
 //!
 //! The SDK twin of the Ruby gem's `Kobako::Catalog::Snippets`: an
 //! insertion-ordered table sealed together with the Service registry,
@@ -9,14 +9,14 @@
 //! present, lives in the RITE `debug_info` the guest reads at load
 //! time.
 
-use kobako_transport::envelope::{Snippet, Snippets as Frame};
+use kobako_transport::envelope::{Snippet, Snippets as Preloaded};
 
 use crate::error::Error;
 
 /// Insertion-ordered snippet table for one Sandbox.
 #[derive(Default)]
 pub(crate) struct Snippets {
-    frame: Frame,
+    preloaded: Preloaded,
 }
 
 impl Snippets {
@@ -29,7 +29,7 @@ impl Snippets {
             )));
         }
         let duplicate = self
-            .frame
+            .preloaded
             .entries
             .iter()
             .any(|entry| matches!(entry, Snippet::Source { name: taken, .. } if taken == name));
@@ -38,7 +38,7 @@ impl Snippets {
                 "snippet {name:?} already preloaded"
             )));
         }
-        self.frame.entries.push(Snippet::Source {
+        self.preloaded.entries.push(Snippet::Source {
             name: name.to_string(),
             body: body.to_string(),
         });
@@ -47,11 +47,11 @@ impl Snippets {
 
     /// Recorded verbatim; the guest validates it at first replay.
     pub(crate) fn register_binary(&mut self, body: Vec<u8>) {
-        self.frame.entries.push(Snippet::Bytecode { body });
+        self.preloaded.entries.push(Snippet::Bytecode { body });
     }
 
-    pub(crate) fn frame(&self) -> &Frame {
-        &self.frame
+    pub(crate) fn preloaded(&self) -> &Preloaded {
+        &self.preloaded
     }
 }
 
@@ -72,13 +72,13 @@ mod tests {
 
     // Replay order is the property the guest depends on.
     #[test]
-    fn the_frame_carries_source_and_binary_entries_in_insertion_order() {
+    fn the_table_carries_source_and_binary_entries_in_insertion_order() {
         let mut snippets = Snippets::default();
         snippets.register_source("Helper", "X = 1").unwrap();
         snippets.register_binary(vec![0x01, 0x02]);
         assert_eq!(
-            snippets.frame(),
-            &Frame {
+            snippets.preloaded(),
+            &Preloaded {
                 entries: vec![
                     Snippet::Source {
                         name: "Helper".into(),
@@ -140,6 +140,6 @@ mod tests {
         let mut snippets = Snippets::default();
         snippets.register_binary(vec![0x01]);
         snippets.register_binary(vec![0x01]);
-        assert_eq!(snippets.frame().entries.len(), 2);
+        assert_eq!(snippets.preloaded().entries.len(), 2);
     }
 }

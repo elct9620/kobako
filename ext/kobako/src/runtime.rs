@@ -34,7 +34,7 @@ use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Completion, Snapshot as RuntimeSnapshot};
-use kobako_transport::envelope::{Bindings, Frames, Outcome, Snippet, Snippets};
+use kobako_transport::envelope::{Bindings, Outcome, Preamble, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
 /// A Panic's fields as they cross to Ruby: origin, class, message,
@@ -54,13 +54,13 @@ fn rstring_to_vec(s: RString) -> Vec<u8> {
 /// `kind` arrives as a Symbol so the registry never names the wire's
 /// discriminant; an off-ladder kind raises rather than defaulting.
 fn snippets_from(ruby: &Ruby, entries: RArray) -> Result<Snippets, MagnusError> {
-    let mut frame = Snippets {
+    let mut snippets = Snippets {
         entries: Vec::with_capacity(entries.len()),
     };
     for index in 0..entries.len() as isize {
         let entry: RArray = entries.entry(index)?;
         let kind: Symbol = entry.entry(0)?;
-        frame.entries.push(match kind.name()?.as_ref() {
+        snippets.entries.push(match kind.name()?.as_ref() {
             "source" => Snippet::Source {
                 name: entry.entry(1)?,
                 body: entry.entry(2)?,
@@ -76,7 +76,7 @@ fn snippets_from(ruby: &Ruby, entries: RArray) -> Result<Snippets, MagnusError> 
             }
         });
     }
-    Ok(frame)
+    Ok(snippets)
 }
 
 // ---------------------------------------------------------------------------
@@ -241,7 +241,7 @@ impl Runtime {
         )
     }
 
-    /// One owner for the wiring both verbs share, so a frame or handler
+    /// One owner for the wiring both verbs share, so a Preamble or handler
     /// change cannot drift between them.
     fn invoke(
         &self,
@@ -256,17 +256,16 @@ impl Runtime {
             Entry::Run { .. } => "run",
         };
         let handler = build_handler(dispatch);
-        let frames = Frames {
-            bindings: Bindings {
-                paths: paths.to_vec()?,
-            },
-            snippets: snippets_from(&ruby, snippets)?,
+        let mut preamble = Preamble::default();
+        preamble.bindings = Bindings {
+            paths: paths.to_vec()?,
         };
+        preamble.snippets = snippets_from(&ruby, snippets)?;
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // the closure touches no Ruby VALUE (the driver is magnus-free, and a
         // guest→host dispatch re-acquires the GVL through the bridge).
         let result = gvl::region(self.release_gvl, || {
-            self.driver.invoke(entry, &frames, handler)
+            self.driver.invoke(entry, &preamble, handler)
         });
         result
             .map(|snapshot| Snapshot(snapshot, verb))

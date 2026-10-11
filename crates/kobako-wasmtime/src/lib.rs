@@ -18,10 +18,10 @@ mod config;
 mod dispatch;
 mod driver;
 mod exports;
-mod frames;
 mod guest_mem;
 mod instance_pre;
 mod invocation;
+mod io;
 mod limiter;
 mod trap;
 

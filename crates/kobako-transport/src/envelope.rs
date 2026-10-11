@@ -9,15 +9,16 @@
 //! A decoded envelope borrows the buffer it came from, so a payload reaches
 //! its reader as a view rather than a copy. The two fields a reader keeps
 //! past that buffer's life — a binding's path and a snippet's body, read
-//! from a frame at boot and consumed later — are copied at decode.
+//! from the Preamble at boot and consumed later — are copied at decode.
 //!
 //! Every answer is exhaustive. Each arm is a tag byte the layout document
 //! fixes, so an answer's set grows only with an ABI version — and when it
 //! does, a peer that has not been taught the new arm should fail to
 //! compile rather than fall into a wildcard and answer a message it
-//! cannot read. Two kinds of type are the exception, because a reader
+//! cannot read. Three kinds of type are the exception, because a reader
 //! answers what it predates instead of refusing it: a request reads an
-//! unassigned tag as unknown, and a Fault's category degrades.
+//! unassigned tag as unknown, a Fault's category degrades, and a
+//! Preamble skips an advisory record of a kind it does not know.
 //!
 //! This layer has one implementation, so its `golden_layout_*` tests are
 //! what hold it to the layout document. They spell each tag as the literal
@@ -28,8 +29,8 @@ pub(crate) mod bytes;
 pub mod call;
 pub mod error_record;
 pub mod fault;
-pub mod invocation_frames;
 pub mod outcome;
+pub mod preamble;
 pub mod reply;
 pub mod request;
 pub mod run;
@@ -39,8 +40,8 @@ pub mod unsupported;
 pub use call::{Call, Target};
 pub use error_record::ErrorRecord;
 pub use fault::{Fault, FaultKind};
-pub use invocation_frames::{Bindings, Frames, Snippet, Snippets};
 pub use outcome::{Origin, Outcome, Panic};
+pub use preamble::{Bindings, Flag, Preamble, Snippet, Snippets};
 pub use reply::{Reply, YieldReply};
 pub use request::{Downcall, UnknownTag, Upcall};
 pub use run::Run;

@@ -19,13 +19,13 @@ use crate::cache::shared_engine;
 use crate::config::Config;
 use crate::exports::{self, Exports};
 use crate::invocation::Invocation;
-use crate::{capture, frames, instance_pre, trap};
+use crate::{capture, instance_pre, io, trap};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
-use kobako_transport::envelope::{Downcall, Frames, Run};
+use kobako_transport::envelope::{Downcall, Preamble, Run};
 
 /// The wasmtime execution unit behind one sandbox runtime.
 pub struct Driver {
@@ -146,16 +146,14 @@ impl ContractRuntime for Driver {
     fn invoke(
         &self,
         entry: Entry<'_>,
-        frames: &Frames,
+        preamble: &Preamble,
         handler: Option<Arc<dyn DispatchHandler>>,
     ) -> Result<Snapshot, InvokeError> {
         let mut store = self.new_store()?;
         if let Some(handler) = handler {
             store.data_mut().bind_on_dispatch(handler);
         }
-        let bindings = frames.bindings.encode();
-        let snippets = frames.snippets.encode();
-        frames::install_wasi_frames(&mut store, &self.config, &[&bindings, &snippets])?;
+        io::install_wasi(&mut store, &self.config, &preamble.encode())?;
         let exports = self.instantiate(&mut store)?;
         let downcall = exports::require(exports.downcall.as_ref())?;
         let request = match entry {
@@ -169,10 +167,10 @@ impl ContractRuntime for Driver {
             }),
         }
         .encode();
-        let (ptr, len) = frames::write_request(&mut store, &exports, &request)?;
+        let (ptr, len) = io::write_request(&mut store, &exports, &request)?;
         let called = self.call_with_caps(&mut store, &exports, downcall, (ptr, len));
         let completion = match called {
-            Ok(packed) => match frames::read_outcome(&store, &exports, packed) {
+            Ok(packed) => match io::read_outcome(&store, &exports, packed) {
                 Ok(outcome) => Completion::Outcome(outcome),
                 Err(t) => Completion::Trap(t),
             },

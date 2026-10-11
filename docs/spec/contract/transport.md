@@ -435,40 +435,40 @@ impl Run {
 }
 ```
 
-## `Frames`
+## `Preamble`
 
-The registrations and Snippets an invocation replays before its entry runs.
+The bindings, Snippets, and flags an invocation is set up with before its entry runs.
 
 ```rust
-pub struct Frames {}
+pub struct Preamble {}
 ```
 
-## `Bindings`
+## `Preamble::decode`
 
-The Service paths a Sandbox registers, as the preamble Frame carries them.
-
-```rust
-pub struct Bindings {}
-```
-
-## `Bindings::decode`
-
-Read the registrations from their Frame.
+Read a Preamble from its record list.
 
 ```rust
-impl Bindings {
+impl Preamble {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {}
 }
 ```
 
-## `Bindings::encode`
+## `Preamble::encode`
 
-Write the registrations into their Frame.
+Write a Preamble as its record list.
 
 ```rust
-impl Bindings {
+impl Preamble {
     pub fn encode(&self) -> Vec<u8> {}
 }
+```
+
+## `Bindings`
+
+The Service paths a Sandbox registers, as the Preamble carries them.
+
+```rust
+pub struct Bindings {}
 ```
 
 ## `Snippet`
@@ -487,22 +487,10 @@ The Snippets an invocation replays, in order.
 pub struct Snippets {}
 ```
 
-## `Snippets::decode`
+## `Flag`
 
-Read the Snippets from their Frame.
-
-```rust
-impl Snippets {
-    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {}
-}
-```
-
-## `Snippets::encode`
-
-Write the Snippets into their Frame.
+One switch the host sets for an invocation, with whether a Guest Binary may skip it.
 
 ```rust
-impl Snippets {
-    pub fn encode(&self) -> Vec<u8> {}
-}
+pub struct Flag {}
 ```

@@ -187,12 +187,12 @@ mod tests {
     fn an_unassigned_tag_reads_as_unknown_with_its_body() {
         assert_eq!(
             (
-                Downcall::decode(&[0x05, 0xff]),
+                Downcall::decode(&[0x08, 0xff]),
                 Upcall::decode(&[0xf0, 0x01, 0x02])
             ),
             (
                 Ok(Downcall::Unknown {
-                    tag: UnknownTag::new(0x05).unwrap(),
+                    tag: UnknownTag::new(0x08).unwrap(),
                     body: vec![0xff]
                 }),
                 Ok(Upcall::Unknown {
