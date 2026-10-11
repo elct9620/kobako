@@ -95,6 +95,9 @@ impl Gem for KobakoBridge {
         kobako_mod.define_error(mrb, c"NoServiceError", service_error_class)?;
         kobako_mod.define_error(mrb, c"ServiceArgumentError", service_error_class)?;
         transport_mod.define_error(mrb, c"Error", runtime_error_class)?;
+        // A host that does not serve a call answered rather than failed,
+        // so the script can rescue it and fall back.
+        kobako_mod.define_error(mrb, c"UnsupportedError", runtime_error_class)?;
         // `Kobako::BytecodeError` is registered here so guest code can
         // raise it by name; like every handle this gem registers, call
         // sites re-resolve it lazily (`super::Kobako::resolve_raw`, the

@@ -143,6 +143,7 @@ fn forward_to_dispatch(
             (FaultKind::Block, Some(exc)) => Err(beni::Error::Exception(exc)),
             _ => Err(kobako.service_error(&fault)),
         },
+        Err(DispatchError::Unsupported(refusal)) => Err(kobako.unsupported_error(&refusal.message)),
         // Anything that is not the Service's own fault means the exchange
         // did not complete, which reaches the guest as a wire fault.
         Err(_) => Err(kobako.transport_error(envelope_err_msg)),

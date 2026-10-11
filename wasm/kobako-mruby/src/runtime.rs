@@ -178,8 +178,6 @@ impl Kobako {
     /// alternative shell did not register, falls back to the base — the
     /// same posture the wire takes when it meets a category it predates.
     fn class_for(&self, kind: kobako_transport::envelope::FaultKind) -> beni::ExceptionClass {
-        use beni::FromValue;
-        use beni::Module;
         use kobako_transport::envelope::FaultKind;
 
         let narrowed = match kind {
@@ -188,12 +186,32 @@ impl Kobako {
             FaultKind::Argument => c"ServiceArgumentError",
             _ => return self.registrations.service_error_class,
         };
+        self.kobako_class(narrowed)
+            .unwrap_or(self.registrations.service_error_class)
+    }
+
+    /// `Kobako::UnsupportedError` carrying the host's message: the host
+    /// answered that it does not serve the call, which the script may
+    /// rescue and fall back from. A shell that did not register the class
+    /// falls back to `Kobako::Transport::Error`.
+    pub(crate) fn unsupported_error(&self, message: &str) -> beni::Error {
+        let class = self
+            .kobako_class(c"UnsupportedError")
+            .unwrap_or(self.registrations.transport_error_class);
+        beni::Error::new(self.mrb(), class, message)
+    }
+
+    /// An exception class under `Kobako`, resolved on the failure path so
+    /// a call that succeeds pays nothing for it.
+    fn kobako_class(&self, name: &std::ffi::CStr) -> Option<beni::ExceptionClass> {
+        use beni::FromValue;
+        use beni::Module;
+
         self.mrb()
             .define_module(c"Kobako")
-            .and_then(|kobako_mod| kobako_mod.class_get(self.mrb(), narrowed))
+            .and_then(|kobako_mod| kobako_mod.class_get(self.mrb(), name))
             .ok()
             .and_then(|class| beni::ExceptionClass::from_value(class.as_value()))
-            .unwrap_or(self.registrations.service_error_class)
     }
 
     // ----------------------------------------------------------------

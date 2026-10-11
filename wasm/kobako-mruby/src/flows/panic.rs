@@ -186,6 +186,10 @@ mod tests {
             Origin::Sandbox
         );
         assert_eq!(origin_for_class("NoMethodError"), Origin::Sandbox);
+        assert_eq!(
+            origin_for_class("Kobako::UnsupportedError"),
+            Origin::Sandbox
+        );
     }
 
     // @behavior OC-047

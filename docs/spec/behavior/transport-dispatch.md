@@ -41,6 +41,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 - `crates/kobako/src/msgpack/receiver.rs`
 - `crates/kobako/src/msgpack/handles.rs`
 - `crates/kobako/tests/byte_surface.rs`
+- `crates/kobako-wasmtime/tests/unsupported_call.rs`
 - `wasm/kobako-core/src/proxy.rs`
 - `wasm/kobako-core/src/abi/downcall.rs`
 
@@ -1133,3 +1134,11 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a guest sending the host a message under a tag the host does not serve |
 | When | the host reads it |
 | Then | it answers that it does not serve the operation, rather than failing the exchange |
+
+## `T-279` A call the host does not serve raises a rescuable refusal
+
+| Step | Statement |
+| --- | --- |
+| Given | a host that answers a guest's Service call as unsupported |
+| When | the guest script makes the call |
+| Then | the call raises `Kobako::UnsupportedError` with the host's message |
