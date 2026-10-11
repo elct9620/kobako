@@ -25,6 +25,7 @@ use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
+use kobako_transport::envelope::Run;
 
 /// The wasmtime execution unit behind one sandbox runtime.
 pub struct Driver {
@@ -163,9 +164,17 @@ impl ContractRuntime for Driver {
                 let eval = exports::require(exports.eval.as_ref())?;
                 self.call_with_caps(&mut store, &exports, eval, ())
             }
-            Entry::Run { envelope } => {
+            Entry::Run {
+                entrypoint,
+                payload,
+            } => {
                 let run = exports::require(exports.run.as_ref())?;
-                let (env_ptr, env_len) = frames::write_envelope(&mut store, &exports, envelope)?;
+                let envelope = Run {
+                    entrypoint: entrypoint.to_owned(),
+                    payload,
+                }
+                .encode();
+                let (env_ptr, env_len) = frames::write_envelope(&mut store, &exports, &envelope)?;
                 self.call_with_caps(&mut store, &exports, run, (env_ptr, env_len))
             }
         };

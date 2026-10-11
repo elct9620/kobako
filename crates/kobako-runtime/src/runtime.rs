@@ -15,16 +15,23 @@ use crate::profile::Profile;
 use crate::snapshot::Snapshot;
 
 /// The per-invocation entry: a one-shot mruby source (`Eval`) or an
-/// entrypoint-dispatch envelope (`Run`). Both ride alongside the stdin
-/// `Frames`; `Run` additionally copies its envelope into guest memory.
+/// entrypoint and its payload (`Run`). Both ride alongside the stdin
+/// `Frames`; the runtime frames `Run` into its envelope, so a frontend
+/// never encodes one. The payload is owned so that framing it needs no
+/// second copy.
 ///
 /// Closed rather than `#[non_exhaustive]`: the arms are the ABI's
 /// invocation exports, so the set only grows with an ABI version, and a
 /// runtime that has not implemented the new export should fail to
 /// compile rather than fall into a wildcard.
 pub enum Entry<'a> {
-    Eval { source: &'a [u8] },
-    Run { envelope: &'a [u8] },
+    Eval {
+        source: &'a [u8],
+    },
+    Run {
+        entrypoint: &'a str,
+        payload: Vec<u8>,
+    },
 }
 
 /// The stdin frames shared by both entries: the Frame 1 preamble (the

@@ -17,7 +17,6 @@ use std::time::Duration;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime};
 use kobako_runtime::snapshot::{Completion, Snapshot};
-use kobako_transport::envelope::Run;
 #[cfg(feature = "wasmtime")]
 use kobako_wasmtime::{Config, Driver};
 
@@ -260,16 +259,12 @@ impl Sandbox {
         let (catalog, handles) = self.begin_invocation()?;
         let resolved = collect_overrides(&catalog, overrides)?;
         let payload = payload.encode(&handles)?;
-        let envelope = Run {
-            entrypoint: target.to_string(),
-            payload,
-        }
-        .encode();
         self.invoke(
             catalog,
             handles,
             Entry::Run {
-                envelope: &envelope,
+                entrypoint: target,
+                payload,
             },
             resolved,
         )

@@ -34,7 +34,7 @@ use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Completion, Snapshot as RuntimeSnapshot};
-use kobako_transport::envelope::{Bindings, Outcome, Run, Snippet, Snippets};
+use kobako_transport::envelope::{Bindings, Outcome, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
 /// A Panic's fields as they cross to Ruby: origin, class, message,
@@ -239,17 +239,13 @@ impl Runtime {
         entrypoint: String,
         payload: RString,
     ) -> Result<Snapshot, MagnusError> {
-        let envelope = Run {
-            entrypoint,
-            payload: rstring_to_vec(payload),
-        }
-        .encode();
         self.invoke(
             dispatch,
             paths,
             snippets,
             Entry::Run {
-                envelope: &envelope,
+                entrypoint: &entrypoint,
+                payload: rstring_to_vec(payload),
             },
         )
     }
