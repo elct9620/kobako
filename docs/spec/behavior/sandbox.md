@@ -16,6 +16,10 @@ Everything that raises is a behavior too. It settles on the class a Host App res
 
 No public surface shows what the registries do internally. That covers how a name is normalized and what order entries keep. So it is pinned by unit tests and is not a behavior.
 
+### Compiled snippets
+
+A Sandbox has its preloaded source compiled once and replays the bytecode afterwards. The compile runs on an instance no script ever touches, so no invocation can reach what later ones replay. A compile that answers nothing changes nothing a script can see. The source keeps replaying, so every failed compile ends the same way.
+
 ### Output surface
 
 The guest-side output surface is how `IO` and the Kernel writers behave inside the guest. It belongs to the capability gem that implements it. What is here is the host end: which channel bytes land in, where they stop, and what survives a failure.
@@ -25,6 +29,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/unit/values/test_sandbox_options.rb`
 - `test/unit/catalog/test_services.rb`
 - `test/unit/catalog/test_snippets.rb`
+- `test/unit/catalog/test_snippets_compile.rb`
 - `test/unit/catalog/test_flags.rb`
 - `test/e2e/sandbox/test_sandbox.rb`
 - `test/e2e/sandbox/test_run.rb`
@@ -1538,3 +1543,52 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a flag whose name is neither a Symbol nor a String, or whose value is not a String |
 | When | it is set |
 | Then | it is refused |
+
+## `S-186` Preloaded source is compiled once and then replayed as bytecode
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-053`, `S-055`, `S-012` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with preloaded source whose guest answers its bytecode |
+| When | the Sandbox is invoked several times |
+| Then | the source is compiled once and every invocation replays the bytecode in its place |
+
+## `S-187` Source the guest compiled nothing for keeps replaying
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-186` |
+| relates | `S-084` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with preloaded source whose guest compiles none of it |
+| When | the Sandbox is invoked several times |
+| Then | the source replays on every invocation and no second compile is tried |
+
+## `S-188` The default Guest Binary compiles preloaded source
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-186`, `MR-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | preloaded source on the default Guest Binary |
+| When | it is compiled |
+| Then | one bytecode comes back for each snippet |
+
+## `S-189` Compiling counts against no invocation
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-186`, `S-060` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with preloaded source |
+| When | its first and a later evaluation each report their memory |
+| Then | both report the same peak |

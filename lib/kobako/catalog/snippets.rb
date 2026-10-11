@@ -8,11 +8,29 @@ module Kobako
     class Snippets # :nodoc:
       def initialize
         @entries = [] # : Array[Kobako::Snippet::Source | Kobako::Snippet::Binary]
+        @compiled = {} # : Hash[Kobako::Snippet::Source, String]
+        @compile_tried = false
       end
 
       # Projected here so the entry value objects stay pure carriers.
       def entries
         @entries.map { |entry| entry_tuple(entry) }
+      end
+
+      # Has +runtime+ compile the source snippets, once, so every invocation
+      # after replays their bytecode instead of compiling them again. When
+      # nothing comes back the source keeps replaying, and the attempt is not
+      # repeated.
+      def compile(runtime, flags)
+        return if @compile_tried
+
+        @compile_tried = true
+        sources = @entries.grep(Snippet::Source)
+        return if sources.empty?
+
+        bytecodes = runtime.compile(entries, flags) or return
+        @compiled = sources.zip(bytecodes).to_h.compact
+        nil
       end
 
       # Bytecode stays unchecked on the host; the guest validates it at
@@ -66,7 +84,8 @@ module Kobako
       def entry_tuple(entry)
         case entry
         when Snippet::Source
-          [Snippet::Source::KIND, entry.name.to_s, entry.body]
+          compiled = @compiled[entry]
+          compiled ? [Snippet::Binary::KIND, nil, compiled] : [Snippet::Source::KIND, entry.name.to_s, entry.body]
         else
           [Snippet::Binary::KIND, nil, entry.body]
         end

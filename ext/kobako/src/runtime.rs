@@ -79,6 +79,29 @@ fn snippets_from(ruby: &Ruby, entries: RArray) -> Result<Snippets, MagnusError> 
     Ok(snippets)
 }
 
+/// One owner for the Preamble every guest entry reads, so an invocation
+/// and a compile cannot drift in what they send.
+fn preamble_from(
+    ruby: &Ruby,
+    paths: Vec<String>,
+    snippets: RArray,
+    flags: RArray,
+) -> Result<Preamble, MagnusError> {
+    let mut preamble = Preamble::default();
+    preamble.bindings = Bindings { paths };
+    preamble.snippets = snippets_from(ruby, snippets)?;
+    preamble.flags = flags
+        .to_vec::<(String, String, bool)>()?
+        .into_iter()
+        .map(|(name, value, critical)| Flag {
+            name,
+            value,
+            critical,
+        })
+        .collect();
+    Ok(preamble)
+}
+
 // ---------------------------------------------------------------------------
 // Ruby init
 // ---------------------------------------------------------------------------
@@ -93,6 +116,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     runtime.define_method("eval", method!(Runtime::eval, 5))?;
     runtime.define_method("run", method!(Runtime::run, 6))?;
     runtime.define_method("profile", method!(Runtime::profile, 0))?;
+    runtime.define_method("compile", method!(Runtime::compile, 2))?;
     // The guest re-enters for a block yield through a frame-scoped
     // `Kobako::Runtime::GuestYielder` the dispatcher hands the Proc, not a
     // method on Runtime.
@@ -266,20 +290,7 @@ impl Runtime {
             Entry::Run { .. } => "run",
         };
         let handler = build_handler(dispatch);
-        let mut preamble = Preamble::default();
-        preamble.bindings = Bindings {
-            paths: paths.to_vec()?,
-        };
-        preamble.snippets = snippets_from(&ruby, snippets)?;
-        preamble.flags = flags
-            .to_vec::<(String, String, bool)>()?
-            .into_iter()
-            .map(|(name, value, critical)| Flag {
-                name,
-                value,
-                critical,
-            })
-            .collect();
+        let preamble = preamble_from(&ruby, paths.to_vec()?, snippets, flags)?;
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // the closure touches no Ruby VALUE (the driver is magnus-free, and a
         // guest→host dispatch re-acquires the GVL through the bridge).
@@ -289,6 +300,23 @@ impl Runtime {
         result
             .map(|snapshot| Snapshot(snapshot, verb))
             .map_err(|e| errors::to_magnus(&ruby, e))
+    }
+
+    /// The bytecode of the source snippets, one binary String each in
+    /// order, or `nil` when the guest compiled nothing; no failure raises,
+    /// since the Sandbox keeps the source either way. Binds no Service:
+    /// compiling runs no script.
+    fn compile(&self, snippets: RArray, flags: RArray) -> Result<Option<RArray>, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let preamble = preamble_from(&ruby, Vec::new(), snippets, flags)?;
+        let bytecodes = gvl::region(self.release_gvl, || self.driver.compile(&preamble));
+        Ok(bytecodes.map(|bytecodes| {
+            ruby.ary_from_iter(
+                bytecodes
+                    .iter()
+                    .map(|bytecode| ruby.str_from_slice(bytecode)),
+            )
+        }))
     }
 
     /// The driver's declaration, which the Sandbox checks against the

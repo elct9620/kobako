@@ -11,6 +11,8 @@ module Kobako
 
       def entries: () -> Array[tuple]
 
+      def compile: (Kobako::Runtime runtime, Array[Kobako::Catalog::Flags::tuple] flags) -> nil
+
       private
 
       def register_source!: (String? code, (Symbol | String)? name) -> nil

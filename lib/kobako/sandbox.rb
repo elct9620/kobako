@@ -165,10 +165,12 @@ module Kobako
     end
 
     # Sealing before the dependency check keeps a Sandbox whose check failed
-    # closed to further registration.
+    # closed to further registration. The sealed snippets are compiled once,
+    # before the first invocation replays them.
     def begin_invocation!
       @sealed = true
       @extensions.assert_dependencies!
+      @snippets.compile(@runtime, @flags.entries)
     end
   end
 end
