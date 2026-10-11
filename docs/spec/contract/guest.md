@@ -32,7 +32,7 @@ Run one invocation of a script and answer with its Outcome.
 
 ```rust
 pub trait Guest {
-    fn eval() -> Outcome;
+    fn eval(frames: Frames, source: Vec<u8>) -> Outcome;
 }
 ```
 
@@ -42,7 +42,7 @@ Call the Entrypoint the host's Run names and answer with its Outcome.
 
 ```rust
 pub trait Guest {
-    fn run(run: Run) -> Outcome;
+    fn run(frames: Frames, run: Run) -> Outcome;
 }
 ```
 
@@ -65,12 +65,20 @@ that did not complete.
 pub enum DispatchError {}
 ```
 
-## `read_frame`
+## `read_eval_frames`
 
-Read the next Frame the host wrote to the Guest's input.
+Read an eval's Frames and the source between them, or the boot failure that stops it.
 
 ```rust
-pub fn read_frame() -> Option<Vec<u8>> {}
+pub fn read_eval_frames() -> Result<(Frames, Vec<u8>), Outcome> {}
+```
+
+## `read_frames`
+
+Read a run's Frames, or the boot failure that stops it.
+
+```rust
+pub fn read_frames() -> Result<Frames, Outcome> {}
 ```
 
 ## `write_outcome`

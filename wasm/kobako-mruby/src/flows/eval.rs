@@ -2,9 +2,7 @@
 //!
 //! Reactor entry that runs three jobs in sequence:
 //!
-//! 1. Read Frame 1 → install preamble groups; read Frame 2 (user
-//!    script); read Frame 3 → replay snippets (docs/wire/abi.md
-//!    § Invocation channels).
+//! 1. Install the bound paths' proxies and replay the snippets.
 //! 2. Evaluate the user script under a `(eval)` ccontext so its IREP
 //!    carries `debug_info` (needed for a populated
 //!    `Exception#backtrace`).
@@ -15,22 +13,17 @@
 //! `__kobako_eval` never traps or calls `exit` — every failure is an
 //! Outcome the host reads after this function returns.
 
-use kobako_transport::envelope::{Outcome, Panic};
+use kobako_transport::envelope::{Frames, Outcome, Panic};
 
-pub(crate) fn eval<G: crate::MrbGuest>() -> Outcome {
-    evaluate::<G>().unwrap_or_else(Outcome::Panic)
+pub(crate) fn eval<G: crate::MrbGuest>(frames: Frames, source: Vec<u8>) -> Outcome {
+    evaluate::<G>(&frames, &source).unwrap_or_else(Outcome::Panic)
 }
 
-fn evaluate<G: crate::MrbGuest>() -> Result<Outcome, Panic> {
+fn evaluate<G: crate::MrbGuest>(frames: &Frames, source: &[u8]) -> Result<Outcome, Panic> {
     use super::{boot, panic};
     use beni::Ccontext;
-    use kobako_core::frames;
 
-    let preamble = boot::read_preamble()?;
-    let frame2 =
-        frames::read_frame().ok_or_else(|| panic::boot_panic("failed to read the script"))?;
-    let snippets = boot::read_snippets()?;
-    let kobako = boot::enter::<G>(&preamble, &snippets)?;
+    let kobako = boot::enter::<G>(frames)?;
     let mrb = kobako.mrb();
 
     // Compile under a ccontext with filename so the resulting IREP
@@ -42,7 +35,7 @@ fn evaluate<G: crate::MrbGuest>() -> Result<Outcome, Panic> {
     let result = {
         let cxt = Ccontext::new(mrb, filename)
             .ok_or_else(|| panic::boot_panic("failed to initialize the Sandbox interpreter"))?;
-        cxt.load_nstring(&frame2)
+        cxt.load_nstring(source)
         // `cxt` drops here — `mrb_ccontext_free` runs automatically.
     };
 

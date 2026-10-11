@@ -140,7 +140,7 @@ A change to the wire therefore stays inside the endpoints and `kobako-transport`
 
 | Crosses a seam | As |
 |---|---|
-| Call, Run, Reply, Yield Reply, Outcome | a `kobako-transport` type, or its fields |
+| Call, Run, Reply, Yield Reply, Outcome, Frames | a `kobako-transport` type, or its fields |
 | a payload | bytes only a codec reads |
 | a result that does not frame | a `Trap` |
 

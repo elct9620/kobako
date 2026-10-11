@@ -55,7 +55,7 @@ beni = "0.22"
 
 ```rust
 use beni::{Error, Mrb};
-use kobako_core::{Outcome, Run, YieldReply};
+use kobako_core::{Frames, Outcome, Run, YieldReply};
 
 struct MyGuest;
 
@@ -73,12 +73,12 @@ impl kobako_mruby::MrbGuest for MyGuest {
 }
 
 impl kobako_core::Guest for MyGuest {
-    fn eval() -> Outcome {
-        <MyGuest as kobako_mruby::MrbGuest>::eval()
+    fn eval(frames: Frames, source: Vec<u8>) -> Outcome {
+        <MyGuest as kobako_mruby::MrbGuest>::eval(frames, source)
     }
 
-    fn run(run: Run) -> Outcome {
-        <MyGuest as kobako_mruby::MrbGuest>::run(run)
+    fn run(frames: Frames, run: Run) -> Outcome {
+        <MyGuest as kobako_mruby::MrbGuest>::run(frames, run)
     }
 
     fn yield_to_block(req: &[u8]) -> YieldReply {

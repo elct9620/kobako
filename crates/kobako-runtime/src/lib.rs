@@ -24,6 +24,6 @@ pub mod yielder;
 pub use dispatch::DispatchHandler;
 pub use error::{InvokeError, SetupError, Trap};
 pub use profile::Profile;
-pub use runtime::{Entry, Frames, Runtime};
+pub use runtime::{Entry, Runtime};
 pub use snapshot::{Capture, Completion, Snapshot, Usage};
 pub use yielder::Yielder;

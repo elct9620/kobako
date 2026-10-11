@@ -7,24 +7,24 @@
 //! `#[no_mangle]` symbol (dependency-rlib exports are unreliable —
 //! they get dead-code-GC'd by wasm-ld and break on native ELF).
 
-use kobako_transport::envelope::{Outcome, Run, YieldReply};
+use kobako_transport::envelope::{Frames, Outcome, Run, YieldReply};
 
 /// One Guest Binary's invocation surface — the three entry
 /// points behind the wasm exports `export_guest!` emits.
 ///
 /// Each entry answers with a value and never touches the wire:
-/// `export_guest!` reads the Run and frames each answer, so a guest
-/// cannot speak a different envelope than the host reads. `eval` and
+/// `export_guest!` reads the Frames and the Run and frames each answer,
+/// so a guest cannot speak a different envelope than the host reads. `eval` and
 /// `run` are required. `yield_to_block` carries a trapping default — a
 /// guest without block support panics, which reaches the host as a
 /// wasm trap through its existing trap path (no dedicated "no blocks"
 /// wire value needed).
 pub trait Guest {
-    /// `__kobako_eval` — runs one-shot user source from stdin Frame 2.
-    fn eval() -> Outcome;
+    /// `__kobako_eval` — runs one-shot user source.
+    fn eval(frames: Frames, source: Vec<u8>) -> Outcome;
 
     /// `__kobako_run` — calls the entrypoint the host's Run names.
-    fn run(run: Run) -> Outcome;
+    fn run(frames: Frames, run: Run) -> Outcome;
 
     /// `__kobako_yield_to_block` — host-initiated re-entry into a
     /// guest block; `req` carries the yield arguments.
@@ -52,7 +52,11 @@ macro_rules! export_guest {
     ($guest:ty) => {
         #[no_mangle]
         pub extern "C" fn __kobako_eval() {
-            $crate::abi::write_outcome(<$guest as $crate::Guest>::eval())
+            let outcome = match $crate::frames::read_eval_frames() {
+                Ok((frames, source)) => <$guest as $crate::Guest>::eval(frames, source),
+                Err(refused) => refused,
+            };
+            $crate::abi::write_outcome(outcome)
         }
 
         #[no_mangle]
@@ -64,8 +68,10 @@ macro_rules! export_guest {
             let env = unsafe {
                 ::core::slice::from_raw_parts(env_ptr as usize as *const u8, env_len as usize)
             };
-            let outcome = match $crate::abi::decode_run(env) {
-                Ok(run) => <$guest as $crate::Guest>::run(run),
+            let outcome = match $crate::abi::decode_run(env)
+                .and_then(|run| $crate::frames::read_frames().map(|frames| (frames, run)))
+            {
+                Ok((frames, run)) => <$guest as $crate::Guest>::run(frames, run),
                 Err(refused) => refused,
             };
             $crate::abi::write_outcome(outcome)
@@ -101,17 +107,17 @@ macro_rules! export_guest {
 #[cfg(test)]
 mod tests {
     use super::Guest;
-    use kobako_transport::envelope::{Outcome, Run};
+    use kobako_transport::envelope::{Frames, Outcome, Run};
 
     /// A guest that opts out of block support by leaving the
     /// `yield_to_block` default in place.
     struct NoBlockGuest;
 
     impl Guest for NoBlockGuest {
-        fn eval() -> Outcome {
+        fn eval(_frames: Frames, _source: Vec<u8>) -> Outcome {
             Outcome::Ok(Vec::new())
         }
-        fn run(_run: Run) -> Outcome {
+        fn run(_frames: Frames, _run: Run) -> Outcome {
             Outcome::Ok(Vec::new())
         }
     }

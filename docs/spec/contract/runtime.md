@@ -23,7 +23,7 @@ Run one invocation through the given entry, routing each Call to the handler.
 
 ```rust
 pub trait Runtime {
-    fn invoke(&self, entry: Entry<'_>, frames: Frames<'_>, handler: Option<Arc<dyn DispatchHandler>>) -> Result<Snapshot, InvokeError>;
+    fn invoke(&self, entry: Entry<'_>, frames: &Frames, handler: Option<Arc<dyn DispatchHandler>>) -> Result<Snapshot, InvokeError>;
 }
 ```
 
@@ -82,14 +82,6 @@ Which invocation export an invocation enters through.
 
 ```rust
 pub enum Entry {}
-```
-
-## `Frames`
-
-The registrations and Snippets an invocation replays before its entry runs.
-
-```rust
-pub struct Frames {}
 ```
 
 ## `Snapshot`

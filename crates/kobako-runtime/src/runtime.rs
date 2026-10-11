@@ -9,15 +9,17 @@
 
 use std::sync::Arc;
 
+use kobako_transport::envelope::Frames;
+
 use crate::dispatch::DispatchHandler;
 use crate::error::InvokeError;
 use crate::profile::Profile;
 use crate::snapshot::Snapshot;
 
 /// The per-invocation entry: a one-shot mruby source (`Eval`) or an
-/// entrypoint and its payload (`Run`). Both ride alongside the stdin
-/// `Frames`; the runtime frames `Run` into its envelope, so a frontend
-/// never encodes one. The payload is owned so that framing it needs no
+/// entrypoint and its payload (`Run`). Both ride alongside the Sandbox's
+/// `Frames`; the runtime frames `Run` and the `Frames` onto the wire, so
+/// a frontend never encodes either. The payload is owned so that framing it needs no
 /// second copy.
 ///
 /// Closed rather than `#[non_exhaustive]`: the arms are the ABI's
@@ -32,13 +34,6 @@ pub enum Entry<'a> {
         entrypoint: &'a str,
         payload: Vec<u8>,
     },
-}
-
-/// The stdin frames shared by both entries: the Frame 1 preamble (the
-/// Sandbox's registrations) and the Frame 3 snippet-replay payload.
-pub struct Frames<'a> {
-    pub preamble: &'a [u8],
-    pub snippets: &'a [u8],
 }
 
 /// Engine-neutral runtime: drives one guest invocation on a fresh instance
@@ -57,7 +52,7 @@ pub trait Runtime {
     fn invoke(
         &self,
         entry: Entry<'_>,
-        frames: Frames<'_>,
+        frames: &Frames,
         handler: Option<Arc<dyn DispatchHandler>>,
     ) -> Result<Snapshot, InvokeError>;
 

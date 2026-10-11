@@ -23,9 +23,9 @@ use crate::{capture, frames, instance_pre, trap};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
+use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
-use kobako_transport::envelope::Run;
+use kobako_transport::envelope::{Frames, Run};
 
 /// The wasmtime execution unit behind one sandbox runtime.
 pub struct Driver {
@@ -146,16 +146,18 @@ impl ContractRuntime for Driver {
     fn invoke(
         &self,
         entry: Entry<'_>,
-        frames: Frames<'_>,
+        frames: &Frames,
         handler: Option<Arc<dyn DispatchHandler>>,
     ) -> Result<Snapshot, InvokeError> {
         let mut store = self.new_store()?;
         if let Some(handler) = handler {
             store.data_mut().bind_on_dispatch(handler);
         }
+        let bindings = frames.bindings.encode();
+        let snippets = frames.snippets.encode();
         let frame_list: Vec<&[u8]> = match &entry {
-            Entry::Eval { source } => vec![frames.preamble, source, frames.snippets],
-            Entry::Run { .. } => vec![frames.preamble, frames.snippets],
+            Entry::Eval { source } => vec![&bindings, source, &snippets],
+            Entry::Run { .. } => vec![&bindings, &snippets],
         };
         frames::install_wasi_frames(&mut store, &self.config, &frame_list)?;
         let exports = self.instantiate(&mut store)?;

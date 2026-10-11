@@ -9,9 +9,9 @@
 use std::sync::{Arc, Mutex};
 
 use kobako_runtime::dispatch::DispatchHandler;
-use kobako_runtime::runtime::{Entry, Frames, Runtime};
+use kobako_runtime::runtime::{Entry, Runtime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
-use kobako_transport::envelope::Outcome;
+use kobako_transport::envelope::{Frames, Outcome};
 
 use kobako::{Error, Options, Profile, RunPayload, Sandbox};
 
@@ -20,7 +20,7 @@ use kobako::{Error, Options, Profile, RunPayload, Sandbox};
 struct Canned {
     payload: Vec<u8>,
     profile: Profile,
-    preambles: Arc<Mutex<Vec<Vec<u8>>>>,
+    bound: Arc<Mutex<Vec<Vec<String>>>>,
 }
 
 impl Canned {
@@ -28,7 +28,7 @@ impl Canned {
         Canned {
             payload,
             profile,
-            preambles: Arc::new(Mutex::new(Vec::new())),
+            bound: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -37,13 +37,13 @@ impl Runtime for Canned {
     fn invoke(
         &self,
         _entry: Entry<'_>,
-        frames: Frames<'_>,
+        frames: &Frames,
         _handler: Option<Arc<dyn DispatchHandler>>,
     ) -> Result<Snapshot, kobako_runtime::error::InvokeError> {
-        self.preambles
+        self.bound
             .lock()
             .unwrap()
-            .push(frames.preamble.to_vec());
+            .push(frames.bindings.paths.clone());
         Ok(Snapshot {
             completion: Completion::Outcome(Outcome::Ok(self.payload.clone())),
             stdout: Capture::default(),
@@ -61,7 +61,7 @@ impl Runtime for Canned {
 #[test]
 fn an_injected_runtime_drives_an_invocation_the_sandbox_set_up() {
     let engine = Canned::new(vec![0x2a], Profile::Hermetic);
-    let preambles = engine.preambles.clone();
+    let bound = engine.bound.clone();
     let mut sandbox = Sandbox::with_runtime(engine, Profile::Hermetic)
         .expect("a hermetic engine meets the floor");
     sandbox.bind_fillable("MyService::KV").unwrap();
@@ -69,10 +69,7 @@ fn an_injected_runtime_drives_an_invocation_the_sandbox_set_up() {
     let execution = sandbox.run("App", RunPayload::bytes(vec![0x01])).unwrap();
 
     assert_eq!(
-        (
-            execution.payload().unwrap(),
-            preambles.lock().unwrap().len()
-        ),
+        (execution.payload().unwrap(), bound.lock().unwrap().len()),
         (&[0x2a][..], 1),
         "a Sandbox over a caller's engine must drive that engine once per invocation \
          and hand back the outcome it produced"
@@ -83,15 +80,16 @@ fn an_injected_runtime_drives_an_invocation_the_sandbox_set_up() {
 #[test]
 fn an_injected_runtime_carries_the_registrations_the_sandbox_sealed() {
     let engine = Canned::new(Vec::new(), Profile::Hermetic);
-    let preambles = engine.preambles.clone();
+    let bound = engine.bound.clone();
     let mut sandbox = Sandbox::with_runtime(engine, Profile::Hermetic).unwrap();
     sandbox.bind_fillable("MyService::KV").unwrap();
 
     sandbox.eval("1").unwrap();
 
-    assert!(
-        !preambles.lock().unwrap()[0].is_empty(),
-        "an engine behind the contract must be handed the sealed catalog's Frame 1, \
+    assert_eq!(
+        bound.lock().unwrap()[0],
+        vec!["MyService::KV".to_string()],
+        "an engine behind the contract must be handed the sealed catalog's bindings, \
          since registration is the Sandbox's and never the engine's"
     );
 }

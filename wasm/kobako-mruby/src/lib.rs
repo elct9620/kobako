@@ -34,7 +34,7 @@ pub use msgpack::MsgpackCodec;
 pub use runtime::{InstallError, IntegerOutOfRange, Kobako};
 
 use beni::{Error, Mrb};
-use kobako_transport::envelope::{Outcome, Run, YieldReply};
+use kobako_transport::envelope::{Frames, Outcome, Run, YieldReply};
 
 /// The assembled mruby guest as a template: implement `init_gems`
 /// and inherit the provided flows.
@@ -56,22 +56,22 @@ pub trait MrbGuest {
     /// reaches the host as a `Kobako::BootError` Panic.
     fn init_gems(mrb: &Mrb) -> Result<(), Error>;
 
-    /// `__kobako_eval` — runs one-shot user source from stdin Frame 2
-    /// and answers with its Outcome.
-    fn eval() -> Outcome
+    /// `__kobako_eval` — runs one-shot user source and answers with its
+    /// Outcome.
+    fn eval(frames: Frames, source: Vec<u8>) -> Outcome
     where
         Self: Sized,
     {
-        flows::eval::<Self>()
+        flows::eval::<Self>(frames, source)
     }
 
     /// `__kobako_run` — calls the entrypoint the host's Run names and
     /// answers with its Outcome.
-    fn run(run: Run) -> Outcome
+    fn run(frames: Frames, run: Run) -> Outcome
     where
         Self: Sized,
     {
-        flows::run::<Self>(run)
+        flows::run::<Self>(frames, run)
     }
 
     /// `__kobako_yield_to_block` — host-initiated re-entry into the

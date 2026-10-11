@@ -14,14 +14,14 @@ compiler-checked contract.
 |---|---|
 | `Guest` trait + `export_guest!` | the export set as a trait; the macro emits each `#[no_mangle]` export |
 | `proxy` / `dispatch` | the guest dispatch path to the host over `__kobako_dispatch` |
-| `abi` / `frames` | the framing each export applies, stdin frame reader, and `ABI_VERSION` |
+| `abi` / `frames` | the framing each export applies, the Frames each entry reads, and `ABI_VERSION` |
 
 The messages themselves live in
 [kobako-transport](https://crates.io/crates/kobako-transport): the
 envelopes, the Outcome records, and the ABI's own values. It is this
 crate's only dependency and the tier every kobako assembly shares. The
-messages a `Guest` takes and answers with — `Outcome`, `Run` and
-`YieldReply` — are re-exported here. A payload codec is not among them:
+messages a `Guest` takes and answers with — `Frames`, `Outcome`, `Run`
+and `YieldReply` — are re-exported here. A payload codec is not among them:
 this crate routes messages without reading one, so a guest speaking its
 own schema builds on it unchanged.
 
@@ -36,13 +36,13 @@ kobako-core = "0.17.0" # x-release-please-version
 ```
 
 ```rust
-use kobako_core::{Guest, Outcome, Run};
+use kobako_core::{Frames, Guest, Outcome, Run};
 
 struct MyGuest;
 
 impl Guest for MyGuest {
-    fn eval() -> Outcome { /* run one invocation */ }
-    fn run(run: Run) -> Outcome { /* call run.entrypoint */ }
+    fn eval(frames: Frames, source: Vec<u8>) -> Outcome { /* run the source */ }
+    fn run(frames: Frames, run: Run) -> Outcome { /* call run.entrypoint */ }
     // yield_to_block keeps its trapping default for guests
     // without block support
 }

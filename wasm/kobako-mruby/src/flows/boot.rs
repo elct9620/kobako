@@ -2,9 +2,9 @@
 //!
 //! Both entry points acquire a VM in the canonical boot state —
 //! reusing the slot a build-time pre-initialized image baked, or
-//! booting lazily — then materialise
-//! the Frame 1 preamble's proxy classes and replay any preloaded Frame 3
-//! snippets before running the entry-specific body. A step that fails
+//! booting lazily — then materialise the bound paths' proxy classes
+//! and replay any preloaded snippets before running the entry-specific
+//! body. A step that fails
 //! before any guest code runs surfaces as a Panic with
 //! `origin = sandbox` and `name = "Kobako::BootError"`.
 //!
@@ -18,33 +18,14 @@ use super::panic::{boot_panic, load_panic, panic_from_error};
 use crate::runtime::Kobako;
 use beni::Ccontext;
 use beni::Mrb;
-use kobako_transport::envelope::{Bindings, ErrorRecord, Origin, Panic, Snippet, Snippets};
+use kobako_transport::envelope::{ErrorRecord, Frames, Origin, Panic, Snippet};
 
-pub(super) fn read_preamble() -> Result<Vec<String>, Panic> {
-    let bytes = kobako_core::frames::read_frame()
-        .ok_or_else(|| boot_panic("failed to read the Sandbox setup data"))?;
-    Bindings::decode(&bytes)
-        .map(|bindings| bindings.paths)
-        .map_err(|_| boot_panic("failed to decode the Sandbox setup data"))
-}
-
-pub(super) fn read_snippets() -> Result<Vec<Snippet>, Panic> {
-    let bytes = kobako_core::frames::read_frame()
-        .ok_or_else(|| boot_panic("failed to read the preloaded snippets"))?;
-    Snippets::decode(&bytes)
-        .map(|snippets| snippets.entries)
-        .map_err(|_| boot_panic("failed to decode the preloaded snippets"))
-}
-
-/// Every entry starts the same way once its frames are read, so the VM an
-/// entry body runs on is set up in one place.
-pub(super) fn enter<G: crate::MrbGuest>(
-    preamble: &[String],
-    snippets: &[Snippet],
-) -> Result<Kobako, Panic> {
+/// Every entry starts the same way from its Frames, so the VM an entry
+/// body runs on is set up in one place.
+pub(super) fn enter<G: crate::MrbGuest>(frames: &Frames) -> Result<Kobako, Panic> {
     let kobako = acquire_vm::<G>()?;
-    install_preamble(&kobako, preamble)?;
-    replay_snippets(&kobako, snippets)?;
+    install_preamble(&kobako, &frames.bindings.paths)?;
+    replay_snippets(&kobako, &frames.snippets.entries)?;
     Ok(kobako)
 }
 

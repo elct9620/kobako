@@ -1,17 +1,15 @@
 //! `__kobako_run` — entrypoint dispatch entry.
 //!
-//! `export_guest!` has already read the host-supplied Run envelope, so
-//! this flow starts from its fields. Frames read from stdin: Frame 1
-//! preamble + Frame 3 snippets (docs/wire/abi.md § Invocation
-//! channels). Frame 2 is the `#eval` user source and never reaches
-//! here — the entrypoint is already resident as a top-level constant a
-//! preloaded snippet contributed.
+//! `export_guest!` has already read the Frames and the host-supplied
+//! Run envelope, so this flow starts from their fields. The entrypoint
+//! is already resident as a top-level constant a preloaded snippet
+//! contributed.
 //!
 //! Body sequence:
 //!
-//! 1. Read preamble + snippets; init mrb; install kobako runtime +
-//!    preamble proxy classes; replay snippets. Any failure answers a
-//!    Panic Outcome with the snippet's backtrace attribution.
+//! 1. Init mrb; install kobako runtime + the bound paths' proxy
+//!    classes; replay snippets. Any failure answers a Panic Outcome
+//!    with the snippet's backtrace attribution.
 //! 2. Decode the Run's payload through the codec. A failure answers a
 //!    Panic Outcome.
 //! 3. Resolve the entrypoint Symbol against top-level `Object` via
@@ -28,20 +26,18 @@
 //!    value as an ok Outcome or convert the raised exception into a
 //!    Panic Outcome.
 
-use kobako_transport::envelope::{Outcome, Panic, Run};
+use kobako_transport::envelope::{Frames, Outcome, Panic, Run};
 
-pub(crate) fn run<G: crate::MrbGuest>(run: Run) -> Outcome {
-    call_entrypoint::<G>(run).unwrap_or_else(Outcome::Panic)
+pub(crate) fn run<G: crate::MrbGuest>(frames: Frames, run: Run) -> Outcome {
+    call_entrypoint::<G>(&frames, run).unwrap_or_else(Outcome::Panic)
 }
 
-fn call_entrypoint<G: crate::MrbGuest>(run: Run) -> Result<Outcome, Panic> {
+fn call_entrypoint<G: crate::MrbGuest>(frames: &Frames, run: Run) -> Result<Outcome, Panic> {
     use super::{boot, panic};
     use crate::codec::PayloadCodec;
     use beni::{Module, ReprValue};
 
-    let preamble = boot::read_preamble()?;
-    let snippets = boot::read_snippets()?;
-    let kobako = boot::enter::<G>(&preamble, &snippets)?;
+    let kobako = boot::enter::<G>(frames)?;
     let mrb = kobako.mrb();
 
     // A payload the codec cannot read rejects here, before entrypoint
@@ -67,7 +63,7 @@ fn call_entrypoint<G: crate::MrbGuest>(run: Run) -> Result<Outcome, Panic> {
         .check_id(run.entrypoint.as_bytes())
         .filter(|&sym| object_class.const_defined(mrb, sym));
     let Some(target_sym) = defined else {
-        let available = super::boot_constants::snippet_constants(&kobako, &preamble);
+        let available = super::boot_constants::snippet_constants(&kobako, &frames.bindings.paths);
         return Err(Panic {
             available,
             ..panic::sandbox_panic(

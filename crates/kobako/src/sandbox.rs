@@ -15,8 +15,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use kobako_runtime::profile::Profile;
-use kobako_runtime::runtime::{Entry, Frames, Runtime};
+use kobako_runtime::runtime::{Entry, Runtime};
 use kobako_runtime::snapshot::{Completion, Snapshot};
+use kobako_transport::envelope::Frames;
 #[cfg(feature = "wasmtime")]
 use kobako_wasmtime::{Config, Driver};
 
@@ -281,17 +282,12 @@ impl Sandbox {
         mut resolved: Resolved,
     ) -> Result<Execution, Error> {
         resolved.extend(self.extensions.resolve());
-        let preamble = catalog.preamble();
-        let snippets = catalog.snippets.frame();
+        let frames = Frames {
+            bindings: catalog.bound_paths(),
+            snippets: catalog.snippets.frame().clone(),
+        };
         let handler = Arc::new(CatalogHandler::new(catalog, handles.clone(), resolved));
-        let snapshot = self.runtime.invoke(
-            entry,
-            Frames {
-                preamble: &preamble,
-                snippets: &snippets,
-            },
-            Some(handler),
-        )?;
+        let snapshot = self.runtime.invoke(entry, &frames, Some(handler))?;
         Ok(build_execution(snapshot, handles))
     }
 

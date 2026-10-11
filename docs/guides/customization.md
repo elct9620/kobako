@@ -52,7 +52,7 @@ The types those seams carry, by grade:
 
 | Grade | Names |
 |---|---|
-| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_core::frames::read_frame` · `kobako_mruby::{Kobako, Arguments, dispatch, IntegerOutOfRange, MsgpackCodec}` · `kobako_runtime::{Snapshot, Capture, Usage, Frames}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, Arguments, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Options, Execution, Context, Handles, RunPayload, Backend, Yielder}` · `kobako::handles::Detached` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::{Config, Driver}` |
+| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_core::frames::{read_eval_frames, read_frames}` · `kobako_mruby::{Kobako, Arguments, dispatch, IntegerOutOfRange, MsgpackCodec}` · `kobako_runtime::{Snapshot, Capture, Usage}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, Arguments, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Options, Execution, Context, Handles, RunPayload, Backend, Yielder}` · `kobako::handles::Detached` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::{Config, Driver}` |
 | **stable · exhaustive** | `kobako_runtime::{Profile, Entry, Completion}` · `kobako_codec::msgpack::Value` · `kobako::{Provider, msgpack::RunArg}` |
 | **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension}` · `kobako::msgpack::ValueReceiver` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |

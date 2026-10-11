@@ -32,9 +32,9 @@ use std::time::Duration;
 
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::runtime::{Entry, Frames, Runtime as ContractRuntime};
+use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Completion, Snapshot as RuntimeSnapshot};
-use kobako_transport::envelope::{Bindings, Outcome, Snippet, Snippets};
+use kobako_transport::envelope::{Bindings, Frames, Outcome, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
 /// A Panic's fields as they cross to Ruby: origin, class, message,
@@ -51,18 +51,9 @@ fn rstring_to_vec(s: RString) -> Vec<u8> {
     unsafe { s.as_slice() }.to_vec()
 }
 
-/// The core envelope's byte layout lives on this side of the boundary, so
-/// the registry stays a registry and never holds a wire image.
-fn frame_preamble(paths: RArray) -> Result<Vec<u8>, MagnusError> {
-    Ok(Bindings {
-        paths: paths.to_vec()?,
-    }
-    .encode())
-}
-
-/// `kind` arrives as a Symbol so the wire's discriminant byte stays here;
-/// an off-ladder kind raises rather than defaulting.
-fn frame_snippets(ruby: &Ruby, entries: RArray) -> Result<Vec<u8>, MagnusError> {
+/// `kind` arrives as a Symbol so the registry never names the wire's
+/// discriminant; an off-ladder kind raises rather than defaulting.
+fn snippets_from(ruby: &Ruby, entries: RArray) -> Result<Snippets, MagnusError> {
     let mut frame = Snippets {
         entries: Vec::with_capacity(entries.len()),
     };
@@ -85,7 +76,7 @@ fn frame_snippets(ruby: &Ruby, entries: RArray) -> Result<Vec<u8>, MagnusError> 
             }
         });
     }
-    Ok(frame.encode())
+    Ok(frame)
 }
 
 // ---------------------------------------------------------------------------
@@ -261,20 +252,17 @@ impl Runtime {
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let handler = build_handler(dispatch);
-        let preamble = frame_preamble(paths)?;
-        let snippets = frame_snippets(&ruby, snippets)?;
+        let frames = Frames {
+            bindings: Bindings {
+                paths: paths.to_vec()?,
+            },
+            snippets: snippets_from(&ruby, snippets)?,
+        };
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // the closure touches no Ruby VALUE (the driver is magnus-free, and a
         // guest→host dispatch re-acquires the GVL through the bridge).
         let result = gvl::region(self.release_gvl, || {
-            self.driver.invoke(
-                entry,
-                Frames {
-                    preamble: &preamble,
-                    snippets: &snippets,
-                },
-                handler,
-            )
+            self.driver.invoke(entry, &frames, handler)
         });
         result
             .map(Snapshot)

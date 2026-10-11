@@ -1,5 +1,5 @@
 //! Per-Sandbox Service registry: the flat path→object bindings, the
-//! Frame 1 preamble they encode into, and the preloaded snippet table
+//! Frame the guest installs them from, and the preloaded snippet table
 //! sealed alongside them.
 //!
 //! The SDK twin of the Ruby gem's `Kobako::Catalog`: the registration
@@ -63,11 +63,10 @@ impl Catalog {
             .map(|(_, object)| object.clone())
     }
 
-    pub(crate) fn preamble(&self) -> Vec<u8> {
+    pub(crate) fn bound_paths(&self) -> Bindings {
         Bindings {
             paths: self.bindings.iter().map(|(path, _)| path.clone()).collect(),
         }
-        .encode()
     }
 }
 
@@ -138,31 +137,20 @@ mod tests {
         }
     }
 
-    // The preamble is the guest's registration input; bind order is the
-    // property that matters to it, so read it back through the envelope
-    // rather than pinning bytes the envelope's own tests already own.
+    // The bound paths are the guest's registration input; bind order is
+    // the property that matters to it.
     // @behavior S-020
     #[test]
-    fn the_preamble_carries_every_bound_path_in_bind_order() {
+    fn the_bound_paths_keep_bind_order() {
         let mut catalog = Catalog::default();
         bound(&mut catalog, "MyService::KV").expect("a constant path binds");
         bound(&mut catalog, "File").expect("a single segment is a whole path");
         assert_eq!(
-            Bindings::decode(&catalog.preamble()),
-            Ok(Bindings {
+            catalog.bound_paths(),
+            Bindings {
                 paths: vec!["MyService::KV".into(), "File".into()]
-            }),
-            "a bound catalog must send every path on Frame 1 in bind order"
-        );
-    }
-
-    // @behavior WE-050
-    #[test]
-    fn an_empty_catalog_sends_a_present_empty_preamble() {
-        assert_eq!(
-            Bindings::decode(&Catalog::default().preamble()),
-            Ok(Bindings::default()),
-            "a catalog with no bindings must send a present, empty Frame 1"
+            },
+            "a bound catalog must hand the runtime every path in bind order"
         );
     }
 }

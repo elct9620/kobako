@@ -207,7 +207,7 @@ The flow that runs one invocation of a script and answers with its Outcome.
 
 ```rust
 pub trait MrbGuest {
-    fn eval() -> Outcome;
+    fn eval(frames: Frames, source: Vec<u8>) -> Outcome;
 }
 ```
 
@@ -217,7 +217,7 @@ The flow that calls the Entrypoint the host's Run names and answers with its Out
 
 ```rust
 pub trait MrbGuest {
-    fn run(run: Run) -> Outcome;
+    fn run(frames: Frames, run: Run) -> Outcome;
 }
 ```
 
