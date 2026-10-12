@@ -11,7 +11,7 @@ The behavior itself is specified in [`spec/behavior/`](../spec/behavior/).
    resource caps                        what each Service may do
    wire / return-value guardrails       input validation on Service args
    per-invocation + cross-Sandbox       one Sandbox per trust context
-     isolation
+     isolation                          where preloaded bytecode came from
 ```
 
 The guest's only path outward is a Service you injected. Guest code can name any
@@ -53,6 +53,18 @@ The request is also a floor. Keep the default when the engine is swappable. An
 engine that cannot deny ambient authority is then refused at construction, not
 silently weakening these guarantees. The ladder is specified in
 [runtime](../spec/behavior/runtime.md).
+
+## Preloaded Bytecode
+
+`preload(binary:)` runs its blob as guest code without compiling it. mruby checks
+the blob's structure, not its instructions, so trust a blob as you trust host
+code. A blob outside that trust stays inside the Wasm sandbox. It can corrupt only
+the guest's own memory, which the host already treats as hostile.
+
+| Blob | Pass it to `preload(binary:)` |
+|---|---|
+| unmodified compiler output of the Guest Binary's mruby release | yes |
+| anything else, such as an upload or a hand-edited dump | no; preload the source instead |
 
 ## Service Design
 

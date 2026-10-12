@@ -83,7 +83,8 @@ module Kobako
     # [<tt>preload(code: source, name: Name)</tt>]
     #   mruby source, named <tt>(snippet:Name)</tt> in backtraces.
     # [<tt>preload(binary: bytes)</tt>]
-    #   Precompiled RITE bytecode.
+    #   Precompiled RITE bytecode, trusted as host code: the unmodified
+    #   compiler output of the mruby release the Guest Binary is built on.
     #
     # Raises ArgumentError for a malformed or duplicate snippet, or a call
     # after the first invocation. A snippet that fails to load fails every
