@@ -16,7 +16,6 @@
 //! are always sandbox-origin even when the raised class would otherwise
 //! map to "service" — preloaded snippets are sandbox code.
 
-use super::bytecode;
 use super::panic::{boot_panic, load_panic, panic_from_error, sandbox_panic};
 use crate::runtime::Kobako;
 use beni::Ccontext;
@@ -165,8 +164,15 @@ pub(super) fn snippet_context<'mrb>(
 /// `Kobako::BytecodeError`; a program that loaded and then raised keeps the
 /// class it raised, `ScriptError` itself included.
 fn load_bytecode_snippet(kobako: &Kobako, body: &[u8]) -> Result<(), Panic> {
-    bytecode::load(kobako.mrb(), body).map_err(|failure| match failure {
-        bytecode::Failure::Unreadable(check) => sandbox_panic("Kobako::BytecodeError", check),
-        bytecode::Failure::Raised(err) => replay_panic(panic_from_error(kobako, err)),
-    })
+    let mrb = kobako.mrb();
+    // SAFETY: a blob from `compile` is this Guest Binary's own dump; one
+    // from `preload(binary:)` is vouched for by the host that supplied it.
+    // A blob breaking that promise can reach only this guest's own linear
+    // memory, which the host already treats as hostile.
+    let program = unsafe { mrb.read_irep(body) }
+        .map_err(|err| sandbox_panic("Kobako::BytecodeError", err.message(mrb)))?;
+    program
+        .call(mrb, &[])
+        .map(drop)
+        .map_err(|err| replay_panic(panic_from_error(kobako, err)))
 }
