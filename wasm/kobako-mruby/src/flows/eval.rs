@@ -41,7 +41,7 @@ fn evaluate<G: crate::MrbGuest>(preamble: &Preamble, source: &[u8]) -> Result<Ou
     };
 
     // The VM stays in the slot — the host discards the whole instance
-    // after draining the outcome (the per-invocation discipline).
+    // once the outcome is answered (the per-invocation discipline).
     match result {
         Ok(value) => Ok(panic::value_outcome::<G>(&kobako, value)),
         Err(err) => Err(panic::load_panic(&kobako, filename, err)),

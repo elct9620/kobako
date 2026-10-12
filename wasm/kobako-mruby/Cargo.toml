@@ -1,9 +1,9 @@
 # kobako-mruby — the assembled mruby implementation of the Guest ABI.
 #
 # The `MrbGuest` trait harness (required `init_gems` hook + a
-# `Codec` choice + provided `eval` / `run` / `yield_to_block`
-# flows over mruby), the wire-tied `KobakoBridge` built-in gem (Service
-# / Handle dispatch, block/yield machinery), and the bundled
+# `Codec` choice + provided `eval` / `run` / `yield_to_block` /
+# `compile` flows over mruby), the wire-tied `KobakoBridge` built-in gem
+# (Service / Handle dispatch, block/yield machinery), and the bundled
 # MessagePack codec behind the `msgpack` feature. A guest shell
 # implements `MrbGuest`, forwards `kobako_core::Guest` to it, and emits
 # the exports with `kobako_core::export_guest!` — the in-repo

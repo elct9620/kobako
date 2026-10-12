@@ -114,7 +114,7 @@ Version `4` carries the operation in the message, so an added operation is a reg
 |----------|-------------|
 | one message symbol per direction | the symbol set stays at four |
 | one tag space for every message | an answer's tag never collides across operations |
-| every answer is a return value | no outcome buffer to drain after a call |
+| every answer is a return value | a call and its answer are one round trip |
 | field placement follows whose data it is | a Fault rides the envelope, readable without a codec |
 | setup is a counted list of records, each marked critical or advisory | a new kind of setup joins without a version |
 | a fresh instance per invocation entry | the guest may exit with dirty interpreter state |

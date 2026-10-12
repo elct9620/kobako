@@ -1,6 +1,6 @@
-//! Boot helpers shared by the `eval` and `run` downcalls.
+//! Boot helpers shared by the `eval`, `run` and `compile` downcalls.
 //!
-//! Both entry points acquire a VM in the canonical boot state —
+//! `eval` and `run` acquire a VM in the canonical boot state —
 //! reusing the slot a build-time pre-initialized image baked, or
 //! booting lazily — then apply the Preamble's flags, materialise the
 //! bound paths' proxy classes, and replay any preloaded snippets before

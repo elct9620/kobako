@@ -24,8 +24,8 @@ use kobako_runtime::dispatch::DispatchHandler;
 use crate::exports::Exports;
 use crate::limiter::MemoryLimiter;
 
-/// Per-invocation host state — the data half of the Single-Invocation
-/// Slot. Threaded through every host import callback.
+/// Per-invocation host state, owned by the invocation's own Store.
+/// Threaded through every host import callback.
 ///
 /// All field access is mediated by methods on this type — the WASI ctx
 /// is rebuilt fresh before each invocation via
@@ -150,7 +150,7 @@ impl Invocation {
     }
 
     /// Disarmed once the export returns, so post-run host bookkeeping such
-    /// as fetching the OUTCOME_BUFFER is not charged to the script.
+    /// as reading the answer back is not charged to the script.
     pub(crate) fn disarm_memory_cap(&mut self) {
         self.limiter.deactivate();
     }

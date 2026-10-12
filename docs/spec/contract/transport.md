@@ -19,7 +19,7 @@ pub const ABI_VERSION: u32;
 
 ## `FRAME_LEN_SIZE`
 
-The width of the length prefix in front of each Frame.
+The width of the length prefix that frames a message on stdin.
 
 ```rust
 pub const FRAME_LEN_SIZE: usize;
@@ -35,7 +35,7 @@ pub const MAX_DISPATCH_PAYLOAD: usize;
 
 ## `MAX_FRAME_LEN`
 
-The largest declared length a reader allocates a Frame for.
+The largest declared length a reader allocates a framed message for.
 
 ```rust
 pub const MAX_FRAME_LEN: usize;

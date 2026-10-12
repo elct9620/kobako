@@ -4,8 +4,8 @@
 # crates under a single workspace so they share a `target/` directory,
 # `Cargo.lock`, and `[profile.release]` settings. The repo-root
 # `Cargo.toml` explicitly excludes `wasm` (see the root manifest's
-# `exclude = ["wasm", "vendor"]`), so this sub-workspace stays isolated
-# from the host (`wasmtime`) dependency graph that lives there.
+# `exclude = ["wasm", "vendor", "crates"]`), so this sub-workspace stays
+# isolated from the host (`wasmtime`) dependency graph that lives there.
 #
 # Members
 # -------

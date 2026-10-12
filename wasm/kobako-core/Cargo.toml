@@ -1,7 +1,7 @@
 # kobako-core — Guest ABI contract crate.
 #
-# The language-agnostic half of the guest: the ABI exports, stdin
-# frame reader, and dispatch proxy a kobako Guest Binary needs, built
+# The language-agnostic half of the guest: the `export_guest!` macro,
+# Preamble reader, and dispatch proxy a kobako Guest Binary needs, built
 # on the fixed tier (`kobako-transport`) and free of mruby so it
 # compiles on every target. The assembled mruby guest (`kobako-wasm`,
 # this workspace) consumes it as a path dependency; third-party guests

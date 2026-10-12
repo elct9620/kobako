@@ -25,7 +25,7 @@ A codec owns exactly these positions; everything else in a message is the envelo
 | Outcome `body`, ok | the invocation's value |
 | Run `payload` | the entrypoint's `args` and `kwargs` |
 
-The envelope's own text fields, such as `method` or `origin`, never reach this codec. A snippet frame's body is raw source or bytecode, not a payload.
+The envelope's own text fields, such as `method` or `origin`, never reach this codec. A Preamble snippet's body is raw source or bytecode, not a payload.
 
 ### Argument Shape
 

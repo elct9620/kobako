@@ -100,8 +100,9 @@ impl GuestYielder {
         let bytes = super::rstring_to_vec(args);
         // SAFETY: `yielder` is `Some`, so `invalidate` has not run — the
         // dispatch frame that lent the `&mut dyn Yielder` is still on the
-        // Rust stack, and the Single-Invocation Slot guarantees no other
-        // frame aliases it. The borrow ends with this method.
+        // Rust stack, and each dispatch frame lends its own Yielder on the
+        // one thread driving the invocation, so no other frame aliases it.
+        // The borrow ends with this method.
         let yielder: &mut dyn Yielder = unsafe { ptr.as_mut() };
         let reply = yielder
             .yield_to_block(&bytes)
