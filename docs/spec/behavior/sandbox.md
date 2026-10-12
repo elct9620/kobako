@@ -1602,3 +1602,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox with preloaded source whose top-level expression raises `ScriptError` itself |
 | When | the first invocation runs |
 | Then | the failure carries `ScriptError`, not a bytecode failure |
+
+## `S-191` A snippet runs on the script's own top-level self
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-052` |
+| relates | `S-186` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox carrying a preloaded snippet that sets an instance variable at its top level |
+| When | an evaluation reads that instance variable at its top level |
+| Then | it reads the value the snippet set |
