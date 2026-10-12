@@ -102,6 +102,15 @@ Hand-written text-format module that satisfies the whole ABI and does nothing el
 
 Unlike the fixtures above it exists for measurement rather than for a behaviour branch. `benchmark/host_invocation.rb` drives it, so the host's per-invocation cost is the total rather than a subtraction of two near-equal numbers. `test/e2e/sandbox/test_null_guest.rb` keeps it honest.
 
+## `minimal_runaway_compile.wat`
+
+Hand-written text-format module whose compile never finishes, so a cap has to stop it. The real Guest Binary compiles too quickly to reach one.
+
+| Downcall | What it does |
+|---|---|
+| compile | grows memory by 16 MiB, then spins |
+| any other | answers a nil Result at once |
+
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 
 Each fixture exercises one bytecode-preload path of [`sandbox.md`](../../docs/spec/behavior/sandbox.md) through the real `data/kobako.wasm`.

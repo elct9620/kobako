@@ -2,10 +2,12 @@
 //! replays the bytecode afterwards. A runtime brought through the engine
 //! seam decides what the compile answers, so these tests can give each
 //! answer a real guest cannot be made to give on demand; the bundled guest
-//! then shows the first invocation pays nothing for it.
+//! and a fixture whose compile never ends then show the first invocation
+//! pays nothing for it.
 
-// Only the last case loads a real Guest Binary; the others stand in any
-// build, since the engine they drive is the one written here.
+// Only the cases behind the `wasmtime` feature load a Guest Binary; the
+// others stand in any build, since the engine they drive is the one
+// written here.
 #[cfg(feature = "wasmtime")]
 mod common;
 
@@ -126,5 +128,59 @@ fn compiling_counts_against_no_invocation() {
         first, second,
         "the first Sandbox::eval of preloaded source must report the same memory peak as a \
          later one, since compiling that source is not part of any invocation"
+    );
+}
+
+#[cfg(feature = "wasmtime")]
+const DEADLINE: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// The first evaluation of a Sandbox over a guest whose compile spins until
+/// the deadline: how long it took, and the Execution it returned.
+#[cfg(feature = "wasmtime")]
+fn first_eval_after_a_runaway_compile() -> (std::time::Duration, kobako::Execution) {
+    const FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../test/fixtures/minimal_runaway_compile.wat"
+    );
+    let options = kobako::Options {
+        timeout: Some(DEADLINE),
+        memory_limit: None,
+        ..kobako::Options::default()
+    };
+    let mut sandbox = Sandbox::new(FIXTURE, options).expect("the fixture must load");
+    sandbox.preload("A", "A = 1").unwrap();
+
+    let started = std::time::Instant::now();
+    let execution = sandbox.eval("A").expect("the invocation must start");
+    (started.elapsed(), execution)
+}
+
+// @behavior S-192
+#[cfg(feature = "wasmtime")]
+#[test]
+fn a_compile_past_the_deadline_leaves_the_source_replaying() {
+    let (elapsed, execution) = first_eval_after_a_runaway_compile();
+
+    assert!(
+        matches!(execution.payload(), Ok([0xc0])),
+        "preloaded source whose compile runs past the deadline through Sandbox::eval must \
+         still run the invocation on the source"
+    );
+    assert!(
+        elapsed >= DEADLINE,
+        "the compile through Sandbox::eval must run until the deadline stops it"
+    );
+}
+
+// @behavior S-193
+#[cfg(feature = "wasmtime")]
+#[test]
+fn compiling_spends_none_of_the_first_invocations_deadline() {
+    let (_, execution) = first_eval_after_a_runaway_compile();
+
+    assert!(
+        execution.usage().wall_time < DEADLINE.as_secs_f64(),
+        "a first Sandbox::eval after a compile that used up the deadline must complete and \
+         report a wall time below that deadline"
     );
 }
