@@ -19,6 +19,18 @@ class TestE2EPreload < Minitest::Test
     assert_equal 42, sandbox.eval("ANSWER").value
   end
 
+  # Preloaded source replays as bytecode, so this witnesses the bytecode
+  # replay's self as well as the source's.
+  # @behavior S-191
+  def test_preloaded_snippet_shares_the_scripts_top_level_self
+    sandbox = Kobako::Sandbox.new
+    sandbox.preload(code: "@answer = 42", name: :Answers)
+
+    assert_equal 42, sandbox.eval("@answer").value,
+                 "an instance variable a preloaded snippet sets at its top level, read through #eval " \
+                 "at the script's top level, must hold the value the snippet set"
+  end
+
   # @behavior S-053
   def test_preloaded_snippets_replay_across_invocations
     sandbox = Kobako::Sandbox.new
