@@ -37,6 +37,7 @@ These rules let every other undefined value be a refusal. The extension point is
 - `crates/kobako-transport/src/abi.rs`
 - `crates/kobako-transport/src/envelope/*.rs`
 - `crates/kobako-wasmtime/src/guest_mem.rs`
+- `crates/kobako-wasmtime/src/driver.rs`
 - `wasm/kobako-core/src/preamble.rs`
 - `crates/kobako/src/snippet.rs`
 - `crates/kobako/src/catalog.rs`
@@ -774,3 +775,15 @@ These rules let every other undefined value be a refusal. The extension point is
 | Given | a compile's ok Reply with bytes after its bytecode list |
 | When | it is read |
 | Then | it is refused rather than read short |
+
+## `WE-089` A compiled answer of another length leaves nothing compiled
+
+| Attribute | Value |
+| --- | --- |
+| relates | `WE-085`, `S-187` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a compile's ok Reply whose bytecode count differs from the Preamble's source snippets |
+| When | the host reads it |
+| Then | nothing is compiled |

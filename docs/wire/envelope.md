@@ -221,7 +221,7 @@ The Compile Reply answers a `compile` downcall. The guest compiles the Preamble'
 | `0x13` | error | an Error Record |
 | `0x15` | unsupported | an Unsupported |
 
-A bytecode entry is what a bytecode Snippet carries, so the host replays it unchanged. The host treats every arm but ok the same way: it keeps sending the source.
+A bytecode entry is what a bytecode Snippet carries, so the host replays it unchanged. The host keeps sending the source on every other arm, and on an ok whose count is not the source Snippets' count.
 
 ---
 

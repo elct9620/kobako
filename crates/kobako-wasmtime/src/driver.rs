@@ -25,7 +25,7 @@ use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
-use kobako_transport::envelope::{CompileReply, Downcall, Preamble, Run};
+use kobako_transport::envelope::{CompileReply, Downcall, Preamble, Run, Snippet};
 
 /// The wasmtime execution unit behind one sandbox runtime.
 pub struct Driver {
@@ -200,13 +200,66 @@ impl ContractRuntime for Driver {
             .call_with_caps(&mut store, &exports, downcall, (ptr, len))
             .ok()?;
         match io::read_compile_reply(&store, &exports, packed).ok()? {
-            CompileReply::Ok(bytecodes) => Some(bytecodes),
+            CompileReply::Ok(bytecodes) => one_per_source(preamble, bytecodes),
             CompileReply::Error(_) | CompileReply::Unsupported(_) => None,
         }
     }
 }
 
+/// A frontend replays each bytecode in place of one source snippet, in
+/// order, so an answer of any other length leaves nothing to replay.
+fn one_per_source(preamble: &Preamble, bytecodes: Vec<Vec<u8>>) -> Option<Vec<Vec<u8>>> {
+    let sources = preamble
+        .snippets
+        .entries
+        .iter()
+        .filter(|entry| matches!(entry, Snippet::Source { .. }))
+        .count();
+    (bytecodes.len() == sources).then_some(bytecodes)
+}
+
 fn disarm_caps(store: &mut WtStore<Invocation>) {
     store.data_mut().stop_wall_clock();
     store.data_mut().disarm_memory_cap();
+}
+
+#[cfg(test)]
+mod tests {
+    use kobako_transport::envelope::Snippets;
+
+    use super::*;
+
+    /// One source between two bytecode snippets: a compile answers one
+    /// bytecode for it.
+    fn one_source() -> Preamble {
+        let mut preamble = Preamble::default();
+        preamble.snippets = Snippets {
+            entries: vec![
+                Snippet::Bytecode { body: vec![0xaa] },
+                Snippet::Source {
+                    name: "Only".into(),
+                    body: "1".into(),
+                },
+                Snippet::Bytecode { body: vec![0xbb] },
+            ],
+        };
+        preamble
+    }
+
+    // @behavior WE-089
+    #[test]
+    fn a_compiled_answer_of_another_length_leaves_nothing_compiled() {
+        let preamble = one_source();
+
+        assert_eq!(
+            [
+                one_per_source(&preamble, Vec::new()),
+                one_per_source(&preamble, vec![vec![0x01], vec![0x02]]),
+                one_per_source(&preamble, vec![vec![0x01]]),
+            ],
+            [None, None, Some(vec![vec![0x01]])],
+            "a compiled answer through Driver#compile must be kept only when it carries one \
+             bytecode per source snippet"
+        );
+    }
 }
