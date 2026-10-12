@@ -786,7 +786,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox holding preloaded bytecode whose top-level expression raises any class but `ScriptError` itself |
+| Given | a Sandbox holding preloaded bytecode whose top-level expression raises any class, `ScriptError` itself included |
 | When | the first invocation runs |
 | Then | the failure carries the guest's own exception class |
 
@@ -1054,14 +1054,6 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox holding a preloaded snippet that does not compile |
 | When | the first invocation runs |
 | Then | the failure's message names the snippet and the line and column the parse stopped at |
-
-## `S-126` Bytecode that raises the class a structural failure carries reads as one
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox holding preloaded bytecode whose top-level expression raises `ScriptError` itself |
-| When | the first invocation runs |
-| Then | it fails as a bytecode failure |
 
 ## `S-127` Both frontends attribute bytecode that will not load the same way
 
@@ -1593,3 +1585,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox with preloaded source |
 | When | its first and a later evaluation each report their memory |
 | Then | both report the same peak |
+
+## `S-190` Preloaded source that raises keeps its class once compiled
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-186` |
+| relates | `S-090` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with preloaded source whose top-level expression raises `ScriptError` itself |
+| When | the first invocation runs |
+| Then | the failure carries `ScriptError`, not a bytecode failure |

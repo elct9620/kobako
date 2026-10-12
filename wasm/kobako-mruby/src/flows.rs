@@ -5,6 +5,7 @@
 
 mod boot;
 mod boot_constants;
+mod bytecode;
 mod compile;
 mod eval;
 mod mrb_slot;

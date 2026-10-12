@@ -139,14 +139,14 @@ vendor/mruby/build/host/bin/mrbc -o test/fixtures/snippet_raise_boom_no_debug.mr
 
 ### `snippet_raise_script_error.mrb` / `snippet_raise_not_implemented.mrb`
 
-These two pin the class a structural failure carries. Both are compiled with `-g`.
+These two pin that a raise from loaded bytecode keeps its class. Both are compiled with `-g`.
 
 | Source | Raises | Reads as |
 |---|---|---|
-| [`snippet_raise_script_error.rb`](snippet_raise_script_error.rb) | `ScriptError` itself | a structural failure |
+| [`snippet_raise_script_error.rb`](snippet_raise_script_error.rb) | `ScriptError` itself | its own name |
 | [`snippet_raise_not_implemented.rb`](snippet_raise_not_implemented.rb) | the `NotImplementedError` subclass | its own name |
 
-`ScriptError` is the class a load answers for a blob that fails its structural check.
+A blob that fails its structural check also answers `ScriptError`, but never runs.
 
 ```sh
 vendor/mruby/build/host/bin/mrbc -g -o test/fixtures/snippet_raise_script_error.mrb test/fixtures/snippet_raise_script_error.rb

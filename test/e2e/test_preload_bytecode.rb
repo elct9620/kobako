@@ -94,23 +94,23 @@ class TestE2EPreloadBytecode < Minitest::Test
     assert_match(/boom from snippet/, err.message)
   end
 
-  # A load that fails its structural check answers with ScriptError
-  # itself, so that one class is what marks a structural failure; a
-  # subclass the program raises is its own failure. The two fixtures are
-  # `raise ScriptError` and `raise NotImplementedError` compiled with
-  # `mrbc -g`.
+  # mruby answers a blob it cannot read with ScriptError, the class a
+  # program may raise too; only a blob that never ran is a structural
+  # failure, so a program raising ScriptError or a subclass keeps its
+  # class. The two fixtures are `raise ScriptError` and
+  # `raise NotImplementedError` compiled with `mrbc -g`.
   SCRIPT_ERROR_FIXTURE_PATH = TestPaths.fixture("snippet_raise_script_error.mrb")
   SCRIPT_ERROR_SUBCLASS_FIXTURE_PATH = TestPaths.fixture("snippet_raise_not_implemented.mrb")
 
-  # @behavior S-126
-  def test_binary_form_raising_script_error_itself_reads_as_bytecode_error
+  # @behavior S-090
+  def test_binary_form_raising_script_error_itself_keeps_its_class
     sandbox = Kobako::Sandbox.new
     sandbox.preload(binary: File.binread(SCRIPT_ERROR_FIXTURE_PATH))
 
-    err = assert_raises(Kobako::BytecodeError) { sandbox.eval("nil") }
-    assert_equal "Kobako::BytecodeError", err.klass,
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval("nil") }
+    assert_equal "ScriptError", err.klass,
                  "bytecode raising ScriptError itself through the first #eval must " \
-                 "fail as the structural failure that class marks"
+                 "fail carrying ScriptError, since it loaded before it raised"
   end
 
   # @behavior S-090

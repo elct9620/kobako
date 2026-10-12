@@ -50,6 +50,19 @@ class TestE2EPreloadCompile < Minitest::Test
                  "as a later one, since compiling that source is not part of any invocation"
   end
 
+  # Compiled source replays as bytecode, where a blob mruby cannot read
+  # answers ScriptError too; the snippet loaded, so its raise is its own.
+  # @behavior S-190
+  def test_preloaded_source_raising_script_error_keeps_its_class
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.preload(code: "raise ScriptError, 'config missing'", name: :Boom)
+
+    err = assert_raises(Kobako::SandboxError) { sandbox.eval("1") }
+    assert_equal "ScriptError", err.klass,
+                 "preloaded source raising ScriptError itself through the first #eval must " \
+                 "fail carrying ScriptError, as it did before it was compiled"
+  end
+
   private
 
   def compiled_table(sources)

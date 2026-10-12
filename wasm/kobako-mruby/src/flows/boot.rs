@@ -16,11 +16,12 @@
 //! are always sandbox-origin even when the raised class would otherwise
 //! map to "service" — preloaded snippets are sandbox code.
 
+use super::bytecode;
 use super::panic::{boot_panic, load_panic, panic_from_error, sandbox_panic};
 use crate::runtime::Kobako;
 use beni::Ccontext;
 use beni::Mrb;
-use kobako_transport::envelope::{ErrorRecord, Flag, Origin, Panic, Preamble, Snippet};
+use kobako_transport::envelope::{Flag, Origin, Panic, Preamble, Snippet};
 
 /// Every entry starts the same way from its Preamble, so the VM an entry
 /// body runs on is set up in one place. Flags come first, since a
@@ -160,27 +161,12 @@ pub(super) fn snippet_context<'mrb>(
         .ok_or_else(|| boot_panic("failed to initialize the Sandbox interpreter"))
 }
 
-/// The class a bytecode load answers when the blob fails its
-/// structural check — `ScriptError` itself, so a subclass the
-/// program raised keeps its own name.
-const STRUCTURAL_FAILURE: &str = "ScriptError";
-
-/// A blob that fails its structural check is promoted to
+/// A blob that fails its structural check never ran, so it is a
 /// `Kobako::BytecodeError`; a program that loaded and then raised keeps the
-/// class it raised.
+/// class it raised, `ScriptError` itself included.
 fn load_bytecode_snippet(kobako: &Kobako, body: &[u8]) -> Result<(), Panic> {
-    let Err(err) = kobako.mrb().load_bytecode(body) else {
-        return Ok(());
-    };
-    let panic = replay_panic(panic_from_error(kobako, err));
-    if panic.error.name != STRUCTURAL_FAILURE {
-        return Err(panic);
-    }
-    Err(Panic {
-        error: ErrorRecord {
-            name: "Kobako::BytecodeError".into(),
-            ..panic.error
-        },
-        ..panic
+    bytecode::load(kobako.mrb(), body).map_err(|failure| match failure {
+        bytecode::Failure::Unreadable(check) => sandbox_panic("Kobako::BytecodeError", check),
+        bytecode::Failure::Raised(err) => replay_panic(panic_from_error(kobako, err)),
     })
 }
