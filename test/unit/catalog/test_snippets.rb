@@ -41,6 +41,16 @@ module Kobako
       end
     end
 
+    # @behavior S-194
+    # mruby refuses to intern a name of 65535 bytes or more, so the guest
+    # could never define the constant such a snippet names.
+    def test_register_rejects_a_name_longer_than_a_symbol_holds
+      err = assert_raises(ArgumentError) { @table.register(code: "X", name: "A#{"b" * 65_534}") }
+      assert_match(/snippet name must match/, err.message,
+                   "Catalog::Snippets#register with a 65535-byte constant name must be refused, " \
+                   "naming the constraint")
+    end
+
     # @behavior S-141
     def test_register_rejects_name_of_wrong_type
       err = assert_raises(ArgumentError) { @table.register(code: "X", name: 42) }

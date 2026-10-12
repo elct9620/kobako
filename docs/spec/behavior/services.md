@@ -390,3 +390,16 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | Given | a Sandbox with a Service bound at a path |
 | When | guest code on another Sandbox over the same artifact names that path |
 | Then | the name is not there |
+
+## `SV-049` A path segment too long to be a symbol is refused
+
+| Attribute | Value |
+| --- | --- |
+| refines | `SV-030` |
+| relates | `S-175` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry with nothing bound |
+| When | an object is bound where one segment is too long to be a symbol |
+| Then | the bind is refused |

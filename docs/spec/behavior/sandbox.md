@@ -1641,3 +1641,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox with preloaded source whose guest compiles until its deadline |
 | When | the first evaluation runs |
 | Then | it completes and reports a wall time below that deadline |
+
+## `S-194` A snippet name too long to be a symbol is refused at registration
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-085` |
+| relates | `S-175` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet table |
+| When | a snippet is registered under a name too long to be a symbol |
+| Then | the refusal names the constraint |

@@ -54,6 +54,16 @@ module Kobako
       end
     end
 
+    # @behavior SV-049
+    # mruby refuses to intern a name of 65535 bytes or more, so the guest
+    # could never build the constant chain such a path names.
+    def test_bind_rejects_a_segment_longer_than_a_symbol_holds
+      assert_raises(ArgumentError,
+                    "Catalog::Services#bind with a 65535-byte path segment must be refused") do
+        @services.bind("Ok::A#{"b" * 65_534}", :obj)
+      end
+    end
+
     # ---------- bind accepts class / instance / module uniformly ----------
 
     # @behavior SV-005
