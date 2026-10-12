@@ -48,7 +48,7 @@ Every field except the last is self-delimiting; the last consumes the rest of th
  self-delimiting        remainder of the message
 ```
 
-A decode consumes the message exactly or fails, so a framing desync fails loudly. The one exception is a Fault, which skips trailing fields it predates (→ § Fault). An envelope nested as another's last field takes the remainder as its own extent.
+A decode consumes the message exactly or fails, so a framing desync fails loudly. The exceptions are a Fault and an Unsupported, which skip trailing fields they predate (→ § Fault). An envelope nested as another's last field takes the remainder as its own extent.
 
 ---
 
@@ -140,7 +140,7 @@ An Unsupported is a receiver saying it does not serve the operation it was sent.
 | `kind` | `u8` | `0`, the only kind defined |
 | `message` | `bytes` | a UTF-8 description |
 
-It carries no tag of its own, since the caller knows what it sent. A reader takes a kind it predates as `0`, the same way a Fault degrades.
+It carries no tag of its own, since the caller knows what it sent. It degrades the way a Fault does: a reader takes a kind it predates as `0` and skips trailing fields it predates.
 
 ### Fault
 

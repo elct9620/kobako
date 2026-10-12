@@ -787,3 +787,15 @@ These rules let every other undefined value be a refusal. The extension point is
 | Given | a compile's ok Reply whose bytecode count differs from the Preamble's source snippets |
 | When | the host reads it |
 | Then | nothing is compiled |
+
+## `WE-090` An Unsupported field this reader predates is skipped
+
+| Attribute | Value |
+| --- | --- |
+| relates | `WE-040`, `WE-070` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Unsupported carrying a field added after this reader was built |
+| When | it is read |
+| Then | its message arrives unchanged |
