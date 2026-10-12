@@ -160,9 +160,10 @@ fn encode_bindings(bindings: &Bindings) -> Vec<u8> {
 fn decode_snippets(bytes: &[u8]) -> Result<Snippets, DecodeError> {
     let mut reader = Reader::new(bytes);
     let count = reader.u32()? as usize;
-    // Each entry costs at least a kind byte, so a count past the bytes
-    // left cannot be satisfied; refusing it bounds the allocation.
-    if count > reader.remaining().len() {
+    // Each entry costs at least a kind byte and a `u32` length, so a count
+    // past what the bytes left can hold is refused before it sizes the
+    // allocation.
+    if count > reader.remaining().len() / (1 + size_of::<u32>()) {
         return Err(DecodeError::new(
             "Preamble snippets declare more entries than they hold",
         ));

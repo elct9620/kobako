@@ -73,9 +73,9 @@ impl<'a> Reader<'a> {
         mut element: impl FnMut(&mut Self) -> Result<T, DecodeError>,
     ) -> Result<Vec<T>, DecodeError> {
         let count = self.u32()? as usize;
-        // A count larger than the bytes left cannot be satisfied; refusing
-        // it here bounds the allocation below by the message size.
-        if count > self.remaining().len() {
+        // Every element opens with a `u32` length, so a count past what the
+        // bytes left can hold is refused before it sizes the allocation.
+        if count > self.remaining().len() / size_of::<u32>() {
             return Err(MALFORMED);
         }
         let mut out = Vec::with_capacity(count);
