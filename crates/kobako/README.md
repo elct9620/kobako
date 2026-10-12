@@ -29,9 +29,9 @@ Four types carry the host side of an invocation.
 | `Yielder` | the host-side stand-in for a guest-supplied block |
 | `Handles` | the per-invocation capability-Handle table |
 
-`define`, `bind`, `preload` and `flag` fill the registration tables until
+`bind`, `install`, `preload` and `flag` fill the registration tables until
 the first invocation seals them. `eval` and `run` execute on a fresh guest
-instance and return a decoded wire `Value` or a taxonomy `Error`.
+instance and return an `Execution`: the run's outcome, captures and usage.
 
 A guest reaches a `Receiver` as `MyService::KV` or through a capability
 Handle. Its `respond_to_guest` predicate narrows what the guest may call,

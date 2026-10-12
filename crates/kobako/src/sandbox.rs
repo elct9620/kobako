@@ -225,7 +225,7 @@ impl Sandbox {
 
     /// Run one mruby source on a fresh guest instance and return its
     /// `Execution` — the record of the run. `Ok` means the guest ran (its
-    /// last expression, or a guest failure, rides `Execution::value`); the
+    /// last expression, or a guest failure, rides `Execution::payload`); the
     /// outer `Err` means it never started.
     pub fn eval(&self, source: &str) -> Result<Execution, Error> {
         self.eval_with(source, |_| Ok(()))
