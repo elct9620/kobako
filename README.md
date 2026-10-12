@@ -367,6 +367,14 @@ sandbox.eval('Seq::Map.call([1, 2, 3]) { |x| x * 2 }').value
 # => [2, 4, 6]
 ```
 
+A `yield` that cannot complete raises at the Service's call site, so the Service may rescue it. Left unrescued, a `BlockError` hands the guest its own exception back; the other two fail the Service call.
+
+| Class                      | Trigger at `yield`                    |
+|----------------------------|---------------------------------------|
+| `Kobako::BlockError`       | The guest block raised                |
+| `Kobako::YieldValueError`  | An argument cannot cross to the guest |
+| `Kobako::UnsupportedError` | The Guest Binary serves no block      |
+
 ### Handle Management
 
 A host object the wire cannot represent may be returned from a Service, passed to `#run`, or handed back from the guest. It crosses the boundary as an opaque `Kobako::Handle` proxy and is restored to the original object before host code sees it. Any other unrepresentable value raises `Kobako::SandboxError`. Handles are scoped to a single invocation.
