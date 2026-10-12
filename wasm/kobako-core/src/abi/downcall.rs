@@ -82,6 +82,9 @@ mod tests {
         );
     }
 
+    // `serve` reads the Preamble from stdin before it routes a compile, so
+    // the default answer is witnessed on its own; the routing itself is
+    // witnessed through the real guest's compile.
     // @behavior T-281
     #[test]
     fn a_guest_that_does_not_compile_answers_a_compile_as_unsupported() {
