@@ -1615,3 +1615,29 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox carrying a preloaded snippet that sets an instance variable at its top level |
 | When | an evaluation reads that instance variable at its top level |
 | Then | it reads the value the snippet set |
+
+## `S-192` A compile cut short by a cap leaves the source replaying
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-187` |
+| relates | `S-008`, `S-010` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with preloaded source whose guest compiles past its deadline or memory budget |
+| When | the Sandbox is invoked |
+| Then | the compile is stopped at that cap and the invocation runs on the source |
+
+## `S-193` Compiling spends none of the first invocation's deadline
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-189` |
+| relates | `S-192` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with preloaded source whose guest compiles until its deadline |
+| When | the first evaluation runs |
+| Then | it completes and reports a wall time below that deadline |
