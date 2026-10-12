@@ -85,8 +85,9 @@ mod tests {
     fn replayed(bytecodes: &[Vec<u8>], script: &str) -> Result<String, String> {
         let mrb = Mrb::open().expect("the interpreter must open");
         for bytecode in bytecodes {
-            mrb.load_bytecode(bytecode)
-                .map_err(|err| err.message(&mrb))?;
+            // SAFETY: each blob is `compile_sources`' unmodified dump from
+            // this same mruby release.
+            unsafe { mrb.load_irep(bytecode) }.map_err(|err| err.message(&mrb))?;
         }
         mrb.load_string(script.as_bytes())
             .and_then(|value| String::try_convert(value, &mrb))

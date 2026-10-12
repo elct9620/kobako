@@ -125,9 +125,8 @@ fn io_write(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
         // A guest-defined `to_s` that raises propagates as an ordinary
         // guest exception instead of unwinding past this Rust frame.
         let s = val.to_r_string(mrb)?;
-        // SAFETY: `to_r_string` returns a String-tagged Value;
-        // the slice is consumed before the next mruby call.
-        let bytes = unsafe { RString::from_value_unchecked(s).as_bytes(mrb) };
+        // SAFETY: the slice is consumed before the next mruby call.
+        let bytes = unsafe { s.as_bytes(mrb) };
         if !bytes.is_empty() {
             // SAFETY: ptr / len describe a live mruby-owned
             // buffer; `write(2)` reads it without retaining.
@@ -163,7 +162,7 @@ fn io_print(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<(), Error> {
     for &val in args {
         let _scope = mrb.arena_scope();
         let s = val.to_r_string(mrb)?;
-        write_one(mrb, self_, s)?;
+        write_one(mrb, self_, s.as_value())?;
     }
     Ok(())
 }
@@ -193,10 +192,9 @@ fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
     }
     let _scope = mrb.arena_scope();
     let s = val.to_r_string(mrb)?;
-    // SAFETY: `to_r_string` returns a String-tagged Value; the
-    // slice is dropped before the next mruby call below.
-    let ends_nl = unsafe { RString::from_value_unchecked(s).as_bytes(mrb) }.last() == Some(&b'\n');
-    write_one(mrb, self_, s)?;
+    // SAFETY: the slice is dropped before the next mruby call below.
+    let ends_nl = unsafe { s.as_bytes(mrb) }.last() == Some(&b'\n');
+    write_one(mrb, self_, s.as_value())?;
     if !ends_nl {
         write_newline(mrb, self_)?;
     }
@@ -220,11 +218,8 @@ fn io_putc(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
         return Ok(obj);
     }
     let s = obj.to_r_string(mrb)?;
-    // SAFETY: `to_r_string` returns a String-tagged Value; the
-    // first byte is copied out before the next mruby call.
-    let first = unsafe { RString::from_value_unchecked(s).as_bytes(mrb) }
-        .first()
-        .copied();
+    // SAFETY: the first byte is copied out before the next mruby call.
+    let first = unsafe { s.as_bytes(mrb) }.first().copied();
     if let Some(byte) = first {
         let one = mrb.str_new(&[byte]).as_value();
         write_one(mrb, self_, one)?;
