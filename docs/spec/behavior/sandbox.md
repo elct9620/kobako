@@ -784,6 +784,10 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 ## `S-090` Bytecode that loads and then raises is not one
 
+| Attribute | Value |
+| --- | --- |
+| relates | `S-089` |
+
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox holding preloaded bytecode whose top-level expression raises any class, `ScriptError` itself included |
