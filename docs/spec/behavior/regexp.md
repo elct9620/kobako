@@ -1261,3 +1261,16 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code slices a Symbol by an index and by a start and a length |
 | Then | each answers what the Symbol's name answers as a String |
+
+## `RX-255` A nil subject does not excuse a position that is no Integer
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-249` |
+| relates | `RX-191` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches nil from a String position |
+| Then | it raises `TypeError` |
