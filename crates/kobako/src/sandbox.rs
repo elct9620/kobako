@@ -9,6 +9,8 @@
 //! observables — lives on that returned `Execution`, not on the reused
 //! Sandbox, so nothing an invocation produces outlives it on `self`.
 
+use std::any::Any;
+use std::panic::{self, AssertUnwindSafe};
 #[cfg(feature = "wasmtime")]
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -68,6 +70,9 @@ impl Default for Options {
     }
 }
 
+/// What a panic carries as it unwinds.
+type Panic = Box<dyn Any + Send>;
+
 /// The registration tables' seal-once lifecycle: open for setup, then
 /// immutable from the first invocation on.
 enum Registry {
@@ -85,16 +90,27 @@ impl Registry {
         }
     }
 
-    /// The snippets are compiled here, once, so every invocation replays
-    /// the same sealed table.
-    fn seal(&mut self, runtime: &dyn Runtime) -> Arc<Catalog> {
-        if let Registry::Open(catalog) = self {
-            catalog.snippets.compile(runtime, &catalog.flags);
-            let sealed = Arc::new(std::mem::take(catalog));
-            *self = Registry::Sealed(sealed);
+    /// The snippets are compiled here, once when `compile` is set, so every
+    /// invocation replays the same sealed table. The registry seals however
+    /// the compile ends: a panic from the engine leaves the snippets as
+    /// source and comes back as the second value, for the caller to resume
+    /// once the lock is released.
+    fn seal(&mut self, runtime: &dyn Runtime, compile: bool) -> (Arc<Catalog>, Option<Panic>) {
+        let mut panicked = None;
+        if let Registry::Open(open) = self {
+            let mut catalog = std::mem::take(open);
+            if compile {
+                // The snippets change only once the engine has answered, so
+                // a panic inside the engine leaves them as registered.
+                let compiling = AssertUnwindSafe(|| {
+                    catalog.snippets.compile(runtime, &catalog.flags);
+                });
+                panicked = panic::catch_unwind(compiling).err();
+            }
+            *self = Registry::Sealed(Arc::new(catalog));
         }
         match self {
-            Registry::Sealed(catalog) => catalog.clone(),
+            Registry::Sealed(catalog) => (catalog.clone(), panicked),
             Registry::Open(_) => unreachable!("seal above pinned the sealed state"),
         }
     }
@@ -315,14 +331,19 @@ impl Sandbox {
     }
 
     /// The seal locks the registry, so concurrent first invocations serialize
-    /// on it and all observe the same sealed catalog.
+    /// on it and all observe the same sealed catalog. A Sandbox with an unmet
+    /// dependency never runs, so it seals without asking for a compile.
     fn begin_invocation(&self) -> Result<(Arc<Catalog>, Arc<Mutex<HandleTable>>), Error> {
-        let catalog = self
+        let dependencies = self.extensions.assert_dependencies();
+        let (catalog, panicked) = self
             .registry
             .lock()
             .expect("the registry mutex is never poisoned")
-            .seal(self.runtime.as_ref());
-        self.extensions.assert_dependencies()?;
+            .seal(self.runtime.as_ref(), dependencies.is_ok());
+        if let Some(payload) = panicked {
+            panic::resume_unwind(payload);
+        }
+        dependencies?;
         Ok((catalog, Arc::new(Mutex::new(HandleTable::default()))))
     }
 }
@@ -434,7 +455,7 @@ mod tests {
     fn registry_refuses_late_mutation() {
         let mut registry = Registry::Open(Catalog::default());
         assert!(registry.open_mut().is_ok());
-        registry.seal(&NoEngine);
+        registry.seal(&NoEngine, true);
         assert!(matches!(registry.open_mut(), Err(Error::Sealed(_))));
     }
 
@@ -442,8 +463,8 @@ mod tests {
     #[test]
     fn registry_seals_once() {
         let mut registry = Registry::Open(Catalog::default());
-        let first = registry.seal(&NoEngine);
-        let second = registry.seal(&NoEngine);
+        let (first, _) = registry.seal(&NoEngine, true);
+        let (second, _) = registry.seal(&NoEngine, true);
         assert!(Arc::ptr_eq(&first, &second));
     }
 
