@@ -63,13 +63,27 @@ class TestE2EPreloadCompile < Minitest::Test
                  "fail carrying ScriptError, as it did before it was compiled"
   end
 
+  # BIG's bytecode is about three times its 4 KiB of source, so a flag that
+  # leaves 8 KiB of the Preamble's 16 MiB fits the source with room to
+  # spare and its bytecode with none.
+  # @behavior S-199
+  def test_bytecode_the_preamble_could_not_carry_leaves_the_source_replaying
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: nil)
+    sandbox.flag(:pad, "x" * ((16 << 20) - (8 << 10)), advisory: true)
+    sandbox.preload(code: BIG, name: :Big)
+
+    assert_equal [200, 200], Array.new(2) { sandbox.eval("Big.m200").value },
+                 "preloaded source whose bytecode would not fit the Preamble through #eval must keep " \
+                 "replaying as the source that does"
+  end
+
   private
 
   def compiled_table(sources)
     runtime = Kobako::Runtime.from_path(REAL_WASM, 10, nil, nil, nil, :hermetic, :hold)
     table = Kobako::Catalog::Snippets.new
     sources.each { |name, code| table.register(code: code, name: name) }
-    table.compile { |entries| runtime.compile(entries, []) }
+    table.compile { |entries| runtime.compile([], entries, []) }
     table
   end
 

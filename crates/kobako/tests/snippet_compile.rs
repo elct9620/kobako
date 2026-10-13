@@ -203,6 +203,42 @@ fn compiling_counts_against_no_invocation() {
     );
 }
 
+// The module's bytecode is about three times its 4 KiB of source, so a
+// flag that leaves 8 KiB of the Preamble's 16 MiB fits the source with
+// room to spare and its bytecode with none.
+// @behavior S-199
+#[cfg(feature = "wasmtime")]
+#[test]
+fn bytecode_the_preamble_could_not_carry_leaves_the_source_replaying() {
+    let options = kobako::Options {
+        memory_limit: None,
+        ..kobako::Options::default()
+    };
+    let Some(mut sandbox) = common::real_sandbox_with(options) else {
+        return;
+    };
+    let methods: Vec<String> = (1..=200).map(|i| format!("def self.m{i} = {i}")).collect();
+    sandbox
+        .flag_advisory("pad", &"x".repeat((16 << 20) - (8 << 10)))
+        .unwrap();
+    sandbox
+        .preload("Big", &format!("module Big; {}; end", methods.join("; ")))
+        .unwrap();
+
+    let answers: Vec<String> = (0..2)
+        .map(|_| match sandbox.eval("Big.m200") {
+            Ok(execution) => format!("{:?}", execution.payload()),
+            Err(err) => format!("{err:?}"),
+        })
+        .collect();
+
+    assert!(
+        answers.iter().all(|answer| answer == "Ok([204, 200])"),
+        "preloaded source whose bytecode would not fit the Preamble through Sandbox::eval must \
+         keep replaying as the source that does, got {answers:?}"
+    );
+}
+
 #[cfg(feature = "wasmtime")]
 const DEADLINE: std::time::Duration = std::time::Duration::from_millis(300);
 
