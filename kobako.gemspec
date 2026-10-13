@@ -57,7 +57,8 @@ Gem::Specification.new do |spec|
         f.start_with?(*%w[bin/ Gemfile Gemfile.lock .gitignore test/ .github/ .rubocop.yml
                           tasks/ build_config/ wasm/ docs/ benchmark/ examples/ .powerloop/
                           .spec/ .sumi.json .claude/ AGENTS.md CLAUDE.md Rakefile Steepfile
-                          rbs_collection.yaml rbs_collection.lock.yaml sig/_external/ data/.keep])
+                          rbs_collection.yaml rbs_collection.lock.yaml sig/_external/ data/.keep
+                          rust-toolchain.toml])
     end
   end
   # Bypass-path guard: `gem build kobako.gemspec` direct invocation would
