@@ -6,10 +6,9 @@
 //! tier that only routes messages therefore needs no payload codec at all,
 //! and the one an assembly does use is its own choice.
 //!
-//! A decoded envelope borrows the buffer it came from, so a payload reaches
-//! its reader as a view rather than a copy. The two fields a reader keeps
-//! past that buffer's life — a binding's path and a snippet's body, read
-//! from the Preamble at boot and consumed later — are copied at decode.
+//! A decoded Call or Upcall borrows the buffer it came from, so a dispatched
+//! payload reaches its reader as a view rather than a copy. Every other
+//! message copies what it holds at decode.
 //!
 //! Every answer is exhaustive. Each arm is a tag byte the layout document
 //! fixes, so an answer's set grows only with an ABI version — and when it

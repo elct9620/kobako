@@ -67,8 +67,9 @@ impl Preamble {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
         let count = reader.u32()? as usize;
-        // Each record costs at least its two leading bytes, so a count past
-        // the bytes left cannot be satisfied; refusing it bounds the work.
+        // Each record costs at least six bytes, its two leading bytes and a
+        // body length, so a count past the bytes left can never be
+        // satisfied; refusing it bounds the work.
         if count > reader.remaining().len() {
             return Err(DecodeError::new(
                 "Preamble declares more records than it holds",
