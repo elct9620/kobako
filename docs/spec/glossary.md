@@ -99,6 +99,11 @@ A message asking the other side to run one method. The guest issues one to reach
 
 The answer to one Call: a value, a Fault, or Unsupported. The answer to a Yield may instead be a break, or the Error Record of a Block that raised.
 
+```
+Call  -> value | Fault | Unsupported
+Yield -> value | break | Error Record | Unsupported
+```
+
 ### Block
 
 Guest code passed alongside a Call. It stays in the guest, and only its presence crosses the boundary.
@@ -178,6 +183,12 @@ An Invocation that names an entrypoint already loaded in the guest, instead of s
 ### Preamble
 
 What the guest reads before an Invocation's entry runs or its preloads compile: the Catalog's bindings, preloads, and Flags. The guest starts knowing what this run was configured with.
+
+```
+Preamble = bindings + preloads + Flags
+   read before -> an Invocation's entry
+               -> a compile of the preloads
+```
 
 ### Flag
 
