@@ -59,8 +59,8 @@ struct CompileCache {
 
 static COMPILE_CACHE_TYPE: DataType<CompileCache> = DataType::new(c"Kobako::RegexpCompileCache");
 
-// Written out rather than declared with `#[beni::wrap]`, unlike the two
-// carriers above: the macro prepares each class it names when a gem marks
+// Written out rather than declared with `#[beni::wrap]`, unlike the pattern
+// and match carriers: the macro prepares each class it names when a gem marks
 // its carriers, and this one wraps as `Object` — which mruby exempts from
 // the data mark, and whose allocator every other object still needs. Its
 // carriers are therefore never marked.
