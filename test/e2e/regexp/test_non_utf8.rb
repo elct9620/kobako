@@ -63,6 +63,14 @@ class TestRegexpNonUtf8 < Minitest::Test
     end
   end
 
+  # Case equality answers false for a value that is not text at all, so the
+  # String whose bytes are not text is the one subject it must refuse.
+  # @behavior RX-252
+  def test_non_utf8_subject_is_refused_by_case_equality
+    assert_equal "ArgumentError", guard_error("/key/ === #{NON_UTF8}", "ArgumentError"),
+                 "a subject whose bytes are not UTF-8 through Regexp#=== must raise ArgumentError, not answer false"
+  end
+
   # The refusal must not reach past the bytes that provoke it: ordinary
   # text still matches, so this is a boundary and not a regression.
   # @behavior RX-092
