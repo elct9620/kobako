@@ -1,5 +1,71 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.18.0...kobako-mruby-v0.19.0) (2026-10-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **guest:** the kobako guest crates name beni 0.23's types, so a shell or codec built on them moves to beni 0.23 with them.
+* **guest:** preloaded bytecode whose top level raises ScriptError itself now fails as a SandboxError carrying ScriptError, not as
+* **transport:** the stdin layout a Guest Binary reads changed within ABI 4. kobako_transport::envelope::Frames is replaced by Preamble, which is #[non_exhaustive] and built from Default; Bindings and Snippets no longer have their own decode and encode. Guest::eval and Guest::run, MrbGuest::eval and MrbGuest::run, and Runtime::invoke take a Preamble in place of Frames. kobako_core re-exports Preamble and Flag in place of Frames.
+* **mruby:** CodecError::Unsupported is renamed to CodecError::Unserved; a codec of one's own that refuses a position returns the new name.
+* **transport:** the ABI version is 4, so a Guest Binary built for ABI 3 is refused at Sandbox construction. kobako_core::export_guest! emits __kobako_downcall in place of __kobako_eval, __kobako_run, __kobako_yield_to_block and __kobako_take_outcome, and the host import is __kobako_upcall. kobako_core::abi::{take_outcome, write_outcome, write_reply, decode_run} are replaced by serve and answer, and the frames module is no longer public. Reply, YieldReply and Outcome gain an Unsupported arm and take their tags from the shared registry, and kobako_core::DispatchError and kobako::YieldError gain an Unsupported arm. A yield to a guest without block support raises Kobako::UnsupportedError at the Service's yield instead of failing the invocation as a trap.
+* **runtime:** Runtime::invoke takes &kobako_transport::envelope::Frames in place of kobako_runtime::Frames, whose byte fields are gone. Guest::eval and Guest::run (and their MrbGuest flows) receive the decoded Frames, eval also its source; kobako_core::frames::read_frame is replaced by read_eval_frames and read_frames.
+* **guest:** kobako_core::Guest::eval and ::run return Outcome, ::run takes a Run instead of the envelope bytes, and ::yield_to_block returns a YieldReply instead of a packed pointer; kobako_mruby::MrbGuest mirrors these signatures. kobako_core::abi::write_outcome takes an Outcome, write_panic is removed, and decode_run and write_reply are new.
+* **mruby:** Kobako::set_handle_id is removed. A custom flow that needs a Handle calls Kobako::mint_handle, which caps the id and returns a frozen Kobako::Handle.
+* **guest:** the kobako guest crates name beni 0.22's types, so a shell or codec built on them moves to beni 0.22 with them.
+* **guest:** the kobako-mruby harness names beni 0.21's types — the keyword Hash in `Arguments` and `PayloadCodec::encode_call_arguments` is `beni::RHash` — so a shell or codec built on these crates moves to beni 0.21 with them.
+* **guest:** a pattern's allocator is undefined from the moment the capability installs rather than from its first wrap, so allocating one is refused for the missing allocator throughout an invocation, where before the first statement could still reach an uninitialized carrier.
+* **mruby:** `kobako_mruby::dispatch` takes `Option<Proc>` where it took a `Value` that could be nil. A gem passes the block its method read off its own frame; `None` says there is none.
+* **mruby:** an object bearing a capability reference's class name without being one is refused as a value the wire cannot carry, where it previously crossed as a reference to whatever identifier it held.
+* **mruby:** an object whose class carries a list's or a map's name without being one is refused rather than read as that container, both as the invocation's own answer and as a dispatch argument.
+* **mruby:** `Kobako::Handle#initialize_copy` answers an ArgumentError for any count but one. The name is private, as it is in MRI, so reaching it at all takes a `send`; `dup` and `clone` pass their one argument and are unaffected.
+* **guest:** `Kobako::raise_transport_error`, `raise_service_error` and `reraise` are gone. A flow of its own builds `Kobako::transport_error` or `service_error` and hands the result back as `Err`, which beni raises at the guest call site.
+
+### Features
+
+* **guest:** compile a Preamble's source snippets without running them ([1c649b8](https://github.com/elct9620/kobako/commit/1c649b809c6d72c52f437cd19a89c1972201a5f0)), closes [#75](https://github.com/elct9620/kobako/issues/75)
+* **guest:** raise Kobako::UnsupportedError when a host does not serve a call ([db003af](https://github.com/elct9620/kobako/commit/db003af75cf2d11b5f644986aa77c0408f5f59ba)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **guest:** re-export the messages a Guest takes and answers with ([89aefee](https://github.com/elct9620/kobako/commit/89aefee5ac18115252fd7a0680c4190e16a231cf)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **guest:** rebuild the guest crates on beni 0.17 ([b397701](https://github.com/elct9620/kobako/commit/b397701231c7d8718503d24f73b175676d0d1be3))
+* **guest:** rebuild the guest crates on beni 0.18 ([ae232eb](https://github.com/elct9620/kobako/commit/ae232ebbf708419ff0672172fbf8627363fb02da))
+* **guest:** rebuild the guest crates on beni 0.21 ([8ec00ff](https://github.com/elct9620/kobako/commit/8ec00ff94ec21b6bbfe8b88e0a4e75f4489dd692))
+* **mruby:** upgrade beni to 0.14 and locate a parse failure ([586c910](https://github.com/elct9620/kobako/commit/586c910873710169c0dfce1fe7edb21f9e91cdea))
+* **spec:** account for every error scenario the old anchors stated ([179de50](https://github.com/elct9620/kobako/commit/179de5040c54bf3800d3d6ba02b56cf4eaed685b))
+* **spec:** declare what the guest answers when a value will not cross ([886a16f](https://github.com/elct9620/kobako/commit/886a16f173efe44766dd9884ac8bfed61113728a))
+* **transport:** carry each operation as a tag on one channel per direction ([c7d574b](https://github.com/elct9620/kobako/commit/c7d574b59a42e58632f2bdc46cc9a8e4c7ac6121)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **transport:** set an invocation up from a Preamble of tagged records ([84d4498](https://github.com/elct9620/kobako/commit/84d4498464f94d7312f26931ddd4ec43894a6654))
+
+
+### Bug Fixes
+
+* **guest:** mint a Handle without running the initializer the guest can redefine ([12ed1aa](https://github.com/elct9620/kobako/commit/12ed1aa07517b6f0ca6fa0869248206f3bb18b81))
+* **guest:** tell an unreadable bytecode snippet from one that raised ([fc5156d](https://github.com/elct9620/kobako/commit/fc5156d783d5ab21164df533bc97ec4afcf0ca09))
+* **mruby:** hold the Handle copy hook to the one argument it takes ([e46da94](https://github.com/elct9620/kobako/commit/e46da944243a51291ddb1f398fc254b44fa6fab0))
+* **mruby:** prove a container's layout by its tag, not its class name ([5ee8c59](https://github.com/elct9620/kobako/commit/5ee8c59db90cee27f356028ff466860afe89e06e))
+* **mruby:** read a reference's identity from the class the bridge registered ([0f24102](https://github.com/elct9620/kobako/commit/0f24102b75f771548cbc39256690e59d6df1f9e4))
+* **spec:** claim the scenario each test actually witnesses ([ab92e8b](https://github.com/elct9620/kobako/commit/ab92e8b9f5948f16fb86e517b9501598d76e4b89))
+
+
+### Performance Improvements
+
+* **mruby:** walk a Hash's pairs once when encoding it ([1737058](https://github.com/elct9620/kobako/commit/1737058ae2bdeeeafe1f0b8e0edfa1b98b09e776))
+
+
+### Code Refactoring
+
+* **guest:** let export_guest! frame what a guest answers ([1ec566f](https://github.com/elct9620/kobako/commit/1ec566f9f5c6b29c07f9293df344ce7e13fb7182)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **mruby:** carry a dispatch's block as the block it is ([01d8831](https://github.com/elct9620/kobako/commit/01d8831dff173e80c10d965af8615acb4de2498b))
+* **mruby:** fold Kobako::set_handle_id into mint_handle ([3a47d66](https://github.com/elct9620/kobako/commit/3a47d66eef486bdd7fc1dd546b2eed8d5d5226ea))
+* **mruby:** name a codec's refused position Unserved ([91979f9](https://github.com/elct9620/kobako/commit/91979f9546a3fa2d2dec8c136ed6affc521ba6fb)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **runtime:** let the ABI endpoints frame and read the Frames ([dea069a](https://github.com/elct9620/kobako/commit/dea069ac49a59c12a6f7102ed3cf2925f316cbff)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+
+
+### Build System
+
+* **guest:** rebuild the guest crates on beni 0.22 ([fd6aeb9](https://github.com/elct9620/kobako/commit/fd6aeb92705fa53c52e2cd75b4918a58baa6637e))
+* **guest:** rebuild the guest crates on beni 0.23 ([a6782da](https://github.com/elct9620/kobako/commit/a6782dad4c2c68a25573f82a8a16588c09856d23))
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.17.0...kobako-mruby-v0.18.0) (2026-10-13)
 
 

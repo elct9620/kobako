@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.18.0...kobako-sdk-v0.19.0) (2026-10-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* the kobako and kobako-wasmtime crates declare a minimum supported Rust version of 1.96.
+* **transport:** the stdin layout a Guest Binary reads changed within ABI 4. kobako_transport::envelope::Frames is replaced by Preamble, which is #[non_exhaustive] and built from Default; Bindings and Snippets no longer have their own decode and encode. Guest::eval and Guest::run, MrbGuest::eval and MrbGuest::run, and Runtime::invoke take a Preamble in place of Frames. kobako_core re-exports Preamble and Flag in place of Frames.
+* **transport:** the ABI version is 4, so a Guest Binary built for ABI 3 is refused at Sandbox construction. kobako_core::export_guest! emits __kobako_downcall in place of __kobako_eval, __kobako_run, __kobako_yield_to_block and __kobako_take_outcome, and the host import is __kobako_upcall. kobako_core::abi::{take_outcome, write_outcome, write_reply, decode_run} are replaced by serve and answer, and the frames module is no longer public. Reply, YieldReply and Outcome gain an Unsupported arm and take their tags from the shared registry, and kobako_core::DispatchError and kobako::YieldError gain an Unsupported arm. A yield to a guest without block support raises Kobako::UnsupportedError at the Service's yield instead of failing the invocation as a trap.
+* **runtime:** Runtime::invoke takes &kobako_transport::envelope::Frames in place of kobako_runtime::Frames, whose byte fields are gone. Guest::eval and Guest::run (and their MrbGuest flows) receive the decoded Frames, eval also its source; kobako_core::frames::read_frame is replaced by read_eval_frames and read_frames.
+* **runtime:** kobako_runtime::snapshot::Completion::Outcome holds a decoded kobako_transport::envelope::Outcome instead of Vec<u8>; an engine decodes the result itself and reports an unframed one as
+* **runtime:** kobako_runtime::runtime::Entry::Run holds { entrypoint: &str, payload: Vec<u8> } instead of { envelope: &[u8] }; a frontend passes the fields, and an engine encodes the Run envelope itself.
+* **runtime:** kobako_runtime::yielder::Yielder::yield_to_block returns Result<YieldReply, Trap> instead of the encoded bytes; an engine implementing it decodes the reply itself.
+* **sdk:** give Options::default() the caps the Ruby frontend defaults to
+* **sdk:** a receiver that propagates the refusal of a yield argument the host cannot write — for this schema, one nesting past the wire's bound — now answers as a Service failure (the runtime category) rather than an internal failure, so the guest sees the Service's exception and the Host App a Service failure. A receiver matching the refusal must match YieldError::Refused instead of YieldError::Aborted.
+
+### Features
+
+* compile the Rust SDK's preloaded source once at the seal ([cebe7a9](https://github.com/elct9620/kobako/commit/cebe7a918aebe6a6cf3ba4b57356a3a5db2ccf33)), closes [#75](https://github.com/elct9620/kobako/issues/75)
+* let a Host App set the flags a Guest Binary may switch on ([9bee4cc](https://github.com/elct9620/kobako/commit/9bee4cc899623c3b4112db5719adbae5df93b2f9))
+* **spec:** account for every boundary and isolation behavior ([226a563](https://github.com/elct9620/kobako/commit/226a5637350f3561e93b56d2acc5571c75447fb6))
+* **spec:** account for every registration and Extension behavior ([8750cba](https://github.com/elct9620/kobako/commit/8750cbae0901d8f1e4b6a22b90a70cc5bc6fff79))
+* **spec:** account for every yield, runtime, and pool behavior ([29a7824](https://github.com/elct9620/kobako/commit/29a7824abcaa539b451d4b38a0bb6a2876c32f75))
+* **spec:** bring the Rust frontend under the behaviors it answers ([b62243f](https://github.com/elct9620/kobako/commit/b62243f68b338fd219136d60c9cf760d0be03fc0))
+* **transport:** carry each operation as a tag on one channel per direction ([c7d574b](https://github.com/elct9620/kobako/commit/c7d574b59a42e58632f2bdc46cc9a8e4c7ac6121)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **transport:** set an invocation up from a Preamble of tagged records ([84d4498](https://github.com/elct9620/kobako/commit/84d4498464f94d7312f26931ddd4ec43894a6654))
+
+
+### Bug Fixes
+
+* keep a compile's bytecode only when the Preamble still fits it ([765db08](https://github.com/elct9620/kobako/commit/765db08ad31c8f5163794c7e144355f3237af93b))
+* name the operation a Guest Binary answers as unsupported ([1027884](https://github.com/elct9620/kobako/commit/1027884ace67519dc37736bd4e87952c17222f5d)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* refuse a constant name longer than the guest can intern ([2a3237f](https://github.com/elct9620/kobako/commit/2a3237fa7bb7b7fdbbde05487ba0d5c4a8fdc33b))
+* **sdk:** answer a refused yield argument as the receiver's own failure ([7e69b09](https://github.com/elct9620/kobako/commit/7e69b09ef09c0e4e7a238ad7738ec2762dbb1c26))
+* **sdk:** give Options::default() the caps the Ruby frontend defaults to ([af36434](https://github.com/elct9620/kobako/commit/af364348345e8e6dfe9c383facea388f3e12f8c0))
+* **sdk:** refuse a Service path that is already a name ([8362f46](https://github.com/elct9620/kobako/commit/8362f46d80791baab23c86996d42bb80b9a2186a))
+* **sdk:** seal the registry however its compile ends, and skip it for an unmet dependency ([a84e8ff](https://github.com/elct9620/kobako/commit/a84e8ff280c2fcff32c7650838d4b17daed3007c))
+* **spec:** claim the scenario each test actually witnesses ([ab92e8b](https://github.com/elct9620/kobako/commit/ab92e8b9f5948f16fb86e517b9501598d76e4b89))
+* stop telling callers to discard a Sandbox over an unframeable outcome ([f7938e9](https://github.com/elct9620/kobako/commit/f7938e9887b9cdccf611b56be28dc3385a6cef00))
+* word an unwritable Service answer as the gem does and an empty Reply as a Reply ([200beb5](https://github.com/elct9620/kobako/commit/200beb5f472118061ee3897f489190ca090b92a8))
+
+
+### Code Refactoring
+
+* **runtime:** hand a frontend the decoded Outcome ([0da6aac](https://github.com/elct9620/kobako/commit/0da6aac0f7943d694a5a4ab9439b2d6c527ae1b0)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **runtime:** hand a frontend the decoded Yield Reply ([e80ab54](https://github.com/elct9620/kobako/commit/e80ab54e36c2a80b0f746c675f85bd1238fd4331)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **runtime:** let the ABI endpoints frame and read the Frames ([dea069a](https://github.com/elct9620/kobako/commit/dea069ac49a59c12a6f7102ed3cf2925f316cbff)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **runtime:** let the engine frame a run's entrypoint and payload ([62f9c94](https://github.com/elct9620/kobako/commit/62f9c9407ff3ce690723625bea075fa49d2dda47)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+
+
+### Build System
+
+* declare the Rust 1.96 floor wasmtime 49 sets ([f49a2df](https://github.com/elct9620/kobako/commit/f49a2df88fa51d3b0eecb619cab1e98d79bb4245))
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.17.0...kobako-sdk-v0.18.0) (2026-10-13)
 
 
