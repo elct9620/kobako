@@ -8,6 +8,10 @@ module Kobako
       def entries: () -> Array[tuple]
 
       def register: (Symbol | String name, String value, advisory: bool) -> nil
+
+      private
+
+      def utf8!: (String text, String what) -> String
     end
   end
 end

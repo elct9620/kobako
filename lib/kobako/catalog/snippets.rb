@@ -49,15 +49,19 @@ module Kobako
       private
 
       # The native side frames a source body only as UTF-8 text, so source
-      # read as bytes is re-tagged rather than refused.
+      # read as bytes is re-tagged, and bytes that are not UTF-8 are refused
+      # here rather than failing every invocation.
       def register_source!(code, name)
         code, name = ensure_source_args!(code, name)
+        body = code.dup.force_encoding(Encoding::UTF_8)
+        raise ArgumentError, "code must be UTF-8 text" unless body.valid_encoding?
+
         name_sym = normalize_name(name)
         if @entries.any? { |e| e.is_a?(Snippet::Source) && e.name == name_sym }
           raise ArgumentError, "snippet #{name_sym.inspect} already preloaded"
         end
 
-        @entries << Snippet::Source.new(name: name_sym, body: code.dup.force_encoding(Encoding::UTF_8))
+        @entries << Snippet::Source.new(name: name_sym, body: body)
         nil
       end
 
@@ -71,8 +75,8 @@ module Kobako
         [code, name]
       end
 
-      # Forced to ASCII-8BIT so msgpack-ruby picks the +bin+ family on the
-      # wire.
+      # Kept as bytes whatever encoding the caller tagged them with, since
+      # the guest reads them as bytecode rather than text.
       def register_binary!(bytes)
         raise ArgumentError, "binary must be a String, got #{bytes.class}" unless bytes.is_a?(String)
 
