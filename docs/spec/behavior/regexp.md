@@ -1224,3 +1224,16 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code matches from a Float position, a String position and a nil position |
 | Then | the Float counts as its whole part, and the String and nil raise `TypeError` |
+
+## `RX-252` Case equality refuses a subject that is not text
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-087` |
+| relates | `RX-023` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code tests case equality against a String whose bytes are not text |
+| Then | an argument error is raised |
