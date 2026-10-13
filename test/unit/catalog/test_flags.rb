@@ -35,5 +35,16 @@ module Kobako
       assert_equal Encoding::UTF_8, @table.entries.first[1].encoding,
                    "a binary-tagged flag value through #register must be re-tagged as UTF-8"
     end
+
+    # @behavior S-198
+    def test_a_name_or_value_that_is_not_utf8_is_refused
+      messages = [["\xff".b, ""], [:mode, "\xff".b]].map do |name, value|
+        assert_raises(ArgumentError) { @table.register(name, value, advisory: true) }.message
+      end
+
+      assert_equal ["flag name must be UTF-8 text", "flag value must be UTF-8 text"], messages,
+                   "a flag name or value whose bytes are not UTF-8 through #register must be refused, " \
+                   "naming which one"
+    end
   end
 end

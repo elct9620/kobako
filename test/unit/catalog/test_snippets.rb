@@ -63,6 +63,13 @@ module Kobako
       assert_match(/code must be a String/, err.message)
     end
 
+    # @behavior S-197
+    def test_register_rejects_code_that_is_not_utf8
+      err = assert_raises(ArgumentError) { @table.register(code: "A = \"\xff\"".b, name: :Helper) }
+      assert_match(/code must be UTF-8 text/, err.message,
+                   "source whose bytes are not UTF-8 through #register must be refused, naming the constraint")
+    end
+
     # @behavior S-143
     def test_register_rejects_non_string_binary
       err = assert_raises(ArgumentError) { @table.register(binary: 42) }
