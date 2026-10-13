@@ -152,6 +152,18 @@ mod tests {
         }
     }
 
+    // mruby holds a symbol of at most 65534 bytes, so a segment one byte
+    // longer could never be interned as the constant it names.
+    // @behavior SV-049
+    #[test]
+    fn a_segment_past_the_symbol_limit_is_refused() {
+        let path = format!("My::A{}", "b".repeat(65_534));
+        assert!(
+            bound(&mut Catalog::default(), &path).is_err(),
+            "a path whose segment is one byte past the symbol limit through Catalog::bind must be refused"
+        );
+    }
+
     // The bound paths are the guest's registration input; bind order is
     // the property that matters to it.
     // @behavior S-020

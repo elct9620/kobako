@@ -155,6 +155,18 @@ mod tests {
         );
     }
 
+    // @behavior S-194
+    #[test]
+    fn register_source_refuses_a_name_past_the_symbol_limit() {
+        let name = format!("A{}", "b".repeat(SYMBOL_MAX_LEN));
+        let refused = Snippets::default().register_source(&name, "X = 1");
+        assert!(
+            matches!(&refused, Err(Error::Argument(message)) if message.contains("constant name")),
+            "a snippet name one byte past the symbol limit through register_source must be refused, \
+             naming the constraint"
+        );
+    }
+
     // @behavior S-086
     #[test]
     fn register_source_rejects_a_duplicate_name() {
