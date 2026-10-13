@@ -1703,3 +1703,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a flag whose name or value is a String whose bytes are not UTF-8 |
 | When | it is set |
 | Then | the refusal names the constraint |
+
+## `S-199` Bytecode the Preamble could not carry leaves the source replaying
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-187` |
+| relates | `S-192` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose preloaded source fits the Preamble but whose bytecode would not |
+| When | the Sandbox is invoked |
+| Then | the invocation runs on the source |

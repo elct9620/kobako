@@ -40,8 +40,10 @@ pub trait Runtime {
 
 ## `Runtime::compile`
 
-The bytecode of a Preamble's source Snippets, compiled on an instance no script
-runs on. The default compiles nothing, and the Frontend keeps the source.
+The bytecode of the Preamble an invocation sends, compiled on an instance no
+script runs on. An answer holds one bytecode per source Snippet, in order. Put
+in their place, it still fits that Preamble; any other answer is `None`. The
+default compiles nothing, and the Frontend keeps the source.
 
 ```rust
 pub trait Runtime {
