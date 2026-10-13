@@ -311,13 +311,13 @@ fn rx_eqtilde(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, Error> {
     }
 }
 
+/// Only a String or Symbol is matched; any other subject is simply unequal,
+/// while text whose bytes are not UTF-8 is refused as every match refuses it.
 fn rx_eqq(mrb: &Mrb, self_: Value, arg: Value) -> Result<bool, Error> {
-    if arg.is_nil() {
+    if RString::from_value(arg).is_none() && Symbol::from_value(arg).is_none() {
         return Ok(false);
     }
-    let Ok(subject) = string_or_symbol_text(mrb, arg) else {
-        return Ok(false);
-    };
+    let subject = string_or_symbol_text(mrb, arg)?;
     Ok(!do_match(mrb, self_, subject, 0)?.is_nil())
 }
 
