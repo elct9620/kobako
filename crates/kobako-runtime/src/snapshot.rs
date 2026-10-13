@@ -4,7 +4,7 @@
 //! frontend type and uniform across success and trap: how the invocation
 //! completed, the two captured output channels, and the resource usage.
 //! A `Snapshot` exists iff the guest export ran — a failure to even start
-//! the invocation travels on the `invoke` `Err` channel instead.
+//! the invocation comes back as the `Err` of `invoke` instead.
 //!
 //! `Usage` and `Capture` are shared with the tier above rather than
 //! translated at its boundary: what they carry is already frontend-free,

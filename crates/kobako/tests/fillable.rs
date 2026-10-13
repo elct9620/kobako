@@ -2,7 +2,7 @@
 //! with `bind_fillable`, or as an Extension backend with `Provider::Fillable`,
 //! and left unfilled, it enters the Preamble so the guest sees the constant, but a
 //! dispatch to it fails closed as a Service failure — the same fail-closed
-//! channel as an idiom with no backend. A `ctx.bind` override fills it for one
+//! path as an idiom with no backend. A `ctx.bind` override fills it for one
 //! invocation.
 //!
 //! The Services here are written against the bundled schema's overlay,

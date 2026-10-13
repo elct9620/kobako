@@ -119,13 +119,13 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 impl From<kobako_runtime::error::InvokeError> for Error {
-    /// Fold the contract's pre-call channel: a pre-call trap keeps its
+    /// Fold the contract's pre-call failure: a pre-call trap keeps its
     /// cap attribution, a setup fault stays `Setup`.
     fn from(err: kobako_runtime::error::InvokeError) -> Self {
         match err {
             kobako_runtime::error::InvokeError::Trap(trap) => trap.into(),
             kobako_runtime::error::InvokeError::Setup(setup) => Error::Setup(setup),
-            // A channel this frontend does not know is still a run that
+            // A failure this frontend does not know is still a run that
             // never started, which the taxonomy attributes to the engine.
             other => Error::Trap(other.to_string()),
         }
@@ -152,7 +152,7 @@ mod tests {
     // must keep its own attribution instead of collapsing into `Trap`.
     // @behavior OC-034
     #[test]
-    fn trap_channels_keep_their_cap_attribution() {
+    fn each_trap_keeps_its_cap_attribution() {
         assert!(matches!(
             Error::from(kobako_runtime::error::Trap::Timeout("t".into())),
             Error::Timeout(_)

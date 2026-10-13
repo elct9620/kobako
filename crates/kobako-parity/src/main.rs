@@ -302,7 +302,7 @@ enum Behavior {
     /// Return a constant tagged value.
     Value(Value),
     /// The receiver itself fails (the Ruby stub raises; this side
-    /// surfaces the SDK's receiver-failure channel).
+    /// surfaces it as the SDK's receiver failure).
     Raise(String),
     /// Yield each positional argument to the guest block and return
     /// the array of block results.

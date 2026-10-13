@@ -139,7 +139,7 @@ impl Driver {
 }
 
 impl ContractRuntime for Driver {
-    /// A fault before the export call is the `Err` channel; once the call
+    /// A fault before the export call is the `Err`; once the call
     /// starts, every fault folds into the Snapshot's `Completion` so
     /// captures and usage survive it. The handler is only borrowed (see the
     /// trait's safety contract).

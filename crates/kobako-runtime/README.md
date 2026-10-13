@@ -12,7 +12,7 @@ type, so the engine stays swappable.
 |---|---|
 | `runtime` | the `Runtime` trait: one guest invocation on a fresh instance in, its observable `Snapshot` out |
 | `snapshot` | the per-invocation observables — `Completion` (outcome or trap), the two output `Capture`s, and resource `Usage`, uniform across success and trap |
-| `error` | the neutral failure channels: `Trap`, `SetupError`, and `InvokeError` over both |
+| `error` | the neutral failure types: `Trap`, `SetupError`, and `InvokeError` over both |
 | `profile` | the isolation `Profile` a runtime declares |
 | `dispatch` / `yielder` | the `DispatchHandler` and `Yielder` traits a frontend supplies for guest→host dispatch and block-yield re-entry |
 

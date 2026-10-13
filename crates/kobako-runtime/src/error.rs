@@ -1,9 +1,9 @@
-//! Engine-neutral host error channels, free of any frontend dependency.
+//! Engine-neutral host error types, free of any frontend dependency.
 //!
 //! The run path produces these instead of constructing host-language
 //! exceptions directly; each frontend's boundary is the single place that
 //! maps them onto its own error classes (the Ruby ext does so in its error
-//! mapper). Keeping the channels frontend-free lets any engine
+//! mapper). Keeping the types frontend-free lets any engine
 //! implementation produce them unchanged.
 
 use std::fmt;
@@ -44,14 +44,14 @@ pub enum SetupError {
 /// A failure that prevented the invocation from starting — a pre-call
 /// engine fault (`Trap`) or a host-side setup fault (`Setup`) — unified so
 /// the run mechanics can propagate both with `?`; a frontend destructures
-/// it back into the two channels. Faults after the guest export starts
+/// it back into the two. Faults after the guest export starts
 /// ride in `Completion::Trap` instead, so captures and usage survive them.
 ///
 /// Named for where it comes from — the `Err` of `Runtime::invoke` — so a
 /// host that also has its own `Error` in scope can hold both.
 ///
-/// Non-exhaustive, as its two channels are: a later way an invocation can
-/// fail to start must not break the frontends already destructuring it.
+/// Non-exhaustive: a later way an invocation can fail to start must not
+/// break the frontends already destructuring it.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum InvokeError {
@@ -95,7 +95,7 @@ impl fmt::Display for SetupError {
     }
 }
 
-// Both channels sit on the seam a third-party engine implements against,
+// Both types sit on the seam a third-party engine implements against,
 // where a caller wants to lift them into `Box<dyn Error>` or `anyhow` with
 // `?`. `Trap` carries no source of its own, so neither reports one.
 impl std::error::Error for SetupError {}

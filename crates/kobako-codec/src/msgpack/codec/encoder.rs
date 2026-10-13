@@ -99,8 +99,8 @@ impl Encoder {
 /// typing (`#encode` on each value object). The value object's own
 /// invariants are the contract; this does not re-validate the shape.
 /// Faults surface as `Error` — the same type the byte-level codec
-/// raises — so a value object is encoded as a whole through one error
-/// channel.
+/// raises — so a value object is encoded as a whole under one error
+/// type.
 pub trait Encode {
     fn encode(&self) -> Result<Vec<u8>, Error>;
 }
