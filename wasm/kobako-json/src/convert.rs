@@ -198,6 +198,16 @@ fn encode_hash(mrb: &Mrb, hash: RHash, depth: usize) -> Result<JsonValue, Error>
             return Err(key_added_error(mrb));
         }
     }
+    // A hook that removed one key and added another leaves the pair count
+    // unchanged, so the addition shows only as more pairs than the snapshot
+    // keys still present.
+    let kept = keys
+        .entries(mrb)
+        .filter(|&key| hash.contains_key(mrb, key).unwrap_or(true))
+        .count();
+    if hash.len(mrb) > kept {
+        return Err(key_added_error(mrb));
+    }
     Ok(JsonValue::Object(map))
 }
 
