@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.17.0...kobako-io-v0.18.0) (2026-10-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **guest:** the kobako guest crates name beni 0.23's types, so a shell or codec built on them moves to beni 0.23 with them.
+* **io:** IO.new raises TypeError for a mode that is not a String, such as :w.
+* **guest:** the kobako guest crates name beni 0.22's types, so a shell or codec built on them moves to beni 0.22 with them.
+* **guest:** the kobako-mruby harness names beni 0.21's types — the keyword Hash in `Arguments` and `PayloadCodec::encode_call_arguments` is `beni::RHash` — so a shell or codec built on these crates moves to beni 0.21 with them.
+
+### Features
+
+* **guest:** rebuild the guest crates on beni 0.21 ([8ec00ff](https://github.com/elct9620/kobako/commit/8ec00ff94ec21b6bbfe8b88e0a4e75f4489dd692))
+
+
+### Bug Fixes
+
+* **io:** bracket each argument IO#write converts in an arena scope ([c1ef1b7](https://github.com/elct9620/kobako/commit/c1ef1b794bddda9347bf40436646cae8bccdd227))
+* **io:** read IO.new's mode only as a String ([08954ec](https://github.com/elct9620/kobako/commit/08954ec8b14857be1f7ab10df6132e07577f802a))
+
+
+### Build System
+
+* **guest:** rebuild the guest crates on beni 0.22 ([fd6aeb9](https://github.com/elct9620/kobako/commit/fd6aeb92705fa53c52e2cd75b4918a58baa6637e))
+* **guest:** rebuild the guest crates on beni 0.23 ([a6782da](https://github.com/elct9620/kobako/commit/a6782dad4c2c68a25573f82a8a16588c09856d23))
+
 ## [0.17.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.16.0...kobako-io-v0.17.0) (2026-09-20)
 
 

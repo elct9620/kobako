@@ -22,7 +22,7 @@ SDK consumes the same surface.
 
 ```toml
 [dependencies]
-kobako-wasmtime = "0.17.0" # x-release-please-version
+kobako-wasmtime = "0.18.0" # x-release-please-version
 ```
 
 ## License

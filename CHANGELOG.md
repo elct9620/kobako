@@ -1,5 +1,76 @@
 # Changelog
 
+## [0.28.0](https://github.com/elct9620/kobako/compare/v0.27.0...v0.28.0) (2026-10-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* Sandbox#preload(code:) and Sandbox#flag raise ArgumentError for text whose bytes are not UTF-8, where they accepted it and each invocation then raised EncodingError.
+* **guest:** the kobako guest crates name beni 0.23's types, so a shell or codec built on them moves to beni 0.23 with them.
+* **guest:** preloaded bytecode whose top level raises ScriptError itself now fails as a SandboxError carrying ScriptError, not as
+* **transport:** the stdin layout a Guest Binary reads changed within ABI 4. kobako_transport::envelope::Frames is replaced by Preamble, which is #[non_exhaustive] and built from Default; Bindings and Snippets no longer have their own decode and encode. Guest::eval and Guest::run, MrbGuest::eval and MrbGuest::run, and Runtime::invoke take a Preamble in place of Frames. kobako_core re-exports Preamble and Flag in place of Frames.
+* **mruby:** CodecError::Unsupported is renamed to CodecError::Unserved; a codec of one's own that refuses a position returns the new name.
+* **transport:** the ABI version is 4, so a Guest Binary built for ABI 3 is refused at Sandbox construction. kobako_core::export_guest! emits __kobako_downcall in place of __kobako_eval, __kobako_run, __kobako_yield_to_block and __kobako_take_outcome, and the host import is __kobako_upcall. kobako_core::abi::{take_outcome, write_outcome, write_reply, decode_run} are replaced by serve and answer, and the frames module is no longer public. Reply, YieldReply and Outcome gain an Unsupported arm and take their tags from the shared registry, and kobako_core::DispatchError and kobako::YieldError gain an Unsupported arm. A yield to a guest without block support raises Kobako::UnsupportedError at the Service's yield instead of failing the invocation as a trap.
+* **runtime:** Runtime::invoke takes &kobako_transport::envelope::Frames in place of kobako_runtime::Frames, whose byte fields are gone. Guest::eval and Guest::run (and their MrbGuest flows) receive the decoded Frames, eval also its source; kobako_core::frames::read_frame is replaced by read_eval_frames and read_frames.
+* **runtime:** kobako_runtime::snapshot::Completion::Outcome holds a decoded kobako_transport::envelope::Outcome instead of Vec<u8>; an engine decodes the result itself and reports an unframed one as
+* **guest:** kobako_core::Guest::eval and ::run return Outcome, ::run takes a Run instead of the envelope bytes, and ::yield_to_block returns a YieldReply instead of a packed pointer; kobako_mruby::MrbGuest mirrors these signatures. kobako_core::abi::write_outcome takes an Outcome, write_panic is removed, and decode_run and write_reply are new.
+* **runtime:** kobako_runtime::runtime::Entry::Run holds { entrypoint: &str, payload: Vec<u8> } instead of { envelope: &[u8] }; a frontend passes the fields, and an engine encodes the Run envelope itself.
+* **runtime:** kobako_runtime::yielder::Yielder::yield_to_block returns Result<YieldReply, Trap> instead of the encoded bytes; an engine implementing it decodes the reply itself.
+* **guest:** the kobako guest crates name beni 0.22's types, so a shell or codec built on them moves to beni 0.22 with them.
+* **guest:** the kobako-mruby harness names beni 0.21's types — the keyword Hash in `Arguments` and `PayloadCodec::encode_call_arguments` is `beni::RHash` — so a shell or codec built on these crates moves to beni 0.21 with them.
+* a memory budget or deadline reached during a Service answer or a yielded block now raises Kobako::MemoryLimitError or
+* **pool:** a Pool no longer replaces a Sandbox after its holder raises Kobako::TrapError; the next checkout receives the same Sandbox and the setup block does not run again.
+* **sdk:** give Options::default() the caps the Ruby frontend defaults to
+
+### Features
+
+* compile a Sandbox's preloaded source once and replay its bytecode ([4d6d438](https://github.com/elct9620/kobako/commit/4d6d43813a469a7e3bdd075aba29c9700459825c)), closes [#75](https://github.com/elct9620/kobako/issues/75)
+* compile the Rust SDK's preloaded source once at the seal ([cebe7a9](https://github.com/elct9620/kobako/commit/cebe7a918aebe6a6cf3ba4b57356a3a5db2ccf33)), closes [#75](https://github.com/elct9620/kobako/issues/75)
+* **guest:** compile a Preamble's source snippets without running them ([1c649b8](https://github.com/elct9620/kobako/commit/1c649b809c6d72c52f437cd19a89c1972201a5f0)), closes [#75](https://github.com/elct9620/kobako/issues/75)
+* **guest:** raise Kobako::UnsupportedError when a host does not serve a call ([db003af](https://github.com/elct9620/kobako/commit/db003af75cf2d11b5f644986aa77c0408f5f59ba)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **guest:** rebuild the guest crates on beni 0.21 ([8ec00ff](https://github.com/elct9620/kobako/commit/8ec00ff94ec21b6bbfe8b88e0a4e75f4489dd692))
+* let a Host App set the flags a Guest Binary may switch on ([9bee4cc](https://github.com/elct9620/kobako/commit/9bee4cc899623c3b4112db5719adbae5df93b2f9))
+* **runtime:** compile a Preamble's snippets on an instance of their own ([303432d](https://github.com/elct9620/kobako/commit/303432dd90ed62dc378391515e68e784e1b473a4)), closes [#75](https://github.com/elct9620/kobako/issues/75)
+* **transport:** carry a compile request and its answer ([f30958e](https://github.com/elct9620/kobako/commit/f30958e7d61c95667c32cfee7d9b2d2f74550a8e)), closes [#75](https://github.com/elct9620/kobako/issues/75)
+* **transport:** carry each operation as a tag on one channel per direction ([c7d574b](https://github.com/elct9620/kobako/commit/c7d574b59a42e58632f2bdc46cc9a8e4c7ac6121)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **transport:** keep an unknown request's body, and refuse tag 0x00 ([edb64df](https://github.com/elct9620/kobako/commit/edb64df8f87694d17c5b6fd71ac63329023306ec)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **transport:** name the Frames a Sandbox is set up with ([52b25aa](https://github.com/elct9620/kobako/commit/52b25aa48d321ce8ea7dc9532cfade062118c64f)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **transport:** set an invocation up from a Preamble of tagged records ([84d4498](https://github.com/elct9620/kobako/commit/84d4498464f94d7312f26931ddd4ec43894a6654))
+
+
+### Bug Fixes
+
+* end the invocation as the trap a host callback into the guest hits ([b8f47d3](https://github.com/elct9620/kobako/commit/b8f47d3699a19adcfd5596af93136401a286c761))
+* **guest:** tell an unreadable bytecode snippet from one that raised ([fc5156d](https://github.com/elct9620/kobako/commit/fc5156d783d5ab21164df533bc97ec4afcf0ca09))
+* keep a compile's bytecode only when the Preamble still fits it ([765db08](https://github.com/elct9620/kobako/commit/765db08ad31c8f5163794c7e144355f3237af93b))
+* name the operation a Guest Binary answers as unsupported ([1027884](https://github.com/elct9620/kobako/commit/1027884ace67519dc37736bd4e87952c17222f5d)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **pool:** keep a Sandbox whose holder met a trap ([27730b9](https://github.com/elct9620/kobako/commit/27730b9e4f05985d07bc5c801501333735266d05))
+* refuse a constant name longer than the guest can intern ([2a3237f](https://github.com/elct9620/kobako/commit/2a3237fa7bb7b7fdbbde05487ba0d5c4a8fdc33b))
+* refuse snippet source and a flag that are not UTF-8 when registered ([b7d9653](https://github.com/elct9620/kobako/commit/b7d9653bb4e659708c2b996620fc3751d1918c29))
+* **sdk:** give Options::default() the caps the Ruby frontend defaults to ([af36434](https://github.com/elct9620/kobako/commit/af364348345e8e6dfe9c383facea388f3e12f8c0))
+* stop telling callers to discard a Sandbox over an unframeable outcome ([f7938e9](https://github.com/elct9620/kobako/commit/f7938e9887b9cdccf611b56be28dc3385a6cef00))
+* **transport:** answer an unrescued UnsupportedError in kobako's own words ([13f3b45](https://github.com/elct9620/kobako/commit/13f3b45c180226175b948e20aaa740a17bc6fc77)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **transport:** read only an unassigned tag as an unknown request ([fcb81b5](https://github.com/elct9620/kobako/commit/fcb81b5c38d001b729a10287443c5012281b76b6)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **wasmtime:** keep a compile answer only when it covers every source snippet ([93e9ddd](https://github.com/elct9620/kobako/commit/93e9ddd79f714446ae713a3145c59d3d2f4145dc))
+* **wasmtime:** tell every frontend how to recover, not only the gem ([cab805a](https://github.com/elct9620/kobako/commit/cab805ab62441a0ca2c78775b7a0d7ce9cc05c43))
+* **wasmtime:** word a missing or mistyped export one way ([8ab0aee](https://github.com/elct9620/kobako/commit/8ab0aeec8bda2960b6cab0502ef51860ea9093b8))
+
+
+### Code Refactoring
+
+* **guest:** let export_guest! frame what a guest answers ([1ec566f](https://github.com/elct9620/kobako/commit/1ec566f9f5c6b29c07f9293df344ce7e13fb7182)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **mruby:** name a codec's refused position Unserved ([91979f9](https://github.com/elct9620/kobako/commit/91979f9546a3fa2d2dec8c136ed6affc521ba6fb)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **runtime:** hand a frontend the decoded Outcome ([0da6aac](https://github.com/elct9620/kobako/commit/0da6aac0f7943d694a5a4ab9439b2d6c527ae1b0)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **runtime:** hand a frontend the decoded Yield Reply ([e80ab54](https://github.com/elct9620/kobako/commit/e80ab54e36c2a80b0f746c675f85bd1238fd4331)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **runtime:** let the ABI endpoints frame and read the Frames ([dea069a](https://github.com/elct9620/kobako/commit/dea069ac49a59c12a6f7102ed3cf2925f316cbff)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **runtime:** let the engine frame a run's entrypoint and payload ([62f9c94](https://github.com/elct9620/kobako/commit/62f9c9407ff3ce690723625bea075fa49d2dda47)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+
+
+### Build System
+
+* **guest:** rebuild the guest crates on beni 0.22 ([fd6aeb9](https://github.com/elct9620/kobako/commit/fd6aeb92705fa53c52e2cd75b4918a58baa6637e))
+* **guest:** rebuild the guest crates on beni 0.23 ([a6782da](https://github.com/elct9620/kobako/commit/a6782dad4c2c68a25573f82a8a16588c09856d23))
+
 ## [0.27.0](https://github.com/elct9620/kobako/compare/v0.26.0...v0.27.0) (2026-09-20)
 
 
