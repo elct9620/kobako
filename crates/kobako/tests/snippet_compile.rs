@@ -20,13 +20,18 @@ use kobako_transport::envelope::{Outcome, Preamble, Snippet};
 
 use kobako::{Profile, Sandbox};
 
-/// Answers each compile with `answer` and records what every request and
-/// every invocation was handed.
+/// Answers each compile with `answer`, or panics when `panics` is set, and
+/// records what every request and every invocation was handed.
+#[derive(Default)]
 struct Compiling {
     answer: Option<Vec<Vec<u8>>>,
+    panics: bool,
     compiles: Arc<Mutex<usize>>,
-    replayed: Arc<Mutex<Vec<Vec<Snippet>>>>,
+    replayed: Replayed,
 }
+
+/// The snippet table each invocation was handed, in invocation order.
+type Replayed = Arc<Mutex<Vec<Vec<Snippet>>>>;
 
 impl Runtime for Compiling {
     fn invoke(
@@ -53,22 +58,27 @@ impl Runtime for Compiling {
 
     fn compile(&self, _preamble: &Preamble) -> Option<Vec<Vec<u8>>> {
         *self.compiles.lock().unwrap() += 1;
+        assert!(!self.panics, "the engine fails this compile outright");
         self.answer.clone()
     }
+}
+
+/// A Sandbox over `engine` preloading one source snippet, with the
+/// counters the engine shares.
+fn preloading(engine: Compiling) -> (Sandbox, Arc<Mutex<usize>>, Replayed) {
+    let (compiles, replayed) = (engine.compiles.clone(), engine.replayed.clone());
+    let mut sandbox = Sandbox::with_runtime(engine, Profile::Hermetic).unwrap();
+    sandbox.preload("Alpha", "A = 1").unwrap();
+    (sandbox, compiles, replayed)
 }
 
 /// Two invocations of a Sandbox preloading one source snippet: how many
 /// compiles it asked for, and the snippet table each invocation replayed.
 fn invoked_twice(answer: Option<Vec<Vec<u8>>>) -> (usize, Vec<Vec<Snippet>>) {
-    let compiles = Arc::new(Mutex::new(0));
-    let replayed = Arc::new(Mutex::new(Vec::new()));
-    let engine = Compiling {
+    let (sandbox, compiles, replayed) = preloading(Compiling {
         answer,
-        compiles: compiles.clone(),
-        replayed: replayed.clone(),
-    };
-    let mut sandbox = Sandbox::with_runtime(engine, Profile::Hermetic).unwrap();
-    sandbox.preload("Alpha", "A = 1").unwrap();
+        ..Compiling::default()
+    });
 
     sandbox.eval("A").unwrap();
     sandbox.eval("A").unwrap();
@@ -76,6 +86,13 @@ fn invoked_twice(answer: Option<Vec<Vec<u8>>>) -> (usize, Vec<Vec<Snippet>>) {
     let compiles = *compiles.lock().unwrap();
     let replayed = replayed.lock().unwrap().clone();
     (compiles, replayed)
+}
+
+fn alpha_source() -> Snippet {
+    Snippet::Source {
+        name: "Alpha".into(),
+        body: "A = 1".into(),
+    }
 }
 
 // @behavior S-186
@@ -96,16 +113,71 @@ fn compiled_source_replays_as_bytecode_and_is_compiled_once() {
 // @behavior S-187
 #[test]
 fn source_nothing_compiled_keeps_replaying_and_is_not_compiled_again() {
-    let source = Snippet::Source {
-        name: "Alpha".into(),
-        body: "A = 1".into(),
-    };
+    let source = alpha_source();
 
     assert_eq!(
         invoked_twice(None),
         (1, vec![vec![source.clone()], vec![source]]),
         "a Sandbox whose engine compiled nothing through Sandbox::eval must keep replaying \
          the source, with no second compile"
+    );
+}
+
+// The panic stands in for any engine fault the compile cannot answer
+// around; the Sandbox must outlive it rather than refuse every later call.
+// @behavior S-195
+#[test]
+fn a_compile_that_panics_leaves_the_source_replaying() {
+    let (sandbox, _, replayed) = preloading(Compiling {
+        panics: true,
+        ..Compiling::default()
+    });
+
+    let first = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sandbox.eval("A")));
+    let second = sandbox.eval("A");
+
+    assert_eq!(
+        (
+            first.is_err(),
+            second.is_ok(),
+            replayed.lock().unwrap().clone()
+        ),
+        (true, true, vec![vec![alpha_source()]]),
+        "a Sandbox whose engine panics compiling its preloaded source through Sandbox::eval must \
+         fail that invocation with the panic and run the next one on the source"
+    );
+}
+
+/// A guest idiom declaring a dependency nothing installs.
+struct NeedsErrno;
+
+impl kobako::Extension for NeedsErrno {
+    fn name(&self) -> &str {
+        "File"
+    }
+
+    fn source(&self) -> &str {
+        "class File; end"
+    }
+
+    fn depends_on(&self) -> &[&str] {
+        &["Errno"]
+    }
+}
+
+// @behavior S-196
+#[test]
+fn an_unmet_dependency_is_refused_before_any_compile() {
+    let (mut sandbox, compiles, _) = preloading(Compiling::default());
+    sandbox.install(Arc::new(NeedsErrno)).unwrap();
+
+    let refused = sandbox.eval("A").is_err();
+
+    assert_eq!(
+        (refused, *compiles.lock().unwrap()),
+        (true, 0),
+        "a Sandbox with preloaded source and an unmet Extension dependency through Sandbox::eval \
+         must be refused without asking the engine to compile"
     );
 }
 

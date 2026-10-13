@@ -66,6 +66,19 @@ module Kobako
                    "keep replaying as source, with no second attempt"
     end
 
+    # @behavior S-195
+    def test_a_compile_that_raises_leaves_the_source_replaying
+      before = @table.entries
+      second = AnsweringCompiler.new(["unused"])
+
+      error = assert_raises(RuntimeError) { @table.compile { raise "engine fault" } }
+      @table.compile(&second)
+
+      assert_equal ["engine fault", [], before], [error.message, second.requests, @table.entries],
+                   "a compiler that raises through Catalog::Snippets#compile must fail that compile with " \
+                   "its error and leave the source replaying, with no second attempt"
+    end
+
     def test_a_table_without_source_asks_for_no_compile
       table = Catalog::Snippets.new
       table.register(binary: "RITE\x00only")
