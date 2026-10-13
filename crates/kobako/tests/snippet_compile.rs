@@ -203,39 +203,68 @@ fn compiling_counts_against_no_invocation() {
     );
 }
 
-// The module's bytecode is about three times its 4 KiB of source, so a
-// flag that leaves 8 KiB of the Preamble's 16 MiB fits the source with
-// room to spare and its bytecode with none.
-// @behavior S-199
+/// Two evaluations of a module whose bytecode is about three times its 4 KiB
+/// of source, preloaded beside `bound` with a flag leaving `free` bytes of
+/// the Preamble's 16 MiB; `None` when a local checkout has no Guest Binary.
 #[cfg(feature = "wasmtime")]
-#[test]
-fn bytecode_the_preamble_could_not_carry_leaves_the_source_replaying() {
+fn big_module_answers(free: usize, bound: Option<&str>) -> Option<Vec<String>> {
     let options = kobako::Options {
         memory_limit: None,
         ..kobako::Options::default()
     };
-    let Some(mut sandbox) = common::real_sandbox_with(options) else {
-        return;
-    };
+    let mut sandbox = common::real_sandbox_with(options)?;
     let methods: Vec<String> = (1..=200).map(|i| format!("def self.m{i} = {i}")).collect();
     sandbox
-        .flag_advisory("pad", &"x".repeat((16 << 20) - (8 << 10)))
+        .flag_advisory("pad", &"x".repeat((16 << 20) - free))
         .unwrap();
+    if let Some(path) = bound {
+        sandbox.bind_fillable(path).unwrap();
+    }
     sandbox
         .preload("Big", &format!("module Big; {}; end", methods.join("; ")))
         .unwrap();
+    Some(
+        (0..2)
+            .map(|_| match sandbox.eval("Big.m200") {
+                Ok(execution) => format!("{:?}", execution.payload()),
+                Err(err) => format!("{err:?}"),
+            })
+            .collect(),
+    )
+}
 
-    let answers: Vec<String> = (0..2)
-        .map(|_| match sandbox.eval("Big.m200") {
-            Ok(execution) => format!("{:?}", execution.payload()),
-            Err(err) => format!("{err:?}"),
-        })
-        .collect();
+// 8 KiB fits the source with room to spare and its bytecode with none.
+// @behavior S-199
+#[cfg(feature = "wasmtime")]
+#[test]
+fn bytecode_the_preamble_could_not_carry_leaves_the_source_replaying() {
+    let Some(answers) = big_module_answers(8 << 10, None) else {
+        return;
+    };
 
     assert!(
         answers.iter().all(|answer| answer == "Ok([204, 200])"),
         "preloaded source whose bytecode would not fit the Preamble through Sandbox::eval must \
          keep replaying as the source that does, got {answers:?}"
+    );
+}
+
+// The same module beside a 6 KiB bound path, with a flag leaving 14 KiB:
+// its bytecode fits alone and not beside the bindings, so a compile that
+// left the bound paths out of its Preamble would keep an answer that traps.
+// @behavior S-199
+#[cfg(feature = "wasmtime")]
+#[test]
+fn bytecode_that_fits_only_without_the_bindings_leaves_the_source_replaying() {
+    let path = format!("A{}", "b".repeat(6 << 10));
+    let Some(answers) = big_module_answers(14 << 10, Some(&path)) else {
+        return;
+    };
+
+    assert!(
+        answers.iter().all(|answer| answer == "Ok([204, 200])"),
+        "preloaded source whose bytecode fits the Preamble only without its bound paths through \
+         Sandbox::eval must keep replaying as the source, got {answers:?}"
     );
 }
 
