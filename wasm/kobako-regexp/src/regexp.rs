@@ -249,9 +249,15 @@ pub(crate) fn resolve_pos(subject: &str, pos: i64) -> Option<usize> {
     Some(p)
 }
 
-fn match_pos(subject: &str, pos: Option<Value>) -> Option<usize> {
-    let raw = pos.and_then(i32::from_value).unwrap_or(0);
-    resolve_pos(subject, i64::from(raw))
+/// A position or limit reads as mruby reads an Integer argument: an Integer,
+/// or a Float by its whole part. Anything else raises `TypeError`, and an
+/// omitted one is zero.
+pub(crate) fn integer_arg(mrb: &Mrb, arg: Option<Value>) -> Result<i64, Error> {
+    arg.map_or(Ok(0), |value| i64::try_convert(value, mrb))
+}
+
+fn match_pos(mrb: &Mrb, subject: &str, pos: Option<Value>) -> Result<Option<usize>, Error> {
+    Ok(resolve_pos(subject, integer_arg(mrb, pos)?))
 }
 
 fn rx_match(mrb: &Mrb, self_: Value, arg: Value, pos: Option<Value>) -> Result<Value, Error> {
@@ -260,7 +266,7 @@ fn rx_match(mrb: &Mrb, self_: Value, arg: Value, pos: Option<Value>) -> Result<V
         return Ok(qnil().as_value());
     }
     let subject = string_or_symbol_text(mrb, arg)?;
-    let Some(pos) = match_pos(&subject, pos) else {
+    let Some(pos) = match_pos(mrb, &subject, pos)? else {
         return Ok(qnil().as_value());
     };
     let md = do_match(mrb, self_, subject, pos)?;
@@ -280,7 +286,7 @@ fn rx_match_p(mrb: &Mrb, self_: Value, arg: Value, pos: Option<Value>) -> Result
         return Ok(false);
     }
     let subject = string_or_symbol_text(mrb, arg)?;
-    let Some(pos) = match_pos(&subject, pos) else {
+    let Some(pos) = match_pos(mrb, &subject, pos)? else {
         return Ok(false);
     };
     let Some(state) = state_of(mrb, self_) else {

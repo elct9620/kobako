@@ -229,8 +229,11 @@ fn str_split(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
         return self_.funcall(mrb, c"__kobako_split", args);
     }
+    if args.len() > 2 {
+        return Err(Error::argnum(mrb, args.len(), 0, 2));
+    }
     let subject = regexp::text_of(mrb, self_)?;
-    let limit = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0);
+    let limit = regexp::integer_arg(mrb, args.get(1).copied())?;
     let spans = regexp::match_spans(mrb, args[0], &subject)?;
 
     let mut fields: Vec<(usize, usize)> = Vec::new();
@@ -273,9 +276,12 @@ fn str_index(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
         return self_.funcall(mrb, c"__kobako_index", args);
     }
+    if args.len() > 2 {
+        return Err(Error::argnum(mrb, args.len(), 1, 2));
+    }
     let subject = regexp::text_of(mrb, self_)?;
-    let pos = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0);
-    let Some(start) = regexp::resolve_pos(&subject, i64::from(pos)) else {
+    let pos = regexp::integer_arg(mrb, args.get(1).copied())?;
+    let Some(start) = regexp::resolve_pos(&subject, pos) else {
         return Ok(qnil().as_value());
     };
     let tail = mrb.str_new(&subject.as_bytes()[start..]).as_value();
