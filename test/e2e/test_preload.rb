@@ -19,8 +19,9 @@ class TestE2EPreload < Minitest::Test
     assert_equal 42, sandbox.eval("ANSWER").value
   end
 
-  # Preloaded source replays as bytecode, so this witnesses the bytecode
-  # replay's self as well as the source's.
+  # Preloaded source replays as bytecode here; the source replay's self is
+  # witnessed in test_preload_compile.rb, where the Preamble cannot carry
+  # the bytecode.
   # @behavior S-191
   def test_preloaded_snippet_shares_the_scripts_top_level_self
     sandbox = Kobako::Sandbox.new

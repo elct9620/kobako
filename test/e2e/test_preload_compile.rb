@@ -63,21 +63,38 @@ class TestE2EPreloadCompile < Minitest::Test
                  "fail carrying ScriptError, as it did before it was compiled"
   end
 
-  # BIG's bytecode is about three times its 4 KiB of source, so a flag that
-  # leaves 8 KiB of the Preamble's 16 MiB fits the source with room to
-  # spare and its bytecode with none.
   # @behavior S-199
   def test_bytecode_the_preamble_could_not_carry_leaves_the_source_replaying
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: nil)
-    sandbox.flag(:pad, "x" * ((16 << 20) - (8 << 10)), advisory: true)
-    sandbox.preload(code: BIG, name: :Big)
+    sandbox = source_bound_sandbox
 
     assert_equal [200, 200], Array.new(2) { sandbox.eval("Big.m200").value },
                  "preloaded source whose bytecode would not fit the Preamble through #eval must keep " \
                  "replaying as the source that does"
   end
 
+  # Every other Sandbox replays its source as bytecode, so this is the one
+  # place the source replay's top-level self is witnessed.
+  # @behavior S-191
+  def test_a_source_replay_shares_the_scripts_top_level_self
+    sandbox = source_bound_sandbox
+    sandbox.preload(code: "@answer = 42", name: :Answers)
+
+    assert_equal 42, sandbox.eval("@answer").value,
+                 "an instance variable a snippet replayed as source sets at its top level, read through " \
+                 "#eval at the script's top level, must hold the value the snippet set"
+  end
+
   private
+
+  # A Sandbox preloading BIG whose Preamble can carry its source and not its
+  # bytecode: BIG's bytecode is about three times its 4 KiB of source, and a
+  # flag leaves 8 KiB of the Preamble's 16 MiB.
+  def source_bound_sandbox
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: nil)
+    sandbox.flag(:pad, "x" * ((16 << 20) - (8 << 10)), advisory: true)
+    sandbox.preload(code: BIG, name: :Big)
+    sandbox
+  end
 
   def compiled_table(sources)
     runtime = Kobako::Runtime.from_path(REAL_WASM, 10, nil, nil, nil, :hermetic, :hold)
