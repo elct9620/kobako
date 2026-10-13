@@ -1237,3 +1237,27 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code tests case equality against a String whose bytes are not text |
 | Then | an argument error is raised |
+
+## `RX-253` A Symbol matches, tests and slices by a pattern as its name does
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-052`, `RX-190` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches, tests and slices a Symbol by a pattern |
+| Then | each answers what the Symbol's name answers as a String |
+
+## `RX-254` A Symbol slices by an index as its name does
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-253` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code slices a Symbol by an index and by a start and a length |
+| Then | each answers what the Symbol's name answers as a String |
