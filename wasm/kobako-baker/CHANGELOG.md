@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-baker-v0.17.0...kobako-baker-v0.18.0) (2026-10-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **transport:** the ABI version is 4, so a Guest Binary built for ABI 3 is refused at Sandbox construction. kobako_core::export_guest! emits __kobako_downcall in place of __kobako_eval, __kobako_run, __kobako_yield_to_block and __kobako_take_outcome, and the host import is __kobako_upcall. kobako_core::abi::{take_outcome, write_outcome, write_reply, decode_run} are replaced by serve and answer, and the frames module is no longer public. Reply, YieldReply and Outcome gain an Unsupported arm and take their tags from the shared registry, and kobako_core::DispatchError and kobako::YieldError gain an Unsupported arm. A yield to a guest without block support raises Kobako::UnsupportedError at the Service's yield instead of failing the invocation as a trap.
+
+### Features
+
+* **transport:** carry each operation as a tag on one channel per direction ([c7d574b](https://github.com/elct9620/kobako/commit/c7d574b59a42e58632f2bdc46cc9a8e4c7ac6121)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+
 ## [0.17.0](https://github.com/elct9620/kobako/compare/kobako-baker-v0.16.0...kobako-baker-v0.17.0) (2026-09-20)
 
 

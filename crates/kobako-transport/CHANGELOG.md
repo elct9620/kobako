@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-transport-v0.17.0...kobako-transport-v0.18.0) (2026-10-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **transport:** the stdin layout a Guest Binary reads changed within ABI 4. kobako_transport::envelope::Frames is replaced by Preamble, which is #[non_exhaustive] and built from Default; Bindings and Snippets no longer have their own decode and encode. Guest::eval and Guest::run, MrbGuest::eval and MrbGuest::run, and Runtime::invoke take a Preamble in place of Frames. kobako_core re-exports Preamble and Flag in place of Frames.
+* **mruby:** CodecError::Unsupported is renamed to CodecError::Unserved; a codec of one's own that refuses a position returns the new name.
+* **transport:** the ABI version is 4, so a Guest Binary built for ABI 3 is refused at Sandbox construction. kobako_core::export_guest! emits __kobako_downcall in place of __kobako_eval, __kobako_run, __kobako_yield_to_block and __kobako_take_outcome, and the host import is __kobako_upcall. kobako_core::abi::{take_outcome, write_outcome, write_reply, decode_run} are replaced by serve and answer, and the frames module is no longer public. Reply, YieldReply and Outcome gain an Unsupported arm and take their tags from the shared registry, and kobako_core::DispatchError and kobako::YieldError gain an Unsupported arm. A yield to a guest without block support raises Kobako::UnsupportedError at the Service's yield instead of failing the invocation as a trap.
+
+### Features
+
+* **transport:** carry a compile request and its answer ([f30958e](https://github.com/elct9620/kobako/commit/f30958e7d61c95667c32cfee7d9b2d2f74550a8e)), closes [#75](https://github.com/elct9620/kobako/issues/75)
+* **transport:** carry each operation as a tag on one channel per direction ([c7d574b](https://github.com/elct9620/kobako/commit/c7d574b59a42e58632f2bdc46cc9a8e4c7ac6121)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **transport:** keep an unknown request's body, and refuse tag 0x00 ([edb64df](https://github.com/elct9620/kobako/commit/edb64df8f87694d17c5b6fd71ac63329023306ec)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **transport:** name the Frames a Sandbox is set up with ([52b25aa](https://github.com/elct9620/kobako/commit/52b25aa48d321ce8ea7dc9532cfade062118c64f)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **transport:** set an invocation up from a Preamble of tagged records ([84d4498](https://github.com/elct9620/kobako/commit/84d4498464f94d7312f26931ddd4ec43894a6654))
+
+
+### Bug Fixes
+
+* **transport:** read only an unassigned tag as an unknown request ([fcb81b5](https://github.com/elct9620/kobako/commit/fcb81b5c38d001b729a10287443c5012281b76b6)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+* **transport:** size a counted list by what its bytes can hold ([cfcc9fb](https://github.com/elct9620/kobako/commit/cfcc9fb6e79ec0bd1e6bf3a15659220aab0f6914))
+
+
+### Code Refactoring
+
+* **mruby:** name a codec's refused position Unserved ([91979f9](https://github.com/elct9620/kobako/commit/91979f9546a3fa2d2dec8c136ed6affc521ba6fb)), closes [#73](https://github.com/elct9620/kobako/issues/73)
+
 ## [0.17.0](https://github.com/elct9620/kobako/compare/kobako-transport-v0.16.0...kobako-transport-v0.17.0) (2026-09-20)
 
 
