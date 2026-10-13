@@ -13,6 +13,7 @@ mod match_operator;
 mod matchdata;
 mod regexp;
 mod string_ext;
+mod symbol_ext;
 mod translate;
 
 use beni::{Error, Gem, Mrb};
@@ -29,6 +30,7 @@ impl Gem for KobakoRegexp {
         regexp::init(mrb)?;
         string_ext::init(mrb)?;
         match_operator::init(mrb)?;
+        symbol_ext::init(mrb)?;
         Ok(())
     }
 }

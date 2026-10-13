@@ -57,14 +57,19 @@ pub(crate) fn str_eqtilde(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, 
     arg.funcall(mrb, c"=~", &[self_])
 }
 
-fn str_match(mrb: &Mrb, self_: Value, pattern: Value, pos: Option<Value>) -> Result<Value, Error> {
+pub(crate) fn str_match(
+    mrb: &Mrb,
+    self_: Value,
+    pattern: Value,
+    pos: Option<Value>,
+) -> Result<Value, Error> {
     let block = crate::args::block(mrb)?;
     let re = regexp::spelled_regexp(mrb, pattern)?;
     let md = re.funcall(mrb, c"match", &forwarded(self_, pos))?;
     regexp::yield_match(mrb, md, block)
 }
 
-fn str_match_p(
+pub(crate) fn str_match_p(
     mrb: &Mrb,
     self_: Value,
     pattern: Value,
@@ -293,7 +298,7 @@ fn str_index(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     )
 }
 
-fn str_aref(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+pub(crate) fn str_aref(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
         return self_.funcall(mrb, c"__kobako_aref", args);
     }
