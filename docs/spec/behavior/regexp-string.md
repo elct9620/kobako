@@ -563,3 +563,15 @@ scanning, substituting   reads a String as literal characters
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code cuts by a pattern that does not occur |
 | Then | the String is unchanged |
+
+## `RX-246` Matching, scanning and substituting take the language's argument counts
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-238`, `RX-166` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches, scans, or substitutes with no pattern or with a trailing extra argument |
+| Then | each is refused for its argument count |

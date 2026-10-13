@@ -1188,3 +1188,27 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code builds patterns from flag strings naming the language's letters |
 | Then | each named letter becomes its own option |
+
+## `RX-247` A pattern is built from at most a source and an option
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-238` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code builds a pattern from no argument or from three |
+| Then | each is refused for its argument count |
+
+## `RX-248` A pattern matches with a subject and at most a position
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-238`, `RX-181` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code asks a pattern to match with no subject or with three arguments |
+| Then | each is refused for its argument count |
