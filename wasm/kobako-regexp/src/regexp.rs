@@ -112,15 +112,15 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.const_set(mrb, c"EXTENDED", translate::EXTENDED as i32)?;
     cls.const_set(mrb, c"MULTILINE", translate::MULTILINE as i32)?;
 
-    cls.define_singleton_method(mrb, c"new", beni::method!(rx_compile, -1))?;
-    cls.define_singleton_method(mrb, c"compile", beni::method!(rx_compile, -1))?;
+    cls.define_singleton_method(mrb, c"new", beni::method!(rx_compile, 1, 1))?;
+    cls.define_singleton_method(mrb, c"compile", beni::method!(rx_compile, 1, 1))?;
     cls.define_singleton_method(mrb, c"escape", beni::method!(rx_escape, 1))?;
     cls.define_singleton_method(mrb, c"quote", beni::method!(rx_escape, 1))?;
     cls.define_singleton_method(mrb, c"last_match", beni::method!(rx_last_match, 0))?;
     cls.define_singleton_method(mrb, c"last_match=", beni::method!(rx_set_last_match, 1))?;
 
-    cls.define_method(mrb, c"match", beni::method!(rx_match, -1))?;
-    cls.define_method(mrb, c"match?", beni::method!(rx_match_p, -1))?;
+    cls.define_method(mrb, c"match", beni::method!(rx_match, 1, 1))?;
+    cls.define_method(mrb, c"match?", beni::method!(rx_match_p, 1, 1))?;
     cls.define_method(mrb, c"=~", beni::method!(rx_eqtilde, 1))?;
     cls.define_method(mrb, c"===", beni::method!(rx_eqq, 1))?;
     cls.define_method(mrb, c"source", beni::method!(rx_source, 0))?;
@@ -154,17 +154,19 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 /// ultimate compute bound.
 const BACKTRACK_LIMIT: usize = 1_000_000;
 
-fn rx_compile(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
-    if args.is_empty() {
-        return Err(Error::argnum(mrb, 0, 1, 3));
-    }
+fn rx_compile(
+    mrb: &Mrb,
+    _self: Value,
+    pattern: Value,
+    options: Option<Value>,
+) -> Result<Value, Error> {
     // A pattern keeps its own source and options; MRI ignores any given
     // alongside.
-    if let Some(state) = state_of(mrb, args[0]) {
+    if let Some(state) = state_of(mrb, pattern) {
         return compile(mrb, state.source.clone(), state.options);
     }
-    let source = string_text(mrb, args[0])?;
-    let options = parse_options(mrb, args.get(1).copied())?;
+    let source = string_text(mrb, pattern)?;
+    let options = parse_options(mrb, options)?;
     compile(mrb, source, options)
 }
 
@@ -247,21 +249,18 @@ pub(crate) fn resolve_pos(subject: &str, pos: i64) -> Option<usize> {
     Some(p)
 }
 
-fn match_pos(subject: &str, args: &[Value]) -> Option<usize> {
-    let raw = args.get(1).and_then(|v| i32::from_value(*v)).unwrap_or(0);
+fn match_pos(subject: &str, pos: Option<Value>) -> Option<usize> {
+    let raw = pos.and_then(i32::from_value).unwrap_or(0);
     resolve_pos(subject, i64::from(raw))
 }
 
-fn rx_match(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+fn rx_match(mrb: &Mrb, self_: Value, arg: Value, pos: Option<Value>) -> Result<Value, Error> {
     let block = crate::args::block(mrb)?;
-    let Some(&arg) = args.first() else {
-        return Ok(qnil().as_value());
-    };
     if arg.is_nil() {
         return Ok(qnil().as_value());
     }
     let subject = string_or_symbol_text(mrb, arg)?;
-    let Some(pos) = match_pos(&subject, args) else {
+    let Some(pos) = match_pos(&subject, pos) else {
         return Ok(qnil().as_value());
     };
     let md = do_match(mrb, self_, subject, pos)?;
@@ -276,15 +275,12 @@ pub(crate) fn yield_match(mrb: &Mrb, md: Value, block: Option<Proc>) -> Result<V
     }
 }
 
-fn rx_match_p(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<bool, Error> {
-    let Some(&arg) = args.first() else {
-        return Ok(false);
-    };
+fn rx_match_p(mrb: &Mrb, self_: Value, arg: Value, pos: Option<Value>) -> Result<bool, Error> {
     if arg.is_nil() {
         return Ok(false);
     }
     let subject = string_or_symbol_text(mrb, arg)?;
-    let Some(pos) = match_pos(&subject, args) else {
+    let Some(pos) = match_pos(&subject, pos) else {
         return Ok(false);
     };
     let Some(state) = state_of(mrb, self_) else {

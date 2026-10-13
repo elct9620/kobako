@@ -32,11 +32,11 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     cls.as_value().funcall(mrb, c"private", &hidden)?;
 
     cls.define_method(mrb, c"=~", beni::method!(str_eqtilde, 1))?;
-    cls.define_method(mrb, c"match", beni::method!(str_match, -1))?;
-    cls.define_method(mrb, c"match?", beni::method!(str_match_p, -1))?;
-    cls.define_method(mrb, c"scan", beni::method!(str_scan, -1))?;
-    cls.define_method(mrb, c"gsub", beni::method!(str_gsub, -1))?;
-    cls.define_method(mrb, c"sub", beni::method!(str_sub, -1))?;
+    cls.define_method(mrb, c"match", beni::method!(str_match, 1, 1))?;
+    cls.define_method(mrb, c"match?", beni::method!(str_match_p, 1, 1))?;
+    cls.define_method(mrb, c"scan", beni::method!(str_scan, 1))?;
+    cls.define_method(mrb, c"gsub", beni::method!(str_gsub, 1, 1))?;
+    cls.define_method(mrb, c"sub", beni::method!(str_sub, 1, 1))?;
     cls.define_method(mrb, c"split", beni::method!(str_split, -1))?;
     cls.define_method(mrb, c"index", beni::method!(str_index, -1))?;
     cls.define_method(mrb, c"[]", beni::method!(str_aref, -1))?;
@@ -57,37 +57,33 @@ pub(crate) fn str_eqtilde(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, 
     arg.funcall(mrb, c"=~", &[self_])
 }
 
-fn str_match(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+fn str_match(mrb: &Mrb, self_: Value, pattern: Value, pos: Option<Value>) -> Result<Value, Error> {
     let block = crate::args::block(mrb)?;
-    if args.is_empty() {
-        return Ok(qnil().as_value());
-    }
-    let re = regexp::spelled_regexp(mrb, args[0])?;
-    let forwarded: Vec<Value> = core::iter::once(self_)
-        .chain(args[1..].iter().copied())
-        .collect();
-    let md = re.funcall(mrb, c"match", &forwarded)?;
+    let re = regexp::spelled_regexp(mrb, pattern)?;
+    let md = re.funcall(mrb, c"match", &forwarded(self_, pos))?;
     regexp::yield_match(mrb, md, block)
 }
 
-fn str_match_p(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    if args.is_empty() {
-        return Ok(false.into_value(mrb));
-    }
-    let re = regexp::spelled_regexp(mrb, args[0])?;
-    let forwarded: Vec<Value> = core::iter::once(self_)
-        .chain(args[1..].iter().copied())
-        .collect();
-    re.funcall(mrb, c"match?", &forwarded)
+fn str_match_p(
+    mrb: &Mrb,
+    self_: Value,
+    pattern: Value,
+    pos: Option<Value>,
+) -> Result<Value, Error> {
+    let re = regexp::spelled_regexp(mrb, pattern)?;
+    re.funcall(mrb, c"match?", &forwarded(self_, pos))
 }
 
-fn str_scan(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+/// The subject, then the position only when the caller gave one, so the
+/// pattern's own method sees the same argument count.
+fn forwarded(subject: Value, pos: Option<Value>) -> Vec<Value> {
+    core::iter::once(subject).chain(pos).collect()
+}
+
+fn str_scan(mrb: &Mrb, self_: Value, pattern: Value) -> Result<Value, Error> {
     let block = crate::args::block(mrb)?;
     let result = mrb.ary_new();
-    if args.is_empty() {
-        return Ok(result.as_value());
-    }
-    let re = regexp::literal_regexp(mrb, args[0])?;
+    let re = regexp::literal_regexp(mrb, pattern)?;
     let subject = regexp::text_of(mrb, self_)?;
     let spans = regexp::match_spans(mrb, re, &subject)?;
     for span in &spans {
@@ -119,19 +115,20 @@ fn scan_item(mrb: &Mrb, subject: &str, span: &regexp::MatchSpan) -> Result<Value
     Ok(tuple.as_value())
 }
 
-fn str_gsub(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+fn str_gsub(
+    mrb: &Mrb,
+    self_: Value,
+    pattern: Value,
+    replacement: Option<Value>,
+) -> Result<Value, Error> {
     let block = crate::args::block(mrb)?;
-    if args.is_empty() {
-        return Ok(self_);
-    }
-    let replacement = args.get(1).copied();
     // With neither a block nor a replacement, gsub yields an Enumerator over
     // the matches (as MRI does); the guest must provide Enumerator for it.
     if block.is_none() && replacement.is_none() {
-        return enum_for(mrb, self_, c"gsub", args[0]);
+        return enum_for(mrb, self_, c"gsub", pattern);
     }
     require_replacement(mrb, replacement)?;
-    let re = regexp::literal_regexp(mrb, args[0])?;
+    let re = regexp::literal_regexp(mrb, pattern)?;
     let subject = regexp::text_of(mrb, self_)?;
     let spans = regexp::match_spans(mrb, re, &subject)?;
     let mut out = String::with_capacity(subject.len());
@@ -146,19 +143,20 @@ fn str_gsub(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     Ok(mrb.str_new(out.as_bytes()).as_value())
 }
 
-fn str_sub(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+fn str_sub(
+    mrb: &Mrb,
+    self_: Value,
+    pattern: Value,
+    replacement: Option<Value>,
+) -> Result<Value, Error> {
     let block = crate::args::block(mrb)?;
-    if args.is_empty() {
-        return Ok(self_);
-    }
-    let replacement = args.get(1).copied();
     // Unlike gsub, sub has no Enumerator form: a block or a replacement is
     // required.
     if block.is_none() && replacement.is_none() {
         return Err(Error::argnum(mrb, 1, 2, 2));
     }
     require_replacement(mrb, replacement)?;
-    let re = regexp::literal_regexp(mrb, args[0])?;
+    let re = regexp::literal_regexp(mrb, pattern)?;
     let subject = regexp::text_of(mrb, self_)?;
     let spans = regexp::match_spans(mrb, re, &subject)?;
     let Some(span) = spans.first() else {
