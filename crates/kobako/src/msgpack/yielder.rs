@@ -43,7 +43,7 @@ mod tests {
 
     use super::*;
 
-    /// A raw yield channel answering from a canned script, recording
+    /// A raw yielder answering from a canned script, recording
     /// what the Yielder sent into the guest.
     struct Scripted {
         replies: VecDeque<Result<YieldReply, Trap>>,
@@ -68,14 +68,14 @@ mod tests {
     #[test]
     fn call_ships_the_args_as_one_msgpack_array() {
         let reply = YieldReply::Ok(Encoder::encode(&Value::Int(42)).unwrap());
-        let mut channel = scripted(vec![reply]);
+        let mut raw = scripted(vec![reply]);
 
-        Yielder::new(&mut channel)
+        Yielder::new(&mut raw)
             .call_values(&[Value::Int(21)])
             .unwrap();
 
         assert_eq!(
-            channel.sent,
+            raw.sent,
             // msgpack fixarray of one element (0x91) holding int 21 (0x15).
             vec![vec![0x91, 0x15]],
             "positional yield arguments through Yielder::call must ride as one msgpack array"
@@ -86,9 +86,9 @@ mod tests {
     #[test]
     fn call_reads_the_answer_back() {
         let reply = YieldReply::Ok(Encoder::encode(&Value::Int(42)).unwrap());
-        let mut channel = scripted(vec![reply]);
+        let mut raw = scripted(vec![reply]);
 
-        let answer = Yielder::new(&mut channel)
+        let answer = Yielder::new(&mut raw)
             .call_values(&[Value::Int(21)])
             .unwrap();
 
@@ -102,9 +102,9 @@ mod tests {
     // @behavior T-166
     #[test]
     fn an_ok_arm_this_schema_cannot_read_aborts() {
-        let mut channel = scripted(vec![YieldReply::Ok(vec![0xc1])]);
+        let mut raw = scripted(vec![YieldReply::Ok(vec![0xc1])]);
 
-        let answer = Yielder::new(&mut channel).call_values(&[]);
+        let answer = Yielder::new(&mut raw).call_values(&[]);
 
         assert!(
             matches!(answer, Err(YieldError::Aborted(_))),

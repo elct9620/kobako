@@ -109,16 +109,13 @@ impl From<YieldError> for Fault {
 /// }
 /// ```
 pub struct Yielder<'y> {
-    channel: &'y mut dyn RawYielder,
+    raw: &'y mut dyn RawYielder,
     broke: Option<Vec<u8>>,
 }
 
 impl<'y> Yielder<'y> {
-    pub(crate) fn new(channel: &'y mut dyn RawYielder) -> Self {
-        Yielder {
-            channel,
-            broke: None,
-        }
+    pub(crate) fn new(raw: &'y mut dyn RawYielder) -> Self {
+        Yielder { raw, broke: None }
     }
 
     /// Run the guest block once with `args` and return its value.
@@ -136,7 +133,7 @@ impl<'y> Yielder<'y> {
             return Err(YieldError::Break);
         }
         let reply = self
-            .channel
+            .raw
             .yield_to_block(args)
             .map_err(|trap| YieldError::Aborted(format!("yield re-entry trapped: {trap:?}")))?;
         match reply {
@@ -174,7 +171,7 @@ mod tests {
 
     use super::*;
 
-    /// A raw yield channel answering from a canned script, recording
+    /// A raw yielder answering from a canned script, recording
     /// what the Yielder sent into the guest.
     struct Scripted {
         replies: VecDeque<Result<YieldReply, Trap>>,
@@ -200,13 +197,13 @@ mod tests {
     // @behavior T-085
     #[test]
     fn call_payload_ships_the_bytes_it_was_handed_and_returns_the_ok_body() {
-        let mut channel = Scripted::new(vec![Ok(YieldReply::Ok(vec![0x2a]))]);
-        let mut block = Yielder::new(&mut channel);
+        let mut raw = Scripted::new(vec![Ok(YieldReply::Ok(vec![0x2a]))]);
+        let mut block = Yielder::new(&mut raw);
 
         let body = block.call_payload(&[0x15]).unwrap();
 
         assert_eq!(
-            (body, channel.sent),
+            (body, raw.sent),
             (vec![0x2a], vec![vec![0x15]]),
             "a yield through call_payload must ride the host's own bytes in both \
              directions, since the schema is the host's"
@@ -216,13 +213,13 @@ mod tests {
     // @behavior T-089
     #[test]
     fn break_records_the_body_and_stops_re_entering_the_guest() {
-        let mut channel = Scripted::new(vec![Ok(YieldReply::Break(vec![0x2a]))]);
-        let mut block = Yielder::new(&mut channel);
+        let mut raw = Scripted::new(vec![Ok(YieldReply::Break(vec![0x2a]))]);
+        let mut block = Yielder::new(&mut raw);
 
         assert_eq!(block.call_payload(&[]), Err(YieldError::Break));
         assert_eq!(block.call_payload(&[]), Err(YieldError::Break));
         assert_eq!(
-            (block.into_break(), channel.sent.len()),
+            (block.into_break(), raw.sent.len()),
             (Some(vec![0x2a]), 1),
             "a block that broke must hand its body back as the guest wrote it, and a \
              broken Yielder must not re-enter the guest again"
@@ -237,8 +234,8 @@ mod tests {
             message: "boom".into(),
             backtrace: vec!["(eval):1".into()],
         });
-        let mut channel = Scripted::new(vec![Ok(record)]);
-        let mut block = Yielder::new(&mut channel);
+        let mut raw = Scripted::new(vec![Ok(record)]);
+        let mut block = Yielder::new(&mut raw);
 
         assert_eq!(
             block.call_payload(&[]),
@@ -254,8 +251,8 @@ mod tests {
     #[test]
     fn a_yield_the_guest_does_not_serve_fails_at_the_yield_site() {
         let refusal = YieldReply::Unsupported(kobako_transport::envelope::Unsupported::new("no"));
-        let mut channel = Scripted::new(vec![Ok(refusal)]);
-        let mut block = Yielder::new(&mut channel);
+        let mut raw = Scripted::new(vec![Ok(refusal)]);
+        let mut block = Yielder::new(&mut raw);
 
         assert!(
             matches!(block.call_payload(&[]), Err(YieldError::Unsupported(_))),
@@ -267,8 +264,8 @@ mod tests {
     // @behavior T-165
     #[test]
     fn trap_during_re_entry_aborts() {
-        let mut channel = Scripted::new(vec![Err(Trap::Timeout("deadline".into()))]);
-        let mut block = Yielder::new(&mut channel);
+        let mut raw = Scripted::new(vec![Err(Trap::Timeout("deadline".into()))]);
+        let mut block = Yielder::new(&mut raw);
 
         assert!(
             matches!(block.call_payload(&[]), Err(YieldError::Aborted(_))),

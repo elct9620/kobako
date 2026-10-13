@@ -49,7 +49,7 @@ impl CatalogHandler {
     /// Routes a Call to its Receiver and hands the payload through
     /// untouched: what the bytes mean is the Receiver's own schema, so
     /// this layer never decodes them.
-    fn answer(&self, call: &Call<'_>, channel: &mut dyn RawYielder) -> Reply {
+    fn answer(&self, call: &Call<'_>, yielder: &mut dyn RawYielder) -> Reply {
         let object = match self.resolve_target(&call.target) {
             Ok(object) => object,
             Err(fault) => return Reply::Fault(fault),
@@ -64,7 +64,7 @@ impl CatalogHandler {
             ));
         }
         let handles = Handles::new(&self.handles);
-        let mut block = call.block_given.then(|| Yielder::new(channel));
+        let mut block = call.block_given.then(|| Yielder::new(yielder));
         let result = object.call(call.method, call.payload, block.as_mut(), &handles);
         // A break unwinds the receiver transparently: the guest receives
         // the break value no matter what the receiver returned, and the
@@ -109,8 +109,8 @@ impl CatalogHandler {
 impl DispatchHandler for CatalogHandler {
     /// `None` is reserved for "the handler itself failed"; this
     /// handler reifies every failure as an envelope instead.
-    fn dispatch(&self, call: Call<'_>, channel: &mut dyn RawYielder) -> Option<Reply> {
-        Some(self.answer(&call, channel))
+    fn dispatch(&self, call: Call<'_>, yielder: &mut dyn RawYielder) -> Option<Reply> {
+        Some(self.answer(&call, yielder))
     }
 }
 
@@ -130,7 +130,7 @@ mod tests {
 
     use super::*;
 
-    /// A yield channel for tests: the handler under test never yields.
+    /// A yielder for tests: the handler under test never yields.
     struct NoYield;
 
     impl RawYielder for NoYield {
@@ -142,7 +142,7 @@ mod tests {
         }
     }
 
-    /// A yield channel answering from a canned script of Yield Replies.
+    /// A yielder answering from a canned script of Yield Replies.
     struct Scripted(std::collections::VecDeque<YieldReply>);
 
     impl Scripted {
@@ -317,18 +317,18 @@ mod tests {
         roundtrip_with(request, &mut NoYield)
     }
 
-    fn roundtrip_with(request: &Sent, channel: &mut dyn RawYielder) -> Answer {
-        roundtrip_on(&handler(), request, channel)
+    fn roundtrip_with(request: &Sent, yielder: &mut dyn RawYielder) -> Answer {
+        roundtrip_on(&handler(), request, yielder)
     }
 
     fn roundtrip_on(
         handler: &CatalogHandler,
         request: &Sent,
-        channel: &mut dyn RawYielder,
+        yielder: &mut dyn RawYielder,
     ) -> Answer {
         let bytes = request.encode();
         let reply = handler
-            .dispatch(Call::decode(&bytes).unwrap(), channel)
+            .dispatch(Call::decode(&bytes).unwrap(), yielder)
             .expect("this handler never returns None");
         answer(reply)
     }
@@ -573,12 +573,12 @@ mod tests {
     #[test]
     fn yield_results_flow_back_through_the_receiver_value() {
         let req = block_request("yield_each", vec![Value::Int(1), Value::Int(2)]);
-        let mut channel = Scripted::new(vec![
+        let mut yielder = Scripted::new(vec![
             arm(YieldReply::Ok, Value::Int(10)),
             arm(YieldReply::Ok, Value::Int(20)),
         ]);
         assert_eq!(
-            roundtrip_with(&req, &mut channel),
+            roundtrip_with(&req, &mut yielder),
             Answer::Ok(Value::Array(vec![Value::Int(10), Value::Int(20)]))
         );
     }
@@ -590,12 +590,12 @@ mod tests {
             "yield_each",
             vec![Value::Int(1), Value::Int(2), Value::Int(3)],
         );
-        let mut channel = Scripted::new(vec![
+        let mut yielder = Scripted::new(vec![
             arm(YieldReply::Ok, Value::Int(10)),
             arm(YieldReply::Break, Value::Sym("stop".into())),
         ]);
         assert_eq!(
-            roundtrip_with(&req, &mut channel),
+            roundtrip_with(&req, &mut yielder),
             Answer::Ok(Value::Sym("stop".into()))
         );
     }
@@ -604,15 +604,15 @@ mod tests {
     #[test]
     fn break_overrides_even_a_receiver_that_swallows_it() {
         let req = block_request("swallow_break", vec![]);
-        let mut channel = Scripted::new(vec![arm(YieldReply::Break, Value::Sym("stop".into()))]);
+        let mut yielder = Scripted::new(vec![arm(YieldReply::Break, Value::Sym("stop".into()))]);
         assert_eq!(
-            roundtrip_with(&req, &mut channel),
+            roundtrip_with(&req, &mut yielder),
             Answer::Ok(Value::Sym("stop".into())),
             "the guest must receive the break value even when the receiver discards YieldError::Break"
         );
     }
 
-    // The channel panics if yielded to, so each case also shows the block
+    // The yielder panics if yielded to, so each case also shows the block
     // never ran.
     // @behavior T-157
     #[test]
@@ -652,13 +652,13 @@ mod tests {
     #[test]
     fn propagated_block_failure_folds_into_a_block_fault() {
         let req = block_request("yield_each", vec![Value::Int(1)]);
-        let mut channel = Scripted::new(vec![YieldReply::Error(ErrorRecord {
+        let mut yielder = Scripted::new(vec![YieldReply::Error(ErrorRecord {
             name: "LocalJumpError".into(),
             message: "crossed".into(),
             backtrace: Vec::new(),
         })]);
         assert_eq!(
-            fault_type(&roundtrip_with(&req, &mut channel)),
+            fault_type(&roundtrip_with(&req, &mut yielder)),
             "block",
             "a propagated block failure must fold into the block fault envelope, so the guest \
              continues its own exception rather than hearing that a Service failed"
