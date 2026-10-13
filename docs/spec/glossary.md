@@ -97,7 +97,7 @@ A message asking the other side to run one method. The guest issues one to reach
 
 ### Reply
 
-The answer to one Call: a value, a Fault, or Unsupported. The answer to a Yield may instead be a break.
+The answer to one Call: a value, a Fault, or Unsupported. The answer to a Yield may instead be a break, or the Error Record of a Block that raised.
 
 ### Block
 
@@ -177,7 +177,7 @@ An Invocation that names an entrypoint already loaded in the guest, instead of s
 
 ### Preamble
 
-What the guest reads before an Invocation's entry runs: the Catalog's bindings, preloads, and Flags. The guest starts knowing what this run was configured with.
+What the guest reads before an Invocation's entry runs or its preloads compile: the Catalog's bindings, preloads, and Flags. The guest starts knowing what this run was configured with.
 
 ### Flag
 
