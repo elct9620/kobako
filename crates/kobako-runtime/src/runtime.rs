@@ -64,11 +64,12 @@ pub trait Runtime {
 
     /// The bytecode of the Preamble's source Snippets, one per snippet in
     /// order, compiled on a fresh instance that runs none of them. A
-    /// frontend replays it in place of the source, so every invocation
-    /// after skips the compiler. `None` whenever there is nothing to
-    /// replay, whatever the reason: the frontend keeps the source. The
-    /// default compiles nothing, so an engine that does not offer it
-    /// still serves every invocation.
+    /// frontend hands over the Preamble an invocation sends and replays the
+    /// answer in its place, so every invocation after skips the compiler.
+    /// `None` whenever there is nothing to replay, an answer that would
+    /// carry that Preamble past the payload cap included: the frontend
+    /// keeps the source. The default compiles nothing, so an engine that
+    /// does not offer it still serves every invocation.
     fn compile(&self, _preamble: &Preamble) -> Option<Vec<Vec<u8>>> {
         None
     }

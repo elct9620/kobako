@@ -103,7 +103,8 @@ impl Registry {
                 // The snippets change only once the engine has answered, so
                 // a panic inside the engine leaves them as registered.
                 let compiling = AssertUnwindSafe(|| {
-                    catalog.snippets.compile(runtime, &catalog.flags);
+                    let bindings = catalog.bound_paths();
+                    catalog.snippets.compile(runtime, bindings, &catalog.flags);
                 });
                 panicked = panic::catch_unwind(compiling).err();
             }

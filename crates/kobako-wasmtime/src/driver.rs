@@ -19,7 +19,7 @@ use crate::cache::shared_engine;
 use crate::config::Config;
 use crate::exports::{self, Exports};
 use crate::invocation::Invocation;
-use crate::{capture, instance_pre, io, trap};
+use crate::{capture, guest_mem, instance_pre, io, trap};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::profile::Profile;
@@ -200,10 +200,27 @@ impl ContractRuntime for Driver {
             .call_with_caps(&mut store, &exports, downcall, (ptr, len))
             .ok()?;
         match io::read_compile_reply(&store, &exports, packed).ok()? {
-            CompileReply::Ok(bytecodes) => one_per_source(preamble, bytecodes),
+            CompileReply::Ok(bytecodes) => one_per_source(preamble, bytecodes)
+                .filter(|bytecodes| replay_fits(preamble, bytecodes)),
             CompileReply::Error(_) | CompileReply::Unsupported(_) => None,
         }
     }
+}
+
+/// Each invocation sends the Preamble with every bytecode in place of its
+/// source, so an answer that would carry it past the payload cap would trap
+/// every invocation the source alone fits.
+fn replay_fits(preamble: &Preamble, bytecodes: &[Vec<u8>]) -> bool {
+    let mut replay = preamble.clone();
+    let sources = replay
+        .snippets
+        .entries
+        .iter_mut()
+        .filter(|entry| matches!(entry, Snippet::Source { .. }));
+    for (entry, body) in sources.zip(bytecodes) {
+        *entry = Snippet::Bytecode { body: body.clone() };
+    }
+    guest_mem::checked_payload_len(replay.encode().len()).is_ok()
 }
 
 /// A frontend replays each bytecode in place of one source snippet, in

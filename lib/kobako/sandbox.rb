@@ -171,7 +171,7 @@ module Kobako
     def begin_invocation!
       @sealed = true
       @extensions.assert_dependencies!
-      @snippets.compile { |entries| @runtime.compile(entries, @flags.entries) }
+      @snippets.compile { |entries| @runtime.compile(@services.paths, entries, @flags.entries) }
     end
   end
 end

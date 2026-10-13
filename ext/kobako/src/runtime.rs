@@ -116,7 +116,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     runtime.define_method("eval", method!(Runtime::eval, 5))?;
     runtime.define_method("run", method!(Runtime::run, 6))?;
     runtime.define_method("profile", method!(Runtime::profile, 0))?;
-    runtime.define_method("compile", method!(Runtime::compile, 2))?;
+    runtime.define_method("compile", method!(Runtime::compile, 3))?;
     // The guest re-enters for a block yield through a frame-scoped
     // `Kobako::Runtime::GuestYielder` the dispatcher hands the Proc, not a
     // method on Runtime.
@@ -304,11 +304,18 @@ impl Runtime {
 
     /// The bytecode of the source snippets, one binary String each in
     /// order, or `nil` when the guest compiled nothing; no failure raises,
-    /// since the Sandbox keeps the source either way. Binds no Service:
+    /// since the Sandbox keeps the source either way. Takes the Preamble an
+    /// invocation sends, `paths` included, so the driver can tell whether
+    /// the bytecode still fits it; no dispatch handler is bound, since
     /// compiling runs no script.
-    fn compile(&self, snippets: RArray, flags: RArray) -> Result<Option<RArray>, MagnusError> {
+    fn compile(
+        &self,
+        paths: RArray,
+        snippets: RArray,
+        flags: RArray,
+    ) -> Result<Option<RArray>, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let preamble = preamble_from(&ruby, Vec::new(), snippets, flags)?;
+        let preamble = preamble_from(&ruby, paths.to_vec()?, snippets, flags)?;
         let bytecodes = gvl::region(self.release_gvl, || self.driver.compile(&preamble));
         Ok(bytecodes.map(|bytecodes| {
             ruby.ary_from_iter(
