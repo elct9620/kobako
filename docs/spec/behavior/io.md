@@ -298,3 +298,16 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Given | a Sandbox |
 | When | guest code constructs an IO with a Symbol naming the write mode |
 | Then | a type error is raised |
+
+## `IO-036` A value written in one call is let go once it is written
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the arena grows on demand, so holding shows only in the memory peak |
+| refines | `IO-034` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code writes many values to the output stream in one call |
+| Then | each value's string form is released for collection once it is written |
