@@ -18,4 +18,13 @@ class TestRegexpStringArity < Minitest::Test
                  "String#match, #match?, #scan, #gsub and #sub through Sandbox#eval must raise " \
                  "ArgumentError for a missing pattern or an extra argument"
   end
+
+  # @behavior RX-251
+  def test_searching_and_splitting_by_a_pattern_refuse_a_third_argument
+    calls = ['"a".index(/a/, 0, 1)', '"a".split(/a/, 0, 1)']
+
+    assert_equal ["ArgumentError"] * calls.size, calls.map { |code| guard_error(code, "ArgumentError") },
+                 "String#index and String#split by a pattern with a third argument through Sandbox#eval " \
+                 "must raise ArgumentError"
+  end
 end

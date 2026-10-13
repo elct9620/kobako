@@ -52,4 +52,17 @@ class TestRegexpMatchPosition < Minitest::Test
     assert_equal false, eval_regexp('//.match?("abc", 5)'),
                  "Regexp#match? returns false when pos is past the end of the string"
   end
+
+  # The only "b" sits at byte 0, so a match from 1.9 finds it only if the
+  # position is misread as 0.
+  # @behavior RX-249
+  def test_match_position_reads_as_an_integer
+    refusals = ['/b/.match("ab", "1")', '/b/.match("ab", nil)', '/b/.match?("ab", "1")', '/b/.match?("ab", nil)']
+
+    assert_equal [[true, false], ["TypeError"] * refusals.size],
+                 [eval_regexp('[/b/.match("ba", 1.9).nil?, /b/.match?("ba", 1.9)]'),
+                  refusals.map { |code| guard_error(code, "TypeError") }],
+                 "Regexp#match and #match? from a Float position through Sandbox#eval must count its " \
+                 "whole part, and from a String or nil position must raise TypeError"
+  end
 end
