@@ -122,6 +122,7 @@ fn io_write(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     }
     let mut total: i32 = 0;
     for &val in args {
+        let _scope = mrb.arena_scope();
         // A guest-defined `to_s` that raises propagates as an ordinary
         // guest exception instead of unwinding past this Rust frame.
         let s = val.to_r_string(mrb)?;
