@@ -1212,3 +1212,15 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code asks a pattern to match with no subject or with three arguments |
 | Then | each is refused for its argument count |
+
+## `RX-249` A match position reads as the language reads an Integer
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-042` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches from a Float position, a String position and a nil position |
+| Then | the Float counts as its whole part, and the String and nil raise `TypeError` |

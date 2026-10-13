@@ -575,3 +575,27 @@ scanning, substituting   reads a String as literal characters
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code matches, scans, or substitutes with no pattern or with a trailing extra argument |
 | Then | each is refused for its argument count |
+
+## `RX-250` A search position or split limit reads as the language reads an Integer
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-129`, `RX-126` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code searches from, and splits up to, a Float, a String and nil |
+| Then | the Float counts as its whole part, and the String and nil raise `TypeError` |
+
+## `RX-251` Searching and splitting by a pattern take at most two arguments
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-246` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code searches or splits by a pattern with a third argument |
+| Then | each is refused for its argument count |
