@@ -1679,3 +1679,27 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox with preloaded source holding an Extension whose dependency nothing installed |
 | When | the first invocation begins |
 | Then | it is refused without asking the engine to compile |
+
+## `S-197` Snippet source whose bytes are not UTF-8 is refused at registration
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-142` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a snippet table |
+| When | a source snippet is registered with a String whose bytes are not UTF-8 |
+| Then | the refusal names the constraint |
+
+## `S-198` A flag whose name or value is not UTF-8 is refused when set
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-185` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a flag whose name or value is a String whose bytes are not UTF-8 |
+| When | it is set |
+| Then | the refusal names the constraint |
