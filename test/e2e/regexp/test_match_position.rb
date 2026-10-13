@@ -65,4 +65,13 @@ class TestRegexpMatchPosition < Minitest::Test
                  "Regexp#match and #match? from a Float position through Sandbox#eval must count its " \
                  "whole part, and from a String or nil position must raise TypeError"
   end
+
+  # @behavior RX-255
+  def test_a_nil_subject_still_reads_its_position
+    calls = ['/a/.match(nil, "1")', '/a/.match?(nil, "1")']
+
+    assert_equal ["TypeError"] * calls.size, calls.map { |code| guard_error(code, "TypeError") },
+                 "Regexp#match and #match? of nil from a String position through Sandbox#eval must raise " \
+                 "TypeError rather than answer for the nil subject"
+  end
 end
