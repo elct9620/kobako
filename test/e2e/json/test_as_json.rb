@@ -63,4 +63,16 @@ class TestJsonAsJson < Minitest::Test
     assert_includes err.message, "can't add a new key into hash during iteration",
                     "JSON.generate of a Hash whose hook adds a key must raise CRuby's iteration error"
   end
+
+  # Removing one key while adding another keeps the pair count, so only the
+  # keys themselves show the addition.
+  # @behavior JS-061
+  def test_key_swapped_in_by_a_hook_is_refused
+    code = "#{MUTATING_HOOK}h = {}; h[:a] = Editor.new(h) { |x| x.delete(:b); x[:c] = 3 }; " \
+           "h[:b] = 2; JSON.generate(h)"
+
+    err = assert_guest_raises "RuntimeError", code
+    assert_includes err.message, "can't add a new key into hash during iteration",
+                    "JSON.generate of a Hash whose hook swaps one key for another must raise CRuby's iteration error"
+  end
 end
