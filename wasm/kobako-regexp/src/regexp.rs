@@ -256,17 +256,16 @@ pub(crate) fn integer_arg(mrb: &Mrb, arg: Option<Value>) -> Result<i64, Error> {
     arg.map_or(Ok(0), |value| i64::try_convert(value, mrb))
 }
 
-fn match_pos(mrb: &Mrb, subject: &str, pos: Option<Value>) -> Result<Option<usize>, Error> {
-    Ok(resolve_pos(subject, integer_arg(mrb, pos)?))
-}
-
+/// The position is read before the subject, so a nil subject still refuses
+/// one that is no Integer, as in CRuby.
 fn rx_match(mrb: &Mrb, self_: Value, arg: Value, pos: Option<Value>) -> Result<Value, Error> {
     let block = crate::args::block(mrb)?;
+    let pos = integer_arg(mrb, pos)?;
     if arg.is_nil() {
         return Ok(qnil().as_value());
     }
     let subject = string_or_symbol_text(mrb, arg)?;
-    let Some(pos) = match_pos(mrb, &subject, pos)? else {
+    let Some(pos) = resolve_pos(&subject, pos) else {
         return Ok(qnil().as_value());
     };
     let md = do_match(mrb, self_, subject, pos)?;
@@ -282,11 +281,12 @@ pub(crate) fn yield_match(mrb: &Mrb, md: Value, block: Option<Proc>) -> Result<V
 }
 
 fn rx_match_p(mrb: &Mrb, self_: Value, arg: Value, pos: Option<Value>) -> Result<bool, Error> {
+    let pos = integer_arg(mrb, pos)?;
     if arg.is_nil() {
         return Ok(false);
     }
     let subject = string_or_symbol_text(mrb, arg)?;
-    let Some(pos) = match_pos(mrb, &subject, pos)? else {
+    let Some(pos) = resolve_pos(&subject, pos) else {
         return Ok(false);
     };
     let Some(state) = state_of(mrb, self_) else {
