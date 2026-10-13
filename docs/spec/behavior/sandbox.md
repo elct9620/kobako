@@ -1654,3 +1654,28 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a snippet table |
 | When | a snippet is registered under a name too long to be a symbol |
 | Then | the refusal names the constraint |
+
+## `S-195` A compile that fails outright leaves the source replaying
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-187` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with preloaded source whose engine fails the compile outright |
+| When | the Sandbox is invoked twice |
+| Then | the first invocation fails with that failure and the second runs on the source |
+
+## `S-196` An unmet dependency is refused before any compile
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-186` |
+| relates | `EX-029` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with preloaded source holding an Extension whose dependency nothing installed |
+| When | the first invocation begins |
+| Then | it is refused without asking the engine to compile |
