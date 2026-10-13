@@ -12,9 +12,9 @@
 name = "kobako"
 version = "0.17.0"
 edition = "2021"
-# Recovering a concrete host object from `Sandbox::resolve` upcasts
-# `Arc<dyn Receiver>` to `Arc<dyn Any>`, which needs trait-upcasting.
-rust-version = "1.86"
+# The default engine's wasmtime sets the floor; the crate itself needs
+# 1.86 for the trait-upcasting `Sandbox::resolve` relies on.
+rust-version = "1.96"
 description = "kobako host SDK — run untrusted mruby in an in-process Wasm sandbox."
 license = "Apache-2.0"
 repository = "https://github.com/elct9620/kobako"

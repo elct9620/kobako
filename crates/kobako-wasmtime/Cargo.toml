@@ -17,6 +17,8 @@
 name = "kobako-wasmtime"
 version = "0.17.0"
 edition = "2021"
+# wasmtime's own floor.
+rust-version = "1.96"
 description = "wasmtime implementation of the kobako host runtime contract."
 license = "Apache-2.0"
 repository = "https://github.com/elct9620/kobako"
