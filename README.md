@@ -524,23 +524,23 @@ Order-of-magnitude figures on macOS arm64, Ruby 3.4.7, YJIT off. Absolute values
 | Phase                                                        | Cost                  |
 |--------------------------------------------------------------|-----------------------|
 | First `Sandbox.new` ever for a Guest Binary (Module JIT, then disk-cached) | ~500 ms once per machine |
-| First `Sandbox.new` in a fresh process (`.cwasm` cache warm) | ~3 ms one-time        |
+| First `Sandbox.new` in a fresh process (`.cwasm` cache warm) | ~1.4 ms one-time      |
 | Subsequent `Sandbox.new` (caches warm)                       | ~3 µs                 |
-| Warm `#eval` with one Service call on a reused Sandbox       | ~70 µs                |
-| Warm `#run(:Entrypoint, ...)` dispatch                       | ~79 µs                |
-| Service call amortized inside one invocation                 | ~5.8 µs               |
-| Snippet replay per invocation                                | ~7.0 µs each          |
+| Warm `#eval` with one Service call on a reused Sandbox       | ~62 µs                |
+| Warm `#run(:Entrypoint, ...)` dispatch                       | ~57 µs                |
+| Service call amortized inside one invocation                 | ~4.9 µs               |
+| Snippet replay per invocation                                | ~2.7 µs each          |
 | Per additional idle Sandbox (RSS)                            | < 1 KB                |
 
-The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance, which is why a thousand idle tenants cost ~34 MB total. The canonical boot state is baked into the artifact and instantiated per invocation. A +10% regression on any gated benchmark blocks release.
+The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance, which is why a thousand idle tenants cost ~37 MB total. The canonical boot state is baked into the artifact and instantiated per invocation. A +10% regression on any gated benchmark blocks release.
 
 #### Throughput Levers
 
 | Choice | What it changes |
 |---|---|
-| `gvl: :hold` (default) | ~16k `#eval`/s in aggregate, at any Thread count |
+| `gvl: :hold` (default) | ~15–20k `#eval`/s in aggregate, at any Thread count |
 | `gvl: :release` | lifts that ceiling for compute-bound scripts (see [Concurrency](#concurrency)) |
-| `match?` over `=~` | `=~` (~5 µs/match) costs about 5× `match?` (~1.0 µs) |
+| `match?` over `=~` | `=~` (~5.6 µs/match) costs about 6× `match?` (~0.9 µs) |
 
 Under `:hold` the GVL serializes wasm work, though Ruby-side `#eval` setup still overlaps. `=~` eagerly builds the `MatchData` and match globals, so prefer `match?` for boolean tests. Regexp is an opt-in capability gem, excluded from the default binary and the gated set. Its throughput is tracked in a separate non-gated characterization (`#11` in [`benchmark/README.md`](benchmark/README.md)).
 
