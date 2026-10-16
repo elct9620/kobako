@@ -4,9 +4,8 @@
 //! Owned as the data of each per-invocation `wasmtime::Store`
 //! and threaded through every host import —
 //! the `__kobako_upcall` dispatcher reads the bound dispatch handler,
-//! while `Driver::invoke` installs the invocation's WASI
-//! context + pipes (via `io::install_wasi`) before the guest
-//! export call.
+//! and the WASI imports read the invocation's `Wasi` context, which the
+//! Store is created with.
 //!
 //! The slot also carries the per-invocation wall-clock deadline and the
 //! memory cap `MemoryLimiter`, both read from the wasmtime
@@ -16,28 +15,22 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use wasmtime_wasi::p1::WasiP1Ctx;
-use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
-
 use kobako_runtime::dispatch::DispatchHandler;
 
 use crate::exports::Exports;
 use crate::limiter::MemoryLimiter;
+use crate::wasi::Wasi;
 
 /// Per-invocation host state, owned by the invocation's own Store.
 /// Threaded through every host import callback.
 ///
-/// All field access is mediated by methods on this type — the WASI ctx
-/// is rebuilt fresh before each invocation via
-/// `Invocation::install_wasi`, the dispatch handler is set once via
-/// `Invocation::bind_on_dispatch`, and captured stdout/stderr bytes
-/// are read after the invocation via `Invocation::stdout_bytes` /
-/// `Invocation::stderr_bytes`. The fields are private so the mutation
-/// surface stays narrow.
+/// All field access is mediated by methods on this type — the `Wasi`
+/// context arrives with the invocation, the dispatch handler is set once
+/// via `Invocation::bind_on_dispatch`, and the captures are read back
+/// through `Invocation::wasi` after the run. The fields are private so
+/// the mutation surface stays narrow.
 pub(crate) struct Invocation {
-    wasi: Option<WasiP1Ctx>,
-    stdout_pipe: Option<MemoryOutputPipe>,
-    stderr_pipe: Option<MemoryOutputPipe>,
+    wasi: Wasi,
     on_dispatch: Option<Arc<dyn DispatchHandler>>,
     deadline: Option<Instant>,
     limiter: MemoryLimiter,
@@ -48,11 +41,9 @@ pub(crate) struct Invocation {
 }
 
 impl Invocation {
-    pub(crate) fn new(memory_limit: Option<usize>) -> Self {
+    pub(crate) fn new(memory_limit: Option<usize>, wasi: Wasi) -> Self {
         Self {
-            wasi: None,
-            stdout_pipe: None,
-            stderr_pipe: None,
+            wasi,
             on_dispatch: None,
             deadline: None,
             limiter: MemoryLimiter::new(memory_limit),
@@ -89,33 +80,8 @@ impl Invocation {
         self.reentry_trap.take()
     }
 
-    pub(crate) fn install_wasi(
-        &mut self,
-        wasi: WasiP1Ctx,
-        stdout: MemoryOutputPipe,
-        stderr: MemoryOutputPipe,
-    ) {
-        self.wasi = Some(wasi);
-        self.stdout_pipe = Some(stdout);
-        self.stderr_pipe = Some(stderr);
-    }
-
     pub(crate) fn bind_on_dispatch(&mut self, handler: Arc<dyn DispatchHandler>) {
         self.on_dispatch = Some(handler);
-    }
-
-    pub(crate) fn stdout_bytes(&self) -> Vec<u8> {
-        self.stdout_pipe
-            .as_ref()
-            .map(|p| p.contents().to_vec())
-            .unwrap_or_default()
-    }
-
-    pub(crate) fn stderr_bytes(&self) -> Vec<u8> {
-        self.stderr_pipe
-            .as_ref()
-            .map(|p| p.contents().to_vec())
-            .unwrap_or_default()
     }
 
     /// A clone, so the borrow on the `Caller` is released and the
@@ -124,10 +90,12 @@ impl Invocation {
         self.on_dispatch.clone()
     }
 
-    pub(crate) fn wasi_mut(&mut self) -> &mut WasiP1Ctx {
-        self.wasi
-            .as_mut()
-            .expect("WASI context not initialised — the driver must install it before any WASI use")
+    pub(crate) fn wasi(&self) -> &Wasi {
+        &self.wasi
+    }
+
+    pub(crate) fn wasi_mut(&mut self) -> &mut Wasi {
+        &mut self.wasi
     }
 
     pub(crate) fn set_deadline(&mut self, deadline: Option<Instant>) {

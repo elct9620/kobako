@@ -86,7 +86,6 @@ pub(crate) fn instantiate_err(err: wasmtime::Error) -> SetupError {
 #[cfg(test)]
 mod tests {
     use super::{other_trap_message, trap_from, TimeoutTrap, NO_TIMEOUT_EPOCH_DELTA};
-    use crate::invocation::Invocation;
     use crate::limiter::MemoryLimitTrap;
     use kobako_runtime::error::Trap;
 
@@ -102,7 +101,7 @@ mod tests {
     fn no_timeout_delta_survives_a_ticked_engine_epoch() {
         let engine = crate::cache::shared_engine().expect("shared engine must be constructible");
         engine.increment_epoch();
-        let mut store = wasmtime::Store::new(engine, Invocation::new(None));
+        let mut store = wasmtime::Store::new(engine, ());
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
     }
 

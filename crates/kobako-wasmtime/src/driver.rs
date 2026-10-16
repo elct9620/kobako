@@ -19,6 +19,7 @@ use crate::cache::shared_engine;
 use crate::config::Config;
 use crate::exports::{self, Exports};
 use crate::invocation::Invocation;
+use crate::wasi::Wasi;
 use crate::{capture, guest_mem, instance_pre, io, trap};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
@@ -50,8 +51,11 @@ impl Driver {
         })
     }
 
-    fn new_store(&self) -> Result<WtStore<Invocation>, SetupError> {
-        let mut store = WtStore::new(shared_engine()?, Invocation::new(self.config.memory_limit));
+    fn new_store(&self, wasi: Wasi) -> Result<WtStore<Invocation>, SetupError> {
+        let mut store = WtStore::new(
+            shared_engine()?,
+            Invocation::new(self.config.memory_limit, wasi),
+        );
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
         store.epoch_deadline_callback(trap::epoch_deadline_callback);
         Ok(store)
@@ -120,9 +124,9 @@ impl Driver {
             memory_peak: data.memory_peak(),
         };
         let (stdout_bytes, stdout_truncated) =
-            capture::clip_capture(data.stdout_bytes(), self.config.stdout_limit);
+            capture::clip_capture(data.wasi().stdout_bytes(), self.config.stdout_limit);
         let (stderr_bytes, stderr_truncated) =
-            capture::clip_capture(data.stderr_bytes(), self.config.stderr_limit);
+            capture::clip_capture(data.wasi().stderr_bytes(), self.config.stderr_limit);
         Snapshot {
             completion,
             stdout: Capture {
@@ -149,11 +153,11 @@ impl ContractRuntime for Driver {
         preamble: &Preamble,
         handler: Option<Arc<dyn DispatchHandler>>,
     ) -> Result<Snapshot, InvokeError> {
-        let mut store = self.new_store()?;
+        let wasi = Wasi::new(&self.config, &preamble.encode())?;
+        let mut store = self.new_store(wasi)?;
         if let Some(handler) = handler {
             store.data_mut().bind_on_dispatch(handler);
         }
-        io::install_wasi(&mut store, &self.config, &preamble.encode())?;
         let exports = self.instantiate(&mut store)?;
         let downcall = exports::require(exports.downcall.as_ref())?;
         let request = match entry {
@@ -190,8 +194,8 @@ impl ContractRuntime for Driver {
     /// own that no script ever runs on, so what it answers carries
     /// nothing a script could have written.
     fn compile(&self, preamble: &Preamble) -> Option<Vec<Vec<u8>>> {
-        let mut store = self.new_store().ok()?;
-        io::install_wasi(&mut store, &self.config, &preamble.encode()).ok()?;
+        let wasi = Wasi::new(&self.config, &preamble.encode()).ok()?;
+        let mut store = self.new_store(wasi).ok()?;
         let exports = self.instantiate(&mut store).ok()?;
         let downcall = exports::require(exports.downcall.as_ref()).ok()?;
         let (ptr, len) =

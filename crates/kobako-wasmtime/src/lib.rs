@@ -24,6 +24,7 @@ mod invocation;
 mod io;
 mod limiter;
 mod trap;
+mod wasi;
 
 pub use config::Config;
 pub use driver::Driver;

@@ -10,7 +10,8 @@ use wasmtime::{AsContextMut, InstancePre, Store as WtStore};
 use crate::cache::shared_engine;
 use crate::config::Config;
 use crate::invocation::Invocation;
-use crate::{io, trap};
+use crate::trap;
+use crate::wasi::Wasi;
 use kobako_runtime::error::SetupError;
 use kobako_runtime::profile::Profile;
 use kobako_transport::abi::ABI_VERSION;
@@ -30,16 +31,13 @@ const PROBE_CONFIG: Config = Config {
 };
 
 /// An absent or unequal version is a deterministic artifact fault, so
-/// every failure is a `SetupError`. The probe's own WASI context keeps a
-/// guest whose start section touches WASI on that path instead of
-/// panicking in `Invocation::wasi_mut`.
+/// every failure is a `SetupError`.
 pub(crate) fn verify(pre: &InstancePre<Invocation>) -> Result<(), SetupError> {
-    let mut store = WtStore::new(shared_engine()?, Invocation::new(None));
+    let wasi = Wasi::new(&PROBE_CONFIG, &[]).map_err(|t| SetupError::Dead(t.to_string()))?;
+    let mut store = WtStore::new(shared_engine()?, Invocation::new(None, wasi));
     // Epoch interruption is on engine-wide and a fresh Store's deadline
     // has already elapsed, so the probe must name one it cannot reach.
     store.set_epoch_deadline(trap::NO_TIMEOUT_EPOCH_DELTA);
-    io::install_wasi(&mut store, &PROBE_CONFIG, &[])
-        .map_err(|t| SetupError::Dead(t.to_string()))?;
     let instance = pre
         .instantiate(store.as_context_mut())
         .map_err(trap::instantiate_err)?;
