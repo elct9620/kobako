@@ -111,6 +111,15 @@ Hand-written text-format module whose compile never finishes, so a cap has to st
 | compile | grows memory by 16 MiB, then spins |
 | any other | answers a nil Result at once |
 
+## `minimal_compile_ambient.wat`
+
+Hand-written text-format module whose compile answers the ambient bytes it read. Compiling runs no script, so the real Guest Binary cannot show which posture its compile ran at.
+
+| Downcall | What it does |
+|---|---|
+| compile | answers one bytecode: the realtime clock, then 8 bytes of entropy |
+| any other | answers a nil Result at once |
+
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 
 Each fixture exercises one bytecode-preload path of [`sandbox.md`](../../docs/spec/behavior/sandbox.md) through the real `data/kobako.wasm`.

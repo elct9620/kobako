@@ -114,10 +114,10 @@ impl Wasi {
 
 #[cfg(test)]
 mod tests {
-    //! Witness what each context grants: `wasi:clocks` / `wasi:random`
-    //! frozen under `Hermetic` and live under `Permissive`, a compile
-    //! frozen whatever was requested, and no ambient filesystem,
-    //! environment, or socket anywhere.
+    //! Witness what an invocation's context grants at each profile rung:
+    //! `wasi:clocks` / `wasi:random` frozen under `Hermetic` and live
+    //! under `Permissive`, and no ambient filesystem, environment, or
+    //! socket under either.
     use wasmtime::{AsContextMut, Module, Store};
 
     use super::*;
@@ -162,26 +162,18 @@ mod tests {
             (i64.extend_i32_u (call $accept (i32.const 3) (i32.const 0) (i32.const 24)))))
     "#;
 
-    /// Uncapped caps requesting `profile`.
-    fn config(profile: Profile) -> Config {
-        Config {
+    /// Instantiate the probe over an invocation's WASI context built at
+    /// `profile` and return a reader for its exports.
+    fn probe(profile: Profile) -> impl FnMut(&str) -> i64 {
+        let engine = shared_engine().expect("shared engine must be constructible");
+        let config = Config {
             timeout: None,
             memory_limit: None,
             stdout_limit: None,
             stderr_limit: None,
             profile,
-        }
-    }
-
-    /// An invocation's context requesting `profile`.
-    fn invocation(profile: Profile) -> Wasi {
-        Wasi::for_invocation(&config(profile), &[]).expect("WASI context must build")
-    }
-
-    /// Instantiate the probe over `wasi` and return a reader for its
-    /// exports.
-    fn probe(wasi: Wasi) -> impl FnMut(&str) -> i64 {
-        let engine = shared_engine().expect("shared engine must be constructible");
+        };
+        let wasi = Wasi::for_invocation(&config, &[]).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
         store.set_epoch_deadline(crate::trap::NO_TIMEOUT_EPOCH_DELTA);
 
@@ -203,7 +195,7 @@ mod tests {
     /// Assert that the context built at `profile` grants no ambient
     /// directory, environment variable, or socket.
     fn assert_grants_no_ambient_resource(profile: Profile) {
-        let mut read = probe(invocation(profile));
+        let mut read = probe(profile);
         assert_eq!(
             read("prestat_errno"),
             ERRNO_BADF,
@@ -221,39 +213,26 @@ mod tests {
         );
     }
 
-    /// Assert that `wasi` freezes ambient time and entropy for `guest`.
-    fn assert_denies_ambient_time_and_entropy(wasi: Wasi, guest: &str) {
-        let mut read = probe(wasi);
+    // @behavior RT-047 RT-048
+    #[test]
+    fn hermetic_denies_ambient_time_and_entropy() {
+        let mut read = probe(Profile::Hermetic);
         assert_eq!(
             read("clock_ns"),
             0,
-            "{guest}'s wasi:clocks must read the Unix epoch, not host time"
+            "a hermetic guest's wasi:clocks must read the Unix epoch, not host time"
         );
         assert_eq!(
             read("random_word"),
             0,
-            "{guest}'s wasi:random must yield the constant stream, not host entropy"
+            "a hermetic guest's wasi:random must yield the constant stream, not host entropy"
         );
-    }
-
-    // @behavior RT-047 RT-048
-    #[test]
-    fn hermetic_denies_ambient_time_and_entropy() {
-        assert_denies_ambient_time_and_entropy(invocation(Profile::Hermetic), "a hermetic guest");
-    }
-
-    // @behavior RT-072
-    #[test]
-    fn a_compile_denies_ambient_time_and_entropy_under_a_permissive_request() {
-        let wasi =
-            Wasi::for_compile(&config(Profile::Permissive), &[]).expect("WASI context must build");
-        assert_denies_ambient_time_and_entropy(wasi, "a compile under a permissive request");
     }
 
     // @behavior RT-049 RT-050
     #[test]
     fn permissive_grants_live_ambient_time_and_entropy() {
-        let mut read = probe(invocation(Profile::Permissive));
+        let mut read = probe(Profile::Permissive);
         assert!(
             read("clock_ns") > 0,
             "a permissive guest's wasi:clocks must read live host time"
