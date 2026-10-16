@@ -153,7 +153,7 @@ impl ContractRuntime for Driver {
         preamble: &Preamble,
         handler: Option<Arc<dyn DispatchHandler>>,
     ) -> Result<Snapshot, InvokeError> {
-        let wasi = Wasi::new(&self.config, &preamble.encode())?;
+        let wasi = Wasi::for_invocation(&self.config, &preamble.encode())?;
         let mut store = self.new_store(wasi)?;
         if let Some(handler) = handler {
             store.data_mut().bind_on_dispatch(handler);
@@ -194,7 +194,7 @@ impl ContractRuntime for Driver {
     /// own that no script ever runs on, so what it answers carries
     /// nothing a script could have written.
     fn compile(&self, preamble: &Preamble) -> Option<Vec<Vec<u8>>> {
-        let wasi = Wasi::new(&self.config, &preamble.encode()).ok()?;
+        let wasi = Wasi::for_compile(&self.config, &preamble.encode()).ok()?;
         let mut store = self.new_store(wasi).ok()?;
         let exports = self.instantiate(&mut store).ok()?;
         let downcall = exports::require(exports.downcall.as_ref()).ok()?;

@@ -1,6 +1,6 @@
-//! The guest's WASI context for one invocation: the Preamble on stdin,
+//! The guest's WASI context for one instance: the Preamble on stdin,
 //! a capture pipe for each of stdout and stderr, and the ambient
-//! authority the requested posture grants.
+//! authority the instance's purpose grants.
 
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
@@ -12,7 +12,7 @@ use kobako_runtime::error::Trap;
 use kobako_runtime::profile::Profile;
 use kobako_transport::abi::FRAME_LEN_SIZE;
 
-/// One invocation's WASI context together with the capture pipes it
+/// One instance's WASI context together with the capture pipes it
 /// writes stdout and stderr into, so the captures are read back from the
 /// same owner that wired them.
 pub(crate) struct Wasi {
@@ -22,10 +22,45 @@ pub(crate) struct Wasi {
 }
 
 impl Wasi {
+    /// An invocation's context, granting the posture the Sandbox requested.
+    pub(crate) fn for_invocation(config: &Config, preamble: &[u8]) -> Result<Self, Trap> {
+        Self::new(
+            preamble,
+            config.stdout_limit,
+            config.stderr_limit,
+            config.profile,
+        )
+    }
+
+    /// A compile's context, at the strongest posture whatever the Sandbox
+    /// requested: compiling the Snippets needs no ambient authority, so
+    /// it is granted none.
+    pub(crate) fn for_compile(config: &Config, preamble: &[u8]) -> Result<Self, Trap> {
+        Self::new(
+            preamble,
+            config.stdout_limit,
+            config.stderr_limit,
+            Profile::Hermetic,
+        )
+    }
+
+    /// The ABI version probe's context. Instantiating it runs the
+    /// artifact's start section, yet reading a version needs no ambient
+    /// authority and no output: the probe takes the strongest posture and
+    /// pipes sized to keep nothing.
+    pub(crate) fn for_probe() -> Result<Self, Trap> {
+        Self::new(&[], Some(0), Some(0), Profile::Hermetic)
+    }
+
     /// An uncapped output channel relies on `memory_limit` for its real
     /// ceiling. The 16 MiB cap keeps the Preamble's `u32` length prefix
     /// from wrapping.
-    pub(crate) fn new(config: &Config, preamble: &[u8]) -> Result<Self, Trap> {
+    fn new(
+        preamble: &[u8],
+        stdout_limit: Option<usize>,
+        stderr_limit: Option<usize>,
+        profile: Profile,
+    ) -> Result<Self, Trap> {
         // The Preamble carries the same 16 MiB cap as a downcall request
         // (`io::write_request`): past it, the length prefix would silently wrap.
         guest_mem::checked_payload_len(preamble.len())
@@ -35,20 +70,20 @@ impl Wasi {
         stdin_content.extend_from_slice(&(preamble.len() as u32).to_be_bytes());
         stdin_content.extend_from_slice(preamble);
 
-        let stdout = MemoryOutputPipe::new(capture::pipe_capacity(config.stdout_limit));
-        let stderr = MemoryOutputPipe::new(capture::pipe_capacity(config.stderr_limit));
+        let stdout = MemoryOutputPipe::new(capture::pipe_capacity(stdout_limit));
+        let stderr = MemoryOutputPipe::new(capture::pipe_capacity(stderr_limit));
 
         let mut builder = WasiCtxBuilder::new();
         builder.stdin(MemoryInputPipe::new(stdin_content));
         builder.stdout(stdout.clone());
         builder.stderr(stderr.clone());
-        // The requested profile decides the ambient-authority grant: the
+        // The profile decides the ambient-authority grant: the
         // hermetic rung denies the preview1 time and entropy imports (see
         // `ambient`), the permissive rung leaves the live WASI sources.
         // Ambient filesystem, environment, and network stay absent on both rungs —
         // the builder grants none unless asked. The exhaustive match makes
         // a future ladder rung a compile error here, not a silent grant.
-        match config.profile {
+        match profile {
             Profile::Hermetic => {
                 builder.wall_clock(ambient::FrozenWallClock);
                 builder.monotonic_clock(ambient::FrozenMonotonicClock);
@@ -79,10 +114,10 @@ impl Wasi {
 
 #[cfg(test)]
 mod tests {
-    //! Witness what the context `Wasi::new` builds grants at each
-    //! profile rung: `wasi:clocks` / `wasi:random` frozen under
-    //! `Hermetic` and live under `Permissive`, and no ambient filesystem,
-    //! environment, or socket under either.
+    //! Witness what each context grants: `wasi:clocks` / `wasi:random`
+    //! frozen under `Hermetic` and live under `Permissive`, a compile
+    //! frozen whatever was requested, and no ambient filesystem,
+    //! environment, or socket anywhere.
     use wasmtime::{AsContextMut, Module, Store};
 
     use super::*;
@@ -127,18 +162,26 @@ mod tests {
             (i64.extend_i32_u (call $accept (i32.const 3) (i32.const 0) (i32.const 24)))))
     "#;
 
-    /// Instantiate the probe over a WASI context built at `profile` and
-    /// return a reader for its exports.
-    fn probe(profile: Profile) -> impl FnMut(&str) -> i64 {
-        let engine = shared_engine().expect("shared engine must be constructible");
-        let config = Config {
+    /// Uncapped caps requesting `profile`.
+    fn config(profile: Profile) -> Config {
+        Config {
             timeout: None,
             memory_limit: None,
             stdout_limit: None,
             stderr_limit: None,
             profile,
-        };
-        let wasi = Wasi::new(&config, &[]).expect("WASI context must build");
+        }
+    }
+
+    /// An invocation's context requesting `profile`.
+    fn invocation(profile: Profile) -> Wasi {
+        Wasi::for_invocation(&config(profile), &[]).expect("WASI context must build")
+    }
+
+    /// Instantiate the probe over `wasi` and return a reader for its
+    /// exports.
+    fn probe(wasi: Wasi) -> impl FnMut(&str) -> i64 {
+        let engine = shared_engine().expect("shared engine must be constructible");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
         store.set_epoch_deadline(crate::trap::NO_TIMEOUT_EPOCH_DELTA);
 
@@ -160,7 +203,7 @@ mod tests {
     /// Assert that the context built at `profile` grants no ambient
     /// directory, environment variable, or socket.
     fn assert_grants_no_ambient_resource(profile: Profile) {
-        let mut read = probe(profile);
+        let mut read = probe(invocation(profile));
         assert_eq!(
             read("prestat_errno"),
             ERRNO_BADF,
@@ -178,26 +221,39 @@ mod tests {
         );
     }
 
-    // @behavior RT-047 RT-048
-    #[test]
-    fn hermetic_denies_ambient_time_and_entropy() {
-        let mut read = probe(Profile::Hermetic);
+    /// Assert that `wasi` freezes ambient time and entropy for `guest`.
+    fn assert_denies_ambient_time_and_entropy(wasi: Wasi, guest: &str) {
+        let mut read = probe(wasi);
         assert_eq!(
             read("clock_ns"),
             0,
-            "a hermetic guest's wasi:clocks must read the Unix epoch, not host time"
+            "{guest}'s wasi:clocks must read the Unix epoch, not host time"
         );
         assert_eq!(
             read("random_word"),
             0,
-            "a hermetic guest's wasi:random must yield the constant stream, not host entropy"
+            "{guest}'s wasi:random must yield the constant stream, not host entropy"
         );
+    }
+
+    // @behavior RT-047 RT-048
+    #[test]
+    fn hermetic_denies_ambient_time_and_entropy() {
+        assert_denies_ambient_time_and_entropy(invocation(Profile::Hermetic), "a hermetic guest");
+    }
+
+    // @behavior RT-072
+    #[test]
+    fn a_compile_denies_ambient_time_and_entropy_under_a_permissive_request() {
+        let wasi =
+            Wasi::for_compile(&config(Profile::Permissive), &[]).expect("WASI context must build");
+        assert_denies_ambient_time_and_entropy(wasi, "a compile under a permissive request");
     }
 
     // @behavior RT-049 RT-050
     #[test]
     fn permissive_grants_live_ambient_time_and_entropy() {
-        let mut read = probe(Profile::Permissive);
+        let mut read = probe(invocation(Profile::Permissive));
         assert!(
             read("clock_ns") > 0,
             "a permissive guest's wasi:clocks must read live host time"
