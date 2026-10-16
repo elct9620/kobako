@@ -43,6 +43,24 @@ The unit a Host App configures once and invokes many times. It owns a Catalog an
 
 A bounded set of identically set-up Sandboxes, each handed to one holder at a time.
 
+### Ambient
+
+Authority the guest would hold without the Host App handing it over. The guest holds none of it unless a Posture grants it.
+
+```
+handed over by the Host App  -> Services, Handles
+Ambient                      -> host time, entropy, files, environment, sockets
+```
+
+### Posture
+
+The isolation a runtime builds around the guest, one rung on an ordered ladder. The Host App requests a rung as a floor, and the runtime declares the rung it built. Rungs differ only in which Ambient authority they grant.
+
+```
+permissive  <  hermetic
+   requested rung  <=  declared rung   -> accepted
+```
+
 ### Snippet
 
 Guest source or bytecode preloaded on a Sandbox and replayed at the start of every Invocation.
