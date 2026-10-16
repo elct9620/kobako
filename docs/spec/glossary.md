@@ -48,7 +48,7 @@ A bounded set of identically set-up Sandboxes, each handed to one holder at a ti
 Authority the guest would hold without the Host App handing it over. The guest holds none of it unless a Posture grants it.
 
 ```
-handed over by the Host App  -> Services, Handles
+handed over by the Host App  -> Services, Handles, Grants
 Ambient                      -> host time, entropy, files, environment, sockets
 ```
 
@@ -61,13 +61,35 @@ permissive  <  hermetic
    requested rung  <=  declared rung   -> accepted
 ```
 
+### Grant
+
+A host resource the Host App hands to the runtime instead of binding it by name. The guest reaches it through its system interface, such as a file it opens. The Sandbox holds it, and each Invocation receives it afresh.
+
+```
+Sandbox: Grant ──each Invocation──> runtime ──system interface──> guest
+```
+
+#### Rejected
+
+- `Mount` - Names one kind of resource, a directory, rather than the handover itself.
+
+```
+the handover  -> a directory, a socket, ...
+one kind      -> a directory only
+```
+
 ### Snippet
 
 Guest source or bytecode preloaded on a Sandbox and replayed at the start of every Invocation.
 
 ### Service
 
-A host object the guest reaches by name. It is the only route from guest code to a host resource.
+A host object the guest reaches by name. Guest code reaches a host resource only through a Service or a Grant.
+
+```
+guest code ──by name─────────────> Service
+           ──system interface────> Grant
+```
 
 #### Rejected
 
