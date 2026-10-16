@@ -4,12 +4,12 @@ module Kobako
 
     def self.from_path: (
       String path,
-      (Float | Integer)? timeout_seconds,
-      Integer? memory_limit,
-      Integer? stdout_limit,
-      Integer? stderr_limit,
-      Symbol profile,
-      Symbol gvl
+      timeout: (Float | Integer)?,
+      memory_limit: Integer?,
+      stdout_limit: Integer?,
+      stderr_limit: Integer?,
+      profile: Symbol,
+      gvl: Symbol
     ) -> Runtime
 
     def eval: (

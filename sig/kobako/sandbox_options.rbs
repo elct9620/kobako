@@ -33,6 +33,15 @@ module Kobako
       ?gvl: Symbol
     ) -> void
 
+    def to_h: () -> {
+      timeout: Float?,
+      memory_limit: Integer?,
+      stdout_limit: Integer?,
+      stderr_limit: Integer?,
+      profile: Symbol,
+      gvl: Symbol
+    }
+
     def enforce_floor!: (Symbol declared) -> void
 
     private

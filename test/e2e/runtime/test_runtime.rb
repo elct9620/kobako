@@ -13,6 +13,7 @@ require "test_helper"
 # disk cache has its own class in test_artifact_cache.rb.
 class TestRuntime < Minitest::Test
   include GuestGuard
+  include RuntimeOptions
 
   FIXTURE_PATH = TestPaths.fixture("minimal_abi_ok.wat")
 
@@ -29,8 +30,8 @@ class TestRuntime < Minitest::Test
   def test_from_path_repeated_calls_return_independent_instances
     require_fixture!(FIXTURE_PATH)
 
-    a = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :hold)
-    b = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :hold)
+    a = Kobako::Runtime.from_path(FIXTURE_PATH, **runtime_options)
+    b = Kobako::Runtime.from_path(FIXTURE_PATH, **runtime_options)
     refute_same a, b, "each call must return a fresh Runtime with its own Store"
   end
 
@@ -47,14 +48,14 @@ class TestRuntime < Minitest::Test
     non_wasm = TestPaths.fixture("snippet_answers.rb")
     require_fixture!(non_wasm)
 
-    err = assert_raises(Kobako::SetupError) do
-      Kobako::Runtime.from_path(non_wasm, nil, nil, nil, nil, :hermetic, :hold)
+    err = assert_raises(Kobako::SetupError, "a non-wasm file through from_path must raise SetupError") do
+      Kobako::Runtime.from_path(non_wasm, **runtime_options)
     end
     refute_kind_of Kobako::ModuleNotBuiltError, err,
                    "a present-but-corrupt artifact is a SetupError, not the absent-artifact subclass"
     refute_kind_of Kobako::TrapError, err,
                    "a construction failure must not be attributed as an invocation TrapError"
-    assert_match(/failed to compile Sandbox runtime/, err.message)
+    assert_match(/failed to compile/, err.message, "a non-wasm file through from_path must name the compile")
   end
 
   # @behavior RT-032
@@ -63,10 +64,12 @@ class TestRuntime < Minitest::Test
   # failure. +Kobako::Sandbox+ validates through +SandboxOptions+; this
   # exercises the ext's own guard on a direct +from_path+ call.
   def test_from_path_raises_argument_error_for_invalid_timeout
-    err = assert_raises(ArgumentError) do
-      Kobako::Runtime.from_path(Kobako::Runtime.default_path, -1.0, nil, nil, nil, :hermetic, :hold)
+    err = assert_raises(ArgumentError,
+                        "a negative timeout through from_path must raise ArgumentError before any engine work") do
+      Kobako::Runtime.from_path(Kobako::Runtime.default_path, **runtime_options(timeout: -1.0))
     end
-    assert_match(/timeout must be > 0/, err.message)
+    assert_match(/timeout must be > 0/, err.message,
+                 "a negative timeout through from_path must name the rule it broke")
   end
 
   # @behavior RT-016
@@ -76,9 +79,9 @@ class TestRuntime < Minitest::Test
   def test_from_path_builds_and_declares_the_requested_profile
     require_fixture!(FIXTURE_PATH)
 
-    assert_equal :hermetic, Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :hold).profile,
+    assert_equal :hermetic, Kobako::Runtime.from_path(FIXTURE_PATH, **runtime_options).profile,
                  "a :hermetic request through from_path must construct a runtime declaring :hermetic"
-    assert_equal :permissive, Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :permissive, :hold).profile,
+    assert_equal :permissive, Kobako::Runtime.from_path(FIXTURE_PATH, **runtime_options(profile: :permissive)).profile,
                  "a :permissive request through from_path must construct a runtime declaring :permissive"
   end
 
@@ -88,10 +91,12 @@ class TestRuntime < Minitest::Test
   # Sandbox path; this exercises the ext's defence-in-depth guard on a
   # direct +from_path+ call.
   def test_from_path_raises_argument_error_for_off_ladder_profile
-    err = assert_raises(ArgumentError) do
-      Kobako::Runtime.from_path(Kobako::Runtime.default_path, nil, nil, nil, nil, :sealed, :hold)
+    err = assert_raises(ArgumentError,
+                        "an off-ladder profile through from_path must raise ArgumentError, not fall back to a grant") do
+      Kobako::Runtime.from_path(Kobako::Runtime.default_path, **runtime_options(profile: :sealed))
     end
-    assert_match(/profile must be :permissive or :hermetic/, err.message)
+    assert_match(/profile must be :permissive or :hermetic/, err.message,
+                 "an off-ladder profile through from_path must name the rungs it accepts")
   end
 
   # @behavior RT-021
@@ -99,10 +104,12 @@ class TestRuntime < Minitest::Test
   # as +ArgumentError+ on a direct +from_path+ call. +SandboxOptions+
   # validates the Sandbox path; this exercises the ext's defence-in-depth.
   def test_from_path_raises_argument_error_for_unrecognized_gvl_mode
-    err = assert_raises(ArgumentError) do
-      Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :auto)
+    err = assert_raises(ArgumentError,
+                        "an unknown gvl mode through from_path must raise ArgumentError, not fall back to a mode") do
+      Kobako::Runtime.from_path(FIXTURE_PATH, **runtime_options(gvl: :auto))
     end
-    assert_match(/gvl must be :hold or :release/, err.message)
+    assert_match(/gvl must be :hold or :release/, err.message,
+                 "an unknown gvl mode through from_path must name the modes it accepts")
   end
 
   # Same fail-closed posture one layer in: the ext names a snippet's form
@@ -112,7 +119,7 @@ class TestRuntime < Minitest::Test
   def test_eval_raises_argument_error_for_an_unrecognized_snippet_kind
     require_fixture!(FIXTURE_PATH)
 
-    runtime = Kobako::Runtime.from_path(FIXTURE_PATH, nil, nil, nil, nil, :hermetic, :hold)
+    runtime = Kobako::Runtime.from_path(FIXTURE_PATH, **runtime_options)
     err = assert_raises(ArgumentError) do
       runtime.eval(nil, [], [[:mrbc, "Helper", "X = 1"]], [], "nil".b)
     end

@@ -6,7 +6,7 @@
 //!   Kobako::Runtime::Snapshot — one invocation's completion + captures + usage
 //!
 //! `Kobako::Runtime` is constructed via `Kobako::Runtime.from_path(path,
-//! timeout, memory_limit, stdout_limit, stderr_limit, profile)`. Every
+//! **options)`, the options keyed by the `Kobako::SandboxOptions` members. Every
 //! invocation (`#eval` / `#run`) takes that run's dispatch handler as a call
 //! argument, instantiates a fresh instance, and returns a `Snapshot` — the
 //! whole per-invocation result — so the Runtime holds no per-invocation
@@ -22,8 +22,9 @@ mod errors;
 mod gvl;
 
 use magnus::{
-    function, method, prelude::*, typed_data::DataTypeFunctions, value::Opaque,
-    Error as MagnusError, Exception, RArray, RModule, RString, Ruby, Symbol, TypedData, Value,
+    function, method, prelude::*, scan_args::get_kwargs, typed_data::DataTypeFunctions,
+    value::Opaque, Error as MagnusError, Exception, RArray, RHash, RModule, RString, Ruby, Symbol,
+    TypedData, Value,
 };
 
 use std::path::Path;
@@ -112,7 +113,7 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     // in `runtime/errors.rs` — no intermediate hierarchy is registered.
 
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
-    runtime.define_singleton_method("from_path", function!(Runtime::from_path, 7))?;
+    runtime.define_singleton_method("from_path", function!(Runtime::from_path, 2))?;
     runtime.define_method("eval", method!(Runtime::eval, 5))?;
     runtime.define_method("run", method!(Runtime::run, 6))?;
     runtime.define_method("profile", method!(Runtime::profile, 0))?;
@@ -157,17 +158,32 @@ impl DataTypeFunctions for Runtime {}
 
 impl Runtime {
     /// The only Ruby-facing constructor, so Engine and Module are never
-    /// visible to Ruby.
-    fn from_path(
-        path: String,
-        timeout_seconds: Option<f64>,
-        memory_limit: Option<usize>,
-        stdout_limit: Option<usize>,
-        stderr_limit: Option<usize>,
-        profile: Symbol,
-        gvl: Symbol,
-    ) -> Result<Self, MagnusError> {
+    /// visible to Ruby. Every option is a required keyword: the defaults
+    /// belong to `Kobako::SandboxOptions`, which names the keys.
+    fn from_path(path: String, options: RHash) -> Result<Self, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
+        type Options = (
+            Option<f64>,
+            Option<usize>,
+            Option<usize>,
+            Option<usize>,
+            Symbol,
+            Symbol,
+        );
+        let options = get_kwargs::<_, Options, (), ()>(
+            options,
+            &[
+                "timeout",
+                "memory_limit",
+                "stdout_limit",
+                "stderr_limit",
+                "profile",
+                "gvl",
+            ],
+            &[],
+        )?;
+        let (timeout_seconds, memory_limit, stdout_limit, stderr_limit, profile, gvl) =
+            options.required;
         let timeout = match timeout_seconds {
             None => None,
             Some(secs) if secs.is_finite() && secs > 0.0 => Some(Duration::from_secs_f64(secs)),

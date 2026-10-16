@@ -144,9 +144,7 @@ module Kobako
     # A runtime whose declared posture falls below the request never runs
     # guest code.
     def build_runtime!
-      runtime = Kobako::Runtime.from_path(@wasm_path, @options.timeout, @options.memory_limit,
-                                          @options.stdout_limit, @options.stderr_limit, @options.profile,
-                                          @options.gvl)
+      runtime = Kobako::Runtime.from_path(@wasm_path, **@options.to_h)
       @options.enforce_floor!(runtime.profile)
       runtime
     end

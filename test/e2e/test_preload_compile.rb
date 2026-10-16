@@ -8,6 +8,7 @@ require "test_helper"
 # it; this file pins what only the compile itself can show.
 class TestE2EPreloadCompile < Minitest::Test
   include E2eGuestHelper
+  include RuntimeOptions
 
   # Large enough that compiling it moves the memory peak of a replay.
   BIG = "module Big; #{(1..200).map { |i| "def self.m#{i} = #{i}" }.join("; ")}; end".freeze
@@ -97,7 +98,7 @@ class TestE2EPreloadCompile < Minitest::Test
   end
 
   def compiled_table(sources)
-    runtime = Kobako::Runtime.from_path(REAL_WASM, 10, nil, nil, nil, :hermetic, :hold)
+    runtime = Kobako::Runtime.from_path(REAL_WASM, **runtime_options(timeout: 10))
     table = Kobako::Catalog::Snippets.new
     sources.each { |name, code| table.register(code: code, name: name) }
     table.compile { |entries| runtime.compile([], entries, []) }

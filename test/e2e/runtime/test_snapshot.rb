@@ -15,6 +15,7 @@ require "test_helper"
 # binding surfaces here, not via indirect Sandbox assertions.
 class TestRuntimeSnapshot < Minitest::Test
   include GuestGuard
+  include RuntimeOptions
 
   KOBAKO_WASM = TestPaths.data("kobako.wasm")
 
@@ -89,7 +90,7 @@ class TestRuntimeSnapshot < Minitest::Test
   def drive_eval(code)
     services = Kobako::Catalog::Services.new
     snippets = Kobako::Catalog::Snippets.new
-    runtime = Kobako::Runtime.from_path(KOBAKO_WASM, nil, nil, nil, nil, :hermetic, :hold)
+    runtime = Kobako::Runtime.from_path(KOBAKO_WASM, **runtime_options)
     dispatch = ->(_, _) { raise "unexpected dispatch in eval-only captures test" }
 
     runtime.eval(dispatch, services.paths, snippets.entries, [], code.b)
