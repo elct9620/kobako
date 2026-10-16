@@ -83,11 +83,11 @@ mod tests {
     //! profile rung: `wasi:clocks` / `wasi:random` frozen under
     //! `Hermetic` and live under `Permissive`, and no ambient filesystem,
     //! environment, or socket under either.
-    use wasmtime::{AsContextMut, Linker, Module, Store};
-    use wasmtime_wasi::p1;
+    use wasmtime::{AsContextMut, Module, Store};
 
     use super::*;
     use crate::cache::shared_engine;
+    use crate::imports;
     use crate::invocation::Invocation;
 
     /// Preview1 `errno` for a descriptor the context does not hold.
@@ -142,11 +142,7 @@ mod tests {
         let mut store = Store::new(engine, Invocation::new(None, wasi));
         store.set_epoch_deadline(crate::trap::NO_TIMEOUT_EPOCH_DELTA);
 
-        let mut linker: Linker<Invocation> = Linker::new(engine);
-        p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| {
-            state.wasi_mut().ctx_mut()
-        })
-        .expect("WASI imports must link");
+        let linker = imports::linker().expect("host imports must link");
         let module = Module::new(engine, PROBE_WAT).expect("probe module must compile");
         let instance = linker
             .instantiate(&mut store, &module)

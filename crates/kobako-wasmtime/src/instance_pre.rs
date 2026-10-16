@@ -1,13 +1,10 @@
 //! Per-path cache of pre-instantiated wasmtime artifacts.
 //!
-//! The `Linker` wiring (the WASI preview1 import set plus the
-//! `__kobako_upcall` host import) and its type-check against the
-//! compiled Module are identical for every `Kobako::Runtime` on the
-//! same Guest Binary — both host closures read all their state from
-//! the `Invocation` inside the calling Store, never from the Runtime.
-//! Caching the resolved `InstancePre` per path — together with the ABI
-//! version check it guards (`crate::abi`) — takes both off the
-//! `Driver::new` hot path.
+//! The host imports (`crate::imports`) and their type-check against the
+//! compiled Module are identical for every `Kobako::Runtime` on the same
+//! Guest Binary. Caching the resolved `InstancePre` per path — together
+//! with the ABI version check it guards (`crate::abi`) — takes both off
+//! the `Driver::new` hot path.
 //!
 //! Concurrency: the same as `crate::cache` — the Mutex covers lookup and
 //! insert only, and a concurrent miss builds an equivalent `InstancePre`.
@@ -16,12 +13,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use wasmtime::{Caller, InstancePre, Linker};
-use wasmtime_wasi::p1;
+use wasmtime::InstancePre;
 
-use crate::cache::{cached_module, shared_engine};
+use crate::cache::cached_module;
 use crate::invocation::Invocation;
-use crate::{abi, dispatch, trap};
+use crate::{abi, imports, trap};
 use kobako_runtime::error::SetupError;
 
 static INSTANCE_PRE_CACHE: OnceLock<Mutex<HashMap<PathBuf, InstancePre<Invocation>>>> =
@@ -40,7 +36,7 @@ pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>
     }
 
     let module = cached_module(path)?;
-    let linker = build_linker()?;
+    let linker = imports::linker()?;
     let pre = linker
         .instantiate_pre(&module)
         .map_err(trap::instantiate_err)?;
@@ -52,34 +48,4 @@ pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>
         .expect("instance_pre cache mutex poisoned")
         .insert(path.to_path_buf(), pre.clone());
     Ok(pre)
-}
-
-fn build_linker() -> Result<Linker<Invocation>, SetupError> {
-    let mut linker: Linker<Invocation> = Linker::new(shared_engine()?);
-
-    // Wire the wasmtime-wasi preview1 WASI imports against each
-    // invocation's own `Wasi` context, which routes guest fd 1/2 to its
-    // capture pipes.
-    p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| {
-        state.wasi_mut().ctx_mut()
-    })
-    .map_err(|e| SetupError::Dead(format!("failed to set up the WASI runtime: {e}")))?;
-
-    // `__kobako_upcall`, `(ptr: i32, len: i32) -> i64` per
-    // docs/wire/abi.md § ABI Signatures; `dispatch::handle` owns what it
-    // answers.
-    linker
-        .func_wrap(
-            "env",
-            "__kobako_upcall",
-            |mut caller: Caller<'_, Invocation>,
-             req_ptr: i32,
-             req_len: i32|
-             -> wasmtime::Result<i64> {
-                dispatch::handle(&mut caller, req_ptr, req_len)
-            },
-        )
-        .map_err(|e| SetupError::Dead(format!("failed to set up the host callback bridge: {e}")))?;
-
-    Ok(linker)
 }

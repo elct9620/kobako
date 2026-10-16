@@ -19,6 +19,7 @@ mod dispatch;
 mod driver;
 mod exports;
 mod guest_mem;
+mod imports;
 mod instance_pre;
 mod invocation;
 mod io;
