@@ -633,3 +633,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a reference an earlier invocation of that Sandbox issued |
 | When | guest code in a later invocation presents it |
 | Then | it resolves to no object |
+
+## `RT-072` Compiling the Snippets runs at the strongest posture whatever the request
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-047`, `RT-048`, `RT-067`, `S-189` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox requesting the weaker posture |
+| When | the guest compiles its Snippets |
+| Then | it reads the epoch and a constant stream rather than the host's time and entropy |
