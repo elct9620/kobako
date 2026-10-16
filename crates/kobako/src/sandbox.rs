@@ -19,7 +19,6 @@ use std::time::Duration;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime};
 use kobako_runtime::snapshot::{Completion, Snapshot};
-use kobako_transport::envelope::Preamble;
 #[cfg(feature = "wasmtime")]
 use kobako_wasmtime::{Config, Driver};
 
@@ -102,10 +101,7 @@ impl Registry {
             if compile {
                 // The snippets change only once the engine has answered, so
                 // a panic inside the engine leaves them as registered.
-                let compiling = AssertUnwindSafe(|| {
-                    let bindings = catalog.bound_paths();
-                    catalog.snippets.compile(runtime, bindings, &catalog.flags);
-                });
+                let compiling = AssertUnwindSafe(|| catalog.compile(runtime));
                 panicked = panic::catch_unwind(compiling).err();
             }
             *self = Registry::Sealed(Arc::new(catalog));
@@ -318,10 +314,7 @@ impl Sandbox {
         mut resolved: Resolved,
     ) -> Result<Execution, Error> {
         resolved.extend(self.extensions.resolve());
-        let mut preamble = Preamble::default();
-        preamble.bindings = catalog.bound_paths();
-        preamble.snippets = catalog.snippets.preloaded().clone();
-        preamble.flags = catalog.flags.clone();
+        let preamble = catalog.preamble();
         let verb = match entry {
             Entry::Eval { .. } => "eval",
             Entry::Run { .. } => "run",

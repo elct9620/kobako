@@ -11,7 +11,8 @@
 
 use std::sync::Arc;
 
-use kobako_transport::envelope::{Bindings, Flag};
+use kobako_runtime::runtime::Runtime;
+use kobako_transport::envelope::{Bindings, Flag, Preamble};
 
 use crate::error::Error;
 use crate::receiver::Receiver;
@@ -28,7 +29,7 @@ fn is_constant_path(path: &str) -> bool {
 pub(crate) struct Catalog {
     bindings: Vec<(String, Arc<dyn Receiver>)>,
     pub(crate) snippets: Snippets,
-    pub(crate) flags: Vec<Flag>,
+    flags: Vec<Flag>,
 }
 
 impl Catalog {
@@ -78,10 +79,23 @@ impl Catalog {
         Ok(())
     }
 
-    pub(crate) fn bound_paths(&self) -> Bindings {
-        Bindings {
+    /// The Preamble every guest entry reads, so an invocation and a compile
+    /// cannot drift in what they send.
+    pub(crate) fn preamble(&self) -> Preamble {
+        let mut preamble = Preamble::default();
+        preamble.bindings = Bindings {
             paths: self.bindings.iter().map(|(path, _)| path.clone()).collect(),
-        }
+        };
+        preamble.snippets = self.snippets.preloaded().clone();
+        preamble.flags = self.flags.clone();
+        preamble
+    }
+
+    /// Compiles the source snippets under the Preamble an invocation sends,
+    /// so the replayed bytecode saw the same bindings and flags.
+    pub(crate) fn compile(&mut self, runtime: &dyn Runtime) {
+        let preamble = self.preamble();
+        self.snippets.compile(runtime, &preamble);
     }
 }
 
@@ -173,7 +187,7 @@ mod tests {
         bound(&mut catalog, "MyService::KV").expect("a constant path binds");
         bound(&mut catalog, "File").expect("a single segment is a whole path");
         assert_eq!(
-            catalog.bound_paths(),
+            catalog.preamble().bindings,
             Bindings {
                 paths: vec!["MyService::KV".into(), "File".into()]
             },

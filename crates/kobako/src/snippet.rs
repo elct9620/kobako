@@ -10,7 +10,7 @@
 //! time.
 
 use kobako_runtime::runtime::Runtime;
-use kobako_transport::envelope::{Bindings, Flag, Preamble, Snippet, Snippets as Preloaded};
+use kobako_transport::envelope::{Preamble, Snippet, Snippets as Preloaded};
 
 use crate::error::Error;
 
@@ -55,12 +55,11 @@ impl Snippets {
         &self.preloaded
     }
 
-    /// Has `runtime` compile the source entries under the Preamble an
-    /// invocation sends, `bindings` and `flags` included, and puts each
-    /// bytecode it answers in place of its source, so every invocation
-    /// after replays it instead of compiling again. When nothing comes back
-    /// the source stays.
-    pub(crate) fn compile(&mut self, runtime: &dyn Runtime, bindings: Bindings, flags: &[Flag]) {
+    /// Has `runtime` compile the source entries under `preamble`, which
+    /// carries this table, and puts each bytecode it answers in place of
+    /// its source, so every invocation after replays it instead of
+    /// compiling again. When nothing comes back the source stays.
+    pub(crate) fn compile(&mut self, runtime: &dyn Runtime, preamble: &Preamble) {
         let has_source = self
             .preloaded
             .entries
@@ -69,11 +68,7 @@ impl Snippets {
         if !has_source {
             return;
         }
-        let mut preamble = Preamble::default();
-        preamble.bindings = bindings;
-        preamble.snippets = self.preloaded.clone();
-        preamble.flags = flags.to_vec();
-        let Some(bytecodes) = runtime.compile(&preamble) else {
+        let Some(bytecodes) = runtime.compile(preamble) else {
             return;
         };
         let sources = self
