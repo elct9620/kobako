@@ -576,7 +576,11 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | two invocations call it at once |
 | Then | both are inside the Service at the same time |
 
-## `RT-067` No posture grants a filesystem, an environment, or a socket
+## `RT-067` No posture grants an ambient filesystem, environment, or socket
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-047`, `RT-049` |
 
 | Step | Statement |
 | --- | --- |

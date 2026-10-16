@@ -42,7 +42,7 @@ one and defaults to `:hermetic`. The rungs differ in one thing only.
 
 | Profile | Clocks and entropy | Everything else |
 |---|---|---|
-| `hermetic` | frozen clock, constant entropy | no filesystem, `ENV`, or socket |
+| `hermetic` | frozen clock, constant entropy | no ambient filesystem, `ENV`, or socket |
 | `permissive` | live host time and entropy | same as `hermetic` |
 
 `hermetic` keeps the guest deterministic except for values a Service injects.

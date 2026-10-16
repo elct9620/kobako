@@ -180,7 +180,7 @@ impl ContractRuntime for Driver {
     }
 
     /// Exactly the rung `Config` requested. `Hermetic` freezes ambient time
-    /// and entropy; both rungs wire no filesystem, environment, or network,
+    /// and entropy; both rungs wire no ambient filesystem, environment, or network,
     /// and the linker adds only `__kobako_upcall` beyond that WASI surface.
     fn profile(&self) -> Profile {
         self.config.profile

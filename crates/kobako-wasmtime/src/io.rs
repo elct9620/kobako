@@ -69,7 +69,7 @@ pub(crate) fn install_wasi(
     // The requested profile decides the ambient-authority grant: the
     // hermetic rung denies the preview1 time and entropy imports (see
     // `ambient`), the permissive rung leaves the live WASI sources.
-    // Filesystem, environment, and network stay absent on both rungs —
+    // Ambient filesystem, environment, and network stay absent on both rungs —
     // the builder grants none unless asked. The exhaustive match makes
     // a future ladder rung a compile error here, not a silent grant.
     match config.profile {
@@ -143,7 +143,7 @@ fn read_answer(
 mod tests {
     //! Witness what the context `install_wasi` builds grants at
     //! each profile rung: `wasi:clocks` / `wasi:random` frozen under
-    //! `Hermetic` and live under `Permissive`, and no filesystem,
+    //! `Hermetic` and live under `Permissive`, and no ambient filesystem,
     //! environment, or socket under either.
     use wasmtime::{AsContextMut, Linker, Module};
     use wasmtime_wasi::p1;
@@ -220,9 +220,9 @@ mod tests {
         }
     }
 
-    /// Assert that the context built at `profile` grants no directory,
-    /// environment variable, or socket.
-    fn assert_grants_no_resource(profile: Profile) {
+    /// Assert that the context built at `profile` grants no ambient
+    /// directory, environment variable, or socket.
+    fn assert_grants_no_ambient_resource(profile: Profile) {
         let mut read = probe(profile);
         assert_eq!(
             read("prestat_errno"),
@@ -274,13 +274,13 @@ mod tests {
 
     // @behavior RT-067
     #[test]
-    fn hermetic_grants_no_filesystem_environment_or_socket() {
-        assert_grants_no_resource(Profile::Hermetic);
+    fn hermetic_grants_no_ambient_resource() {
+        assert_grants_no_ambient_resource(Profile::Hermetic);
     }
 
     // @behavior RT-067
     #[test]
-    fn permissive_grants_no_filesystem_environment_or_socket() {
-        assert_grants_no_resource(Profile::Permissive);
+    fn permissive_grants_no_ambient_resource() {
+        assert_grants_no_ambient_resource(Profile::Permissive);
     }
 }
