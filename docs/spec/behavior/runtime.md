@@ -47,6 +47,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/wasi.rs`
 - `crates/kobako-wasmtime/src/preview1/poll.rs`
+- `crates/kobako-wasmtime/src/preview1/granted.rs`
 - `crates/kobako-wasmtime/tests/compile_posture.rs`
 - `crates/kobako-wasmtime/src/exports.rs`
 - `crates/kobako/tests/concurrency.rs`
@@ -671,3 +672,99 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest running at the weaker posture under a deadline |
 | When | it waits on a clock past that deadline |
 | Then | the invocation ends as a deadline reached, at the deadline |
+
+## `RT-075` A filesystem Grant appears to the guest as a directory at its path
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-067` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a filesystem Grant at `/data` |
+| When | the guest asks its first preopened directory for its name |
+| Then | it reads `/data` |
+
+## `RT-076` A guest reads a file beneath a filesystem Grant
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-075`, `FS-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a filesystem Grant over a Memory holding a file |
+| When | the guest opens and reads that file beneath the Grant's path |
+| Then | it reads the file's content |
+
+## `RT-077` A guest writes a file beneath a read-write Grant
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-075`, `FS-002` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write filesystem Grant over a Memory |
+| When | the guest creates and writes a file beneath the Grant's path |
+| Then | the Memory holds that file with what was written |
+
+## `RT-078` A change beneath a read-only Grant is refused as a read-only filesystem
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-077` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-only filesystem Grant |
+| When | the guest opens a file beneath it for writing |
+| Then | the open answers that the filesystem is read-only |
+
+## `RT-079` A path climbing above a Grant's root is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-075`, `FS-007` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a filesystem Grant |
+| When | the guest opens a path that climbs above the Grant's root |
+| Then | the open answers that the guest lacks the capability |
+
+## `RT-080` A Policy refusing an open answers that access is denied
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-076` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a filesystem Grant whose Policy refuses a path |
+| When | the guest opens that path |
+| Then | the open answers that access is denied |
+
+## `RT-081` A Policy decides in the place of a Grant's access
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-078` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-only filesystem Grant whose Policy allows writing |
+| When | the guest creates and writes a file beneath it |
+| Then | the Filesystem holds that file with what was written |
+
+## `RT-082` Each invocation is handed the Filesystem it starts from
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-004` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a filesystem Grant over a Temporary an earlier invocation wrote to |
+| When | the next invocation's guest reads that file |
+| Then | it finds no file there |
