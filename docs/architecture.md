@@ -60,7 +60,7 @@ Each part owns one concern, and its dependencies on other kobako parts may only 
 |---|---|---|
 | `kobako-transport` | the core envelope and the ABI's values | none, ever |
 | `kobako-codec` | the payload dialects, one namespace and feature per schema | none |
-| `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot` | transport |
+| `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant`, `Mount`, `Filesystem` and its shipped kinds | transport |
 | `kobako-wasmtime` | one engine behind that contract | runtime, transport |
 | `kobako` | the Rust host model: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
 | `lib/` | the Ruby host model and its own dialect | the native ext |
@@ -143,6 +143,7 @@ A change to the wire therefore stays inside the endpoints and `kobako-transport`
 | Call, Run, Reply, Yield Reply, Compile Reply, Outcome, Preamble | a `kobako-transport` type, or its fields |
 | a payload | bytes only a codec reads |
 | a result that does not frame | a `Trap` |
+| a host resource the guest reaches through WASI | a `kobako-runtime` `Grant`, such as a `Mount` |
 
 The two sides replace different units.
 The host ABI endpoint shares `kobako-wasmtime` with the engine mechanics, so an engine is replaced whole.
@@ -180,11 +181,12 @@ The core envelope has no tier here, because the native side frames and decodes i
 
 ### Placement Rules
 
-These three rules keep the tiers acyclic; each was learned from a cycle or a leak.
+These rules keep the tiers acyclic; most were learned from a cycle or a leak.
 
 | Rule | Example |
 |---|---|
 | a type sits at the lowest tier that needs it | `Kobako::Handle` at the root, for `Codec` |
+| a native-defined handle that needs nothing in `lib/` sits at the root | `Kobako::Filesystem`, for `Catalog` |
 | `Outcome` may require `transport/error.rb` | the gem contract fixes the class name |
 | `Codec.track_handles` wraps only the decode call | wider leaks its flag into re-entry |
 
