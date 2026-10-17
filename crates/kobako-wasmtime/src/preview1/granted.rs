@@ -53,6 +53,11 @@ const PROBE_WAT: &str = r#"
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $read (i32.load (i32.const 128)) (i32.const 64) (i32.const 1) (i32.const 132)))
 
+  ;; Open the path with read rights only, asking to truncate it.
+  (func (export "truncate_file") (param $path i32) (param $len i32) (result i32)
+    (call $open (i32.const 3) (i32.const 0) (local.get $path) (local.get $len)
+      (i32.const 8) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 128)))
+
   ;; Create or truncate the path and write "hello" into it.
   (func (export "write_file") (param $path i32) (param $len i32) (result i32)
     (local $errno i32)
@@ -166,7 +171,7 @@ impl Policy for AllowsAll {
 
 // @behavior RT-075
 #[test]
-fn a_filesystem_grant_appears_as_a_directory_at_its_path() {
+fn a_mount_appears_as_a_directory_at_its_path() {
     let mut guest = Guest::new(&[grant(Arc::new(Memory::new()), Access::Read, None)]);
     assert_eq!(
         guest.preopen_name(),
@@ -186,7 +191,7 @@ fn a_filesystem_grant_appears_as_a_directory_at_its_path() {
 
 // @behavior RT-076
 #[test]
-fn a_guest_reads_a_file_beneath_a_filesystem_grant() {
+fn a_guest_reads_a_file_beneath_a_mount() {
     let memory: Memory = [("file.txt", "granted")].into_iter().collect();
     let mut guest = Guest::new(&[grant(Arc::new(memory), Access::Read, None)]);
     assert_eq!(guest.call("read_file", FILE), 0, "the read must succeed");
@@ -199,7 +204,7 @@ fn a_guest_reads_a_file_beneath_a_filesystem_grant() {
 
 // @behavior RT-077
 #[test]
-fn a_guest_writes_a_file_beneath_a_read_write_grant() {
+fn a_guest_writes_a_file_beneath_a_read_write_mount() {
     let memory = Arc::new(Memory::new());
     let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
     assert_eq!(guest.call("write_file", FILE), 0, "the write must succeed");
@@ -212,7 +217,7 @@ fn a_guest_writes_a_file_beneath_a_read_write_grant() {
 
 // @behavior RT-078
 #[test]
-fn a_change_beneath_a_read_only_grant_is_a_read_only_filesystem() {
+fn a_change_beneath_a_read_only_mount_is_a_read_only_filesystem() {
     let mut guest = Guest::new(&[grant(Arc::new(Memory::new()), Access::Read, None)]);
     assert_eq!(
         guest.call("write_file", FILE),
@@ -221,9 +226,28 @@ fn a_change_beneath_a_read_only_grant_is_a_read_only_filesystem() {
     );
 }
 
+// An open asking only to read can still truncate. wasmtime-wasi once let
+// such an open past a read-only file permission (CVE-2026-47261), so the
+// truncation alone must count as a change.
+// @behavior RT-078
+#[test]
+fn a_truncating_open_beneath_a_read_only_mount_is_refused() {
+    let memory: Arc<Memory> = Arc::new([("file.txt", "granted")].into_iter().collect());
+    let mut guest = Guest::new(&[grant(memory.clone(), Access::Read, None)]);
+    assert_eq!(
+        (
+            guest.call("truncate_file", FILE),
+            contents(memory.as_ref(), "file.txt")
+        ),
+        (ERRNO_ROFS, Some(b"granted".to_vec())),
+        "a read-rights open with O_TRUNC beneath a read-only Mount through preview1 must answer \
+         EROFS and leave the file whole"
+    );
+}
+
 // @behavior RT-079
 #[test]
-fn a_path_above_a_grants_root_is_refused() {
+fn a_path_above_a_mounts_root_is_refused() {
     let memory: Memory = [("file.txt", "granted")].into_iter().collect();
     let mut guest = Guest::new(&[grant(Arc::new(memory), Access::Read, None)]);
     assert_eq!(
@@ -248,7 +272,7 @@ fn a_policy_refusing_an_open_answers_access_denied() {
 
 // @behavior RT-081
 #[test]
-fn a_policy_decides_in_the_place_of_a_grants_access() {
+fn a_policy_decides_in_the_place_of_a_mounts_access() {
     let memory = Arc::new(Memory::new());
     let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
     let mut guest = Guest::new(&[grant(memory.clone(), Access::Read, Some(policy))]);
