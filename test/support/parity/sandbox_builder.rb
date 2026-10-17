@@ -2,65 +2,29 @@
 
 module Parity
   # Assembles a +Kobako::Sandbox+ from a Scenario's declarative setup —
-  # caps, Services, stubs, preloads, flags. Invocation-side
+  # caps, Services, preloads, flags, Extensions, mounts. Invocation-side
   # observation stays in +RubyExecutor+; the Rust runner interprets the
   # same closed tag sets on its side.
   class SandboxBuilder
-    # The closed stub-behavior set, one builder per tag; the Rust
-    # runner's StubReceiver is the other interpreter of the same tags.
-    # +echo_positional+ takes no keyword arguments on purpose — kwargs
-    # on the wire must fail its parameter binding; +yield_each+ yields
-    # each positional argument and returns the array of block results;
-    # +opaque+ hands back the same labeled non-wire object on every
-    # call so identity is observable, and +read_label+ reads it off a
-    # (possibly Array-nested) restored argument.
-    STUB_BODIES = {
-      "echo" => ->(_behavior) { ->(arg = nil, *, **) { arg } },
-      "echo_positional" => ->(_behavior) { ->(arg = nil) { arg } },
-      "value" => lambda { |behavior|
-        constant = ValueTags.untag(behavior.fetch(:value))
-        ->(*, **) { constant }
-      },
-      "raise" => lambda { |behavior|
-        message = behavior.fetch(:message, "stub failure")
-        ->(*, **) { raise message }
-      },
-      "yield_each" => ->(_behavior) { ->(*args, **, &blk) { args.map { |arg| blk.call(arg) } } },
-      "opaque" => lambda { |behavior|
-        constant = OpaqueObject.new(behavior.fetch(:label))
-        ->(*, **) { constant }
-      },
-      "read_label" => lambda { |_behavior|
-        lambda { |arg, *, **|
-          arg = arg.first while arg.is_a?(Array)
-          arg.label
-        }
-      },
-      "counter" => lambda { |_behavior|
-        count = 0
-        ->(*, **) { count += 1 }
-      }
-    }.freeze
-
     def initialize(wasm_path)
       @wasm_path = wasm_path
     end
 
     def build(scenario)
       sandbox = Kobako::Sandbox.new(wasm_path: @wasm_path, **sandbox_options(scenario.options))
+      register(sandbox, scenario)
+      sandbox
+    end
+
+    private
+
+    def register(sandbox, scenario)
       scenario.services.each { |service| bind_service(sandbox, service) }
       scenario.preloads.each { |preload| apply_preload(sandbox, preload) }
       scenario.flags.each { |flag| apply_flag(sandbox, flag) }
       scenario.extensions.each { |extension| install_extension(sandbox, extension) }
-      sandbox
+      scenario.mounts.each { |mount| apply_mount(sandbox, mount) }
     end
-
-    # Build a stub receiver from a scenario method-set — the same builder that
-    # backs bound Services, reused by the executor for a per-invocation
-    # +ctx.bind+ override.
-    def build_stub(methods, exposed = nil) = stub_object(methods, exposed)
-
-    private
 
     # An Extension composes a preloaded source with an optional stub
     # backend. A +fixed+ provider binds one stub for the Sandbox's life; a
@@ -82,8 +46,8 @@ module Parity
       methods = backend[:methods]
       path = backend.fetch(:path)
       case backend.fetch(:provider)
-      when "fixed" then Kobako::Extension::Backend.new(path: path, object: stub_object(methods, nil))
-      when "per_invocation" then Kobako::Extension::Backend.new(path: path, provider: -> { stub_object(methods, nil) })
+      when "fixed" then Kobako::Extension::Backend.new(path: path, object: Stubs.build(methods))
+      when "per_invocation" then Kobako::Extension::Backend.new(path: path, provider: -> { Stubs.build(methods) })
       else raise ArgumentError, "unknown provider kind: #{backend.inspect}"
       end
     end
@@ -91,7 +55,7 @@ module Parity
     def bind_service(sandbox, service)
       return sandbox.bind(service.fetch(:name)) if service[:fillable]
 
-      sandbox.bind(service.fetch(:name), stub_object(service[:methods], service[:exposed]))
+      sandbox.bind(service.fetch(:name), Stubs.build(service[:methods], service[:exposed]))
     end
 
     # The closed preload-kind set. Snippet failures are invocation-time
@@ -111,6 +75,13 @@ module Parity
       sandbox.flag(flag.fetch(:name), flag.fetch(:value), advisory: flag.fetch(:advisory))
     end
 
+    # A scenario mounts a Memory seeded from its files, the one kind both
+    # frontends build from plain data.
+    def apply_mount(sandbox, mount)
+      filesystem = Kobako::Filesystem::Memory.new(mount.fetch(:files))
+      sandbox.mount(mount.fetch(:at), filesystem, access: mount.fetch(:access).to_sym)
+    end
+
     # Scenario caps ride in the runner's neutral spelling; translate
     # to the Ruby keyword surface (ms → seconds, profile → Symbol).
     def sandbox_options(options)
@@ -118,31 +89,6 @@ module Parity
       translated[:timeout] = options[:timeout_ms] / 1000.0 if options[:timeout_ms]
       translated[:profile] = options[:profile].to_sym if options[:profile]
       translated
-    end
-
-    def stub_object(methods, exposed)
-      stub = Object.new
-      (methods || {}).each do |name, behavior|
-        stub.define_singleton_method(name, &stub_body(behavior))
-      end
-      narrow_guest_surface(stub, exposed) if exposed
-      stub
-    end
-
-    # A service's optional +exposed+ list is the scenario's
-    # +respond_to_guest?+ narrowing: the predicate is defined private,
-    # so the guest can never dispatch to it.
-    def narrow_guest_surface(stub, exposed)
-      allowed = exposed.map(&:to_s)
-      stub.define_singleton_method(:respond_to_guest?) { |name| allowed.include?(name.to_s) }
-      stub.singleton_class.class_eval { private :respond_to_guest? }
-    end
-
-    def stub_body(behavior)
-      builder = STUB_BODIES.fetch(behavior.fetch(:behavior)) do
-        raise ArgumentError, "unknown stub behavior: #{behavior.inspect}"
-      end
-      builder.call(behavior)
     end
   end
 end

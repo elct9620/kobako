@@ -44,6 +44,7 @@ grows append-only with the corpus.
 | services | Service stubs and their narrowing |
 | preloads | source or bytecode snippets |
 | extensions | Extensions to install |
+| mounts | a Memory seeded with files, at a guest path |
 | invocations | the verbs run in order |
 
 `test/support/parity/scenario.rb` defines the shape, and each executor
@@ -159,3 +160,4 @@ each frontend.
 | Seal | its timing | its spelling |
 | Extensions | composition, backend resolution | the dependency assertion, install-error shapes |
 | Isolation posture | the requested posture | the floor-refusal spelling |
+| Mount | what the guest reads and its refusals | path validation, a mount's block |

@@ -22,8 +22,8 @@ use serde_json::{json, Map, Value as Json};
 
 use kobako::msgpack::{RunArg, Value, ValueReceiver};
 use kobako::{
-    Backend, Error, Execution, Extension, Fault, FaultKind, Handles, Options, Profile, Provider,
-    Receiver, RunPayload, Sandbox, Yielder,
+    Access, Backend, Error, Execution, Extension, Fault, FaultKind, Handles, Memory, Options,
+    Profile, Provider, Receiver, RunPayload, Sandbox, Yielder,
 };
 
 /// The scenario's opaque host objects by declared label, shared by the
@@ -89,6 +89,9 @@ fn run_scenario(frame: &[u8]) -> Result<Json, String> {
     for extension in scenario["extensions"].as_array().unwrap_or(&Vec::new()) {
         install_extension(&mut sandbox, extension)?;
     }
+    for mount in scenario["mounts"].as_array().unwrap_or(&Vec::new()) {
+        apply_mount(&mut sandbox, mount)?;
+    }
 
     let invocations = scenario["invocations"]
         .as_array()
@@ -114,6 +117,34 @@ fn apply_flag(sandbox: &mut Sandbox, flag: &Json) -> Result<(), String> {
         sandbox.flag(name, value)
     }
     .map_err(|err| format!("flag failed: {err}"))
+}
+
+/// A scenario mounts a Memory seeded from its files, the one kind both
+/// frontends build from plain data.
+fn apply_mount(sandbox: &mut Sandbox, mount: &Json) -> Result<(), String> {
+    let at = mount["at"].as_str().ok_or("mount must carry at")?;
+    let files = mount["files"]
+        .as_object()
+        .ok_or("mount must carry files")?
+        .iter()
+        .map(|(path, contents)| {
+            (
+                path.clone(),
+                contents.as_str().unwrap_or_default().to_string(),
+            )
+        });
+    let access = match mount["access"].as_str() {
+        Some("read") => Access::Read,
+        Some("read_write") => Access::ReadWrite,
+        other => {
+            return Err(format!(
+                "mount access must be read or read_write, got {other:?}"
+            ))
+        }
+    };
+    sandbox
+        .mount(at, Arc::new(files.collect::<Memory>()), access)
+        .map_err(|err| format!("mount failed: {err}"))
 }
 
 /// Snippet failures are invocation-time observables (replay), so a
@@ -170,7 +201,7 @@ fn install_extension(sandbox: &mut Sandbox, extension: &Json) -> Result<(), Stri
 
 /// A scenario-driven Extension. `backend` rebuilds a fresh `Backend` on
 /// each call so a `per_invocation` provider resolves a fresh stub,
-/// mirroring the Ruby executor's `-> { stub_object(...) }`.
+/// mirroring the Ruby executor's `-> { Stubs.build(...) }`.
 struct ScenarioExtension {
     name: String,
     source: String,

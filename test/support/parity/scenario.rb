@@ -10,9 +10,9 @@ module Parity
   # +argument+ faults arise from the scenario's shape (a method the
   # stub lacks), never from a stub declaration, so both dispatchers
   # must derive them from the same conditions.
-  SCENARIO_DEFAULTS = { options: {}, services: [], preloads: [], flags: [], extensions: [] }.freeze
+  SCENARIO_DEFAULTS = { options: {}, services: [], preloads: [], flags: [], extensions: [], mounts: [] }.freeze
 
-  Scenario = Data.define(:name, :options, :services, :preloads, :flags, :extensions, :invocations) do
+  Scenario = Data.define(:name, :options, :services, :preloads, :flags, :extensions, :mounts, :invocations) do
     def initialize(name:, invocations:, **rest)
       super(name:, invocations:, **SCENARIO_DEFAULTS.merge(rest))
     end
@@ -27,6 +27,7 @@ module Parity
         "preloads" => preloads,
         "flags" => flags,
         "extensions" => extensions,
+        "mounts" => mounts,
         "invocations" => invocations
       }
     end

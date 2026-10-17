@@ -7,6 +7,7 @@
 require_relative "parity/scenario"
 require_relative "parity/opaque_object"
 require_relative "parity/value_tags"
+require_relative "parity/stubs"
 require_relative "parity/sandbox_builder"
 require_relative "parity/ruby_executor"
 require_relative "parity/rust_executor"

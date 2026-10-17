@@ -88,7 +88,7 @@ module Parity
     # Bind each override's stub at its declared path on the invocation's
     # Context — the shared body of the +#eval+ / +#run+ override block.
     def bind_overrides(ctx, overrides)
-      overrides.each { |override| ctx.bind(override.fetch(:path), @builder.build_stub(override[:methods])) }
+      overrides.each { |override| ctx.bind(override.fetch(:path), Stubs.build(override[:methods])) }
     end
 
     def capture_outcome
