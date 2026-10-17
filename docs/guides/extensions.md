@@ -1,8 +1,8 @@
 # Extensions
 
 An **Extension** teaches guest code a native-style constant. It bundles a guest idiom
-(mruby `source`) with an optional host `backend`. Pure operations such as `File.join`
-stay in-guest; privileged ones such as `File.read` dispatch to the host backend like
+(mruby `source`) with an optional host `backend`. Pure operations such as `Vfs.join`
+stay in-guest; privileged ones such as `Vfs.read` dispatch to the host backend like
 any bound Service.
 
 | Part | Lives in |
@@ -12,7 +12,8 @@ any bound Service.
 | a concrete Extension | the Host App or a third-party gem |
 
 kobako ships no concrete Extension, only the contract and the `#install` consumer.
-The `File` used below is illustrative.
+The `Vfs` used below is illustrative; a Guest Binary's own `File` is reached
+through a filesystem Grant instead.
 
 ## Extension Contract
 
@@ -74,15 +75,15 @@ The first rule is the `install` / `bind` divide. A capability spanning several
 host-backed constants composes as one idiom and one backend each, joined by
 reference rather than a single aggregate.
 
-## Native File Example
+## Virtual File Example
 
 The guest idiom `extend`s `Kobako::Proxy` for host-forwarding. The capability is
-mixed in rather than inherited, so `File` keeps its own superclass free. It runs path
+mixed in rather than inherited, so `Vfs` keeps its own superclass free. It runs path
 arithmetic locally and routes I/O to the host.
 
 ```ruby
-FILE_SOURCE = <<~RUBY
-  class File
+VFS_SOURCE = <<~RUBY
+  class Vfs
     extend Kobako::Proxy
 
     def self.join(*parts) = parts.join("/")
@@ -109,27 +110,27 @@ The host backend is an ordinary duck-typed object, here a fresh in-memory store 
 invocation so writes never leak.
 
 ```ruby
-file_ext = Kobako::Extension.new(
-  name: :File,
-  source: FILE_SOURCE,
+vfs_ext = Kobako::Extension.new(
+  name: :Vfs,
+  source: VFS_SOURCE,
   backend: Kobako::Extension::Backend.new(
-    path: "File",
+    path: "Vfs",
     provider: -> { InMemoryFileSystem.new },  # provider: → fresh each invocation
   ),
 )
 
-sandbox.install(file_ext)
+sandbox.install(vfs_ext)
 
 sandbox.eval(<<~RUBY)
-  File.write("a.txt", "hello")
-  File.join("dir", File.basename("x/a.txt"))  #=> "dir/a.txt"  (local, no round-trip)
+  Vfs.write("a.txt", "hello")
+  Vfs.join("dir", Vfs.basename("x/a.txt"))  #=> "dir/a.txt"  (local, no round-trip)
 RUBY
 ```
 
 A read-only, shared backend supplies a static object with `object:` instead.
 
 ```ruby
-backend: Kobako::Extension::Backend.new(path: "File", object: read_only_store)
+backend: Kobako::Extension::Backend.new(path: "Vfs", object: read_only_store)
 ```
 
 ## Rust SDK

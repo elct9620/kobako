@@ -93,10 +93,10 @@ class TestE2EHostAppJourneys < Minitest::Test
     store = InMemoryFileSystem.new
     store.write("notes/today.txt", "ship it")
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.install(Kobako::Extension.new(name: :File, source: ExtensionFixtures::FILE_SOURCE,
-                                          backend: Kobako::Extension::Backend.new(path: "File", object: store)))
+    sandbox.install(Kobako::Extension.new(name: :Vfs, source: ExtensionFixtures::FILE_SOURCE,
+                                          backend: Kobako::Extension::Backend.new(path: "Vfs", object: store)))
 
-    result = sandbox.eval('File.read(File.join("notes", "today.txt"))').value
+    result = sandbox.eval('Vfs.read(Vfs.join("notes", "today.txt"))').value
 
     assert_equal "ship it", result,
                  "a script building a path in the guest and reading it through an installed idiom " \

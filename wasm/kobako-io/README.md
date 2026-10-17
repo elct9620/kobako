@@ -4,17 +4,19 @@ Sandbox IO / Kernel capability gem for
 [kobako](https://github.com/elct9620/kobako) mruby guests — `$stdout`
 / `$stderr` over wasi-libc.
 
-A `beni::Gem` installing the write-only Ruby IO surface.
+A `beni::Gem` installing the Ruby IO and File surface.
 
 | What it installs | Detail |
 |---|---|
 | The IO surface | the `::IO` class, the `STDOUT` / `STDERR` constants, and the assignable `$stdout` / `$stderr` globals |
+| The File surface | `::File < IO` over the directories the host preopens, raising `NotImplementedError` where it preopens none |
+| The errors | `IOError`, `EOFError`, `SystemCallError`, and the `Errno` classes a file operation raises |
 | The Kernel delegators | `print` / `puts` / `printf` / `p` / `putc` / `warn`, private, dispatching through those globals at call time |
 
 Pure Rust over [beni](https://crates.io/crates/beni) — the whole
 Ruby-level surface is defined through the typed wrapper; no mrblib,
-no mrbc / RITE pipeline. The gem is kobako-free: output goes straight
-to wasi-libc `write(2)`, so any guest shell can compose it.
+no mrbc / RITE pipeline. The gem is kobako-free: it reaches the host
+only through wasi-libc, so any guest shell can compose it.
 
 ## Usage
 

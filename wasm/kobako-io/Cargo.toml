@@ -1,18 +1,18 @@
-# kobako-io — sandbox IO / Kernel capability gem.
+# kobako-io — sandbox IO / File / Kernel capability gem.
 #
 # The `::IO` class, `STDOUT` / `STDERR`, the assignable `$stdout` /
-# `$stderr` globals, and the private Kernel output delegators for a
-# kobako mruby guest. Pure Rust over beni —
-# the whole Ruby-level surface is defined through the typed wrapper;
-# no mrblib, no mrbc / RITE pipeline. kobako-free by design: output
-# goes straight to wasi-libc `write(2)`, so the gem depends on the
-# `beni` wrapper alone and any guest shell can compose it.
+# `$stderr` globals, `::File < IO` over the preopened directories, and
+# the private Kernel output delegators for a kobako mruby guest. Pure
+# Rust over beni — the whole Ruby-level surface is defined through the
+# typed wrapper; no mrblib, no mrbc / RITE pipeline. kobako-free by
+# design: it reaches the host only through wasi-libc, so the gem depends
+# on the `beni` wrapper alone and any guest shell can compose it.
 
 [package]
 name = "kobako-io"
 version = "0.18.0"
 edition = "2021"
-description = "Sandbox IO / Kernel capability gem for kobako mruby guests — $stdout / $stderr over wasi-libc, built on beni."
+description = "Sandbox IO / File / Kernel capability gem for kobako mruby guests — $stdout / $stderr and preopened files over wasi-libc, built on beni."
 license = "Apache-2.0"
 repository = "https://github.com/elct9620/kobako"
 readme = "README.md"

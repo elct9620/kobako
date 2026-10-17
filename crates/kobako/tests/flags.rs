@@ -1,5 +1,5 @@
-//! Integration coverage for `Sandbox::flag` over the bundled guest, which
-//! recognises no flag: a critical one fails the invocation as
+//! Integration coverage for `Sandbox::flag` over the bundled guest, for a
+//! flag it does not recognise: a critical one fails the invocation as
 //! `Error::UnsupportedFlag` before the script runs, and an advisory one is
 //! skipped. The script prints before it answers, so empty stdout witnesses
 //! that it never ran.

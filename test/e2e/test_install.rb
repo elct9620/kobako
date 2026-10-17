@@ -4,7 +4,7 @@ require "test_helper"
 require "support/in_memory_file_system"
 require "support/extension_fixtures"
 
-# E2E — the #install mechanism through real mruby. A guest `File`
+# E2E — the #install mechanism through real mruby. A guest `Vfs`
 # idiom whose pure methods run in-guest and whose I/O dispatches to a host
 # backend, the backend resolved either fixed or fresh-per-invocation,
 # install refused after the seal, and I/O failing closed when no backend is
@@ -20,9 +20,9 @@ class TestE2EInstall < Minitest::Test
   def test_pure_method_is_local_and_io_dispatches_to_the_backend
     sandbox = install_file(object: InMemoryFileSystem.new)
 
-    assert_equal "dir/a.txt", sandbox.eval('File.join("dir", File.basename("x/a.txt"))').value,
+    assert_equal "dir/a.txt", sandbox.eval('Vfs.join("dir", Vfs.basename("x/a.txt"))').value,
                  "a pure File method must run in-guest through #install"
-    assert_equal "hello", sandbox.eval('File.write("a.txt", "hello"); File.read("a.txt")').value,
+    assert_equal "hello", sandbox.eval('Vfs.write("a.txt", "hello"); Vfs.read("a.txt")').value,
                  "a File I/O method must dispatch to the bound backend"
   end
 
@@ -30,8 +30,8 @@ class TestE2EInstall < Minitest::Test
   def test_fixed_backend_persists_across_invocations
     sandbox = install_file(object: InMemoryFileSystem.new)
 
-    sandbox.eval('File.write("k", "v1")')
-    assert_equal "v1", sandbox.eval('File.read("k")').value,
+    sandbox.eval('Vfs.write("k", "v1")')
+    assert_equal "v1", sandbox.eval('Vfs.read("k")').value,
                  "a fixed backend is one object across invocations, so a write persists"
   end
 
@@ -39,8 +39,8 @@ class TestE2EInstall < Minitest::Test
   def test_callable_backend_is_isolated_per_invocation
     sandbox = install_file(provider: -> { InMemoryFileSystem.new })
 
-    sandbox.eval('File.write("k", "v1")')
-    refute sandbox.eval('File.exist?("k")').value,
+    sandbox.eval('Vfs.write("k", "v1")')
+    refute sandbox.eval('Vfs.exist?("k")').value,
            "a callable backend is fresh each invocation, so a write cannot leak"
   end
 
@@ -48,8 +48,8 @@ class TestE2EInstall < Minitest::Test
   def test_open_eager_slurps_then_serves_the_buffer_locally
     sandbox = install_file(object: InMemoryFileSystem.new)
 
-    assert_equal "line", sandbox.eval('File.write("log", "line"); File.open("log") { |f| f.read }').value,
-                 "File.open serves the eager-slurped buffer in-guest"
+    assert_equal "line", sandbox.eval('Vfs.write("log", "line"); Vfs.open("log") { |f| f.read }').value,
+                 "Vfs.open serves the eager-slurped buffer in-guest"
   end
 
   # @behavior EX-019 EX-020 EX-042
@@ -62,7 +62,7 @@ class TestE2EInstall < Minitest::Test
     assert_raises(RuntimeError, "a raising provider must propagate its own error class through #eval") do
       sandbox.eval('$stdout.write("ran")')
     end
-    assert_equal "v", sandbox.eval('File.write("k", "v"); File.read("k")').value,
+    assert_equal "v", sandbox.eval('Vfs.write("k", "v"); Vfs.read("k")').value,
                  "per-invocation resolution must let the next invocation run once the provider succeeds"
   end
 
@@ -97,7 +97,7 @@ class TestE2EInstall < Minitest::Test
   # never starts.
   def test_unmet_dependency_raises_before_the_guest_runs_naming_it
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.install(Kobako::Extension.new(name: :File, source: FILE_SOURCE, depends_on: [:Errno]))
+    sandbox.install(Kobako::Extension.new(name: :Vfs, source: FILE_SOURCE, depends_on: [:Errno]))
 
     err = assert_raises(ArgumentError) { sandbox.eval('$stdout.write("ran")') }
     assert_match(/:Errno/, err.message,
@@ -124,14 +124,14 @@ class TestE2EInstall < Minitest::Test
   # @behavior EX-007 EX-008
   def test_without_a_backend_pure_methods_run_and_io_fails_closed
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.install(Kobako::Extension.new(name: :File, source: FILE_SOURCE))
+    sandbox.install(Kobako::Extension.new(name: :Vfs, source: FILE_SOURCE))
 
-    assert_equal "a/b", sandbox.eval('File.join("a", "b")').value,
+    assert_equal "a/b", sandbox.eval('Vfs.join("a", "b")').value,
                  "a pure method runs even with no backend bound"
     assert_raises(Kobako::ServiceError,
                   "a privileged method must fail closed as an undefined-target ServiceError " \
                   "when no backend is bound for the idiom") do
-      sandbox.eval('File.read("x")')
+      sandbox.eval('Vfs.read("x")')
     end
   end
 
@@ -152,9 +152,9 @@ class TestE2EInstall < Minitest::Test
 
   def file_extension(object: nil, provider: nil)
     Kobako::Extension.new(
-      name: :File,
+      name: :Vfs,
       source: FILE_SOURCE,
-      backend: Kobako::Extension::Backend.new(path: "File", object: object, provider: provider)
+      backend: Kobako::Extension::Backend.new(path: "Vfs", object: object, provider: provider)
     )
   end
 

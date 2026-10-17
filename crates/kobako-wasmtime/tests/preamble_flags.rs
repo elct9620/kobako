@@ -1,5 +1,5 @@
-//! The bundled guest recognises no flag, so every flag a host sets meets
-//! the unrecognised path: a critical one must refuse the invocation under
+//! A flag the bundled guest does not recognise meets the unrecognised
+//! path: a critical one must refuse the invocation under
 //! its own class, and an advisory one must leave the run untouched.
 
 mod support;

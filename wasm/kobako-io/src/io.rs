@@ -1,6 +1,6 @@
-//! Top-level `::IO` class — a minimal write-only IO surface backing
-//! `$stdout` / `$stderr` (and indirectly the Kernel delegators in
-//! `crate::kernel_ext`).
+//! Top-level `::IO` class — the write surface backing `$stdout` /
+//! `$stderr` (and indirectly the Kernel delegators in
+//! `crate::kernel_ext`) and the files a guest opens through `File`.
 //!
 //! ## Shape vs. mruby-io
 //!
@@ -21,27 +21,26 @@
 //!
 //! ## Scope restriction
 //!
-//! Only `fd == 1` (stdout) and `fd == 2` (stderr) are accepted at
-//! construction, since the sandbox has no other captured fds to route to,
-//! and only the String `"w"` as `mode`. A mode that is not a String raises
-//! `TypeError`; any other fd or mode raises `ArgumentError` immediately.
+//! Only `fd == 1` (stdout), `fd == 2` (stderr), and the files this guest
+//! opened (`crate::descriptors`) are accepted at construction, and only
+//! the String `"w"` as the `mode` of a captured one. A mode that is not a
+//! String raises `TypeError`; any other fd or mode raises
+//! `ArgumentError` immediately. Reading, seeking, and closing live in
+//! `crate::stream`.
 
 use beni::prelude::*;
 use beni::value::{qnil, qtrue};
-use beni::{Error, IntoValue, Mrb, RArray, RObject, RString, Value};
+use beni::{Error, IntoValue, Mrb, RArray, RClass, RObject, RString, Value};
 use core::ffi::CStr;
 
-/// Where `IO.new` records the descriptor `write` later reads back.
-const FD_IVAR: &CStr = c"@__kobako_fd__";
+use crate::{descriptors, errno};
 
-/// The sandbox routes only stdout and stderr to the host capture pipe.
-fn is_captured_fd(fd: i32) -> bool {
-    fd == 1 || fd == 2
-}
+/// Where `IO.new` records the descriptor `write` later reads back.
+pub(crate) const FD_IVAR: &CStr = c"@__kobako_fd__";
 
 /// The gem-init step named after mruby's own `mrb_init_io`; the body order
 /// is the dependency order, the class before the instances built from it.
-pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
+pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
     use beni::Module;
 
     // Spell `Object` as the super class via the canonical
@@ -68,7 +67,6 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     io.define_method(mrb, c"sync", beni::method!(io_sync, 0))?;
     io.define_method(mrb, c"sync=", beni::method!(io_sync_set, 1))?;
     io.define_method(mrb, c"flush", beni::method!(io_flush, 0))?;
-    io.define_method(mrb, c"closed?", beni::method!(io_closed_p, 0))?;
 
     // Construct `STDOUT` / `STDERR` and wire `$stdout` / `$stderr` to
     // them. Guests can reassign either global at script time, which is
@@ -83,21 +81,22 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 
     mrb.gv_set(c"$stdout", stdout_val)?;
     mrb.gv_set(c"$stderr", stderr_val)?;
-    Ok(())
+    Ok(io)
 }
 
-/// `IO.new(fd, mode)` refuses any `fd` but 1 or 2, since the sandbox
-/// routes no other descriptor to the host capture pipe, and any `mode`
-/// but `"w"`, since only the write path exists.
+/// `IO.new(fd, mode)` refuses any `fd` but 1, 2, or a file this guest
+/// opened: stdin carries the Preamble and a preopened directory is the
+/// host's, so neither is the guest's to wrap. A captured descriptor only
+/// writes, so its `mode` must be `"w"`.
 fn io_initialize(mrb: &Mrb, self_: RObject, fd: i32, mode: RString) -> Result<(), Error> {
-    if !is_captured_fd(fd) {
+    if !descriptors::is_reachable(fd) {
         return Err(argument_error(
             mrb,
-            "kobako IO only supports fd 1 (stdout) or fd 2 (stderr)",
+            "kobako IO only supports fd 1 (stdout), fd 2 (stderr), or a file this guest opened",
         ));
     }
 
-    if String::from_value(mode.as_value()).as_deref() != Some("w") {
+    if descriptors::is_channel(fd) && String::from_value(mode.as_value()).as_deref() != Some("w") {
         return Err(argument_error(mrb, "kobako IO only supports mode \"w\""));
     }
 
@@ -108,18 +107,16 @@ fn io_initialize(mrb: &Mrb, self_: RObject, fd: i32, mode: RString) -> Result<()
 /// Ruby-level error: past the pipe's limit `write(2)` short-writes, and the
 /// total counts only the accepted bytes.
 fn io_write(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let fd = read_fd(mrb, self_);
     // The construction-time allowlist in `io_initialize` is not
     // self-enforcing: `@__kobako_fd__` is an ordinary ivar that guest mruby
-    // can rewrite via `instance_variable_set`. Re-validate at the one place
-    // the fd reaches a syscall, so the stdout / stderr restriction is an
-    // enforced boundary rather than a construction-time courtesy.
-    if !is_captured_fd(fd) {
-        return Err(argument_error(
-            mrb,
-            "kobako IO writes only to fd 1 (stdout) or fd 2 (stderr)",
-        ));
-    }
+    // can rewrite via `instance_variable_set`. Re-validate where the fd
+    // reaches a syscall, so the restriction holds rather than being a
+    // construction-time courtesy.
+    let fd = checked_fd(
+        mrb,
+        self_,
+        "kobako IO writes only to fd 1 (stdout), fd 2 (stderr), or a file this guest opened",
+    )?;
     let mut total: i32 = 0;
     for &val in args {
         let _scope = mrb.arena_scope();
@@ -270,11 +267,6 @@ fn io_flush(_mrb: &Mrb, self_: Value) -> Value {
     self_
 }
 
-/// The sandbox streams cannot be closed.
-fn io_closed_p(_mrb: &Mrb, _self: Value) -> bool {
-    false
-}
-
 /// Dispatches through `self.write`, so a subclass overriding `#write`
 /// redirects every composite method.
 fn write_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
@@ -289,7 +281,7 @@ fn write_newline(mrb: &Mrb, self_: Value) -> Result<(), Error> {
 
 /// Returned as `Err`, so the bridge frame raises it only after the Rust
 /// frame has unwound — unlike a direct `mrb_raise` long-jump.
-fn argument_error(mrb: &Mrb, msg: &str) -> Error {
+pub(crate) fn argument_error(mrb: &Mrb, msg: &str) -> Error {
     match mrb.exception_arg_error() {
         Ok(cls) => Error::new(mrb, cls, msg),
         Err(err) => err,
@@ -303,4 +295,25 @@ fn read_fd(mrb: &Mrb, self_: Value) -> i32 {
         .and_then(|obj| obj.ivar_get::<_, Value>(mrb, FD_IVAR).ok())
         .and_then(i32::from_value)
         .unwrap_or(0)
+}
+
+/// Whether `self_`'s descriptor was closed: `close` clears the ivar.
+pub(crate) fn is_closed(mrb: &Mrb, self_: Value) -> bool {
+    RObject::from_value(self_)
+        .and_then(|obj| obj.ivar_get::<_, Value>(mrb, FD_IVAR).ok())
+        .is_some_and(|fd| fd.is_nil())
+}
+
+/// The descriptor `self_` stands for, checked again where it reaches a
+/// syscall: a closed stream is an `IOError`, and one rewritten to a
+/// descriptor this guest may not reach is `refusal`.
+pub(crate) fn checked_fd(mrb: &Mrb, self_: Value, refusal: &str) -> Result<i32, Error> {
+    if is_closed(mrb, self_) {
+        return Err(errno::io_error(mrb, "closed stream"));
+    }
+    let fd = read_fd(mrb, self_);
+    if !descriptors::is_reachable(fd) {
+        return Err(argument_error(mrb, refusal));
+    }
+    Ok(fd)
 }

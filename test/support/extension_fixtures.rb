@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
-# mruby source fixtures for the #install E2E. A File idiom whose pure
+# mruby source fixtures for the #install E2E. A Vfs idiom whose pure
 # methods run in-guest and whose I/O dispatches to a host backend, plus a
 # depended-on/dependent pair whose cross-Extension constant reference
 # resolves only at guest call time. Illustrative only — kobako ships no
 # concrete Extension.
 module ExtensionFixtures
   FILE_SOURCE = <<~RUBY
-    class File
+    class Vfs
       extend Kobako::Proxy
 
       def self.join(*parts)
