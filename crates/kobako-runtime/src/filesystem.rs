@@ -8,7 +8,18 @@
 //! own root, its components joined by `/`, with no `.` or `..` left and
 //! no leading `/`; the empty path is the root.
 
+mod directory;
+mod memory;
+mod overlay;
+mod path;
+mod temporary;
+
 use std::sync::Arc;
+
+pub use directory::Directory;
+pub use memory::Memory;
+pub use overlay::Overlay;
+pub use temporary::Temporary;
 
 /// The files and directories behind a filesystem Grant. One may wrap
 /// another and answer by delegating, so it sees every call on the way

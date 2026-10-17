@@ -416,3 +416,81 @@ code.
 ```rust
 pub enum FilesystemError {}
 ```
+
+## `Memory`
+
+The Filesystem kobako ships that holds its files in memory for as long as the
+object lives. Every invocation shares it.
+
+```rust
+pub struct Memory {}
+```
+
+## `Memory::new`
+
+An empty Memory. One seeded with files is collected from `(path, contents)`
+pairs instead.
+
+```rust
+impl Memory {
+    pub fn new() -> Self {}
+}
+```
+
+## `Temporary`
+
+The Filesystem kobako ships that holds its files in memory and starts every
+invocation empty.
+
+```rust
+pub struct Temporary {}
+```
+
+## `Temporary::new`
+
+An empty Temporary.
+
+```rust
+impl Temporary {
+    pub fn new() -> Self {}
+}
+```
+
+## `Directory`
+
+The Filesystem kobako ships over a host directory. Nothing outside that
+directory is reachable through it.
+
+```rust
+pub struct Directory {}
+```
+
+## `Directory::new`
+
+A Directory over the host directory at a path, refusing one that cannot be
+opened.
+
+```rust
+impl Directory {
+    pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {}
+}
+```
+
+## `Overlay`
+
+The Filesystem kobako ships that writes into an upper Filesystem over a lower
+one it only reads.
+
+```rust
+pub struct Overlay {}
+```
+
+## `Overlay::new`
+
+An Overlay of an upper Filesystem over a lower one.
+
+```rust
+impl Overlay {
+    pub fn new(upper: Arc<dyn Filesystem>, lower: Arc<dyn Filesystem>) -> Self {}
+}
+```

@@ -28,3 +28,6 @@ categories = ["wasm", "virtualization"]
 # locally.
 [dependencies]
 kobako-transport = { version = "0.18.0", path = "../kobako-transport" }
+# cap-std resolves every path of the Directory Filesystem beneath its host
+# directory, refusing a `..` or a symbolic link that would lead out of it.
+cap-std = "4"

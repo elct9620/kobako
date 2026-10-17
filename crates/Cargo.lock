@@ -110,6 +110,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cap-std"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1ec78e242cfa2cfe276807ac2ecc00315a6c97786977414bcd1c3963b6c91b8"
+dependencies = [
+ "cap-primitives",
+ "io-extras",
+ "io-lifetimes 3.0.1",
+ "rustix",
+]
+
+[[package]]
 name = "cc"
 version = "1.2.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -789,6 +801,7 @@ dependencies = [
 name = "kobako-runtime"
 version = "0.18.0"
 dependencies = [
+ "cap-std",
  "kobako-transport",
 ]
 

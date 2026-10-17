@@ -14,6 +14,8 @@ type, so the engine stays swappable.
 | `snapshot` | each invocation's `Completion` (outcome or trap), both output `Capture`s, and `Usage` |
 | `error` | the neutral failure types: `Trap`, `SetupError`, and `InvokeError` over both |
 | `profile` | the isolation `Profile` a runtime declares |
+| `grant` | the `Grant` a frontend hands each invocation, and the `GrantKind`s a runtime supports |
+| `filesystem` | the `Filesystem` behind a filesystem Grant, and the `Memory`, `Temporary`, `Directory`, and `Overlay` kobako ships |
 | `dispatch` / `yielder` | the `DispatchHandler` and `Yielder` traits a frontend supplies for guest→host dispatch and block-yield re-entry |
 
 Engine implementations (such as `kobako-wasmtime`) implement

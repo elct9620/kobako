@@ -26,7 +26,10 @@ pub mod yielder;
 // a reader of `kobako_runtime::Runtime` was missing.
 pub use dispatch::DispatchHandler;
 pub use error::{InvokeError, SetupError, Trap};
-pub use filesystem::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions};
+pub use filesystem::{
+    DirEntry, Directory, File, Filesystem, FilesystemError, Kind, Memory, Metadata, OpenOptions,
+    Overlay, Temporary,
+};
 pub use grant::{Access, Grant, GrantKind, Policy};
 pub use profile::Profile;
 pub use runtime::{Entry, Runtime};
