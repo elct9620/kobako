@@ -92,4 +92,20 @@ class TestE2EBindPaths < Minitest::Test
     assert_match(/after first Sandbox invocation/, err.message,
                  "a bind through Sandbox#bind after the first #eval must be refused naming that invocation")
   end
+
+  # @behavior SV-050
+  # A segment merely starting with the reserved name is another segment, so
+  # it stays bindable.
+  def test_bind_in_the_reserved_namespace_is_refused
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    ["Kobako", "Kobako::KV"].each do |path|
+      assert_raises(ArgumentError, "#{path} through Sandbox#bind must be refused as reserved") do
+        sandbox.bind(path, -> { :x })
+      end
+    end
+    sandbox.bind("KobakoStore", -> { :kept })
+
+    assert_equal :kept, sandbox.eval("KobakoStore.call").value,
+                 "a segment only sharing the reserved prefix through Sandbox#bind must bind"
+  end
 end

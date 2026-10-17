@@ -1,6 +1,8 @@
 module Kobako
   module Catalog
     class Services
+      RESERVED_NAMESPACE: String
+
       def initialize: () -> void
 
       def bind: (Symbol | String path, untyped object) -> self
@@ -14,6 +16,8 @@ module Kobako
       private
 
       def validate_path!: (Symbol | String path) -> String
+
+      def reserved?: (String path) -> bool
 
       def collision?: (String path) -> bool
     end

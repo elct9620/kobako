@@ -177,9 +177,9 @@ impl Sandbox {
 
     /// Bind a host object as the Service reachable at `path` — a
     /// constant path of one or more `::`-separated segments
-    /// (`"MyService::KV"` or a top-level `"File"`). A path already bound,
-    /// or one that would sit inside another, is refused. Refused once
-    /// sealed.
+    /// (`"MyService::KV"` or a top-level `"Clock"`). A path already bound,
+    /// one that would sit inside another, or one under the reserved
+    /// `Kobako` namespace is refused. Refused once sealed.
     pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
         open_catalog(&mut self.registry)?.bind(path, object)
     }

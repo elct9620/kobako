@@ -56,8 +56,9 @@ module Kobako
     # the constant, and Context#bind supplies the object for each invocation.
     # A call to one left unfilled fails as a ServiceError.
     #
-    # Raises ArgumentError for a malformed path, a path that collides with an
-    # existing binding, or a call after the first invocation.
+    # Raises ArgumentError for a malformed path, a path under the reserved
+    # +Kobako+ namespace, a path that collides with an existing binding, or a
+    # call after the first invocation.
     def bind(path, object = Unresolved)
       refuse_once_invoked!("bind")
       @services.bind(path, object)

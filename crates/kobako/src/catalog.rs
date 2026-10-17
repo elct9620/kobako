@@ -18,9 +18,16 @@ use crate::error::Error;
 use crate::receiver::Receiver;
 use crate::snippet::{constant_name, Snippets};
 
+/// The Guest Binary keeps this namespace for constants it may add later.
+const RESERVED_NAMESPACE: &str = "Kobako";
+
 /// An empty path splits into one empty segment, which no constant name is.
 fn is_constant_path(path: &str) -> bool {
     path.split("::").all(constant_name)
+}
+
+fn is_reserved(path: &str) -> bool {
+    path.split("::").next() == Some(RESERVED_NAMESPACE)
 }
 
 /// Bind-ordered Service registry plus the snippet and flag tables for one
@@ -40,6 +47,11 @@ impl Catalog {
         if !is_constant_path(path) {
             return Err(Error::Argument(format!(
                 "bind path must be constant-form segments joined by '::' (got {path:?})"
+            )));
+        }
+        if is_reserved(path) {
+            return Err(Error::Argument(format!(
+                "Service path {path} is in the reserved {RESERVED_NAMESPACE} namespace"
             )));
         }
         if self.collides(path) {
@@ -175,6 +187,24 @@ mod tests {
         assert!(
             bound(&mut Catalog::default(), &path).is_err(),
             "a path whose segment is one byte past the symbol limit through Catalog::bind must be refused"
+        );
+    }
+
+    // A segment merely starting with the reserved name is another segment,
+    // so it stays bindable.
+    // @behavior SV-050
+    #[test]
+    fn a_path_in_the_reserved_namespace_is_refused() {
+        let mut catalog = Catalog::default();
+        for path in ["Kobako", "Kobako::KV"] {
+            assert!(
+                bound(&mut catalog, path).is_err(),
+                "{path:?} through Catalog::bind must be refused as reserved"
+            );
+        }
+        assert!(
+            bound(&mut catalog, "KobakoStore").is_ok(),
+            "a segment only sharing the reserved prefix through Catalog::bind must bind"
         );
     }
 
