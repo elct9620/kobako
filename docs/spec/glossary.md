@@ -69,24 +69,24 @@ A host resource the Host App hands to the runtime instead of binding it by name.
 Sandbox: Grant ──each Invocation──> runtime ──system interface──> guest
 ```
 
-A filesystem Grant appears at a guest path and allows reading, or reading and writing. The runtime enforces that access, so the Filesystem behind it need not.
+Each kind of Grant carries what it hands over and decides its own access. The runtime asks the Grant before the guest's call proceeds.
 
 ```
-filesystem Grant -> at a guest path, read or read-write -> a Filesystem
+Grant ─┬─ Mount   -> a Filesystem at a guest path
+       └─ ...     -> another kind, its own access
 ```
 
-#### Rejected
+### Mount
 
-- `Mount` - Names one kind of resource, a directory, rather than the handover itself.
+The Grant placing a Filesystem at a guest path. It allows reading, or reading and writing, and a Policy may decide in that access's place. The Mount decides, so the Filesystem behind it need not.
 
 ```
-the handover  -> a directory, a socket, ...
-one kind      -> a directory only
+Mount -> at a guest path, read or read-write, or a Policy -> a Filesystem
 ```
 
 ### Filesystem
 
-The files and directories behind a filesystem Grant. It answers every call the guest makes beneath that Grant's path. kobako ships four, and a Host App may bring its own or wrap another.
+The files and directories behind a Mount. It answers every call the guest makes beneath that Mount's path. kobako ships four, and a Host App may bring its own or wrap another.
 
 ```
 Directory  -> a host directory; nothing outside it is reachable

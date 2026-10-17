@@ -9,7 +9,7 @@ guest ─ system interface ─> runtime (descriptors, access, paths) ─> Filesy
 
 ### Why these scenarios
 
-A Filesystem answers only for files and directories. The runtime in front of it owns descriptors, access, and path resolution. So these scenarios read each kind directly, without a guest. The guest's view through a Grant belongs to the runtime's own scenarios.
+A Filesystem answers only for files and directories. The runtime in front of it owns descriptors, access, and path resolution. So these scenarios read each kind directly, without a guest. The guest's view through a Mount belongs to the runtime's own scenarios.
 
 Two properties set the kinds apart: where the content lives, and how long it lasts. Each kind is witnessed on both. The Directory kind adds a third property, that nothing outside its directory is reachable.
 

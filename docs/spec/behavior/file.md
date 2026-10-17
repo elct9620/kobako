@@ -1,21 +1,21 @@
 # File
 
-What a script reaches through the default Guest Binary's `File`, beneath the paths a filesystem Grant mounts.
+What a script reaches through the default Guest Binary's `File`, beneath the paths a Mount places.
 
 ```
-script ─ File / IO ─> wasi-libc ─ preopen at the Grant's path ─> runtime ─> Filesystem
+script ─ File / IO ─> wasi-libc ─ preopen at the Mount's path ─> runtime ─> Filesystem
 ```
 
 ### Why these scenarios
 
-`File` is the guest's half of a filesystem Grant. It ships in the default Guest Binary, so a script always names it. What it reaches is the Grant's to decide. With no Grant it reaches nothing, and says so as a call the platform lacks.
+`File` is the guest's half of a Mount. It ships in the default Guest Binary, so a script always names it. What it reaches is the Mount's to decide. With no Mount it reaches nothing, and says so as a call the platform lacks.
 
 The failures are CRuby's classes, so a script handles them as it would on any host. A flag removes `File` outright for a Host App that wants no file surface at all.
 
 ```
 nothing mounted   -> NotImplementedError
 nothing at path   -> Errno::ENOENT
-read-only Grant   -> Errno::EROFS on a write
+read-only Mount   -> Errno::EROFS on a write
 disable_file flag -> no File constant
 ```
 
@@ -31,7 +31,7 @@ disable_file flag -> no File constant
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a filesystem Grant at `/data` over a file |
+| Given | an invocation handed a Mount at `/data` over a file |
 | When | the script reads that file with `File.read` |
 | Then | it reads the file's content |
 
@@ -43,7 +43,7 @@ disable_file flag -> no File constant
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a read-write filesystem Grant over a Memory |
+| Given | an invocation handed a read-write Mount over a Memory |
 | When | the script writes a file inside a `File.open` block |
 | Then | the Memory holds that file with what was written |
 
@@ -55,7 +55,7 @@ disable_file flag -> no File constant
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a filesystem Grant over a file of two lines |
+| Given | an invocation handed a Mount over a file of two lines |
 | When | the script reads it with `each_line` |
 | Then | the block receives each line in order |
 
@@ -63,11 +63,11 @@ disable_file flag -> no File constant
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed no filesystem Grant |
+| Given | an invocation handed no Mount |
 | When | the script opens a file |
 | Then | the script raises `NotImplementedError` |
 
-## `FL-005` Opening a file a Grant does not hold raises ENOENT
+## `FL-005` Opening a file a Mount does not hold raises ENOENT
 
 | Attribute | Value |
 | --- | --- |
@@ -75,7 +75,7 @@ disable_file flag -> no File constant
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a filesystem Grant |
+| Given | an invocation handed a Mount |
 | When | the script reads a path nothing is at |
 | Then | the script raises `Errno::ENOENT` |
 
@@ -87,7 +87,7 @@ disable_file flag -> no File constant
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a read-only filesystem Grant |
+| Given | an invocation handed a read-only Mount |
 | When | the script writes a file beneath it |
 | Then | the script raises `Errno::EROFS` |
 
@@ -119,6 +119,6 @@ disable_file flag -> no File constant
 
 | Step | Statement |
 | --- | --- |
-| Given | a script holding a file it opened beneath a filesystem Grant |
+| Given | a script holding a file it opened beneath a Mount |
 | When | it constructs an IO over that file's descriptor and reads it |
 | Then | it reads the file's content |

@@ -176,7 +176,8 @@ pub enum InvokeError {}
 
 ## `Grant`
 
-A host resource a Frontend hands the engine for one invocation.
+A host resource a Frontend hands the engine for one invocation. Each kind
+decides its own access.
 
 ```rust
 pub enum Grant {}
@@ -200,9 +201,75 @@ The kinds of Grant an engine may support.
 pub enum GrantKind {}
 ```
 
+## `Mount`
+
+The Grant placing a Filesystem at a guest path, deciding its own access.
+
+```rust
+pub struct Mount {}
+```
+
+## `Mount::new`
+
+Place a Filesystem at a guest path with one access.
+
+```rust
+impl Mount {
+    pub fn new(at: impl Into<String>, filesystem: Arc<dyn Filesystem>, access: Access) -> Self {}
+}
+```
+
+## `Mount::with_policy`
+
+Let a Policy decide each open and each change in the access's place.
+
+```rust
+impl Mount {
+    pub fn with_policy(self, policy: Arc<dyn Policy>) -> Self {}
+}
+```
+
+## `Mount::guest_path`
+
+The absolute guest path a path relative to the Mount's root stands for.
+
+```rust
+impl Mount {
+    pub fn guest_path(&self, path: &str) -> String {}
+}
+```
+
+## `Mount::check`
+
+Whether the Guest may reach a path beneath the Mount with the given access.
+
+```rust
+impl Mount {
+    pub fn check(&self, path: &str, access: Access) -> Result<(), Denial> {}
+}
+```
+
+## `Mount::for_invocation`
+
+The Mount as a new invocation starts from it, over that invocation's Filesystem.
+
+```rust
+impl Mount {
+    pub fn for_invocation(&self) -> Self {}
+}
+```
+
+## `Denial`
+
+Why a Mount refused a call: a change beneath a read-only Mount, or its Policy.
+
+```rust
+pub enum Denial {}
+```
+
 ## `Access`
 
-What the Guest may do beneath a filesystem Grant: read, or read and write.
+What the Guest may do beneath a Mount: read, or read and write.
 
 ```rust
 pub enum Access {}
@@ -211,7 +278,7 @@ pub enum Access {}
 ## `Policy`
 
 The Host App's decision for each path the Guest opens or changes, made in a
-filesystem Grant's access's place.
+Mount's access's place.
 
 ```rust
 pub trait Policy {}
@@ -229,7 +296,7 @@ pub trait Policy {
 
 ## `Filesystem`
 
-The files and directories behind a filesystem Grant. One may wrap another and
+The files and directories behind a Mount. One may wrap another and
 answer by delegating.
 
 ```rust
