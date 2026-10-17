@@ -200,7 +200,7 @@ impl Runtime {
             }
         };
         // Fail closed on an off-ladder rung: an unrecognized posture must
-        // never fall back to a grant. Same defence-in-depth posture as the
+        // never fall back to a weaker posture. Same defence in depth as the
         // timeout guard above — `SandboxOptions` is the primary validator.
         let profile = match profile.name()?.as_ref() {
             "hermetic" => Profile::Hermetic,

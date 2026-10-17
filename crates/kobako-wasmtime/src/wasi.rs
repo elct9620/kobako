@@ -77,12 +77,13 @@ impl Wasi {
         builder.stdin(MemoryInputPipe::new(stdin_content));
         builder.stdout(stdout.clone());
         builder.stderr(stderr.clone());
-        // The profile decides the ambient-authority grant: the
+        // The profile decides the ambient authority granted: the
         // hermetic rung denies the preview1 time and entropy imports (see
         // `ambient`), the permissive rung leaves the live WASI sources.
         // Ambient filesystem, environment, and network stay absent on both rungs —
         // the builder grants none unless asked. The exhaustive match makes
-        // a future ladder rung a compile error here, not a silent grant.
+        // a future ladder rung a compile error here, not authority granted
+        // silently.
         match profile {
             Profile::Hermetic => {
                 builder.wall_clock(ambient::FrozenWallClock);

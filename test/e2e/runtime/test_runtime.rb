@@ -87,12 +87,13 @@ class TestRuntime < Minitest::Test
 
   # @behavior RT-017
   # An off-ladder +profile+ rung must fail closed as +ArgumentError+
-  # rather than fall back to any grant. +SandboxOptions+ validates the
+  # rather than fall back to a weaker posture. +SandboxOptions+ validates the
   # Sandbox path; this exercises the ext's defence-in-depth guard on a
   # direct +from_path+ call.
   def test_from_path_raises_argument_error_for_off_ladder_profile
     err = assert_raises(ArgumentError,
-                        "an off-ladder profile through from_path must raise ArgumentError, not fall back to a grant") do
+                        "an off-ladder profile through from_path must raise ArgumentError, " \
+                        "not fall back to a weaker posture") do
       Kobako::Runtime.from_path(Kobako::Runtime.default_path, **runtime_options(profile: :sealed))
     end
     assert_match(/profile must be :permissive or :hermetic/, err.message,
