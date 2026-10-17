@@ -138,6 +138,36 @@ impl Sandbox {
 }
 ```
 
+## `Sandbox::mount`
+
+Mount a Filesystem at a guest path for every invocation, with one access.
+
+```rust
+impl Sandbox {
+    pub fn mount(
+        &mut self,
+        at: &str,
+        filesystem: Arc<dyn Filesystem>,
+        access: Access,
+    ) -> Result<(), Error> {}
+}
+```
+
+## `Sandbox::mount_with_policy`
+
+Mount a Filesystem whose policy decides each open and each change.
+
+```rust
+impl Sandbox {
+    pub fn mount_with_policy(
+        &mut self,
+        at: &str,
+        filesystem: Arc<dyn Filesystem>,
+        policy: Arc<dyn Policy>,
+    ) -> Result<(), Error> {}
+}
+```
+
 ## `Sandbox::install`
 
 Compose an Extension into the Sandbox.
@@ -243,6 +273,36 @@ Bind a Service at a path for this invocation alone.
 ```rust
 impl Context<'_> {
     pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {}
+}
+```
+
+## `Context::mount`
+
+Replace a mounted Filesystem for this invocation alone.
+
+```rust
+impl Context<'_> {
+    pub fn mount(
+        &mut self,
+        at: &str,
+        filesystem: Arc<dyn Filesystem>,
+        access: Access,
+    ) -> Result<(), Error> {}
+}
+```
+
+## `Context::mount_with_policy`
+
+Replace a mounted Filesystem for this invocation, under a policy of its own.
+
+```rust
+impl Context<'_> {
+    pub fn mount_with_policy(
+        &mut self,
+        at: &str,
+        filesystem: Arc<dyn Filesystem>,
+        policy: Arc<dyn Policy>,
+    ) -> Result<(), Error> {}
 }
 ```
 

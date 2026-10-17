@@ -38,6 +38,30 @@ module Kobako
 end
 ```
 
+## `Kobako::Sandbox#mount`
+
+Mount a Filesystem at a guest path, its block deciding in the access's place.
+
+```ruby
+module Kobako
+  class Sandbox
+    def mount(at, filesystem, access: :read, &policy)
+    end
+  end
+end
+```
+
+## `Kobako::Filesystem`
+
+The kinds of Filesystem a Host App mounts for the guest's `File`.
+
+```ruby
+module Kobako
+  module Filesystem
+  end
+end
+```
+
 ## `Kobako::Sandbox#install`
 
 Compose a guest idiom with its optional host backend.
@@ -222,6 +246,19 @@ Give a declared path a different object for this one invocation.
 module Kobako
   class Context
     def bind(path, object)
+    end
+  end
+end
+```
+
+## `Kobako::Context#mount`
+
+Give a mounted path a different Filesystem for this one invocation.
+
+```ruby
+module Kobako
+  class Context
+    def mount(at, filesystem, access: :read, &policy)
     end
   end
 end
