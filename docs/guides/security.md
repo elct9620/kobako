@@ -31,6 +31,7 @@ feature that specifies it.
 | each invocation starts from the same boot state | [sandbox](../spec/behavior/sandbox.md) |
 | a binding belongs to its own Sandbox | [services](../spec/behavior/services.md) |
 | no ambient filesystem, environment, or socket | [runtime](../spec/behavior/runtime.md) |
+| a Mount reaches nothing above its root, and its access holds | [runtime](../spec/behavior/runtime.md) |
 | no live time or entropy under the default `:hermetic` | [runtime](../spec/behavior/runtime.md) |
 | timeout, memory cap, and output clipping fail cleanly | [sandbox](../spec/behavior/sandbox.md) |
 | a value the wire cannot carry becomes a Handle or a controlled error | [transport-dispatch](../spec/behavior/transport-dispatch.md) |

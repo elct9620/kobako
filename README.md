@@ -45,7 +45,7 @@ gem install kobako
 
 ## Quick Start
 
-The same untrusted script runs identically from either host frontend. It executes inside the Wasm guest and cannot read your filesystem, open sockets, or touch your environment.
+The same untrusted script runs identically from either host frontend. It executes inside the Wasm guest and reaches no file you have not mounted for it, no socket, and none of your environment.
 
 ```ruby
 require "kobako"
@@ -129,12 +129,13 @@ These terms name the concepts the rest of this README builds on.
 | Invocation | — | One run of guest code, by `#eval` or `#run`. |
 | Execution | `Kobako::Execution` | The frozen record an Invocation leaves. |
 | Service | — | A host object the guest reaches by name, such as `MyService::KV`. |
+| Mount | `Kobako::Filesystem` | A Filesystem placed at a guest path for the guest's `File`. |
 | Context | `Kobako::Context` | The per-Invocation object the optional block receives. |
 | Snippet | — | Guest source or bytecode replayed at the start of every Invocation. |
 | Handle | `Kobako::Handle` | An opaque reference to a host object the wire cannot carry by value. |
 | Block | — | Guest code passed alongside a Service call. |
 
-A Sandbox keeps nothing from one Invocation to the next. An Execution holds what the run produced, wrote, and consumed: `#value`, output captures, and `#usage`. A failed run raises, carrying its Execution on the error's `#execution`. A Service is the guest's only route to a host resource. A Context's `ctx.bind` supplies a Service object for that one run. A Handle names its object only within the Invocation that issued it. A Block stays in the guest; each `yield` to it is a synchronous round-trip.
+A Sandbox keeps nothing from one Invocation to the next. An Execution holds what the run produced, wrote, and consumed: `#value`, output captures, and `#usage`. A failed run raises, carrying its Execution on the error's `#execution`. A Service or a Mount is the guest's only route to a host resource. A Context's `ctx.bind` supplies a Service object for that one run. A Handle names its object only within the Invocation that issued it. A Block stays in the guest; each `yield` to it is a synchronous round-trip.
 
 ## Usage
 
@@ -143,6 +144,7 @@ Each section below stands on its own; this is the order they build in.
 | If you want to | Read |
 |---|---|
 | let guest code call into your host | [Services](#services), [Per-Invocation Bindings](#per-invocation-bindings), [Service Blocks](#service-blocks) |
+| let guest code read and write files | [Mounts](#mounts) |
 | see what a run produced or why it failed | [Output Capture](#output-capture), [Error Handling](#error-handling), [Invocation Lifecycle](#invocation-lifecycle) |
 | bound what a run may consume | [Resource Limits](#resource-limits), [Concurrency](#concurrency), [Pooling](#pooling) |
 | hand host objects across the boundary | [Handle Management](#handle-management) |
@@ -150,7 +152,7 @@ Each section below stands on its own; this is the order they build in.
 
 ### Services
 
-`bind` any Ruby object as a Service at a constant-path name. The guest reaches it as a `MyService::KV` (or top-level `File`) proxy. Through the Transport wire, the guest invokes the public methods the object's own class defines.
+`bind` any Ruby object as a Service at a constant-path name. The guest reaches it as a `MyService::KV` (or top-level `Clock`) proxy. Through the Transport wire, the guest invokes the public methods the object's own class defines.
 
 ```ruby
 class User
@@ -183,6 +185,27 @@ sandbox.eval("Req::Current.user_id") { |ctx| ctx.bind("Req::Current", request) }
 ```
 
 `ctx.bind` also shadows an already-bound path for that one run. The Context is spent once the block returns, so a `ctx` captured out of it raises `ArgumentError`. Choosing the object per invocation lets concurrent Threads invoke a single Sandbox and still keep their identities apart. The [multi-tenant example](examples/multi-tenant/) runs that shape end to end.
+
+### Mounts
+
+`mount` places a `Kobako::Filesystem` at an absolute guest path, where the guest's `File` reads it. The default access is `:read`, so a write beneath it raises `Errno::EROFS` in the guest.
+
+```ruby
+sandbox.mount("/config", Kobako::Filesystem::Memory.new("app.yml" => yaml))
+sandbox.mount("/tmp", Kobako::Filesystem::Temporary.new, access: :read_write)
+sandbox.mount("/data", Kobako::Filesystem::Directory.new("var/data")) { |path, _access| path.end_with?(".csv") }
+
+sandbox.eval('File.read("/config/app.yml")')
+```
+
+| Kind | Holds |
+|---|---|
+| `Memory.new(files = {})` | files in memory, shared by every invocation |
+| `Temporary.new` | files in memory, empty at every invocation |
+| `Directory.new(path)` | a host directory; nothing outside it is reachable |
+| `Overlay.new(upper:, lower:)` | writes land in `upper`, over `lower` left as it was |
+
+A block decides each open and each change in the access's place; a falsy answer or a raise fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run. With nothing mounted, `File.open` raises `NotImplementedError`.
 
 ### Output Capture
 
@@ -461,8 +484,8 @@ Use the source form for snippets authored in your repo; use the bytecode form wh
 An Extension teaches the guest a native-style constant by pairing a guest idiom (`source`) with an optional host `backend`. `Sandbox#install` composes the two through the existing `#preload` and `#bind` verbs, adding no wire or Guest Binary surface. Pure operations run in-guest with no round-trip. The rest dispatch to the backend under the same isolation and reflection guarantees as any bound Service ([`docs/guides/extensions.md`](docs/guides/extensions.md)).
 
 ```ruby
-FILE = <<~'MRUBY'
-  class File
+VFS = <<~'MRUBY'
+  class Vfs
     extend Kobako::Proxy
     def self.basename(path) = path.split("/").last || ""  # pure: runs in-guest
     # read / write are undefined here, so they dispatch to the backend
@@ -471,16 +494,16 @@ MRUBY
 
 sandbox.install(
   Kobako::Extension.new(
-    name: :File,
-    source: FILE,
+    name: :Vfs,
+    source: VFS,
     backend: Kobako::Extension::Backend.new(
-      path: "File",
+      path: "Vfs",
       provider: -> { OverlayFileSystem.new(root) }  # invoked once per invocation
     )
   )
 )
 
-sandbox.eval('File.read("sample.txt")')  # dispatches to the backend's #read
+sandbox.eval('Vfs.read("sample.txt")')  # dispatches to the backend's #read
 ```
 
 A backend declares the bound object's lifetime by keyword, never by inference — so a static object that happens to be callable stays unambiguous.
@@ -491,7 +514,7 @@ A backend declares the bound object's lifetime by keyword, never by inference �
 | `provider:` | A no-argument callable invoked per invocation                               |
 | neither     | A fillable, standing for `Kobako::Unresolved` until `ctx.bind` supplies the run's object |
 
-A writable backend takes `provider:`, so its state cannot leak across runs. kobako ships no concrete Extension; the idiom and backend are yours. The [overlay VFS example](examples/vfs/) is a worked `File` that reads through to disk while protecting it from guest writes.
+A writable backend takes `provider:`, so its state cannot leak across runs. kobako ships no concrete Extension; the idiom and backend are yours. The [overlay VFS example](examples/vfs/) is a worked virtual file that reads through to disk while protecting it from guest writes.
 
 ## Security
 
