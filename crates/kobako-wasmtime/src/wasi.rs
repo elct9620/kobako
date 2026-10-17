@@ -1,7 +1,7 @@
 //! The guest's WASI context for one instance: the Preamble on stdin,
 //! a capture pipe for each of stdout and stderr, the ambient authority
-//! the instance's purpose grants, and a preopen for each filesystem Grant
-//! an invocation was handed.
+//! the instance's purpose grants, and a preopen for each Mount an
+//! invocation was handed.
 
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
@@ -9,10 +9,11 @@ use wasmtime_wasi::WasiCtxBuilder;
 
 use crate::ambient::{self, Clocks};
 use crate::config::Config;
-use crate::descriptors::{Descriptors, Mount};
+use crate::descriptors::Descriptors;
 use crate::{capture, guest_mem};
 use kobako_runtime::error::Trap;
 use kobako_runtime::grant::Grant;
+use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
 use kobako_transport::abi::FRAME_LEN_SIZE;
 
@@ -29,8 +30,8 @@ pub(crate) struct Wasi {
 
 impl Wasi {
     /// An invocation's context, granting the posture the Sandbox requested
-    /// and presenting each of the invocation's filesystem Grants as a
-    /// preopen, from descriptor 3 in order.
+    /// and presenting each of the invocation's Mounts as a preopen, from
+    /// descriptor 3 in order.
     pub(crate) fn for_invocation(
         config: &Config,
         preamble: &[u8],
@@ -154,25 +155,12 @@ impl Wasi {
     }
 }
 
-/// A filesystem Grant as this invocation presents it, over the Filesystem
-/// the invocation starts from. A kind this driver does not support has no
-/// descriptor to stand behind; `Driver::supports` keeps a frontend from
-/// handing one over.
+/// A Mount as this invocation presents it. A kind this driver does not
+/// support has no descriptor to stand behind; `Driver::supports` keeps a
+/// frontend from handing one over.
 fn mount(grant: &Grant) -> Option<Mount> {
     match grant {
-        Grant::Filesystem {
-            at,
-            access,
-            filesystem,
-            policy,
-        } => Some(Mount {
-            at: at.clone(),
-            access: *access,
-            filesystem: filesystem
-                .for_invocation()
-                .unwrap_or_else(|| filesystem.clone()),
-            policy: policy.clone(),
-        }),
+        Grant::Mount(mount) => Some(mount.for_invocation()),
         _ => None,
     }
 }

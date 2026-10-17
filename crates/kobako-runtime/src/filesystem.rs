@@ -1,8 +1,8 @@
-//! The Filesystem behind a filesystem Grant: what answers every call a
-//! guest makes beneath that Grant's path.
+//! The Filesystem behind a Mount: what answers every call a
+//! guest makes beneath that Mount's path.
 //!
-//! A runtime owns the descriptors, the access the Grant allows, and path
-//! resolution; a `Filesystem` only answers for the files and directories
+//! A runtime owns the descriptors and path resolution, and the Mount
+//! decides access; a `Filesystem` only answers for the files and directories
 //! themselves, so a third party brings one without implementing any of
 //! that. Every path a runtime hands over is relative to the Filesystem's
 //! own root, its components joined by `/`, with no `.` or `..` left and
@@ -21,7 +21,7 @@ pub use memory::Memory;
 pub use overlay::Overlay;
 pub use temporary::Temporary;
 
-/// The files and directories behind a filesystem Grant. One may wrap
+/// The files and directories behind a Mount. One may wrap
 /// another and answer by delegating, so it sees every call on the way
 /// through.
 pub trait Filesystem: Send + Sync {

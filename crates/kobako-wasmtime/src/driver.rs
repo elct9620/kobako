@@ -192,10 +192,10 @@ impl ContractRuntime for Driver {
         self.config.profile
     }
 
-    /// A filesystem Grant becomes a preopen of kobako's own descriptor
-    /// table, which answers every preview1 call beneath it.
+    /// A Mount becomes a preopen of kobako's own descriptor table, which
+    /// answers every preview1 call beneath it.
     fn supports(&self, kind: GrantKind) -> bool {
-        matches!(kind, GrantKind::Filesystem)
+        matches!(kind, GrantKind::Mount)
     }
 
     /// Bounded by the same caps as an invocation, on an instance of its

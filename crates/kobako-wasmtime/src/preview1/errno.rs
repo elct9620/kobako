@@ -2,6 +2,7 @@
 //! the guest reads, or a trap that ends the invocation.
 
 use kobako_runtime::filesystem::FilesystemError;
+use kobako_runtime::mount::Denial;
 
 /// One preview1 `errno`, numbered as the witx `$errno` enum numbers it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,6 +56,17 @@ impl From<FilesystemError> for Failure {
             FilesystemError::InvalidInput => Errno::Inval,
             FilesystemError::Unsupported => Errno::Notsup,
             _ => Errno::Io,
+        })
+    }
+}
+
+/// A change beneath a read-only Mount is `ROFS`; a Policy's refusal is
+/// `ACCES`.
+impl From<Denial> for Failure {
+    fn from(denial: Denial) -> Self {
+        Self::Errno(match denial {
+            Denial::ReadOnly => Errno::Rofs,
+            Denial::Refused => Errno::Acces,
         })
     }
 }

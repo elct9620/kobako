@@ -1,14 +1,11 @@
-//! Resolving a guest path beneath a directory descriptor, and the access
-//! a filesystem Grant allows there.
+//! Resolving a guest path beneath a directory descriptor.
 //!
-//! The runtime is the boundary: a path never climbs above its mount's
-//! root, and what the guest may do is decided here, before the Filesystem
-//! is asked, so a Filesystem of a third party's need check neither.
-
-use kobako_runtime::grant::Access;
+//! The runtime is the boundary: a path never climbs above its Mount's
+//! root, and the Mount is asked what the guest may do there before the
+//! Filesystem is, so a Filesystem of a third party's need check neither.
 
 use super::errno::{Answer, Errno};
-use crate::descriptors::{Directory, Mount};
+use crate::descriptors::Directory;
 
 /// `path`, beneath `dir`, as a path relative to the mount's root. An
 /// absolute path or a `..` above the root is not the guest's to reach.
@@ -27,18 +24,4 @@ pub(crate) fn resolve(dir: &Directory, path: &str) -> Answer<String> {
         }
     }
     Ok(components.join("/"))
-}
-
-/// Whether the guest may reach `path` with `access`. A Policy decides in
-/// the Grant's access's place and answers a refusal as `ACCES`; without
-/// one, a change beneath a read-only Grant is `ROFS`.
-pub(crate) fn allow(mount: &Mount, path: &str, access: Access) -> Answer {
-    match &mount.policy {
-        Some(policy) if policy.allows(&mount.guest_path(path), access) => Ok(()),
-        Some(_) => Err(Errno::Acces.into()),
-        None if access == Access::ReadWrite && mount.access == Access::Read => {
-            Err(Errno::Rofs.into())
-        }
-        None => Ok(()),
-    }
 }

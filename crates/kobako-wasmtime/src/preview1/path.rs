@@ -1,15 +1,15 @@
 //! The 10 `path_*` calls. Each resolves a path beneath a directory
-//! descriptor, checks what the filesystem Grant allows there, and asks the
+//! descriptor, asks its Mount what the guest may do there, and asks the
 //! Filesystem. Links and timestamps are no Filesystem's, so those calls
 //! are unsupported.
 
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{Kind, OpenOptions};
-use kobako_runtime::grant::Access;
+use kobako_runtime::mount::Access;
 
 use super::args;
-use super::beneath::{allow, resolve};
+use super::beneath::resolve;
 use super::errno::{Answer, Errno};
 use super::fd::write_metadata;
 use super::memory::GuestMemory;
@@ -61,8 +61,8 @@ pub(crate) fn create_directory(
     path: (u32, u32),
 ) -> Answer {
     let (dir, path) = beneath(table, mem, fd, path)?;
-    allow(&dir.mount, &path, Access::ReadWrite)?;
-    Ok(dir.mount.filesystem.create_dir(&path)?)
+    dir.mount.check(&path, Access::ReadWrite)?;
+    Ok(dir.mount.filesystem().create_dir(&path)?)
 }
 
 pub(crate) fn filestat_get(
@@ -75,7 +75,7 @@ pub(crate) fn filestat_get(
 ) -> Answer {
     args::flags(flags, args::LOOKUPFLAGS)?;
     let (dir, path) = beneath(table, mem, fd, path)?;
-    let metadata = dir.mount.filesystem.metadata(&path)?;
+    let metadata = dir.mount.filesystem().metadata(&path)?;
     write_metadata(mem, out, metadata)
 }
 
@@ -144,9 +144,9 @@ pub(crate) fn open(
     } else {
         Access::Read
     };
-    allow(&mount, &path, access)?;
+    mount.check(&path, access)?;
 
-    let existing = match mount.filesystem.metadata(&path) {
+    let existing = match mount.filesystem().metadata(&path) {
         Ok(metadata) => Some(metadata.kind),
         Err(kobako_runtime::filesystem::FilesystemError::NotFound) => None,
         Err(err) => return Err(err.into()),
@@ -170,7 +170,7 @@ pub(crate) fn open(
                 truncate: oflag(OFLAGS_TRUNC),
             };
             Descriptor::File(OpenFile {
-                file: mount.filesystem.open(&path, &options)?,
+                file: mount.filesystem().open(&path, &options)?,
                 position: 0,
                 append: flags.fdflags & FDFLAGS_APPEND != 0,
                 readable: read,
@@ -200,11 +200,11 @@ pub(crate) fn remove_directory(
     path: (u32, u32),
 ) -> Answer {
     let (dir, path) = beneath(table, mem, fd, path)?;
-    allow(&dir.mount, &path, Access::ReadWrite)?;
-    Ok(dir.mount.filesystem.remove_dir(&path)?)
+    dir.mount.check(&path, Access::ReadWrite)?;
+    Ok(dir.mount.filesystem().remove_dir(&path)?)
 }
 
-/// A rename stays within one filesystem Grant; across two it is `XDEV`, as
+/// A rename stays within one Mount; across two it is `XDEV`, as
 /// across two mounted devices.
 pub(crate) fn rename(
     table: &Descriptors,
@@ -219,9 +219,9 @@ pub(crate) fn rename(
     if !Arc::ptr_eq(&from_dir.mount, &to_dir.mount) {
         return Err(Errno::Xdev.into());
     }
-    allow(&from_dir.mount, &from, Access::ReadWrite)?;
-    allow(&to_dir.mount, &to, Access::ReadWrite)?;
-    Ok(from_dir.mount.filesystem.rename(&from, &to)?)
+    from_dir.mount.check(&from, Access::ReadWrite)?;
+    to_dir.mount.check(&to, Access::ReadWrite)?;
+    Ok(from_dir.mount.filesystem().rename(&from, &to)?)
 }
 
 /// A Filesystem holds no links to make.
@@ -245,6 +245,6 @@ pub(crate) fn unlink_file(
     path: (u32, u32),
 ) -> Answer {
     let (dir, path) = beneath(table, mem, fd, path)?;
-    allow(&dir.mount, &path, Access::ReadWrite)?;
-    Ok(dir.mount.filesystem.remove_file(&path)?)
+    dir.mount.check(&path, Access::ReadWrite)?;
+    Ok(dir.mount.filesystem().remove_file(&path)?)
 }

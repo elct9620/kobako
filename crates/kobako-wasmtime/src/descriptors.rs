@@ -9,8 +9,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::{File, Filesystem};
-use kobako_runtime::grant::{Access, Policy};
+use kobako_runtime::filesystem::File;
+use kobako_runtime::mount::Mount;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
 /// What one descriptor stands for.
@@ -19,31 +19,9 @@ pub(crate) enum Descriptor {
     Stdin(MemoryInputPipe),
     /// Descriptor 1 or 2, a capture pipe the guest writes a Channel into.
     Channel(MemoryOutputPipe),
-    /// A directory beneath a filesystem Grant; a preopen is the Grant's own
-    /// root.
+    /// A directory beneath a Mount; a preopen is the Mount's own root.
     Directory(Directory),
     File(OpenFile),
-}
-
-/// A filesystem Grant as this invocation presents it.
-pub(crate) struct Mount {
-    /// The absolute guest path the Grant appears at, its preopen name.
-    pub(crate) at: String,
-    pub(crate) access: Access,
-    pub(crate) filesystem: Arc<dyn Filesystem>,
-    pub(crate) policy: Option<Arc<dyn Policy>>,
-}
-
-impl Mount {
-    /// The absolute guest path `path`, relative to this mount's root, stands
-    /// for.
-    pub(crate) fn guest_path(&self, path: &str) -> String {
-        match (self.at.as_str(), path) {
-            (at, "") => at.to_string(),
-            ("/", path) => format!("/{path}"),
-            (at, path) => format!("{at}/{path}"),
-        }
-    }
 }
 
 pub(crate) struct Directory {
@@ -68,7 +46,7 @@ pub(crate) struct Descriptors {
 
 impl Descriptors {
     /// The table every invocation starts from: stdin, then the two
-    /// Channels, then one preopen per mount from descriptor 3.
+    /// Channels, then one preopen per Mount from descriptor 3.
     pub(crate) fn new(
         stdin: MemoryInputPipe,
         stdout: MemoryOutputPipe,

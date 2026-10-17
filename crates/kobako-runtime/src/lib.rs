@@ -2,8 +2,8 @@
 //!
 //! The surface where a wasm engine implementation and a host frontend
 //! meet: the `Runtime` trait, the isolation `Profile` a runtime
-//! declares, the Grants it presents to the guest and the `Filesystem` one
-//! hands over, the neutral per-invocation value types, and the dispatch /
+//! declares, the Grants it presents to the guest and the `Filesystem` a
+//! Mount places, the neutral per-invocation value types, and the dispatch /
 //! yield re-entry traits a frontend supplies. The messages these carry
 //! are `kobako-transport`'s, which this crate takes as given.
 //! Nothing here depends on an engine or a frontend type — each engine
@@ -16,6 +16,7 @@ pub mod dispatch;
 pub mod error;
 pub mod filesystem;
 pub mod grant;
+pub mod mount;
 pub mod profile;
 pub mod runtime;
 pub mod snapshot;
@@ -30,7 +31,8 @@ pub use filesystem::{
     DirEntry, Directory, File, Filesystem, FilesystemError, Kind, Memory, Metadata, OpenOptions,
     Overlay, Temporary,
 };
-pub use grant::{Access, Grant, GrantKind, Policy};
+pub use grant::{Grant, GrantKind};
+pub use mount::{Access, Denial, Mount, Policy};
 pub use profile::Profile;
 pub use runtime::{Entry, Runtime};
 pub use snapshot::{Capture, Completion, Snapshot, Usage};

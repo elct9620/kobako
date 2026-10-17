@@ -13,7 +13,7 @@ any bound Service.
 
 kobako ships no concrete Extension, only the contract and the `#install` consumer.
 The `Vfs` used below is illustrative; a Guest Binary's own `File` is reached
-through a filesystem Grant instead.
+through a Mount instead.
 
 ## Extension Contract
 

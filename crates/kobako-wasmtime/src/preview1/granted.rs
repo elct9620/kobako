@@ -1,11 +1,12 @@
-//! Witness what a guest sees through a filesystem Grant: the preopen at
-//! the Grant's path, the files a Filesystem holds, and the refusals the
-//! runtime answers before the Filesystem is asked.
+//! Witness what a guest sees through a Mount: the preopen at the Mount's
+//! path, the files a Filesystem holds, and the refusals the runtime
+//! answers before the Filesystem is asked.
 
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{Filesystem, Memory, OpenOptions, Temporary};
-use kobako_runtime::grant::{Access, Grant, Policy};
+use kobako_runtime::grant::Grant;
+use kobako_runtime::mount::{Access, Mount, Policy};
 use kobako_runtime::profile::Profile;
 use wasmtime::{Instance, Module, Store};
 
@@ -69,12 +70,11 @@ fn grant(
     access: Access,
     policy: Option<Arc<dyn Policy>>,
 ) -> Grant {
-    Grant::Filesystem {
-        at: "/data".to_string(),
-        access,
-        filesystem,
-        policy,
-    }
+    let mount = Mount::new("/data", filesystem, access);
+    Grant::Mount(match policy {
+        Some(policy) => mount.with_policy(policy),
+        None => mount,
+    })
 }
 
 /// One invocation's guest, handed `grants`.
@@ -180,7 +180,7 @@ fn a_filesystem_grant_appears_as_a_directory_at_its_path() {
     assert_eq!(
         &memory.data(&guest.store)[512..517],
         b"/data",
-        "a filesystem Grant at /data through Runtime::invoke must preopen /data as descriptor 3"
+        "a Mount at /data through Runtime::invoke must preopen /data as descriptor 3"
     );
 }
 
@@ -193,7 +193,7 @@ fn a_guest_reads_a_file_beneath_a_filesystem_grant() {
     assert_eq!(
         guest.read_back(),
         b"granted",
-        "a file read beneath a filesystem Grant through preview1 must read the Memory's content"
+        "a file read beneath a Mount through preview1 must read the Memory's content"
     );
 }
 
@@ -206,7 +206,7 @@ fn a_guest_writes_a_file_beneath_a_read_write_grant() {
     assert_eq!(
         contents(memory.as_ref(), "file.txt").as_deref(),
         Some(&b"hello"[..]),
-        "a file written beneath a read-write Grant through preview1 must land in the Memory"
+        "a file written beneath a read-write Mount through preview1 must land in the Memory"
     );
 }
 
@@ -217,7 +217,7 @@ fn a_change_beneath_a_read_only_grant_is_a_read_only_filesystem() {
     assert_eq!(
         guest.call("write_file", FILE),
         ERRNO_ROFS,
-        "a write opened beneath a read-only Grant through preview1 must answer EROFS"
+        "a write opened beneath a read-only Mount through preview1 must answer EROFS"
     );
 }
 
@@ -229,7 +229,7 @@ fn a_path_above_a_grants_root_is_refused() {
     assert_eq!(
         guest.call("read_file", ABOVE_ROOT),
         ERRNO_NOTCAPABLE,
-        "a path climbing above a Grant's root through preview1 must answer ENOTCAPABLE"
+        "a path climbing above a Mount's root through preview1 must answer ENOTCAPABLE"
     );
 }
 
@@ -242,7 +242,7 @@ fn a_policy_refusing_an_open_answers_access_denied() {
     assert_eq!(
         guest.call("read_file", FILE),
         ERRNO_ACCES,
-        "an open a Grant's Policy refuses through preview1 must answer EACCES"
+        "an open a Mount's Policy refuses through preview1 must answer EACCES"
     );
 }
 
@@ -256,7 +256,7 @@ fn a_policy_decides_in_the_place_of_a_grants_access() {
     assert_eq!(
         contents(memory.as_ref(), "file.txt").as_deref(),
         Some(&b"hello"[..]),
-        "a write a Policy allows beneath a read-only Grant through preview1 must land"
+        "a write a Policy allows beneath a read-only Mount through preview1 must land"
     );
 }
 

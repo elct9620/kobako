@@ -1,13 +1,14 @@
-//! The bundled guest's `File` over a filesystem Grant: what a script reads
-//! and writes beneath a mounted path, and how it fails where nothing is
-//! mounted, nothing is there, or the Grant only reads.
+//! The bundled guest's `File` over a Mount: what a script reads and
+//! writes beneath a mounted path, and how it fails where nothing is
+//! mounted, nothing is there, or the Mount only reads.
 
 mod support;
 
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{Filesystem, Memory, OpenOptions};
-use kobako_runtime::grant::{Access, Grant};
+use kobako_runtime::grant::Grant;
+use kobako_runtime::mount::{Access, Mount};
 use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Outcome, Preamble};
 
@@ -38,12 +39,7 @@ fn run(source: &str, grants: &[Grant], flags: Vec<Flag>) -> Option<Result<String
 }
 
 fn mount(filesystem: Arc<dyn Filesystem>, access: Access) -> Grant {
-    Grant::Filesystem {
-        at: "/data".to_string(),
-        access,
-        filesystem,
-        policy: None,
-    }
+    Grant::Mount(Mount::new("/data", filesystem, access))
 }
 
 fn seeded() -> Arc<Memory> {
@@ -79,7 +75,7 @@ fn a_script_reads_a_file_beneath_a_mounted_path() {
     assert_eq!(
         answer,
         Ok("hello\nworld\n".to_string()),
-        "File.read beneath a filesystem Grant through the bundled guest must read the file"
+        "File.read beneath a Mount through the bundled guest must read the file"
     );
 }
 
@@ -132,7 +128,7 @@ fn opening_a_file_with_nothing_mounted_is_unimplemented() {
     assert_eq!(
         answer,
         Err("NotImplementedError".to_string()),
-        "File.open with no filesystem Grant through the bundled guest must raise \
+        "File.open with no Mount through the bundled guest must raise \
          NotImplementedError"
     );
 }
@@ -150,7 +146,7 @@ fn opening_a_missing_file_raises_enoent() {
     assert_eq!(
         answer,
         Err("Errno::ENOENT".to_string()),
-        "File.read of a path a Grant does not hold through the bundled guest must raise \
+        "File.read of a path a Mount does not hold through the bundled guest must raise \
          Errno::ENOENT"
     );
 }
@@ -168,7 +164,7 @@ fn writing_beneath_a_read_only_mount_raises_erofs() {
     assert_eq!(
         answer,
         Err("Errno::EROFS".to_string()),
-        "File.write beneath a read-only Grant through the bundled guest must raise Errno::EROFS"
+        "File.write beneath a read-only Mount through the bundled guest must raise Errno::EROFS"
     );
 }
 

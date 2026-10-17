@@ -2,7 +2,7 @@
 //!
 //! For stdio each answers what wasmtime-wasi's preview1 answers for the
 //! same descriptor; the differential probe in `preview1` holds that. For a
-//! directory or a file beneath a filesystem Grant, the Filesystem answers
+//! directory or a file beneath a Mount, the Filesystem answers
 //! and the descriptor's position and rights stay here.
 
 use bytes::Bytes;
@@ -61,8 +61,8 @@ const PREOPEN_RIGHTS: u64 = (1 << 9)
     | (1 << 26);
 
 /// What a file opened beneath a preopen may hold. Reading and writing are
-/// both inherited whatever the Grant's access, since wasi-libc intersects
-/// them before asking: a read-only Grant answers a write itself, as `ROFS`.
+/// both inherited whatever the Mount's access, since wasi-libc intersects
+/// them before asking: a read-only Mount answers a write itself, as `ROFS`.
 const PREOPEN_INHERITING: u64 = PREOPEN_RIGHTS
     | RIGHTS_FD_DATASYNC
     | RIGHTS_FD_READ
@@ -236,7 +236,7 @@ pub(crate) fn filestat_get(
             write_filestat(mem, out, FILETYPE_UNKNOWN, 0)
         }
         Descriptor::Directory(dir) => {
-            write_metadata(mem, out, dir.mount.filesystem.metadata(&dir.path)?)
+            write_metadata(mem, out, dir.mount.filesystem().metadata(&dir.path)?)
         }
         Descriptor::File(file) => write_metadata(mem, out, file.file.metadata()?),
     }
@@ -284,7 +284,7 @@ pub(crate) fn prestat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, o
         Descriptor::Directory(dir) if dir.preopen => {
             GuestMemory::aligned(out, 4)?;
             mem.write_u8(out, 0)?;
-            mem.write_u32(out + 4, dir.mount.at.len() as u32)
+            mem.write_u32(out + 4, dir.mount.at().len() as u32)
         }
         _ => Err(Errno::Badf.into()),
     }
@@ -299,7 +299,7 @@ pub(crate) fn prestat_dir_name(
 ) -> Answer {
     match descriptor(table, fd)? {
         Descriptor::Directory(dir) if dir.preopen => {
-            let name = dir.mount.at.as_bytes();
+            let name = dir.mount.at().as_bytes();
             if name.len() > path_len as usize {
                 return Err(Errno::Nametoolong.into());
             }
@@ -376,7 +376,7 @@ pub(crate) fn readdir(
         Descriptor::Directory(dir) => dir,
         _ => return Err(Errno::Badf.into()),
     };
-    let listed = dir.mount.filesystem.read_dir(&dir.path)?;
+    let listed = dir.mount.filesystem().read_dir(&dir.path)?;
     let entries = [
         (".".to_string(), FILETYPE_DIRECTORY),
         ("..".to_string(), FILETYPE_DIRECTORY),
