@@ -69,6 +69,12 @@ A host resource the Host App hands to the runtime instead of binding it by name.
 Sandbox: Grant ──each Invocation──> runtime ──system interface──> guest
 ```
 
+A filesystem Grant appears at a guest path and allows reading, or reading and writing. The runtime enforces that access, so the filesystem behind it need not.
+
+```
+filesystem Grant -> at a guest path, read or read-write -> a disk, memory, an overlay, ...
+```
+
 #### Rejected
 
 - `Mount` - Names one kind of resource, a directory, rather than the handover itself.
