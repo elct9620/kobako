@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# VFS overlay demo: a native-style `File` for the guest, backed by a host
+# VFS overlay demo: a native-style `Disk` for the guest, backed by a host
 # overlay that reads through to the real disk but intercepts every write
 # into memory — so untrusted guest code can freely "edit" files while the
 # disk stays pristine.
@@ -9,12 +9,15 @@
 # The lesson this example encodes
 # -------------------------------
 # `Kobako::Extension` teaches the guest a native-style constant. Here the
-# `File` idiom's I/O methods are NOT defined in-guest, so they dispatch to
+# `Disk` idiom's I/O methods are NOT defined in-guest, so they dispatch to
 # a bound host backend — an `OverlayFileSystem` — under the same isolation
 # and reflection guarantees as any Service:
 #
-#   File.read(path)         -> host: overlay hit? serve it : read real disk
-#   File.write(path, data)  -> host: store in the in-memory overlay only
+#   Disk.read(path)         -> host: overlay hit? serve it : read real disk
+#   Disk.write(path, data)  -> host: store in the in-memory overlay only
+#
+# The idiom is named `Disk` so it never meets the Guest Binary's own
+# `File`, which a Host App reaches through `Sandbox#mount` instead.
 #
 # The backend is supplied through a CALLABLE provider, so `install`
 # resolves a FRESH overlay at the start of every invocation. Two things
@@ -27,7 +30,7 @@
 #
 # A read-through backend also crosses a trust boundary: the guest chooses
 # the path. `OverlayFileSystem` therefore contains every read within its
-# root — `..` traversal and symlinks alike — so `File.read("../../etc/passwd")`
+# root — `..` traversal and symlinks alike — so `Disk.read("../../etc/passwd")`
 # cannot escape the example directory. Bind the least authority the guest
 # needs, never the whole filesystem.
 #
@@ -49,12 +52,12 @@ require "kobako"
 # Example types are nested under Vfs so the file carries a single
 # top-level constant and reads top-down.
 module Vfs
-  # The guest idiom: a native-style `File`. Path arithmetic like
+  # The guest idiom: a native-style `Disk`. Path arithmetic like
   # `basename` runs in-guest with no round-trip; `read` / `write` are
   # deliberately left undefined, so they fall through to the bound host
   # backend.
-  FILE_SOURCE = <<~MRUBY
-    class File
+  DISK_SOURCE = <<~MRUBY
+    class Disk
       extend Kobako::Proxy
       def self.basename(path) = path.split("/").last || ""
     end
@@ -63,26 +66,26 @@ module Vfs
   # First invocation: read the original, overwrite it, read it back. The
   # second read hits the overlay, so the guest observes its own write.
   WRITE_THEN_READ = <<~'MRUBY'
-    before = File.read("sample.txt")
-    File.write("sample.txt", "patched in memory\n")
-    after  = File.read("sample.txt")
-    { "name" => File.basename("dir/sample.txt"), "before" => before, "after" => after }
+    before = Disk.read("sample.txt")
+    Disk.write("sample.txt", "patched in memory\n")
+    after  = Disk.read("sample.txt")
+    { "name" => Disk.basename("dir/sample.txt"), "before" => before, "after" => after }
   MRUBY
 
   # Second invocation: read only. The overlay was rebuilt for this call,
   # so the earlier write is gone and the read falls through to disk again.
   READ_ONLY = <<~MRUBY
-    File.read("sample.txt")
+    Disk.read("sample.txt")
   MRUBY
 
   # A traversal attempt. The host backend contains every path within the
   # overlay root, so this is refused before any disk read and the guest
   # sees a capability failure — the point of the example, exercised.
   ESCAPE_ATTEMPT = <<~MRUBY
-    File.read("../../etc/passwd")
+    Disk.read("../../etc/passwd")
   MRUBY
 
-  # Host backend bound at the guest's `File`. Reads fall through to the
+  # Host backend bound at the guest's `Disk`. Reads fall through to the
   # real disk; writes are captured in an in-memory overlay that shadows
   # the disk for later reads without ever mutating it.
   class OverlayFileSystem
@@ -144,14 +147,14 @@ module Vfs
   end
 
   # Composes the guest idiom with the host backend. The provider is a
-  # callable, so a fresh OverlayFileSystem backs the `File` path on every
+  # callable, so a fresh OverlayFileSystem backs the `Disk` path on every
   # invocation — writes cannot leak from one call into the next.
   def self.build_extension(disk_root)
     Kobako::Extension.new(
-      name: :File,
-      source: FILE_SOURCE,
+      name: :Disk,
+      source: DISK_SOURCE,
       backend: Kobako::Extension::Backend.new(
-        path: "File",
+        path: "Disk",
         provider: -> { OverlayFileSystem.new(disk_root) }
       )
     )
@@ -191,7 +194,7 @@ puts "invocation 2 — fresh overlay, read only:"
 puts "  read               : #{second.inspect}   # overlay reset; disk view again"
 puts
 puts "escape attempt — read outside the overlay root:"
-puts "  File.read(\"../../etc/passwd\") : #{escape}   # contained by the host backend"
+puts "  Disk.read(\"../../etc/passwd\") : #{escape}   # contained by the host backend"
 puts
 puts "sample.txt on disk (after both runs):"
 puts "  #{disk_after.inspect}   # never mutated"
