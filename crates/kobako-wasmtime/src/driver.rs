@@ -23,7 +23,7 @@ use crate::wasi::Wasi;
 use crate::{capture, guest_mem, instance_pre, io, trap};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
-use kobako_runtime::grant::Grant;
+use kobako_runtime::grant::{Grant, GrantKind};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
@@ -153,9 +153,9 @@ impl ContractRuntime for Driver {
         entry: Entry<'_>,
         preamble: &Preamble,
         handler: Option<Arc<dyn DispatchHandler>>,
-        _grants: &[Grant],
+        grants: &[Grant],
     ) -> Result<Snapshot, InvokeError> {
-        let wasi = Wasi::for_invocation(&self.config, &preamble.encode())?;
+        let wasi = Wasi::for_invocation(&self.config, &preamble.encode(), grants)?;
         let mut store = self.new_store(wasi)?;
         if let Some(handler) = handler {
             store.data_mut().bind_on_dispatch(handler);
@@ -190,6 +190,12 @@ impl ContractRuntime for Driver {
     /// and the linker adds only `__kobako_upcall` beyond that WASI surface.
     fn profile(&self) -> Profile {
         self.config.profile
+    }
+
+    /// A filesystem Grant becomes a preopen of kobako's own descriptor
+    /// table, which answers every preview1 call beneath it.
+    fn supports(&self, kind: GrantKind) -> bool {
+        matches!(kind, GrantKind::Filesystem)
     }
 
     /// Bounded by the same caps as an invocation, on an instance of its

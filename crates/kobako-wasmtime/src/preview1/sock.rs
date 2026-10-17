@@ -3,12 +3,11 @@
 
 use super::args;
 use super::errno::{Answer, Errno};
-use crate::descriptors::{Descriptor, Descriptors};
+use crate::descriptors::Descriptors;
 
 fn socket(table: &Descriptors, fd: u32) -> Answer {
-    match table.get(fd).ok_or(Errno::Badf)? {
-        Descriptor::Stdin(_) | Descriptor::Channel(_) => Err(Errno::Notsock.into()),
-    }
+    table.get(fd).ok_or(Errno::Badf)?;
+    Err(Errno::Notsock.into())
 }
 
 pub(crate) fn accept(table: &Descriptors, fd: u32, flags: u32) -> Answer {

@@ -53,6 +53,11 @@ impl<'a> GuestMemory<'a> {
         Ok(&self.bytes[range])
     }
 
+    pub(crate) fn bytes_mut(&mut self, ptr: u32, len: u32) -> Answer<&mut [u8]> {
+        let range = self.range(ptr, len)?;
+        Ok(&mut self.bytes[range])
+    }
+
     fn read<const N: usize>(&self, ptr: u32) -> Answer<[u8; N]> {
         Self::aligned(ptr, N as u32)?;
         let mut out = [0; N];
@@ -78,8 +83,8 @@ impl<'a> GuestMemory<'a> {
 
     /// Copy `bytes` into guest memory at `ptr`, which needs no alignment.
     pub(crate) fn write(&mut self, ptr: u32, bytes: &[u8]) -> Answer {
-        let range = self.range(ptr, bytes.len() as u32)?;
-        self.bytes[range].copy_from_slice(bytes);
+        self.bytes_mut(ptr, bytes.len() as u32)?
+            .copy_from_slice(bytes);
         Ok(())
     }
 

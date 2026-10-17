@@ -244,7 +244,7 @@ fn through_kobako(call: &str, fd: i32, limit: Option<usize>) -> Observation {
         stderr_limit: limit,
         profile: Profile::Hermetic,
     };
-    let wasi = Wasi::for_invocation(&config, PREAMBLE).expect("WASI context must build");
+    let wasi = Wasi::for_invocation(&config, PREAMBLE, &[]).expect("WASI context must build");
     let mut store = Store::new(engine, Invocation::new(None, wasi));
     store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
     let linker = imports::linker().expect("host imports must link");

@@ -1,6 +1,7 @@
 //! The guest's WASI context for one instance: the Preamble on stdin,
-//! a capture pipe for each of stdout and stderr, and the ambient
-//! authority the instance's purpose grants.
+//! a capture pipe for each of stdout and stderr, the ambient authority
+//! the instance's purpose grants, and a preopen for each filesystem Grant
+//! an invocation was handed.
 
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
@@ -8,9 +9,10 @@ use wasmtime_wasi::WasiCtxBuilder;
 
 use crate::ambient::{self, Clocks};
 use crate::config::Config;
-use crate::descriptors::Descriptors;
+use crate::descriptors::{Descriptors, Mount};
 use crate::{capture, guest_mem};
 use kobako_runtime::error::Trap;
+use kobako_runtime::grant::Grant;
 use kobako_runtime::profile::Profile;
 use kobako_transport::abi::FRAME_LEN_SIZE;
 
@@ -26,13 +28,20 @@ pub(crate) struct Wasi {
 }
 
 impl Wasi {
-    /// An invocation's context, granting the posture the Sandbox requested.
-    pub(crate) fn for_invocation(config: &Config, preamble: &[u8]) -> Result<Self, Trap> {
+    /// An invocation's context, granting the posture the Sandbox requested
+    /// and presenting each of the invocation's filesystem Grants as a
+    /// preopen, from descriptor 3 in order.
+    pub(crate) fn for_invocation(
+        config: &Config,
+        preamble: &[u8],
+        grants: &[Grant],
+    ) -> Result<Self, Trap> {
         Self::new(
             preamble,
             config.stdout_limit,
             config.stderr_limit,
             config.profile,
+            grants.iter().filter_map(mount).collect(),
         )
     }
 
@@ -45,6 +54,7 @@ impl Wasi {
             config.stdout_limit,
             config.stderr_limit,
             Profile::Hermetic,
+            Vec::new(),
         )
     }
 
@@ -53,7 +63,7 @@ impl Wasi {
     /// authority and no output: the probe takes the strongest posture and
     /// pipes sized to keep nothing.
     pub(crate) fn for_probe() -> Result<Self, Trap> {
-        Self::new(&[], Some(0), Some(0), Profile::Hermetic)
+        Self::new(&[], Some(0), Some(0), Profile::Hermetic, Vec::new())
     }
 
     /// An uncapped output channel relies on `memory_limit` for its real
@@ -64,6 +74,7 @@ impl Wasi {
         stdout_limit: Option<usize>,
         stderr_limit: Option<usize>,
         profile: Profile,
+        mounts: Vec<Mount>,
     ) -> Result<Self, Trap> {
         // The Preamble carries the same 16 MiB cap as a downcall request
         // (`io::write_request`): past it, the length prefix would silently wrap.
@@ -84,6 +95,7 @@ impl Wasi {
             MemoryInputPipe::new(stdin_content),
             stdout.clone(),
             stderr.clone(),
+            mounts,
         );
 
         let mut builder = WasiCtxBuilder::new();
@@ -139,6 +151,29 @@ impl Wasi {
 
     pub(crate) fn stderr_bytes(&self) -> Vec<u8> {
         self.stderr.contents().to_vec()
+    }
+}
+
+/// A filesystem Grant as this invocation presents it, over the Filesystem
+/// the invocation starts from. A kind this driver does not support has no
+/// descriptor to stand behind; `Driver::supports` keeps a frontend from
+/// handing one over.
+fn mount(grant: &Grant) -> Option<Mount> {
+    match grant {
+        Grant::Filesystem {
+            at,
+            access,
+            filesystem,
+            policy,
+        } => Some(Mount {
+            at: at.clone(),
+            access: *access,
+            filesystem: filesystem
+                .for_invocation()
+                .unwrap_or_else(|| filesystem.clone()),
+            policy: policy.clone(),
+        }),
+        _ => None,
     }
 }
 
@@ -203,7 +238,7 @@ mod tests {
             stderr_limit: None,
             profile,
         };
-        let wasi = Wasi::for_invocation(&config, &[]).expect("WASI context must build");
+        let wasi = Wasi::for_invocation(&config, &[], &[]).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
         store.set_epoch_deadline(crate::trap::NO_TIMEOUT_EPOCH_DELTA);
 

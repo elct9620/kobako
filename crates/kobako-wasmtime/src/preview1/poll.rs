@@ -41,9 +41,15 @@ enum Kind {
     Sleep(u64),
     /// A clock among others, as the nanoseconds left before it fires.
     Clock(u64),
-    FdRead,
+    /// A descriptor to read; `hangup` when a file has nothing left past
+    /// its position.
+    FdRead {
+        hangup: bool,
+    },
     FdWrite,
 }
+
+const EVENTRWFLAGS_HANGUP: u16 = 1;
 
 pub(crate) fn poll_oneoff(
     invocation: &Invocation,
@@ -66,7 +72,7 @@ pub(crate) fn poll_oneoff(
 
     let clocks = subscriptions.iter().filter_map(|sub| match sub.kind {
         Kind::Sleep(left) | Kind::Clock(left) => Some(left),
-        Kind::FdRead | Kind::FdWrite => None,
+        Kind::FdRead { .. } | Kind::FdWrite => None,
     });
     let waited = if clocks.clone().count() == subscriptions.len() {
         let soonest = clocks.min().unwrap_or(0);
@@ -81,7 +87,7 @@ pub(crate) fn poll_oneoff(
         let (ready, nbytes) = match sub.kind {
             Kind::Sleep(_) => (true, 1),
             Kind::Clock(left) => (left <= waited, 0),
-            Kind::FdRead | Kind::FdWrite => (true, 1),
+            Kind::FdRead { .. } | Kind::FdWrite => (true, 1),
         };
         if ready {
             let event = GuestMemory::element(events, written, EVENT_SIZE)?;
@@ -102,12 +108,15 @@ fn read_subscription(
     let kind = match mem.read_u8(sub + 8)? {
         TAG_CLOCK => read_clock(invocation, mem, sub, lone)?,
         TAG_FD_READ => match descriptor(invocation, mem, sub)? {
-            Descriptor::Stdin(_) => Kind::FdRead,
-            Descriptor::Channel(_) => return Err(Errno::Badf.into()),
+            Descriptor::Stdin(_) => Kind::FdRead { hangup: false },
+            Descriptor::File(file) => Kind::FdRead {
+                hangup: file.file.metadata()?.len <= file.position,
+            },
+            Descriptor::Channel(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },
         TAG_FD_WRITE => match descriptor(invocation, mem, sub)? {
-            Descriptor::Channel(_) => Kind::FdWrite,
-            Descriptor::Stdin(_) => return Err(Errno::Badf.into()),
+            Descriptor::Channel(_) | Descriptor::File(_) => Kind::FdWrite,
+            Descriptor::Stdin(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },
         _ => return Err(Errno::Inval.into()),
     };
@@ -171,16 +180,16 @@ fn wait(invocation: &Invocation, nanos: u64) -> Answer {
 }
 
 fn write_event(mem: &mut GuestMemory, event: u32, sub: &Subscription, nbytes: u64) -> Answer {
-    let kind = match sub.kind {
-        Kind::Sleep(_) | Kind::Clock(_) => TAG_CLOCK,
-        Kind::FdRead => TAG_FD_READ,
-        Kind::FdWrite => TAG_FD_WRITE,
+    let (kind, flags) = match sub.kind {
+        Kind::Sleep(_) | Kind::Clock(_) => (TAG_CLOCK, 0),
+        Kind::FdRead { hangup } => (TAG_FD_READ, if hangup { EVENTRWFLAGS_HANGUP } else { 0 }),
+        Kind::FdWrite => (TAG_FD_WRITE, 0),
     };
     mem.write_u64(event, sub.userdata)?;
     mem.write_u16(event + 8, 0)?;
     mem.write_u8(event + 10, kind)?;
     mem.write_u64(event + 16, nbytes)?;
-    mem.write_u16(event + 24, 0)
+    mem.write_u16(event + 24, flags)
 }
 
 #[cfg(test)]
@@ -229,7 +238,7 @@ mod tests {
             stderr_limit: None,
             profile,
         };
-        let wasi = Wasi::for_invocation(&config, &[]).expect("WASI context must build");
+        let wasi = Wasi::for_invocation(&config, &[], &[]).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let linker = imports::linker().expect("host imports must link");
