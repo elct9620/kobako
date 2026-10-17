@@ -800,6 +800,7 @@ version = "0.18.0"
 name = "kobako-wasmtime"
 version = "0.18.0"
 dependencies = [
+ "bytes",
  "kobako-runtime",
  "kobako-transport",
  "libc",

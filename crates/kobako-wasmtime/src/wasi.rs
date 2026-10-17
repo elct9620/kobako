@@ -6,17 +6,21 @@ use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::WasiCtxBuilder;
 
+use crate::ambient::{self, Clocks};
 use crate::config::Config;
-use crate::{ambient, capture, guest_mem};
+use crate::descriptors::Descriptors;
+use crate::{capture, guest_mem};
 use kobako_runtime::error::Trap;
 use kobako_runtime::profile::Profile;
 use kobako_transport::abi::FRAME_LEN_SIZE;
 
-/// One instance's WASI context together with the capture pipes it
-/// writes stdout and stderr into, so the captures are read back from the
-/// same owner that wired them.
+/// One instance's WASI context: its descriptor table, the clocks its
+/// waits pass on, and the capture pipes stdout and stderr write into, so
+/// the captures are read back from the same owner that wired them.
 pub(crate) struct Wasi {
     ctx: WasiP1Ctx,
+    descriptors: Descriptors,
+    clocks: Clocks,
     stdout: MemoryOutputPipe,
     stderr: MemoryOutputPipe,
 }
@@ -73,10 +77,16 @@ impl Wasi {
         let stdout = MemoryOutputPipe::new(capture::pipe_capacity(stdout_limit));
         let stderr = MemoryOutputPipe::new(capture::pipe_capacity(stderr_limit));
 
+        // stdio lives in kobako's descriptor table, which answers every
+        // call that reads a descriptor (`crate::preview1`); the builder
+        // keeps only what the remaining imports read.
+        let descriptors = Descriptors::new(
+            MemoryInputPipe::new(stdin_content),
+            stdout.clone(),
+            stderr.clone(),
+        );
+
         let mut builder = WasiCtxBuilder::new();
-        builder.stdin(MemoryInputPipe::new(stdin_content));
-        builder.stdout(stdout.clone());
-        builder.stderr(stderr.clone());
         // The profile decides the ambient authority granted: the
         // hermetic rung denies the preview1 time and entropy imports (see
         // `ambient`), the permissive rung leaves the live WASI sources.
@@ -84,17 +94,24 @@ impl Wasi {
         // the builder grants none unless asked. The exhaustive match makes
         // a future ladder rung a compile error here, not authority granted
         // silently.
-        match profile {
+        let clocks = match profile {
             Profile::Hermetic => {
                 builder.wall_clock(ambient::FrozenWallClock);
                 builder.monotonic_clock(ambient::FrozenMonotonicClock);
                 builder.secure_random(ambient::deterministic_rng());
+                Clocks::Frozen
             }
-            Profile::Permissive => {}
-        }
+            Profile::Permissive => {
+                let monotonic = ambient::LiveMonotonicClock::new();
+                builder.monotonic_clock(monotonic);
+                Clocks::Live(monotonic)
+            }
+        };
 
         Ok(Self {
             ctx: builder.build_p1(),
+            descriptors,
+            clocks,
             stdout,
             stderr,
         })
@@ -102,6 +119,18 @@ impl Wasi {
 
     pub(crate) fn ctx_mut(&mut self) -> &mut WasiP1Ctx {
         &mut self.ctx
+    }
+
+    pub(crate) fn descriptors(&self) -> &Descriptors {
+        &self.descriptors
+    }
+
+    pub(crate) fn descriptors_mut(&mut self) -> &mut Descriptors {
+        &mut self.descriptors
+    }
+
+    pub(crate) fn clocks(&self) -> Clocks {
+        self.clocks
     }
 
     pub(crate) fn stdout_bytes(&self) -> Vec<u8> {

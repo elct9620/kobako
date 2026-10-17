@@ -9,19 +9,21 @@ use wasmtime::{Caller, Linker};
 use wasmtime_wasi::p1;
 
 use crate::cache::shared_engine;
-use crate::dispatch;
 use crate::invocation::Invocation;
+use crate::{dispatch, preview1};
 use kobako_runtime::error::SetupError;
 
 pub(crate) fn linker() -> Result<Linker<Invocation>, SetupError> {
     let mut linker: Linker<Invocation> = Linker::new(shared_engine()?);
 
     // Wire the wasmtime-wasi preview1 WASI imports against each
-    // invocation's own `Wasi` context, which routes guest fd 1/2 to its
-    // capture pipes.
+    // invocation's own `Wasi` context, then answer every call that reads
+    // a descriptor from kobako's own table, which routes guest fd 1/2 to
+    // its capture pipes.
     p1::add_to_linker_sync(&mut linker, |state: &mut Invocation| {
         state.wasi_mut().ctx_mut()
     })
+    .and_then(|_| preview1::shadow(&mut linker))
     .map_err(|e| SetupError::Dead(format!("failed to set up the WASI runtime: {e}")))?;
 
     // `__kobako_upcall`, `(ptr: i32, len: i32) -> i64` per

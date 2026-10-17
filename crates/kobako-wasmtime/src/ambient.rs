@@ -1,6 +1,7 @@
-//! Denial of guest ambient time and entropy at the WASI layer — the one
-//! ambient authority that separates the hermetic rung from permissive;
-//! `Wasi::new` wires these sources on `Hermetic` only.
+//! The guest's time and entropy at the WASI layer — the one ambient
+//! authority that separates the hermetic rung from permissive. `Wasi::new`
+//! wires the frozen sources on `Hermetic` and the live clock on
+//! `Permissive`; `Clocks` is what the guest's waits pass on under either.
 //!
 //! `wasmtime-wasi`'s `WasiCtxBuilder` defaults the guest's `wasi:clocks` to
 //! the host wall / monotonic clock and `wasi:random` to a fresh per-context
@@ -16,7 +17,7 @@
 //! wasmtime epoch interruption against a host `Instant`, never the guest's
 //! frozen `wasi:clocks/monotonic-clock`.
 
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use wasmtime_wasi::random::Deterministic;
 use wasmtime_wasi::{HostMonotonicClock, HostWallClock};
@@ -51,6 +52,64 @@ impl HostMonotonicClock for FrozenMonotonicClock {
 /// reaches `random_get` receives no host entropy.
 pub(crate) fn deterministic_rng() -> Deterministic {
     Deterministic::new(vec![0])
+}
+
+/// The host's monotonic clock read from a fixed origin. The guest's
+/// `clock_time_get` and a wait it subscribes to share it, so both agree on
+/// what an instant means.
+#[derive(Clone, Copy)]
+pub(crate) struct LiveMonotonicClock {
+    origin: Instant,
+}
+
+impl LiveMonotonicClock {
+    pub(crate) fn new() -> Self {
+        Self {
+            origin: Instant::now(),
+        }
+    }
+}
+
+impl HostMonotonicClock for LiveMonotonicClock {
+    fn resolution(&self) -> u64 {
+        1
+    }
+
+    fn now(&self) -> u64 {
+        u64::try_from(self.origin.elapsed().as_nanos()).unwrap_or(u64::MAX)
+    }
+}
+
+/// The clocks the guest observes. A wait it subscribes to passes on the
+/// same clocks: frozen ones never advance, so the wait ends at once.
+#[derive(Clone, Copy)]
+pub(crate) enum Clocks {
+    Frozen,
+    Live(LiveMonotonicClock),
+}
+
+impl Clocks {
+    pub(crate) fn monotonic_now(&self) -> u64 {
+        match self {
+            Self::Frozen => FrozenMonotonicClock.now(),
+            Self::Live(clock) => clock.now(),
+        }
+    }
+
+    pub(crate) fn wall_now(&self) -> u64 {
+        let since_epoch = match self {
+            Self::Frozen => FrozenWallClock.now(),
+            Self::Live(_) => SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO),
+        };
+        u64::try_from(since_epoch.as_nanos()).unwrap_or(u64::MAX)
+    }
+
+    /// Whether a wait on these clocks takes host time.
+    pub(crate) fn advances(&self) -> bool {
+        matches!(self, Self::Live(_))
+    }
 }
 
 #[cfg(test)]

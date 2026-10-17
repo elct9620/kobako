@@ -55,6 +55,9 @@ wasmtime = { version = "49.0.2", default-features = false, features = [
 # `p2` (component-model) and `p0`/`p3` (async) because kobako runs
 # synchronous sandboxes only.
 wasmtime-wasi = { version = "49.0.2", default-features = false, features = ["p1"] }
+# bytes is the buffer type wasmtime-wasi's stream traits take, for the
+# capture pipes kobako's own preview1 imports write into.
+bytes = "1.11"
 # sha2 keys the on-disk compiled-module cache by Guest Binary content
 # (see cache.rs); a collision would load the wrong artifact, so the
 # hash must be cryptographic.

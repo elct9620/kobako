@@ -15,6 +15,7 @@ mod ambient;
 mod cache;
 mod capture;
 mod config;
+mod descriptors;
 mod dispatch;
 mod driver;
 mod exports;
@@ -24,6 +25,7 @@ mod instance_pre;
 mod invocation;
 mod io;
 mod limiter;
+mod preview1;
 mod trap;
 mod wasi;
 
