@@ -1,8 +1,8 @@
 //! `::File < IO`: the files beneath the paths a Host App mounted.
 //!
 //! A path resolves through wasi-libc against the preopened directories
-//! the host presents, one per filesystem Grant, and the host decides what
-//! each open may do. With no Grant at all there is nothing to open, so
+//! the host presents, one per Mount, and the host decides what each open
+//! may do. With no Mount at all there is nothing to open, so
 //! every call that touches a path raises `NotImplementedError`, as CRuby
 //! does for a call its platform lacks. The path helpers (`join`,
 //! `basename`, `dirname`, `extname`) touch nothing and always answer.
