@@ -403,3 +403,27 @@ A malformed path segment and a bind after the seal both raise rather than answer
 | Given | a registry with nothing bound |
 | When | an object is bound where one segment is too long to be a symbol |
 | Then | the bind is refused |
+
+## `SV-050` The namespace the Guest Binary keeps for itself cannot be bound
+
+| Attribute | Value |
+| --- | --- |
+| refines | `SV-030` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a registry with nothing bound |
+| When | an object is bound at a path whose first segment is `Kobako` |
+| Then | the bind is refused |
+
+## `SV-051` A segment the Guest Binary defines in another shape fails the Invocation by name
+
+| Attribute | Value |
+| --- | --- |
+| relates | `SV-006`, `SV-007` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose bound path names a guest constant it cannot reopen |
+| When | guest code is invoked |
+| Then | the invocation fails, naming that segment as defined by the Guest Binary |
