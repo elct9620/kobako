@@ -19,6 +19,7 @@
 
 mod bridge;
 mod errors;
+mod filesystem;
 mod gvl;
 
 use magnus::{
@@ -114,14 +115,15 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
 
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
     runtime.define_singleton_method("from_path", function!(Runtime::from_path, 2))?;
-    runtime.define_method("eval", method!(Runtime::eval, 5))?;
-    runtime.define_method("run", method!(Runtime::run, 6))?;
+    runtime.define_method("eval", method!(Runtime::eval, 3))?;
+    runtime.define_method("run", method!(Runtime::run, 4))?;
     runtime.define_method("profile", method!(Runtime::profile, 0))?;
     runtime.define_method("compile", method!(Runtime::compile, 3))?;
     // The guest re-enters for a block yield through a frame-scoped
     // `Kobako::Runtime::GuestYielder` the dispatcher hands the Proc, not a
     // method on Runtime.
     bridge::register(runtime)?;
+    filesystem::register(ruby, kobako)?;
 
     // Snapshot — the per-invocation result object each entry point returns.
     let snapshot = runtime.define_class("Snapshot", ruby.class_object())?;
@@ -249,40 +251,32 @@ impl Runtime {
     // success or trap alike. Only a could-not-start fault (a missing export
     // or a fault before the export call) raises directly, as the class
     // `errors::to_magnus` gives its cause, since it yields no `Snapshot`.
+    //
+    // `setup` is the invocation's `[paths, snippets, flags, mounts]`: the
+    // Preamble's three parts, then the Mounts as
+    // `filesystem::grants_from` reads them.
     // -----------------------------------------------------------------
 
     fn eval(
         &self,
         dispatch: Value,
-        paths: RArray,
-        snippets: RArray,
-        flags: RArray,
+        setup: RArray,
         source: RString,
     ) -> Result<Snapshot, MagnusError> {
         let source = rstring_to_vec(source);
-        self.invoke(
-            dispatch,
-            paths,
-            snippets,
-            flags,
-            Entry::Eval { source: &source },
-        )
+        self.invoke(dispatch, setup, Entry::Eval { source: &source })
     }
 
     fn run(
         &self,
         dispatch: Value,
-        paths: RArray,
-        snippets: RArray,
-        flags: RArray,
+        setup: RArray,
         entrypoint: String,
         payload: RString,
     ) -> Result<Snapshot, MagnusError> {
         self.invoke(
             dispatch,
-            paths,
-            snippets,
-            flags,
+            setup,
             Entry::Run {
                 entrypoint: &entrypoint,
                 payload: rstring_to_vec(payload),
@@ -290,14 +284,12 @@ impl Runtime {
         )
     }
 
-    /// One owner for the wiring both verbs share, so a Preamble or handler
-    /// change cannot drift between them.
+    /// One owner for the wiring both verbs share, so a Preamble, a Grant,
+    /// or a handler change cannot drift between them.
     fn invoke(
         &self,
         dispatch: Value,
-        paths: RArray,
-        snippets: RArray,
-        flags: RArray,
+        setup: RArray,
         entry: Entry<'_>,
     ) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
@@ -306,12 +298,14 @@ impl Runtime {
             Entry::Run { .. } => "run",
         };
         let handler = build_handler(dispatch);
-        let preamble = preamble_from(&ruby, paths.to_vec()?, snippets, flags)?;
+        let paths: RArray = setup.entry(0)?;
+        let preamble = preamble_from(&ruby, paths.to_vec()?, setup.entry(1)?, setup.entry(2)?)?;
+        let grants = filesystem::grants_from(&ruby, setup.entry(3)?)?;
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // the closure touches no Ruby VALUE (the driver is magnus-free, and a
-        // guest→host dispatch re-acquires the GVL through the bridge).
+        // guest→host dispatch, or a mount's block, re-acquires the GVL).
         let result = gvl::region(self.release_gvl, || {
-            self.driver.invoke(entry, &preamble, handler, &[])
+            self.driver.invoke(entry, &preamble, handler, &grants)
         });
         result
             .map(|snapshot| Snapshot(snapshot, verb))

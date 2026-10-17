@@ -1,0 +1,34 @@
+module Kobako
+  module Catalog
+    class Mount < Data
+      type access = :read | :read_write
+
+      type policy = ^(String path, access access) -> boolish
+
+      type tuple = [String, access, Kobako::Filesystem::kind, policy?]
+
+      ACCESS: Array[access]
+
+      attr_reader at: String
+      attr_reader access: access
+      attr_reader filesystem: Kobako::Filesystem::kind
+      attr_reader policy: policy?
+
+      def self.new: (at: untyped, access: untyped, filesystem: untyped, policy: policy?) -> Mount
+
+      def initialize: (at: untyped, access: untyped, filesystem: untyped, policy: policy?) -> void
+
+      def key: () -> String
+
+      def conflict: (Mount other) -> String?
+
+      def to_native: () -> tuple
+
+      private
+
+      def malformed?: (String path) -> bool
+
+      def nested?: (String other) -> bool
+    end
+  end
+end

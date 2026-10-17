@@ -17,12 +17,14 @@ module Kobako
   #
   #   sandbox.eval("Req::Current.user_id") { |ctx| ctx.bind("Req::Current", request) }
   class Context
-    def initialize(runtime:, services:, snippets:, flags:, extensions:) # :nodoc:
+    # +preamble+ is the Sandbox's paths, snippets and flags, as the Runtime
+    # reads them.
+    def initialize(runtime:, services:, extensions:, grants:, preamble:) # :nodoc:
       @runtime = runtime
       @services = services
-      @snippets = snippets
-      @flags = flags
       @extensions = extensions
+      @grants = grants
+      @preamble = preamble
       @resolved = {} # : Hash[String, Transport::Exposure]
       @overrides = {} # : Hash[String, Transport::Exposure]
       @handles = Catalog::Handles.new
@@ -45,6 +47,24 @@ module Kobako
       self
     end
 
+    # Use +filesystem+ for the mount at +at+ during this invocation only,
+    # with its own +access+ and block, as Sandbox#mount takes them. Returns
+    # +self+.
+    #
+    # Raises ArgumentError when nothing was mounted at +at+ on the Sandbox,
+    # for a malformed path, an unknown access, or something other than a
+    # Filesystem, or when called after the block has returned.
+    def mount(at, filesystem, access: :read, &policy)
+      raise ArgumentError, "Kobako::Context is spent; ctx.mount is only valid inside the #eval / #run block" if @spent
+
+      mount = Catalog::Mount.new(at: at, access: access, filesystem: filesystem, policy: policy)
+      raise ArgumentError, "cannot override unmounted path #{at.inspect}" unless @grants.include?(mount)
+
+      mounts = @mounts ||= {} # : Hash[String, Catalog::Mount]
+      mounts[mount.key] = mount
+      self
+    end
+
     # A fillable left unfilled raises like an unbound path, so the guest's
     # call fails closed instead of reaching the sentinel.
     def lookup(path) # :nodoc:
@@ -57,20 +77,24 @@ module Kobako
 
     def eval(code, &block) # :nodoc:
       collect_overrides(&block) if block
-      invoke!(:eval) do
-        @runtime.eval(dispatch_handler, @services.paths, @snippets.entries, @flags.entries, code.b)
-      end
+      invoke!(:eval) { @runtime.eval(dispatch_handler, setup, code.b) }
     end
 
     def run(request, &block) # :nodoc:
       collect_overrides(&block) if block
       invoke!(:run, entrypoint: request.entrypoint) do
-        @runtime.run(dispatch_handler, @services.paths, @snippets.entries, @flags.entries,
-                     request.entrypoint.to_s, request.payload(@handles))
+        @runtime.run(dispatch_handler, setup, request.entrypoint.to_s, request.payload(@handles))
       end
     end
 
     private
+
+    # What the Runtime builds the invocation from: the Preamble's parts,
+    # then this invocation's mounts.
+    def setup
+      paths, snippets, flags = @preamble
+      [paths, snippets, flags, @grants.entries(@mounts || {})]
+    end
 
     # The Context is spent once the block returns, so a captured +ctx+ used
     # later raises. A block that raises propagates before the guest drives,

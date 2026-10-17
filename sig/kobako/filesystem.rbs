@@ -1,0 +1,23 @@
+module Kobako
+  module Filesystem
+    type kind = Memory | Temporary | Directory | Overlay
+
+    class Memory
+      def initialize: (?Hash[String, String] files) -> void
+    end
+
+    class Temporary
+      def initialize: () -> void
+    end
+
+    class Directory
+      def initialize: (String path) -> void
+    end
+
+    class Overlay
+      def initialize: (upper: kind, lower: kind) -> void
+    end
+
+    KINDS: Array[Class]
+  end
+end

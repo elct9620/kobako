@@ -1,0 +1,13 @@
+module Kobako
+  module Catalog
+    class Grants
+      def initialize: () -> void
+
+      def register: (Mount grant) -> nil
+
+      def include?: (Mount grant) -> bool
+
+      def entries: (?Hash[String, Mount] overrides) -> Array[Mount::tuple]
+    end
+  end
+end

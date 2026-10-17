@@ -40,6 +40,7 @@ module Kobako
       @snippets = Catalog::Snippets.new
       @flags = Catalog::Flags.new
       @extensions = Catalog::Extensions.new
+      @grants = Catalog::Grants.new
       @sealed = false
       @runtime = build_runtime!
     end
@@ -75,6 +76,25 @@ module Kobako
       refuse_once_invoked!("install")
 
       extensions.each { |extension| @extensions.install(extension, snippets: @snippets, services: @services) }
+      self
+    end
+
+    # Mount +filesystem+, a Kobako::Filesystem, at the absolute guest path
+    # +at+, where the guest's +File+ reaches it. +access+ is +:read+ or
+    # +:read_write+; a write beneath a read-only mount fails as
+    # <tt>Errno::EROFS</tt> in the guest. Returns +self+.
+    #
+    # A given block decides each open and each change in +access+'s place,
+    # called with the guest path and +:read+ or +:read_write+. A falsy answer,
+    # or a raise, fails that call as <tt>Errno::EACCES</tt> in the guest and
+    # leaves the script running.
+    #
+    # Raises ArgumentError for a malformed, duplicate, or nested path, an
+    # unknown access, something other than a Filesystem, or a call after the
+    # first invocation.
+    def mount(at, filesystem, access: :read, &policy)
+      refuse_once_invoked!("mount")
+      @grants.register(Catalog::Mount.new(at: at, access: access, filesystem: filesystem, policy: policy))
       self
     end
 
@@ -154,12 +174,12 @@ module Kobako
     # does is written back onto the shared config.
     def new_invocation
       begin_invocation!
-      Context.new(runtime: @runtime, services: @services, snippets: @snippets, flags: @flags,
-                  extensions: @extensions)
+      Context.new(runtime: @runtime, services: @services, extensions: @extensions, grants: @grants,
+                  preamble: [@services.paths, @snippets.entries, @flags.entries])
     end
 
     # Registration closes at the first invocation, so every invocation ships
-    # the same Services, snippets, flags and Extensions.
+    # the same Services, snippets, flags, Extensions and mounts.
     def refuse_once_invoked!(verb)
       raise ArgumentError, "cannot #{verb} after first Sandbox invocation" if @sealed
     end

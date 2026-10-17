@@ -93,6 +93,6 @@ class TestRuntimeSnapshot < Minitest::Test
     runtime = Kobako::Runtime.from_path(KOBAKO_WASM, **runtime_options)
     dispatch = ->(_, _) { raise "unexpected dispatch in eval-only captures test" }
 
-    runtime.eval(dispatch, services.paths, snippets.entries, [], code.b)
+    runtime.eval(dispatch, [services.paths, snippets.entries, [], []], code.b)
   end
 end

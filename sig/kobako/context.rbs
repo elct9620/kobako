@@ -1,14 +1,20 @@
 module Kobako
   class Context
+    type preamble = [Array[String], Array[Kobako::Catalog::Snippets::tuple], Array[Kobako::Catalog::Flags::tuple]]
+
+    @mounts: Hash[String, Kobako::Catalog::Mount]?
+
     def initialize: (
       runtime: Kobako::Runtime,
       services: Kobako::Catalog::Services,
-      snippets: Kobako::Catalog::Snippets,
-      flags: Kobako::Catalog::Flags,
-      extensions: Kobako::Catalog::Extensions
+      extensions: Kobako::Catalog::Extensions,
+      grants: Kobako::Catalog::Grants,
+      preamble: preamble
     ) -> void
 
     def bind: (Symbol | String path, untyped object) -> self
+
+    def mount: (String at, Kobako::Filesystem::kind filesystem, ?access: Symbol) ?{ (String path, Kobako::Catalog::Mount::access access) -> boolish } -> self
 
     def lookup: (Symbol | String path) -> Kobako::Transport::Exposure
 
@@ -17,6 +23,8 @@ module Kobako
     def run: (Kobako::Transport::Run request) ?{ (Kobako::Context) -> void } -> Kobako::Execution
 
     private
+
+    def setup: () -> Kobako::Runtime::setup
 
     def collect_overrides: () { (Kobako::Context) -> void } -> void
 
