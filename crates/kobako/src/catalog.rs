@@ -1,6 +1,6 @@
 //! Per-Sandbox Service registry: the flat path→object bindings, the
-//! paths the guest installs them from, and the preloaded snippet table
-//! sealed alongside them.
+//! paths the guest installs them from, and the preloaded snippet, flag,
+//! and Grant tables sealed alongside them.
 //!
 //! The SDK twin of the Ruby gem's `Kobako::Catalog`: the registration
 //! tables fill during setup, seal on the first invocation, and from
@@ -15,6 +15,7 @@ use kobako_runtime::runtime::Runtime;
 use kobako_transport::envelope::{Bindings, Flag, Preamble};
 
 use crate::error::Error;
+use crate::grants::Grants;
 use crate::receiver::Receiver;
 use crate::snippet::{constant_name, Snippets};
 
@@ -37,6 +38,7 @@ pub(crate) struct Catalog {
     bindings: Vec<(String, Arc<dyn Receiver>)>,
     pub(crate) snippets: Snippets,
     flags: Vec<Flag>,
+    pub(crate) grants: Grants,
 }
 
 impl Catalog {

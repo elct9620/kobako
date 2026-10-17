@@ -1,0 +1,218 @@
+//! Integration coverage for `Sandbox::mount` and `Context::mount`: a
+//! Filesystem the guest's `File` reaches beneath the mounted path, the
+//! registration rules a mount shares with `bind`, and a policy deciding
+//! each open.
+#![cfg(all(feature = "msgpack", feature = "wasmtime"))]
+
+mod common;
+
+use std::sync::Arc;
+
+use common::real_sandbox;
+use kobako::msgpack::Value;
+use kobako::{Access, Error, Filesystem, Memory, Policy, Profile, Sandbox};
+use kobako_runtime::dispatch::DispatchHandler;
+use kobako_runtime::error::InvokeError;
+use kobako_runtime::grant::Grant;
+use kobako_runtime::runtime::{Entry, Runtime};
+use kobako_runtime::snapshot::Snapshot;
+use kobako_transport::envelope::Preamble;
+
+const READ_NOTE: &str = r#"File.read("/data/note.txt")"#;
+const RESCUE_DENIED: &str =
+    r#"begin; File.read("/data/note.txt"); rescue Errno::EACCES; "denied"; end"#;
+
+fn memory(contents: &str) -> Arc<dyn Filesystem> {
+    Arc::new([("note.txt", contents)].into_iter().collect::<Memory>())
+}
+
+fn sandbox_with_note() -> Option<Sandbox> {
+    let mut sandbox = real_sandbox()?;
+    sandbox
+        .mount("/data", memory("hello"), Access::Read)
+        .expect("mount a Memory at /data");
+    Some(sandbox)
+}
+
+fn text(value: Value) -> String {
+    match value {
+        Value::Str(text) => text,
+        other => panic!("expected a String, got {other:?}"),
+    }
+}
+
+/// Refuses every path, standing in for a Host App's narrower rule.
+struct Refuses;
+
+impl Policy for Refuses {
+    fn allows(&self, _path: &str, _access: Access) -> bool {
+        false
+    }
+}
+
+/// A runtime that presents no filesystem, so it never reaches a guest.
+struct NoFilesystem;
+
+impl Runtime for NoFilesystem {
+    fn invoke(
+        &self,
+        _entry: Entry<'_>,
+        _preamble: &Preamble,
+        _handler: Option<Arc<dyn DispatchHandler>>,
+        _grants: &[Grant],
+    ) -> Result<Snapshot, InvokeError> {
+        unreachable!("a mount is refused before any invocation")
+    }
+
+    fn profile(&self) -> Profile {
+        Profile::Hermetic
+    }
+}
+
+// @behavior MT-001
+#[test]
+fn a_mounted_filesystem_is_reachable_from_the_guest() {
+    let Some(sandbox) = sandbox_with_note() else {
+        return;
+    };
+    let value = sandbox.eval(READ_NOTE).unwrap().value().unwrap();
+
+    assert_eq!(
+        text(value),
+        "hello",
+        "a file in a Memory mounted through Sandbox::mount must be read by the guest's File"
+    );
+}
+
+// @behavior MT-002
+#[test]
+fn a_mount_after_the_first_invocation_is_refused() {
+    let Some(mut sandbox) = sandbox_with_note() else {
+        return;
+    };
+    sandbox.eval("nil").unwrap();
+
+    assert!(
+        matches!(
+            sandbox.mount("/more", memory(""), Access::Read),
+            Err(Error::Sealed(_))
+        ),
+        "Sandbox::mount after the first invocation must be refused as sealed"
+    );
+}
+
+// @behavior MT-003
+#[test]
+fn a_mount_path_that_is_not_absolute_is_refused() {
+    let Some(mut sandbox) = real_sandbox() else {
+        return;
+    };
+    for at in ["data", "/data/../etc", "/data/", "/a//b"] {
+        assert!(
+            matches!(
+                sandbox.mount(at, memory(""), Access::Read),
+                Err(Error::Argument(_))
+            ),
+            "Sandbox::mount at {at:?} must be refused as no absolute guest path"
+        );
+    }
+}
+
+// @behavior MT-004
+#[test]
+fn a_path_mounted_twice_is_refused() {
+    let Some(mut sandbox) = sandbox_with_note() else {
+        return;
+    };
+    assert!(
+        matches!(
+            sandbox.mount("/data", memory(""), Access::Read),
+            Err(Error::Argument(_))
+        ),
+        "Sandbox::mount at a path already mounted must be refused"
+    );
+}
+
+// @behavior MT-005
+#[test]
+fn a_mount_nested_inside_another_is_refused() {
+    let Some(mut sandbox) = sandbox_with_note() else {
+        return;
+    };
+    assert!(
+        matches!(
+            sandbox.mount("/data/inner", memory(""), Access::Read),
+            Err(Error::Argument(_))
+        ),
+        "Sandbox::mount beneath a mounted path must be refused"
+    );
+}
+
+// @behavior MT-006
+#[test]
+fn a_runtime_presenting_no_filesystem_refuses_the_mount() {
+    let mut sandbox = Sandbox::with_runtime(NoFilesystem, Profile::Hermetic).unwrap();
+
+    assert!(
+        matches!(
+            sandbox.mount("/data", memory(""), Access::Read),
+            Err(Error::Setup(_))
+        ),
+        "Sandbox::mount over a runtime supporting no Mount must fail as Setup"
+    );
+}
+
+// @behavior MT-007
+#[test]
+fn a_policy_refusing_an_open_denies_it_and_the_script_goes_on() {
+    let Some(mut sandbox) = real_sandbox() else {
+        return;
+    };
+    sandbox
+        .mount_with_policy("/data", memory("hello"), Arc::new(Refuses))
+        .unwrap();
+    let value = sandbox.eval(RESCUE_DENIED).unwrap().value().unwrap();
+
+    assert_eq!(
+        text(value),
+        "denied",
+        "an open a Sandbox::mount_with_policy policy refuses must reach the guest as Errno::EACCES"
+    );
+}
+
+// @behavior MT-009
+#[test]
+fn a_context_replaces_a_mount_for_its_invocation_only() {
+    let Some(sandbox) = sandbox_with_note() else {
+        return;
+    };
+    let replaced = sandbox
+        .eval_with(READ_NOTE, |ctx| {
+            ctx.mount("/data", memory("other"), Access::Read)
+        })
+        .unwrap()
+        .value()
+        .unwrap();
+    let next = sandbox.eval(READ_NOTE).unwrap().value().unwrap();
+
+    assert_eq!(
+        (text(replaced), text(next)),
+        ("other".to_string(), "hello".to_string()),
+        "Context::mount must replace the mount for its own invocation and leave the next \
+         reading the Sandbox's own mount"
+    );
+}
+
+// @behavior MT-010
+#[test]
+fn a_context_cannot_mount_a_path_the_sandbox_never_mounted() {
+    let Some(sandbox) = sandbox_with_note() else {
+        return;
+    };
+    let result = sandbox.eval_with("nil", |ctx| ctx.mount("/other", memory(""), Access::Read));
+
+    assert!(
+        matches!(result, Err(Error::Argument(_))),
+        "Context::mount at a path the Sandbox never mounted must be refused before the guest runs"
+    );
+}

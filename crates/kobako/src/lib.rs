@@ -40,6 +40,7 @@ mod dispatch;
 pub mod error;
 pub mod execution;
 pub mod extension;
+mod grants;
 pub mod handles;
 #[cfg(feature = "msgpack")]
 pub mod msgpack;
@@ -56,6 +57,8 @@ pub use error::{Error, Failure};
 pub use execution::{Execution, Usage};
 pub use extension::{Backend, Extension, Provider};
 pub use handles::Handles;
+pub use kobako_runtime::filesystem::{Directory, Filesystem, Memory, Overlay, Temporary};
+pub use kobako_runtime::mount::{Access, Policy};
 pub use kobako_runtime::profile::Profile;
 pub use payload::RunPayload;
 pub use receiver::{Fault, FaultKind, Receiver};

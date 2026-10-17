@@ -31,6 +31,9 @@ use crate::handles::HandleTable;
 use crate::payload::RunPayload;
 use crate::receiver::Receiver;
 use crate::snippet;
+use kobako_runtime::filesystem::Filesystem;
+use kobako_runtime::grant::GrantKind;
+use kobako_runtime::mount::{Access, Mount, Policy};
 
 /// Per-Sandbox caps and posture, the counterpart of the Ruby
 /// `SandboxOptions` value object. `None` means "no cap".
@@ -191,6 +194,42 @@ impl Sandbox {
         open_catalog(&mut self.registry)?.bind(path, unresolved())
     }
 
+    /// Mount `filesystem` at the absolute guest path `at`, where the guest's
+    /// `File` reaches it with `access`; a write beneath a read-only mount
+    /// fails as `Errno::EROFS` in the guest. A malformed, duplicate, or
+    /// nested path is refused, and so is a runtime that presents no
+    /// filesystem to the guest. Refused once sealed.
+    pub fn mount(
+        &mut self,
+        at: &str,
+        filesystem: Arc<dyn Filesystem>,
+        access: Access,
+    ) -> Result<(), Error> {
+        self.register_mount(Mount::new(at, filesystem, access))
+    }
+
+    /// `mount` with a `policy` deciding each open and each change in the
+    /// access's place; a refusal fails that call as `Errno::EACCES` in the
+    /// guest and leaves the script running.
+    pub fn mount_with_policy(
+        &mut self,
+        at: &str,
+        filesystem: Arc<dyn Filesystem>,
+        policy: Arc<dyn Policy>,
+    ) -> Result<(), Error> {
+        self.register_mount(Mount::new(at, filesystem, Access::ReadWrite).with_policy(policy))
+    }
+
+    fn register_mount(&mut self, mount: Mount) -> Result<(), Error> {
+        let catalog = open_catalog(&mut self.registry)?;
+        if !self.runtime.supports(GrantKind::Mount) {
+            return Err(Error::Setup(SetupError::Intact(
+                "this Sandbox's runtime presents no Mount to the guest".to_string(),
+            )));
+        }
+        catalog.grants.mount(mount)
+    }
+
     /// Install an Extension — a guest idiom (`source`) paired with an
     /// optional host backend. A `PerInvocation` provider is resolved fresh
     /// at every invocation. Refused once sealed; an Extension whose
@@ -253,14 +292,14 @@ impl Sandbox {
         F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
     {
         let (catalog, handles) = self.begin_invocation()?;
-        let resolved = collect_overrides(&catalog, overrides)?;
+        let overrides = collect_overrides(&catalog, overrides)?;
         self.invoke(
             catalog,
             handles,
             Entry::Eval {
                 source: source.as_bytes(),
             },
-            resolved,
+            overrides,
         )
     }
 
@@ -290,7 +329,7 @@ impl Sandbox {
             )));
         }
         let (catalog, handles) = self.begin_invocation()?;
-        let resolved = collect_overrides(&catalog, overrides)?;
+        let overrides = collect_overrides(&catalog, overrides)?;
         let payload = payload.encode(&handles)?;
         self.invoke(
             catalog,
@@ -299,28 +338,35 @@ impl Sandbox {
                 entrypoint: target,
                 payload,
             },
-            resolved,
+            overrides,
         )
     }
 
-    /// One owner for the wiring, so a handler or frame change cannot drift
-    /// between verbs. `resolved` starts with the overrides, so the handler
-    /// answers them before this run's provider results.
+    /// One owner for the wiring, so a handler, frame, or Grant change cannot
+    /// drift between verbs. The resolved Services start with the overrides,
+    /// so the handler answers them before this run's provider results.
     fn invoke(
         &self,
         catalog: Arc<Catalog>,
         handles: Arc<Mutex<HandleTable>>,
         entry: Entry<'_>,
-        mut resolved: Resolved,
+        overrides: Overrides,
     ) -> Result<Execution, Error> {
+        let Overrides {
+            mut resolved,
+            mounts,
+        } = overrides;
         resolved.extend(self.extensions.resolve());
         let preamble = catalog.preamble();
+        let grants = catalog.grants.for_invocation(&mounts);
         let verb = match entry {
             Entry::Eval { .. } => "eval",
             Entry::Run { .. } => "run",
         };
         let handler = Arc::new(CatalogHandler::new(catalog, handles.clone(), resolved));
-        let snapshot = self.runtime.invoke(entry, &preamble, Some(handler), &[])?;
+        let snapshot = self
+            .runtime
+            .invoke(entry, &preamble, Some(handler), &grants)?;
         Ok(build_execution(snapshot, handles, verb))
     }
 
@@ -368,21 +414,32 @@ fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>, verb: &
     )
 }
 
-fn collect_overrides<F>(catalog: &Catalog, overrides: F) -> Result<Resolved, Error>
+/// What one invocation's override closure chose: the Services it rebound
+/// and the Mounts it replaced.
+struct Overrides {
+    resolved: Resolved,
+    mounts: Vec<Mount>,
+}
+
+fn collect_overrides<F>(catalog: &Catalog, overrides: F) -> Result<Overrides, Error>
 where
     F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
 {
     let mut ctx = Context {
         catalog,
         overrides: Vec::new(),
+        mounts: Vec::new(),
     };
     overrides(&mut ctx)?;
-    Ok(ctx.overrides)
+    Ok(Overrides {
+        resolved: ctx.overrides,
+        mounts: ctx.mounts,
+    })
 }
 
 /// The per-invocation Context handed to an `eval_with` / `run_with` override closure — the
 /// Rust peer of the Ruby frontend's `Kobako::Context`. Here it carries only the
-/// `ctx.bind` overrides; the run's Handle table and observables ride into its
+/// `ctx.bind` and `ctx.mount` overrides; the run's Handle table and observables ride into its
 /// `Execution` instead. Each override takes priority over that path's
 /// per-invocation provider result and its static base for that one invocation,
 /// and is discarded when it ends. The borrow keeps it from outliving the
@@ -390,9 +447,45 @@ where
 pub struct Context<'a> {
     catalog: &'a Catalog,
     overrides: Resolved,
+    mounts: Vec<Mount>,
 }
 
 impl Context<'_> {
+    /// Use `filesystem` for the Mount at `at` during this invocation only,
+    /// with its own `access`. Replacing a path nothing was mounted at returns
+    /// `Error::Argument`, so an override never adds a Mount.
+    pub fn mount(
+        &mut self,
+        at: &str,
+        filesystem: Arc<dyn Filesystem>,
+        access: Access,
+    ) -> Result<(), Error> {
+        self.replace_mount(Mount::new(at, filesystem, access))
+    }
+
+    /// `mount` with a `policy` deciding in the access's place, as
+    /// `Sandbox::mount_with_policy` takes it.
+    pub fn mount_with_policy(
+        &mut self,
+        at: &str,
+        filesystem: Arc<dyn Filesystem>,
+        policy: Arc<dyn Policy>,
+    ) -> Result<(), Error> {
+        self.replace_mount(Mount::new(at, filesystem, Access::ReadWrite).with_policy(policy))
+    }
+
+    fn replace_mount(&mut self, mount: Mount) -> Result<(), Error> {
+        let at = mount.at();
+        if !self.catalog.grants.is_mounted(at) {
+            return Err(Error::Argument(format!(
+                "cannot override unmounted path {at:?}"
+            )));
+        }
+        self.mounts.retain(|mounted| mounted.at() != at);
+        self.mounts.push(mount);
+        Ok(())
+    }
+
     /// Override the object bound at an already-declared `path` for this
     /// invocation. Overriding a path that was never declared returns
     /// `Error::Argument`, so an override can never grow the sealed key set;

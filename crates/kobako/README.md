@@ -29,7 +29,7 @@ Four types carry the host side of an invocation.
 | `Yielder` | the host-side stand-in for a guest-supplied block |
 | `Handles` | the per-invocation capability-Handle table |
 
-`bind`, `install`, `preload` and `flag` fill the registration tables until
+`bind`, `install`, `preload`, `flag` and `mount` fill the registration tables until
 the first invocation seals them. `eval` and `run` execute on a fresh guest
 instance and return an `Execution`: the run's outcome, captures and usage.
 
