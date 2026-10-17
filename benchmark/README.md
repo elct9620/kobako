@@ -1,6 +1,6 @@
 # Benchmarks
 
-Kobako maintains a regression benchmark suite: nine performance dimensions gated at release ([`support/roster.rb`](support/roster.rb)), four characterization suites, and the regexp variant profile. The table names each one.
+Kobako maintains a regression benchmark suite: nine performance dimensions gated at release ([`support/roster.rb`](support/roster.rb)), five characterization suites, and the regexp variant profile. The table names each one.
 
 | Dimension                     | Standing                       |
 |-------------------------------|--------------------------------|
@@ -17,6 +17,7 @@ Kobako maintains a regression benchmark suite: nine performance dimensions gated
 | `gvl:` scheduling             | characterization               |
 | Per-Sandbox RSS               | characterization               |
 | Guest-side setup scaling      | characterization               |
+| Mount block                   | characterization               |
 | Regexp                        | variant profile                |
 
 The suite perceives drift against a fixed reference point, the committed anchor `benchmark/baseline.json`, rather than certifying a portable performance standard. Absolute numbers are meaningful only on hardware comparable to the machine that produced them. Per-release runs are archived under `benchmark/results/`. A cumulative +10 % regression past the anchor on any gated benchmark blocks release until a maintainer reviews or re-blesses.
@@ -448,6 +449,15 @@ The suite reads two lenses. External RSS sampling (`ps -o rss=`) never reaches i
 | Retained RSS after GC of the same capture                             | +3.2 MB                                                                        | —                            |
 
 Budget ~37 MB up front per worker process. An idle Sandbox holds no wasm instance ([`mruby.md`](../docs/spec/behavior/mruby.md)), so additional Sandboxes cost KB, not MB: **1 000 tenants ≈ 37.0 MB** in one Ruby process. Per-invocation linear memory lives and dies with the invocation's instance. RSS figures swing with host load and allocator state, so treat them as ranges.
+
+#### Mount block ([`mount.rb`](mount.rb))
+
+A block given to `#mount` is asked once per open, re-entering Ruby through the GVL from the guest span. Suite #14 prices that ask against a Mount without a block. Its figures land with the next anchor round.
+
+| Rows | Per-open block cost |
+|---|---|
+| `14a-read-1` → `14b-read-1-block` | the delta, with the per-invocation Grant translation |
+| `14c-read-100` → `14d-read-100-block` | the delta divided by 100 |
 
 #### Regexp engine ([`regexp.rb`](regexp.rb))
 

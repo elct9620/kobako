@@ -39,13 +39,14 @@ module Kobako
       guest_setup
       gvl_scheduling
       memory
+      mount
       regexp
     ].freeze
 
     # The characterization probes cheap enough to smoke: each drives the
     # default Guest Binary and finishes in seconds, so the reason to leave
     # one out of the wiring check does not apply.
-    SMOKE_CHARACTERIZATION = %w[guest_setup].freeze
+    SMOKE_CHARACTERIZATION = %w[guest_setup mount].freeze
 
     # Every probe +gate:bench:smoke+ drives. Derived from RELEASE_BENCHES
     # so promoting a benchmark into the gate never costs it the cheaper

@@ -61,6 +61,9 @@ namespace :bench do
   desc "Run guest-side setup characterization — compile and binding scaling (#13; not in release gate)."
   task(:guest_setup) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/guest_setup.rb" } }
 
+  desc "Run the Mount block characterization — per-open callback cost (#14; not in release gate)."
+  task(:mount) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/mount.rb" } }
+
   # The whole-round sweep for a manual capture: the 16 MiB gated set plus
   # every characterization, merged into one results file. bench:full stays
   # lean and pure-binary for the release gate; bench:all additionally builds
