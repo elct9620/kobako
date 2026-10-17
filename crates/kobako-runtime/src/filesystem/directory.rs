@@ -65,11 +65,13 @@ fn kind(is_dir: bool) -> Kind {
 impl Filesystem for Directory {
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         let creates = options.create || options.create_new || options.truncate;
+        let writes = options.write || creates;
         let mut open = CapOpenOptions::new();
-        open.read(options.read)
-            // The host refuses to create or truncate a file it is not
-            // opening for writing; the runtime decides what is written.
-            .write(options.write || creates)
+        // The host refuses an open for neither reading nor writing, and one
+        // that creates or truncates without writing; the runtime decides
+        // what is read and written, so such opens read or write here.
+        open.read(options.read || !writes)
+            .write(writes)
             .create(options.create)
             .create_new(options.create_new)
             .truncate(options.truncate);
@@ -210,6 +212,14 @@ mod tests {
             b"a,b",
             "a host file read through a Directory's open must read back its content"
         );
+    }
+
+    #[test]
+    fn an_open_for_neither_reading_nor_writing_still_opens() {
+        let host = HostDir::new("lookup");
+        fs::write(host.0.join("seen"), "x").expect("the host file must be written");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        assert!(directory.open("seen", &OpenOptions::default()).is_ok());
     }
 
     // @behavior FS-006
