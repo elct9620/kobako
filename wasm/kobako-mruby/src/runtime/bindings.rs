@@ -22,6 +22,9 @@ pub enum InstallError {
     /// that is not a valid constant); carries the rendered exception
     /// message.
     Rejected(String),
+    /// A segment names a constant the Guest Binary already defines in a
+    /// shape the binding cannot reopen; carries the segment.
+    Defined(String),
 }
 
 impl std::fmt::Display for InstallError {
@@ -32,6 +35,12 @@ impl std::fmt::Display for InstallError {
             }
             InstallError::Rejected(msg) => {
                 write!(f, "bind path registration rejected: {msg}")
+            }
+            InstallError::Defined(segment) => {
+                write!(
+                    f,
+                    "bind path segment {segment} is defined by the Guest Binary"
+                )
             }
         }
     }
@@ -60,7 +69,7 @@ impl Kobako {
                     let name = std::ffi::CString::new(path.as_str())
                         .map_err(|_| InstallError::NulInName)?;
                     mrb.define_class(name.as_c_str(), object_class)
-                        .map_err(|e| InstallError::Rejected(e.message(mrb)))?
+                        .map_err(|e| install_error(mrb, object_class, &name, e))?
                 }
                 Some((prefix, leaf)) => {
                     let module = match namespaces.iter().find(|(seen, _)| *seen == prefix) {
@@ -75,7 +84,7 @@ impl Kobako {
                         std::ffi::CString::new(leaf).map_err(|_| InstallError::NulInName)?;
                     module
                         .define_class(mrb, leaf_cstr.as_c_str(), object_class)
-                        .map_err(|e| InstallError::Rejected(e.message(mrb)))?
+                        .map_err(|e| install_error(mrb, module, &leaf_cstr, e))?
                 }
             };
             self.extend_proxy(mrb, class)?;
@@ -91,13 +100,13 @@ impl Kobako {
         let first_cstr = std::ffi::CString::new(first).map_err(|_| InstallError::NulInName)?;
         let mut module = mrb
             .define_module(first_cstr.as_c_str())
-            .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
+            .map_err(|e| install_error(mrb, mrb.object_class(), &first_cstr, e))?;
         for segment in segments {
             let segment_cstr =
                 std::ffi::CString::new(segment).map_err(|_| InstallError::NulInName)?;
             module = module
                 .define_module(mrb, segment_cstr.as_c_str())
-                .map_err(|e| InstallError::Rejected(e.message(mrb)))?;
+                .map_err(|e| install_error(mrb, module, &segment_cstr, e))?;
         }
         Ok(module)
     }
@@ -109,5 +118,20 @@ impl Kobako {
             .singleton_class(mrb)
             .and_then(|singleton| singleton.include_module(mrb, self.registrations.proxy_module))
             .map_err(|e| InstallError::Rejected(e.message(mrb)))
+    }
+}
+
+/// A definition refused on a name its parent already holds met a constant
+/// the Guest Binary defines; the bind cannot reopen it as a class or module.
+fn install_error(
+    mrb: &Mrb,
+    parent: impl beni::Module,
+    name: &std::ffi::CStr,
+    err: beni::Error,
+) -> InstallError {
+    if parent.const_defined_at(mrb, name) {
+        InstallError::Defined(name.to_string_lossy().into_owned())
+    } else {
+        InstallError::Rejected(err.message(mrb))
     }
 }

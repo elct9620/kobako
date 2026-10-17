@@ -108,4 +108,18 @@ class TestE2EBindPaths < Minitest::Test
     assert_equal :kept, sandbox.eval("KobakoStore.call").value,
                  "a segment only sharing the reserved prefix through Sandbox#bind must bind"
   end
+
+  # @behavior SV-051
+  # Each case is a shape a bind cannot reopen: a module as the leaf, a class
+  # with another superclass, and a class standing where a module must.
+  def test_a_segment_the_guest_defines_in_another_shape_fails_by_name
+    { "Kernel" => "Kernel", "Object" => "Object", "String::Helper" => "String" }.each do |path, segment|
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+      sandbox.bind(path, -> { :x })
+
+      err = assert_raises(Kobako::SandboxError) { sandbox.eval("1") }
+      assert_match(/segment #{segment} is defined by the Guest Binary/, err.message,
+                   "#{path} through Sandbox#bind then #eval must fail naming #{segment}")
+    end
+  end
 end
