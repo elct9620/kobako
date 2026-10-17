@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.18.0...kobako-mruby-v0.19.0) (2026-10-17)
+
+
+### Bug Fixes
+
+* **guest:** name the segment a bind path meets when the Guest Binary already defines it ([0dc1766](https://github.com/elct9620/kobako/commit/0dc1766ff60a1ef03a5b0c337dfd02041fb3fb8f))
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.17.0...kobako-mruby-v0.18.0) (2026-10-13)
 
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.18.0...kobako-sdk-v0.19.0) (2026-10-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **guest:** a Service or Extension backend bound at the path File fails its first invocation, naming the segment the Guest Binary now defines.
+* **runtime:** the Runtime trait's invoke takes the invocation's Grants as a fourth argument, so every engine implementing it must accept them.
+* Sandbox#bind and the Rust SDK's bind raise ArgumentError for a path whose first segment is Kobako, where a path such as Kobako::KV used to bind.
+
+### Features
+
+* **guest:** ship File in the default Guest Binary over the filesystem Grants ([535527b](https://github.com/elct9620/kobako/commit/535527b2c6beb82fe37758df62c3804ce5c7191a)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **runtime:** hand each invocation its Grants and let an engine declare the kinds it supports ([cba90ee](https://github.com/elct9620/kobako/commit/cba90eed09c8afcb23080cef1c9cbb3650648472)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **sdk:** mount a Filesystem on a Sandbox and replace it per invocation ([0067973](https://github.com/elct9620/kobako/commit/00679736cd1e4aad1c1475a021b2338c8cd2de43)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+
+
+### Bug Fixes
+
+* refuse a Service path under the Kobako namespace when it is bound ([5a83c14](https://github.com/elct9620/kobako/commit/5a83c145118abec8065d3846e2c73e51f9491757))
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.17.0...kobako-sdk-v0.18.0) (2026-10-13)
 
 
