@@ -4,7 +4,7 @@ How a guest call reaches a host object, what crosses in each direction, and how 
 
 ### Outward route
 
-A guest call reaching a host object is the only route outward. What it carries is witnessed in both directions and at three depths. The walk decides what the wire can hold. The table hands out references for the rest, and the dispatch puts them back together.
+Besides a Mount, a guest call reaching a host object is the only route outward. What it carries is witnessed in both directions and at three depths. The walk decides what the wire can hold. The table hands out references for the rest, and the dispatch puts them back together.
 
 A reference lasts one invocation and belongs to one Sandbox. Both bounds are witnessed as a receiver and as an argument. A table consulted on only one of those paths would pass either witness alone.
 
