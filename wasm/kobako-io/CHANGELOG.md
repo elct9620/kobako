@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.18.0...kobako-io-v0.19.0) (2026-10-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **guest:** a Service or Extension backend bound at the path File fails its first invocation, naming the segment the Guest Binary now defines.
+
+### Features
+
+* **guest:** ship File in the default Guest Binary over the filesystem Grants ([535527b](https://github.com/elct9620/kobako/commit/535527b2c6beb82fe37758df62c3804ce5c7191a)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.17.0...kobako-io-v0.18.0) (2026-10-13)
 
 

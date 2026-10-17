@@ -51,7 +51,7 @@ reaches the same types through `kobako-core`.
 
 ```toml
 [dependencies]
-kobako-transport = "0.18.0" # x-release-please-version
+kobako-transport = "0.19.0" # x-release-please-version
 ```
 
 ## License

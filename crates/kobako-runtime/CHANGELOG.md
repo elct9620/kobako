@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-runtime-v0.18.0...kobako-runtime-v0.19.0) (2026-10-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **runtime:** the Runtime trait's invoke takes the invocation's Grants as a fourth argument, so every engine implementing it must accept them.
+
+### Features
+
+* **runtime:** hand each invocation its Grants and let an engine declare the kinds it supports ([cba90ee](https://github.com/elct9620/kobako/commit/cba90eed09c8afcb23080cef1c9cbb3650648472)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **runtime:** let a Mount decide its own access as the one kind of Grant ([5c9189e](https://github.com/elct9620/kobako/commit/5c9189eea8ac61cf165dca1b38e459c4f14acdd0)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **runtime:** ship the Memory, Temporary, Directory, and Overlay filesystems ([c60c453](https://github.com/elct9620/kobako/commit/c60c4535e966ffd501e03d7be7fef0a44d860b0b)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+
+
+### Bug Fixes
+
+* **runtime:** open a Directory file the runtime neither reads nor writes ([6b30858](https://github.com/elct9620/kobako/commit/6b308583383d6803894b2c7af1a9ef05d72b0e7d)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-runtime-v0.17.0...kobako-runtime-v0.18.0) (2026-10-13)
 
 
