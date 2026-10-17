@@ -46,6 +46,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `test/parity/test_hermetic.rb`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/wasi.rs`
+- `crates/kobako-wasmtime/src/preview1/poll.rs`
 - `crates/kobako-wasmtime/tests/compile_posture.rs`
 - `crates/kobako-wasmtime/src/exports.rs`
 - `crates/kobako/tests/concurrency.rs`
@@ -646,3 +647,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Sandbox requesting the weaker posture |
 | When | the guest compiles its Snippets |
 | Then | it reads the epoch and a constant stream rather than the host's time and entropy |
+
+## `RT-073` A wait on the strongest posture's clock ends at once
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-051` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest running at the strongest posture |
+| When | it waits ten seconds on a clock |
+| Then | the wait returns without the host waiting |
+
+## `RT-074` A wait on the weaker posture's clock ends at the deadline
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-049`, `S-010` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest running at the weaker posture under a deadline |
+| When | it waits on a clock past that deadline |
+| Then | the invocation ends as a deadline reached, at the deadline |
