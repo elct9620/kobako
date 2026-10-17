@@ -10,7 +10,7 @@ The dependency scenarios cover one more question: when that composition is check
 
 Installing after the seal, an unmet dependency, and a malformed Extension all raise rather than compose. Each is settled here by what the refusal names. The dependency ones are settled twice over. When the check fires and what it can say are separate observations.
 
-The `File` idiom the end-to-end witnesses install is an illustrative fixture. kobako ships no concrete Extension. So no scenario here states what that idiom does, only what installing one produces.
+The `Vfs` idiom the end-to-end witnesses install is an illustrative fixture. kobako ships no concrete Extension. So no scenario here states what that idiom does, only what installing one produces.
 
 ## Includes
 

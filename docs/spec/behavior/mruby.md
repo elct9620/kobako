@@ -10,7 +10,7 @@ A capability gem servicing one guest operation calls back into guest code. The r
 
 The boot state may be computed at build time, and per-invocation resources may be provisioned ahead of demand. Both are stated to be unobservable, so neither is a scenario. The reproducible-build check holds the baking end. Leak-freedom between invocations is per-invocation isolation and belongs with the Sandbox behaviors, whose witnesses cite it alongside this one.
 
-The default Guest Binary recognises no flag, so only the unrecognised paths are scenarios. A critical flag refuses, because a restriction must never lapse silently.
+The default Guest Binary recognises one flag, which the file scenarios cover, so only the unrecognised paths are scenarios here. A critical flag refuses, because a restriction must never lapse silently.
 
 A host may keep the guest's compiled snippets and replay them in place of the source. That is safe only if the bytecode replays as the source would. So the scenarios pin what is defined, how a raise is attributed, and that compiling runs nothing. Identical bytes let two compiles of one Sandbox stand in for each other.
 

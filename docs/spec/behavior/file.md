@@ -1,0 +1,124 @@
+# File
+
+What a script reaches through the default Guest Binary's `File`, beneath the paths a filesystem Grant mounts.
+
+```
+script ─ File / IO ─> wasi-libc ─ preopen at the Grant's path ─> runtime ─> Filesystem
+```
+
+### Why these scenarios
+
+`File` is the guest's half of a filesystem Grant. It ships in the default Guest Binary, so a script always names it. What it reaches is the Grant's to decide. With no Grant it reaches nothing, and says so as a call the platform lacks.
+
+The failures are CRuby's classes, so a script handles them as it would on any host. A flag removes `File` outright for a Host App that wants no file surface at all.
+
+```
+nothing mounted   -> NotImplementedError
+nothing at path   -> Errno::ENOENT
+read-only Grant   -> Errno::EROFS on a write
+disable_file flag -> no File constant
+```
+
+## Includes
+
+- `crates/kobako-wasmtime/tests/guest_file.rs`
+
+## `FL-001` A script reads a file beneath a mounted path
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-076` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a filesystem Grant at `/data` over a file |
+| When | the script reads that file with `File.read` |
+| Then | it reads the file's content |
+
+## `FL-002` A script writes a file beneath a read-write mount
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-077` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write filesystem Grant over a Memory |
+| When | the script writes a file inside a `File.open` block |
+| Then | the Memory holds that file with what was written |
+
+## `FL-003` A script reads a file line by line
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a filesystem Grant over a file of two lines |
+| When | the script reads it with `each_line` |
+| Then | the block receives each line in order |
+
+## `FL-004` Opening a file with nothing mounted is unimplemented
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed no filesystem Grant |
+| When | the script opens a file |
+| Then | the script raises `NotImplementedError` |
+
+## `FL-005` Opening a file a Grant does not hold raises ENOENT
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a filesystem Grant |
+| When | the script reads a path nothing is at |
+| Then | the script raises `Errno::ENOENT` |
+
+## `FL-006` Writing beneath a read-only mount raises EROFS
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-078` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-only filesystem Grant |
+| When | the script writes a file beneath it |
+| Then | the script raises `Errno::EROFS` |
+
+## `FL-007` A File is an IO
+
+| Step | Statement |
+| --- | --- |
+| Given | the default Guest Binary |
+| When | the script reads the superclass of `File` |
+| Then | it is `IO` |
+
+## `FL-008` The disable_file flag removes File
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-004`, `MR-017` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox that set the critical flag `disable_file` |
+| When | the script asks whether `File` is defined |
+| Then | it is not |
+
+## `FL-009` An IO may stand for a file the guest opened
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file it opened beneath a filesystem Grant |
+| When | it constructs an IO over that file's descriptor and reads it |
+| Then | it reads the file's content |

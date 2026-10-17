@@ -17,20 +17,20 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 - `test/e2e/test_io_write.rb`
 - `test/e2e/test_io_kernel.rb`
 
-## `IO-001` Only the captured descriptors may be opened
+## `IO-001` Only the captured descriptors and the guest's own files may be opened
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | guest code constructs an IO over a descriptor outside the captured pair |
+| When | guest code constructs an IO over a descriptor it neither captures nor opened |
 | Then | the invocation fails with a message naming the descriptor constraint |
 
-## `IO-002` Only writing is offered
+## `IO-002` Only writing is offered on a captured descriptor
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | guest code constructs an IO in a mode other than write |
+| When | guest code constructs an IO over a captured descriptor in a mode other than write |
 | Then | the invocation fails with a message naming the mode constraint |
 
 ## `IO-003` The descriptor is checked where it is used, not only where it was given
