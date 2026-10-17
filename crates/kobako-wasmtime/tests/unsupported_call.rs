@@ -35,6 +35,7 @@ fn a_call_the_host_does_not_serve_raises_unsupported_error_in_the_guest() {
             Entry::Eval { source },
             &preamble,
             Some(Arc::new(ServesNoCall)),
+            &[],
         )
         .expect("the invocation must start");
 

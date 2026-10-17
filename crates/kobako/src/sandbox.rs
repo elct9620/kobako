@@ -320,7 +320,7 @@ impl Sandbox {
             Entry::Run { .. } => "run",
         };
         let handler = Arc::new(CatalogHandler::new(catalog, handles.clone(), resolved));
-        let snapshot = self.runtime.invoke(entry, &preamble, Some(handler))?;
+        let snapshot = self.runtime.invoke(entry, &preamble, Some(handler), &[])?;
         Ok(build_execution(snapshot, handles, verb))
     }
 
@@ -431,6 +431,7 @@ mod tests {
             _entry: kobako_runtime::runtime::Entry<'_>,
             _preamble: &kobako_transport::envelope::Preamble,
             _handler: Option<Arc<dyn kobako_runtime::dispatch::DispatchHandler>>,
+            _grants: &[kobako_runtime::grant::Grant],
         ) -> Result<kobako_runtime::snapshot::Snapshot, kobako_runtime::error::InvokeError>
         {
             unreachable!("sealing never invokes")

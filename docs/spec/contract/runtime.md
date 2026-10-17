@@ -20,10 +20,22 @@ pub trait Runtime {}
 ## `Runtime::invoke`
 
 Run one invocation through the given entry, routing each Call to the handler.
+The Grants are this invocation's, and the engine keeps none of them afterwards.
 
 ```rust
 pub trait Runtime {
-    fn invoke(&self, entry: Entry<'_>, preamble: &Preamble, handler: Option<Arc<dyn DispatchHandler>>) -> Result<Snapshot, InvokeError>;
+    fn invoke(&self, entry: Entry<'_>, preamble: &Preamble, handler: Option<Arc<dyn DispatchHandler>>, grants: &[Grant]) -> Result<Snapshot, InvokeError>;
+}
+```
+
+## `Runtime::supports`
+
+Whether the engine presents a kind of Grant to the Guest. A Frontend refuses a
+Grant of a kind it does not support. The default supports none.
+
+```rust
+pub trait Runtime {
+    fn supports(&self, _kind: GrantKind) -> bool;
 }
 ```
 
@@ -160,4 +172,247 @@ Why an invocation produced no Snapshot: a Trap, or a setup that failed first.
 
 ```rust
 pub enum InvokeError {}
+```
+
+## `Grant`
+
+A host resource a Frontend hands the engine for one invocation.
+
+```rust
+pub enum Grant {}
+```
+
+## `Grant::kind`
+
+Which kind of Grant this is, as `Runtime::supports` names it.
+
+```rust
+impl Grant {
+    pub fn kind(&self) -> GrantKind {}
+}
+```
+
+## `GrantKind`
+
+The kinds of Grant an engine may support.
+
+```rust
+pub enum GrantKind {}
+```
+
+## `Access`
+
+What the Guest may do beneath a filesystem Grant: read, or read and write.
+
+```rust
+pub enum Access {}
+```
+
+## `Policy`
+
+The Host App's decision for each path the Guest opens or changes, made in a
+filesystem Grant's access's place.
+
+```rust
+pub trait Policy {}
+```
+
+## `Policy::allows`
+
+Whether the Guest may reach the absolute guest path with the given access.
+
+```rust
+pub trait Policy {
+    fn allows(&self, path: &str, access: Access) -> bool;
+}
+```
+
+## `Filesystem`
+
+The files and directories behind a filesystem Grant. One may wrap another and
+answer by delegating.
+
+```rust
+pub trait Filesystem {}
+```
+
+## `Filesystem::open`
+
+Open the file at a path, creating or truncating it where the options say to.
+
+```rust
+pub trait Filesystem {
+    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError>;
+}
+```
+
+## `Filesystem::metadata`
+
+What a path names, and its length.
+
+```rust
+pub trait Filesystem {
+    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError>;
+}
+```
+
+## `Filesystem::read_dir`
+
+The entries of a directory.
+
+```rust
+pub trait Filesystem {
+    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError>;
+}
+```
+
+## `Filesystem::create_dir`
+
+Create a directory.
+
+```rust
+pub trait Filesystem {
+    fn create_dir(&self, path: &str) -> Result<(), FilesystemError>;
+}
+```
+
+## `Filesystem::remove_dir`
+
+Remove an empty directory.
+
+```rust
+pub trait Filesystem {
+    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError>;
+}
+```
+
+## `Filesystem::remove_file`
+
+Remove a file.
+
+```rust
+pub trait Filesystem {
+    fn remove_file(&self, path: &str) -> Result<(), FilesystemError>;
+}
+```
+
+## `Filesystem::rename`
+
+Move a file or directory to another path.
+
+```rust
+pub trait Filesystem {
+    fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError>;
+}
+```
+
+## `Filesystem::for_invocation`
+
+The Filesystem a new invocation starts from in this one's place. The default
+shares this one with every invocation.
+
+```rust
+pub trait Filesystem {
+    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>>;
+}
+```
+
+## `File`
+
+One open file. The engine keeps its position, so each read and write names its
+offset.
+
+```rust
+pub trait File {}
+```
+
+## `File::read_at`
+
+Read from an offset into the buffer, answering how much was read.
+
+```rust
+pub trait File {
+    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError>;
+}
+```
+
+## `File::write_at`
+
+Write the buffer at an offset, answering how much was written.
+
+```rust
+pub trait File {
+    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError>;
+}
+```
+
+## `File::metadata`
+
+What the open file is, and its length.
+
+```rust
+pub trait File {
+    fn metadata(&self) -> Result<Metadata, FilesystemError>;
+}
+```
+
+## `File::set_len`
+
+Truncate or extend the file, extending with zeros.
+
+```rust
+pub trait File {
+    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError>;
+}
+```
+
+## `File::sync`
+
+Make what was written durable. The default has nothing to flush.
+
+```rust
+pub trait File {
+    fn sync(&mut self) -> Result<(), FilesystemError>;
+}
+```
+
+## `OpenOptions`
+
+How a file is opened: for reading, writing, creating, or truncating.
+
+```rust
+pub struct OpenOptions {}
+```
+
+## `Kind`
+
+What a path names: a file or a directory.
+
+```rust
+pub enum Kind {}
+```
+
+## `Metadata`
+
+What a path names, and its length.
+
+```rust
+pub struct Metadata {}
+```
+
+## `DirEntry`
+
+One entry of a directory: its name and what it names.
+
+```rust
+pub struct DirEntry {}
+```
+
+## `FilesystemError`
+
+Why a Filesystem call failed. The engine hands the Guest the matching error
+code.
+
+```rust
+pub enum FilesystemError {}
 ```

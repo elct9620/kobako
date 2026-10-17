@@ -13,6 +13,7 @@ use kobako_transport::envelope::Preamble;
 
 use crate::dispatch::DispatchHandler;
 use crate::error::InvokeError;
+use crate::grant::{Grant, GrantKind};
 use crate::profile::Profile;
 use crate::snapshot::Snapshot;
 
@@ -49,12 +50,23 @@ pub enum Entry<'a> {
 /// wrapper and GC-marking it; the runtime itself touches no frontend
 /// value.
 pub trait Runtime {
+    /// `grants` are this Invocation's, each of a kind `supports` declared;
+    /// the runtime presents them to the guest and keeps none afterwards.
     fn invoke(
         &self,
         entry: Entry<'_>,
         preamble: &Preamble,
         handler: Option<Arc<dyn DispatchHandler>>,
+        grants: &[Grant],
     ) -> Result<Snapshot, InvokeError>;
+
+    /// Whether this runtime presents a Grant of `kind` to the guest. A
+    /// frontend refuses to register one it does not, before any guest runs.
+    /// The default supports none, so an engine that has not learned Grants
+    /// still serves every invocation without one.
+    fn supports(&self, _kind: GrantKind) -> bool {
+        false
+    }
 
     /// The isolation profile this runtime provides. Deliberately
     /// without a default: every engine states its posture explicitly,

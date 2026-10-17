@@ -47,6 +47,7 @@ fn compiled_snippets_replay_in_a_later_invocation() {
             },
             &replay,
             None,
+            &[],
         )
         .expect("the invocation must start");
 

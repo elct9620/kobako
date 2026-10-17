@@ -26,6 +26,7 @@ fn eval_with_flag(critical: bool) -> Option<(Outcome, Vec<u8>)> {
             },
             &preamble,
             None,
+            &[],
         )
         .expect("the invocation must start");
     let Completion::Outcome(outcome) = snapshot.completion else {

@@ -311,7 +311,7 @@ impl Runtime {
         // the closure touches no Ruby VALUE (the driver is magnus-free, and a
         // guest→host dispatch re-acquires the GVL through the bridge).
         let result = gvl::region(self.release_gvl, || {
-            self.driver.invoke(entry, &preamble, handler)
+            self.driver.invoke(entry, &preamble, handler, &[])
         });
         result
             .map(|snapshot| Snapshot(snapshot, verb))

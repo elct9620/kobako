@@ -23,6 +23,7 @@ use crate::wasi::Wasi;
 use crate::{capture, guest_mem, instance_pre, io, trap};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
+use kobako_runtime::grant::Grant;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
@@ -152,6 +153,7 @@ impl ContractRuntime for Driver {
         entry: Entry<'_>,
         preamble: &Preamble,
         handler: Option<Arc<dyn DispatchHandler>>,
+        _grants: &[Grant],
     ) -> Result<Snapshot, InvokeError> {
         let wasi = Wasi::for_invocation(&self.config, &preamble.encode())?;
         let mut store = self.new_store(wasi)?;

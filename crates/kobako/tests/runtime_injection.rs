@@ -9,6 +9,7 @@
 use std::sync::{Arc, Mutex};
 
 use kobako_runtime::dispatch::DispatchHandler;
+use kobako_runtime::grant::Grant;
 use kobako_runtime::runtime::{Entry, Runtime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
 use kobako_transport::envelope::{Outcome, Preamble};
@@ -39,6 +40,7 @@ impl Runtime for Canned {
         _entry: Entry<'_>,
         preamble: &Preamble,
         _handler: Option<Arc<dyn DispatchHandler>>,
+        _grants: &[Grant],
     ) -> Result<Snapshot, kobako_runtime::error::InvokeError> {
         self.bound
             .lock()
