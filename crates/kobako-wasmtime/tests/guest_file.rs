@@ -344,6 +344,45 @@ impl File for RefusesClose {
     }
 }
 
+/// An open file whose every read fails in a way no error code names.
+struct FailsReads(Box<dyn File>);
+
+impl File for FailsReads {
+    fn read_at(&mut self, _buf: &mut [u8], _offset: u64) -> Result<usize, FilesystemError> {
+        Err(FilesystemError::Other("the disk went away".to_string()))
+    }
+
+    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.write_at(buf, offset)
+    }
+
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        self.0.metadata()
+    }
+
+    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.0.set_len(len)
+    }
+}
+
+// @behavior FL-011
+#[test]
+fn a_failure_no_error_code_names_raises_eio() {
+    let filesystem = WrapsFiles::over_note("hello", FailsReads);
+    let Some(answer) = run(
+        r#"begin; File.read("/data/note.txt"); rescue Errno::EIO; print "failed"; end; nil"#,
+        &[mount(filesystem, Access::Read)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok("failed".to_string()),
+        "File.read of a file whose Filesystem fails with no named code through the bundled guest must raise Errno::EIO"
+    );
+}
+
 // @behavior FL-010
 #[test]
 fn a_close_the_filesystem_refuses_fails_the_scripts_close() {

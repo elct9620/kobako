@@ -36,6 +36,11 @@ const CODES: &[Code] = &[
         message: "Invalid argument",
     },
     Code {
+        name: c"EIO",
+        wasi: 29,
+        message: "Input/output error",
+    },
+    Code {
         name: c"EISDIR",
         wasi: 31,
         message: "Is a directory",

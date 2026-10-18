@@ -134,3 +134,15 @@ disable_file flag -> no File constant
 | Given | a script holding a file whose Filesystem refuses its close as permission denied |
 | When | the script closes that file |
 | Then | the close raises `Errno::EACCES` and the file is closed |
+
+## `FL-011` A failure no error code names raises EIO
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-005` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script reading a file whose Filesystem fails with no named error code |
+| When | the read fails |
+| Then | it raises `Errno::EIO` |
