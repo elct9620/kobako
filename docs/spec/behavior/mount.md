@@ -140,3 +140,27 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 | Given | a Sandbox with nothing mounted at `/other` |
 | When | an invocation's Context mounts a Filesystem at `/other` |
 | Then | the override is refused before the guest runs |
+
+## `MT-011` An Overlay built Layer by Layer reaches the guest as one view
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-001`, `FS-008`, `FS-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox mounting an Overlay of a writable Temporary over a read-only Memory holding a file |
+| When | the script overwrites that file and reads it back |
+| Then | it reads what it wrote, and the Memory still holds the file as it was |
+
+## `MT-012` Adding a Layer leaves the Overlay it was added to as it was
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-011` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay with one Layer |
+| When | a second Layer is added to it |
+| Then | the guest reaches only the first Layer through a mount of the original Overlay |

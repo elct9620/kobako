@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use magnus::value::{Opaque, ReprValue};
 use magnus::{
-    function, prelude::*, scan_args::get_kwargs, Error as MagnusError, RArray, RHash, RModule,
-    RString, Ruby, Symbol, Value,
+    function, method, prelude::*, scan_args::get_kwargs, scan_args::scan_args,
+    Error as MagnusError, RArray, RHash, RModule, RString, Ruby, Symbol, Value,
 };
 
 use kobako_runtime::filesystem::{Directory, Filesystem, Memory, Overlay, Temporary};
@@ -29,7 +29,11 @@ macro_rules! filesystem_class {
 filesystem_class!(MemoryFs, "Kobako::Filesystem::Memory");
 filesystem_class!(TemporaryFs, "Kobako::Filesystem::Temporary");
 filesystem_class!(DirectoryFs, "Kobako::Filesystem::Directory");
-filesystem_class!(OverlayFs, "Kobako::Filesystem::Overlay");
+
+/// The Overlay itself rather than a shared handle, so `layer` can answer a
+/// new one and leave this one as it was.
+#[magnus::wrap(class = "Kobako::Filesystem::Overlay", free_immediately, size)]
+pub(super) struct OverlayFs(Overlay);
 
 pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     let module = kobako.define_module("Filesystem")?;
@@ -40,7 +44,8 @@ pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     let directory = module.define_class("Directory", ruby.class_object())?;
     directory.define_singleton_method("new", function!(directory_new, 1))?;
     let overlay = module.define_class("Overlay", ruby.class_object())?;
-    overlay.define_singleton_method("new", function!(overlay_new, 1))?;
+    overlay.define_singleton_method("new", function!(overlay_new, 0))?;
+    overlay.define_method("layer", method!(overlay_layer, -1))?;
     Ok(())
 }
 
@@ -86,14 +91,34 @@ fn directory_new(path: String) -> Result<DirectoryFs, MagnusError> {
 }
 
 /// `Overlay.new(upper:, lower:)`, writes landing in `upper`.
-fn overlay_new(kwargs: RHash) -> Result<OverlayFs, MagnusError> {
-    let kwargs = get_kwargs::<_, (Value, Value), (), ()>(kwargs, &["upper", "lower"], &[])?;
-    let (upper, lower) = kwargs.required;
-    Ok(OverlayFs(Arc::new(
-        Overlay::new()
-            .layer(filesystem_of(upper)?, Access::ReadWrite)
-            .layer(filesystem_of(lower)?, Access::Read),
-    )))
+fn overlay_new() -> OverlayFs {
+    OverlayFs(Overlay::new())
+}
+
+/// `layer(filesystem, access: :read)`, a new Overlay with `filesystem`
+/// beneath this one's Layers.
+fn overlay_layer(overlay: &OverlayFs, args: &[Value]) -> Result<OverlayFs, MagnusError> {
+    let args = scan_args::<(Value,), (), (), (), RHash, ()>(args)?;
+    let kwargs = get_kwargs::<_, (), (Option<Symbol>,), ()>(args.keywords, &[], &["access"])?;
+    let (filesystem,) = args.required;
+    let access = match kwargs.optional.0 {
+        Some(access) => access_of(access)?,
+        None => Access::Read,
+    };
+    Ok(OverlayFs(
+        overlay.0.clone().layer(filesystem_of(filesystem)?, access),
+    ))
+}
+
+fn access_of(access: Symbol) -> Result<Access, MagnusError> {
+    match access.name()?.as_ref() {
+        "read" => Ok(Access::Read),
+        "read_write" => Ok(Access::ReadWrite),
+        other => Err(MagnusError::new(
+            Ruby::get().expect("Ruby thread").exception_arg_error(),
+            format!("access must be :read or :read_write, got :{other}"),
+        )),
+    }
 }
 
 /// The Filesystem a Ruby handle of any kobako kind stands for.
@@ -108,7 +133,7 @@ fn filesystem_of(value: Value) -> Result<Arc<dyn Filesystem>, MagnusError> {
         return Ok(fs.0.clone());
     }
     if let Ok(fs) = <&OverlayFs>::try_convert(value) {
-        return Ok(fs.0.clone());
+        return Ok(Arc::new(fs.0.clone()));
     }
     let ruby = Ruby::get().expect("Ruby thread");
     Err(MagnusError::new(
@@ -143,22 +168,12 @@ impl Policy for RubyPolicy {
 /// The Grants one invocation carries, from the Sandbox's Mounts as
 /// `[at, access, filesystem, block]` entries. Each block stays rooted on
 /// the Ruby side for the synchronous call that hands it over.
-pub(super) fn grants_from(ruby: &Ruby, mounts: RArray) -> Result<Vec<Grant>, MagnusError> {
+pub(super) fn grants_from(mounts: RArray) -> Result<Vec<Grant>, MagnusError> {
     let mut grants = Vec::with_capacity(mounts.len());
     for index in 0..mounts.len() as isize {
         let entry: RArray = mounts.entry(index)?;
         let at: String = entry.entry(0)?;
-        let access: Symbol = entry.entry(1)?;
-        let access = match access.name()?.as_ref() {
-            "read" => Access::Read,
-            "read_write" => Access::ReadWrite,
-            other => {
-                return Err(MagnusError::new(
-                    ruby.exception_arg_error(),
-                    format!("access must be :read or :read_write, got :{other}"),
-                ))
-            }
-        };
+        let access = access_of(entry.entry(1)?)?;
         let mount = Mount::new(at, filesystem_of(entry.entry(2)?)?, access);
         let block: Value = entry.entry(3)?;
         grants.push(Grant::Mount(if block.is_nil() {

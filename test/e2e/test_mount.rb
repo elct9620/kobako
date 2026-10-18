@@ -14,6 +14,11 @@ class TestE2EMount < Minitest::Test
     sandbox.mount("/data", Kobako::Filesystem::Memory.new("note.txt" => "hello"), &policy)
   end
 
+  # What +script+ answers with +filesystem+ mounted at +/data+.
+  def run_beneath(filesystem, script, access: :read)
+    Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", filesystem, access: access).eval(script).value
+  end
+
   # @behavior MT-001
   def test_a_mounted_filesystem_is_reachable_from_the_guest
     assert_equal "hello", sandbox_with_note.eval('File.read("/data/note.txt")').value,
@@ -90,5 +95,26 @@ class TestE2EMount < Minitest::Test
     assert_raises(ArgumentError, "ctx.mount at a path the Sandbox never mounted must be refused") do
       sandbox_with_note.eval("nil") { |ctx| ctx.mount("/other", Kobako::Filesystem::Memory.new) }
     end
+  end
+
+  # @behavior MT-011
+  def test_an_overlay_built_layer_by_layer_reaches_the_guest_as_one_view
+    lower = Kobako::Filesystem::Memory.new("note.txt" => "hello")
+    overlay = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Temporary.new, access: :read_write).layer(lower)
+    script = 'File.write("/data/note.txt", "changed"); File.read("/data/note.txt")'
+
+    assert_equal "changed", run_beneath(overlay, script, access: :read_write),
+                 "a file overwritten through an Overlay built with Overlay#layer must read back what was written"
+    assert_equal "hello", run_beneath(lower, 'File.read("/data/note.txt")'),
+                 "the read-only Memory beneath an Overlay built with Overlay#layer must still hold the file as it was"
+  end
+
+  # @behavior MT-012
+  def test_adding_a_layer_leaves_the_overlay_it_was_added_to_as_it_was
+    first = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Memory.new("a.txt" => "a"))
+    first.layer(Kobako::Filesystem::Memory.new("b.txt" => "b"))
+
+    assert_equal [true, false], run_beneath(first, '[File.exist?("/data/a.txt"), File.exist?("/data/b.txt")]'),
+                 "an Overlay mounted after Overlay#layer added to it must reach only its own Layer"
   end
 end

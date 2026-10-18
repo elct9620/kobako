@@ -15,8 +15,10 @@ module Kobako
   # [<tt>Directory.new(path)</tt>]
   #   A host directory and everything beneath it. Nothing outside it is
   #   reachable, a symbolic link pointing out included.
-  # [<tt>Overlay.new(upper:, lower:)</tt>]
-  #   Writes landing in +upper+, over a +lower+ Filesystem left as it was.
+  # [<tt>Overlay.new.layer(filesystem, access: :read)</tt>]
+  #   Layers stacked into one view, the first added on top, each +:read+
+  #   or +:read_write+ on its own. A change lands in a writable Layer, and
+  #   a read-only one stays as it was. Each +layer+ answers a new Overlay.
   module Filesystem
     KINDS = [Memory, Temporary, Directory, Overlay].freeze # :nodoc:
   end

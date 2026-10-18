@@ -1,7 +1,7 @@
 module Kobako
   module Catalog
     class Mount < Data
-      type access = :read | :read_write
+      type access = Kobako::Filesystem::access
 
       type policy = ^(String path, access access) -> boolish
 

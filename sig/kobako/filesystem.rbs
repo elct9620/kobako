@@ -2,6 +2,8 @@ module Kobako
   module Filesystem
     type kind = Memory | Temporary | Directory | Overlay
 
+    type access = :read | :read_write
+
     class Memory
       def initialize: (?Hash[String, String] files) -> void
     end
@@ -15,7 +17,8 @@ module Kobako
     end
 
     class Overlay
-      def initialize: (upper: kind, lower: kind) -> void
+      def initialize: () -> void
+      def layer: (kind filesystem, ?access: access) -> Overlay
     end
 
     KINDS: Array[Class]
