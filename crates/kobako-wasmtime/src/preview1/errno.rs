@@ -10,6 +10,7 @@ use kobako_runtime::mount::Denial;
 pub(crate) enum Errno {
     Acces = 2,
     Badf = 8,
+    Busy = 10,
     Exist = 20,
     Ilseq = 25,
     Intr = 27,

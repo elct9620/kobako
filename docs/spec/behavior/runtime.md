@@ -768,3 +768,39 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Mount over a Temporary an earlier invocation wrote to |
 | When | the next invocation's guest reads that file |
 | Then | it finds no file there |
+
+## `RT-083` Removing a Mount's root is refused as invalid
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-079` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount |
+| When | the guest removes the directory `.` beneath it |
+| Then | the removal is refused as invalid, and the Filesystem is not asked |
+
+## `RT-084` Renaming a Mount's root is refused as busy
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-083` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount |
+| When | the guest renames `.` beneath it, or renames a file onto `.` |
+| Then | each rename is refused as busy, and the Filesystem is not asked |
+
+## `RT-085` Unlinking a Mount's root answers that it is a directory
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-083` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount |
+| When | the guest unlinks the file `.` beneath it |
+| Then | the unlink answers that `.` is a directory, and the Filesystem is not asked |

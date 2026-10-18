@@ -2,9 +2,12 @@
 //! path, the files a Filesystem holds, and the refusals the runtime
 //! answers before the Filesystem is asked.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::{Filesystem, Memory, OpenOptions, Temporary};
+use kobako_runtime::filesystem::{
+    DirEntry, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Temporary,
+};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
 use kobako_runtime::profile::Profile;
@@ -18,6 +21,9 @@ use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
 use crate::wasi::Wasi;
 
 const ERRNO_ACCES: i32 = 2;
+const ERRNO_BUSY: i32 = 10;
+const ERRNO_INVAL: i32 = 28;
+const ERRNO_ISDIR: i32 = 31;
 const ERRNO_NOENT: i32 = 44;
 const ERRNO_ROFS: i32 = 69;
 const ERRNO_NOTCAPABLE: i32 = 76;
@@ -32,7 +38,11 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "path_open" (func $open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_read" (func $read (param i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_remove_directory" (func $rmdir (param i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_rename" (func $rename (param i32 i32 i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_unlink_file" (func $unlink (param i32 i32 i32) (result i32)))
   (memory (export "memory") 1)
+  (data (i32.const 740) ".")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
   (data (i32.const 600) "hello")
@@ -64,7 +74,17 @@ const PROBE_WAT: &str = r#"
     (local.set $errno (call $open (i32.const 3) (i32.const 0) (local.get $path) (local.get $len)
       (i32.const 9) (i64.const 64) (i64.const 0) (i32.const 0) (i32.const 128)))
     (if (local.get $errno) (then (return (local.get $errno))))
-    (call $write (i32.load (i32.const 128)) (i32.const 80) (i32.const 1) (i32.const 132))))
+    (call $write (i32.load (i32.const 128)) (i32.const 80) (i32.const 1) (i32.const 132)))
+
+  ;; Change the root `.` at 740.
+  (func (export "remove_root") (result i32)
+    (call $rmdir (i32.const 3) (i32.const 740) (i32.const 1)))
+  (func (export "rename_root") (result i32)
+    (call $rename (i32.const 3) (i32.const 740) (i32.const 1) (i32.const 3) (i32.const 700) (i32.const 8)))
+  (func (export "rename_onto_root") (result i32)
+    (call $rename (i32.const 3) (i32.const 700) (i32.const 8) (i32.const 3) (i32.const 740) (i32.const 1)))
+  (func (export "unlink_root") (result i32)
+    (call $unlink (i32.const 3) (i32.const 740) (i32.const 1))))
 "#;
 
 const FILE: (i32, i32) = (700, 8);
@@ -118,9 +138,10 @@ impl Guest {
             .expect("probe call must not trap")
     }
 
-    fn preopen_name(&mut self) -> i32 {
+    /// Call an export that takes no path.
+    fn call_bare(&mut self, name: &str) -> i32 {
         self.instance
-            .get_typed_func::<(), i32>(&mut self.store, "preopen_name")
+            .get_typed_func::<(), i32>(&mut self.store, name)
             .expect("probe export must resolve")
             .call(&mut self.store, ())
             .expect("probe call must not trap")
@@ -175,7 +196,7 @@ impl Policy for AllowsAll {
 fn a_mount_appears_as_a_directory_at_its_path() {
     let mut guest = Guest::new(&[grant(Arc::new(Memory::new()), Access::Read, None)]);
     assert_eq!(
-        guest.preopen_name(),
+        guest.call_bare("preopen_name"),
         0,
         "the first preopen must answer its name"
     );
@@ -298,5 +319,101 @@ fn each_invocation_is_handed_the_filesystem_it_starts_from() {
         Guest::new(&grants).call("read_file", FILE),
         ERRNO_NOENT,
         "a file an earlier invocation wrote to a Temporary must not be found by the next one"
+    );
+}
+
+/// A Memory holding `file.txt` that counts every change it is asked for,
+/// so a test can tell the runtime refused before asking it.
+struct Counted {
+    memory: Memory,
+    changes: AtomicUsize,
+}
+
+impl Counted {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            memory: [("file.txt", "granted")].into_iter().collect(),
+            changes: AtomicUsize::new(0),
+        })
+    }
+
+    fn change(&self) {
+        self.changes.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+impl Filesystem for Counted {
+    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+        self.memory.open(path, options)
+    }
+
+    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.memory.metadata(path)
+    }
+
+    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.memory.read_dir(path)
+    }
+
+    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.change();
+        self.memory.create_dir(path)
+    }
+
+    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.change();
+        self.memory.remove_dir(path)
+    }
+
+    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+        self.change();
+        self.memory.remove_file(path)
+    }
+
+    fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError> {
+        self.change();
+        self.memory.rename(from, to)
+    }
+}
+
+/// What each root-changing export answers, and how many changes the
+/// Filesystem was asked for along the way.
+fn change_root(exports: &[&str]) -> (Vec<i32>, usize) {
+    let counted = Counted::new();
+    let mut guest = Guest::new(&[grant(counted.clone(), Access::ReadWrite, None)]);
+    let answers = exports.iter().map(|name| guest.call_bare(name)).collect();
+    (answers, counted.changes.load(Ordering::Relaxed))
+}
+
+// @behavior RT-083
+#[test]
+fn removing_a_mounts_root_is_refused_as_invalid() {
+    assert_eq!(
+        change_root(&["remove_root"]),
+        (vec![ERRNO_INVAL], 0),
+        "path_remove_directory of `.` beneath a Mount through preview1 must answer EINVAL \
+         without asking the Filesystem"
+    );
+}
+
+// @behavior RT-084
+#[test]
+fn renaming_a_mounts_root_is_refused_as_busy() {
+    assert_eq!(
+        change_root(&["rename_root", "rename_onto_root"]),
+        (vec![ERRNO_BUSY, ERRNO_BUSY], 0),
+        "path_rename from or onto `.` beneath a Mount through preview1 must answer EBUSY \
+         without asking the Filesystem"
+    );
+}
+
+// @behavior RT-085
+#[test]
+fn unlinking_a_mounts_root_answers_that_it_is_a_directory() {
+    assert_eq!(
+        change_root(&["unlink_root"]),
+        (vec![ERRNO_ISDIR], 0),
+        "path_unlink_file of `.` beneath a Mount through preview1 must answer EISDIR \
+         without asking the Filesystem"
     );
 }

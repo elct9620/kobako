@@ -196,6 +196,15 @@ pub(crate) fn readlink(
     Err(Errno::Notsup.into())
 }
 
+/// A Mount's root is where the guest stands, not a directory it may
+/// remove or move; each call refuses it as Linux refuses its own root.
+fn not_root(path: &str, refusal: Errno) -> Answer {
+    if path.is_empty() {
+        return Err(refusal.into());
+    }
+    Ok(())
+}
+
 pub(crate) fn remove_directory(
     table: &Descriptors,
     mem: &GuestMemory,
@@ -203,6 +212,7 @@ pub(crate) fn remove_directory(
     path: (u32, u32),
 ) -> Answer {
     let (dir, path) = beneath(table, mem, fd, path)?;
+    not_root(&path, Errno::Inval)?;
     dir.mount.check(&path, Access::ReadWrite)?;
     Ok(dir.mount.filesystem().remove_dir(&path)?)
 }
@@ -219,6 +229,8 @@ pub(crate) fn rename(
     let to_dir = directory(table, new.0)?;
     let from = resolve(from_dir, &mem.string(old.1 .0, old.1 .1)?)?;
     let to = resolve(to_dir, &mem.string(new.1 .0, new.1 .1)?)?;
+    not_root(&from, Errno::Busy)?;
+    not_root(&to, Errno::Busy)?;
     if !Arc::ptr_eq(&from_dir.mount, &to_dir.mount) {
         return Err(Errno::Xdev.into());
     }
@@ -248,6 +260,7 @@ pub(crate) fn unlink_file(
     path: (u32, u32),
 ) -> Answer {
     let (dir, path) = beneath(table, mem, fd, path)?;
+    not_root(&path, Errno::Isdir)?;
     dir.mount.check(&path, Access::ReadWrite)?;
     Ok(dir.mount.filesystem().remove_file(&path)?)
 }
