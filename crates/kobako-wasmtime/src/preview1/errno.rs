@@ -18,6 +18,7 @@ pub(crate) enum Errno {
     Isdir = 31,
     Nametoolong = 37,
     Noent = 44,
+    Nospc = 51,
     Notdir = 54,
     Notempty = 55,
     Notsock = 57,
@@ -55,6 +56,7 @@ impl From<FilesystemError> for Failure {
             FilesystemError::ReadOnly => Errno::Rofs,
             FilesystemError::InvalidInput => Errno::Inval,
             FilesystemError::Unsupported => Errno::Notsup,
+            FilesystemError::NoSpace => Errno::Nospc,
             _ => Errno::Io,
         })
     }
