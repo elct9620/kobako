@@ -29,6 +29,9 @@ pub struct Config {
     pub stdout_limit: Option<usize>,
     /// Byte cap for guest stderr capture, the same as `stdout_limit`.
     pub stderr_limit: Option<usize>,
+    /// Descriptors one invocation may hold open, the standard ones and
+    /// each Mount's preopen included; an open past it answers `MFILE`.
+    pub open_file_limit: Option<usize>,
     /// Isolation posture the frontend requested. `Hermetic` freezes
     /// ambient time and entropy, `Permissive` leaves the live WASI
     /// sources, and `Driver::profile` declares it back as the built

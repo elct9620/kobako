@@ -236,6 +236,7 @@ mod tests {
             memory_limit: None,
             stdout_limit: None,
             stderr_limit: None,
+            open_file_limit: None,
             profile,
         };
         let wasi = Wasi::for_invocation(&config, &[], &[]).expect("WASI context must build");

@@ -244,6 +244,7 @@ fn through_kobako(call: &str, fd: i32, limit: Option<usize>) -> Observation {
         memory_limit: None,
         stdout_limit: limit,
         stderr_limit: limit,
+        open_file_limit: None,
         profile: Profile::Hermetic,
     };
     let wasi = Wasi::for_invocation(&config, PREAMBLE, &[]).expect("WASI context must build");

@@ -42,16 +42,20 @@ pub(crate) struct OpenFile {
 pub(crate) struct Descriptors {
     used: BTreeMap<u32, Descriptor>,
     free: BTreeSet<u32>,
+    limit: Option<usize>,
 }
 
 impl Descriptors {
     /// The table every invocation starts from: stdin, then the two
-    /// Channels, then one preopen per Mount from descriptor 3.
+    /// Channels, then one preopen per Mount from descriptor 3. It holds at
+    /// most `limit` descriptors, those included, as a process's
+    /// `RLIMIT_NOFILE` counts every one it holds.
     pub(crate) fn new(
         stdin: MemoryInputPipe,
         stdout: MemoryOutputPipe,
         stderr: MemoryOutputPipe,
         mounts: Vec<Mount>,
+        limit: Option<usize>,
     ) -> Self {
         let mut used = BTreeMap::from([
             (0, Descriptor::Stdin(stdin)),
@@ -71,6 +75,7 @@ impl Descriptors {
         Self {
             used,
             free: BTreeSet::new(),
+            limit,
         }
     }
 
@@ -95,9 +100,17 @@ impl Descriptors {
         self.used.insert(fd, descriptor);
     }
 
+    /// Whether the table holds as many descriptors as it may.
+    pub(crate) fn is_full(&self) -> bool {
+        self.limit.is_some_and(|limit| self.used.len() >= limit)
+    }
+
     /// Add `descriptor` under the most recently freed number, or the one
-    /// past the highest in use; `None` when every number is taken.
+    /// past the highest in use; `None` when the table is full.
     pub(crate) fn push(&mut self, descriptor: Descriptor) -> Option<u32> {
+        if self.is_full() {
+            return None;
+        }
         let fd = match self.free.pop_last() {
             Some(fd) => fd,
             None => match self.used.last_key_value() {

@@ -26,6 +26,7 @@ pub fn bundled_driver() -> Option<Driver> {
                 memory_limit: None,
                 stdout_limit: None,
                 stderr_limit: None,
+                open_file_limit: None,
                 profile: Profile::Hermetic,
             },
         )

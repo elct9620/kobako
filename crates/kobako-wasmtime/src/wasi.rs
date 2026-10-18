@@ -41,6 +41,7 @@ impl Wasi {
             preamble,
             config.stdout_limit,
             config.stderr_limit,
+            config.open_file_limit,
             config.profile,
             grants.iter().filter_map(mount).collect(),
         )
@@ -54,6 +55,7 @@ impl Wasi {
             preamble,
             config.stdout_limit,
             config.stderr_limit,
+            config.open_file_limit,
             Profile::Hermetic,
             Vec::new(),
         )
@@ -64,7 +66,7 @@ impl Wasi {
     /// authority and no output: the probe takes the strongest posture and
     /// pipes sized to keep nothing.
     pub(crate) fn for_probe() -> Result<Self, Trap> {
-        Self::new(&[], Some(0), Some(0), Profile::Hermetic, Vec::new())
+        Self::new(&[], Some(0), Some(0), None, Profile::Hermetic, Vec::new())
     }
 
     /// An uncapped output channel relies on `memory_limit` for its real
@@ -74,6 +76,7 @@ impl Wasi {
         preamble: &[u8],
         stdout_limit: Option<usize>,
         stderr_limit: Option<usize>,
+        open_file_limit: Option<usize>,
         profile: Profile,
         mounts: Vec<Mount>,
     ) -> Result<Self, Trap> {
@@ -97,6 +100,7 @@ impl Wasi {
             stdout.clone(),
             stderr.clone(),
             mounts,
+            open_file_limit,
         );
 
         let mut builder = WasiCtxBuilder::new();
@@ -224,6 +228,7 @@ mod tests {
             memory_limit: None,
             stdout_limit: None,
             stderr_limit: None,
+            open_file_limit: None,
             profile,
         };
         let wasi = Wasi::for_invocation(&config, &[], &[]).expect("WASI context must build");

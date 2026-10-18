@@ -24,6 +24,7 @@ fn a_compile_reads_no_host_time_or_entropy_under_a_permissive_request() {
             memory_limit: None,
             stdout_limit: None,
             stderr_limit: None,
+            open_file_limit: None,
             profile: Profile::Permissive,
         },
     )

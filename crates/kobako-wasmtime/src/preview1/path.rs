@@ -134,6 +134,9 @@ pub(crate) fn open(
     };
     let path = resolve(dir, &path)?;
     let mount = Arc::clone(&dir.mount);
+    if table.is_full() {
+        return Err(Errno::Mfile.into());
+    }
 
     let oflag = |bit| flags.oflags & bit != 0;
     let read = flags.rights_base & RIGHTS_FD_READ != 0;
@@ -178,7 +181,7 @@ pub(crate) fn open(
             })
         }
     };
-    let opened = table.push(descriptor).ok_or(Errno::Overflow)?;
+    let opened = table.push(descriptor).ok_or(Errno::Mfile)?;
     mem.write_u32(out, opened)
 }
 

@@ -286,6 +286,7 @@ fn through_kobako(call: Call, path: &str) -> Observation {
         memory_limit: None,
         stdout_limit: None,
         stderr_limit: None,
+        open_file_limit: None,
         profile: Profile::Hermetic,
     };
     let directory = Directory::new(&host.0).expect("the host directory must open");
