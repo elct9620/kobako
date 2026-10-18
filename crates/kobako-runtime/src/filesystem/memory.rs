@@ -225,6 +225,15 @@ fn lock(data: &Mutex<Vec<u8>>) -> MutexGuard<'_, Vec<u8>> {
     data.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Resize `data` to `len`, failing rather than aborting the host process
+/// when a guest asks for more than can be allocated.
+fn resize(data: &mut Vec<u8>, len: usize) -> Result<(), FilesystemError> {
+    data.try_reserve(len.saturating_sub(data.len()))
+        .map_err(|err| FilesystemError::Other(err.to_string()))?;
+    data.resize(len, 0);
+    Ok(())
+}
+
 /// An open file of a Memory, sharing its bytes with every other handle on
 /// the same path.
 struct MemoryFile {
@@ -249,7 +258,7 @@ impl File for MemoryFile {
             .checked_add(buf.len())
             .ok_or(FilesystemError::InvalidInput)?;
         if data.len() < end {
-            data.resize(end, 0);
+            resize(&mut data, end)?;
         }
         data[start..end].copy_from_slice(buf);
         Ok(buf.len())
@@ -264,8 +273,7 @@ impl File for MemoryFile {
 
     fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
         let len = usize::try_from(len).map_err(|_| FilesystemError::InvalidInput)?;
-        lock(&self.data).resize(len, 0);
-        Ok(())
+        resize(&mut lock(&self.data), len)
     }
 }
 
@@ -352,6 +360,38 @@ mod tests {
             .expect("the rename must succeed");
         assert_eq!(read_all(&memory, "new/inner/file"), b"x");
         assert_eq!(memory.metadata("old"), Err(FilesystemError::NotFound));
+    }
+
+    // A length past `isize::MAX` is one no allocator can hand out, so the
+    // refusal does not depend on how much the host has free.
+    #[test]
+    fn a_file_grown_past_what_can_be_allocated_is_refused() {
+        let memory: Memory = [("file", "x")].into_iter().collect();
+        let mut file = memory
+            .open(
+                "file",
+                &OpenOptions {
+                    write: true,
+                    ..OpenOptions::default()
+                },
+            )
+            .expect("the file must open");
+        let unallocatable = isize::MAX as u64 + 1;
+        assert!(
+            matches!(
+                (
+                    file.set_len(unallocatable),
+                    file.write_at(b"x", unallocatable)
+                ),
+                (
+                    Err(FilesystemError::Other(_)),
+                    Err(FilesystemError::Other(_))
+                )
+            ),
+            "a length no allocator can hand out through MemoryFile::set_len and write_at must \
+             answer an error rather than abort"
+        );
+        assert_eq!(read_all(&memory, "file"), b"x");
     }
 
     #[test]
