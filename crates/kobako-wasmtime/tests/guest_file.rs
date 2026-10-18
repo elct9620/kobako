@@ -4,9 +4,12 @@
 
 mod support;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::{Filesystem, Memory, OpenOptions};
+use kobako_runtime::filesystem::{
+    DirEntry, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions,
+};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount};
 use kobako_runtime::{Completion, Entry, Runtime};
@@ -213,5 +216,93 @@ fn an_io_may_stand_for_a_file_the_guest_opened() {
         answer,
         Ok("hello\nworld\n".to_string()),
         "IO.new over a file the guest opened through the bundled guest must read that file"
+    );
+}
+
+/// A Memory whose open files count every read they answer.
+struct CountsReads {
+    memory: Memory,
+    reads: Arc<AtomicUsize>,
+}
+
+impl Filesystem for CountsReads {
+    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+        Ok(Box::new(CountedFile {
+            file: self.memory.open(path, options)?,
+            reads: self.reads.clone(),
+        }))
+    }
+
+    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.memory.metadata(path)
+    }
+
+    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.memory.read_dir(path)
+    }
+
+    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.memory.create_dir(path)
+    }
+
+    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.memory.remove_dir(path)
+    }
+
+    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+        self.memory.remove_file(path)
+    }
+
+    fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError> {
+        self.memory.rename(from, to)
+    }
+}
+
+struct CountedFile {
+    file: Box<dyn File>,
+    reads: Arc<AtomicUsize>,
+}
+
+impl File for CountedFile {
+    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.reads.fetch_add(1, Ordering::Relaxed);
+        self.file.read_at(buf, offset)
+    }
+
+    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.file.write_at(buf, offset)
+    }
+
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        self.file.metadata()
+    }
+
+    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.file.set_len(len)
+    }
+}
+
+/// Each read reaching the Filesystem crosses the wasm boundary, and one a
+/// Host App writes in Ruby re-enters Ruby too, so a read of a length the
+/// file holds asks once.
+#[test]
+fn a_read_of_a_length_asks_the_filesystem_once() {
+    let reads = Arc::new(AtomicUsize::new(0));
+    let filesystem = CountsReads {
+        memory: [("note.txt", "x".repeat(6400))].into_iter().collect(),
+        reads: reads.clone(),
+    };
+    let Some(answer) = run(
+        r#"File.open("/data/note.txt") { |f| print f.read(64).size }; nil"#,
+        &[mount(Arc::new(filesystem), Access::Read)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(answer, Ok("64".to_string()));
+    assert_eq!(
+        reads.load(Ordering::Relaxed),
+        1,
+        "File#read(64) of a longer file through the bundled guest must ask its Filesystem for one read"
     );
 }

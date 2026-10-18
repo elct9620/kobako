@@ -97,7 +97,9 @@ fn io_read(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
             Ok(all)
         }
         Some(len) => {
-            let mut some = Vec::new();
+            // Room for the first chunk up front, so one read can answer a
+            // length the file holds instead of a small probe and regrowth.
+            let mut some = Vec::with_capacity(len.min(CHUNK));
             file.take(len as u64).read_to_end(&mut some)?;
             Ok(some)
         }
