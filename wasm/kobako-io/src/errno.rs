@@ -51,6 +51,11 @@ const CODES: &[Code] = &[
         message: "No such file or directory",
     },
     Code {
+        name: c"ENOSPC",
+        wasi: 51,
+        message: "No space left on device",
+    },
+    Code {
         name: c"ENOTDIR",
         wasi: 54,
         message: "Not a directory",

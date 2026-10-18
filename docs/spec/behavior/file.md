@@ -146,3 +146,16 @@ disable_file flag -> no File constant
 | Given | a script reading a file whose Filesystem fails with no named error code |
 | When | the read fails |
 | Then | it raises `Errno::EIO` |
+
+## `FL-012` A write past a Mount's space raises ENOSPC
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-022` |
+| relates | `FL-011` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount over a Memory with a small limit |
+| When | the script writes past that limit through an open file |
+| Then | the write raises `Errno::ENOSPC` |

@@ -105,7 +105,8 @@ fn io_initialize(mrb: &Mrb, self_: RObject, fd: i32, mode: RString) -> Result<()
 
 /// Truncation at the output cap surfaces as a short return value, not a
 /// Ruby-level error: past the pipe's limit `write(2)` short-writes, and the
-/// total counts only the accepted bytes.
+/// total counts only the accepted bytes. A file's failed write raises the
+/// `Errno` it names, as CRuby's does.
 fn io_write(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     // The construction-time allowlist in `io_initialize` is not
     // self-enforcing: `@__kobako_fd__` is an ordinary ivar that guest mruby
@@ -135,6 +136,10 @@ fn io_write(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
                     bytes.len(),
                 )
             };
+            if n < 0 && !descriptors::is_channel(fd) {
+                let err = std::io::Error::last_os_error();
+                return Err(errno::from_io(mrb, &err, &crate::stream::label(mrb, self_)));
+            }
             if n > 0 {
                 total = total.saturating_add(n as i32);
             }

@@ -171,6 +171,26 @@ fn writing_beneath_a_read_only_mount_raises_erofs() {
     );
 }
 
+// The write goes through an open file, so `IO#write` itself must raise,
+// not only `File.write`.
+// @behavior FL-012
+#[test]
+fn a_write_past_a_mounts_space_raises_enospc() {
+    let full = Arc::new(Memory::new().with_limit(Some(4)));
+    let Some(answer) = run(
+        r#"File.open("/data/note.txt", "w") { |file| file.write("five!") }"#,
+        &[mount(full, Access::ReadWrite)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Err("Errno::ENOSPC".to_string()),
+        "IO#write past a Memory's limit through the bundled guest must raise Errno::ENOSPC"
+    );
+}
+
 // @behavior FL-007
 #[test]
 fn a_file_is_an_io() {
