@@ -1,0 +1,332 @@
+//! The differential probe beneath a Mount: each path call, made on the
+//! same host directory through kobako's `Directory` Mount and through
+//! wasmtime-wasi's own preopen, must leave the same errno, the same
+//! descriptor, and the same directory behind.
+//!
+//! A Filesystem reports no timestamps or inode numbers, so what a stat
+//! writes is left out; the errno and the directory carry the decision.
+//!
+//! Where POSIX lets each host choose, wasmtime-wasi passes on the host's
+//! own answer — unlinking a directory is `ISDIR` on Linux and `PERM` on
+//! macOS. kobako answers one way on every host, the way Linux does, so
+//! the probe holds where CI runs it.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
+
+use kobako_runtime::filesystem::Directory;
+use kobako_runtime::grant::Grant;
+use kobako_runtime::mount::{Access, Mount};
+use kobako_runtime::profile::Profile;
+use wasmtime::{Linker, Module, Store};
+use wasmtime_wasi::p1::{self, WasiP1Ctx};
+use wasmtime_wasi::{FsPerms, WasiCtxBuilder};
+
+use crate::cache::shared_engine;
+use crate::config::Config;
+use crate::imports;
+use crate::invocation::Invocation;
+use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
+use crate::wasi::Wasi;
+
+/// The guest path both sides preopen the host directory at.
+const AT: &str = "/data";
+
+/// Each export calls one path import on descriptor 3 with the path the
+/// host placed at 1024, and the second path at 1280 where a call takes
+/// two. An opened descriptor lands at 128.
+const PROBE_WAT: &str = r#"
+(module
+  (import "wasi_snapshot_preview1" "path_open" (func $open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_filestat_get" (func $stat (param i32 i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_create_directory" (func $mkdir (param i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_remove_directory" (func $rmdir (param i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_unlink_file" (func $unlink (param i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_rename" (func $rename (param i32 i32 i32 i32 i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (func (export "open") (param $len i32) (param $oflags i32) (param $rights i64) (param $fdflags i32) (result i32)
+    (call $open (i32.const 3) (i32.const 1) (i32.const 1024) (local.get $len) (local.get $oflags)
+      (local.get $rights) (i64.const 0) (local.get $fdflags) (i32.const 128)))
+  (func (export "stat") (param $len i32) (result i32)
+    (call $stat (i32.const 3) (i32.const 1) (i32.const 1024) (local.get $len) (i32.const 256)))
+  (func (export "mkdir") (param $len i32) (result i32)
+    (call $mkdir (i32.const 3) (i32.const 1024) (local.get $len)))
+  (func (export "rmdir") (param $len i32) (result i32)
+    (call $rmdir (i32.const 3) (i32.const 1024) (local.get $len)))
+  (func (export "unlink") (param $len i32) (result i32)
+    (call $unlink (i32.const 3) (i32.const 1024) (local.get $len)))
+  (func (export "rename") (param $len i32) (param $to i32) (result i32)
+    (call $rename (i32.const 3) (i32.const 1024) (local.get $len) (i32.const 3) (i32.const 1280) (local.get $to))))
+"#;
+
+const PATH_AT: usize = 1024;
+const SECOND_PATH_AT: usize = 1280;
+const OPENED_AT: usize = 128;
+
+const OFLAGS_CREAT: i32 = 1 << 0;
+const OFLAGS_DIRECTORY: i32 = 1 << 1;
+const OFLAGS_EXCL: i32 = 1 << 2;
+const OFLAGS_TRUNC: i32 = 1 << 3;
+const FDFLAGS_SYNC: i32 = 1 << 4;
+const RIGHTS_FD_READ: i64 = 1 << 1;
+const RIGHTS_FD_WRITE: i64 = 1 << 6;
+
+/// Paths that stay beneath the root, climb above it, pass through what
+/// does not exist or is no directory, or name the root itself.
+const PATHS: &[&str] = &[
+    "a",
+    "missing",
+    "",
+    ".",
+    "a/",
+    "d",
+    "d/f",
+    "d/..",
+    "d/../a",
+    "a/..",
+    "missing/..",
+    "missing/../a",
+    "../a",
+    "d/../../a",
+    "/a",
+];
+
+/// One path call, as the probe makes it.
+#[derive(Clone, Copy, Debug)]
+enum Call {
+    Open {
+        oflags: i32,
+        rights: i64,
+        fdflags: i32,
+    },
+    Stat,
+    Mkdir,
+    Rmdir,
+    Unlink,
+    /// Rename the path to `b`.
+    RenameFrom,
+    /// Rename `a` to the path.
+    RenameTo,
+}
+
+const CALLS: &[Call] = &[
+    Call::Open {
+        oflags: 0,
+        rights: RIGHTS_FD_READ,
+        fdflags: 0,
+    },
+    Call::Open {
+        oflags: 0,
+        rights: RIGHTS_FD_WRITE,
+        fdflags: 0,
+    },
+    Call::Open {
+        oflags: OFLAGS_CREAT | OFLAGS_TRUNC,
+        rights: RIGHTS_FD_WRITE,
+        fdflags: 0,
+    },
+    Call::Open {
+        oflags: OFLAGS_CREAT | OFLAGS_EXCL,
+        rights: RIGHTS_FD_WRITE,
+        fdflags: 0,
+    },
+    Call::Open {
+        oflags: OFLAGS_DIRECTORY,
+        rights: RIGHTS_FD_READ,
+        fdflags: 0,
+    },
+    Call::Open {
+        oflags: OFLAGS_DIRECTORY | OFLAGS_CREAT,
+        rights: RIGHTS_FD_READ,
+        fdflags: 0,
+    },
+    Call::Open {
+        oflags: OFLAGS_DIRECTORY | OFLAGS_TRUNC,
+        rights: RIGHTS_FD_READ,
+        fdflags: 0,
+    },
+    Call::Open {
+        oflags: 0,
+        rights: RIGHTS_FD_READ,
+        fdflags: FDFLAGS_SYNC,
+    },
+    Call::Stat,
+    Call::Mkdir,
+    Call::Rmdir,
+    Call::Unlink,
+    Call::RenameFrom,
+    Call::RenameTo,
+];
+
+/// A host directory of the probe's own, holding `a` and `d/f`, removed
+/// when it drops.
+struct HostDir(PathBuf);
+
+impl HostDir {
+    fn new() -> Self {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "kobako-differential-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(path.join("d")).expect("the host directory must be created");
+        fs::write(path.join("a"), "hello").expect("the host file must be written");
+        fs::write(path.join("d/f"), "inner").expect("the host file must be written");
+        Self(path)
+    }
+
+    /// Every entry beneath the directory, with a file's content.
+    fn tree(&self) -> Vec<(String, Option<Vec<u8>>)> {
+        fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Option<Vec<u8>>)>) {
+            for entry in fs::read_dir(dir).expect("the host directory must list") {
+                let path = entry.expect("the host entry must read").path();
+                let name = path
+                    .strip_prefix(root)
+                    .expect("an entry lies beneath its root")
+                    .to_string_lossy()
+                    .into_owned();
+                if path.is_dir() {
+                    out.push((name, None));
+                    walk(root, &path, out);
+                } else {
+                    out.push((
+                        name,
+                        Some(fs::read(&path).expect("the host file must read")),
+                    ));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.0, &self.0, &mut out);
+        out.sort();
+        out
+    }
+}
+
+impl Drop for HostDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// What one call leaves behind; `None` for a call that trapped.
+#[derive(Debug, PartialEq)]
+struct Observation {
+    errno: Option<i32>,
+    opened: [u8; 4],
+    tree: Vec<(String, Option<Vec<u8>>)>,
+}
+
+fn observe<T>(
+    mut store: Store<T>,
+    linker: &Linker<T>,
+    call: Call,
+    path: &str,
+    host: &HostDir,
+) -> Observation {
+    static MODULE: OnceLock<Module> = OnceLock::new();
+    let module = MODULE
+        .get_or_init(|| Module::new(store.engine(), PROBE_WAT).expect("probe module must compile"));
+    let instance = linker
+        .instantiate(&mut store, module)
+        .expect("probe module must instantiate");
+    let memory = instance
+        .get_memory(&mut store, "memory")
+        .expect("probe exports its memory");
+    let (first, second) = match call {
+        Call::RenameTo => ("a", path),
+        Call::RenameFrom => (path, "b"),
+        _ => (path, ""),
+    };
+    memory.data_mut(&mut store)[PATH_AT..PATH_AT + first.len()].copy_from_slice(first.as_bytes());
+    memory.data_mut(&mut store)[SECOND_PATH_AT..SECOND_PATH_AT + second.len()]
+        .copy_from_slice(second.as_bytes());
+    let len = first.len() as i32;
+    let errno = match call {
+        Call::Open {
+            oflags,
+            rights,
+            fdflags,
+        } => instance
+            .get_typed_func::<(i32, i32, i64, i32), i32>(&mut store, "open")
+            .and_then(|f| f.call(&mut store, (len, oflags, rights, fdflags))),
+        Call::RenameFrom | Call::RenameTo => instance
+            .get_typed_func::<(i32, i32), i32>(&mut store, "rename")
+            .and_then(|f| f.call(&mut store, (len, second.len() as i32))),
+        Call::Stat | Call::Mkdir | Call::Rmdir | Call::Unlink => {
+            let name = match call {
+                Call::Stat => "stat",
+                Call::Mkdir => "mkdir",
+                Call::Rmdir => "rmdir",
+                _ => "unlink",
+            };
+            instance
+                .get_typed_func::<i32, i32>(&mut store, name)
+                .and_then(|f| f.call(&mut store, len))
+        }
+    }
+    .ok();
+    let mut opened = [0; 4];
+    opened.copy_from_slice(&memory.data(&store)[OPENED_AT..OPENED_AT + 4]);
+    Observation {
+        errno,
+        opened,
+        tree: host.tree(),
+    }
+}
+
+fn through_kobako(call: Call, path: &str) -> Observation {
+    let host = HostDir::new();
+    let engine = shared_engine().expect("shared engine must be constructible");
+    let config = Config {
+        timeout: None,
+        memory_limit: None,
+        stdout_limit: None,
+        stderr_limit: None,
+        profile: Profile::Hermetic,
+    };
+    let directory = Directory::new(&host.0).expect("the host directory must open");
+    let grant = Grant::Mount(Mount::new(AT, Arc::new(directory), Access::ReadWrite));
+    let wasi = Wasi::for_invocation(&config, &[], &[grant]).expect("WASI context must build");
+    let mut store = Store::new(engine, Invocation::new(None, wasi));
+    store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
+    let linker = imports::linker().expect("host imports must link");
+    observe(store, &linker, call, path, &host)
+}
+
+fn through_wasmtime_wasi(call: Call, path: &str) -> Observation {
+    let host = HostDir::new();
+    let engine = shared_engine().expect("shared engine must be constructible");
+    let ctx = WasiCtxBuilder::new()
+        .preopened_dir(&host.0, AT, FsPerms::ReadWrite)
+        .expect("the host directory must preopen")
+        .build_p1();
+    let mut store = Store::new(engine, ctx);
+    store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
+    let mut linker = Linker::new(engine);
+    p1::add_to_linker_sync(&mut linker, |ctx: &mut WasiP1Ctx| ctx).expect("preview1 must link");
+    observe(store, &linker, call, path, &host)
+}
+
+#[test]
+#[ignore = "kobako still resolves a path beneath a Mount unlike wasmtime-wasi"]
+fn every_path_call_beneath_a_mount_answers_as_a_wasmtime_wasi_preopen() {
+    let differing: Vec<String> = CALLS
+        .iter()
+        .flat_map(|&call| PATHS.iter().map(move |&path| (call, path)))
+        .filter_map(|(call, path)| {
+            let kobako = through_kobako(call, path);
+            let oracle = through_wasmtime_wasi(call, path);
+            (kobako != oracle).then(|| format!("{call:?} {path:?}: {kobako:?} != {oracle:?}"))
+        })
+        .collect();
+    assert!(
+        differing.is_empty(),
+        "each path call on a host directory through a kobako Directory Mount must answer as \
+         wasmtime-wasi's preopen of it does:\n{}",
+        differing.join("\n")
+    );
+}

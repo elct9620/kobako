@@ -6,6 +6,8 @@
 //! shows up here rather than in a guest. The deliberate differences — a
 //! clock wait under the hermetic rung — are witnessed in `poll`.
 
+mod mount;
+
 use std::sync::OnceLock;
 
 use wasmtime::{Linker, Module, Store};
