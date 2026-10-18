@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use crate::filesystem::Filesystem;
 
-/// What the guest may do beneath a Mount.
+/// What the guest may do beneath a Mount, or an Overlay in one of its
+/// Layers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Access {
     Read,

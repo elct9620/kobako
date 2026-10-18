@@ -92,7 +92,15 @@ The files and directories behind a Mount. It answers every call the guest makes 
 Directory  -> a host directory; nothing outside it is reachable
 Memory     -> held in memory; lives as long as the Host App's object
 Temporary  -> held in memory; every Invocation starts it empty
-Overlay    -> writes land in an upper Filesystem over a read-only lower one
+Overlay    -> Layers stacked into one view; changes land in the writable ones
+```
+
+### Layer
+
+One Filesystem stacked in an Overlay, read-only or writable on its own. An upper Layer hides the same path in a lower one, and a whiteout hides a removed one.
+
+```
+Overlay -> Layer (writable) -> Layer (read-only) -> ...
 ```
 
 ### Snippet

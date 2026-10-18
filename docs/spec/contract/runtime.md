@@ -269,7 +269,8 @@ pub enum Denial {}
 
 ## `Access`
 
-What the Guest may do beneath a Mount: read, or read and write.
+What the Guest may do beneath a Mount, or an Overlay in a Layer: read, or
+read and write.
 
 ```rust
 pub enum Access {}
@@ -556,8 +557,8 @@ impl Directory {
 
 ## `Overlay`
 
-The Filesystem kobako ships that writes into an upper Filesystem over a lower
-one it only reads.
+The Filesystem kobako ships that stacks Layers into one view, each read-only or
+writable on its own.
 
 ```rust
 pub struct Overlay {}
@@ -565,10 +566,21 @@ pub struct Overlay {}
 
 ## `Overlay::new`
 
-An Overlay of an upper Filesystem over a lower one.
+An Overlay with no Layer yet.
 
 ```rust
 impl Overlay {
-    pub fn new(upper: Arc<dyn Filesystem>, lower: Arc<dyn Filesystem>) -> Self {}
+    pub fn new() -> Self {}
+}
+```
+
+## `Overlay::layer`
+
+This Overlay with a Filesystem as a new Layer beneath the ones already added,
+allowing the given access there.
+
+```rust
+impl Overlay {
+    pub fn layer(self, filesystem: Arc<dyn Filesystem>, access: Access) -> Self {}
 }
 ```

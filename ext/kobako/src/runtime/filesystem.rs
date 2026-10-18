@@ -89,10 +89,11 @@ fn directory_new(path: String) -> Result<DirectoryFs, MagnusError> {
 fn overlay_new(kwargs: RHash) -> Result<OverlayFs, MagnusError> {
     let kwargs = get_kwargs::<_, (Value, Value), (), ()>(kwargs, &["upper", "lower"], &[])?;
     let (upper, lower) = kwargs.required;
-    Ok(OverlayFs(Arc::new(Overlay::new(
-        filesystem_of(upper)?,
-        filesystem_of(lower)?,
-    ))))
+    Ok(OverlayFs(Arc::new(
+        Overlay::new()
+            .layer(filesystem_of(upper)?, Access::ReadWrite)
+            .layer(filesystem_of(lower)?, Access::Read),
+    )))
 }
 
 /// The Filesystem a Ruby handle of any kobako kind stands for.

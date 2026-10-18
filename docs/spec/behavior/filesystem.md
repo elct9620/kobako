@@ -18,7 +18,23 @@ kind       content lives       lasts
 Memory     in memory           as long as the Host App's object
 Temporary  in memory           one Invocation
 Directory  in a host directory as long as the directory
-Overlay    in its upper layer  as long as the upper layer
+Overlay    in its layers       as long as its writable layers
+```
+
+An Overlay stacks Layers, each read-only or writable on its own. The rules follow the union filesystems that allow that, aufs among them. Its markers follow the OCI image layer format, so a Host App reads them as it would a container layer.
+
+```
+the first layer added sits on top
+read     the topmost layer holding the path answers, unless a whiteout hides it
+change   a file in a writable layer changes in place
+         a file in a read-only layer is copied up to the nearest writable layer
+create   lands in the topmost writable layer
+remove   leaves every writable layer; a whiteout hides what a read-only layer shows
+nothing writable  every change is refused as read-only
+
+whiteout          .wh.<name>      beside the hidden entry
+opaque directory  .wh..wh..opq    inside a directory made again where one was removed
+both live in the topmost writable layer, never show, and no name may claim .wh.
 ```
 
 ## Includes
@@ -101,15 +117,15 @@ Overlay    in its upper layer  as long as the upper layer
 | When | the link's path is opened |
 | Then | the open is refused |
 
-## `FS-008` An Overlay reads through to its lower Filesystem
+## `FS-008` An Overlay reads through to a lower Layer
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose lower Filesystem holds a file |
+| Given | an Overlay whose top Layer lacks a file a lower Layer holds |
 | When | the file is read through the Overlay |
 | Then | it reads the lower file's content |
 
-## `FS-009` An Overlay writes into its upper Filesystem
+## `FS-009` A write to a read-only Layer's file lands in the nearest writable Layer above it
 
 | Attribute | Value |
 | --- | --- |
@@ -117,11 +133,11 @@ Overlay    in its upper layer  as long as the upper layer
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose lower Filesystem holds a file |
+| Given | an Overlay whose writable Layer sits over a read-only Layer holding a file |
 | When | the file is written through the Overlay |
-| Then | the upper Filesystem holds what was written |
+| Then | the writable Layer holds what was written |
 
-## `FS-010` An Overlay leaves its lower Filesystem as it was
+## `FS-010` An Overlay leaves a read-only Layer as it was
 
 | Attribute | Value |
 | --- | --- |
@@ -129,9 +145,9 @@ Overlay    in its upper layer  as long as the upper layer
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose lower Filesystem holds a file |
+| Given | an Overlay whose read-only Layer holds a file |
 | When | the file is written and then removed through the Overlay |
-| Then | the lower Filesystem still holds the file as it was |
+| Then | the read-only Layer still holds the file as it was |
 
 ## `FS-011` A file removed through an Overlay is gone from its view
 
@@ -141,11 +157,11 @@ Overlay    in its upper layer  as long as the upper layer
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose lower Filesystem holds a file |
+| Given | an Overlay whose read-only Layer holds a file |
 | When | the file is removed through the Overlay |
 | Then | the Overlay finds no file at that path |
 
-## `FS-012` An Overlay over a Temporary starts every Invocation from its lower Filesystem
+## `FS-012` An Overlay over a Temporary starts every Invocation from its lower Layers
 
 | Attribute | Value |
 | --- | --- |
@@ -153,6 +169,114 @@ Overlay    in its upper layer  as long as the upper layer
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay over a Temporary, with a lower file overwritten through it |
+| Given | an Overlay whose writable Layer is a Temporary, with a lower file overwritten through it |
 | When | the next Invocation's Filesystem is taken from it |
 | Then | that Filesystem reads the lower file's content |
+
+## `FS-013` An upper Layer hides the same path in a lower one
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-008` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose two Layers both hold a file at one path |
+| When | the file is read through the Overlay |
+| Then | it reads the upper Layer's content |
+
+## `FS-014` A write to a writable Layer's file changes it in place
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay of two writable Layers, the lower one holding a file |
+| When | the file is written through the Overlay |
+| Then | the lower Layer holds what was written |
+
+## `FS-015` A new file lands in the topmost writable Layer
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-014` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay of a read-only Layer over two writable Layers |
+| When | a new file is created through the Overlay |
+| Then | the upper writable Layer holds it |
+
+## `FS-016` A removal leaves a whiteout in the topmost writable Layer
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-011` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose writable Layer sits over a read-only Layer holding a file |
+| When | the file is removed through the Overlay |
+| Then | the writable Layer holds `.wh.` and the file's name beside where it was |
+
+## `FS-017` A whiteout lasts as long as its writable Layer
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-002`, `FS-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a lower file removed through an Overlay whose writable Layer is a Memory |
+| When | a new Overlay is built over the same Layers |
+| Then | the new Overlay finds no file at that path |
+
+## `FS-018` A directory made again where one was removed shows nothing from below
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-only Layer's directory removed through an Overlay with every file in it |
+| When | the directory is created again through the Overlay |
+| Then | listing it finds no entry |
+
+## `FS-019` An Overlay lists none of its markers
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose writable Layer holds a whiteout |
+| When | the whiteout's directory is listed through the Overlay |
+| Then | no entry starting with `.wh.` is listed |
+
+## `FS-020` An Overlay refuses a name reserved for its markers
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-019` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay with a writable Layer |
+| When | a file named `.wh.note` is created through the Overlay |
+| Then | the creation is refused |
+
+## `FS-021` An Overlay with no writable Layer refuses every change as read-only
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-015` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose Layers are all read-only |
+| When | a file is written through the Overlay |
+| Then | the write is refused as read-only |
