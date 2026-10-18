@@ -46,6 +46,11 @@ const CODES: &[Code] = &[
         message: "Is a directory",
     },
     Code {
+        name: c"EMFILE",
+        wasi: 33,
+        message: "Too many open files",
+    },
+    Code {
         name: c"ENOENT",
         wasi: 44,
         message: "No such file or directory",
