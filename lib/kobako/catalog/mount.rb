@@ -9,8 +9,9 @@ module Kobako
         raise ArgumentError, "mount path must be a String, got #{at.class}" unless at.is_a?(String)
         raise ArgumentError, "mount path must be an absolute guest path, got #{at.inspect}" if malformed?(at)
         raise ArgumentError, "access must be :read or :read_write, got #{access.inspect}" unless ACCESS.include?(access)
-        unless Kobako::Filesystem::KINDS.any? { |kind| filesystem.is_a?(kind) }
-          raise ArgumentError, "filesystem must be a Kobako::Filesystem, got #{filesystem.class}"
+        unless filesystem?(filesystem)
+          raise ArgumentError,
+                "filesystem must be a Kobako::Filesystem or answer open and stat, got #{filesystem.class}"
         end
 
         super
@@ -31,6 +32,12 @@ module Kobako
       def to_native = [at, access, filesystem, policy]
 
       private
+
+      # A kind kobako ships, or a Filesystem written in Ruby.
+      def filesystem?(filesystem)
+        Kobako::Filesystem::KINDS.any? { |kind| filesystem.is_a?(kind) } ||
+          (filesystem.respond_to?(:open) && filesystem.respond_to?(:stat))
+      end
 
       # An absolute guest path has no empty, +.+, or +..+ component; the
       # root is +/+ alone.

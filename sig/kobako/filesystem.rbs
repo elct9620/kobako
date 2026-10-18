@@ -1,8 +1,33 @@
 module Kobako
   module Filesystem
-    type kind = Memory | Temporary | Directory | Overlay
+    type kind = Memory | Temporary | Directory | Overlay | _Readable
 
     type access = :read | :read_write
+
+    # What a Filesystem written in Ruby answers to be mounted. One that
+    # also answers _Writable takes changes too.
+    interface _Readable
+      def open: (String path, Integer flags) -> _File
+      def stat: (String path) -> _Stat
+    end
+
+    interface _Writable
+      def mkdir: (String path) -> void
+      def rmdir: (String path) -> void
+      def unlink: (String path) -> void
+      def rename: (String from, String to) -> void
+    end
+
+    # A file a Filesystem written in Ruby opened; +::File+ answers it.
+    interface _File
+      def pread: (Integer length, Integer offset) -> String?
+      def size: () -> Integer
+    end
+
+    interface _Stat
+      def directory?: () -> boolish
+      def size: () -> Integer
+    end
 
     class Memory
       def initialize: (?Hash[String, String] files) -> void

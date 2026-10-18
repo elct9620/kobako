@@ -1,0 +1,290 @@
+//! A Filesystem a Host App writes in Ruby: any object answering `open`
+//! and `stat`, asked through `gvl::reenter` on every call the guest makes.
+//!
+//! Its methods take the names and shapes of Ruby's own `File`, `Dir`, and
+//! `IO`, so a Host App can hand an open call on to a real `::File`. A
+//! change method the object lacks answers as read-only; any other method
+//! it lacks answers as unsupported. An `Errno` it raises reaches the guest
+//! as that code, and anything else it raises reaches the guest as `EIO`.
+
+use magnus::value::{Opaque, ReprValue};
+use magnus::{prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, Value};
+
+use kobako_runtime::filesystem::{
+    DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions,
+};
+
+use crate::runtime::gvl;
+
+/// The Ruby object behind a Mount or a Layer. The Ruby side that holds it
+/// keeps it alive: the Mount entry, or the Overlay marking its Layers.
+pub(crate) struct RubyFilesystem {
+    object: Opaque<Value>,
+}
+
+impl RubyFilesystem {
+    /// The object as a Filesystem, when it answers `open` and `stat`.
+    pub(crate) fn of(value: Value) -> Option<Self> {
+        let answers = |name| value.respond_to(name, false).unwrap_or(false);
+        (answers("open") && answers("stat")).then(|| Self {
+            object: Opaque::from(value),
+        })
+    }
+}
+
+/// Ask `object` its `name` method with the GVL held, `answer` making the
+/// call and reading what it returns before Ruby runs anything else. An
+/// object lacking the method answers `missing`.
+fn ask<T>(
+    object: Opaque<Value>,
+    name: &str,
+    missing: FilesystemError,
+    answer: impl FnOnce(&Ruby, Value) -> Result<T, MagnusError>,
+) -> Result<T, FilesystemError> {
+    gvl::reenter(|| {
+        let ruby = Ruby::get().expect("Ruby handle unavailable in a Filesystem call");
+        let object: Value = ruby.get_inner(object);
+        if !object.respond_to(name, false).unwrap_or(false) {
+            return Err(missing);
+        }
+        answer(&ruby, object).map_err(|err| error_of(&ruby, err))
+    })
+}
+
+/// Ask `object` a change, answering nothing more than whether it was made.
+fn change(
+    object: Opaque<Value>,
+    name: &str,
+    args: impl magnus::ArgList,
+    missing: FilesystemError,
+) -> Result<(), FilesystemError> {
+    ask(object, name, missing, |_, object| {
+        object.funcall::<_, _, Value>(name, args).map(drop)
+    })
+}
+
+/// The FilesystemError an `Errno` stands for; anything else is `Other`,
+/// which reaches the guest as `EIO`.
+fn error_of(ruby: &Ruby, err: MagnusError) -> FilesystemError {
+    const CODES: [(&str, FilesystemError); 11] = [
+        ("ENOENT", FilesystemError::NotFound),
+        ("EEXIST", FilesystemError::AlreadyExists),
+        ("ENOTDIR", FilesystemError::NotADirectory),
+        ("EISDIR", FilesystemError::IsADirectory),
+        ("ENOTEMPTY", FilesystemError::DirectoryNotEmpty),
+        ("EACCES", FilesystemError::PermissionDenied),
+        ("EPERM", FilesystemError::PermissionDenied),
+        ("EROFS", FilesystemError::ReadOnly),
+        ("EINVAL", FilesystemError::InvalidInput),
+        ("ENOTSUP", FilesystemError::Unsupported),
+        ("EOPNOTSUPP", FilesystemError::Unsupported),
+    ];
+    let errno = ruby.class_object().const_get::<_, RModule>("Errno").ok();
+    for (name, error) in CODES {
+        let class = errno.and_then(|errno| errno.const_get::<_, RClass>(name).ok());
+        if class.is_some_and(|class| err.is_kind_of(class)) {
+            return error;
+        }
+    }
+    FilesystemError::Other(err.to_string())
+}
+
+/// `File::Constants` flags for `options`, read from Ruby since their
+/// values differ by platform.
+fn flags_of(ruby: &Ruby, options: &OpenOptions) -> Result<i64, MagnusError> {
+    let constants: RModule = ruby
+        .class_object()
+        .const_get::<_, RClass>("File")?
+        .const_get("Constants")?;
+    let flag = |name| constants.const_get::<_, i64>(name);
+    let mut flags = match (options.read, options.write || options.truncate) {
+        (_, false) => flag("RDONLY")?,
+        (false, true) => flag("WRONLY")?,
+        (true, true) => flag("RDWR")?,
+    };
+    if options.create || options.create_new {
+        flags |= flag("CREAT")?;
+    }
+    if options.create_new {
+        flags |= flag("EXCL")?;
+    }
+    if options.truncate {
+        flags |= flag("TRUNC")?;
+    }
+    Ok(flags)
+}
+
+fn join(dir: &str, name: &str) -> String {
+    if dir.is_empty() {
+        name.to_string()
+    } else {
+        format!("{dir}/{name}")
+    }
+}
+
+impl Filesystem for RubyFilesystem {
+    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+        ask(
+            self.object,
+            "open",
+            FilesystemError::Unsupported,
+            |ruby, fs| {
+                let file: Value = fs.funcall("open", (path, flags_of(ruby, options)?))?;
+                Ok(Box::new(RubyFile::pin(ruby, file)) as Box<dyn File>)
+            },
+        )
+    }
+
+    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        ask(
+            self.object,
+            "stat",
+            FilesystemError::Unsupported,
+            |_, fs| {
+                let stat: Value = fs.funcall("stat", (path,))?;
+                if stat.funcall::<_, _, bool>("directory?", ())? {
+                    return Ok(Metadata {
+                        kind: Kind::Directory,
+                        len: 0,
+                    });
+                }
+                Ok(Metadata {
+                    kind: Kind::File,
+                    len: stat.funcall("size", ())?,
+                })
+            },
+        )
+    }
+
+    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+        let names: Vec<String> = ask(
+            self.object,
+            "children",
+            FilesystemError::Unsupported,
+            |_, fs| fs.funcall("children", (path,)),
+        )?;
+        names
+            .into_iter()
+            .map(|name| {
+                let kind = self.metadata(&join(path, &name))?.kind;
+                Ok(DirEntry { name, kind })
+            })
+            .collect()
+    }
+
+    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        change(self.object, "mkdir", (path,), FilesystemError::ReadOnly)
+    }
+
+    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        change(self.object, "rmdir", (path,), FilesystemError::ReadOnly)
+    }
+
+    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+        change(self.object, "unlink", (path,), FilesystemError::ReadOnly)
+    }
+
+    fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError> {
+        change(self.object, "rename", (from, to), FilesystemError::ReadOnly)
+    }
+}
+
+/// One file the Ruby object opened. Only the guest's descriptor refers to
+/// it, so it stays registered with Ruby's collector until it is released.
+struct RubyFile {
+    file: Box<Opaque<Value>>,
+    closed: bool,
+}
+
+impl RubyFile {
+    fn pin(ruby: &Ruby, file: Value) -> Self {
+        let file = Box::new(Opaque::from(file));
+        ruby.gc_register_address(&*file);
+        Self {
+            file,
+            closed: false,
+        }
+    }
+
+    /// Ask the file to close, a file lacking `close` having nothing to
+    /// release.
+    fn release(&mut self) -> Result<(), FilesystemError> {
+        self.closed = true;
+        match change(*self.file, "close", (), FilesystemError::Unsupported) {
+            Err(FilesystemError::Unsupported) => Ok(()),
+            answer => answer,
+        }
+    }
+}
+
+impl File for RubyFile {
+    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+        ask(
+            *self.file,
+            "pread",
+            FilesystemError::Unsupported,
+            |_, file| {
+                let read: Option<RString> = file.funcall("pread", (buf.len(), offset))?;
+                let Some(read) = read else { return Ok(0) };
+                // SAFETY: the bytes are copied out before Ruby runs again.
+                let bytes = unsafe { read.as_slice() };
+                let len = bytes.len().min(buf.len());
+                buf[..len].copy_from_slice(&bytes[..len]);
+                Ok(len)
+            },
+        )
+    }
+
+    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        ask(
+            *self.file,
+            "pwrite",
+            FilesystemError::ReadOnly,
+            |ruby, file| file.funcall("pwrite", (ruby.str_from_slice(buf), offset)),
+        )
+    }
+
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        ask(
+            *self.file,
+            "size",
+            FilesystemError::Unsupported,
+            |_, file| {
+                Ok(Metadata {
+                    kind: Kind::File,
+                    len: file.funcall("size", ())?,
+                })
+            },
+        )
+    }
+
+    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
+        change(*self.file, "truncate", (len,), FilesystemError::ReadOnly)
+    }
+
+    /// A file lacking `fsync` has nothing of its own to flush.
+    fn sync(&mut self) -> Result<(), FilesystemError> {
+        match change(*self.file, "fsync", (), FilesystemError::Unsupported) {
+            Err(FilesystemError::Unsupported) => Ok(()),
+            answer => answer,
+        }
+    }
+
+    fn close(mut self: Box<Self>) -> Result<(), FilesystemError> {
+        self.release()
+    }
+}
+
+/// A file the guest never closed is closed here, its failure discarded,
+/// and released to Ruby's collector either way.
+impl Drop for RubyFile {
+    fn drop(&mut self) {
+        if !self.closed {
+            let _ = self.release();
+        }
+        gvl::reenter(|| {
+            let ruby = Ruby::get().expect("Ruby handle unavailable releasing a file");
+            ruby.gc_unregister_address(&*self.file);
+        });
+    }
+}

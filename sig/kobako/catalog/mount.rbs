@@ -26,6 +26,8 @@ module Kobako
 
       private
 
+      def filesystem?: (untyped filesystem) -> bool
+
       def malformed?: (String path) -> bool
 
       def nested?: (String other) -> bool

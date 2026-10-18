@@ -3,17 +3,22 @@
 //! `kobako_runtime` Filesystem of that kind, and the per-invocation
 //! translation of a Sandbox's Mounts into contract Grants.
 //!
-//! The Filesystem itself runs in Rust; Ruby only picks the kind and the
-//! access. A mount's block is the one place Ruby is asked again while the
-//! guest runs, once per open or change, through `gvl::reenter`.
+//! A kind kobako ships runs in Rust; Ruby only picks it and the access.
+//! Ruby is asked again while the guest runs through a mount's block, once
+//! per open or change, and through a Filesystem written in Ruby, once per
+//! call.
+
+mod ruby;
 
 use std::sync::Arc;
 
 use magnus::value::{Opaque, ReprValue};
 use magnus::{
-    function, method, prelude::*, scan_args::get_kwargs, scan_args::scan_args,
-    Error as MagnusError, RArray, RHash, RModule, RString, Ruby, Symbol, Value,
+    function, gc, method, prelude::*, scan_args::get_kwargs, scan_args::scan_args,
+    DataTypeFunctions, Error as MagnusError, RArray, RHash, RModule, RString, Ruby, Symbol, Value,
 };
+
+use ruby::RubyFilesystem;
 
 use kobako_runtime::filesystem::{Directory, Filesystem, Memory, Overlay, Temporary};
 use kobako_runtime::grant::Grant;
@@ -31,9 +36,21 @@ filesystem_class!(TemporaryFs, "Kobako::Filesystem::Temporary");
 filesystem_class!(DirectoryFs, "Kobako::Filesystem::Directory");
 
 /// The Overlay itself rather than a shared handle, so `layer` can answer a
-/// new one and leave this one as it was.
-#[magnus::wrap(class = "Kobako::Filesystem::Overlay", free_immediately, size)]
-pub(super) struct OverlayFs(Overlay);
+/// new one and leave this one as it was. It marks the Ruby object of
+/// every Layer, since a Filesystem written in Ruby has nothing else
+/// keeping it alive.
+#[derive(magnus::TypedData)]
+#[magnus(class = "Kobako::Filesystem::Overlay", free_immediately, size, mark)]
+pub(super) struct OverlayFs {
+    overlay: Overlay,
+    layers: Vec<Opaque<Value>>,
+}
+
+impl DataTypeFunctions for OverlayFs {
+    fn mark(&self, marker: &gc::Marker) {
+        marker.mark_slice(&self.layers);
+    }
+}
 
 pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     let module = kobako.define_module("Filesystem")?;
@@ -90,9 +107,12 @@ fn directory_new(path: String) -> Result<DirectoryFs, MagnusError> {
         })
 }
 
-/// `Overlay.new(upper:, lower:)`, writes landing in `upper`.
+/// `Overlay.new`, with no Layer yet.
 fn overlay_new() -> OverlayFs {
-    OverlayFs(Overlay::new())
+    OverlayFs {
+        overlay: Overlay::new(),
+        layers: Vec::new(),
+    }
 }
 
 /// `layer(filesystem, access: :read)`, a new Overlay with `filesystem`
@@ -105,9 +125,15 @@ fn overlay_layer(overlay: &OverlayFs, args: &[Value]) -> Result<OverlayFs, Magnu
         Some(access) => access_of(access)?,
         None => Access::Read,
     };
-    Ok(OverlayFs(
-        overlay.0.clone().layer(filesystem_of(filesystem)?, access),
-    ))
+    let mut layers = overlay.layers.clone();
+    layers.push(Opaque::from(filesystem));
+    Ok(OverlayFs {
+        overlay: overlay
+            .overlay
+            .clone()
+            .layer(filesystem_of(filesystem)?, access),
+        layers,
+    })
 }
 
 fn access_of(access: Symbol) -> Result<Access, MagnusError> {
@@ -133,12 +159,18 @@ fn filesystem_of(value: Value) -> Result<Arc<dyn Filesystem>, MagnusError> {
         return Ok(fs.0.clone());
     }
     if let Ok(fs) = <&OverlayFs>::try_convert(value) {
-        return Ok(Arc::new(fs.0.clone()));
+        return Ok(Arc::new(fs.overlay.clone()));
+    }
+    if let Some(fs) = RubyFilesystem::of(value) {
+        return Ok(Arc::new(fs));
     }
     let ruby = Ruby::get().expect("Ruby thread");
     Err(MagnusError::new(
         ruby.exception_type_error(),
-        format!("expected a Kobako::Filesystem, got {}", value.class()),
+        format!(
+            "expected a Kobako::Filesystem or an object answering open and stat, got {}",
+            value.class()
+        ),
     ))
 }
 

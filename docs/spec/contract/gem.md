@@ -53,7 +53,8 @@ end
 
 ## `Kobako::Filesystem`
 
-The kinds of Filesystem a Host App mounts for the guest's `File`.
+The kinds of Filesystem a Host App mounts for the guest's `File`. An object
+answering `open` and `stat` mounts as one written in Ruby.
 
 ```ruby
 module Kobako

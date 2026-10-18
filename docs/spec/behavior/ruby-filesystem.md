@@ -1,0 +1,120 @@
+# Ruby Filesystem
+
+What a Host App reaches when it writes a Filesystem in Ruby and mounts it like the kinds kobako ships.
+
+```
+guest File ─> runtime ─> Mount ─> Ruby object: open / stat / children / mkdir / rmdir / unlink / rename
+                                     └─ open answers a file: pread / pwrite / size / truncate / fsync / close
+```
+
+### Why these scenarios
+
+A Filesystem in Ruby is any object answering `open` and `stat`. Its methods take the names of Ruby's own `File`, `Dir`, and `IO`. A Host App can hand a call on to a real `::File`. Every call the guest makes reaches Ruby, and what Ruby answers or raises reaches the guest.
+
+```
+a change method missing   -> Errno::EROFS in the script
+an Errno raised           -> that Errno in the script
+anything else raised      -> Errno::EIO in the script, which goes on
+```
+
+The Host App gets no exception of its own back. A failure belongs to the guest, which may raise it further.
+
+## Includes
+
+- `test/e2e/test_ruby_filesystem.rb`
+
+## `RF-001` A Ruby object answering open and stat mounts as a Filesystem
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox mounting a Ruby object that answers `open` and `stat` over a file |
+| When | the script reads that file |
+| Then | it reads the content the object holds |
+
+## `RF-002` A script writes through a Ruby Filesystem
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-001`, `FL-002` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem mounted for reading and writing |
+| When | the script writes a file |
+| Then | the Ruby object holds what was written |
+
+## `RF-003` A change a Ruby Filesystem does not answer is refused as read-only
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-006` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem with no `unlink`, mounted for reading and writing |
+| When | the script deletes a file |
+| Then | the delete raises `Errno::EROFS` |
+
+## `RF-004` An Errno a Ruby Filesystem raises reaches the script
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `open` raises `Errno::EACCES` |
+| When | the script opens a file |
+| Then | the open raises `Errno::EACCES` |
+
+## `RF-005` Any other error a Ruby Filesystem raises reaches the script as EIO
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-004`, `MT-008` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `open` raises a `RuntimeError` |
+| When | the script opens a file |
+| Then | the open raises `Errno::EIO` and the script goes on |
+
+## `RF-006` A close a Ruby Filesystem's file refuses fails the script's close
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-010` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file whose Ruby `close` raises `Errno::EACCES` |
+| When | the script closes that file |
+| Then | the close raises `Errno::EACCES` |
+
+## `RF-007` A file the script holds open outlives the host's garbage collection
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a Ruby Filesystem's file open under a collection at every allocation |
+| When | the script reads that file again |
+| Then | it reads the file's content |
+
+## `RF-008` A Ruby Filesystem lives as long as the Overlay holding it as a Layer
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-011`, `FS-008` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay holding the only reference to a Ruby Filesystem, after a full collection |
+| When | the script reads a file through a mount of that Overlay |
+| Then | it reads the Ruby Filesystem's content |
