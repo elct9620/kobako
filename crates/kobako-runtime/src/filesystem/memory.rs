@@ -243,7 +243,6 @@ impl Filesystem for Memory {
     fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let mut nodes = self.nodes();
         match nodes.get(path) {
-            _ if path.is_empty() => Err(FilesystemError::PermissionDenied),
             Some(Node::File(_)) => Err(FilesystemError::NotADirectory),
             Some(Node::Directory) if has_children(&nodes, path) => {
                 Err(FilesystemError::DirectoryNotEmpty)
@@ -271,7 +270,6 @@ impl Filesystem for Memory {
     fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError> {
         let mut nodes = self.nodes();
         let moving = match nodes.get(from) {
-            _ if from.is_empty() || to.is_empty() => return Err(FilesystemError::PermissionDenied),
             Some(node) => node.clone(),
             None => return Err(missing(&nodes, from)),
         };

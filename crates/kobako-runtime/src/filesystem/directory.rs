@@ -118,7 +118,16 @@ impl Filesystem for Directory {
         self.dir.remove_dir(host(path)).map_err(error)
     }
 
+    /// A directory is refused as one on every host, where the host itself
+    /// answers EISDIR on Linux but EPERM on macOS.
     fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+        if self
+            .dir
+            .symlink_metadata(host(path))
+            .is_ok_and(|m| m.is_dir())
+        {
+            return Err(FilesystemError::IsADirectory);
+        }
         self.dir.remove_file(host(path)).map_err(error)
     }
 
@@ -243,6 +252,19 @@ mod tests {
             fs::read(host.0.join("out.txt")).expect("the host file must exist"),
             b"written",
             "a file created through a Directory's open must land in the host directory"
+        );
+    }
+
+    // @behavior FS-028
+    #[test]
+    fn a_directory_refuses_to_remove_a_directory_as_a_file() {
+        let host = HostDir::new("unlink-dir");
+        fs::create_dir(host.0.join("sub")).expect("the host directory must be created");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        assert_eq!(
+            directory.remove_file("sub"),
+            Err(FilesystemError::IsADirectory),
+            "a host directory removed through Directory::remove_file must answer IsADirectory"
         );
     }
 

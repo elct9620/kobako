@@ -6,7 +6,8 @@
 //! themselves, so a third party brings one without implementing any of
 //! that. Every path a runtime hands over is relative to the Filesystem's
 //! own root, its components joined by `/`, with no `.` or `..` left and
-//! no leading `/`; the empty path is the root.
+//! no leading `/`; the empty path is the root, which a runtime never asks
+//! to remove or move.
 
 mod directory;
 mod memory;

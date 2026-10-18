@@ -352,3 +352,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh.
 | Given | a Temporary given a limit |
 | When | the next Invocation's Filesystem is written past that limit |
 | Then | the write is refused as out of space |
+
+## `FS-028` A Directory refuses to remove a directory as a file
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-006` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory whose host directory holds a directory |
+| When | that directory is removed as a file |
+| Then | the removal answers that it is a directory, on every host |
