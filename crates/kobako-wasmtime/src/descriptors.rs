@@ -105,8 +105,8 @@ impl Descriptors {
         self.limit.is_some_and(|limit| self.used.len() >= limit)
     }
 
-    /// Add `descriptor` under the most recently freed number, or the one
-    /// past the highest in use; `None` when the table is full.
+    /// Add `descriptor` under the highest freed number, or the one past
+    /// the highest in use; `None` when the table is full.
     pub(crate) fn push(&mut self, descriptor: Descriptor) -> Option<u32> {
         if self.is_full() {
             return None;
