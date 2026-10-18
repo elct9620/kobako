@@ -186,6 +186,7 @@ Each row names an entry point and only what reading it will not tell you.
 | Handles | `lib/kobako/catalog/handles.rb` | minted per invocation by `Context` |
 | Extensions | `docs/guides/extensions.md` | a backend's kind is a keyword |
 | Mounts | `crates/kobako-runtime/src/mount.rs` | the Mount decides access; the driver in `crates/kobako-wasmtime/src/preview1/` maps its `Denial` |
+| Filesystems in Ruby | `ext/kobako/src/runtime/filesystem/ruby.rs` | whatever holds one on the Ruby side keeps it alive; an Overlay marks its Layers |
 | guest capabilities | `wasm/kobako-{io,regexp,json}/src/` | pure-Rust `beni::Gem`, no mrblib |
 | ABI surface | `wasm/kobako-core/src/guest.rs` | bodies in `wasm/kobako-mruby/src/flows.rs`; host side in `crates/kobako-wasmtime/src/driver.rs` |
 | security | `docs/guides/security.md` | the host is the boundary |

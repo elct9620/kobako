@@ -203,9 +203,35 @@ sandbox.eval('File.read("/config/app.yml")')
 | `Memory.new(files = {})` | files in memory, shared by every invocation |
 | `Temporary.new` | files in memory, empty at every invocation |
 | `Directory.new(path)` | a host directory; nothing outside it is reachable |
-| `Overlay.new(upper:, lower:)` | writes land in `upper`, over `lower` left as it was |
+| `Overlay.new.layer(fs, access:)` | Layers stacked into one view, the first added on top |
 
 A block decides each open and each change in the access's place; a falsy answer or a raise fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run. With nothing mounted, `File.open` raises `NotImplementedError`.
+
+#### Overlays
+
+`layer` adds a Filesystem beneath the Layers already there and answers a new Overlay. Each Layer is `:read`, the default, or `:read_write` on its own.
+
+```ruby
+overlay = Kobako::Filesystem::Overlay.new
+  .layer(Kobako::Filesystem::Temporary.new, access: :read_write) # empty every run
+  .layer(Kobako::Filesystem::Directory.new("app"))                # never written
+sandbox.mount("/app", overlay, access: :read_write)
+```
+
+A change to a file in a writable Layer stays there. A read-only Layer's file is first copied up to the nearest writable Layer above it, and a new file lands in the topmost one. A removal hides what a read-only Layer still shows with an [OCI whiteout](https://github.com/opencontainers/image-spec/blob/main/layer.md#whiteouts), `.wh.<name>`, kept in the topmost writable Layer. Names starting with `.wh.` are therefore reserved.
+
+#### Filesystems in Ruby
+
+Any object answering `open` and `stat` mounts as a Filesystem, directly or as a Layer. Its methods follow Ruby's `File`, `Dir`, and `IO`, so a real `::File` can answer as an open file.
+
+| Method | Answers |
+|---|---|
+| `open(path, flags)` | a file answering `pread`, `pwrite`, `size`, `truncate`, `fsync`, `close` |
+| `stat(path)` | an object answering `directory?` and `size` |
+| `children(path)` | entry names, as `Dir.children` gives them |
+| `mkdir` · `rmdir` · `unlink` · `rename` | optional; without one, that change raises `Errno::EROFS` |
+
+A path is relative to the mount, the empty path being its root, and `flags` are `File::Constants`. An `Errno` the object raises reaches the script as that `Errno`, and anything else as `Errno::EIO`. Every call re-enters Ruby, and its time counts toward `timeout:` without being interrupted.
 
 ### Output Capture
 
