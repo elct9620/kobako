@@ -1,5 +1,5 @@
 //! The Ruby face of the Mount: `Kobako::Filesystem::Memory`,
-//! `Temporary`, `Directory`, and `Overlay`, each a handle on the
+//! `Temporary`, `Directory`, and `Overlay`, each standing for the
 //! `kobako_runtime` Filesystem of that kind, and the per-invocation
 //! translation of a Sandbox's Mounts into contract Grants.
 //!
