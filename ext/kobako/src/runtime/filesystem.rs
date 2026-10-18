@@ -78,13 +78,18 @@ fn memory_new(args: &[Value]) -> Result<MemoryFs, MagnusError> {
     let limit_key = ruby.to_symbol("limit");
     for hash in args.optional.0.into_iter().chain([args.keywords]) {
         hash.foreach(|key: Value, value: Value| {
-            if Symbol::from_value(key).is_some_and(|key| key.equal(limit_key).unwrap_or(false)) {
-                limit = limit_of(value)?;
-            } else {
-                files.push((
+            match Symbol::from_value(key) {
+                Some(key) if key.equal(limit_key)? => limit = limit_of(value)?,
+                Some(key) => {
+                    return Err(MagnusError::new(
+                        ruby.exception_arg_error(),
+                        format!("unknown keyword: :{}", key.name()?),
+                    ))
+                }
+                None => files.push((
                     String::try_convert(key)?,
                     super::rstring_to_vec(RString::try_convert(value)?),
-                ));
+                )),
             }
             Ok(magnus::r_hash::ForEach::Continue)
         })?;

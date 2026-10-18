@@ -31,6 +31,16 @@ class TestE2EMountLimit < Minitest::Test
                  "and leave the seeded files"
   end
 
+  # @behavior MT-015
+  def test_a_memory_refuses_a_keyword_it_does_not_know
+    error = assert_raises(ArgumentError, "a misspelled keyword through Memory.new must raise ArgumentError") do
+      Kobako::Filesystem::Memory.new("note.txt" => "hello", limt: 8)
+    end
+
+    assert_equal "unknown keyword: :limt", error.message,
+                 "a misspelled keyword through Memory.new must be named in the ArgumentError"
+  end
+
   # @behavior MT-014
   def test_a_temporarys_limit_given_in_ruby_bounds_what_the_guest_writes
     assert_equal [:refused, nil], write_beneath(Kobako::Filesystem::Temporary.new(limit: 4)),

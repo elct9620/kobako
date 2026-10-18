@@ -190,3 +190,15 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 | Given | a Sandbox mounting a Temporary given a limit |
 | When | the script writes past that limit |
 | Then | the script raises `Errno::ENOSPC` |
+
+## `MT-015` A Memory refuses a keyword it does not know
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | no Memory |
+| When | one is created with a misspelled `limit` keyword |
+| Then | the creation raises `ArgumentError` naming the unknown keyword |
