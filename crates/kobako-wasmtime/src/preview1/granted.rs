@@ -25,12 +25,14 @@ const ERRNO_BUSY: i32 = 10;
 const ERRNO_INVAL: i32 = 28;
 const ERRNO_ISDIR: i32 = 31;
 const ERRNO_NOENT: i32 = 44;
+const ERRNO_NOTDIR: i32 = 54;
 const ERRNO_ROFS: i32 = 69;
 const ERRNO_NOTCAPABLE: i32 = 76;
 
 /// Memory holds an `iovec` at 64 over 512..576, a `ciovec` at 80 over
-/// "hello" at 600, and the paths `file.txt` at 700 and `../file.txt` at
-/// 720. An opened descriptor lands at 128 and a count at 132.
+/// "hello" at 600, the paths `file.txt` at 700 and `../file.txt` at 720,
+/// and from 740 the paths the resolution rules turn on. An opened
+/// descriptor lands at 128 and a count at 132.
 const PROBE_WAT: &str = r#"
 (module
   (import "wasi_snapshot_preview1" "fd_prestat_get" (func $prestat (param i32 i32) (result i32)))
@@ -43,6 +45,10 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "path_unlink_file" (func $unlink (param i32 i32 i32) (result i32)))
   (memory (export "memory") 1)
   (data (i32.const 740) ".")
+  (data (i32.const 760) "missing/../file.txt")
+  (data (i32.const 780) "file.txt/..")
+  (data (i32.const 800) "file.txt/")
+  (data (i32.const 820) "new.txt/")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
   (data (i32.const 600) "hello")
@@ -89,6 +95,11 @@ const PROBE_WAT: &str = r#"
 
 const FILE: (i32, i32) = (700, 8);
 const ABOVE_ROOT: (i32, i32) = (720, 11);
+const EMPTY: (i32, i32) = (700, 0);
+const THROUGH_MISSING: (i32, i32) = (760, 19);
+const OUT_OF_FILE: (i32, i32) = (780, 11);
+const FILE_AS_DIRECTORY: (i32, i32) = (800, 9);
+const NEW_AS_DIRECTORY: (i32, i32) = (820, 8);
 
 fn grant(
     filesystem: Arc<dyn Filesystem>,
@@ -415,5 +426,68 @@ fn unlinking_a_mounts_root_answers_that_it_is_a_directory() {
         (vec![ERRNO_ISDIR], 0),
         "path_unlink_file of `.` beneath a Mount through preview1 must answer EISDIR \
          without asking the Filesystem"
+    );
+}
+
+/// What reading `path` answers beneath a read-only Mount holding
+/// `file.txt`.
+fn read_beneath(path: (i32, i32)) -> i32 {
+    let memory: Memory = [("file.txt", "granted")].into_iter().collect();
+    Guest::new(&[grant(Arc::new(memory), Access::Read, None)]).call("read_file", path)
+}
+
+// @behavior RT-086
+#[test]
+fn an_empty_path_names_nothing_beneath_a_mount() {
+    assert_eq!(
+        read_beneath(EMPTY),
+        ERRNO_NOENT,
+        "path_open of the empty path beneath a Mount through preview1 must answer ENOENT"
+    );
+}
+
+// @behavior RT-087
+#[test]
+fn a_dot_dot_after_a_missing_name_names_nothing() {
+    assert_eq!(
+        read_beneath(THROUGH_MISSING),
+        ERRNO_NOENT,
+        "path_open of `missing/../file.txt` beneath a Mount through preview1 must answer ENOENT"
+    );
+}
+
+// @behavior RT-088
+#[test]
+fn a_dot_dot_after_a_file_is_not_a_directory() {
+    assert_eq!(
+        read_beneath(OUT_OF_FILE),
+        ERRNO_NOTDIR,
+        "path_open of `file.txt/..` beneath a Mount through preview1 must answer ENOTDIR"
+    );
+}
+
+// @behavior RT-089
+#[test]
+fn a_path_ending_in_a_slash_names_only_a_directory() {
+    assert_eq!(
+        read_beneath(FILE_AS_DIRECTORY),
+        ERRNO_NOTDIR,
+        "path_open of `file.txt/` beneath a Mount through preview1 must answer ENOTDIR"
+    );
+}
+
+// @behavior RT-090
+#[test]
+fn a_file_created_at_a_path_ending_in_a_slash_is_refused_as_a_directory() {
+    let memory = Arc::new(Memory::new());
+    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
+    assert_eq!(
+        (
+            guest.call("write_file", NEW_AS_DIRECTORY),
+            memory.read_dir("").map(|entries| entries.len())
+        ),
+        (ERRNO_ISDIR, Ok(0)),
+        "path_open creating `new.txt/` beneath a Mount through preview1 must answer EISDIR and \
+         make no file"
     );
 }

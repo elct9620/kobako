@@ -804,3 +804,63 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a read-write Mount |
 | When | the guest unlinks the file `.` beneath it |
 | Then | the unlink answers that `.` is a directory, and the Filesystem is not asked |
+
+## `RT-086` An empty path names nothing beneath a Mount
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-079` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount |
+| When | the guest opens the empty path beneath it |
+| Then | the open answers that nothing is there |
+
+## `RT-087` A `..` after a missing name names nothing
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-079` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding `file.txt` |
+| When | the guest opens `missing/../file.txt` beneath it |
+| Then | the open answers that nothing is there |
+
+## `RT-088` A `..` after a file is not a directory
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-087` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding `file.txt` |
+| When | the guest opens `file.txt/..` beneath it |
+| Then | the open answers that `file.txt` is not a directory |
+
+## `RT-089` A path ending in a slash names only a directory
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-088` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding `file.txt` |
+| When | the guest opens `file.txt/` beneath it |
+| Then | the open answers that `file.txt` is not a directory |
+
+## `RT-090` A file created at a path ending in a slash is refused as a directory
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-089` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount |
+| When | the guest creates a file at `new.txt/` beneath it |
+| Then | the creation answers that the path is a directory, and no file is made |

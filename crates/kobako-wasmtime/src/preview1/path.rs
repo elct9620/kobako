@@ -42,7 +42,8 @@ fn directory(table: &Descriptors, fd: u32) -> Answer<&Directory> {
     }
 }
 
-/// A path beneath `fd`, relative to its mount's root.
+/// A path beneath `fd`, relative to its mount's root, refused when it
+/// ends in `/` and names a file.
 fn beneath<'a>(
     table: &'a Descriptors,
     mem: &GuestMemory,
@@ -50,17 +51,21 @@ fn beneath<'a>(
     path: (u32, u32),
 ) -> Answer<(&'a Directory, String)> {
     let dir = directory(table, fd)?;
-    let path = resolve(dir, &mem.string(path.0, path.1)?)?;
+    let path = resolve(dir, &mem.string(path.0, path.1)?)?
+        .directory_checked(dir.mount.filesystem().as_ref())?;
     Ok((dir, path))
 }
 
+/// A trailing `/` asks for the directory being made, so it is no
+/// refusal here, as `mkdir(2)` takes it.
 pub(crate) fn create_directory(
     table: &Descriptors,
     mem: &GuestMemory,
     fd: u32,
     path: (u32, u32),
 ) -> Answer {
-    let (dir, path) = beneath(table, mem, fd, path)?;
+    let dir = directory(table, fd)?;
+    let path = resolve(dir, &mem.string(path.0, path.1)?)?.path;
     dir.mount.check(&path, Access::ReadWrite)?;
     Ok(dir.mount.filesystem().create_dir(&path)?)
 }
@@ -132,13 +137,19 @@ pub(crate) fn open(
         Descriptor::File(_) => return Err(Errno::Notdir.into()),
         Descriptor::Stdin(_) | Descriptor::Channel(_) => return Err(Errno::Badf.into()),
     };
-    let path = resolve(dir, &path)?;
+    let oflag = |bit| flags.oflags & bit != 0;
+    let resolved = resolve(dir, &path)?;
+    // A path ending in `/` asks for a directory, which cannot be created
+    // as a file.
+    if path.ends_with('/') && oflag(OFLAGS_CREAT) {
+        return Err(Errno::Isdir.into());
+    }
+    let path = resolved.directory_checked(dir.mount.filesystem().as_ref())?;
     let mount = Arc::clone(&dir.mount);
     if table.is_full() {
         return Err(Errno::Mfile.into());
     }
 
-    let oflag = |bit| flags.oflags & bit != 0;
     let read = flags.rights_base & RIGHTS_FD_READ != 0;
     let write = flags.rights_base & RIGHTS_FD_WRITE != 0;
     let changes = write || oflag(OFLAGS_CREAT) || oflag(OFLAGS_TRUNC);
@@ -227,8 +238,14 @@ pub(crate) fn rename(
 ) -> Answer {
     let from_dir = directory(table, old.0)?;
     let to_dir = directory(table, new.0)?;
-    let from = resolve(from_dir, &mem.string(old.1 .0, old.1 .1)?)?;
-    let to = resolve(to_dir, &mem.string(new.1 .0, new.1 .1)?)?;
+    let from = resolve(from_dir, &mem.string(old.1 .0, old.1 .1)?)?
+        .directory_checked(from_dir.mount.filesystem().as_ref())?;
+    // A rename onto its own path leaves everything as it was, a trailing
+    // `/` included, as `rename(2)` does.
+    let to = match resolve(to_dir, &mem.string(new.1 .0, new.1 .1)?)? {
+        to if to.path == from => to.path,
+        to => to.directory_checked(to_dir.mount.filesystem().as_ref())?,
+    };
     not_root(&from, Errno::Busy)?;
     not_root(&to, Errno::Busy)?;
     if !Arc::ptr_eq(&from_dir.mount, &to_dir.mount) {
