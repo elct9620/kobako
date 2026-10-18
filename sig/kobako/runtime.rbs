@@ -8,6 +8,7 @@ module Kobako
       memory_limit: Integer?,
       stdout_limit: Integer?,
       stderr_limit: Integer?,
+      open_file_limit: Integer?,
       profile: Symbol,
       gvl: Symbol
     ) -> Runtime

@@ -3,6 +3,7 @@ module Kobako
     DEFAULT_TIMEOUT_SECONDS: Float
     DEFAULT_MEMORY_LIMIT: Integer
     DEFAULT_OUTPUT_LIMIT: Integer
+    DEFAULT_OPEN_FILE_LIMIT: Integer
     DEFAULT_PROFILE: Symbol
     PROFILES: Array[Symbol]
     GVL_MODES: Array[Symbol]
@@ -12,6 +13,7 @@ module Kobako
     attr_reader memory_limit: Integer?
     attr_reader stdout_limit: Integer?
     attr_reader stderr_limit: Integer?
+    attr_reader open_file_limit: Integer?
     attr_reader profile: Symbol
     attr_reader gvl: Symbol
 
@@ -20,6 +22,7 @@ module Kobako
       ?memory_limit: Integer?,
       ?stdout_limit: Integer?,
       ?stderr_limit: Integer?,
+      ?open_file_limit: Integer?,
       ?profile: Symbol,
       ?gvl: Symbol
     ) -> SandboxOptions
@@ -29,6 +32,7 @@ module Kobako
       ?memory_limit: Integer?,
       ?stdout_limit: Integer?,
       ?stderr_limit: Integer?,
+      ?open_file_limit: Integer?,
       ?profile: Symbol,
       ?gvl: Symbol
     ) -> void
@@ -38,6 +42,7 @@ module Kobako
       memory_limit: Integer?,
       stdout_limit: Integer?,
       stderr_limit: Integer?,
+      open_file_limit: Integer?,
       profile: Symbol,
       gvl: Symbol
     }
@@ -48,7 +53,7 @@ module Kobako
 
     def normalize_timeout: ((Float | Integer)? timeout) -> Float?
 
-    def normalize_byte_limit: (Integer? limit, String name) -> Integer?
+    def normalize_limit: (Integer? limit, String name) -> Integer?
 
     def normalize_choice: (untyped value, Array[Symbol] choices, String name) -> Symbol
   end

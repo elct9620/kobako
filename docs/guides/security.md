@@ -34,6 +34,8 @@ feature that specifies it.
 | a Mount reaches nothing above its root, and its access holds | [runtime](../spec/behavior/runtime.md) |
 | no live time or entropy under the default `:hermetic` | [runtime](../spec/behavior/runtime.md) |
 | timeout, memory cap, and output clipping fail cleanly | [sandbox](../spec/behavior/sandbox.md) |
+| the guest holds no more files open than its cap | [sandbox](../spec/behavior/sandbox.md) |
+| a Memory or Temporary holds no more than its limit | [filesystem](../spec/behavior/filesystem.md) |
 | a value the wire cannot carry becomes a Handle or a controlled error | [transport-dispatch](../spec/behavior/transport-dispatch.md) |
 
 ## Isolation Profiles

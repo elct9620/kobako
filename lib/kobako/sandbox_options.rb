@@ -11,12 +11,16 @@ module Kobako
   # [+memory_limit+]  Integer bytes one invocation may grow guest memory by.
   # [+stdout_limit+, +stderr_limit+]
   #                   Integer bytes kept from each output channel.
+  # [+open_file_limit+]
+  #                   Integer descriptors one invocation may hold open, the
+  #                   standard ones and each Mount's included.
   # [+profile+]       The isolation the runtime must provide, one of PROFILES.
   # [+gvl+]           How an invocation holds Ruby's GVL, one of GVL_MODES.
   #
   # Raises ArgumentError for a value outside these shapes, and SetupError
   # when the runtime provides less isolation than +profile+ asks for.
-  class SandboxOptions < Data.define(:timeout, :memory_limit, :stdout_limit, :stderr_limit, :profile, :gvl)
+  class SandboxOptions < Data.define(:timeout, :memory_limit, :stdout_limit, :stderr_limit, :open_file_limit,
+                                     :profile, :gvl)
     # The default +timeout+: 60 seconds.
     DEFAULT_TIMEOUT_SECONDS = 60.0
 
@@ -26,6 +30,10 @@ module Kobako
 
     # The default +stdout_limit+ and +stderr_limit+: 1 MiB each.
     DEFAULT_OUTPUT_LIMIT = 1 << 20
+
+    # The default +open_file_limit+: 1024, the soft limit Linux gives a
+    # process.
+    DEFAULT_OPEN_FILE_LIMIT = 1024
 
     # The isolation profiles, weakest first. +:hermetic+ denies the guest the
     # clock and entropy; +:permissive+ leaves them live.
@@ -45,12 +53,14 @@ module Kobako
                    memory_limit: DEFAULT_MEMORY_LIMIT,
                    stdout_limit: DEFAULT_OUTPUT_LIMIT,
                    stderr_limit: DEFAULT_OUTPUT_LIMIT,
+                   open_file_limit: DEFAULT_OPEN_FILE_LIMIT,
                    profile: DEFAULT_PROFILE,
                    gvl: DEFAULT_GVL)
       timeout = normalize_timeout(timeout)
-      memory_limit = normalize_byte_limit(memory_limit, "memory_limit")
-      stdout_limit = normalize_byte_limit(stdout_limit, "stdout_limit")
-      stderr_limit = normalize_byte_limit(stderr_limit, "stderr_limit")
+      memory_limit = normalize_limit(memory_limit, "memory_limit")
+      stdout_limit = normalize_limit(stdout_limit, "stdout_limit")
+      stderr_limit = normalize_limit(stderr_limit, "stderr_limit")
+      open_file_limit = normalize_limit(open_file_limit, "open_file_limit")
       profile = normalize_choice(profile, PROFILES, "profile")
       gvl = normalize_choice(gvl, GVL_MODES, "gvl")
       super
@@ -79,7 +89,7 @@ module Kobako
       seconds
     end
 
-    def normalize_byte_limit(limit, name)
+    def normalize_limit(limit, name)
       return nil if limit.nil?
       unless limit.is_a?(Integer) && limit.positive?
         raise ArgumentError, "#{name} must be a positive Integer or nil, got #{limit.inspect}"

@@ -169,6 +169,7 @@ impl Runtime {
             Option<usize>,
             Option<usize>,
             Option<usize>,
+            Option<usize>,
             Symbol,
             Symbol,
         );
@@ -179,13 +180,21 @@ impl Runtime {
                 "memory_limit",
                 "stdout_limit",
                 "stderr_limit",
+                "open_file_limit",
                 "profile",
                 "gvl",
             ],
             &[],
         )?;
-        let (timeout_seconds, memory_limit, stdout_limit, stderr_limit, profile, gvl) =
-            options.required;
+        let (
+            timeout_seconds,
+            memory_limit,
+            stdout_limit,
+            stderr_limit,
+            open_file_limit,
+            profile,
+            gvl,
+        ) = options.required;
         let timeout = match timeout_seconds {
             None => None,
             Some(secs) if secs.is_finite() && secs > 0.0 => Some(Duration::from_secs_f64(secs)),
@@ -235,6 +244,7 @@ impl Runtime {
                 memory_limit,
                 stdout_limit,
                 stderr_limit,
+                open_file_limit,
                 profile,
             },
         )

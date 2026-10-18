@@ -18,4 +18,26 @@ class TestParityCapsUsage < Parity::Case
       invocations: [{ verb: "eval", source: "(1..100).reduce(:+)" }]
     )
   end
+
+  OPEN_TWO = <<~RUBY
+    first = File.open("/data/note.txt")
+    begin
+      File.open("/data/note.txt")
+      [first.read, :both_opened]
+    rescue Errno::EMFILE
+      [first.read, :second_refused]
+    end
+  RUBY
+
+  # The cap is one above the three standard descriptors and the Mount, so
+  # the first open lands and the second is refused.
+  # @behavior S-201
+  def test_every_open_descriptor_counts_toward_the_open_file_cap
+    assert_parity Parity::Scenario.new(
+      name: "open-file-cap",
+      options: { open_file_limit: 5 },
+      mounts: [{ at: "/data", files: { "note.txt" => "hello" }, access: "read" }],
+      invocations: [{ verb: "eval", source: OPEN_TWO }]
+    )
+  end
 end

@@ -85,7 +85,7 @@ module Parity
     # Scenario caps ride in the runner's neutral spelling; translate
     # to the Ruby keyword surface (ms → seconds, profile → Symbol).
     def sandbox_options(options)
-      translated = options.slice(:memory_limit, :stdout_limit, :stderr_limit)
+      translated = options.slice(:memory_limit, :stdout_limit, :stderr_limit, :open_file_limit)
       translated[:timeout] = options[:timeout_ms] / 1000.0 if options[:timeout_ms]
       translated[:profile] = options[:profile].to_sym if options[:profile]
       translated

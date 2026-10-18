@@ -293,20 +293,32 @@ sandbox = Kobako::Sandbox.new(
   timeout:      5.0,              # seconds, default 60.0
   memory_limit: 10 * 1024 * 1024, # bytes,   default 1 MiB
   stdout_limit: 64 * 1024,        # bytes,   default 1 MiB
-  stderr_limit: 64 * 1024
+  stderr_limit: 64 * 1024,
+  open_file_limit: 16             # descriptors, default 1024
 )
 ```
 
-| Cap            | Raises                     | Default |
-|----------------|----------------------------|---------|
-| `timeout`      | `Kobako::TimeoutError`     | 60.0 s  |
-| `memory_limit` | `Kobako::MemoryLimitError` | 1 MiB   |
-| `stdout_limit` | output clipped (no raise)  | 1 MiB   |
-| `stderr_limit` | output clipped (no raise)  | 1 MiB   |
+| Cap               | Raises                         | Default |
+|-------------------|--------------------------------|---------|
+| `timeout`         | `Kobako::TimeoutError`         | 60.0 s  |
+| `memory_limit`    | `Kobako::MemoryLimitError`     | 1 MiB   |
+| `stdout_limit`    | output clipped (no raise)      | 1 MiB   |
+| `stderr_limit`    | output clipped (no raise)      | 1 MiB   |
+| `open_file_limit` | `Errno::EMFILE` in the guest   | 1024    |
 
-`memory_limit` covers the per-invocation `memory.grow` delta from the entry baseline, so a Sandbox reused across invocations does not silently accumulate against a global budget.
+`memory_limit` covers the per-invocation `memory.grow` delta from the entry baseline, so a Sandbox reused across invocations does not silently accumulate against a global budget. `open_file_limit` counts every descriptor one invocation holds, the three standard ones and each Mount's included, so a guest cannot exhaust the host process's own.
 
-Beyond the four caps, `profile:` requests the Sandbox's isolation posture on the `:permissive` < `:hermetic` ladder (default `:hermetic`). `:hermetic` denies the guest ambient time and entropy; `:permissive` lets the guest's `wasi:clocks` / `wasi:random` read live host sources, an explicit trade of reproducibility. The guest reaches no ambient filesystem, environment, or network under either. The request is also a floor: construction fails with `Kobako::SetupError` on a runtime that declares a weaker posture than requested. See [`docs/guides/security.md`](docs/guides/security.md) § Isolation Profiles.
+#### Isolation Profile
+
+Beyond the caps, `profile:` requests the Sandbox's isolation posture on a two-rung ladder.
+
+```
+:permissive  <  :hermetic (default)
+live clock      frozen clock
+live entropy    constant entropy
+```
+
+`:hermetic` denies the guest ambient time and entropy; `:permissive` lets the guest's `wasi:clocks` / `wasi:random` read live host sources, an explicit trade of reproducibility. The guest reaches no ambient filesystem, environment, or network under either. The request is also a floor: construction fails with `Kobako::SetupError` on a runtime that declares a weaker posture than requested. See [`docs/guides/security.md`](docs/guides/security.md) § Isolation Profiles.
 
 ### Concurrency
 

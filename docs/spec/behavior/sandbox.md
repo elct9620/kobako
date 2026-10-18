@@ -40,6 +40,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_flag.rb`
 - `test/e2e/sandbox/test_usage.rb`
 - `test/e2e/test_caps.rb`
+- `test/e2e/test_open_file_limit.rb`
 - `test/e2e/test_reference_memory.rb`
 - `test/e2e/test_lifecycle.rb`
 - `test/e2e/test_preload*.rb`
@@ -1716,3 +1717,40 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox whose preloaded source fits the Preamble but whose bytecode would not |
 | When | the Sandbox is invoked |
 | Then | the invocation runs on the source |
+
+## `S-200` An open past the open-file cap raises EMFILE and the script goes on
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-004`, `MT-007` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose open-file cap a script reaches with the files it holds open |
+| When | the script opens one file more |
+| Then | that open raises `Errno::EMFILE`, and the script goes on |
+
+## `S-201` Every open descriptor counts toward the open-file cap
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-200` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with one Mount whose open-file cap is one above the three standard descriptors and that Mount |
+| When | the script opens two files beneath the Mount |
+| Then | the first opens, and the second raises `Errno::EMFILE` |
+
+## `S-202` The open-file cap is per invocation, not per Sandbox
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-200` |
+| relates | `S-008` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose earlier invocation reached its open-file cap |
+| When | a later invocation opens a file |
+| Then | the file opens |
