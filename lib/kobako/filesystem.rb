@@ -7,11 +7,15 @@ module Kobako
   #
   #   sandbox.mount("/data", Kobako::Filesystem::Memory.new("config.yml" => yaml))
   #
-  # [<tt>Memory.new(files = {})</tt>]
+  # [<tt>Memory.new(files = {}, limit: 64 MiB)</tt>]
   #   Files held in memory for as long as the object lives, seeded from a
   #   Hash of path to contents. Every invocation shares them.
-  # [<tt>Temporary.new</tt>]
+  # [<tt>Temporary.new(limit: 64 MiB)</tt>]
   #   Files held in memory that every invocation starts empty.
+  #
+  # The files of a Memory or Temporary hold at most +limit+ bytes together,
+  # or without bound for +nil+; a write past it raises Errno::ENOSPC in the
+  # guest.
   # [<tt>Directory.new(path)</tt>]
   #   A host directory and everything beneath it. Nothing outside it is
   #   reachable, a symbolic link pointing out included.

@@ -66,7 +66,7 @@ fn change(
 /// The FilesystemError an `Errno` stands for; anything else is `Other`,
 /// which reaches the guest as `EIO`.
 fn error_of(ruby: &Ruby, err: MagnusError) -> FilesystemError {
-    const CODES: [(&str, FilesystemError); 11] = [
+    const CODES: [(&str, FilesystemError); 12] = [
         ("ENOENT", FilesystemError::NotFound),
         ("EEXIST", FilesystemError::AlreadyExists),
         ("ENOTDIR", FilesystemError::NotADirectory),
@@ -78,6 +78,7 @@ fn error_of(ruby: &Ruby, err: MagnusError) -> FilesystemError {
         ("EINVAL", FilesystemError::InvalidInput),
         ("ENOTSUP", FilesystemError::Unsupported),
         ("EOPNOTSUPP", FilesystemError::Unsupported),
+        ("ENOSPC", FilesystemError::NoSpace),
     ];
     let errno = ruby.class_object().const_get::<_, RModule>("Errno").ok();
     for (name, error) in CODES {

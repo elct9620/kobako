@@ -57,7 +57,7 @@ pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     let memory = module.define_class("Memory", ruby.class_object())?;
     memory.define_singleton_method("new", function!(memory_new, -1))?;
     let temporary = module.define_class("Temporary", ruby.class_object())?;
-    temporary.define_singleton_method("new", function!(temporary_new, 0))?;
+    temporary.define_singleton_method("new", function!(temporary_new, -1))?;
     let directory = module.define_class("Directory", ruby.class_object())?;
     directory.define_singleton_method("new", function!(directory_new, 1))?;
     let overlay = module.define_class("Overlay", ruby.class_object())?;
@@ -66,33 +66,47 @@ pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     Ok(())
 }
 
-/// `Memory.new(files = {})`: each `path => contents` pair becomes a file,
-/// its directories created along the way.
+/// `Memory.new(files = {}, limit: Memory::DEFAULT_LIMIT)`: each
+/// `path => contents` pair becomes a file, its directories created along
+/// the way. Ruby hands a bare `"path" => contents` over as keywords, so
+/// every keyword but `limit` is a file too.
 fn memory_new(args: &[Value]) -> Result<MemoryFs, MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
+    let args = scan_args::<(), (Option<RHash>,), (), (), RHash, ()>(args)?;
     let mut files = Vec::new();
-    match args {
-        [] => {}
-        [given] => RHash::try_convert(*given)?.foreach(|path: String, contents: RString| {
-            files.push((path, super::rstring_to_vec(contents)));
+    let mut limit = Some(Memory::DEFAULT_LIMIT);
+    let limit_key = ruby.to_symbol("limit");
+    for hash in args.optional.0.into_iter().chain([args.keywords]) {
+        hash.foreach(|key: Value, value: Value| {
+            if Symbol::from_value(key).is_some_and(|key| key.equal(limit_key).unwrap_or(false)) {
+                limit = limit_of(value)?;
+            } else {
+                files.push((
+                    String::try_convert(key)?,
+                    super::rstring_to_vec(RString::try_convert(value)?),
+                ));
+            }
             Ok(magnus::r_hash::ForEach::Continue)
-        })?,
-        _ => {
-            return Err(MagnusError::new(
-                ruby.exception_arg_error(),
-                format!(
-                    "wrong number of arguments (given {}, expected 0..1)",
-                    args.len()
-                ),
-            ))
-        }
+        })?;
     }
     let memory: Memory = files.into_iter().collect();
-    Ok(MemoryFs(Arc::new(memory)))
+    Ok(MemoryFs(Arc::new(memory.with_limit(limit))))
 }
 
-fn temporary_new() -> TemporaryFs {
-    TemporaryFs(Arc::new(Temporary::new()))
+/// `Temporary.new(limit: Memory::DEFAULT_LIMIT)`.
+fn temporary_new(args: &[Value]) -> Result<TemporaryFs, MagnusError> {
+    let args = scan_args::<(), (), (), (), RHash, ()>(args)?;
+    let kwargs = get_kwargs::<_, (), (Option<Value>,), ()>(args.keywords, &[], &["limit"])?;
+    let limit = match kwargs.optional.0 {
+        Some(limit) => limit_of(limit)?,
+        None => Some(Memory::DEFAULT_LIMIT),
+    };
+    Ok(TemporaryFs(Arc::new(Temporary::new().with_limit(limit))))
+}
+
+/// A `limit:` in bytes, or `nil` for none.
+fn limit_of(limit: Value) -> Result<Option<usize>, MagnusError> {
+    Option::<usize>::try_convert(limit)
 }
 
 fn directory_new(path: String) -> Result<DirectoryFs, MagnusError> {

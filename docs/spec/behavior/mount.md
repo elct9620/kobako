@@ -23,6 +23,7 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 ## Includes
 
 - `test/e2e/test_mount.rb`
+- `test/e2e/test_mount_limit.rb`
 - `crates/kobako/tests/mount.rs`
 
 ## `MT-001` A mounted Filesystem is reachable from the guest
@@ -164,3 +165,28 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 | Given | an Overlay with one Layer |
 | When | a second Layer is added to it |
 | Then | the guest reaches only the first Layer through a mount of the original Overlay |
+
+## `MT-013` A Memory's limit given in Ruby bounds what the guest writes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-012` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox mounting a Memory seeded with files and given a limit |
+| When | the script writes past that limit |
+| Then | the script raises `Errno::ENOSPC`, and the seeded files still read |
+
+## `MT-014` A Temporary's limit given in Ruby bounds what the guest writes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-027` |
+| relates | `MT-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox mounting a Temporary given a limit |
+| When | the script writes past that limit |
+| Then | the script raises `Errno::ENOSPC` |
