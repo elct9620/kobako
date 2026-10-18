@@ -125,6 +125,8 @@ pub enum FilesystemError {
     ReadOnly,
     InvalidInput,
     Unsupported,
+    /// A change past what the Filesystem can hold.
+    NoSpace,
     /// Any other failure, with what the Filesystem knows of it.
     Other(String),
 }

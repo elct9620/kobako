@@ -280,3 +280,75 @@ both live in the topmost writable layer, never show, and no name may claim .wh.
 | Given | an Overlay whose Layers are all read-only |
 | When | a file is written through the Overlay |
 | Then | the write is refused as read-only |
+
+## `FS-022` A write past a Memory's limit is refused as out of space
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-002` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory given a limit its file already nears |
+| When | a write would grow its files past that limit |
+| Then | the write is refused as out of space, and the file holds what it held |
+
+## `FS-023` A Memory given no limit of its own holds 64 MiB
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory created without a limit |
+| When | a file grows to 64 MiB, and then one byte past it |
+| Then | the first growth lands and the second is refused as out of space |
+
+## `FS-024` A Memory whose limit is set to none is not bounded by it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory whose limit is set to none |
+| When | a file grows one byte past 64 MiB |
+| Then | the growth lands |
+
+## `FS-025` A removed file gives its space back
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory whose one file fills its limit |
+| When | the file is removed and another file is written as large |
+| Then | the second write lands |
+
+## `FS-026` A growth past what can be allocated is refused as out of space
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory whose limit is set to none |
+| When | a file grows past what any allocation can hold |
+| Then | the growth is refused as out of space, and the file holds what it held |
+
+## `FS-027` A Temporary keeps its limit in every Invocation
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-004`, `FS-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Temporary given a limit |
+| When | the next Invocation's Filesystem is written past that limit |
+| Then | the write is refused as out of space |

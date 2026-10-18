@@ -8,15 +8,34 @@ use super::{DirEntry, File, Filesystem, FilesystemError, Metadata, OpenOptions};
 
 /// Files and directories held in memory for one Invocation. The next one
 /// is handed a new, empty Temporary in its place, so nothing one writes
-/// reaches another.
-#[derive(Default)]
+/// reaches another. Each one holds as much as a Memory does.
 pub struct Temporary {
     memory: Memory,
+    limit: Option<usize>,
 }
 
 impl Temporary {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// This Temporary, and every one handed out in its place, with its
+    /// files holding at most `limit` bytes together, or without bound for
+    /// `None`.
+    pub fn with_limit(self, limit: Option<usize>) -> Self {
+        Self {
+            memory: self.memory.with_limit(limit),
+            limit,
+        }
+    }
+}
+
+impl Default for Temporary {
+    fn default() -> Self {
+        Self {
+            memory: Memory::new(),
+            limit: Some(Memory::DEFAULT_LIMIT),
+        }
     }
 }
 
@@ -50,7 +69,7 @@ impl Filesystem for Temporary {
     }
 
     fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
-        Some(Arc::new(Self::new()))
+        Some(Arc::new(Self::new().with_limit(self.limit)))
     }
 }
 
@@ -82,6 +101,32 @@ mod tests {
             next.read_dir("").expect("the root must list"),
             Vec::new(),
             "Temporary::for_invocation must hand the next Invocation a Filesystem holding no file"
+        );
+    }
+
+    // @behavior FS-027
+    #[test]
+    fn a_temporary_keeps_its_limit_in_every_invocation() {
+        let next = Temporary::new()
+            .with_limit(Some(4))
+            .for_invocation()
+            .expect("a Temporary must hand the next Invocation a Filesystem of its own");
+        let written = next
+            .open(
+                "scratch",
+                &OpenOptions {
+                    write: true,
+                    create: true,
+                    ..OpenOptions::default()
+                },
+            )
+            .expect("a new file must be created")
+            .write_at(b"five!", 0);
+        assert_eq!(
+            written,
+            Err(FilesystemError::NoSpace),
+            "a write past a Temporary's limit in the Filesystem Temporary::for_invocation hands \
+             the next Invocation must answer NoSpace"
         );
     }
 }

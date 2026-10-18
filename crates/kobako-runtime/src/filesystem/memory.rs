@@ -2,28 +2,110 @@
 //! App's object does.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::path::{is_beneath, parent, seeded};
 use super::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions};
 
 /// Files and directories held in memory. Every Invocation it is handed to
-/// shares it, so what one writes the next reads.
+/// shares it, so what one writes the next reads. What its files hold
+/// together is bounded, as a tmpfs mount is, so a guest cannot grow it
+/// past what the Host App allowed.
 pub struct Memory {
     nodes: Mutex<BTreeMap<String, Node>>,
+    space: Arc<Space>,
 }
 
 #[derive(Clone)]
 enum Node {
-    File(Arc<Mutex<Vec<u8>>>),
+    File(Arc<Mutex<Content>>),
     Directory,
 }
 
+/// The bytes a Memory's files hold together, and the most they may.
+struct Space {
+    limit: AtomicUsize,
+    used: AtomicUsize,
+}
+
+impl Space {
+    /// Count `bytes` more, refusing when they would pass the limit.
+    fn take(&self, bytes: usize) -> Result<(), FilesystemError> {
+        let limit = self.limit.load(Ordering::Relaxed);
+        self.used
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+                used.checked_add(bytes).filter(|&total| total <= limit)
+            })
+            .map(drop)
+            .map_err(|_| FilesystemError::NoSpace)
+    }
+
+    fn give(&self, bytes: usize) {
+        self.used.fetch_sub(bytes, Ordering::Relaxed);
+    }
+}
+
+/// One file's bytes, counted against its Memory's space for as long as
+/// they live, which outlasts the file's name while a handle holds them.
+struct Content {
+    bytes: Vec<u8>,
+    space: Arc<Space>,
+}
+
+impl Content {
+    fn new(bytes: Vec<u8>, space: &Arc<Space>) -> Arc<Mutex<Self>> {
+        space.used.fetch_add(bytes.len(), Ordering::Relaxed);
+        Arc::new(Mutex::new(Self {
+            bytes,
+            space: space.clone(),
+        }))
+    }
+
+    /// Resize to `len`, refusing a growth past the space left or past what
+    /// can be allocated, rather than aborting the host process.
+    fn resize(&mut self, len: usize) -> Result<(), FilesystemError> {
+        let growth = len.saturating_sub(self.bytes.len());
+        self.space.take(growth)?;
+        if self.bytes.try_reserve(growth).is_err() {
+            self.space.give(growth);
+            return Err(FilesystemError::NoSpace);
+        }
+        self.space.give(self.bytes.len().saturating_sub(len));
+        self.bytes.resize(len, 0);
+        Ok(())
+    }
+}
+
+impl Drop for Content {
+    fn drop(&mut self) {
+        self.space.give(self.bytes.len());
+    }
+}
+
 impl Memory {
+    /// The most bytes a Memory's files hold unless given a limit of their
+    /// own: the size Docker gives a `--tmpfs` mount.
+    pub const DEFAULT_LIMIT: usize = 64 * 1024 * 1024;
+
     pub fn new() -> Self {
         Self {
             nodes: Mutex::new(BTreeMap::from([(String::new(), Node::Directory)])),
+            space: Arc::new(Space {
+                limit: AtomicUsize::new(Self::DEFAULT_LIMIT),
+                used: AtomicUsize::new(0),
+            }),
         }
+    }
+
+    /// This Memory with its files holding at most `limit` bytes together,
+    /// or without bound for `None`. Files it was seeded with count, but
+    /// are never refused.
+    pub fn with_limit(self, limit: Option<usize>) -> Self {
+        self.space
+            .limit
+            .store(limit.unwrap_or(usize::MAX), Ordering::Relaxed);
+        self
     }
 
     fn nodes(&self) -> MutexGuard<'_, BTreeMap<String, Node>> {
@@ -51,7 +133,10 @@ impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
                 for (end, _) in path.match_indices('/') {
                     nodes.insert(path[..end].to_string(), Node::Directory);
                 }
-                nodes.insert(path, Node::File(Arc::new(Mutex::new(contents.into()))));
+                nodes.insert(
+                    path,
+                    Node::File(Content::new(contents.into(), &memory.space)),
+                );
             }
         }
         memory
@@ -95,13 +180,13 @@ impl Filesystem for Memory {
             }
             Some(Node::File(data)) => {
                 if options.truncate {
-                    lock(data).clear();
+                    lock(data).resize(0)?;
                 }
                 data.clone()
             }
             None if options.create || options.create_new => {
                 check_parent(&nodes, path)?;
-                let data = Arc::new(Mutex::new(Vec::new()));
+                let data = Content::new(Vec::new(), &self.space);
                 nodes.insert(path.to_string(), Node::File(data.clone()));
                 data
             }
@@ -115,7 +200,7 @@ impl Filesystem for Memory {
         match nodes.get(path) {
             Some(Node::File(data)) => Ok(Metadata {
                 kind: Kind::File,
-                len: lock(data).len() as u64,
+                len: lock(data).bytes.len() as u64,
             }),
             Some(Node::Directory) => Ok(Metadata {
                 kind: Kind::Directory,
@@ -221,28 +306,19 @@ impl Filesystem for Memory {
     }
 }
 
-fn lock(data: &Mutex<Vec<u8>>) -> MutexGuard<'_, Vec<u8>> {
+fn lock(data: &Mutex<Content>) -> MutexGuard<'_, Content> {
     data.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-/// Resize `data` to `len`, failing rather than aborting the host process
-/// when a guest asks for more than can be allocated.
-fn resize(data: &mut Vec<u8>, len: usize) -> Result<(), FilesystemError> {
-    data.try_reserve(len.saturating_sub(data.len()))
-        .map_err(|err| FilesystemError::Other(err.to_string()))?;
-    data.resize(len, 0);
-    Ok(())
 }
 
 /// An open file of a Memory, sharing its bytes with every other handle on
 /// the same path.
 struct MemoryFile {
-    data: Arc<Mutex<Vec<u8>>>,
+    data: Arc<Mutex<Content>>,
 }
 
 impl File for MemoryFile {
     fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        let data = lock(&self.data);
+        let data = &lock(&self.data).bytes;
         let start = usize::try_from(offset)
             .unwrap_or(usize::MAX)
             .min(data.len());
@@ -257,23 +333,23 @@ impl File for MemoryFile {
         let end = start
             .checked_add(buf.len())
             .ok_or(FilesystemError::InvalidInput)?;
-        if data.len() < end {
-            resize(&mut data, end)?;
+        if data.bytes.len() < end {
+            data.resize(end)?;
         }
-        data[start..end].copy_from_slice(buf);
+        data.bytes[start..end].copy_from_slice(buf);
         Ok(buf.len())
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
         Ok(Metadata {
             kind: Kind::File,
-            len: lock(&self.data).len() as u64,
+            len: lock(&self.data).bytes.len() as u64,
         })
     }
 
     fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
         let len = usize::try_from(len).map_err(|_| FilesystemError::InvalidInput)?;
-        resize(&mut lock(&self.data), len)
+        lock(&self.data).resize(len)
     }
 }
 
@@ -362,36 +438,96 @@ mod tests {
         assert_eq!(memory.metadata("old"), Err(FilesystemError::NotFound));
     }
 
+    fn writable(fs: &dyn Filesystem, path: &str) -> Box<dyn File> {
+        fs.open(
+            path,
+            &OpenOptions {
+                write: true,
+                create: true,
+                ..OpenOptions::default()
+            },
+        )
+        .expect("the file must open")
+    }
+
+    // @behavior FS-022
+    #[test]
+    fn a_write_past_a_memorys_limit_is_refused() {
+        let memory: Memory = [("file", "x")].into_iter().collect();
+        let memory = memory.with_limit(Some(4));
+        assert_eq!(
+            (
+                writable(&memory, "file").write_at(b"four", 1),
+                read_all(&memory, "file")
+            ),
+            (Err(FilesystemError::NoSpace), b"x".to_vec()),
+            "a write growing a Memory's files past its limit through MemoryFile::write_at must \
+             answer NoSpace and leave the file as it was"
+        );
+    }
+
+    // @behavior FS-023
+    #[test]
+    fn a_memory_holds_its_default_limit() {
+        let memory = Memory::new();
+        let mut file = writable(&memory, "file");
+        let mib_64 = 64 * 1024 * 1024;
+        assert_eq!(
+            (file.set_len(mib_64), file.set_len(mib_64 + 1)),
+            (Ok(()), Err(FilesystemError::NoSpace)),
+            "a Memory given no limit through Memory::new must hold 64 MiB and refuse a byte more"
+        );
+    }
+
+    // @behavior FS-024
+    #[test]
+    fn a_memory_without_a_limit_grows_past_the_default() {
+        let memory = Memory::new().with_limit(None);
+        assert_eq!(
+            writable(&memory, "file").set_len(Memory::DEFAULT_LIMIT as u64 + 1),
+            Ok(()),
+            "a Memory given no limit through Memory::with_limit(None) must grow past 64 MiB"
+        );
+    }
+
+    // @behavior FS-025
+    #[test]
+    fn a_removed_file_returns_its_space() {
+        let memory = Memory::new().with_limit(Some(4));
+        writable(&memory, "first")
+            .write_at(b"four", 0)
+            .expect("the first file must fit");
+        memory.remove_file("first").expect("the file must remove");
+        assert_eq!(
+            writable(&memory, "second").write_at(b"four", 0),
+            Ok(4),
+            "the space a file removed through Memory::remove_file held must be free for the next"
+        );
+    }
+
     // A length past `isize::MAX` is one no allocator can hand out, so the
     // refusal does not depend on how much the host has free.
+    // @behavior FS-026
     #[test]
     fn a_file_grown_past_what_can_be_allocated_is_refused() {
         let memory: Memory = [("file", "x")].into_iter().collect();
-        let mut file = memory
-            .open(
-                "file",
-                &OpenOptions {
-                    write: true,
-                    ..OpenOptions::default()
-                },
-            )
-            .expect("the file must open");
+        let memory = memory.with_limit(None);
+        let mut file = writable(&memory, "file");
         let unallocatable = isize::MAX as u64 + 1;
-        assert!(
-            matches!(
-                (
-                    file.set_len(unallocatable),
-                    file.write_at(b"x", unallocatable)
-                ),
-                (
-                    Err(FilesystemError::Other(_)),
-                    Err(FilesystemError::Other(_))
-                )
+        assert_eq!(
+            (
+                file.set_len(unallocatable),
+                file.write_at(b"x", unallocatable),
+                read_all(&memory, "file")
+            ),
+            (
+                Err(FilesystemError::NoSpace),
+                Err(FilesystemError::NoSpace),
+                b"x".to_vec()
             ),
             "a length no allocator can hand out through MemoryFile::set_len and write_at must \
-             answer an error rather than abort"
+             answer NoSpace rather than abort"
         );
-        assert_eq!(read_all(&memory, "file"), b"x");
     }
 
     #[test]

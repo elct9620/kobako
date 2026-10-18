@@ -516,6 +516,28 @@ impl Memory {
 }
 ```
 
+## `Memory::DEFAULT_LIMIT`
+
+The most bytes a Memory's files hold together unless it is given a limit of
+its own.
+
+```rust
+impl Memory {
+    pub const DEFAULT_LIMIT: usize = 64 * 1024 * 1024;
+}
+```
+
+## `Memory::with_limit`
+
+This Memory with its files holding at most the given bytes together, or
+without bound for none. A write past it is refused as out of space.
+
+```rust
+impl Memory {
+    pub fn with_limit(self, limit: Option<usize>) -> Self {}
+}
+```
+
 ## `Temporary`
 
 The Filesystem kobako ships that holds its files in memory and starts every
@@ -532,6 +554,17 @@ An empty Temporary.
 ```rust
 impl Temporary {
     pub fn new() -> Self {}
+}
+```
+
+## `Temporary::with_limit`
+
+This Temporary with its files holding at most the given bytes together, or
+without bound for none. Every Temporary handed out in its place keeps it.
+
+```rust
+impl Temporary {
+    pub fn with_limit(self, limit: Option<usize>) -> Self {}
 }
 ```
 
