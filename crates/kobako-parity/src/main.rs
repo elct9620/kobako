@@ -270,6 +270,7 @@ fn parse_options(options: &Json) -> Result<Options, String> {
         memory_limit: options["memory_limit"].as_u64().map(|n| n as usize),
         stdout_limit: options["stdout_limit"].as_u64().map(|n| n as usize),
         stderr_limit: options["stderr_limit"].as_u64().map(|n| n as usize),
+        open_file_limit: options["open_file_limit"].as_u64().map(|n| n as usize),
         ..Options::default()
     };
     if let Some(profile) = options["profile"].as_str() {

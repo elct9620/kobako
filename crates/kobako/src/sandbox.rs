@@ -52,6 +52,9 @@ pub struct Options {
     pub stdout_limit: Option<usize>,
     /// Captured-stderr cap, in bytes.
     pub stderr_limit: Option<usize>,
+    /// Descriptors one invocation may hold open, the standard ones and
+    /// each Mount's included.
+    pub open_file_limit: Option<usize>,
     /// Requested isolation floor; the driver declares its posture and
     /// construction fails below the floor.
     pub profile: Profile,
@@ -67,6 +70,7 @@ impl Default for Options {
             memory_limit: Some(1 << 20),
             stdout_limit: Some(1 << 20),
             stderr_limit: Some(1 << 20),
+            open_file_limit: Some(1024),
             profile: Profile::Hermetic,
         }
     }
@@ -148,6 +152,7 @@ impl Sandbox {
             memory_limit: options.memory_limit,
             stdout_limit: options.stdout_limit,
             stderr_limit: options.stderr_limit,
+            open_file_limit: options.open_file_limit,
             profile: options.profile,
         };
         let driver = Driver::new(wasm_path.as_ref(), config).map_err(Error::Setup)?;
@@ -566,5 +571,6 @@ mod tests {
         assert_eq!(options.memory_limit, Some(1 << 20));
         assert_eq!(options.stdout_limit, Some(1 << 20));
         assert_eq!(options.stderr_limit, Some(1 << 20));
+        assert_eq!(options.open_file_limit, Some(1024));
     }
 }
