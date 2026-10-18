@@ -62,8 +62,8 @@ pub struct Options {
 
 impl Default for Options {
     /// Secure by default: a 60-second deadline, 1 MiB for memory and for
-    /// each output channel, and the hermetic floor — the same defaults the
-    /// Ruby frontend applies.
+    /// each output channel, 1024 open files, and the hermetic floor — the
+    /// same defaults the Ruby frontend applies.
     fn default() -> Self {
         Options {
             timeout: Some(Duration::from_secs(60)),
