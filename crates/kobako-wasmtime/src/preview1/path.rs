@@ -8,7 +8,7 @@ use std::sync::Arc;
 use kobako_runtime::filesystem::{Kind, OpenOptions};
 use kobako_runtime::mount::Access;
 
-use super::args;
+use super::args::{self, FDFLAGS_APPEND, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE};
 use super::beneath::resolve;
 use super::errno::{Answer, Errno};
 use super::fd::write_metadata;
@@ -19,9 +19,6 @@ const OFLAGS_CREAT: u32 = 1 << 0;
 const OFLAGS_DIRECTORY: u32 = 1 << 1;
 const OFLAGS_EXCL: u32 = 1 << 2;
 const OFLAGS_TRUNC: u32 = 1 << 3;
-const FDFLAGS_APPEND: u32 = 1 << 0;
-const RIGHTS_FD_READ: u64 = 1 << 1;
-const RIGHTS_FD_WRITE: u64 = 1 << 6;
 
 /// The flags `path_open` takes besides the path itself.
 pub(crate) struct OpenFlags {
@@ -138,6 +135,14 @@ pub(crate) fn open(
         Descriptor::Stdin(_) | Descriptor::Channel(_) => return Err(Errno::Badf.into()),
     };
     let oflag = |bit| flags.oflags & bit != 0;
+    // A Filesystem makes no write durable on its own schedule, so an open
+    // asking it to is unsupported rather than quietly granted.
+    if flags.fdflags & FDFLAGS_SYNCHRONIZED != 0 {
+        return Err(Errno::Notsup.into());
+    }
+    if oflag(OFLAGS_DIRECTORY) && oflag(OFLAGS_CREAT | OFLAGS_EXCL | OFLAGS_TRUNC) {
+        return Err(Errno::Inval.into());
+    }
     let resolved = resolve(dir, &path)?;
     // A path ending in `/` asks for a directory, which cannot be created
     // as a file.

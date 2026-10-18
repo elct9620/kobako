@@ -864,3 +864,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a read-write Mount |
 | When | the guest creates a file at `new.txt/` beneath it |
 | Then | the creation answers that the path is a directory, and no file is made |
+
+## `RT-091` An open asking for synchronized writes is unsupported
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-076` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding `file.txt` |
+| When | the guest opens `file.txt` asking each write to be synchronized |
+| Then | the open answers that this is unsupported |
+
+## `RT-092` An open of a directory that creates or truncates is invalid
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-091` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount |
+| When | the guest opens a path as a directory while asking to create or truncate it |
+| Then | the open is refused as invalid, and nothing is made |

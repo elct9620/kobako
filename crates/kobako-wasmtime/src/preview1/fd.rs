@@ -10,7 +10,7 @@ use kobako_runtime::filesystem::{Kind, Metadata};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::p2::{InputStream, OutputStream, StreamError};
 
-use super::args;
+use super::args::{self, FDFLAGS_APPEND, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE};
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
 use crate::descriptors::{Descriptor, Descriptors, OpenFile};
@@ -20,18 +20,11 @@ const FILETYPE_UNKNOWN: u8 = 0;
 const FILETYPE_DIRECTORY: u8 = 3;
 const FILETYPE_REGULAR_FILE: u8 = 4;
 
-const FDFLAGS_APPEND: u32 = 1 << 0;
-const FDFLAGS_DSYNC: u32 = 1 << 1;
-const FDFLAGS_RSYNC: u32 = 1 << 3;
-const FDFLAGS_SYNC: u32 = 1 << 4;
-
 const RIGHTS_FD_DATASYNC: u64 = 1 << 0;
-const RIGHTS_FD_READ: u64 = 1 << 1;
 const RIGHTS_FD_SEEK: u64 = 1 << 2;
 const RIGHTS_FD_FDSTAT_SET_FLAGS: u64 = 1 << 3;
 const RIGHTS_FD_SYNC: u64 = 1 << 4;
 const RIGHTS_FD_TELL: u64 = 1 << 5;
-const RIGHTS_FD_WRITE: u64 = 1 << 6;
 const RIGHTS_FD_ADVISE: u64 = 1 << 7;
 const RIGHTS_FD_ALLOCATE: u64 = 1 << 8;
 const RIGHTS_FD_READDIR: u64 = 1 << 14;
@@ -207,7 +200,7 @@ pub(crate) fn fdstat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, ou
 pub(crate) fn fdstat_set_flags(table: &mut Descriptors, fd: u32, flags: u32) -> Answer {
     args::flags(flags, args::FDFLAGS)?;
     let file = file(table, fd)?;
-    if flags & (FDFLAGS_DSYNC | FDFLAGS_RSYNC | FDFLAGS_SYNC) != 0 {
+    if flags & FDFLAGS_SYNCHRONIZED != 0 {
         return Err(Errno::Inval.into());
     }
     file.append = flags & FDFLAGS_APPEND != 0;

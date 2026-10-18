@@ -312,15 +312,52 @@ fn through_wasmtime_wasi(call: Call, path: &str) -> Observation {
     observe(store, &linker, call, path, &host)
 }
 
+const ERRNO_PERM: i32 = 63;
+const ERRNO_NOTCAPABLE: i32 = 76;
+
+/// Whether `path` reaches above the root it is resolved beneath.
+fn escapes(path: &str) -> bool {
+    let mut depth = 0usize;
+    path.starts_with('/')
+        || path.split('/').any(|component| match component {
+            "" | "." => false,
+            ".." => match depth.checked_sub(1) {
+                Some(up) => {
+                    depth = up;
+                    false
+                }
+                None => true,
+            },
+            _ => {
+                depth += 1;
+                false
+            }
+        })
+}
+
+/// What kobako answers where it differs from wasmtime-wasi on purpose. A
+/// path above the root is `NOTCAPABLE`, the code preview1 names for a
+/// capability the guest was never handed, where wasmtime-wasi passes on
+/// cap-std's refusal as `PERM`.
+fn expected(path: &str, mut oracle: Observation) -> Observation {
+    if escapes(path) && oracle.errno == Some(ERRNO_PERM) {
+        oracle.errno = Some(ERRNO_NOTCAPABLE);
+    }
+    oracle
+}
+
 #[test]
-#[ignore = "kobako still resolves a path beneath a Mount unlike wasmtime-wasi"]
+#[cfg_attr(
+    not(target_os = "linux"),
+    ignore = "wasmtime-wasi passes on the host's own answer, and kobako answers as Linux does"
+)]
 fn every_path_call_beneath_a_mount_answers_as_a_wasmtime_wasi_preopen() {
     let differing: Vec<String> = CALLS
         .iter()
         .flat_map(|&call| PATHS.iter().map(move |&path| (call, path)))
         .filter_map(|(call, path)| {
             let kobako = through_kobako(call, path);
-            let oracle = through_wasmtime_wasi(call, path);
+            let oracle = expected(path, through_wasmtime_wasi(call, path));
             (kobako != oracle).then(|| format!("{call:?} {path:?}: {kobako:?} != {oracle:?}"))
         })
         .collect();

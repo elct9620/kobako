@@ -82,6 +82,11 @@ const PROBE_WAT: &str = r#"
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $write (i32.load (i32.const 128)) (i32.const 80) (i32.const 1) (i32.const 132)))
 
+  ;; Open the path read-only with the given oflags and fdflags.
+  (func (export "open_flagged") (param $path i32) (param $len i32) (param $oflags i32) (param $fdflags i32) (result i32)
+    (call $open (i32.const 3) (i32.const 0) (local.get $path) (local.get $len)
+      (local.get $oflags) (i64.const 2) (i64.const 0) (local.get $fdflags) (i32.const 128)))
+
   ;; Change the root `.` at 740.
   (func (export "remove_root") (result i32)
     (call $rmdir (i32.const 3) (i32.const 740) (i32.const 1)))
@@ -146,6 +151,15 @@ impl Guest {
             .get_typed_func::<(i32, i32), i32>(&mut self.store, name)
             .expect("probe export must resolve")
             .call(&mut self.store, path)
+            .expect("probe call must not trap")
+    }
+
+    /// Open `path` read-only with `oflags` and `fdflags`.
+    fn call_flagged(&mut self, path: (i32, i32), oflags: i32, fdflags: i32) -> i32 {
+        self.instance
+            .get_typed_func::<(i32, i32, i32, i32), i32>(&mut self.store, "open_flagged")
+            .expect("probe export must resolve")
+            .call(&mut self.store, (path.0, path.1, oflags, fdflags))
             .expect("probe call must not trap")
     }
 
@@ -489,5 +503,52 @@ fn a_file_created_at_a_path_ending_in_a_slash_is_refused_as_a_directory() {
         (ERRNO_ISDIR, Ok(0)),
         "path_open creating `new.txt/` beneath a Mount through preview1 must answer EISDIR and \
          make no file"
+    );
+}
+
+const OFLAGS_CREAT: i32 = 1 << 0;
+const OFLAGS_DIRECTORY: i32 = 1 << 1;
+const OFLAGS_TRUNC: i32 = 1 << 3;
+const FDFLAGS_SYNC: i32 = 1 << 4;
+const ERRNO_NOTSUP: i32 = 58;
+
+/// What opening `path` with `oflags` and `fdflags` answers beneath a
+/// read-write Memory holding `file.txt`, and the paths it holds after.
+fn open_flagged(path: (i32, i32), oflags: i32, fdflags: i32) -> (i32, Vec<String>) {
+    let memory: Arc<Memory> = Arc::new([("file.txt", "granted")].into_iter().collect());
+    let errno = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)])
+        .call_flagged(path, oflags, fdflags);
+    let held = memory
+        .read_dir("")
+        .expect("the root must list")
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect();
+    (errno, held)
+}
+
+// @behavior RT-091
+#[test]
+fn an_open_asking_for_synchronized_writes_is_unsupported() {
+    assert_eq!(
+        open_flagged(FILE, 0, FDFLAGS_SYNC).0,
+        ERRNO_NOTSUP,
+        "path_open of `file.txt` with FDFLAGS_SYNC beneath a Mount through preview1 must answer \
+         ENOTSUP"
+    );
+}
+
+// @behavior RT-092
+#[test]
+fn an_open_of_a_directory_that_creates_or_truncates_is_invalid() {
+    let held = vec!["file.txt".to_string()];
+    assert_eq!(
+        (
+            open_flagged(NEW_AS_DIRECTORY, OFLAGS_DIRECTORY | OFLAGS_CREAT, 0),
+            open_flagged(FILE, OFLAGS_DIRECTORY | OFLAGS_TRUNC, 0)
+        ),
+        ((ERRNO_INVAL, held.clone()), (ERRNO_INVAL, held)),
+        "path_open with OFLAGS_DIRECTORY and CREAT or TRUNC beneath a Mount through preview1 \
+         must answer EINVAL and make nothing"
     );
 }

@@ -17,6 +17,13 @@ pub(crate) const RIFLAGS: u64 = 0x3;
 /// The bits of `sdflags`.
 pub(crate) const SDFLAGS: u64 = 0x3;
 
+pub(crate) const FDFLAGS_APPEND: u32 = 1 << 0;
+/// The `fdflags` asking each write to be synchronized: `dsync`, `rsync`,
+/// and `sync`.
+pub(crate) const FDFLAGS_SYNCHRONIZED: u32 = (1 << 1) | (1 << 3) | (1 << 4);
+pub(crate) const RIGHTS_FD_READ: u64 = 1 << 1;
+pub(crate) const RIGHTS_FD_WRITE: u64 = 1 << 6;
+
 /// The highest `advice` variant.
 pub(crate) const ADVICE_MAX: u32 = 5;
 /// The highest `whence` variant.
