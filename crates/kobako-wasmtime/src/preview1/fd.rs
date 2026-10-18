@@ -116,10 +116,10 @@ fn file_or_directory(table: &Descriptors, fd: u32) -> Answer {
 fn write_filestat(mem: &mut GuestMemory, out: u32, filetype: u8, size: u64) -> Answer {
     GuestMemory::aligned(out, 8)?;
     mem.write(out, &[0; 64])?;
-    mem.write_u8(out + 16, filetype)?;
+    mem.write_u8(GuestMemory::field(out, 16)?, filetype)?;
     if filetype != FILETYPE_UNKNOWN {
-        mem.write_u64(out + 24, 1)?;
-        mem.write_u64(out + 32, size)?;
+        mem.write_u64(GuestMemory::field(out, 24)?, 1)?;
+        mem.write_u64(GuestMemory::field(out, 32)?, size)?;
     }
     Ok(())
 }
@@ -190,9 +190,9 @@ pub(crate) fn fdstat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, ou
     };
     GuestMemory::aligned(out, 8)?;
     mem.write_u8(out, filetype)?;
-    mem.write_u16(out + 2, flags)?;
-    mem.write_u64(out + 8, base)?;
-    mem.write_u64(out + 16, inheriting)
+    mem.write_u16(GuestMemory::field(out, 2)?, flags)?;
+    mem.write_u64(GuestMemory::field(out, 8)?, base)?;
+    mem.write_u64(GuestMemory::field(out, 16)?, inheriting)
 }
 
 /// Only appending can change once a file is open; the sync flags are
@@ -279,7 +279,7 @@ pub(crate) fn prestat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, o
         Descriptor::Directory(dir) if dir.preopen => {
             GuestMemory::aligned(out, 4)?;
             mem.write_u8(out, 0)?;
-            mem.write_u32(out + 4, dir.mount.at().len() as u32)
+            mem.write_u32(GuestMemory::field(out, 4)?, dir.mount.at().len() as u32)
         }
         _ => Err(Errno::Badf.into()),
     }
@@ -393,7 +393,7 @@ pub(crate) fn readdir(
         for part in [&dirent[..], name.as_bytes()] {
             let room = (capacity - used) as usize;
             let take = part.len().min(room);
-            mem.write(start + used, &part[..take])?;
+            mem.write(GuestMemory::field(start, used)?, &part[..take])?;
             used += take as u32;
             if used == capacity {
                 return mem.write_u32(bufused, used);

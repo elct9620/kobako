@@ -105,7 +105,7 @@ fn read_subscription(
     lone: bool,
 ) -> Answer<Subscription> {
     let userdata = mem.read_u64(sub)?;
-    let kind = match mem.read_u8(sub + 8)? {
+    let kind = match mem.read_u8(GuestMemory::field(sub, 8)?)? {
         TAG_CLOCK => read_clock(invocation, mem, sub, lone)?,
         TAG_FD_READ => match descriptor(invocation, mem, sub)? {
             Descriptor::Stdin(_) => Kind::FdRead { hangup: false },
@@ -128,7 +128,7 @@ fn descriptor<'a>(
     mem: &GuestMemory,
     sub: u32,
 ) -> Answer<&'a Descriptor> {
-    let fd = mem.read_u32(sub + 16)?;
+    let fd = mem.read_u32(GuestMemory::field(sub, 16)?)?;
     invocation
         .wasi()
         .descriptors()
@@ -140,9 +140,9 @@ fn descriptor<'a>(
 /// monotonic clocks can be waited on among other subscriptions; a lone
 /// relative clock is a sleep whichever it names, as in wasmtime-wasi.
 fn read_clock(invocation: &Invocation, mem: &GuestMemory, sub: u32, lone: bool) -> Answer<Kind> {
-    let id = mem.read_u32(sub + 16)?;
-    let timeout = mem.read_u64(sub + 24)?;
-    let flags = mem.read_u16(sub + 40)?;
+    let id = mem.read_u32(GuestMemory::field(sub, 16)?)?;
+    let timeout = mem.read_u64(GuestMemory::field(sub, 24)?)?;
+    let flags = mem.read_u16(GuestMemory::field(sub, 40)?)?;
     if id > CLOCK_MAX || flags & !SUBCLOCKFLAGS_ABSTIME != 0 {
         return Err(Errno::Inval.into());
     }
@@ -186,10 +186,10 @@ fn write_event(mem: &mut GuestMemory, event: u32, sub: &Subscription, nbytes: u6
         Kind::FdWrite => (TAG_FD_WRITE, 0),
     };
     mem.write_u64(event, sub.userdata)?;
-    mem.write_u16(event + 8, 0)?;
-    mem.write_u8(event + 10, kind)?;
-    mem.write_u64(event + 16, nbytes)?;
-    mem.write_u16(event + 24, flags)
+    mem.write_u16(GuestMemory::field(event, 8)?, 0)?;
+    mem.write_u8(GuestMemory::field(event, 10)?, kind)?;
+    mem.write_u64(GuestMemory::field(event, 16)?, nbytes)?;
+    mem.write_u16(GuestMemory::field(event, 24)?, flags)
 }
 
 #[cfg(test)]

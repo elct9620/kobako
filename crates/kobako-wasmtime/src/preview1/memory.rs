@@ -42,10 +42,13 @@ impl<'a> GuestMemory<'a> {
     /// The address of element `index` of an array of `size`-byte elements
     /// at `base`.
     pub(crate) fn element(base: u32, index: u32, size: u32) -> Answer<u32> {
-        index
-            .checked_mul(size)
-            .and_then(|offset| base.checked_add(offset))
-            .ok_or_else(out_of_bounds)
+        Self::field(base, index.checked_mul(size).ok_or_else(out_of_bounds)?)
+    }
+
+    /// The address `offset` bytes past `base`, which traps rather than
+    /// wrapping past the end of the address space.
+    pub(crate) fn field(base: u32, offset: u32) -> Answer<u32> {
+        base.checked_add(offset).ok_or_else(out_of_bounds)
     }
 
     pub(crate) fn bytes(&self, ptr: u32, len: u32) -> Answer<&[u8]> {
@@ -122,12 +125,27 @@ impl<'a> GuestMemory<'a> {
         for index in 0..count {
             let entry = Self::element(array, index, 8)?;
             let ptr = self.read_u32(entry)?;
-            let len = self.read_u32(Self::element(entry, 1, 4)?)?;
+            let len = self.read_u32(Self::field(entry, 4)?)?;
             if len != 0 {
                 self.range(ptr, len)?;
                 return Ok((ptr, len));
             }
         }
         Ok((0, 0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A guest memory of the full 4 GiB lets a field's address pass the end
+    // of the address space, which only the arithmetic itself can refuse.
+    #[test]
+    fn a_field_past_the_address_space_traps_rather_than_wrapping() {
+        assert!(
+            matches!(GuestMemory::field(u32::MAX - 4, 8), Err(Failure::Trap(_))),
+            "a field address past u32::MAX through GuestMemory::field must trap rather than wrap"
+        );
     }
 }
