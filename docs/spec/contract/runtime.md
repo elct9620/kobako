@@ -443,6 +443,17 @@ pub trait File {
 }
 ```
 
+## `File::close`
+
+Release the file once the guest closes it, answering whether what it held was
+kept. The default has nothing to release.
+
+```rust
+pub trait File {
+    fn close(self: Box<Self>) -> Result<(), FilesystemError>;
+}
+```
+
 ## `OpenOptions`
 
 How a file is opened: for reading, writing, creating, or truncating.

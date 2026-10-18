@@ -155,8 +155,10 @@ pub(crate) fn allocate(table: &mut Descriptors, fd: u32) -> Answer {
 }
 
 pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
-    table.remove(fd).ok_or(Errno::Badf)?;
-    Ok(())
+    match table.remove(fd).ok_or(Errno::Badf)? {
+        Descriptor::File(open) => Ok(open.file.close()?),
+        _ => Ok(()),
+    }
 }
 
 pub(crate) fn sync(table: &mut Descriptors, fd: u32) -> Answer {

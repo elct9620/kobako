@@ -122,3 +122,15 @@ disable_file flag -> no File constant
 | Given | a script holding a file it opened beneath a Mount |
 | When | it constructs an IO over that file's descriptor and reads it |
 | Then | it reads the file's content |
+
+## `FL-010` A close the Filesystem refuses fails the script's close
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-005` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file whose Filesystem refuses its close as permission denied |
+| When | the script closes that file |
+| Then | the close raises `Errno::EACCES` and the file is closed |

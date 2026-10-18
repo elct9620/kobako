@@ -68,6 +68,13 @@ pub trait File: Send {
     fn sync(&mut self) -> Result<(), FilesystemError> {
         Ok(())
     }
+
+    /// Release the file once the guest closes it, answering whether what
+    /// it held was kept. The default has nothing to release; a file the
+    /// guest never closes is dropped instead.
+    fn close(self: Box<Self>) -> Result<(), FilesystemError> {
+        Ok(())
+    }
 }
 
 /// How `Filesystem::open` opens a file.

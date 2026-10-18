@@ -196,9 +196,15 @@ fn io_pos(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Ok(i32::try_from(pos).unwrap_or(i32::MAX).into_value(mrb))
 }
 
-/// Closing a file this guest opened releases its descriptor; closing one
-/// already closed does nothing. A captured stream is the host's and stays
-/// open.
+unsafe extern "C" {
+    /// wasi-libc `close(2)`: dropping a `std::fs::File` closes it but
+    /// discards the failure a Filesystem reports.
+    fn close(fd: core::ffi::c_int) -> core::ffi::c_int;
+}
+
+/// Closing a file this guest opened releases its descriptor, raising what
+/// the Filesystem reported if releasing it failed; closing one already
+/// closed does nothing. A captured stream is the host's and stays open.
 fn io_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     if is_closed(mrb, self_) {
         return Ok(qnil().as_value());
@@ -210,15 +216,17 @@ fn io_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
             "kobako IO cannot close a captured stream",
         ));
     }
-    if descriptors::forget(fd) {
-        // SAFETY: this guest opened `fd` and has just stopped tracking it,
-        // so this owning `File` is the last holder and closes it.
-        drop(unsafe { fs::File::from_raw_fd(fd) });
-    }
+    // SAFETY: this guest opened `fd` and has just stopped tracking it, so
+    // nothing else closes it.
+    let failed = descriptors::forget(fd) && unsafe { close(fd) } != 0;
+    let refusal = failed.then(io::Error::last_os_error);
     if let Some(obj) = RObject::from_value(self_) {
         obj.ivar_set(mrb, FD_IVAR, qnil().as_value())?;
     }
-    Ok(qnil().as_value())
+    match refusal {
+        Some(err) => Err(fail(mrb, self_, &err)),
+        None => Ok(qnil().as_value()),
+    }
 }
 
 fn io_closed_p(mrb: &Mrb, self_: Value) -> bool {

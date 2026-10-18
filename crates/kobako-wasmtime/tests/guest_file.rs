@@ -219,18 +219,28 @@ fn an_io_may_stand_for_a_file_the_guest_opened() {
     );
 }
 
-/// A Memory whose open files count every read they answer.
-struct CountsReads {
+/// A Memory whose every open file is handed through `wrap` first.
+struct WrapsFiles<W> {
     memory: Memory,
-    reads: Arc<AtomicUsize>,
+    wrap: W,
 }
 
-impl Filesystem for CountsReads {
+impl<W> WrapsFiles<W> {
+    fn over_note(contents: &str, wrap: W) -> Arc<Self> {
+        Arc::new(Self {
+            memory: [("note.txt", contents)].into_iter().collect(),
+            wrap,
+        })
+    }
+}
+
+impl<W, F> Filesystem for WrapsFiles<W>
+where
+    W: Fn(Box<dyn File>) -> F + Send + Sync,
+    F: File + 'static,
+{
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        Ok(Box::new(CountedFile {
-            file: self.memory.open(path, options)?,
-            reads: self.reads.clone(),
-        }))
+        Ok(Box::new((self.wrap)(self.memory.open(path, options)?)))
     }
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
@@ -288,13 +298,14 @@ impl File for CountedFile {
 #[test]
 fn a_read_of_a_length_asks_the_filesystem_once() {
     let reads = Arc::new(AtomicUsize::new(0));
-    let filesystem = CountsReads {
-        memory: [("note.txt", "x".repeat(6400))].into_iter().collect(),
-        reads: reads.clone(),
-    };
+    let counted = reads.clone();
+    let filesystem = WrapsFiles::over_note(&"x".repeat(6400), move |file| CountedFile {
+        file,
+        reads: counted.clone(),
+    });
     let Some(answer) = run(
         r#"File.open("/data/note.txt") { |f| print f.read(64).size }; nil"#,
-        &[mount(Arc::new(filesystem), Access::Read)],
+        &[mount(filesystem, Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -304,5 +315,49 @@ fn a_read_of_a_length_asks_the_filesystem_once() {
         reads.load(Ordering::Relaxed),
         1,
         "File#read(64) of a longer file through the bundled guest must ask its Filesystem for one read"
+    );
+}
+
+/// An open file whose Filesystem refuses to release it, as a database
+/// refusing the commit a close stands for.
+struct RefusesClose(Box<dyn File>);
+
+impl File for RefusesClose {
+    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.read_at(buf, offset)
+    }
+
+    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.write_at(buf, offset)
+    }
+
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        self.0.metadata()
+    }
+
+    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.0.set_len(len)
+    }
+
+    fn close(self: Box<Self>) -> Result<(), FilesystemError> {
+        Err(FilesystemError::PermissionDenied)
+    }
+}
+
+// @behavior FL-010
+#[test]
+fn a_close_the_filesystem_refuses_fails_the_scripts_close() {
+    let filesystem = WrapsFiles::over_note("hello", RefusesClose);
+    let Some(answer) = run(
+        r#"f = File.open("/data/note.txt"); begin; f.close; rescue Errno::EACCES; print "refused"; end; print f.closed?; nil"#,
+        &[mount(filesystem, Access::Read)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok("refusedtrue".to_string()),
+        "File#close of a file whose Filesystem refuses its close through the bundled guest must raise Errno::EACCES and leave the file closed"
     );
 }
