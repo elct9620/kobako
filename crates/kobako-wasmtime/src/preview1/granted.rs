@@ -598,8 +598,45 @@ fn an_append_lands_after_another_writers_append() {
     );
 }
 
+const FILETYPE_DIRECTORY: u8 = 3;
 const FILETYPE_REGULAR_FILE: u8 = 4;
 const FILETYPE_SYMBOLIC_LINK: u8 = 7;
+
+/// What each stat of `path` with the given lookupflags answers, and the
+/// filetype it wrote, beneath a Directory Mount whose host directory
+/// holds `file.txt` as a link to `target`, made by `make_target`.
+#[cfg(unix)]
+fn stat_link(
+    name: &str,
+    make_target: fn(&std::path::Path),
+    stats: &[((i32, i32), i32)],
+) -> Vec<(i32, u8)> {
+    let host = std::env::temp_dir().join(format!("kobako-granted-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&host);
+    std::fs::create_dir_all(&host).expect("the host directory must be created");
+    make_target(&host.join("target"));
+    std::os::unix::fs::symlink("target", host.join("file.txt")).expect("the link must be made");
+    let directory = Directory::new(&host).expect("the host directory must open");
+    let mut guest = Guest::new(&[grant(Arc::new(directory), Access::Read, None)]);
+    let answers = stats
+        .iter()
+        .map(|&(path, flags)| {
+            let errno = guest
+                .instance
+                .get_typed_func::<(i32, i32, i32), i32>(&mut guest.store, "stat_flagged")
+                .expect("probe export must resolve")
+                .call(&mut guest.store, (path.0, path.1, flags))
+                .expect("probe call must not trap");
+            let memory = guest
+                .instance
+                .get_memory(&mut guest.store, "memory")
+                .expect("probe exports its memory");
+            (errno, memory.data(&guest.store)[384 + 16])
+        })
+        .collect();
+    let _ = std::fs::remove_dir_all(&host);
+    answers
+}
 
 // The link points at a regular file, so only a stat that follows none
 // can answer a link.
@@ -607,33 +644,36 @@ const FILETYPE_SYMBOLIC_LINK: u8 = 7;
 #[cfg(unix)]
 #[test]
 fn a_stat_following_no_link_reports_the_link_itself() {
-    let host = std::env::temp_dir().join(format!("kobako-granted-lstat-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&host);
-    std::fs::create_dir_all(&host).expect("the host directory must be created");
-    std::fs::write(host.join("target"), "granted").expect("the host file must be written");
-    std::os::unix::fs::symlink("target", host.join("file.txt")).expect("the link must be made");
-    let directory = Directory::new(&host).expect("the host directory must open");
-    let mut guest = Guest::new(&[grant(Arc::new(directory), Access::Read, None)]);
-    let mut stat = |flags| {
-        let errno = guest
-            .instance
-            .get_typed_func::<(i32, i32, i32), i32>(&mut guest.store, "stat_flagged")
-            .expect("probe export must resolve")
-            .call(&mut guest.store, (FILE.0, FILE.1, flags))
-            .expect("probe call must not trap");
-        let memory = guest
-            .instance
-            .get_memory(&mut guest.store, "memory")
-            .expect("probe exports its memory");
-        (errno, memory.data(&guest.store)[384 + 16])
-    };
-    let answers = (stat(1), stat(0));
-    let _ = std::fs::remove_dir_all(&host);
+    let answers = stat_link(
+        "lstat",
+        |target| std::fs::write(target, "granted").expect("the host file must be written"),
+        &[(FILE, 1), (FILE, 0)],
+    );
     assert_eq!(
         answers,
-        ((0, FILETYPE_REGULAR_FILE), (0, FILETYPE_SYMBOLIC_LINK)),
+        [(0, FILETYPE_REGULAR_FILE), (0, FILETYPE_SYMBOLIC_LINK)],
         "path_filestat_get of a host link beneath a Directory Mount through preview1 must report \
          the file it points to when following links, and a symbolic link when following none"
+    );
+}
+
+// The stat follows no link, so only the trailing `/` can make it reach
+// the directory the link points at, as Linux's `lstat` does.
+// @behavior RT-098
+#[cfg(unix)]
+#[test]
+fn a_stat_of_a_link_named_with_a_trailing_slash_reports_its_directory() {
+    let answers = stat_link(
+        "lstat-slash",
+        |target| std::fs::create_dir(target).expect("the host directory must be created"),
+        &[(FILE_AS_DIRECTORY, 0), (FILE, 0)],
+    );
+    assert_eq!(
+        answers,
+        [(0, FILETYPE_DIRECTORY), (0, FILETYPE_SYMBOLIC_LINK)],
+        "path_filestat_get following no link of a host link to a directory, named with a \
+         trailing slash, beneath a Directory Mount through preview1 must report the directory, \
+         and without the slash a symbolic link"
     );
 }
 

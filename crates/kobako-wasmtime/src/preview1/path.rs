@@ -76,9 +76,13 @@ pub(crate) fn filestat_get(
     out: u32,
 ) -> Answer {
     args::flags(flags, args::LOOKUPFLAGS)?;
-    let (dir, path) = beneath(table, mem, fd, path)?;
+    let dir = directory(table, fd)?;
+    let resolved = resolve(dir, &mem.path(path.0, path.1)?)?;
+    // A trailing `/` resolves a link standing there, as Linux's `lstat` does.
+    let follow = flags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 || resolved.names_directory;
     let filesystem = dir.mount.filesystem();
-    let metadata = if flags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 {
+    let path = resolved.directory_checked(filesystem.as_ref())?;
+    let metadata = if follow {
         filesystem.metadata(&path)?
     } else {
         filesystem.symlink_metadata(&path)?

@@ -949,3 +949,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a Directory Mount whose host directory holds a link |
 | When | the guest stats the link, following it and then following none |
 | Then | the first answers a regular file, and the second a symbolic link |
+
+## `RT-098` A stat of a link named with a trailing slash reports its directory
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-097` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Directory Mount holding a link to a directory |
+| When | the guest stats the link with a trailing slash, following no link |
+| Then | the stat answers a directory |
