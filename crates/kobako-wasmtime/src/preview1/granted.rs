@@ -127,7 +127,7 @@ fn grant(
     access: Access,
     policy: Option<Arc<dyn Policy>>,
 ) -> Grant {
-    let mount = Mount::new("/data", filesystem, access);
+    let mount = Mount::new("/data", filesystem, access).expect("/data is a guest path");
     Grant::Mount(match policy {
         Some(policy) => mount.with_policy(policy),
         None => mount,

@@ -211,12 +211,25 @@ pub struct Mount {}
 
 ## `Mount::new`
 
-Place a Filesystem at a guest path with one access.
+Place a Filesystem at a guest path with one access, refusing a path that is
+not an absolute guest path.
 
 ```rust
 impl Mount {
-    pub fn new(at: impl Into<String>, filesystem: Arc<dyn Filesystem>, access: Access) -> Self {}
+    pub fn new(
+        at: impl Into<String>,
+        filesystem: Arc<dyn Filesystem>,
+        access: Access,
+    ) -> Result<Self, InvalidMountPath> {}
 }
+```
+
+## `InvalidMountPath`
+
+A path no Mount can stand at, being no absolute guest path.
+
+```rust
+pub struct InvalidMountPath {}
 ```
 
 ## `Mount::with_policy`

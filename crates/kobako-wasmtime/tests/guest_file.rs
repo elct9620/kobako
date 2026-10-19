@@ -42,7 +42,7 @@ fn run(source: &str, grants: &[Grant], flags: Vec<Flag>) -> Option<Result<String
 }
 
 fn mount(filesystem: Arc<dyn Filesystem>, access: Access) -> Grant {
-    Grant::Mount(Mount::new("/data", filesystem, access))
+    Grant::Mount(Mount::new("/data", filesystem, access).expect("/data is a guest path"))
 }
 
 fn seeded() -> Arc<Memory> {

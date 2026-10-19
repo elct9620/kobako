@@ -132,6 +132,12 @@ impl From<kobako_runtime::error::InvokeError> for Error {
     }
 }
 
+impl From<kobako_runtime::mount::InvalidMountPath> for Error {
+    fn from(err: kobako_runtime::mount::InvalidMountPath) -> Self {
+        Error::Argument(err.to_string())
+    }
+}
+
 impl From<kobako_runtime::error::Trap> for Error {
     fn from(trap: kobako_runtime::error::Trap) -> Self {
         match trap {

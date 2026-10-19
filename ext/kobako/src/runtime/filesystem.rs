@@ -260,7 +260,8 @@ pub(super) fn grants_from(
         let access = access_of(entry.entry(1)?)?;
         let filesystem: Value = entry.entry(2)?;
         pins.push(Pinned::new(ruby, filesystem));
-        let mount = Mount::new(at, filesystem_of(filesystem)?, access);
+        let mount = Mount::new(at, filesystem_of(filesystem)?, access)
+            .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))?;
         let block: Value = entry.entry(3)?;
         grants.push(Grant::Mount(if block.is_nil() {
             mount

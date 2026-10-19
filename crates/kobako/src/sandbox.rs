@@ -210,7 +210,7 @@ impl Sandbox {
         filesystem: Arc<dyn Filesystem>,
         access: Access,
     ) -> Result<(), Error> {
-        self.register_mount(Mount::new(at, filesystem, access))
+        self.register_mount(Mount::new(at, filesystem, access)?)
     }
 
     /// `mount` with a `policy` deciding each open and each change in the
@@ -222,7 +222,7 @@ impl Sandbox {
         filesystem: Arc<dyn Filesystem>,
         policy: Arc<dyn Policy>,
     ) -> Result<(), Error> {
-        self.register_mount(Mount::new(at, filesystem, Access::ReadWrite).with_policy(policy))
+        self.register_mount(Mount::new(at, filesystem, Access::ReadWrite)?.with_policy(policy))
     }
 
     fn register_mount(&mut self, mount: Mount) -> Result<(), Error> {
@@ -465,7 +465,7 @@ impl Context<'_> {
         filesystem: Arc<dyn Filesystem>,
         access: Access,
     ) -> Result<(), Error> {
-        self.replace_mount(Mount::new(at, filesystem, access))
+        self.replace_mount(Mount::new(at, filesystem, access)?)
     }
 
     /// `mount` with a `policy` deciding in the access's place, as
@@ -476,7 +476,7 @@ impl Context<'_> {
         filesystem: Arc<dyn Filesystem>,
         policy: Arc<dyn Policy>,
     ) -> Result<(), Error> {
-        self.replace_mount(Mount::new(at, filesystem, Access::ReadWrite).with_policy(policy))
+        self.replace_mount(Mount::new(at, filesystem, Access::ReadWrite)?.with_policy(policy))
     }
 
     fn replace_mount(&mut self, mount: Mount) -> Result<(), Error> {

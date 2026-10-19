@@ -3,6 +3,7 @@
 //! open and each change itself, so a runtime asks it rather than reading
 //! its access, and a Filesystem of a third party's checks nothing.
 
+use std::fmt;
 use std::sync::Arc;
 
 use crate::filesystem::Filesystem;
@@ -42,14 +43,50 @@ pub struct Mount {
     policy: Option<Arc<dyn Policy>>,
 }
 
+/// A path no Mount can stand at: one that is not an absolute guest path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InvalidMountPath(String);
+
+impl fmt::Display for InvalidMountPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "mount path must be an absolute guest path, got {:?}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for InvalidMountPath {}
+
+/// An absolute guest path has no empty, `.`, or `..` component; the root
+/// is `/` alone.
+fn is_guest_path(at: &str) -> bool {
+    at == "/"
+        || at.strip_prefix('/').is_some_and(|rest| {
+            rest.split('/')
+                .all(|part| !part.is_empty() && part != "." && part != "..")
+        })
+}
+
 impl Mount {
-    pub fn new(at: impl Into<String>, filesystem: Arc<dyn Filesystem>, access: Access) -> Self {
-        Self {
-            at: at.into(),
+    /// A Mount of `filesystem` at `at`, refused unless `at` is an absolute
+    /// guest path, which every path the Mount answers for is built on.
+    pub fn new(
+        at: impl Into<String>,
+        filesystem: Arc<dyn Filesystem>,
+        access: Access,
+    ) -> Result<Self, InvalidMountPath> {
+        let at = at.into();
+        if !is_guest_path(&at) {
+            return Err(InvalidMountPath(at));
+        }
+        Ok(Self {
+            at,
             access,
             filesystem,
             policy: None,
-        }
+        })
     }
 
     /// This Mount with `policy` deciding each open and each change in its

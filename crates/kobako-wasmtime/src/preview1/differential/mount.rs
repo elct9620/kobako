@@ -326,7 +326,9 @@ fn through_kobako(call: Call, path: &str) -> Observation {
         profile: Profile::Hermetic,
     };
     let directory = Directory::new(&host.0).expect("the host directory must open");
-    let grant = Grant::Mount(Mount::new(AT, Arc::new(directory), Access::ReadWrite));
+    let grant = Grant::Mount(
+        Mount::new(AT, Arc::new(directory), Access::ReadWrite).expect("AT is a guest path"),
+    );
     let wasi = Wasi::for_invocation(&config, &[], &[grant]).expect("WASI context must build");
     let mut store = Store::new(engine, Invocation::new(None, wasi));
     store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);

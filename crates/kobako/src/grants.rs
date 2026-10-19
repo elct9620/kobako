@@ -6,16 +6,6 @@ use kobako_runtime::mount::Mount;
 
 use crate::error::Error;
 
-/// An absolute guest path has no empty, `.`, or `..` component; the root
-/// is `/` alone.
-fn is_guest_path(at: &str) -> bool {
-    at == "/"
-        || at.strip_prefix('/').is_some_and(|rest| {
-            rest.split('/')
-                .all(|part| !part.is_empty() && part != "." && part != "..")
-        })
-}
-
 fn nested(path: &str, other: &str) -> bool {
     path == "/"
         || other == "/"
@@ -40,11 +30,6 @@ impl Grants {
     /// refused, as a bind is.
     pub(crate) fn mount(&mut self, mount: Mount) -> Result<(), Error> {
         let at = mount.at();
-        if !is_guest_path(at) {
-            return Err(Error::Argument(format!(
-                "mount path must be an absolute guest path, got {at:?}"
-            )));
-        }
         if self.is_mounted(at) {
             return Err(Error::Argument(format!("path {at:?} is already mounted")));
         }
