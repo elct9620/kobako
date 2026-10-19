@@ -24,6 +24,7 @@ the JSON capability ([json](../spec/behavior/json.md)).
 | mruby core | the interpreter |
 | curated mrbgem allowlist | the standard-library subset |
 | IO / Kernel write ([io](../spec/behavior/io.md)) | the base capability, never an opt-in axis |
+| File ([file](../spec/behavior/file.md)) | the guest's half of a Mount, reaching nothing until one is mounted |
 
 ## Variant Matrix
 

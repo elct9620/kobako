@@ -7,16 +7,17 @@ The behavior itself is specified in [`spec/behavior/`](../spec/behavior/).
 ```
    kobako owns                          you own
    ───────────                          ───────
-   the isolation boundary               which Services cross it
+   the isolation boundary               which Services and Mounts cross it
    resource caps                        what each Service may do
    wire / return-value guardrails       input validation on Service args
    per-invocation + cross-Sandbox       one Sandbox per trust context
      isolation                          where preloaded bytecode came from
 ```
 
-The guest's only path outward is a Service you injected. Guest code can name any
-`MyService::KV` path, but a forged name resolves only to something you bound. **What
-you bind, and each object's Exposure, is the real authorization gate.**
+The guest reaches outward only through a Service you bound or a Filesystem you
+mounted. Guest code can name any `MyService::KV` path, but a forged name resolves
+only to something you bound. **What you bind and mount, and each object's Exposure,
+is the real authorization gate.**
 
 ## Built-in Guarantees
 
@@ -252,3 +253,44 @@ sandbox.eval(script) { |ctx| ctx.bind("Cur::Next", budgeted(cursor)) }
 
 A fresh budget per `ctx.bind` resets the count for every invocation. A counter
 captured once at `bind` would span the Sandbox's lifetime instead.
+
+## Mount Design
+
+A Mount hands the guest a Filesystem at one path. kobako keeps the guest beneath
+that path and holds its access; what the Filesystem holds is yours to choose.
+
+| Choose | Because |
+|---|---|
+| `access: :read` unless the guest must write | a read-only Mount refuses every change |
+| a Memory or Temporary over a Directory | a Directory is a real host path the guest changes |
+| `limit:` and `inodes:` sized to the task | the defaults hold 64 MiB and 16385 entries |
+| `open_file_limit:` below the host's own | each guest file a Directory opens is a host descriptor |
+
+### Mount Blocks
+
+A block decides each open and each change by path. Allow what the guest needs
+rather than refusing what it must not reach: a denylist misses a path you did not
+foresee. A directory beneath a Mount with a block does not move, since its entries
+would take paths the block never judged. The guest's rename raises `Errno::EXDEV`.
+The block does not judge `stat` or a listing, so the guest still sees that a
+refused path exists.
+
+```ruby
+sandbox.mount("/data", fs) { |path, _access| path.start_with?("/data/public/") }
+```
+
+### Host Side
+
+Some risks stay with the host, because kobako cannot see them.
+
+| Risk | Where it lies |
+|---|---|
+| another process changing a Directory's host files | the host directory |
+| a FIFO or device file placed in a Directory | an open of it may block |
+| a link in a Directory | the guest reaches its target, never beyond the Directory |
+| a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
+| one Overlay's writable Layer shared by another | the two are not serialized against each other |
+
+A directory the guest opened is held by its path, as kobako holds every guest
+path, rather than by the host's inode. On Windows a Directory refuses a path holding
+a backslash, so a block never judges one name while the host walks two.

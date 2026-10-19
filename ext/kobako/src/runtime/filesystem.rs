@@ -70,7 +70,7 @@ pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     Ok(())
 }
 
-/// `Memory.new(files = {}, limit: Memory::DEFAULT_LIMIT, inodes:)`: each
+/// `Memory.new(files = {}, limit: 64 MiB, inodes:)`: each
 /// `path => contents` pair becomes a file, its directories created along
 /// the way. Ruby hands a bare `"path" => contents` over as keywords, so
 /// every String keyword is a file too. Without `inodes:` the entries
@@ -109,7 +109,7 @@ fn memory_new(args: &[Value]) -> Result<MemoryFs, MagnusError> {
     })))
 }
 
-/// `Temporary.new(limit: Memory::DEFAULT_LIMIT, inodes:)`.
+/// `Temporary.new(limit: 64 MiB, inodes:)`.
 fn temporary_new(args: &[Value]) -> Result<TemporaryFs, MagnusError> {
     let args = scan_args::<(), (), (), (), RHash, ()>(args)?;
     let kwargs = get_kwargs::<_, (), (Option<Value>, Option<Value>), ()>(

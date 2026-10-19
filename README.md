@@ -558,8 +558,8 @@ A writable backend takes `provider:`, so its state cannot leak across runs. koba
 
 ## Security
 
-kobako isolates the guest, but **what it may reach is whatever you `bind`** — and `bind`
-exposes every public method the object's own class defines. Inherited, mixed-in, and built-in
+kobako isolates the guest, but **what it may reach is whatever you `bind` or `mount`**.
+`bind` exposes every public method the object's own class defines. Inherited, mixed-in, and built-in
 methods stay out of reach, but the class's own surface does not. Bind a purpose-built object
 scoped to the task, not a capable one whose other methods leak more than you intend.
 
