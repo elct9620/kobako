@@ -262,6 +262,13 @@ impl File for RubyFile {
             FilesystemError::ReadOnly,
             |ruby, file| file.funcall("pwrite", (ruby.str_from_slice(buf), offset)),
         )
+        .and_then(|written: usize| match written {
+            written if written <= buf.len() => Ok(written),
+            written => Err(FilesystemError::Other(format!(
+                "pwrite answered {written} bytes written of the {} it was handed",
+                buf.len()
+            ))),
+        })
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {

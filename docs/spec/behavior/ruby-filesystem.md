@@ -156,3 +156,15 @@ The Host App gets no exception of its own back. A failure belongs to the guest, 
 | Given | a Ruby Filesystem mounted for a guest |
 | When | the guest opens a path asking to follow no link at its end |
 | Then | `open` is handed `File::NOFOLLOW` among its flags |
+
+## `RF-012` A write a Ruby Filesystem overclaims raises EIO
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-005` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose file answers more bytes written than it was handed |
+| When | the script writes to that file |
+| Then | the write raises `Errno::EIO` |

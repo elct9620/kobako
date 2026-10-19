@@ -128,6 +128,22 @@ class TestE2ERubyFilesystem < Minitest::Test
     GC.stress = false
   end
 
+  # A HashFilesystem whose files claim ten times what they wrote.
+  def overclaiming_filesystem
+    overclaims = Class.new(HashFile) { define_method(:pwrite) { |data, offset| super(data, offset) * 10 } }
+    filesystem = HashFilesystem.new("note.txt" => "")
+    filesystem.define_singleton_method(:open) { |path, _flags| overclaims.new(files, path) }
+    filesystem
+  end
+
+  # @behavior RF-012
+  def test_a_write_a_ruby_filesystem_overclaims_raises_eio
+    script = 'begin; File.open("/data/note.txt", "w") { |f| f.write("hi") }; rescue Errno::EIO; "refused"; end'
+
+    assert_equal "refused", read_note(overclaiming_filesystem, script, access: :read_write),
+                 "IO#write whose Ruby file answers more bytes written than it was handed must raise Errno::EIO"
+  end
+
   # What +directory:+ a Ruby Filesystem's +rename+ is told as the script
   # renames a file beneath a mount with +block+, or without one.
   def directory_told_on_rename(&block)
