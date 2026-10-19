@@ -28,6 +28,7 @@ use crate::cache::shared_engine;
 use crate::config::Config;
 use crate::imports;
 use crate::invocation::Invocation;
+use crate::preview1::beneath::PATH_MAX;
 use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
 use crate::wasi::Wasi;
 
@@ -35,7 +36,7 @@ use crate::wasi::Wasi;
 const AT: &str = "/data";
 
 /// Each export calls one path import on descriptor 3 with the path the
-/// host placed at 1024, and the second path at 1280 where a call takes
+/// host placed at 1024, and the second path at 8192 where a call takes
 /// two. An opened descriptor lands at 128.
 const PROBE_WAT: &str = r#"
 (module
@@ -58,11 +59,11 @@ const PROBE_WAT: &str = r#"
   (func (export "unlink") (param $len i32) (result i32)
     (call $unlink (i32.const 3) (i32.const 1024) (local.get $len)))
   (func (export "rename") (param $len i32) (param $to i32) (result i32)
-    (call $rename (i32.const 3) (i32.const 1024) (local.get $len) (i32.const 3) (i32.const 1280) (local.get $to))))
+    (call $rename (i32.const 3) (i32.const 1024) (local.get $len) (i32.const 3) (i32.const 8192) (local.get $to))))
 "#;
 
 const PATH_AT: usize = 1024;
-const SECOND_PATH_AT: usize = 1280;
+const SECOND_PATH_AT: usize = 8192;
 const OPENED_AT: usize = 128;
 
 const OFLAGS_CREAT: i32 = 1 << 0;
@@ -92,6 +93,25 @@ const PATHS: &[&str] = &[
     "d/../../a",
     "/a",
 ];
+
+/// Paths at Linux's limits: a name of `NAME_MAX` bytes and one past it,
+/// and a path that fits `PATH_MAX` with its terminating NUL and one that
+/// does not.
+fn paths_at_the_limits() -> Vec<String> {
+    let nested = |len: usize| {
+        let mut path = "d/".repeat(len / 2);
+        path.truncate(len - 1);
+        path.push('x');
+        path
+    };
+    vec![
+        "x".repeat(255),
+        "x".repeat(256),
+        format!("d/{}", "x".repeat(256)),
+        nested(4095),
+        nested(4096),
+    ]
+}
 
 /// One path call, as the probe makes it.
 #[derive(Clone, Copy, Debug)]
@@ -312,6 +332,7 @@ fn through_wasmtime_wasi(call: Call, path: &str) -> Observation {
     observe(store, &linker, call, path, &host)
 }
 
+const ERRNO_NAMETOOLONG: i32 = 37;
 const ERRNO_PERM: i32 = 63;
 const ERRNO_NOTCAPABLE: i32 = 76;
 
@@ -338,10 +359,15 @@ fn escapes(path: &str) -> bool {
 /// What kobako answers where it differs from wasmtime-wasi on purpose. A
 /// path above the root is `NOTCAPABLE`, the code preview1 names for a
 /// capability the guest was never handed, where wasmtime-wasi passes on
-/// cap-std's refusal as `PERM`.
+/// cap-std's refusal as `PERM`. A path past `PATH_MAX` is `NAMETOOLONG`
+/// as Linux answers the whole path, where cap-std resolves it one name
+/// at a time and never hands Linux the whole of it.
 fn expected(path: &str, mut oracle: Observation) -> Observation {
     if escapes(path) && oracle.errno == Some(ERRNO_PERM) {
         oracle.errno = Some(ERRNO_NOTCAPABLE);
+    }
+    if path.len() >= PATH_MAX {
+        oracle.errno = Some(ERRNO_NAMETOOLONG);
     }
     oracle
 }
@@ -352,9 +378,14 @@ fn expected(path: &str, mut oracle: Observation) -> Observation {
     ignore = "wasmtime-wasi passes on the host's own answer, and kobako answers as Linux does"
 )]
 fn every_path_call_beneath_a_mount_answers_as_a_wasmtime_wasi_preopen() {
+    let paths: Vec<String> = PATHS
+        .iter()
+        .map(|&path| path.to_string())
+        .chain(paths_at_the_limits())
+        .collect();
     let differing: Vec<String> = CALLS
         .iter()
-        .flat_map(|&call| PATHS.iter().map(move |&path| (call, path)))
+        .flat_map(|&call| paths.iter().map(move |path| (call, path.as_str())))
         .filter_map(|(call, path)| {
             let kobako = through_kobako(call, path);
             let oracle = expected(path, through_wasmtime_wasi(call, path));

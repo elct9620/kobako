@@ -4,6 +4,7 @@
 
 use std::ops::Range;
 
+use super::beneath::PATH_MAX;
 use super::errno::{Answer, Errno, Failure};
 
 fn trap(message: &'static str) -> Failure {
@@ -112,9 +113,14 @@ impl<'a> GuestMemory<'a> {
         self.write_aligned(ptr, value.to_le_bytes())
     }
 
-    /// A guest string, which preview1 requires to be UTF-8.
-    pub(crate) fn string(&self, ptr: u32, len: u32) -> Answer<String> {
+    /// A guest path, which preview1 requires to be UTF-8. One that would
+    /// not fit Linux's `PATH_MAX` with its terminating NUL is refused
+    /// before it is copied, as Linux's `getname` refuses it.
+    pub(crate) fn path(&self, ptr: u32, len: u32) -> Answer<String> {
         let bytes = self.bytes(ptr, len)?;
+        if bytes.len() >= PATH_MAX {
+            return Err(Errno::Nametoolong.into());
+        }
         String::from_utf8(bytes.to_vec()).map_err(|_| Errno::Ilseq.into())
     }
 

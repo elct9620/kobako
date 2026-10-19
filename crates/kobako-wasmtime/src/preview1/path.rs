@@ -48,7 +48,7 @@ fn beneath<'a>(
     path: (u32, u32),
 ) -> Answer<(&'a Directory, String)> {
     let dir = directory(table, fd)?;
-    let path = resolve(dir, &mem.string(path.0, path.1)?)?
+    let path = resolve(dir, &mem.path(path.0, path.1)?)?
         .directory_checked(dir.mount.filesystem().as_ref())?;
     Ok((dir, path))
 }
@@ -62,7 +62,7 @@ pub(crate) fn create_directory(
     path: (u32, u32),
 ) -> Answer {
     let dir = directory(table, fd)?;
-    let path = resolve(dir, &mem.string(path.0, path.1)?)?.path;
+    let path = resolve(dir, &mem.path(path.0, path.1)?)?.path;
     dir.mount.check(&path, Access::ReadWrite)?;
     Ok(dir.mount.filesystem().create_dir(&path)?)
 }
@@ -110,8 +110,8 @@ pub(crate) fn link(
     args::flags(old_flags, args::LOOKUPFLAGS)?;
     directory(table, old_fd)?;
     directory(table, new_fd)?;
-    mem.string(old_path.0, old_path.1)?;
-    mem.string(new_path.0, new_path.1)?;
+    mem.path(old_path.0, old_path.1)?;
+    mem.path(new_path.0, new_path.1)?;
     Err(Errno::Notsup.into())
 }
 
@@ -128,7 +128,7 @@ pub(crate) fn open(
     args::flags(flags.rights_base, args::RIGHTS)?;
     args::flags(flags.rights_inheriting, args::RIGHTS)?;
     args::flags(flags.fdflags, args::FDFLAGS)?;
-    let path = mem.string(path.0, path.1)?;
+    let path = mem.path(path.0, path.1)?;
     let dir = match table.get(fd).ok_or(Errno::Badf)? {
         Descriptor::Directory(dir) => dir,
         Descriptor::File(_) => return Err(Errno::Notdir.into()),
@@ -243,8 +243,8 @@ pub(crate) fn rename(
 ) -> Answer {
     let from_dir = directory(table, old.0)?;
     let to_dir = directory(table, new.0)?;
-    let from = resolve(from_dir, &mem.string(old.1 .0, old.1 .1)?)?;
-    let to = resolve(to_dir, &mem.string(new.1 .0, new.1 .1)?)?;
+    let from = resolve(from_dir, &mem.path(old.1 .0, old.1 .1)?)?;
+    let to = resolve(to_dir, &mem.path(new.1 .0, new.1 .1)?)?;
     not_root(&from.path, Errno::Busy)?;
     not_root(&to.path, Errno::Busy)?;
     // A trailing `/` on either side asks that the source be a directory,
@@ -276,8 +276,8 @@ pub(crate) fn symlink(
     new_path: (u32, u32),
 ) -> Answer {
     directory(table, fd)?;
-    mem.string(old_path.0, old_path.1)?;
-    mem.string(new_path.0, new_path.1)?;
+    mem.path(old_path.0, old_path.1)?;
+    mem.path(new_path.0, new_path.1)?;
     Err(Errno::Notsup.into())
 }
 

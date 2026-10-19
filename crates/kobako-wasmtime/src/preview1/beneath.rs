@@ -11,6 +11,11 @@ use kobako_runtime::filesystem::{Filesystem, FilesystemError, Kind};
 use super::errno::{Answer, Errno};
 use crate::descriptors::Directory;
 
+/// Linux's limits on a path, its terminating NUL counted, and on one name
+/// within it.
+pub(crate) const PATH_MAX: usize = 4096;
+pub(crate) const NAME_MAX: usize = 255;
+
 /// A guest path resolved beneath a directory: relative to the mount's
 /// root, and whether it ended in `/` or `/.`, which only a directory
 /// satisfies.
@@ -38,7 +43,9 @@ impl Resolved {
 
 /// `path`, beneath `dir`. An empty path names nothing; an absolute path or
 /// a `..` above the root is not the guest's to reach; a `..` after a
-/// component that is missing or no directory is `NOENT` or `NOTDIR`.
+/// component that is missing or no directory is `NOENT` or `NOTDIR`. A
+/// name past `NAME_MAX`, or a resolved path the Filesystem could not be
+/// handed within `PATH_MAX`, is `NAMETOOLONG`.
 pub(crate) fn resolve(dir: &Directory, path: &str) -> Answer<Resolved> {
     if path.is_empty() {
         return Err(Errno::Noent.into());
@@ -59,11 +66,16 @@ pub(crate) fn resolve(dir: &Directory, path: &str) -> Answer<Resolved> {
                 }
                 components.pop().ok_or(Errno::Notcapable)?;
             }
+            component if component.len() > NAME_MAX => return Err(Errno::Nametoolong.into()),
             component => components.push(component),
         }
     }
+    let path = components.join("/");
+    if path.len() >= PATH_MAX {
+        return Err(Errno::Nametoolong.into());
+    }
     Ok(Resolved {
-        path: components.join("/"),
+        path,
         names_directory: matches!(last, "" | "."),
     })
 }

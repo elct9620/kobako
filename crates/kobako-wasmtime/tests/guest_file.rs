@@ -191,6 +191,42 @@ fn a_write_past_a_mounts_space_raises_enospc() {
     );
 }
 
+// A name at NAME_MAX still lands, so the refusal is the limit and not
+// the name's length alone.
+// @behavior FL-013
+#[test]
+fn a_name_or_path_past_linuxs_limits_raises_enametoolong() {
+    let script = r#"
+        answers = [255, 256].map do |length|
+          begin
+            File.write("/data/" + "x" * length, "")
+            :written
+          rescue Errno::ENAMETOOLONG
+            :too_long
+          end
+        end
+        begin
+          File.read("/data/" + "d/" * 2048)
+        rescue Errno::ENAMETOOLONG
+          answers << :too_long
+        end
+        print answers.inspect
+    "#;
+    let Some(answer) = run(
+        script,
+        &[mount(Arc::new(Memory::new()), Access::ReadWrite)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok("[:written, :too_long, :too_long]".to_string()),
+        "a name past 255 bytes or a path past 4095 through the bundled guest's File must raise \
+         Errno::ENAMETOOLONG"
+    );
+}
+
 // @behavior FL-007
 #[test]
 fn a_file_is_an_io() {

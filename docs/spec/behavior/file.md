@@ -159,3 +159,15 @@ disable_file flag -> no File constant
 | Given | an invocation handed a read-write Mount over a Memory with a small limit |
 | When | the script writes past that limit through an open file |
 | Then | the write raises `Errno::ENOSPC` |
+
+## `FL-013` A name or path past Linux's limits raises ENAMETOOLONG
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-076` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount |
+| When | the script names a file over 255 bytes, or a path of 4096 bytes |
+| Then | the call raises `Errno::ENAMETOOLONG` |
