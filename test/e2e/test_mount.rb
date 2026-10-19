@@ -46,6 +46,18 @@ class TestE2EMount < Minitest::Test
     end
   end
 
+  # The Overlay's own +layer+ refuses the same object, so both entries a
+  # Filesystem is handed through answer alike.
+  # @behavior MT-022
+  def test_what_is_no_filesystem_is_refused_as_the_wrong_type
+    refused = [-> { Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", Object.new) },
+               -> { Kobako::Filesystem::Overlay.new.layer(Object.new) }].map do |call|
+      assert_raises(TypeError, "Sandbox#mount and Overlay#layer of no Filesystem must raise TypeError", &call)
+    end
+
+    assert_equal 2, refused.size
+  end
+
   # @behavior MT-004
   def test_a_path_mounted_twice_is_refused
     assert_raises(ArgumentError, "Sandbox#mount at a path already mounted must be refused") do

@@ -278,3 +278,15 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 | Given | a Filesystem a Host App writes against the Rust SDK alone |
 | When | it is mounted and the script reads a file it serves |
 | Then | the script reads that file's content |
+
+## `MT-022` What is no Filesystem is refused as the wrong type
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-003`, `MT-011` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an object that is no kind kobako ships and answers neither `open` nor `stat` |
+| When | it is mounted on a Sandbox, or added to an Overlay as a Layer |
+| Then | each raises `TypeError` |

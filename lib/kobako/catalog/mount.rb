@@ -6,11 +6,11 @@ module Kobako
       ACCESS = %i[read read_write].freeze
 
       def initialize(at:, access:, filesystem:, policy:)
-        raise ArgumentError, "mount path must be a String, got #{at.class}" unless at.is_a?(String)
+        raise TypeError, "mount path must be a String, got #{at.class}" unless at.is_a?(String)
         raise ArgumentError, "mount path must be an absolute guest path, got #{at.inspect}" if malformed?(at)
         raise ArgumentError, "access must be :read or :read_write, got #{access.inspect}" unless ACCESS.include?(access)
         unless filesystem?(filesystem)
-          raise ArgumentError,
+          raise TypeError,
                 "filesystem must be a Kobako::Filesystem or answer open and stat, got #{filesystem.class}"
         end
 
