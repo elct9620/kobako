@@ -19,6 +19,7 @@ use crate::descriptors::{Descriptor, Descriptors, OpenFile};
 const FILETYPE_UNKNOWN: u8 = 0;
 const FILETYPE_DIRECTORY: u8 = 3;
 const FILETYPE_REGULAR_FILE: u8 = 4;
+const FILETYPE_SYMBOLIC_LINK: u8 = 7;
 
 const RIGHTS_FD_DATASYNC: u64 = 1 << 0;
 const RIGHTS_FD_SEEK: u64 = 1 << 2;
@@ -127,6 +128,7 @@ fn write_filestat(mem: &mut GuestMemory, out: u32, filetype: u8, size: u64) -> A
 fn filetype(kind: Kind) -> u8 {
     match kind {
         Kind::Directory => FILETYPE_DIRECTORY,
+        Kind::Symlink => FILETYPE_SYMBOLIC_LINK,
         _ => FILETYPE_REGULAR_FILE,
     }
 }

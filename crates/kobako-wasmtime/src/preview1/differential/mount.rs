@@ -3,8 +3,9 @@
 //! wasmtime-wasi's own preopen, must leave the same errno, the same
 //! descriptor, and the same directory behind.
 //!
-//! A Filesystem reports no timestamps or inode numbers, so what a stat
-//! writes is left out; the errno and the directory carry the decision.
+//! A Filesystem reports no timestamps or inode numbers, so of what a
+//! stat writes only the filetype is compared; the errno and the
+//! directory carry the rest of the decision.
 //!
 //! Where POSIX lets each host choose, wasmtime-wasi passes on the host's
 //! own answer — unlinking a directory is `ISDIR` on Linux and `PERM` on
@@ -38,7 +39,7 @@ const AT: &str = "/data";
 
 /// Each export calls one path import on descriptor 3 with the path the
 /// host placed at 1024, and the second path at 8192 where a call takes
-/// two. An opened descriptor lands at 128.
+/// two. An opened descriptor lands at 128, and a stat at 256.
 const PROBE_WAT: &str = r#"
 (module
   (import "wasi_snapshot_preview1" "path_open" (func $open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
@@ -56,6 +57,8 @@ const PROBE_WAT: &str = r#"
       (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 128)))
   (func (export "stat") (param $len i32) (result i32)
     (call $stat (i32.const 3) (i32.const 1) (i32.const 1024) (local.get $len) (i32.const 256)))
+  (func (export "stat_nofollow") (param $len i32) (result i32)
+    (call $stat (i32.const 3) (i32.const 0) (i32.const 1024) (local.get $len) (i32.const 256)))
   (func (export "mkdir") (param $len i32) (result i32)
     (call $mkdir (i32.const 3) (i32.const 1024) (local.get $len)))
   (func (export "rmdir") (param $len i32) (result i32)
@@ -69,6 +72,9 @@ const PROBE_WAT: &str = r#"
 const PATH_AT: usize = 1024;
 const SECOND_PATH_AT: usize = 8192;
 const OPENED_AT: usize = 128;
+/// Where a stat's filetype lands, past its device and inode.
+const FILETYPE_AT: usize = 256 + 16;
+const FILETYPE_DIRECTORY: u8 = 3;
 
 const OFLAGS_CREAT: i32 = 1 << 0;
 const OFLAGS_DIRECTORY: i32 = 1 << 1;
@@ -129,6 +135,8 @@ enum Call {
     /// Open the path to read, following no symbolic link at its end.
     OpenNoFollow,
     Stat,
+    /// Stat the path, following no symbolic link at its end.
+    StatNoFollow,
     Mkdir,
     Rmdir,
     Unlink,
@@ -181,6 +189,7 @@ const CALLS: &[Call] = &[
     },
     Call::OpenNoFollow,
     Call::Stat,
+    Call::StatNoFollow,
     Call::Mkdir,
     Call::Rmdir,
     Call::Unlink,
@@ -253,6 +262,7 @@ impl Drop for HostDir {
 struct Observation {
     errno: Option<i32>,
     opened: [u8; 4],
+    filetype: u8,
     tree: Vec<(String, Option<Vec<u8>>)>,
 }
 
@@ -292,10 +302,16 @@ fn observe<T>(
         Call::RenameFrom | Call::RenameTo => instance
             .get_typed_func::<(i32, i32), i32>(&mut store, "rename")
             .and_then(|f| f.call(&mut store, (len, second.len() as i32))),
-        Call::OpenNoFollow | Call::Stat | Call::Mkdir | Call::Rmdir | Call::Unlink => {
+        Call::OpenNoFollow
+        | Call::Stat
+        | Call::StatNoFollow
+        | Call::Mkdir
+        | Call::Rmdir
+        | Call::Unlink => {
             let name = match call {
                 Call::OpenNoFollow => "open_nofollow",
                 Call::Stat => "stat",
+                Call::StatNoFollow => "stat_nofollow",
                 Call::Mkdir => "mkdir",
                 Call::Rmdir => "rmdir",
                 _ => "unlink",
@@ -311,6 +327,7 @@ fn observe<T>(
     Observation {
         errno,
         opened,
+        filetype: memory.data(&store)[FILETYPE_AT],
         tree: host.tree(),
     }
 }
@@ -352,6 +369,7 @@ fn through_wasmtime_wasi(call: Call, path: &str) -> Observation {
 }
 
 const ERRNO_NAMETOOLONG: i32 = 37;
+const ERRNO_NOTDIR: i32 = 54;
 const ERRNO_PERM: i32 = 63;
 const ERRNO_NOTCAPABLE: i32 = 76;
 
@@ -380,10 +398,21 @@ fn escapes(path: &str) -> bool {
 /// capability the guest was never handed, where wasmtime-wasi passes on
 /// cap-std's refusal as `PERM`. A path past `PATH_MAX` is `NAMETOOLONG`
 /// as Linux answers the whole path, where cap-std resolves it one name
-/// at a time and never hands Linux the whole of it.
-fn expected(path: &str, mut oracle: Observation) -> Observation {
+/// at a time and never hands Linux the whole of it. A stat following no
+/// link of a file named with a trailing `/` is `NOTDIR` as Linux answers
+/// it, where cap-std's shortcut for one name drops the `/` and finds the
+/// file.
+fn expected(call: Call, path: &str, mut oracle: Observation) -> Observation {
     if escapes(path) && oracle.errno == Some(ERRNO_PERM) {
         oracle.errno = Some(ERRNO_NOTCAPABLE);
+    }
+    if matches!(call, Call::StatNoFollow)
+        && path.ends_with('/')
+        && oracle.errno == Some(0)
+        && oracle.filetype != FILETYPE_DIRECTORY
+    {
+        oracle.errno = Some(ERRNO_NOTDIR);
+        oracle.filetype = 0;
     }
     if path.len() >= PATH_MAX {
         oracle.errno = Some(ERRNO_NAMETOOLONG);
@@ -407,7 +436,7 @@ fn every_path_call_beneath_a_mount_answers_as_a_wasmtime_wasi_preopen() {
         .flat_map(|&call| paths.iter().map(move |path| (call, path.as_str())))
         .filter_map(|(call, path)| {
             let kobako = through_kobako(call, path);
-            let oracle = expected(path, through_wasmtime_wasi(call, path));
+            let oracle = expected(call, path, through_wasmtime_wasi(call, path));
             (kobako != oracle).then(|| format!("{call:?} {path:?}: {kobako:?} != {oracle:?}"))
         })
         .collect();

@@ -77,7 +77,12 @@ pub(crate) fn filestat_get(
 ) -> Answer {
     args::flags(flags, args::LOOKUPFLAGS)?;
     let (dir, path) = beneath(table, mem, fd, path)?;
-    let metadata = dir.mount.filesystem().metadata(&path)?;
+    let filesystem = dir.mount.filesystem();
+    let metadata = if flags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 {
+        filesystem.metadata(&path)?
+    } else {
+        filesystem.symlink_metadata(&path)?
+    };
     write_metadata(mem, out, metadata)
 }
 

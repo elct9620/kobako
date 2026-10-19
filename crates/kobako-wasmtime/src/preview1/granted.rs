@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    DirEntry, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Rename, Temporary,
+    DirEntry, Directory, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Rename,
+    Temporary,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
@@ -34,12 +35,13 @@ const ERRNO_NOTCAPABLE: i32 = 76;
 /// Memory holds an `iovec` at 64 over 512..576, a `ciovec` at 80 over
 /// "hello" at 600, the paths `file.txt` at 700 and `../file.txt` at 720,
 /// and from 740 the paths the resolution rules turn on. An opened
-/// descriptor lands at 128 and a count at 132.
+/// descriptor lands at 128, a count at 132, and a stat at 384.
 const PROBE_WAT: &str = r#"
 (module
   (import "wasi_snapshot_preview1" "fd_prestat_get" (func $prestat (param i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_prestat_dir_name" (func $prestat_name (param i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_open" (func $open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_filestat_get" (func $stat (param i32 i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_read" (func $read (param i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_remove_directory" (func $rmdir (param i32 i32 i32) (result i32)))
@@ -89,6 +91,10 @@ const PROBE_WAT: &str = r#"
   (func (export "open_flagged") (param $path i32) (param $len i32) (param $oflags i32) (param $fdflags i32) (result i32)
     (call $open (i32.const 3) (i32.const 0) (local.get $path) (local.get $len)
       (local.get $oflags) (i64.const 2) (i64.const 0) (local.get $fdflags) (i32.const 128)))
+
+  ;; Stat the path with the given lookupflags into 384.
+  (func (export "stat_flagged") (param $path i32) (param $len i32) (param $flags i32) (result i32)
+    (call $stat (i32.const 3) (local.get $flags) (local.get $path) (local.get $len) (i32.const 384)))
 
   ;; Change the root `.` at 740.
   (func (export "remove_root") (result i32)
@@ -589,6 +595,45 @@ fn an_append_lands_after_another_writers_append() {
         (0, Some(b"grantedbbbhello".to_vec())),
         "fd_write to a file opened to append beneath a Mount through preview1 must land after \
          what another writer appended meanwhile"
+    );
+}
+
+const FILETYPE_REGULAR_FILE: u8 = 4;
+const FILETYPE_SYMBOLIC_LINK: u8 = 7;
+
+// The link points at a regular file, so only a stat that follows none
+// can answer a link.
+// @behavior RT-097
+#[cfg(unix)]
+#[test]
+fn a_stat_following_no_link_reports_the_link_itself() {
+    let host = std::env::temp_dir().join(format!("kobako-granted-lstat-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&host);
+    std::fs::create_dir_all(&host).expect("the host directory must be created");
+    std::fs::write(host.join("target"), "granted").expect("the host file must be written");
+    std::os::unix::fs::symlink("target", host.join("file.txt")).expect("the link must be made");
+    let directory = Directory::new(&host).expect("the host directory must open");
+    let mut guest = Guest::new(&[grant(Arc::new(directory), Access::Read, None)]);
+    let mut stat = |flags| {
+        let errno = guest
+            .instance
+            .get_typed_func::<(i32, i32, i32), i32>(&mut guest.store, "stat_flagged")
+            .expect("probe export must resolve")
+            .call(&mut guest.store, (FILE.0, FILE.1, flags))
+            .expect("probe call must not trap");
+        let memory = guest
+            .instance
+            .get_memory(&mut guest.store, "memory")
+            .expect("probe exports its memory");
+        (errno, memory.data(&guest.store)[384 + 16])
+    };
+    let answers = (stat(1), stat(0));
+    let _ = std::fs::remove_dir_all(&host);
+    assert_eq!(
+        answers,
+        ((0, FILETYPE_REGULAR_FILE), (0, FILETYPE_SYMBOLIC_LINK)),
+        "path_filestat_get of a host link beneath a Directory Mount through preview1 must report \
+         the file it points to when following links, and a symbolic link when following none"
     );
 }
 

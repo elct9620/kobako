@@ -937,3 +937,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation calling preview1 with an iovec array or a buffer past 128 MiB |
 | When | the host would copy it |
 | Then | the call answers NOMEM before anything is copied |
+
+## `RT-097` A stat following no link reports the link itself
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-048` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Directory Mount whose host directory holds a link |
+| When | the guest stats the link, following it and then following none |
+| Then | the first answers a regular file, and the second a symbolic link |
