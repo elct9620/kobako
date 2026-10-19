@@ -30,11 +30,11 @@ module Kobako
     end
 
     class Memory
-      def initialize: (?Hash[String, String] files, ?limit: Integer?, **String) -> void
+      def initialize: (?Hash[String, String] files, ?limit: Integer?, ?inodes: Integer?, **String) -> void
     end
 
     class Temporary
-      def initialize: (?limit: Integer?) -> void
+      def initialize: (?limit: Integer?, ?inodes: Integer?) -> void
     end
 
     class Directory

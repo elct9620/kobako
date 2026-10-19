@@ -41,6 +41,19 @@ class TestE2EMountLimit < Minitest::Test
                  "a misspelled keyword through Memory.new must be named in the ArgumentError"
   end
 
+  # The files are empty, so only +inodes:+, not the bytes they hold, can
+  # refuse the third.
+  # @behavior MT-017
+  def test_inodes_given_in_ruby_bound_what_the_guest_creates
+    script = '(1..3).map { |n| begin; File.write("/data/f" + n.to_s, ""); :made; rescue Errno::ENOSPC; :refused; end }'
+    made = [Kobako::Filesystem::Memory.new(inodes: 3), Kobako::Filesystem::Temporary.new(inodes: 3)].map do |filesystem|
+      Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", filesystem, access: :read_write).eval(script).value
+    end
+
+    assert_equal [%i[made made refused]] * 2, made,
+                 "an entry past inodes given through Memory.new or Temporary.new must raise Errno::ENOSPC in the guest"
+  end
+
   # @behavior MT-014
   def test_a_temporarys_limit_given_in_ruby_bounds_what_the_guest_writes
     assert_equal [:refused, nil], write_beneath(Kobako::Filesystem::Temporary.new(limit: 4)),

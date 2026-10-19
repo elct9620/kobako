@@ -214,3 +214,16 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 | Given | a Sandbox whose mount's block allows a path |
 | When | the host compacts its heap between two opens of that path |
 | Then | the second open reads the file as the first did |
+
+## `MT-017` Inodes given in Ruby bound what the guest creates
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-030` |
+| relates | `MT-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox mounting a Memory or a Temporary given a count of inodes |
+| When | the script creates empty files past that count |
+| Then | the script raises `Errno::ENOSPC` |

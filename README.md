@@ -200,12 +200,12 @@ sandbox.eval('File.read("/config/app.yml")')
 
 | Kind | Holds |
 |---|---|
-| `Memory.new(files = {}, limit:)` | files in memory, shared by every invocation |
-| `Temporary.new(limit:)` | files in memory, empty at every invocation |
+| `Memory.new(files = {}, limit:, inodes:)` | files in memory, shared by every invocation |
+| `Temporary.new(limit:, inodes:)` | files in memory, empty at every invocation |
 | `Directory.new(path)` | a host directory; nothing outside it is reachable |
 | `Overlay.new.layer(fs, access:)` | Layers stacked into one view, the first added on top |
 
-A Memory or Temporary holds 64 MiB across its files unless `limit:` gives another size in bytes, or `nil` for none. A write past it raises `Errno::ENOSPC` in the guest.
+A Memory or Temporary is bounded as a tmpfs mount is. Its files hold 64 MiB unless `limit:` gives another size in bytes. It holds one file or directory for each 4 KiB of that limit, and its root, unless `inodes:` gives another count. `nil` lifts either bound, and the guest raises `Errno::ENOSPC` past one.
 
 A block decides each open and each change in the access's place; a falsy answer or a raise fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run. With nothing mounted, `File.open` raises `NotImplementedError`.
 
