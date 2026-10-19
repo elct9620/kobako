@@ -26,6 +26,11 @@ const CODES: &[Code] = &[
         message: "Bad file descriptor",
     },
     Code {
+        name: c"EDEADLK",
+        wasi: 16,
+        message: "Resource deadlock avoided",
+    },
+    Code {
         name: c"EEXIST",
         wasi: 20,
         message: "File exists",
