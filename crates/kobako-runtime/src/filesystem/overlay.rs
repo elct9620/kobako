@@ -48,12 +48,20 @@ impl Layer {
         self.filesystem.metadata(path).is_ok()
     }
 
-    /// Whether this Layer's markers hide `path` in every Layer below it.
+    /// Whether this Layer's markers hide `path` in every Layer below it:
+    /// a whiteout of it or of a directory above it, or an opaque marker
+    /// in one of those directories. A marker lives in a directory, so the
+    /// walk ends at the first directory above `path` this Layer lacks.
     fn hides(&self, path: &str) -> bool {
-        let mut dirs = std::iter::once("").chain(ancestors(path));
-        self.holds(&whiteout(path))
-            || ancestors(path).any(|dir| self.holds(&whiteout(dir)))
-            || dirs.any(|dir| self.holds(&join(dir, OPAQUE)))
+        for name in ancestors(path).chain(std::iter::once(path)) {
+            if self.holds(&whiteout(name)) || self.holds(&join(parent(name), OPAQUE)) {
+                return true;
+            }
+            if name != path && !self.holds(name) {
+                return false;
+            }
+        }
+        false
     }
 }
 
