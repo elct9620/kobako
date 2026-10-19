@@ -45,8 +45,10 @@ impl Layer {
         }
     }
 
+    /// Whether this Layer has an entry at `path`, a link pointing at
+    /// nothing among them.
     fn holds(&self, path: &str) -> bool {
-        self.filesystem.metadata(path).is_ok()
+        self.filesystem.symlink_metadata(path).is_ok()
     }
 
     /// Whether this Layer's markers hide `path` in every Layer below it:
@@ -135,10 +137,16 @@ impl Stack {
         Some(Self { layers })
     }
 
-    /// The topmost Layer holding `path` and what it holds there, or `None`
-    /// when no Layer shows it.
+    /// The topmost Layer holding `path` and what it holds there, a link
+    /// followed within that Layer, or `None` when no Layer shows it or the
+    /// link shown points at nothing.
     fn locate(&self, path: &str) -> Result<Option<(usize, Metadata)>, FilesystemError> {
-        self.locate_by(path, <dyn Filesystem>::metadata)
+        match self.locate_by(path, <dyn Filesystem>::symlink_metadata)? {
+            Some((index, metadata)) if metadata.kind == Kind::Symlink => Ok(self.layers[index]
+                .find(path)?
+                .map(|metadata| (index, metadata))),
+            found => Ok(found),
+        }
     }
 
     fn locate_by(
@@ -180,22 +188,21 @@ impl Stack {
     }
 
     /// Create in Layer `into` each directory above `path` that so far shows
-    /// only from another Layer.
+    /// only from another Layer. A Layer holds no link it was not handed, so
+    /// a change reaching through a link another Layer holds is refused as
+    /// crossing devices rather than landing beside where the link points.
     fn copy_up_directories(&self, path: &str, into: usize) -> Result<(), FilesystemError> {
         let target = &self.layers[into];
         for dir in ancestors(path) {
             if target.holds(dir) {
                 continue;
             }
-            match self.locate(dir)? {
-                Some((
-                    _,
-                    Metadata {
-                        kind: Kind::Directory,
-                        ..
-                    },
-                )) => target.filesystem.create_dir(dir)?,
-                Some(_) => return Err(FilesystemError::NotADirectory),
+            match self.locate_by(dir, <dyn Filesystem>::symlink_metadata)? {
+                Some((_, metadata)) => match metadata.kind {
+                    Kind::Directory => target.filesystem.create_dir(dir)?,
+                    Kind::Symlink => return Err(FilesystemError::CrossesDevices),
+                    _ => return Err(FilesystemError::NotADirectory),
+                },
                 None => return Err(FilesystemError::NotFound),
             }
         }
@@ -204,8 +211,12 @@ impl Stack {
 
     /// Copy the file at `path` from Layer `from` into Layer `into` whole.
     /// Layer `into` held nothing there, so a copy that fails part way is
-    /// taken away again rather than left to hide the whole file.
+    /// taken away again rather than left to hide the whole file. A link
+    /// is not copied up, as no Layer is handed one to hold.
     fn copy_up_file(&self, path: &str, from: usize, into: usize) -> Result<(), FilesystemError> {
+        if self.layers[from].filesystem.symlink_metadata(path)?.kind == Kind::Symlink {
+            return Err(FilesystemError::CrossesDevices);
+        }
         self.copy_up_directories(path, into)?;
         let mut source = self.layers[from].filesystem.open(
             path,
@@ -321,16 +332,34 @@ impl Stack {
                 self.copy_up_file(path, index, into)?;
                 self.layers[into].filesystem.open(path, options)
             }
-            // The new file shadows whatever the whiteout hid before the
-            // whiteout goes, so nothing shows through in between.
-            None if options.create || options.create_new => {
+            None if options.create || options.create_new => self.create_file(path, options),
+            None => Err(FilesystemError::NotFound),
+        }
+    }
+
+    /// A link pointing at nothing still names an entry, so an exclusive
+    /// create finds it there; any other create reaches through it, which
+    /// only the Layer holding the link may answer. The new file shadows
+    /// whatever the whiteout hid before the whiteout goes, so nothing
+    /// shows through in between.
+    fn create_file(
+        &self,
+        path: &str,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
+        match self.locate_by(path, <dyn Filesystem>::symlink_metadata)? {
+            Some(_) if options.create_new => Err(FilesystemError::AlreadyExists),
+            Some((index, _)) if self.layers[index].writable() => {
+                self.layers[index].filesystem.open(path, options)
+            }
+            Some(_) => Err(FilesystemError::CrossesDevices),
+            None => {
                 let upper = self.upper()?;
                 self.copy_up_directories(path, upper)?;
                 let file = self.layers[upper].filesystem.open(path, options)?;
                 self.unhide(path, upper)?;
                 Ok(file)
             }
-            None => Err(FilesystemError::NotFound),
         }
     }
 
@@ -395,7 +424,10 @@ impl Stack {
     /// the whiteout goes, so the lower Layers' entries never show in it.
     pub(super) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         reserved(path)?;
-        if self.locate(path)?.is_some() {
+        if self
+            .locate_by(path, <dyn Filesystem>::symlink_metadata)?
+            .is_some()
+        {
             return Err(FilesystemError::AlreadyExists);
         }
         let upper = self.upper()?;
@@ -416,7 +448,7 @@ impl Stack {
     /// A writable Layer's copy of the directory may hold only markers; any
     /// other entry there means the view is not what was found empty.
     pub(super) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        if self.metadata(path)?.kind != Kind::Directory {
+        if self.symlink_metadata(path)?.kind != Kind::Directory {
             return Err(FilesystemError::NotADirectory);
         }
         if !self.read_dir(path)?.is_empty() {
@@ -433,8 +465,9 @@ impl Stack {
         })
     }
 
+    /// A link is removed as itself, wherever it points.
     pub(super) fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        if self.metadata(path)?.kind == Kind::Directory {
+        if self.symlink_metadata(path)?.kind == Kind::Directory {
             return Err(FilesystemError::IsADirectory);
         }
         self.withdraw(path, |filesystem, path| filesystem.remove_file(path))
@@ -454,7 +487,7 @@ impl Stack {
         rename: Rename,
     ) -> Result<(), FilesystemError> {
         reserved(to)?;
-        let moving = self.metadata(from)?;
+        let moving = self.symlink_metadata(from)?;
         if from == to {
             return Ok(());
         }
@@ -462,10 +495,16 @@ impl Stack {
         if is_beneath(to, from) {
             return Err(FilesystemError::InvalidInput);
         }
-        let replaced = self.locate(to)?.map(|(_, metadata)| metadata.kind);
+        let replaced = self
+            .locate_by(to, <dyn Filesystem>::symlink_metadata)?
+            .map(|(_, metadata)| metadata.kind);
         match (moving.kind, replaced) {
-            (Kind::File, Some(Kind::Directory)) => return Err(FilesystemError::IsADirectory),
-            (Kind::Directory, Some(Kind::File)) => return Err(FilesystemError::NotADirectory),
+            (Kind::File | Kind::Symlink, Some(Kind::Directory)) => {
+                return Err(FilesystemError::IsADirectory)
+            }
+            (Kind::Directory, Some(Kind::File | Kind::Symlink)) => {
+                return Err(FilesystemError::NotADirectory)
+            }
             (Kind::Directory, Some(Kind::Directory)) if !self.read_dir(to)?.is_empty() => {
                 return Err(FilesystemError::DirectoryNotEmpty)
             }
@@ -484,6 +523,9 @@ impl Stack {
             Kind::Directory if holders != [upper] => return Err(FilesystemError::CrossesDevices),
             Kind::File if holders.first() != Some(&upper) => {
                 self.copy_up_file(from, holders[0], upper)?
+            }
+            Kind::Symlink if holders.first() != Some(&upper) => {
+                return Err(FilesystemError::CrossesDevices)
             }
             _ => {}
         }

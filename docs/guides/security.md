@@ -288,6 +288,7 @@ Some risks stay with the host, because kobako cannot see them.
 | another process changing a Directory's host files | the host directory |
 | a FIFO or device file placed in a Directory | an open of it may block |
 | a link in a Directory | the guest reaches its target, never beyond the Directory, and never reads where it points |
+| a link below an Overlay's writable Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
 | a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
 | one Overlay's writable Layer shared by another | the two are not serialized against each other |
 

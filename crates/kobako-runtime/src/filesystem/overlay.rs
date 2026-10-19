@@ -188,32 +188,185 @@ mod tests {
         (overlay, lower)
     }
 
+    /// A host directory holding `target`, `dir/inner`, and the links `link`
+    /// to `target`, `dirlink` to `dir`, and `dangling` to nothing, removed
+    /// when it drops.
+    #[cfg(unix)]
+    struct Linked(std::path::PathBuf);
+
+    #[cfg(unix)]
+    impl Linked {
+        fn new(name: &str) -> Self {
+            let path =
+                std::env::temp_dir().join(format!("kobako-overlay-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(path.join("dir")).expect("the host directory must be created");
+            std::fs::write(path.join("target"), "lower").expect("the host file must be written");
+            std::fs::write(path.join("dir/inner"), "lower").expect("the host file must be written");
+            for (target, link) in [
+                ("target", "link"),
+                ("dir", "dirlink"),
+                ("missing", "dangling"),
+            ] {
+                std::os::unix::fs::symlink(target, path.join(link)).expect("the link must be made");
+            }
+            Self(path)
+        }
+
+        /// A writable Memory over the host directory as a read-only Layer.
+        fn overlay(&self) -> Overlay {
+            let lower =
+                super::super::Directory::new(&self.0).expect("the host directory must open");
+            Overlay::new()
+                .layer(Arc::new(Memory::new()), Access::ReadWrite)
+                .layer(Arc::new(lower), Access::Read)
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for Linked {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     // The link points at a file in the same Layer, so only a lookup that
     // reaches the Layer's own `symlink_metadata` can answer a link.
     // @behavior FS-049
     #[cfg(unix)]
     #[test]
     fn an_overlay_reports_a_link_its_layer_holds_as_a_link() {
-        let host =
-            std::env::temp_dir().join(format!("kobako-overlay-lstat-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&host);
-        std::fs::create_dir_all(&host).expect("the host directory must be created");
-        std::fs::write(host.join("target"), "lower").expect("the host file must be written");
-        std::os::unix::fs::symlink("target", host.join("link")).expect("the link must be made");
-        std::os::unix::fs::symlink("missing", host.join("dangling"))
-            .expect("the dangling link must be made");
-        let lower = super::super::Directory::new(&host).expect("the host directory must open");
-        let overlay = Overlay::new()
-            .layer(Arc::new(Memory::new()), Access::ReadWrite)
-            .layer(Arc::new(lower), Access::Read);
+        let host = Linked::new("lstat");
+        let overlay = host.overlay();
         let kind = |path| overlay.symlink_metadata(path).map(|metadata| metadata.kind);
-        let found = (kind("link"), kind("dangling"));
-        let _ = std::fs::remove_dir_all(&host);
         assert_eq!(
-            found,
+            (kind("link"), kind("dangling")),
             (Ok(Kind::Symlink), Ok(Kind::Symlink)),
             "a link a Directory Layer holds, pointing at a file or at nothing, looked up through \
              Overlay::symlink_metadata must be reported as a link"
+        );
+    }
+
+    // A link to a directory follows to one, and a dangling link follows to
+    // nothing, so only judging each link itself lets both go.
+    // @behavior FS-050
+    #[cfg(unix)]
+    #[test]
+    fn an_overlay_removes_a_link_its_read_only_layer_holds_as_itself() {
+        let host = Linked::new("unlink");
+        let overlay = host.overlay();
+        let removed = (
+            overlay.remove_dir("dirlink"),
+            overlay.remove_file("dirlink"),
+            overlay.remove_file("dangling"),
+        );
+        let gone = |path| overlay.symlink_metadata(path).err();
+        assert_eq!(
+            (
+                removed,
+                gone("dirlink"),
+                gone("dangling"),
+                host.0.join("dirlink").is_symlink()
+            ),
+            (
+                (Err(FilesystemError::NotADirectory), Ok(()), Ok(())),
+                Some(FilesystemError::NotFound),
+                Some(FilesystemError::NotFound),
+                true
+            ),
+            "a link a read-only Directory Layer holds, removed through Overlay::remove_dir and \
+             Overlay::remove_file, must be refused as no directory and then removed as itself, \
+             leaving the Layer as it was"
+        );
+    }
+
+    // Each change would land in the writable Memory, which holds no link,
+    // so only refusing it keeps the write from parting with its target.
+    // @behavior FS-051
+    #[cfg(unix)]
+    #[test]
+    fn an_overlay_refuses_a_change_through_a_link_its_read_only_layer_holds() {
+        let host = Linked::new("through");
+        let overlay = host.overlay();
+        let creates = OpenOptions {
+            write: true,
+            create: true,
+            ..OpenOptions::default()
+        };
+        let refused = [
+            write(&overlay, "link", b"upper"),
+            overlay.open("dirlink/new", &creates).map(drop),
+            overlay.open("dangling", &creates).map(drop),
+            overlay.rename("link", "moved", Rename::Any),
+        ];
+        assert_eq!(
+            (refused, read(&overlay, "target")),
+            (
+                [
+                    Err(FilesystemError::CrossesDevices),
+                    Err(FilesystemError::CrossesDevices),
+                    Err(FilesystemError::CrossesDevices),
+                    Err(FilesystemError::CrossesDevices)
+                ],
+                b"lower".to_vec()
+            ),
+            "a write, a create, and a rename reaching through a link a read-only Directory Layer \
+             holds, through an Overlay, must be refused as crossing devices and leave the target \
+             as it was"
+        );
+    }
+
+    // The lower Memory holds a readable `dangling`, so only the upper
+    // link standing at that path can keep the read from reaching it.
+    // @behavior FS-053
+    #[cfg(unix)]
+    #[test]
+    fn a_link_a_layer_holds_hides_what_the_layers_below_hold_there() {
+        let host = Linked::new("shadow");
+        let upper = super::super::Directory::new(&host.0).expect("the host directory must open");
+        let overlay = Overlay::new()
+            .layer(Arc::new(upper), Access::ReadWrite)
+            .layer(holding("dangling", "lower"), Access::Read);
+        assert_eq!(
+            overlay
+                .open(
+                    "dangling",
+                    &OpenOptions {
+                        read: true,
+                        ..OpenOptions::default()
+                    }
+                )
+                .map(drop),
+            Err(FilesystemError::NotFound),
+            "a lower file beneath a dangling link a higher Directory Layer holds at its path, \
+             opened through Overlay::open, must not be found"
+        );
+    }
+
+    // The link points at nothing, so only the link itself can be what an
+    // exclusive create or a new directory finds there.
+    // @behavior FS-052
+    #[cfg(unix)]
+    #[test]
+    fn an_overlay_finds_a_dangling_link_where_a_new_entry_would_go() {
+        let host = Linked::new("dangling");
+        let overlay = host.overlay();
+        let exclusive = OpenOptions {
+            write: true,
+            create_new: true,
+            ..OpenOptions::default()
+        };
+        assert_eq!(
+            (
+                overlay.open("dangling", &exclusive).map(drop),
+                overlay.create_dir("dangling")
+            ),
+            (
+                Err(FilesystemError::AlreadyExists),
+                Err(FilesystemError::AlreadyExists)
+            ),
+            "an exclusive create and a create_dir at a dangling link a read-only Directory Layer \
+             holds, through an Overlay, must find it already there"
         );
     }
 

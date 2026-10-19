@@ -616,3 +616,54 @@ both live in the topmost writable layer, never show, and no name may claim .wh.
 | Given | an Overlay whose read-only Layer is a Directory holding a link to a file and one to nothing |
 | When | each link is looked up through the Overlay, following none |
 | Then | each is reported as a link |
+
+## `FS-050` An Overlay removes a link its read-only Layer holds as itself
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-010` |
+| relates | `FS-049` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose read-only Directory Layer holds a link to a directory and one to nothing |
+| When | each link is removed as a directory and then as a file |
+| Then | the first is refused as no directory, the rest leave the view, and the Layer stays as it was |
+
+## `FS-051` An Overlay refuses a change through a link its read-only Layer holds
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-009` |
+| relates | `FS-049` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose read-only Directory Layer holds links to a file, a directory, and nothing |
+| When | the guest writes, creates, or renames through one of those links |
+| Then | each change is refused as crossing devices, and the target stays as it was |
+
+## `FS-052` An Overlay finds a dangling link where a new entry would go
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-049` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose read-only Directory Layer holds a link to nothing |
+| When | a file is created there exclusively, or a directory is made there |
+| Then | each is refused as already existing |
+
+## `FS-053` A link a Layer holds hides what the Layers below hold there
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-008` |
+| relates | `FS-049` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose upper Directory Layer holds a link to nothing where a lower Layer holds a file |
+| When | the path is opened to read through the Overlay |
+| Then | it is not found |
