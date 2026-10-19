@@ -24,6 +24,7 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 
 - `test/e2e/test_mount.rb`
 - `test/e2e/test_mount_limit.rb`
+- `test/e2e/test_mount_rename.rb`
 - `crates/kobako/tests/mount.rs`
 
 ## `MT-001` A mounted Filesystem is reachable from the guest
@@ -227,3 +228,16 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 | Given | a Sandbox mounting a Memory or a Temporary given a count of inodes |
 | When | the script creates empty files past that count |
 | Then | the script raises `Errno::ENOSPC` |
+
+## `MT-018` A directory beneath a mount with a block does not move
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-007` |
+| relates | `RT-094` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose mount's block refuses one file inside a directory |
+| When | the script renames that directory and reads the file beneath the new name |
+| Then | the rename raises `Errno::EXDEV`, and the file is not there |

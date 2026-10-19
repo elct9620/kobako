@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::{Kind, OpenOptions};
+use kobako_runtime::filesystem::{Kind, OpenOptions, Rename};
 use kobako_runtime::mount::Access;
 
 use super::args::{self, FDFLAGS_APPEND, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE};
@@ -234,7 +234,8 @@ pub(crate) fn remove_directory(
 }
 
 /// A rename stays within one Mount; across two it is `XDEV`, as
-/// across two mounted devices.
+/// across two mounted devices. A directory moves only beneath a Mount
+/// that allows it, the Filesystem checking what it moves as it moves it.
 pub(crate) fn rename(
     table: &Descriptors,
     mem: &GuestMemory,
@@ -250,8 +251,9 @@ pub(crate) fn rename(
     // A trailing `/` on either side asks that the source be a directory,
     // which `rename(2)` checks before it finds a rename onto its own path
     // leaves everything as it was.
+    let names_directory = from.names_directory || to.names_directory;
     let from = Resolved {
-        names_directory: from.names_directory || to.names_directory,
+        names_directory,
         ..from
     }
     .directory_checked(from_dir.mount.filesystem().as_ref())?;
@@ -264,7 +266,12 @@ pub(crate) fn rename(
     }
     from_dir.mount.check(&from, Access::ReadWrite)?;
     to_dir.mount.check(&to, Access::ReadWrite)?;
-    Ok(from_dir.mount.filesystem().rename(&from, &to)?)
+    let rename = match (from_dir.mount.moves_directories(), names_directory) {
+        (false, _) => Rename::File,
+        (true, true) => Rename::Directory,
+        (true, false) => Rename::Any,
+    };
+    Ok(from_dir.mount.filesystem().rename(&from, &to, rename)?)
 }
 
 /// A Filesystem holds no links to make.

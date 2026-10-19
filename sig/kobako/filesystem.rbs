@@ -15,7 +15,7 @@ module Kobako
       def mkdir: (String path) -> void
       def rmdir: (String path) -> void
       def unlink: (String path) -> void
-      def rename: (String from, String to) -> void
+      def rename: (String from, String to, directory: bool?) -> void
     end
 
     # A file a Filesystem written in Ruby opened; +::File+ answers it.

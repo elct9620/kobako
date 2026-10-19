@@ -131,3 +131,15 @@ The Host App gets no exception of its own back. A failure belongs to the guest, 
 | Given | a Sandbox mounting a Ruby Filesystem that only the mount refers to |
 | When | the host compacts its heap between two reads of a file there |
 | Then | the second read answers as the first did |
+
+## `RF-010` A Ruby Filesystem's rename is told what may move
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-018` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem answering `rename`, mounted with a block and without one |
+| When | the script renames a file beneath each mount |
+| Then | `rename` is told `directory: false` beneath the block and `directory: nil` elsewhere |

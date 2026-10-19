@@ -11,7 +11,7 @@ use std::path::Path;
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
-use super::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions};
+use super::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename};
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
@@ -131,7 +131,13 @@ impl Filesystem for Directory {
         self.dir.remove_file(host(path)?).map_err(error)
     }
 
-    fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError> {
+    /// A host directory takes no lock a Filesystem could check the source
+    /// under, so another process of the host's changing it in between is
+    /// the host's to rule out.
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+        if from != to {
+            rename.allows(self.metadata(from)?.kind)?;
+        }
         self.dir
             .rename(host(from)?, &self.dir, host(to)?)
             .map_err(error)

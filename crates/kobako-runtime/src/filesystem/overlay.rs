@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use super::path::{ancestors, is_beneath, parent};
-use super::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions};
+use super::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename};
 use crate::mount::Access;
 
 /// The prefix of a whiteout, and of every name reserved for a marker.
@@ -378,12 +378,13 @@ impl Filesystem for Overlay {
     /// A directory moves only when the topmost writable Layer alone holds
     /// it, since moving it out of another would mean copying up everything
     /// beneath it.
-    fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError> {
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
         reserved(to)?;
         let moving = self.metadata(from)?;
         if from == to {
             return Ok(());
         }
+        rename.allows(moving.kind)?;
         if is_beneath(to, from) {
             return Err(FilesystemError::InvalidInput);
         }
@@ -399,7 +400,7 @@ impl Filesystem for Overlay {
         }
         self.copy_up_directories(to, upper)?;
         self.unhide(to, upper)?;
-        self.layers[upper].filesystem.rename(from, to)?;
+        self.layers[upper].filesystem.rename(from, to, rename)?;
         self.withdraw(from, |filesystem, path| filesystem.remove_file(path))
     }
 
@@ -708,7 +709,7 @@ mod tests {
         let upper = Arc::new(Memory::new());
         let (overlay, lower) = layered(upper.clone());
         overlay
-            .rename("dir/file", "dir/moved")
+            .rename("dir/file", "dir/moved", Rename::Any)
             .expect("the file must move");
         assert_eq!(
             (

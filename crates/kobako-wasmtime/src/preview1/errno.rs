@@ -59,6 +59,7 @@ impl From<FilesystemError> for Failure {
             FilesystemError::InvalidInput => Errno::Inval,
             FilesystemError::Unsupported => Errno::Notsup,
             FilesystemError::NoSpace => Errno::Nospc,
+            FilesystemError::CrossesDevices => Errno::Xdev,
             _ => Errno::Io,
         })
     }

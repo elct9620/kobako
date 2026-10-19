@@ -231,9 +231,9 @@ Any object answering `open` and `stat` mounts as a Filesystem, directly or as a 
 | `open(path, flags)` | a file answering `pread`, `pwrite`, `size`, `truncate`, `fsync`, `close` |
 | `stat(path)` | an object answering `directory?` and `size` |
 | `children(path)` | entry names, as `Dir.children` gives them |
-| `mkdir` · `rmdir` · `unlink` · `rename` | optional; without one, that change raises `Errno::EROFS` |
+| `mkdir` · `rmdir` · `unlink` · `rename(from, to, directory:)` | optional; without one, that change raises `Errno::EROFS` |
 
-A path is relative to the mount, the empty path being its root, and `flags` are `File::Constants`. An `Errno` the object raises reaches the script as that `Errno`, and anything else as `Errno::EIO`. Every call re-enters Ruby, and its time counts toward `timeout:` without being interrupted.
+A path is relative to the mount, the empty path being its root, and `flags` are `File::Constants`. A `rename` told `directory: false` moves only a file and `true` only a directory; `nil` moves either. An `Errno` the object raises reaches the script as that `Errno`, and anything else as `Errno::EIO`. Every call re-enters Ruby, and its time counts toward `timeout:` without being interrupted.
 
 ### Output Capture
 

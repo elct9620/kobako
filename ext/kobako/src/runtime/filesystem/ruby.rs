@@ -8,10 +8,10 @@
 //! as that code, and anything else it raises reaches the guest as `EIO`.
 
 use magnus::value::{Opaque, ReprValue};
-use magnus::{prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, Value};
+use magnus::{kwargs, prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, Value};
 
 use kobako_runtime::filesystem::{
-    DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions,
+    DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename,
 };
 
 use crate::runtime::gvl;
@@ -68,7 +68,7 @@ fn change(
 /// The FilesystemError an `Errno` stands for; anything else is `Other`,
 /// which reaches the guest as `EIO`.
 fn error_of(ruby: &Ruby, err: MagnusError) -> FilesystemError {
-    const CODES: [(&str, FilesystemError); 12] = [
+    const CODES: [(&str, FilesystemError); 13] = [
         ("ENOENT", FilesystemError::NotFound),
         ("EEXIST", FilesystemError::AlreadyExists),
         ("ENOTDIR", FilesystemError::NotADirectory),
@@ -81,6 +81,7 @@ fn error_of(ruby: &Ruby, err: MagnusError) -> FilesystemError {
         ("ENOTSUP", FilesystemError::Unsupported),
         ("EOPNOTSUPP", FilesystemError::Unsupported),
         ("ENOSPC", FilesystemError::NoSpace),
+        ("EXDEV", FilesystemError::CrossesDevices),
     ];
     let errno = ruby.class_object().const_get::<_, RModule>("Errno").ok();
     for (name, error) in CODES {
@@ -187,8 +188,21 @@ impl Filesystem for RubyFilesystem {
         change(self.object, "unlink", (path,), FilesystemError::ReadOnly)
     }
 
-    fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError> {
-        change(self.object, "rename", (from, to), FilesystemError::ReadOnly)
+    /// `rename(from, to, directory:)`: `true` moves only a directory,
+    /// `false` only a file, `nil` either. What stands at `from` meanwhile
+    /// is the object's to keep still.
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+        let directory = match rename {
+            Rename::File => Some(false),
+            Rename::Directory => Some(true),
+            _ => None,
+        };
+        change(
+            self.object,
+            "rename",
+            (from, to, kwargs!("directory" => directory)),
+            FilesystemError::ReadOnly,
+        )
     }
 }
 

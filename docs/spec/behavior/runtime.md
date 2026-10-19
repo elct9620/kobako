@@ -900,3 +900,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a read-write Mount holding `file.txt` |
 | When | the guest renames `file.txt` onto `file.txt/` |
 | Then | the rename answers that `file.txt` is not a directory |
+
+## `RT-094` A directory beneath a Mount with a Policy does not move
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-080` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount with a Policy, whose file becomes a directory as it moves |
+| When | the guest renames that file |
+| Then | the rename answers that it crosses devices, and nothing moves |

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
-    DirEntry, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Temporary,
+    DirEntry, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Rename, Temporary,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
@@ -27,6 +27,7 @@ const ERRNO_ISDIR: i32 = 31;
 const ERRNO_NOENT: i32 = 44;
 const ERRNO_NOTDIR: i32 = 54;
 const ERRNO_ROFS: i32 = 69;
+const ERRNO_XDEV: i32 = 75;
 const ERRNO_NOTCAPABLE: i32 = 76;
 
 /// Memory holds an `iovec` at 64 over 512..576, a `ciovec` at 80 over
@@ -49,6 +50,7 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 780) "file.txt/..")
   (data (i32.const 800) "file.txt/")
   (data (i32.const 820) "new.txt/")
+  (data (i32.const 840) "new.txt")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
   (data (i32.const 600) "hello")
@@ -94,6 +96,9 @@ const PROBE_WAT: &str = r#"
     (call $rename (i32.const 3) (i32.const 740) (i32.const 1) (i32.const 3) (i32.const 700) (i32.const 8)))
   (func (export "rename_onto_root") (result i32)
     (call $rename (i32.const 3) (i32.const 700) (i32.const 8) (i32.const 3) (i32.const 740) (i32.const 1)))
+  ;; Rename `file.txt` to `new.txt`.
+  (func (export "rename_to_new") (result i32)
+    (call $rename (i32.const 3) (i32.const 700) (i32.const 8) (i32.const 3) (i32.const 840) (i32.const 7)))
   ;; Rename `file.txt` onto `file.txt/`, its own path as a directory.
   (func (export "rename_onto_itself_as_directory") (result i32)
     (call $rename (i32.const 3) (i32.const 700) (i32.const 8) (i32.const 3) (i32.const 800) (i32.const 9)))
@@ -398,10 +403,81 @@ impl Filesystem for Counted {
         self.memory.remove_file(path)
     }
 
-    fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError> {
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
         self.change();
-        self.memory.rename(from, to)
+        self.memory.rename(from, to, rename)
     }
+}
+
+/// A Memory holding `file.txt` that, as a rename reaches it, replaces the
+/// file with a directory holding `secret`, as another invocation sharing
+/// the Memory could between the runtime's checks and the move.
+struct SwappedForADirectory(Memory);
+
+impl SwappedForADirectory {
+    fn new() -> Arc<Self> {
+        Arc::new(Self([("file.txt", "granted")].into_iter().collect()))
+    }
+}
+
+impl Filesystem for SwappedForADirectory {
+    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+        self.0.open(path, options)
+    }
+
+    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.0.metadata(path)
+    }
+
+    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.0.read_dir(path)
+    }
+
+    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.create_dir(path)
+    }
+
+    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.remove_dir(path)
+    }
+
+    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.remove_file(path)
+    }
+
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+        self.0.remove_file(from)?;
+        self.0.create_dir(from)?;
+        drop(self.0.open(
+            &format!("{from}/secret"),
+            &OpenOptions {
+                write: true,
+                create: true,
+                ..OpenOptions::default()
+            },
+        )?);
+        self.0.rename(from, to, rename)
+    }
+}
+
+// The Policy allows everything, so only the rename's own refusal of a
+// directory, checked as the Filesystem moves it, keeps `secret` from
+// taking a path the Policy never judged.
+// @behavior RT-094
+#[test]
+fn a_directory_beneath_a_mount_with_a_policy_does_not_move() {
+    let swapped = SwappedForADirectory::new();
+    let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
+    let mut guest = Guest::new(&[grant(swapped.clone(), Access::ReadWrite, Some(policy))]);
+    assert_eq!(
+        (
+            guest.call_bare("rename_to_new"),
+            swapped.metadata("new.txt/secret")
+        ),
+        (ERRNO_XDEV, Err(FilesystemError::NotFound)),
+        "path_rename of what is a directory by the time it moves, beneath a Mount with a \
+         Policy, through preview1 must answer EXDEV and move nothing"
+    );
 }
 
 /// What each root-changing export answers, and how many changes the

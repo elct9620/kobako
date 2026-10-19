@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use super::memory::Memory;
-use super::{DirEntry, File, Filesystem, FilesystemError, Metadata, OpenOptions};
+use super::{DirEntry, File, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
 
 /// Files and directories held in memory for one Invocation. The next one
 /// is handed a new, empty Temporary in its place, so nothing one writes
@@ -62,8 +62,8 @@ impl Filesystem for Temporary {
         self.memory.remove_file(path)
     }
 
-    fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError> {
-        self.memory.rename(from, to)
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+        self.memory.rename(from, to, rename)
     }
 
     fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::path::{is_beneath, parent, seeded};
-use super::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions};
+use super::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename};
 
 /// Files and directories held in memory. Every Invocation it is handed to
 /// shares it, so what one writes the next reads. What its files hold
@@ -23,6 +23,15 @@ pub struct Memory {
 enum Node {
     File(Arc<Mutex<Content>>),
     Directory,
+}
+
+impl Node {
+    fn kind(&self) -> Kind {
+        match self {
+            Self::File(_) => Kind::File,
+            Self::Directory => Kind::Directory,
+        }
+    }
 }
 
 /// What a Memory holds: the bytes of its files, and its entries, each
@@ -303,10 +312,7 @@ impl Filesystem for Memory {
             .filter(|(key, _)| !key.is_empty() && parent(key) == path)
             .map(|(key, node)| DirEntry {
                 name: key.rsplit('/').next().unwrap_or(key).to_string(),
-                kind: match node {
-                    Node::File(_) => Kind::File,
-                    Node::Directory => Kind::Directory,
-                },
+                kind: node.kind(),
             })
             .collect())
     }
@@ -350,7 +356,7 @@ impl Filesystem for Memory {
         }
     }
 
-    fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError> {
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
         let mut nodes = self.nodes();
         let moving = match nodes.get(from) {
             Some(node) => node.clone(),
@@ -359,6 +365,7 @@ impl Filesystem for Memory {
         if from == to {
             return Ok(());
         }
+        rename.allows(moving.kind())?;
         if is_beneath(to, from) {
             return Err(FilesystemError::InvalidInput);
         }
@@ -515,7 +522,7 @@ mod tests {
     fn a_renamed_directory_carries_its_entries() {
         let memory: Memory = [("old/inner/file", "x")].into_iter().collect();
         memory
-            .rename("old", "new")
+            .rename("old", "new", Rename::Any)
             .expect("the rename must succeed");
         assert_eq!(read_all(&memory, "new/inner/file"), b"x");
         assert_eq!(memory.metadata("old"), Err(FilesystemError::NotFound));
@@ -674,6 +681,28 @@ mod tests {
         );
     }
 
+    // @behavior FS-035
+    #[test]
+    fn a_memory_moves_only_what_a_rename_allows() {
+        let memory: Memory = [("dir/inner", "x"), ("file", "y")].into_iter().collect();
+        assert_eq!(
+            (
+                memory.rename("dir", "moved", Rename::File),
+                memory.rename("file", "moved", Rename::Directory),
+                memory.metadata("dir/inner").map(|m| m.kind),
+                memory.metadata("file").map(|m| m.kind),
+            ),
+            (
+                Err(FilesystemError::CrossesDevices),
+                Err(FilesystemError::NotADirectory),
+                Ok(Kind::File),
+                Ok(Kind::File)
+            ),
+            "Memory::rename must refuse a directory a file-only rename names as crossing \
+             devices, and a file a directory-only rename names as no directory, moving neither"
+        );
+    }
+
     // A directory replaced by a rename gives its inode back as a removed
     // one does, so both leave room for the next.
     // @behavior FS-034
@@ -689,7 +718,7 @@ mod tests {
         memory.remove_dir("a").expect("the directory must remove");
         let after_removal = memory.create_dir("c");
         memory
-            .rename("c", "b")
+            .rename("c", "b", Rename::Any)
             .expect("a directory must replace an empty one");
         assert_eq!(
             (after_removal, memory.create_dir("d")),

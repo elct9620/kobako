@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
-    DirEntry, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions,
+    DirEntry, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Rename,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount};
@@ -319,8 +319,8 @@ where
         self.memory.remove_file(path)
     }
 
-    fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError> {
-        self.memory.rename(from, to)
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+        self.memory.rename(from, to, rename)
     }
 }
 

@@ -93,6 +93,14 @@ impl Mount {
         }
     }
 
+    /// Whether a directory may move beneath this Mount. Under a Policy it
+    /// may not: everything beneath it would take paths the Policy never
+    /// judged, so a move is refused as one across devices and the guest
+    /// copies entry by entry instead, as Landlock refuses such a move.
+    pub fn moves_directories(&self) -> bool {
+        self.policy.is_none()
+    }
+
     /// This Mount as a new Invocation starts from it, over the Filesystem
     /// that Invocation receives.
     pub fn for_invocation(&self) -> Self {

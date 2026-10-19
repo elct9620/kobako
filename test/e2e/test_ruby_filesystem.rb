@@ -128,6 +128,28 @@ class TestE2ERubyFilesystem < Minitest::Test
     GC.stress = false
   end
 
+  # What +directory:+ a Ruby Filesystem's +rename+ is told as the script
+  # renames a file beneath a mount with +block+, or without one.
+  def directory_told_on_rename(&block)
+    told = []
+    filesystem = HashFilesystem.new("a" => "x")
+    filesystem.define_singleton_method(:rename) do |from, to, directory:|
+      told << directory
+      files[to] = files.delete(from)
+    end
+    Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", filesystem, access: :read_write, &block)
+                   .eval('File.rename("/data/a", "/data/b")')
+    told
+  end
+
+  # Only a mount with a block asks that what moves be a file.
+  # @behavior RF-010
+  def test_a_ruby_filesystems_rename_is_told_what_may_move
+    assert_equal [[nil], [false]], [directory_told_on_rename, directory_told_on_rename { true }],
+                 "a Ruby Filesystem's rename through File.rename must be told directory: false beneath a " \
+                 "Sandbox#mount with a block, and directory: nil without one"
+  end
+
   def overlay_of_a_ruby_filesystem
     Kobako::Filesystem::Overlay.new.layer(HashFilesystem.new("note.txt" => "hello"))
   end

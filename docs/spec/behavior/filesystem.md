@@ -436,3 +436,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh.
 | Given | a Memory whose inodes are all taken, some by directories |
 | When | a directory is removed, or replaced by renaming another onto it |
 | Then | a directory created afterwards lands |
+
+## `FS-035` A Memory moves only what a rename allows
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-094` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory holding a directory and a file |
+| When | the directory is renamed as a file only, and the file as a directory only |
+| Then | each is refused, as crossing devices and as no directory, and neither moves |

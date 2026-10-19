@@ -249,6 +249,16 @@ impl Mount {
 }
 ```
 
+## `Mount::moves_directories`
+
+Whether a directory may move beneath the Mount; not under a Policy.
+
+```rust
+impl Mount {
+    pub fn moves_directories(&self) -> bool {}
+}
+```
+
 ## `Mount::for_invocation`
 
 The Mount as a new invocation starts from it, over that invocation's Filesystem.
@@ -366,11 +376,12 @@ pub trait Filesystem {
 
 ## `Filesystem::rename`
 
-Move a file or directory to another path.
+Move a file or directory to another path, refusing what the given Rename does
+not allow. What stands at the source is checked as it moves.
 
 ```rust
 pub trait Filesystem {
-    fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError>;
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError>;
 }
 ```
 
@@ -461,6 +472,25 @@ How a file is opened: for reading, writing, creating, or truncating.
 
 ```rust
 pub struct OpenOptions {}
+```
+
+## `Rename`
+
+What a rename may move: whatever stands at the source, only a file, or only
+a directory.
+
+```rust
+pub enum Rename {}
+```
+
+## `Rename::allows`
+
+Whether an entry of the given kind may move, or the refusal of it.
+
+```rust
+impl Rename {
+    pub fn allows(self, kind: Kind) -> Result<(), FilesystemError> {}
+}
 ```
 
 ## `Kind`

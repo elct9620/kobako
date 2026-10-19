@@ -42,7 +42,11 @@ pub trait Filesystem: Send + Sync {
 
     fn remove_file(&self, path: &str) -> Result<(), FilesystemError>;
 
-    fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError>;
+    /// Move the entry at `from` to `to`, refusing one `rename` does not
+    /// allow; a move onto its own path changes nothing and is allowed.
+    /// The Filesystem checks what stands at `from` as it moves it, under
+    /// the same lock, so nothing replaces it in between.
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError>;
 
     /// The Filesystem a new Invocation starts from in this one's place, or
     /// `None` when every Invocation shares this one. The default shares.
@@ -91,6 +95,33 @@ pub struct OpenOptions {
     pub truncate: bool,
 }
 
+/// What `Filesystem::rename` may move, as `renameat2` flags ask more of
+/// a rename than its two paths.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Rename {
+    /// Whatever stands at the source.
+    #[default]
+    Any,
+    /// Only a file. A directory is refused as `CrossesDevices`, so a
+    /// caller copies what is beneath it one entry at a time instead.
+    File,
+    /// Only a directory, as a trailing `/` asks. A file is refused as
+    /// `NotADirectory`.
+    Directory,
+}
+
+impl Rename {
+    /// Whether `kind` may move, or the refusal of it.
+    pub fn allows(self, kind: Kind) -> Result<(), FilesystemError> {
+        match (self, kind) {
+            (Self::File, Kind::Directory) => Err(FilesystemError::CrossesDevices),
+            (Self::Directory, Kind::File) => Err(FilesystemError::NotADirectory),
+            _ => Ok(()),
+        }
+    }
+}
+
 /// What a path names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -128,6 +159,8 @@ pub enum FilesystemError {
     Unsupported,
     /// A change past what the Filesystem can hold.
     NoSpace,
+    /// A move that cannot happen in one step, as between two devices.
+    CrossesDevices,
     /// Any other failure, with what the Filesystem knows of it.
     Other(String),
 }
