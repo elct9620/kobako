@@ -119,7 +119,7 @@ impl Content {
     fn resize(&mut self, len: usize) -> Result<(), FilesystemError> {
         let growth = len.saturating_sub(self.bytes.len());
         self.space.bytes.take(growth)?;
-        if self.bytes.try_reserve(growth).is_err() {
+        if self.bytes.try_reserve_exact(growth).is_err() {
             self.space.bytes.give(growth);
             return Err(FilesystemError::NoSpace);
         }
