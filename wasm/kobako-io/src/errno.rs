@@ -51,6 +51,11 @@ const CODES: &[Code] = &[
         message: "Too many open files",
     },
     Code {
+        name: c"ENAMETOOLONG",
+        wasi: 37,
+        message: "File name too long",
+    },
+    Code {
         name: c"ENOENT",
         wasi: 44,
         message: "No such file or directory",
