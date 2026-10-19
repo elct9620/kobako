@@ -11,9 +11,8 @@ use std::sync::Arc;
 
 use super::super::path::{ancestors, is_beneath, parent};
 use super::super::{
-    DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename,
+    Access, DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename,
 };
-use crate::mount::Access;
 
 /// The prefix of a whiteout, and of every name reserved for a marker.
 const WHITEOUT: &str = ".wh.";

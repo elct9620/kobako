@@ -28,11 +28,11 @@ pub mod yielder;
 pub use dispatch::DispatchHandler;
 pub use error::{InvokeError, SetupError, Trap};
 pub use filesystem::{
-    Blocking, DirEntry, Directory, File, Filesystem, FilesystemError, Kind, Memory, Metadata,
-    OpenOptions, Overlay, Rename, Temporary,
+    Access, Blocking, DirEntry, Directory, File, Filesystem, FilesystemError, Kind, Memory,
+    Metadata, OpenOptions, Overlay, Rename, Temporary,
 };
 pub use grant::{Grant, GrantKind};
-pub use mount::{Access, Denial, InvalidMountPath, Mount, Policy};
+pub use mount::{Denial, InvalidMountPath, Mount, Policy};
 pub use profile::Profile;
 pub use runtime::{Entry, Runtime};
 pub use snapshot::{Capture, Completion, Snapshot, Usage};

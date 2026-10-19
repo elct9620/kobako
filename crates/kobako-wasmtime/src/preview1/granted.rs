@@ -5,11 +5,12 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
     DirEntry, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Rename, Temporary,
 };
 use kobako_runtime::grant::Grant;
-use kobako_runtime::mount::{Access, Mount, Policy};
+use kobako_runtime::mount::{Mount, Policy};
 use kobako_runtime::profile::Profile;
 use wasmtime::{Instance, Module, Store};
 

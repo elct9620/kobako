@@ -16,8 +16,7 @@ use std::sync::Arc;
 
 pub use exclusive::Blocking;
 
-use super::{DirEntry, File, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
-use crate::mount::Access;
+use super::{Access, DirEntry, File, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
 use exclusive::{Exclusive, Inline};
 use stack::Stack;
 

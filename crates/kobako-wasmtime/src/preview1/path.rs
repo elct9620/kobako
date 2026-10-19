@@ -5,8 +5,7 @@
 
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::{Kind, OpenOptions, Rename};
-use kobako_runtime::mount::Access;
+use kobako_runtime::filesystem::{Access, Kind, OpenOptions, Rename};
 
 use super::args::{self, FDFLAGS_APPEND, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE};
 use super::beneath::{resolve, Resolved};

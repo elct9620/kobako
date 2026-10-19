@@ -31,9 +31,10 @@ use crate::handles::HandleTable;
 use crate::payload::RunPayload;
 use crate::receiver::Receiver;
 use crate::snippet;
+use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::grant::GrantKind;
-use kobako_runtime::mount::{Access, Mount, Policy};
+use kobako_runtime::mount::{Mount, Policy};
 
 /// Per-Sandbox caps and posture, the counterpart of the Ruby
 /// `SandboxOptions` value object. `None` means "no cap".

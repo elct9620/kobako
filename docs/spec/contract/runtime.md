@@ -183,16 +183,6 @@ decides its own access.
 pub enum Grant {}
 ```
 
-## `Grant::kind`
-
-Which kind of Grant this is, as `Runtime::supports` names it.
-
-```rust
-impl Grant {
-    pub fn kind(&self) -> GrantKind {}
-}
-```
-
 ## `GrantKind`
 
 The kinds of Grant an engine may support.

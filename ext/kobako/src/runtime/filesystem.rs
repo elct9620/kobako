@@ -22,9 +22,11 @@ use ruby::RubyFilesystem;
 
 use super::pinned::Pinned;
 
-use kobako_runtime::filesystem::{Blocking, Directory, Filesystem, Memory, Overlay, Temporary};
+use kobako_runtime::filesystem::{
+    Access, Blocking, Directory, Filesystem, Memory, Overlay, Temporary,
+};
 use kobako_runtime::grant::Grant;
-use kobako_runtime::mount::{Access, Mount, Policy};
+use kobako_runtime::mount::{Mount, Policy};
 
 macro_rules! filesystem_class {
     ($name:ident, $class:literal) => {

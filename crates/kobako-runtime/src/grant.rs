@@ -12,14 +12,6 @@ pub enum Grant {
     Mount(Mount),
 }
 
-impl Grant {
-    pub fn kind(&self) -> GrantKind {
-        match self {
-            Self::Mount(_) => GrantKind::Mount,
-        }
-    }
-}
-
 /// The kinds of Grant a runtime may support.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]

@@ -6,15 +6,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::filesystem::Filesystem;
-
-/// What the guest may do beneath a Mount, or an Overlay in one of its
-/// Layers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Access {
-    Read,
-    ReadWrite,
-}
+use crate::filesystem::{Access, Filesystem};
 
 /// The Host App's decision for one path a guest opens or changes, made in
 /// a Mount's access's place.

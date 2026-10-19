@@ -22,6 +22,14 @@ pub use memory::Memory;
 pub use overlay::{Blocking, Overlay};
 pub use temporary::Temporary;
 
+/// What the guest may do beneath a Mount, or an Overlay in one of its
+/// Layers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Access {
+    Read,
+    ReadWrite,
+}
+
 /// The files and directories behind a Mount. One may wrap
 /// another and answer by delegating, so it sees every call on the way
 /// through.
