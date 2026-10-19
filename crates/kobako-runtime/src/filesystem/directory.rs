@@ -29,14 +29,14 @@ impl Directory {
     }
 }
 
-/// The root of a Filesystem is the empty path; the directory itself to
-/// `cap_std` is `.`.
-fn host(path: &str) -> &str {
-    if path.is_empty() {
-        "."
-    } else {
-        path
+/// `path` as `cap_std` takes it, the root being `.`. Windows reads `\` as
+/// a separator too, so there a name holding one is refused rather than
+/// reached as names a Mount's Policy never saw.
+fn host(path: &str) -> Result<&str, FilesystemError> {
+    if cfg!(windows) && path.contains('\\') {
+        return Err(FilesystemError::InvalidInput);
     }
+    Ok(if path.is_empty() { "." } else { path })
 }
 
 fn error(err: io::Error) -> FilesystemError {
@@ -75,7 +75,7 @@ impl Filesystem for Directory {
             .create(options.create)
             .create_new(options.create_new)
             .truncate(options.truncate);
-        let file = self.dir.open_with(host(path), &open).map_err(error)?;
+        let file = self.dir.open_with(host(path)?, &open).map_err(error)?;
         if file.metadata().map_err(error)?.is_dir() {
             return Err(FilesystemError::IsADirectory);
         }
@@ -85,7 +85,7 @@ impl Filesystem for Directory {
     }
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        let metadata = self.dir.metadata(host(path)).map_err(error)?;
+        let metadata = self.dir.metadata(host(path)?).map_err(error)?;
         Ok(Metadata {
             kind: kind(metadata.is_dir()),
             len: if metadata.is_dir() { 0 } else { metadata.len() },
@@ -94,7 +94,7 @@ impl Filesystem for Directory {
 
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
         self.dir
-            .read_dir(host(path))
+            .read_dir(host(path)?)
             .map_err(error)?
             .map(|entry| {
                 let entry = entry.map_err(error)?;
@@ -111,11 +111,11 @@ impl Filesystem for Directory {
     }
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.dir.create_dir(host(path)).map_err(error)
+        self.dir.create_dir(host(path)?).map_err(error)
     }
 
     fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.dir.remove_dir(host(path)).map_err(error)
+        self.dir.remove_dir(host(path)?).map_err(error)
     }
 
     /// A directory is refused as one on every host, where the host itself
@@ -123,17 +123,17 @@ impl Filesystem for Directory {
     fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
         if self
             .dir
-            .symlink_metadata(host(path))
+            .symlink_metadata(host(path)?)
             .is_ok_and(|m| m.is_dir())
         {
             return Err(FilesystemError::IsADirectory);
         }
-        self.dir.remove_file(host(path)).map_err(error)
+        self.dir.remove_file(host(path)?).map_err(error)
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), FilesystemError> {
         self.dir
-            .rename(host(from), &self.dir, host(to))
+            .rename(host(from)?, &self.dir, host(to)?)
             .map_err(error)
     }
 }
@@ -252,6 +252,26 @@ mod tests {
             fs::read(host.0.join("out.txt")).expect("the host file must exist"),
             b"written",
             "a file created through a Directory's open must land in the host directory"
+        );
+    }
+
+    // The host file exists beneath `d`, so only the refusal can keep the
+    // open from reaching it.
+    // @behavior FS-029
+    #[cfg(windows)]
+    #[test]
+    fn a_directory_on_windows_refuses_a_name_holding_a_backslash() {
+        let host = HostDir::new("backslash");
+        fs::create_dir_all(host.0.join("d")).expect("the host directory must be created");
+        fs::write(host.0.join("d").join("f"), "x").expect("the host file must be written");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        assert!(
+            matches!(
+                directory.open(r"d\f", &OpenOptions::default()),
+                Err(FilesystemError::InvalidInput)
+            ),
+            "a path holding a backslash opened through a Directory on Windows must be refused as \
+             invalid input"
         );
     }
 

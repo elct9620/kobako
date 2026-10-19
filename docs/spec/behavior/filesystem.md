@@ -364,3 +364,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh.
 | Given | a Directory whose host directory holds a directory |
 | When | that directory is removed as a file |
 | Then | the removal answers that it is a directory, on every host |
+
+## `FS-029` A Directory on Windows refuses a name holding a backslash
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-007`, `RT-080` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory on a Windows host |
+| When | a path holding a backslash is opened there |
+| Then | the open is refused as invalid, and the host is not asked |
