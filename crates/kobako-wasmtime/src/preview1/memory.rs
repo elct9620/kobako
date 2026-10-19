@@ -2,6 +2,7 @@
 //! fields at guest addresses. An address outside the memory, or one not
 //! aligned for what it points at, traps, as preview1 requires.
 
+use std::cell::Cell;
 use std::ops::Range;
 
 use super::beneath::PATH_MAX;
@@ -15,13 +16,31 @@ fn out_of_bounds() -> Failure {
     trap("pointer out of bounds of guest memory")
 }
 
+/// The most of the guest's memory one call may have the host copy or
+/// walk, as wasmtime's default hostcall fuel bounds a preview1 call; past
+/// it the call answers NOMEM.
+const HOSTCALL_FUEL: u64 = 128 << 20;
+
 pub(crate) struct GuestMemory<'a> {
     bytes: &'a mut [u8],
+    fuel: Cell<u64>,
 }
 
 impl<'a> GuestMemory<'a> {
     pub(crate) fn new(bytes: &'a mut [u8]) -> Self {
-        Self { bytes }
+        Self {
+            bytes,
+            fuel: Cell::new(HOSTCALL_FUEL),
+        }
+    }
+
+    /// Spend `count` elements of `size` bytes of this call's fuel, as
+    /// wasmtime-wasi spends it before it copies an array.
+    pub(crate) fn consume(&self, count: u32, size: u32) -> Answer {
+        let cost = u64::from(count) * u64::from(size);
+        let left = self.fuel.get().checked_sub(cost).ok_or(Errno::Nomem)?;
+        self.fuel.set(left);
+        Ok(())
     }
 
     fn range(&self, ptr: u32, len: u32) -> Answer<Range<usize>> {
@@ -121,6 +140,7 @@ impl<'a> GuestMemory<'a> {
         if bytes.len() >= PATH_MAX {
             return Err(Errno::Nametoolong.into());
         }
+        self.consume(len, 1)?;
         String::from_utf8(bytes.to_vec()).map_err(|_| Errno::Ilseq.into())
     }
 
@@ -128,11 +148,13 @@ impl<'a> GuestMemory<'a> {
     /// `(ptr, len)`, or an empty one when every buffer is empty. Like
     /// wasmtime-wasi, kobako moves one buffer per call.
     pub(crate) fn first_non_empty_buffer(&self, array: u32, count: u32) -> Answer<(u32, u32)> {
+        self.consume(count, 8)?;
         for index in 0..count {
             let entry = Self::element(array, index, 8)?;
             let ptr = self.read_u32(entry)?;
             let len = self.read_u32(Self::field(entry, 4)?)?;
             if len != 0 {
+                self.consume(len, 1)?;
                 self.range(ptr, len)?;
                 return Ok((ptr, len));
             }
@@ -144,6 +166,30 @@ impl<'a> GuestMemory<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Neither the array nor the buffer exists in this small memory, so the
+    // budget alone, spent before anything is read, refuses each.
+    // @behavior RT-096
+    #[test]
+    fn a_call_past_its_hostcall_fuel_answers_nomem() {
+        let mut array_bytes = [0u8; 64];
+        let mut buffer_bytes = [0u8; 64];
+        buffer_bytes[4..8].copy_from_slice(&(128u32 << 20).wrapping_add(1).to_le_bytes());
+        assert!(
+            matches!(
+                (
+                    GuestMemory::new(&mut array_bytes).first_non_empty_buffer(0, (16 << 20) + 1),
+                    GuestMemory::new(&mut buffer_bytes).first_non_empty_buffer(0, 1),
+                ),
+                (
+                    Err(Failure::Errno(Errno::Nomem)),
+                    Err(Failure::Errno(Errno::Nomem))
+                )
+            ),
+            "an iovec array or a buffer past 128 MiB through one preview1 call must answer \
+             NOMEM before the host copies any of it"
+        );
+    }
 
     // A guest memory of the full 4 GiB lets a field's address pass the end
     // of the address space, which only the arithmetic itself can refuse.

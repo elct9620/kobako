@@ -48,6 +48,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-wasmtime/src/wasi.rs`
 - `crates/kobako-wasmtime/src/preview1/poll.rs`
 - `crates/kobako-wasmtime/src/preview1/granted.rs`
+- `crates/kobako-wasmtime/src/preview1/memory.rs`
 - `crates/kobako-wasmtime/tests/compile_posture.rs`
 - `crates/kobako-wasmtime/src/exports.rs`
 - `crates/kobako/tests/concurrency.rs`
@@ -924,3 +925,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file another writer appends to as the guest writes |
 | When | the guest writes to that file opened to append |
 | Then | the guest's bytes land after the other writer's |
+
+## `RT-096` A call past its hostcall fuel answers NOMEM
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-076` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation calling preview1 with an iovec array or a buffer past 128 MiB |
+| When | the host would copy it |
+| Then | the call answers NOMEM before anything is copied |

@@ -63,6 +63,8 @@ pub(crate) fn poll_oneoff(
         return Err(Errno::Inval.into());
     }
     let lone = count == 1;
+    mem.consume(count, SUBSCRIPTION_SIZE)?;
+    mem.consume(count, EVENT_SIZE)?;
     let subscriptions = (0..count)
         .map(|index| {
             let sub = GuestMemory::element(subs, index, SUBSCRIPTION_SIZE)?;

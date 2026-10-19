@@ -21,6 +21,7 @@ pub(crate) enum Errno {
     Mfile = 33,
     Nametoolong = 37,
     Noent = 44,
+    Nomem = 48,
     Nospc = 51,
     Notdir = 54,
     Notempty = 55,
