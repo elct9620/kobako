@@ -40,6 +40,14 @@ pub trait Filesystem: Send + Sync {
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError>;
 
+    /// What `path` names without following a link standing there, as
+    /// `lstat` answers. A link is reported as one and nothing of where it
+    /// points: no size, and no way to read it. The default, for a
+    /// Filesystem holding no links, is `metadata`.
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.metadata(path)
+    }
+
     /// The entries of the directory at `path`, without `.` or `..`.
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError>;
 
@@ -137,7 +145,9 @@ impl Rename {
     pub fn allows(self, kind: Kind) -> Result<(), FilesystemError> {
         match (self, kind) {
             (Self::File, Kind::Directory) => Err(FilesystemError::CrossesDevices),
-            (Self::Directory, Kind::File) => Err(FilesystemError::NotADirectory),
+            (Self::Directory, kind) if kind != Kind::Directory => {
+                Err(FilesystemError::NotADirectory)
+            }
             _ => Ok(()),
         }
     }
@@ -149,12 +159,14 @@ impl Rename {
 pub enum Kind {
     File,
     Directory,
+    /// A link, as only `symlink_metadata` and a listing report one.
+    Symlink,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Metadata {
     pub kind: Kind,
-    /// The length in bytes; zero for a directory.
+    /// The length in bytes; zero for a directory or a link.
     pub len: u64,
 }
 

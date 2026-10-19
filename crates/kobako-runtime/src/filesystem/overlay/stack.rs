@@ -19,6 +19,9 @@ const WHITEOUT: &str = ".wh.";
 /// The marker hiding every lower Layer's entries of its directory.
 const OPAQUE: &str = ".wh..wh..opq";
 
+/// How a Layer is asked what a path names: following a link there, or not.
+type Lookup = fn(&(dyn Filesystem + 'static), &str) -> Result<Metadata, FilesystemError>;
+
 #[derive(Clone)]
 struct Layer {
     filesystem: Arc<dyn Filesystem>,
@@ -31,7 +34,11 @@ impl Layer {
     }
 
     fn find(&self, path: &str) -> Result<Option<Metadata>, FilesystemError> {
-        match self.filesystem.metadata(path) {
+        self.find_by(path, <dyn Filesystem>::metadata)
+    }
+
+    fn find_by(&self, path: &str, lookup: Lookup) -> Result<Option<Metadata>, FilesystemError> {
+        match lookup(self.filesystem.as_ref(), path) {
             Ok(metadata) => Ok(Some(metadata)),
             Err(FilesystemError::NotFound) => Ok(None),
             Err(err) => Err(err),
@@ -131,8 +138,16 @@ impl Stack {
     /// The topmost Layer holding `path` and what it holds there, or `None`
     /// when no Layer shows it.
     fn locate(&self, path: &str) -> Result<Option<(usize, Metadata)>, FilesystemError> {
+        self.locate_by(path, <dyn Filesystem>::metadata)
+    }
+
+    fn locate_by(
+        &self,
+        path: &str,
+        lookup: Lookup,
+    ) -> Result<Option<(usize, Metadata)>, FilesystemError> {
         for (index, layer) in self.layers.iter().enumerate() {
-            if let Some(metadata) = layer.find(path)? {
+            if let Some(metadata) = layer.find_by(path, lookup)? {
                 return Ok(Some((index, metadata)));
             }
             if layer.hides(path) {
@@ -322,6 +337,15 @@ impl Stack {
     pub(super) fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         reserved(path)?;
         self.locate(path)?
+            .map(|(_, metadata)| metadata)
+            .ok_or(FilesystemError::NotFound)
+    }
+
+    /// What the Layer showing `path` holds there, a link it holds
+    /// reported as one even where it points at nothing.
+    pub(super) fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        reserved(path)?;
+        self.locate_by(path, <dyn Filesystem>::symlink_metadata)?
             .map(|(_, metadata)| metadata)
             .ok_or(FilesystemError::NotFound)
     }

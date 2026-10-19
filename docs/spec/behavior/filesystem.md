@@ -592,3 +592,27 @@ both live in the topmost writable layer, never show, and no name may claim .wh.
 | Given | a Directory whose host directory holds a link to a file beside it |
 | When | the link is opened asking to follow none, and then asking to follow it |
 | Then | the first open is refused as a link and the second reaches the file |
+
+## `FS-048` A Directory reports a link a lookup does not follow as a link
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-047` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory whose host directory holds a link to a file beside it |
+| When | the link is looked up following none, and its directory is listed |
+| Then | both report a link with no size, and a lookup that follows reports the file |
+
+## `FS-049` An Overlay reports a link its Layer holds as a link
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-048` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose read-only Layer is a Directory holding a link to a file and one to nothing |
+| When | each link is looked up through the Overlay, following none |
+| Then | each is reported as a link |

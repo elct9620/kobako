@@ -75,6 +75,11 @@ impl Filesystem for Overlay {
         self.stack.metadata(path)
     }
 
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        let _held = self.lock.hold()?;
+        self.stack.symlink_metadata(path)
+    }
+
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.lock.hold()?;
         self.stack.read_dir(path)
@@ -181,6 +186,35 @@ mod tests {
             .layer(upper, Access::ReadWrite)
             .layer(lower.clone(), Access::Read);
         (overlay, lower)
+    }
+
+    // The link points at a file in the same Layer, so only a lookup that
+    // reaches the Layer's own `symlink_metadata` can answer a link.
+    // @behavior FS-049
+    #[cfg(unix)]
+    #[test]
+    fn an_overlay_reports_a_link_its_layer_holds_as_a_link() {
+        let host =
+            std::env::temp_dir().join(format!("kobako-overlay-lstat-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&host);
+        std::fs::create_dir_all(&host).expect("the host directory must be created");
+        std::fs::write(host.join("target"), "lower").expect("the host file must be written");
+        std::os::unix::fs::symlink("target", host.join("link")).expect("the link must be made");
+        std::os::unix::fs::symlink("missing", host.join("dangling"))
+            .expect("the dangling link must be made");
+        let lower = super::super::Directory::new(&host).expect("the host directory must open");
+        let overlay = Overlay::new()
+            .layer(Arc::new(Memory::new()), Access::ReadWrite)
+            .layer(Arc::new(lower), Access::Read);
+        let kind = |path| overlay.symlink_metadata(path).map(|metadata| metadata.kind);
+        let found = (kind("link"), kind("dangling"));
+        let _ = std::fs::remove_dir_all(&host);
+        assert_eq!(
+            found,
+            (Ok(Kind::Symlink), Ok(Kind::Symlink)),
+            "a link a Directory Layer holds, pointing at a file or at nothing, looked up through \
+             Overlay::symlink_metadata must be reported as a link"
+        );
     }
 
     // @behavior FS-008

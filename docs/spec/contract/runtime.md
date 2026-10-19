@@ -337,6 +337,17 @@ pub trait Filesystem {
 }
 ```
 
+## `Filesystem::symlink_metadata`
+
+What a path names without following a link standing there. A Filesystem
+holding no links answers as `metadata` does.
+
+```rust
+pub trait Filesystem {
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError>;
+}
+```
+
 ## `Filesystem::read_dir`
 
 The entries of a directory.
@@ -510,7 +521,7 @@ impl Rename {
 
 ## `Kind`
 
-What a path names: a file or a directory.
+What a path names: a file, a directory, or a link.
 
 ```rust
 pub enum Kind {}

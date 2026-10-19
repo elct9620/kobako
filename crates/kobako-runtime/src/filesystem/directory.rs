@@ -9,7 +9,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use cap_std::ambient_authority;
-use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
+use cap_std::fs::{Dir, FileType, OpenOptions as CapOpenOptions};
 
 use super::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename};
 
@@ -54,11 +54,27 @@ fn error(err: io::Error) -> FilesystemError {
     }
 }
 
-fn kind(is_dir: bool) -> Kind {
-    if is_dir {
+fn kind(file_type: FileType) -> Kind {
+    if file_type.is_symlink() {
+        Kind::Symlink
+    } else if file_type.is_dir() {
         Kind::Directory
     } else {
         Kind::File
+    }
+}
+
+/// What a host entry is, a file's size alone counted: a link reports no
+/// size, so nothing of where it points reaches the guest.
+fn metadata_of(metadata: cap_std::fs::Metadata) -> Metadata {
+    let kind = kind(metadata.file_type());
+    Metadata {
+        kind,
+        len: if kind == Kind::File {
+            metadata.len()
+        } else {
+            0
+        },
     }
 }
 
@@ -94,11 +110,13 @@ impl Filesystem for Directory {
     }
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        let metadata = self.dir.metadata(host(path)?).map_err(error)?;
-        Ok(Metadata {
-            kind: kind(metadata.is_dir()),
-            len: if metadata.is_dir() { 0 } else { metadata.len() },
-        })
+        Ok(metadata_of(self.dir.metadata(host(path)?).map_err(error)?))
+    }
+
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        Ok(metadata_of(
+            self.dir.symlink_metadata(host(path)?).map_err(error)?,
+        ))
     }
 
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -110,10 +128,9 @@ impl Filesystem for Directory {
                 let name = entry.file_name().into_string().map_err(|name| {
                     FilesystemError::Other(format!("a host entry name is not UTF-8: {name:?}"))
                 })?;
-                let is_dir = entry.file_type().map_err(error)?.is_dir();
                 Ok(DirEntry {
                     name,
-                    kind: kind(is_dir),
+                    kind: kind(entry.file_type().map_err(error)?),
                 })
             })
             .collect()
@@ -142,10 +159,11 @@ impl Filesystem for Directory {
 
     /// A host directory takes no lock a Filesystem could check the source
     /// under, so another process of the host's changing it in between is
-    /// the host's to rule out.
+    /// the host's to rule out. A link moves as itself, as `rename(2)`
+    /// moves one.
     fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
         if from != to {
-            rename.allows(self.metadata(from)?.kind)?;
+            rename.allows(self.symlink_metadata(from)?.kind)?;
         }
         self.dir
             .rename(host(from)?, &self.dir, host(to)?)
@@ -317,6 +335,45 @@ mod tests {
             (Err(FilesystemError::SymbolicLink), Ok(())),
             "a host link opened through a Directory must be refused when the open asks to follow \
              none, and reached when it does not"
+        );
+    }
+
+    // The target's five bytes would show as the link's size if a lookup
+    // that follows none still followed it.
+    // @behavior FS-048
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_reports_a_link_a_lookup_does_not_follow_as_a_link() {
+        let host = HostDir::new("lstat");
+        fs::write(host.0.join("target"), "hello").expect("the host file must be written");
+        std::os::unix::fs::symlink("target", host.0.join("link")).expect("the link must be made");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        let listed = directory
+            .read_dir("")
+            .expect("the host directory must list")
+            .into_iter()
+            .find(|entry| entry.name == "link")
+            .map(|entry| entry.kind);
+        assert_eq!(
+            (
+                directory.symlink_metadata("link"),
+                listed,
+                directory.metadata("link")
+            ),
+            (
+                Ok(Metadata {
+                    kind: Kind::Symlink,
+                    len: 0
+                }),
+                Some(Kind::Symlink),
+                Ok(Metadata {
+                    kind: Kind::File,
+                    len: 5
+                })
+            ),
+            "a host link looked up through Directory::symlink_metadata and listed through \
+             Directory::read_dir must report a link with no size, and Directory::metadata must \
+             report the file it points to"
         );
     }
 
