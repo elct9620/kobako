@@ -10,11 +10,13 @@ use super::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOpt
 
 /// Files and directories held in memory. Every Invocation it is handed to
 /// shares it, so what one writes the next reads. What its files hold
-/// together is bounded, as a tmpfs mount is, so a guest cannot grow it
-/// past what the Host App allowed.
+/// together, and how many entries it holds, are bounded as a tmpfs mount
+/// bounds its size and its inodes, so a guest cannot grow it past what
+/// the Host App allowed.
 pub struct Memory {
     nodes: Mutex<BTreeMap<String, Node>>,
     space: Arc<Space>,
+    inodes_follow_limit: bool,
 }
 
 #[derive(Clone)]
@@ -23,39 +25,80 @@ enum Node {
     Directory,
 }
 
-/// The bytes a Memory's files hold together, and the most they may.
+/// What a Memory holds: the bytes of its files, and its entries, each
+/// file and directory and the root counting one as an inode does.
 struct Space {
+    bytes: Budget,
+    inodes: Budget,
+}
+
+/// How much of one thing is used, and the most that may be.
+struct Budget {
     limit: AtomicUsize,
     used: AtomicUsize,
 }
 
-impl Space {
-    /// Count `bytes` more, refusing when they would pass the limit.
-    fn take(&self, bytes: usize) -> Result<(), FilesystemError> {
+impl Budget {
+    fn new(limit: Option<usize>) -> Self {
+        Self {
+            limit: AtomicUsize::new(limit.unwrap_or(usize::MAX)),
+            used: AtomicUsize::new(0),
+        }
+    }
+
+    fn limit(&self) -> Option<usize> {
+        Some(self.limit.load(Ordering::Relaxed)).filter(|&limit| limit != usize::MAX)
+    }
+
+    fn set_limit(&self, limit: Option<usize>) {
+        self.limit
+            .store(limit.unwrap_or(usize::MAX), Ordering::Relaxed);
+    }
+
+    /// Count `amount` more, refusing when it would pass the limit.
+    fn take(&self, amount: usize) -> Result<(), FilesystemError> {
         let limit = self.limit.load(Ordering::Relaxed);
         self.used
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
-                used.checked_add(bytes).filter(|&total| total <= limit)
+                used.checked_add(amount).filter(|&total| total <= limit)
             })
             .map(drop)
             .map_err(|_| FilesystemError::NoSpace)
     }
 
-    fn give(&self, bytes: usize) {
-        self.used.fetch_sub(bytes, Ordering::Relaxed);
+    /// Count `amount` more without refusing, for what the Host App seeds.
+    fn add(&self, amount: usize) {
+        self.used.fetch_add(amount, Ordering::Relaxed);
+    }
+
+    fn give(&self, amount: usize) {
+        self.used.fetch_sub(amount, Ordering::Relaxed);
     }
 }
 
-/// One file's bytes, counted against its Memory's space for as long as
-/// they live, which outlasts the file's name while a handle holds them.
+/// One file's bytes, counted against its Memory's space, with the file's
+/// inode, for as long as they live, which outlasts the file's name while
+/// a handle holds them.
 struct Content {
     bytes: Vec<u8>,
     space: Arc<Space>,
 }
 
 impl Content {
-    fn new(bytes: Vec<u8>, space: &Arc<Space>) -> Arc<Mutex<Self>> {
-        space.used.fetch_add(bytes.len(), Ordering::Relaxed);
+    /// A file the Host App seeds, counted but never refused.
+    fn seeded(bytes: Vec<u8>, space: &Arc<Space>) -> Arc<Mutex<Self>> {
+        space.bytes.add(bytes.len());
+        space.inodes.add(1);
+        Self::holding(bytes, space)
+    }
+
+    /// An empty file the guest creates, refused once no inode is left.
+    fn created(space: &Arc<Space>) -> Result<Arc<Mutex<Self>>, FilesystemError> {
+        space.inodes.take(1)?;
+        Ok(Self::holding(Vec::new(), space))
+    }
+
+    fn holding(bytes: Vec<u8>, space: &Arc<Space>) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
             bytes,
             space: space.clone(),
@@ -66,12 +109,12 @@ impl Content {
     /// can be allocated, rather than aborting the host process.
     fn resize(&mut self, len: usize) -> Result<(), FilesystemError> {
         let growth = len.saturating_sub(self.bytes.len());
-        self.space.take(growth)?;
+        self.space.bytes.take(growth)?;
         if self.bytes.try_reserve(growth).is_err() {
-            self.space.give(growth);
+            self.space.bytes.give(growth);
             return Err(FilesystemError::NoSpace);
         }
-        self.space.give(self.bytes.len().saturating_sub(len));
+        self.space.bytes.give(self.bytes.len().saturating_sub(len));
         self.bytes.resize(len, 0);
         Ok(())
     }
@@ -79,9 +122,19 @@ impl Content {
 
 impl Drop for Content {
     fn drop(&mut self) {
-        self.space.give(self.bytes.len());
+        self.space.bytes.give(self.bytes.len());
+        self.space.inodes.give(1);
     }
 }
+
+/// The inodes a limit of `bytes` allows unless given its own: one for
+/// each 4 KiB page the bytes span, as a tmpfs counts one page to each
+/// file, and one for the root.
+fn inodes_for(bytes: Option<usize>) -> Option<usize> {
+    bytes.map(|bytes| bytes.div_ceil(PAGE).saturating_add(1))
+}
+
+const PAGE: usize = 4096;
 
 impl Memory {
     /// The most bytes a Memory's files hold unless given a limit of their
@@ -89,23 +142,46 @@ impl Memory {
     pub const DEFAULT_LIMIT: usize = 64 * 1024 * 1024;
 
     pub fn new() -> Self {
+        let space = Space {
+            bytes: Budget::new(Some(Self::DEFAULT_LIMIT)),
+            inodes: Budget::new(inodes_for(Some(Self::DEFAULT_LIMIT))),
+        };
+        space.inodes.add(1);
         Self {
             nodes: Mutex::new(BTreeMap::from([(String::new(), Node::Directory)])),
-            space: Arc::new(Space {
-                limit: AtomicUsize::new(Self::DEFAULT_LIMIT),
-                used: AtomicUsize::new(0),
-            }),
+            space: Arc::new(space),
+            inodes_follow_limit: true,
         }
     }
 
     /// This Memory with its files holding at most `limit` bytes together,
-    /// or without bound for `None`. Files it was seeded with count, but
-    /// are never refused.
+    /// or without bound for `None`. Unless given inodes of their own, its
+    /// entries follow the limit: one for each 4 KiB it spans, and the
+    /// root. What it was seeded with counts, but is never refused.
     pub fn with_limit(self, limit: Option<usize>) -> Self {
-        self.space
-            .limit
-            .store(limit.unwrap_or(usize::MAX), Ordering::Relaxed);
+        self.space.bytes.set_limit(limit);
+        if self.inodes_follow_limit {
+            self.space.inodes.set_limit(inodes_for(limit));
+        }
         self
+    }
+
+    /// This Memory holding at most `inodes` entries, the root among them,
+    /// or without bound for `None`, as a tmpfs mount's `nr_inodes` does.
+    pub fn with_inodes(mut self, inodes: Option<usize>) -> Self {
+        self.space.inodes.set_limit(inodes);
+        self.inodes_follow_limit = false;
+        self
+    }
+
+    /// An empty Memory bounded as this one is.
+    pub(crate) fn emptied(&self) -> Self {
+        let memory = Self::new().with_limit(self.space.bytes.limit());
+        if self.inodes_follow_limit {
+            memory
+        } else {
+            memory.with_inodes(self.space.inodes.limit())
+        }
     }
 
     fn nodes(&self) -> MutexGuard<'_, BTreeMap<String, Node>> {
@@ -131,11 +207,16 @@ impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
             for (path, contents) in files {
                 let path = seeded(path.as_ref());
                 for (end, _) in path.match_indices('/') {
-                    nodes.insert(path[..end].to_string(), Node::Directory);
+                    if nodes
+                        .insert(path[..end].to_string(), Node::Directory)
+                        .is_none()
+                    {
+                        memory.space.inodes.add(1);
+                    }
                 }
                 nodes.insert(
                     path,
-                    Node::File(Content::new(contents.into(), &memory.space)),
+                    Node::File(Content::seeded(contents.into(), &memory.space)),
                 );
             }
         }
@@ -186,7 +267,7 @@ impl Filesystem for Memory {
             }
             None if options.create || options.create_new => {
                 check_parent(&nodes, path)?;
-                let data = Content::new(Vec::new(), &self.space);
+                let data = Content::created(&self.space)?;
                 nodes.insert(path.to_string(), Node::File(data.clone()));
                 data
             }
@@ -236,6 +317,7 @@ impl Filesystem for Memory {
             return Err(FilesystemError::AlreadyExists);
         }
         check_parent(&nodes, path)?;
+        self.space.inodes.take(1)?;
         nodes.insert(path.to_string(), Node::Directory);
         Ok(())
     }
@@ -249,6 +331,7 @@ impl Filesystem for Memory {
             }
             Some(Node::Directory) => {
                 nodes.remove(path);
+                self.space.inodes.give(1);
                 Ok(())
             }
             None => Err(missing(&nodes, path)),
@@ -294,7 +377,9 @@ impl Filesystem for Memory {
             .cloned()
             .collect();
         nodes.remove(from);
-        nodes.insert(to.to_string(), moving);
+        if let Some(Node::Directory) = nodes.insert(to.to_string(), moving) {
+            self.space.inodes.give(1);
+        }
         for key in beneath {
             if let Some(node) = nodes.remove(&key) {
                 nodes.insert(format!("{to}{}", &key[from.len()..]), node);
@@ -534,6 +619,101 @@ mod tests {
         assert_eq!(
             memory.metadata("file/inner"),
             Err(FilesystemError::NotADirectory)
+        );
+    }
+
+    fn create(fs: &dyn Filesystem, path: &str) -> Result<(), FilesystemError> {
+        fs.open(
+            path,
+            &OpenOptions {
+                write: true,
+                create: true,
+                ..OpenOptions::default()
+            },
+        )
+        .map(drop)
+    }
+
+    // Three inodes hold the root, one file, and one directory, so neither
+    // kind of entry gets past the count.
+    // @behavior FS-030
+    #[test]
+    fn a_memory_holds_at_most_its_inodes() {
+        let memory = Memory::new().with_inodes(Some(3));
+        assert_eq!(
+            (
+                create(&memory, "file"),
+                memory.create_dir("dir"),
+                create(&memory, "past"),
+                memory.create_dir("past_dir"),
+            ),
+            (
+                Ok(()),
+                Ok(()),
+                Err(FilesystemError::NoSpace),
+                Err(FilesystemError::NoSpace)
+            ),
+            "a Memory given inodes through Memory::with_inodes must refuse a file or directory \
+             past them, the root counted, as out of space"
+        );
+    }
+
+    // @behavior FS-031
+    #[test]
+    fn a_memorys_inodes_follow_its_limit() {
+        let memory = Memory::new().with_limit(Some(2 * 4096));
+        assert_eq!(
+            (
+                create(&memory, "a"),
+                create(&memory, "b"),
+                create(&memory, "c")
+            ),
+            (Ok(()), Ok(()), Err(FilesystemError::NoSpace)),
+            "a Memory given only a limit through Memory::with_limit must hold one entry for each \
+             4 KiB of it and the root"
+        );
+    }
+
+    // A directory replaced by a rename gives its inode back as a removed
+    // one does, so both leave room for the next.
+    // @behavior FS-034
+    #[test]
+    fn a_removed_directory_gives_its_inode_back() {
+        let memory = Memory::new().with_inodes(Some(3));
+        memory
+            .create_dir("a")
+            .expect("the first directory must fit");
+        memory
+            .create_dir("b")
+            .expect("the second directory must fit");
+        memory.remove_dir("a").expect("the directory must remove");
+        let after_removal = memory.create_dir("c");
+        memory
+            .rename("c", "b")
+            .expect("a directory must replace an empty one");
+        assert_eq!(
+            (after_removal, memory.create_dir("d")),
+            (Ok(()), Ok(())),
+            "a directory removed through Memory::remove_dir, or replaced through Memory::rename, \
+             must give its inode back"
+        );
+    }
+
+    // The removed file's handle is still open, so its inode is given back
+    // only when the handle goes, as Linux keeps an unlinked file's inode.
+    // @behavior FS-032
+    #[test]
+    fn a_removed_file_gives_its_inode_back_once_closed() {
+        let memory = Memory::new().with_inodes(Some(2));
+        let handle = writable(&memory, "first");
+        memory.remove_file("first").expect("the file must remove");
+        let while_open = create(&memory, "second");
+        drop(handle);
+        assert_eq!(
+            (while_open, create(&memory, "second")),
+            (Err(FilesystemError::NoSpace), Ok(())),
+            "the inode of a file removed through Memory::remove_file must stay taken while a \
+             handle holds it, and be free once it closes"
         );
     }
 }

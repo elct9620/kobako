@@ -376,3 +376,63 @@ both live in the topmost writable layer, never show, and no name may claim .wh.
 | Given | a Directory on a Windows host |
 | When | a path holding a backslash is opened there |
 | Then | the open is refused as invalid, and the host is not asked |
+
+## `FS-030` A Memory holds at most its inodes
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory given a count of inodes, its root counted among them |
+| When | a file or a directory is created past that count |
+| Then | the creation is refused as out of space |
+
+## `FS-031` A Memory given only a limit holds an inode for each 4 KiB of it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-030` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory given a limit of 8 KiB and no inodes of its own |
+| When | three files are created |
+| Then | the first two land and the third is refused as out of space |
+
+## `FS-032` A removed file gives its inode back once no handle holds it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-025`, `FS-030` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory whose inodes are all taken, one by a file the guest holds open |
+| When | the file is removed, and a file is created before and after its handle closes |
+| Then | the creation before is refused as out of space and the one after lands |
+
+## `FS-033` A Temporary keeps its inodes in every Invocation
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-027`, `FS-030` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Temporary given a count of inodes |
+| When | the next Invocation's Filesystem is given an entry past that count |
+| Then | the creation is refused as out of space |
+
+## `FS-034` A removed directory gives its inode back
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-032` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory whose inodes are all taken, some by directories |
+| When | a directory is removed, or replaced by renaming another onto it |
+| Then | a directory created afterwards lands |

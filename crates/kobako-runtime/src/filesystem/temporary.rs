@@ -9,9 +9,9 @@ use super::{DirEntry, File, Filesystem, FilesystemError, Metadata, OpenOptions};
 /// Files and directories held in memory for one Invocation. The next one
 /// is handed a new, empty Temporary in its place, so nothing one writes
 /// reaches another. Each one holds as much as a Memory does.
+#[derive(Default)]
 pub struct Temporary {
     memory: Memory,
-    limit: Option<usize>,
 }
 
 impl Temporary {
@@ -21,20 +21,18 @@ impl Temporary {
 
     /// This Temporary, and every one handed out in its place, with its
     /// files holding at most `limit` bytes together, or without bound for
-    /// `None`.
+    /// `None`, as `Memory::with_limit` bounds a Memory.
     pub fn with_limit(self, limit: Option<usize>) -> Self {
         Self {
             memory: self.memory.with_limit(limit),
-            limit,
         }
     }
-}
 
-impl Default for Temporary {
-    fn default() -> Self {
+    /// This Temporary, and every one handed out in its place, holding at
+    /// most `inodes` entries, as `Memory::with_inodes` bounds a Memory.
+    pub fn with_inodes(self, inodes: Option<usize>) -> Self {
         Self {
-            memory: Memory::new(),
-            limit: Some(Memory::DEFAULT_LIMIT),
+            memory: self.memory.with_inodes(inodes),
         }
     }
 }
@@ -69,7 +67,9 @@ impl Filesystem for Temporary {
     }
 
     fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
-        Some(Arc::new(Self::new().with_limit(self.limit)))
+        Some(Arc::new(Self {
+            memory: self.memory.emptied(),
+        }))
     }
 }
 
@@ -101,6 +101,21 @@ mod tests {
             next.read_dir("").expect("the root must list"),
             Vec::new(),
             "Temporary::for_invocation must hand the next Invocation a Filesystem holding no file"
+        );
+    }
+
+    // @behavior FS-033
+    #[test]
+    fn a_temporary_keeps_its_inodes_in_every_invocation() {
+        let next = Temporary::new()
+            .with_inodes(Some(1))
+            .for_invocation()
+            .expect("a Temporary must hand the next Invocation a Filesystem of its own");
+        assert_eq!(
+            next.create_dir("dir"),
+            Err(FilesystemError::NoSpace),
+            "a directory past a Temporary's inodes in the Filesystem Temporary::for_invocation \
+             hands the next Invocation must answer NoSpace"
         );
     }
 

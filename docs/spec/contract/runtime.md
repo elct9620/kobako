@@ -538,6 +538,19 @@ impl Memory {
 }
 ```
 
+## `Memory::with_inodes`
+
+This Memory holding at most the given files and directories, its root
+among them, or without bound for none. Without it, one is held for each
+4 KiB of the limit, and the root. An entry past it is refused as out of
+space.
+
+```rust
+impl Memory {
+    pub fn with_inodes(self, inodes: Option<usize>) -> Self {}
+}
+```
+
 ## `Temporary`
 
 The Filesystem kobako ships that holds its files in memory and starts every
@@ -565,6 +578,17 @@ without bound for none. Every Temporary handed out in its place keeps it.
 ```rust
 impl Temporary {
     pub fn with_limit(self, limit: Option<usize>) -> Self {}
+}
+```
+
+## `Temporary::with_inodes`
+
+This Temporary holding at most the given files and directories, as a
+Memory given them does. Every Temporary handed out in its place keeps it.
+
+```rust
+impl Temporary {
+    pub fn with_inodes(self, inodes: Option<usize>) -> Self {}
 }
 ```
 
