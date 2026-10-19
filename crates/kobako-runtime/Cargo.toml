@@ -2,10 +2,12 @@
 #
 # The contract a wasm engine must satisfy to drive a kobako guest,
 # free of any engine or frontend type: the `Runtime` trait plus the
-# neutral value types (`Snapshot`, `Trap`, `SetupError`, ...) and the
-# dispatch / yield re-entry traits a frontend supplies. Engine
-# implementations (`kobako-wasmtime`) and host frontends (the Ruby
-# ext) meet on this surface, so the engine stays swappable.
+# neutral value types (`Snapshot`, `Trap`, `SetupError`, ...), the
+# dispatch / yield re-entry traits a frontend supplies, and the Grants
+# a frontend hands each invocation, the Mount and the Filesystems it
+# places. Engine implementations (`kobako-wasmtime`) and host frontends
+# (the Ruby ext) meet on this surface, so the engine stays swappable.
+# `cap-std` confines the Directory Filesystem to its host directory.
 #
 # Self-contained by design: the Ruby gem ships this crate without the
 # `crates/` workspace manifest, so no `workspace = true` inheritance
