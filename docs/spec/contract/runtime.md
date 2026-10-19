@@ -683,3 +683,32 @@ impl Overlay {
     pub fn layer(self, filesystem: Arc<dyn Filesystem>, access: Access) -> Self {}
 }
 ```
+
+## `Overlay::with_blocking`
+
+This Overlay waiting for its lock through the given Blocking.
+
+```rust
+impl Overlay {
+    pub fn with_blocking(self, blocking: Arc<dyn Blocking>) -> Self {}
+}
+```
+
+## `Blocking`
+
+How a thread waits for an Overlay's lock another thread holds. A frontend
+whose threads share a lock of their own gives it up for the wait.
+
+```rust
+pub trait Blocking: Send + Sync {}
+```
+
+## `Blocking::wait`
+
+Run the given wait, which returns once the lock is taken.
+
+```rust
+pub trait Blocking {
+    fn wait(&self, wait: &mut dyn FnMut());
+}
+```

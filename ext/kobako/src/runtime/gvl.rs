@@ -35,6 +35,12 @@ where
     })
 }
 
+/// Whether this thread holds the GVL: outside any released region, or
+/// inside a dispatch that re-acquired it.
+pub(crate) fn holds() -> bool {
+    !GVL_RELEASED.with(|g| g.get())
+}
+
 /// Runs inline when the GVL is already held — hold mode, or a nested
 /// dispatch whose outer frame re-acquired it.
 pub(crate) fn reenter<F, R>(f: F) -> R

@@ -11,6 +11,7 @@ pub(crate) enum Errno {
     Acces = 2,
     Badf = 8,
     Busy = 10,
+    Deadlk = 16,
     Exist = 20,
     Ilseq = 25,
     Intr = 27,
@@ -60,6 +61,7 @@ impl From<FilesystemError> for Failure {
             FilesystemError::Unsupported => Errno::Notsup,
             FilesystemError::NoSpace => Errno::Nospc,
             FilesystemError::CrossesDevices => Errno::Xdev,
+            FilesystemError::Deadlock => Errno::Deadlk,
             _ => Errno::Io,
         })
     }

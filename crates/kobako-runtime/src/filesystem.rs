@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 pub use directory::Directory;
 pub use memory::Memory;
-pub use overlay::Overlay;
+pub use overlay::{Blocking, Overlay};
 pub use temporary::Temporary;
 
 /// The files and directories behind a Mount. One may wrap
@@ -171,6 +171,8 @@ pub enum FilesystemError {
     NoSpace,
     /// A move that cannot happen in one step, as between two devices.
     CrossesDevices,
+    /// A call that would wait on a lock its own thread holds.
+    Deadlock,
     /// Any other failure, with what the Filesystem knows of it.
     Other(String),
 }

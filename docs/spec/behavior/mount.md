@@ -25,6 +25,7 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 - `test/e2e/test_mount.rb`
 - `test/e2e/test_mount_limit.rb`
 - `test/e2e/test_mount_rename.rb`
+- `test/e2e/test_overlay_threads.rb`
 - `crates/kobako/tests/mount.rs`
 
 ## `MT-001` A mounted Filesystem is reachable from the guest
@@ -241,3 +242,27 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 | Given | a Sandbox whose mount's block refuses one file inside a directory |
 | When | the script renames that directory and reads the file beneath the new name |
 | Then | the rename raises `Errno::EXDEV`, and the file is not there |
+
+## `MT-019` Sandboxes on several Threads share an Overlay with a Ruby Layer
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-039` |
+
+| Step | Statement |
+| --- | --- |
+| Given | two Threads, each with a Sandbox mounting one Overlay over a Ruby Layer |
+| When | both evaluate scripts reaching the Overlay at once, whichever GVL mode each takes |
+| Then | both finish |
+
+## `MT-020` A Sandbox reaching an Overlay from inside its own call raises EDEADLK
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-038` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose Ruby Layer evaluates a script through that Overlay |
+| When | the inner script reads a file there |
+| Then | it raises `Errno::EDEADLK` |

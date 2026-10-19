@@ -144,6 +144,7 @@ A change to the wire therefore stays inside the endpoints and `kobako-transport`
 | a payload | bytes only a codec reads |
 | a result that does not frame | a `Trap` |
 | a host resource the guest reaches through WASI | a `kobako-runtime` `Grant`, such as a `Mount` |
+| how a frontend's thread waits on an Overlay's lock | a `kobako-runtime` `Blocking` |
 
 The two sides replace different units.
 The host ABI endpoint shares `kobako-wasmtime` with the engine mechanics, so an engine is replaced whole.

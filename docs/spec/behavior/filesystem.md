@@ -460,3 +460,75 @@ both live in the topmost writable layer, never show, and no name may claim .wh.
 | Given | a Memory file open through two handles |
 | When | each handle appends in turn |
 | Then | each append lands after the one before, and answers where it landed |
+
+## `FS-037` A change through an Overlay waits for the one in progress
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-011` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay removing an empty directory |
+| When | another thread creates a file in it before the removal returns |
+| Then | the creation waits, and the removal finds the directory empty |
+
+## `FS-038` A call through an Overlay from inside one answers a deadlock
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-037` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose Layer calls back into that Overlay on the same thread |
+| When | the Layer's call back is made |
+| Then | it answers a deadlock rather than waiting |
+
+## `FS-039` A contended Overlay waits through its Blocking
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-037` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay given a Blocking, its lock held by another thread |
+| When | a call is made through the Overlay |
+| Then | it waits through the Blocking once, then answers |
+
+## `FS-040` A removal through an Overlay that cannot leave its whiteout removes nothing
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-016`, `FS-030` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose full writable Layer holds a copy of a lower file |
+| When | the file is removed |
+| Then | the removal is refused as out of space, and the copy still reads |
+
+## `FS-041` A directory an Overlay cannot mark opaque is not made
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-018`, `FS-030` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay hiding a lower directory, its writable Layer with room for one entry |
+| When | the directory is made again |
+| Then | the creation is refused as out of space, and the directory stays hidden |
+
+## `FS-042` A rename through an Overlay that cannot leave its whiteout moves nothing
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-016`, `FS-030` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose writable Layer has room only to copy a lower file up |
+| When | the file is renamed |
+| Then | the rename is refused as out of space, and the file stays where it was |

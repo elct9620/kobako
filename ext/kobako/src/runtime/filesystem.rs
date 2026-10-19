@@ -22,7 +22,7 @@ use ruby::RubyFilesystem;
 
 use super::pinned::Pinned;
 
-use kobako_runtime::filesystem::{Directory, Filesystem, Memory, Overlay, Temporary};
+use kobako_runtime::filesystem::{Blocking, Directory, Filesystem, Memory, Overlay, Temporary};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
 
@@ -147,8 +147,18 @@ fn directory_new(path: String) -> Result<DirectoryFs, MagnusError> {
 /// `Overlay.new`, with no Layer yet.
 fn overlay_new() -> OverlayFs {
     OverlayFs {
-        overlay: Overlay::new(),
+        overlay: Overlay::new().with_blocking(Arc::new(ReleasesGvl)),
         layers: Vec::new(),
+    }
+}
+
+/// An Overlay's thread waits for its lock without the GVL, so a holder
+/// asking a Layer written in Ruby can take the GVL and finish.
+struct ReleasesGvl;
+
+impl Blocking for ReleasesGvl {
+    fn wait(&self, wait: &mut dyn FnMut()) {
+        super::gvl::region(super::gvl::holds(), wait);
     }
 }
 

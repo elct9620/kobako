@@ -28,8 +28,8 @@ pub mod yielder;
 pub use dispatch::DispatchHandler;
 pub use error::{InvokeError, SetupError, Trap};
 pub use filesystem::{
-    DirEntry, Directory, File, Filesystem, FilesystemError, Kind, Memory, Metadata, OpenOptions,
-    Overlay, Rename, Temporary,
+    Blocking, DirEntry, Directory, File, Filesystem, FilesystemError, Kind, Memory, Metadata,
+    OpenOptions, Overlay, Rename, Temporary,
 };
 pub use grant::{Grant, GrantKind};
 pub use mount::{Access, Denial, Mount, Policy};
