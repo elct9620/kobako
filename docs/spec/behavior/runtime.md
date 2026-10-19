@@ -912,3 +912,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Mount with a Policy, whose file becomes a directory as it moves |
 | When | the guest renames that file |
 | Then | the rename answers that it crosses devices, and nothing moves |
+
+## `RT-095` An append lands after another writer's append
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-036` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file another writer appends to as the guest writes |
+| When | the guest writes to that file opened to append |
+| Then | the guest's bytes land after the other writer's |

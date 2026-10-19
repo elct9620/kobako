@@ -400,6 +400,17 @@ fn lock(data: &Mutex<Content>) -> MutexGuard<'_, Content> {
     data.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+fn write(data: &mut Content, buf: &[u8], start: usize) -> Result<usize, FilesystemError> {
+    let end = start
+        .checked_add(buf.len())
+        .ok_or(FilesystemError::InvalidInput)?;
+    if data.bytes.len() < end {
+        data.resize(end)?;
+    }
+    data.bytes[start..end].copy_from_slice(buf);
+    Ok(buf.len())
+}
+
 /// An open file of a Memory, sharing its bytes with every other handle on
 /// the same path.
 struct MemoryFile {
@@ -418,16 +429,16 @@ impl File for MemoryFile {
     }
 
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        let mut data = lock(&self.data);
         let start = usize::try_from(offset).map_err(|_| FilesystemError::InvalidInput)?;
-        let end = start
-            .checked_add(buf.len())
-            .ok_or(FilesystemError::InvalidInput)?;
-        if data.bytes.len() < end {
-            data.resize(end)?;
-        }
-        data.bytes[start..end].copy_from_slice(buf);
-        Ok(buf.len())
+        write(&mut lock(&self.data), buf, start)
+    }
+
+    /// The end is read and written under one lock, so another handle's
+    /// append lands before or after this one, never over it.
+    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+        let mut data = lock(&self.data);
+        let start = data.bytes.len();
+        Ok((start as u64, write(&mut data, buf, start)?))
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
@@ -678,6 +689,26 @@ mod tests {
             (Ok(()), Ok(()), Err(FilesystemError::NoSpace)),
             "a Memory given only a limit through Memory::with_limit must hold one entry for each \
              4 KiB of it and the root"
+        );
+    }
+
+    // The second handle opened before the first appended, so only an end
+    // read as the append lands puts its bytes after the first's.
+    // @behavior FS-036
+    #[test]
+    fn a_memory_appends_at_the_end_as_it_stands() {
+        let memory: Memory = [("log", "a")].into_iter().collect();
+        let mut first = writable(&memory, "log");
+        let mut second = writable(&memory, "log");
+        assert_eq!(
+            (
+                first.append(b"bb"),
+                second.append(b"ccc"),
+                read_all(&memory, "log")
+            ),
+            (Ok((1, 2)), Ok((3, 3)), b"abbccc".to_vec()),
+            "MemoryFile::append through two handles on one file must land each at the end as it \
+             stands, answering where it landed"
         );
     }
 

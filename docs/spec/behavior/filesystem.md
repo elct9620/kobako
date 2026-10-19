@@ -448,3 +448,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh.
 | Given | a Memory holding a directory and a file |
 | When | the directory is renamed as a file only, and the file as a directory only |
 | Then | each is refused, as crossing devices and as no directory, and neither moves |
+
+## `FS-036` A Memory appends at its file's end as it stands
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-002` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory file open through two handles |
+| When | each handle appends in turn |
+| Then | each append lands after the one before, and answers where it landed |

@@ -96,6 +96,14 @@ const PROBE_WAT: &str = r#"
     (call $rename (i32.const 3) (i32.const 740) (i32.const 1) (i32.const 3) (i32.const 700) (i32.const 8)))
   (func (export "rename_onto_root") (result i32)
     (call $rename (i32.const 3) (i32.const 700) (i32.const 8) (i32.const 3) (i32.const 740) (i32.const 1)))
+  ;; Open the path to write and append, and write "hello" into it.
+  (func (export "append_file") (param $path i32) (param $len i32) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open (i32.const 3) (i32.const 0) (local.get $path) (local.get $len)
+      (i32.const 0) (i64.const 64) (i64.const 0) (i32.const 1) (i32.const 128)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $write (i32.load (i32.const 128)) (i32.const 80) (i32.const 1) (i32.const 132)))
+
   ;; Rename `file.txt` to `new.txt`.
   (func (export "rename_to_new") (result i32)
     (call $rename (i32.const 3) (i32.const 700) (i32.const 8) (i32.const 3) (i32.const 840) (i32.const 7)))
@@ -477,6 +485,109 @@ fn a_directory_beneath_a_mount_with_a_policy_does_not_move() {
         (ERRNO_XDEV, Err(FilesystemError::NotFound)),
         "path_rename of what is a directory by the time it moves, beneath a Mount with a \
          Policy, through preview1 must answer EXDEV and move nothing"
+    );
+}
+
+/// A Memory whose files take another writer's `bbb` at their end as one
+/// is written, once the length the write would land at is known and
+/// before it lands, as another invocation sharing the file could.
+struct AppendedMeanwhile(Memory);
+
+struct AppendedMeanwhileFile {
+    file: Box<dyn File>,
+    other: std::sync::Mutex<Box<dyn File>>,
+}
+
+impl AppendedMeanwhileFile {
+    fn other_appends(&self) -> Result<(), FilesystemError> {
+        self.other
+            .lock()
+            .expect("the other writer's lock must not be poisoned")
+            .append(b"bbb")
+            .map(drop)
+    }
+}
+
+impl File for AppendedMeanwhileFile {
+    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.file.read_at(buf, offset)
+    }
+
+    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.file.write_at(buf, offset)
+    }
+
+    /// The length is read before the other writer appends, so a write
+    /// placed by it lands over what the other wrote.
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        let metadata = self.file.metadata()?;
+        self.other_appends()?;
+        Ok(metadata)
+    }
+
+    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.file.set_len(len)
+    }
+
+    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+        self.other_appends()?;
+        self.file.append(buf)
+    }
+}
+
+impl Filesystem for AppendedMeanwhile {
+    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+        let writes = OpenOptions {
+            write: true,
+            ..OpenOptions::default()
+        };
+        Ok(Box::new(AppendedMeanwhileFile {
+            file: self.0.open(path, options)?,
+            other: std::sync::Mutex::new(self.0.open(path, &writes)?),
+        }))
+    }
+
+    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.0.metadata(path)
+    }
+
+    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.0.read_dir(path)
+    }
+
+    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.create_dir(path)
+    }
+
+    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.remove_dir(path)
+    }
+
+    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.remove_file(path)
+    }
+
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+        self.0.rename(from, to, rename)
+    }
+}
+
+// The other writer's `bbb` lands as the guest's append is made, so only
+// an append the file places itself keeps from writing over it.
+// @behavior RT-095
+#[test]
+fn an_append_lands_after_another_writers_append() {
+    let memory: Memory = [("file.txt", "granted")].into_iter().collect();
+    let shared = Arc::new(AppendedMeanwhile(memory));
+    let mut guest = Guest::new(&[grant(shared.clone(), Access::ReadWrite, None)]);
+    assert_eq!(
+        (
+            guest.call("append_file", FILE),
+            contents(&shared.0, "file.txt")
+        ),
+        (0, Some(b"grantedbbbhello".to_vec())),
+        "fd_write to a file opened to append beneath a Mount through preview1 must land after \
+         what another writer appended meanwhile"
     );
 }
 

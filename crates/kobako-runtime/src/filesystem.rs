@@ -62,6 +62,16 @@ pub trait File: Send {
 
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError>;
 
+    /// Write `buf` at the file's end as it stands when the write lands,
+    /// answering the offset it landed at and how much was written. The
+    /// default reads the length, then writes there: two steps a file
+    /// another writer shares should take as one, as Linux takes an append
+    /// under the file's lock.
+    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+        let at = self.metadata()?.len;
+        Ok((at, self.write_at(buf, at)?))
+    }
+
     fn metadata(&self) -> Result<Metadata, FilesystemError>;
 
     /// Truncate or extend the file to `len` bytes, extending with zeros.

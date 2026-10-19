@@ -322,12 +322,12 @@ pub(crate) fn pwrite(
         return Err(Errno::Badf.into());
     }
     // Linux's `pwrite` ignores the offset of a file opened to append.
-    let at = if file.append {
-        file.file.metadata()?.len
+    let buf = mem.bytes(ptr, len)?;
+    let written = if file.append {
+        file.file.append(buf)?.1
     } else {
-        offset
+        file.file.write_at(buf, offset)?
     };
-    let written = file.file.write_at(mem.bytes(ptr, len)?, at)?;
     mem.write_u32(nwritten, written as u32)
 }
 
@@ -454,11 +454,13 @@ pub(crate) fn write(
     let written = match descriptor_mut(table, fd)? {
         Descriptor::Channel(pipe) => write_channel(pipe, mem.bytes(ptr, len)?)?,
         Descriptor::File(file) if file.writable => {
-            if file.append {
-                file.position = file.file.metadata()?.len;
-            }
-            let written = file.file.write_at(mem.bytes(ptr, len)?, file.position)?;
-            file.position += written as u64;
+            let buf = mem.bytes(ptr, len)?;
+            let (at, written) = if file.append {
+                file.file.append(buf)?
+            } else {
+                (file.position, file.file.write_at(buf, file.position)?)
+            };
+            file.position = at + written as u64;
             written
         }
         Descriptor::Stdin(_) | Descriptor::Directory(_) | Descriptor::File(_) => {
