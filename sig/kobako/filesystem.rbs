@@ -5,10 +5,15 @@ module Kobako
     type access = :read | :read_write
 
     # What a Filesystem written in Ruby answers to be mounted. One that
-    # also answers _Writable takes changes too.
+    # also answers _Listable lists its directories, and one answering
+    # _Writable takes changes too; each method it lacks is refused alone.
     interface _Readable
       def open: (String path, Integer flags) -> _File
       def stat: (String path) -> _Stat
+    end
+
+    interface _Listable
+      def children: (String path) -> Array[String]
     end
 
     interface _Writable
@@ -18,10 +23,18 @@ module Kobako
       def rename: (String from, String to, directory: bool?) -> void
     end
 
-    # A file a Filesystem written in Ruby opened; +::File+ answers it.
+    # A file a Filesystem written in Ruby opened; +::File+ answers it. One
+    # that also answers _WritableFile takes writes too.
     interface _File
       def pread: (Integer length, Integer offset) -> String?
       def size: () -> Integer
+    end
+
+    interface _WritableFile
+      def pwrite: (String data, Integer offset) -> Integer
+      def truncate: (Integer length) -> void
+      def fsync: () -> void
+      def close: () -> void
     end
 
     interface _Stat
@@ -30,6 +43,9 @@ module Kobako
     end
 
     class Memory
+      # A bare <tt>"path" => contents</tt> arrives as keywords, which RBS
+      # cannot key by String; a Symbol keyword past +limit+ and +inodes+
+      # raises ArgumentError.
       def initialize: (?Hash[String, String] files, ?limit: Integer?, ?inodes: Integer?, **String) -> void
     end
 

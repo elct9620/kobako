@@ -14,7 +14,7 @@ module Kobako
 
     def bind: (Symbol | String path, untyped object) -> self
 
-    def mount: (String at, Kobako::Filesystem::kind filesystem, ?access: Symbol) ?{ (String path, Kobako::Catalog::Mount::access access) -> boolish } -> self
+    def mount: (String at, Kobako::Filesystem::kind filesystem, ?access: Kobako::Filesystem::access) ?{ (String path, Kobako::Filesystem::access access) -> boolish } -> self
 
     def lookup: (Symbol | String path) -> Kobako::Transport::Exposure
 
