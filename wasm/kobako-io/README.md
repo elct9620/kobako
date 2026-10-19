@@ -1,8 +1,8 @@
 # kobako-io
 
-Sandbox IO / Kernel capability gem for
+Sandbox IO / File / Kernel capability gem for
 [kobako](https://github.com/elct9620/kobako) mruby guests — `$stdout`
-/ `$stderr` over wasi-libc.
+/ `$stderr` and the host's preopened directories over wasi-libc.
 
 A `beni::Gem` installing the Ruby IO and File surface.
 
