@@ -14,6 +14,7 @@ contract surface.
 | Instantiation | a pre-linked `InstancePre` per guest path; every invocation runs on a fresh instance and discards its Store afterwards |
 | Bounds | the epoch-based wall-clock timeout and the per-invocation linear-memory cap |
 | Ambient denial | under the default hermetic profile, frozen clocks and a constant RNG |
+| Filesystems | a preopen per Mount, and its own capped descriptor table |
 
 The kobako Ruby gem's native ext is the first frontend; a Rust host
 SDK consumes the same surface.
