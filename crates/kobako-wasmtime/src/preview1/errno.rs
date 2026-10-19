@@ -18,6 +18,7 @@ pub(crate) enum Errno {
     Inval = 28,
     Io = 29,
     Isdir = 31,
+    Loop = 32,
     Mfile = 33,
     Nametoolong = 37,
     Noent = 44,
@@ -63,6 +64,7 @@ impl From<FilesystemError> for Failure {
             FilesystemError::NoSpace => Errno::Nospc,
             FilesystemError::CrossesDevices => Errno::Xdev,
             FilesystemError::Deadlock => Errno::Deadlk,
+            FilesystemError::SymbolicLink => Errno::Loop,
             _ => Errno::Io,
         })
     }

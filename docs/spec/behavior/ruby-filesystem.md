@@ -143,3 +143,16 @@ The Host App gets no exception of its own back. A failure belongs to the guest, 
 | Given | a Ruby Filesystem answering `rename`, mounted with a block and without one |
 | When | the script renames a file beneath each mount |
 | Then | `rename` is told `directory: false` beneath the block and `directory: nil` elsewhere |
+
+## `RF-011` A Ruby Filesystem's open is told to follow no link when the guest asks
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-047` |
+| unverifiable | the default Guest Binary's File always asks to follow a link |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem mounted for a guest |
+| When | the guest opens a path asking to follow no link at its end |
+| Then | `open` is handed `File::NOFOLLOW` among its flags |

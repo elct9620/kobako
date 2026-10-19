@@ -50,6 +50,9 @@ const PROBE_WAT: &str = r#"
   (func (export "open") (param $len i32) (param $oflags i32) (param $rights i64) (param $fdflags i32) (result i32)
     (call $open (i32.const 3) (i32.const 1) (i32.const 1024) (local.get $len) (local.get $oflags)
       (local.get $rights) (i64.const 0) (local.get $fdflags) (i32.const 128)))
+  (func (export "open_nofollow") (param $len i32) (result i32)
+    (call $open (i32.const 3) (i32.const 0) (i32.const 1024) (local.get $len) (i32.const 0)
+      (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 128)))
   (func (export "stat") (param $len i32) (result i32)
     (call $stat (i32.const 3) (i32.const 1) (i32.const 1024) (local.get $len) (i32.const 256)))
   (func (export "mkdir") (param $len i32) (result i32)
@@ -78,6 +81,7 @@ const RIGHTS_FD_WRITE: i64 = 1 << 6;
 /// does not exist or is no directory, or name the root itself.
 const PATHS: &[&str] = &[
     "a",
+    "l",
     "missing",
     "",
     ".",
@@ -121,6 +125,8 @@ enum Call {
         rights: i64,
         fdflags: i32,
     },
+    /// Open the path to read, following no symbolic link at its end.
+    OpenNoFollow,
     Stat,
     Mkdir,
     Rmdir,
@@ -172,6 +178,7 @@ const CALLS: &[Call] = &[
         rights: RIGHTS_FD_READ,
         fdflags: FDFLAGS_SYNC,
     },
+    Call::OpenNoFollow,
     Call::Stat,
     Call::Mkdir,
     Call::Rmdir,
@@ -180,8 +187,8 @@ const CALLS: &[Call] = &[
     Call::RenameTo,
 ];
 
-/// A host directory of the probe's own, holding `a` and `d/f`, removed
-/// when it drops.
+/// A host directory of the probe's own, holding `a`, `d/f`, and a link
+/// `l` to `a`, removed when it drops.
 struct HostDir(PathBuf);
 
 impl HostDir {
@@ -195,6 +202,8 @@ impl HostDir {
         fs::create_dir_all(path.join("d")).expect("the host directory must be created");
         fs::write(path.join("a"), "hello").expect("the host file must be written");
         fs::write(path.join("d/f"), "inner").expect("the host file must be written");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("a", path.join("l")).expect("the host link must be made");
         Self(path)
     }
 
@@ -208,7 +217,13 @@ impl HostDir {
                     .expect("an entry lies beneath its root")
                     .to_string_lossy()
                     .into_owned();
-                if path.is_dir() {
+                if path.is_symlink() {
+                    let target = fs::read_link(&path).expect("the host link must read");
+                    out.push((
+                        name,
+                        Some(target.to_string_lossy().into_owned().into_bytes()),
+                    ));
+                } else if path.is_dir() {
                     out.push((name, None));
                     walk(root, &path, out);
                 } else {
@@ -276,8 +291,9 @@ fn observe<T>(
         Call::RenameFrom | Call::RenameTo => instance
             .get_typed_func::<(i32, i32), i32>(&mut store, "rename")
             .and_then(|f| f.call(&mut store, (len, second.len() as i32))),
-        Call::Stat | Call::Mkdir | Call::Rmdir | Call::Unlink => {
+        Call::OpenNoFollow | Call::Stat | Call::Mkdir | Call::Rmdir | Call::Unlink => {
             let name = match call {
+                Call::OpenNoFollow => "open_nofollow",
                 Call::Stat => "stat",
                 Call::Mkdir => "mkdir",
                 Call::Rmdir => "rmdir",

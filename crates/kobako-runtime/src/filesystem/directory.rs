@@ -75,6 +75,15 @@ impl Filesystem for Directory {
             .create(options.create)
             .create_new(options.create_new)
             .truncate(options.truncate);
+        // The host could swap a link in between; the host's to rule out.
+        if options.nofollow
+            && self
+                .dir
+                .symlink_metadata(host(path)?)
+                .is_ok_and(|metadata| metadata.is_symlink())
+        {
+            return Err(FilesystemError::SymbolicLink);
+        }
         let file = self.dir.open_with(host(path)?, &open).map_err(error)?;
         if file.metadata().map_err(error)?.is_dir() {
             return Err(FilesystemError::IsADirectory);
@@ -278,6 +287,36 @@ mod tests {
             ),
             "a path holding a backslash opened through a Directory on Windows must be refused as \
              invalid input"
+        );
+    }
+
+    // The link's target is a readable file, so only the refusal of the
+    // link itself keeps the open from reaching it.
+    // @behavior FS-047
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_opens_no_link_an_open_asks_not_to_follow() {
+        let host = HostDir::new("nofollow");
+        fs::write(host.0.join("target"), "x").expect("the host file must be written");
+        std::os::unix::fs::symlink("target", host.0.join("link")).expect("the link must be made");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        let open = |nofollow| {
+            directory
+                .open(
+                    "link",
+                    &OpenOptions {
+                        read: true,
+                        nofollow,
+                        ..OpenOptions::default()
+                    },
+                )
+                .map(drop)
+        };
+        assert_eq!(
+            (open(true), open(false)),
+            (Err(FilesystemError::SymbolicLink), Ok(())),
+            "a host link opened through a Directory must be refused when the open asks to follow \
+             none, and reached when it does not"
         );
     }
 

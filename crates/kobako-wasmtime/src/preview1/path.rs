@@ -15,6 +15,7 @@ use super::fd::write_metadata;
 use super::memory::GuestMemory;
 use crate::descriptors::{Descriptor, Descriptors, Directory, OpenFile};
 
+const LOOKUPFLAGS_SYMLINK_FOLLOW: u32 = 1 << 0;
 const OFLAGS_CREAT: u32 = 1 << 0;
 const OFLAGS_DIRECTORY: u32 = 1 << 1;
 const OFLAGS_EXCL: u32 = 1 << 2;
@@ -187,6 +188,7 @@ pub(crate) fn open(
                 create: oflag(OFLAGS_CREAT),
                 create_new: oflag(OFLAGS_CREAT) && oflag(OFLAGS_EXCL),
                 truncate: oflag(OFLAGS_TRUNC),
+                nofollow: flags.dirflags & LOOKUPFLAGS_SYMLINK_FOLLOW == 0,
             };
             Descriptor::File(OpenFile {
                 file: mount.filesystem().open(&path, &options)?,

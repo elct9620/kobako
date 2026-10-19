@@ -580,3 +580,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh.
 | Given | an Overlay whose writable Layer has less room than a lower file holds |
 | When | the lower file is written, copying it up |
 | Then | the write is refused as out of space, and the lower file still reads |
+
+## `FS-047` A Directory opens no link an open asks not to follow
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-007` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory whose host directory holds a link to a file beside it |
+| When | the link is opened asking to follow none, and then asking to follow it |
+| Then | the first open is refused as a link and the second reaches the file |

@@ -103,6 +103,9 @@ pub struct OpenOptions {
     pub create_new: bool,
     /// Empty the file once it is open.
     pub truncate: bool,
+    /// Refuse a symbolic link standing at the path, as `O_NOFOLLOW` does;
+    /// a Filesystem holding no links has none to refuse.
+    pub nofollow: bool,
 }
 
 /// What `Filesystem::rename` may move, as `renameat2` flags ask more of
@@ -173,6 +176,8 @@ pub enum FilesystemError {
     CrossesDevices,
     /// A call that would wait on a lock its own thread holds.
     Deadlock,
+    /// A symbolic link where the call asked to follow none.
+    SymbolicLink,
     /// Any other failure, with what the Filesystem knows of it.
     Other(String),
 }
