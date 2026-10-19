@@ -888,3 +888,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a read-write Mount |
 | When | the guest opens a path as a directory while asking to create or truncate it |
 | Then | the open is refused as invalid, and nothing is made |
+
+## `RT-093` A rename of a file onto a path ending in a slash is not a directory
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-089` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount holding `file.txt` |
+| When | the guest renames `file.txt` onto `file.txt/` |
+| Then | the rename answers that `file.txt` is not a directory |

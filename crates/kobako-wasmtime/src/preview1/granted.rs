@@ -94,6 +94,9 @@ const PROBE_WAT: &str = r#"
     (call $rename (i32.const 3) (i32.const 740) (i32.const 1) (i32.const 3) (i32.const 700) (i32.const 8)))
   (func (export "rename_onto_root") (result i32)
     (call $rename (i32.const 3) (i32.const 700) (i32.const 8) (i32.const 3) (i32.const 740) (i32.const 1)))
+  ;; Rename `file.txt` onto `file.txt/`, its own path as a directory.
+  (func (export "rename_onto_itself_as_directory") (result i32)
+    (call $rename (i32.const 3) (i32.const 700) (i32.const 8) (i32.const 3) (i32.const 800) (i32.const 9)))
   (func (export "unlink_root") (result i32)
     (call $unlink (i32.const 3) (i32.const 740) (i32.const 1))))
 "#;
@@ -487,6 +490,23 @@ fn a_path_ending_in_a_slash_names_only_a_directory() {
         read_beneath(FILE_AS_DIRECTORY),
         ERRNO_NOTDIR,
         "path_open of `file.txt/` beneath a Mount through preview1 must answer ENOTDIR"
+    );
+}
+
+// The target is the source's own path, so only the slash can refuse it.
+// @behavior RT-093
+#[test]
+fn a_rename_of_a_file_onto_a_path_ending_in_a_slash_is_not_a_directory() {
+    let memory: Arc<Memory> = Arc::new([("file.txt", "granted")].into_iter().collect());
+    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
+    assert_eq!(
+        (
+            guest.call_bare("rename_onto_itself_as_directory"),
+            contents(memory.as_ref(), "file.txt")
+        ),
+        (ERRNO_NOTDIR, Some(b"granted".to_vec())),
+        "path_rename of `file.txt` onto `file.txt/` beneath a Mount through preview1 must \
+         answer ENOTDIR and leave the file"
     );
 }
 

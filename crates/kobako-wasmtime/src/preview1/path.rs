@@ -9,7 +9,7 @@ use kobako_runtime::filesystem::{Kind, OpenOptions};
 use kobako_runtime::mount::Access;
 
 use super::args::{self, FDFLAGS_APPEND, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE};
-use super::beneath::resolve;
+use super::beneath::{resolve, Resolved};
 use super::errno::{Answer, Errno};
 use super::fd::write_metadata;
 use super::memory::GuestMemory;
@@ -243,16 +243,22 @@ pub(crate) fn rename(
 ) -> Answer {
     let from_dir = directory(table, old.0)?;
     let to_dir = directory(table, new.0)?;
-    let from = resolve(from_dir, &mem.string(old.1 .0, old.1 .1)?)?
-        .directory_checked(from_dir.mount.filesystem().as_ref())?;
-    // A rename onto its own path leaves everything as it was, a trailing
-    // `/` included, as `rename(2)` does.
-    let to = match resolve(to_dir, &mem.string(new.1 .0, new.1 .1)?)? {
+    let from = resolve(from_dir, &mem.string(old.1 .0, old.1 .1)?)?;
+    let to = resolve(to_dir, &mem.string(new.1 .0, new.1 .1)?)?;
+    not_root(&from.path, Errno::Busy)?;
+    not_root(&to.path, Errno::Busy)?;
+    // A trailing `/` on either side asks that the source be a directory,
+    // which `rename(2)` checks before it finds a rename onto its own path
+    // leaves everything as it was.
+    let from = Resolved {
+        names_directory: from.names_directory || to.names_directory,
+        ..from
+    }
+    .directory_checked(from_dir.mount.filesystem().as_ref())?;
+    let to = match to {
         to if to.path == from => to.path,
         to => to.directory_checked(to_dir.mount.filesystem().as_ref())?,
     };
-    not_root(&from, Errno::Busy)?;
-    not_root(&to, Errno::Busy)?;
     if !Arc::ptr_eq(&from_dir.mount, &to_dir.mount) {
         return Err(Errno::Xdev.into());
     }
