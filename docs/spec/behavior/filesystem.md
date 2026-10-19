@@ -532,3 +532,51 @@ both live in the topmost writable layer, never show, and no name may claim .wh.
 | Given | an Overlay whose writable Layer has room only to copy a lower file up |
 | When | the file is renamed |
 | Then | the rename is refused as out of space, and the file stays where it was |
+
+## `FS-043` A directory a lower Layer holds does not move through an Overlay
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose read-only Layer holds a directory |
+| When | the directory is renamed |
+| Then | the rename is refused as crossing devices, and nothing moves |
+
+## `FS-044` A rename onto what an Overlay shows is checked against the view
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-043` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose read-only Layer alone shows a directory holding a file |
+| When | a file, then an empty directory, is renamed onto that directory |
+| Then | each is refused as rename(2) refuses it, and the directory stays as it was |
+
+## `FS-045` A directory moved over a lower one is marked opaque
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-044` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose read-only Layer holds an empty directory |
+| When | a directory the writable Layer holds is renamed onto it |
+| Then | the moved directory is marked opaque in the writable Layer |
+
+## `FS-046` A copy up that fails part way leaves nothing behind
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-009`, `FS-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose writable Layer has less room than a lower file holds |
+| When | the lower file is written, copying it up |
+| Then | the write is refused as out of space, and the lower file still reads |

@@ -74,6 +74,19 @@ fn join(dir: &str, name: &str) -> String {
     }
 }
 
+fn copy_whole(source: &mut dyn File, target: &mut dyn File) -> Result<(), FilesystemError> {
+    let mut buf = vec![0; 64 * 1024];
+    let mut offset = 0;
+    loop {
+        let read = source.read_at(&mut buf, offset)?;
+        if read == 0 {
+            return Ok(());
+        }
+        target.write_at(&buf[..read], offset)?;
+        offset += read as u64;
+    }
+}
+
 /// Refuse a path naming an entry reserved for the Overlay's markers.
 fn reserved(path: &str) -> Result<(), FilesystemError> {
     if path.split('/').any(|name| name.starts_with(WHITEOUT)) {
@@ -176,6 +189,8 @@ impl Stack {
     }
 
     /// Copy the file at `path` from Layer `from` into Layer `into` whole.
+    /// Layer `into` held nothing there, so a copy that fails part way is
+    /// taken away again rather than left to hide the whole file.
     fn copy_up_file(&self, path: &str, from: usize, into: usize) -> Result<(), FilesystemError> {
         self.copy_up_directories(path, into)?;
         let mut source = self.layers[from].filesystem.open(
@@ -185,7 +200,8 @@ impl Stack {
                 ..OpenOptions::default()
             },
         )?;
-        let mut target = self.layers[into].filesystem.open(
+        let target = &self.layers[into].filesystem;
+        let mut copy = target.open(
             path,
             &OpenOptions {
                 write: true,
@@ -194,16 +210,12 @@ impl Stack {
                 ..OpenOptions::default()
             },
         )?;
-        let mut buf = vec![0; 64 * 1024];
-        let mut offset = 0;
-        loop {
-            let read = source.read_at(&mut buf, offset)?;
-            if read == 0 {
-                return Ok(());
-            }
-            target.write_at(&buf[..read], offset)?;
-            offset += read as u64;
+        let copied = copy_whole(source.as_mut(), copy.as_mut());
+        drop(copy);
+        if copied.is_err() {
+            let _ = target.remove_file(path);
         }
+        copied
     }
 
     /// Clear the whiteout hiding `path` in Layer `into`.
@@ -406,9 +418,12 @@ impl Stack {
     }
 
     /// A directory moves only when the topmost writable Layer alone holds
-    /// it, since moving it out of another would mean copying up everything
-    /// beneath it. The source is whited out before it moves, so it never
-    /// shows from a read-only Layer once moved.
+    /// it; moving one out of another would mean copying up everything
+    /// beneath it, so it is refused as crossing devices, as overlayfs
+    /// refuses it without `redirect_dir`. What the view holds at `to` is
+    /// checked as rename(2) checks it, and a directory moved over one a
+    /// lower Layer holds is marked opaque. The source is whited out before
+    /// it moves, so it never shows from a read-only Layer once moved.
     pub(super) fn rename(
         &self,
         from: &str,
@@ -424,11 +439,26 @@ impl Stack {
         if is_beneath(to, from) {
             return Err(FilesystemError::InvalidInput);
         }
+        let replaced = self.locate(to)?.map(|(_, metadata)| metadata.kind);
+        match (moving.kind, replaced) {
+            (Kind::File, Some(Kind::Directory)) => return Err(FilesystemError::IsADirectory),
+            (Kind::Directory, Some(Kind::File)) => return Err(FilesystemError::NotADirectory),
+            (Kind::Directory, Some(Kind::Directory)) if !self.read_dir(to)?.is_empty() => {
+                return Err(FilesystemError::DirectoryNotEmpty)
+            }
+            _ => {}
+        }
         let upper = self.upper()?;
+        let replaces_below = moving.kind == Kind::Directory
+            && self
+                .layers
+                .iter()
+                .enumerate()
+                .any(|(index, layer)| index != upper && layer.holds(to));
         let holders = self.holders(from);
         let shown_below = self.whiteout_layer(&holders)?;
         match moving.kind {
-            Kind::Directory if holders != [upper] => return Err(FilesystemError::Unsupported),
+            Kind::Directory if holders != [upper] => return Err(FilesystemError::CrossesDevices),
             Kind::File if holders.first() != Some(&upper) => {
                 self.copy_up_file(from, holders[0], upper)?
             }
@@ -439,6 +469,9 @@ impl Stack {
             self.mark(&whiteout(from), upper)?;
         }
         self.layers[upper].filesystem.rename(from, to, rename)?;
+        if replaces_below {
+            self.mark(&join(to, OPAQUE), upper)?;
+        }
         self.unhide(to, upper)?;
         for &index in &holders {
             let layer = &self.layers[index];

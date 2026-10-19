@@ -640,6 +640,101 @@ mod tests {
         );
     }
 
+    // @behavior FS-043
+    #[test]
+    fn a_directory_a_lower_layer_holds_does_not_move_through_an_overlay() {
+        let (overlay, _) = layered(Arc::new(Memory::new()));
+        assert_eq!(
+            (
+                overlay.rename("dir", "moved", Rename::Any),
+                overlay.metadata("moved")
+            ),
+            (
+                Err(FilesystemError::CrossesDevices),
+                Err(FilesystemError::NotFound)
+            ),
+            "a directory a read-only Layer holds renamed through Overlay::rename must be refused \
+             as crossing devices, as overlayfs refuses it"
+        );
+    }
+
+    // The directory shows only from the read-only Layer, so only a check of
+    // the whole view finds it in the way.
+    // @behavior FS-044
+    #[test]
+    fn a_rename_onto_what_an_overlay_shows_is_checked_against_the_view() {
+        let upper = Arc::new(Memory::new());
+        let (overlay, _) = layered(upper.clone());
+        overwrite(&overlay, "note", b"x");
+        overlay
+            .create_dir("empty")
+            .expect("the directory must be made");
+        assert_eq!(
+            (
+                overlay.rename("note", "dir", Rename::Any),
+                overlay.rename("empty", "dir", Rename::Any),
+                read(&overlay, "dir/file")
+            ),
+            (
+                Err(FilesystemError::IsADirectory),
+                Err(FilesystemError::DirectoryNotEmpty),
+                b"lower".to_vec()
+            ),
+            "a rename through Overlay::rename onto a directory only a read-only Layer shows must \
+             be refused as rename(2) refuses it, leaving that directory as it was"
+        );
+    }
+
+    // A directory moved over an empty one a lower Layer holds must not take
+    // up what that Layer later shows there.
+    // @behavior FS-045
+    #[test]
+    fn a_directory_moved_over_a_lower_one_is_marked_opaque() {
+        let upper = Arc::new(Memory::new());
+        let lower: Arc<Memory> = Arc::new([("dir/.keep", "")].into_iter().collect());
+        lower.remove_file("dir/.keep").expect("the seed must go");
+        let overlay = Overlay::new()
+            .layer(upper.clone(), Access::ReadWrite)
+            .layer(lower.clone(), Access::Read);
+        overlay
+            .create_dir("made")
+            .expect("the directory must be made");
+        overlay
+            .rename("made", "dir", Rename::Any)
+            .expect("the directory must move over the empty one");
+        assert_eq!(
+            upper
+                .metadata("dir/.wh..wh..opq")
+                .map(|metadata| metadata.kind),
+            Ok(Kind::File),
+            "a directory moved through Overlay::rename over one a read-only Layer holds must be \
+             marked opaque in the writable Layer"
+        );
+    }
+
+    // The writable Layer has room for the copy's entry but for less than
+    // the lower file's bytes, so the copy fails part way.
+    // @behavior FS-046
+    #[test]
+    fn a_copy_up_that_fails_part_way_leaves_nothing_behind() {
+        let upper = Arc::new(Memory::new().with_limit(Some(2)).with_inodes(Some(8)));
+        let (overlay, _) = layered(upper.clone());
+        assert_eq!(
+            (
+                write(&overlay, "dir/file", b"x"),
+                upper.metadata("dir/file"),
+                read(&overlay, "dir/file")
+            ),
+            (
+                Err(FilesystemError::NoSpace),
+                Err(FilesystemError::NotFound),
+                b"lower".to_vec()
+            ),
+            "a write through Overlay::open whose copy up runs out of room must leave no partial \
+             copy hiding the lower file"
+        );
+    }
+
     /// Counts each wait its Overlay's lock makes through it.
     struct CountsWaits(AtomicUsize);
 
