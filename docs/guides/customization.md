@@ -63,6 +63,8 @@ The types those seams carry, by grade:
 | **append-only, a record an older peer skips or refuses as its sender marked** | `kobako_transport::envelope::Preamble`, re-exported from `kobako_core` |
 | **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · every other `kobako_transport::envelope::*`, six re-exported from `kobako_core` |
 
+`kobako::filesystem` re-exports `kobako_runtime::filesystem`, so each name there keeps the grade above.
+
 Two things stay fixed. The **core envelope** and the **ABI surface** are the same for
 every assembly, which makes the parts interchangeable at all
 (→ [`wire/README.md`](../wire/README.md)). Both live in `kobako-transport`, which depends

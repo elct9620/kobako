@@ -9,8 +9,11 @@ mod common;
 use std::sync::Arc;
 
 use common::real_sandbox;
+use kobako::filesystem::{
+    DirEntry, File, Filesystem, FilesystemError, Kind, Memory, Metadata, OpenOptions, Rename,
+};
 use kobako::msgpack::Value;
-use kobako::{Access, Error, Filesystem, Memory, Policy, Profile, Sandbox};
+use kobako::{Access, Error, Policy, Profile, Sandbox};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::InvokeError;
 use kobako_runtime::grant::Grant;
@@ -200,6 +203,97 @@ fn a_context_replaces_a_mount_for_its_invocation_only() {
         ("other".to_string(), "hello".to_string()),
         "Context::mount must replace the mount for its own invocation and leave the next \
          reading the Sandbox's own mount"
+    );
+}
+
+/// One read-only file, `note.txt`, written against `kobako::filesystem`
+/// alone, as a Host App brings a Filesystem of its own.
+struct OneNote(&'static [u8]);
+
+struct NoteFile(&'static [u8]);
+
+impl File for NoteFile {
+    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+        let rest = self.0.get(offset as usize..).unwrap_or_default();
+        let read = rest.len().min(buf.len());
+        buf[..read].copy_from_slice(&rest[..read]);
+        Ok(read)
+    }
+
+    fn write_at(&mut self, _buf: &[u8], _offset: u64) -> Result<usize, FilesystemError> {
+        Err(FilesystemError::ReadOnly)
+    }
+
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        Ok(Metadata {
+            kind: Kind::File,
+            len: self.0.len() as u64,
+        })
+    }
+
+    fn set_len(&mut self, _len: u64) -> Result<(), FilesystemError> {
+        Err(FilesystemError::ReadOnly)
+    }
+}
+
+impl Filesystem for OneNote {
+    fn open(&self, path: &str, _options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+        match path {
+            "note.txt" => Ok(Box::new(NoteFile(self.0))),
+            _ => Err(FilesystemError::NotFound),
+        }
+    }
+
+    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        match path {
+            "" => Ok(Metadata {
+                kind: Kind::Directory,
+                len: 0,
+            }),
+            "note.txt" => NoteFile(self.0).metadata(),
+            _ => Err(FilesystemError::NotFound),
+        }
+    }
+
+    fn read_dir(&self, _path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+        Ok(vec![DirEntry {
+            name: "note.txt".into(),
+            kind: Kind::File,
+        }])
+    }
+
+    fn create_dir(&self, _path: &str) -> Result<(), FilesystemError> {
+        Err(FilesystemError::ReadOnly)
+    }
+
+    fn remove_dir(&self, _path: &str) -> Result<(), FilesystemError> {
+        Err(FilesystemError::ReadOnly)
+    }
+
+    fn remove_file(&self, _path: &str) -> Result<(), FilesystemError> {
+        Err(FilesystemError::ReadOnly)
+    }
+
+    fn rename(&self, _from: &str, _to: &str, _rename: Rename) -> Result<(), FilesystemError> {
+        Err(FilesystemError::ReadOnly)
+    }
+}
+
+// @behavior MT-021
+#[test]
+fn a_filesystem_a_rust_host_app_writes_mounts_like_the_kinds_kobako_ships() {
+    let Some(mut sandbox) = real_sandbox() else {
+        return;
+    };
+    sandbox
+        .mount("/data", Arc::new(OneNote(b"written in rust")), Access::Read)
+        .unwrap();
+
+    assert_eq!(
+        text(sandbox.eval(READ_NOTE).unwrap().value().unwrap()),
+        "written in rust",
+        "a Filesystem a Host App implements against kobako::filesystem, mounted through \
+         Sandbox::mount, must answer the guest's File"
     );
 }
 

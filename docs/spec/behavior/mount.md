@@ -266,3 +266,15 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 | Given | an Overlay whose Ruby Layer evaluates a script through that Overlay |
 | When | the inner script reads a file there |
 | Then | it raises `Errno::EDEADLK` |
+
+## `MT-021` A Filesystem a Rust Host App writes mounts like the kinds kobako ships
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-001`, `RF-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem a Host App writes against the Rust SDK alone |
+| When | it is mounted and the script reads a file it serves |
+| Then | the script reads that file's content |

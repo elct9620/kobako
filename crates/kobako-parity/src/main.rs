@@ -20,10 +20,11 @@ use std::time::Duration;
 
 use serde_json::{json, Map, Value as Json};
 
+use kobako::filesystem::Memory;
 use kobako::msgpack::{RunArg, Value, ValueReceiver};
 use kobako::{
-    Access, Backend, Error, Execution, Extension, Fault, FaultKind, Handles, Memory, Options,
-    Profile, Provider, Receiver, RunPayload, Sandbox, Yielder,
+    Access, Backend, Error, Execution, Extension, Fault, FaultKind, Handles, Options, Profile,
+    Provider, Receiver, RunPayload, Sandbox, Yielder,
 };
 
 /// The scenario's opaque host objects by declared label, shared by the
