@@ -84,6 +84,15 @@ The Grant placing a Filesystem at a guest path. It allows reading, or reading an
 Mount -> at a guest path, read or read-write, or a Policy -> a Filesystem
 ```
 
+### Policy
+
+The Host App's decision on each path a guest opens or changes beneath a Mount. It decides in the Mount's access's place. It judges the path the guest names, so a directory beneath it does not move. In Ruby it is the block a mount is given.
+
+```
+open or change at a path ─> Policy ─┬─ allows -> the call proceeds
+                                    └─ refuses -> denied, the script goes on
+```
+
 ### Filesystem
 
 The files and directories behind a Mount. It answers every call the guest makes beneath that Mount's path. kobako ships four, and a Host App may bring its own or wrap another.
