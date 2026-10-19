@@ -13,7 +13,7 @@ use super::beneath::{resolve, Resolved};
 use super::errno::{Answer, Errno};
 use super::fd::write_metadata;
 use super::memory::GuestMemory;
-use crate::descriptors::{Descriptor, Descriptors, Directory, OpenFile};
+use crate::descriptors::{Descriptor, Descriptors, OpenDirectory, OpenFile};
 
 const LOOKUPFLAGS_SYMLINK_FOLLOW: u32 = 1 << 0;
 const OFLAGS_CREAT: u32 = 1 << 0;
@@ -31,7 +31,7 @@ pub(crate) struct OpenFlags {
 }
 
 /// The directory `fd` stands for; any other descriptor is `BADF`.
-fn directory(table: &Descriptors, fd: u32) -> Answer<&Directory> {
+fn directory(table: &Descriptors, fd: u32) -> Answer<&OpenDirectory> {
     match table.get(fd).ok_or(Errno::Badf)? {
         Descriptor::Directory(dir) => Ok(dir),
         Descriptor::Stdin(_) | Descriptor::Channel(_) | Descriptor::File(_) => {
@@ -47,7 +47,7 @@ fn beneath<'a>(
     mem: &GuestMemory,
     fd: u32,
     path: (u32, u32),
-) -> Answer<(&'a Directory, String)> {
+) -> Answer<(&'a OpenDirectory, String)> {
     let dir = directory(table, fd)?;
     let path = resolve(dir, &mem.path(path.0, path.1)?)?
         .directory_checked(dir.mount.filesystem().as_ref())?;
@@ -174,7 +174,7 @@ pub(crate) fn open(
     let descriptor = match existing {
         Some(_) if oflag(OFLAGS_CREAT) && oflag(OFLAGS_EXCL) => return Err(Errno::Exist.into()),
         Some(Kind::Directory) if write || oflag(OFLAGS_TRUNC) => return Err(Errno::Isdir.into()),
-        Some(Kind::Directory) => Descriptor::Directory(Directory {
+        Some(Kind::Directory) => Descriptor::Directory(OpenDirectory {
             mount,
             path,
             preopen: false,

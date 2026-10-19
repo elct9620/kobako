@@ -20,11 +20,11 @@ pub(crate) enum Descriptor {
     /// Descriptor 1 or 2, a capture pipe the guest writes a Channel into.
     Channel(MemoryOutputPipe),
     /// A directory beneath a Mount; a preopen is the Mount's own root.
-    Directory(Directory),
+    Directory(OpenDirectory),
     File(OpenFile),
 }
 
-pub(crate) struct Directory {
+pub(crate) struct OpenDirectory {
     pub(crate) mount: Arc<Mount>,
     /// The directory's path relative to the mount's root.
     pub(crate) path: String,
@@ -65,7 +65,7 @@ impl Descriptors {
         for (fd, mount) in (3..).zip(mounts) {
             used.insert(
                 fd,
-                Descriptor::Directory(Directory {
+                Descriptor::Directory(OpenDirectory {
                     mount: Arc::new(mount),
                     path: String::new(),
                     preopen: true,

@@ -9,7 +9,7 @@
 use kobako_runtime::filesystem::{Filesystem, FilesystemError, Kind};
 
 use super::errno::{Answer, Errno};
-use crate::descriptors::Directory;
+use crate::descriptors::OpenDirectory;
 
 /// Linux's limits on a path, its terminating NUL counted, and on one name
 /// within it.
@@ -46,7 +46,7 @@ impl Resolved {
 /// component that is missing or no directory is `NOENT` or `NOTDIR`. A
 /// name past `NAME_MAX`, or a resolved path the Filesystem could not be
 /// handed within `PATH_MAX`, is `NAMETOOLONG`.
-pub(crate) fn resolve(dir: &Directory, path: &str) -> Answer<Resolved> {
+pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<Resolved> {
     if path.is_empty() {
         return Err(Errno::Noent.into());
     }
