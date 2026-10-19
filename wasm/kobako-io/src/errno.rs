@@ -85,6 +85,11 @@ const CODES: &[Code] = &[
         wasi: 69,
         message: "Read-only file system",
     },
+    Code {
+        name: c"EXDEV",
+        wasi: 75,
+        message: "Invalid cross-device link",
+    },
 ];
 
 /// WASI's `ENOTCAPABLE`: a path outside every mounted filesystem. CRuby
