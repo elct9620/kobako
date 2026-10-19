@@ -15,9 +15,11 @@ use kobako_runtime::filesystem::{
 };
 
 use crate::runtime::gvl;
+use crate::runtime::pinned::Pinned;
 
-/// The Ruby object behind a Mount or a Layer. The Ruby side that holds it
-/// keeps it alive: the Mount entry, or the Overlay marking its Layers.
+/// The Ruby object behind a Mount or a Layer. Whatever holds it on the
+/// Ruby side keeps it alive and in place: the invocation pinning its
+/// Mounts, or the Overlay marking its Layers.
 pub(crate) struct RubyFilesystem {
     object: Opaque<Value>,
 }
@@ -190,19 +192,17 @@ impl Filesystem for RubyFilesystem {
     }
 }
 
-/// One file the Ruby object opened. Only the guest's descriptor refers to
-/// it, so it stays registered with Ruby's collector until it is released.
+/// One file the Ruby object opened, which only the guest's descriptor
+/// refers to.
 struct RubyFile {
-    file: Box<Opaque<Value>>,
+    file: Pinned,
     closed: bool,
 }
 
 impl RubyFile {
     fn pin(ruby: &Ruby, file: Value) -> Self {
-        let file = Box::new(Opaque::from(file));
-        ruby.gc_register_address(&*file);
         Self {
-            file,
+            file: Pinned::new(ruby, file),
             closed: false,
         }
     }
@@ -211,7 +211,7 @@ impl RubyFile {
     /// release.
     fn release(&mut self) -> Result<(), FilesystemError> {
         self.closed = true;
-        match change(*self.file, "close", (), FilesystemError::Unsupported) {
+        match change(self.file.get(), "close", (), FilesystemError::Unsupported) {
             Err(FilesystemError::Unsupported) => Ok(()),
             answer => answer,
         }
@@ -221,7 +221,7 @@ impl RubyFile {
 impl File for RubyFile {
     fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
         ask(
-            *self.file,
+            self.file.get(),
             "pread",
             FilesystemError::Unsupported,
             |_, file| {
@@ -238,7 +238,7 @@ impl File for RubyFile {
 
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
         ask(
-            *self.file,
+            self.file.get(),
             "pwrite",
             FilesystemError::ReadOnly,
             |ruby, file| file.funcall("pwrite", (ruby.str_from_slice(buf), offset)),
@@ -247,7 +247,7 @@ impl File for RubyFile {
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
         ask(
-            *self.file,
+            self.file.get(),
             "size",
             FilesystemError::Unsupported,
             |_, file| {
@@ -260,12 +260,17 @@ impl File for RubyFile {
     }
 
     fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
-        change(*self.file, "truncate", (len,), FilesystemError::ReadOnly)
+        change(
+            self.file.get(),
+            "truncate",
+            (len,),
+            FilesystemError::ReadOnly,
+        )
     }
 
     /// A file lacking `fsync` has nothing of its own to flush.
     fn sync(&mut self) -> Result<(), FilesystemError> {
-        match change(*self.file, "fsync", (), FilesystemError::Unsupported) {
+        match change(self.file.get(), "fsync", (), FilesystemError::Unsupported) {
             Err(FilesystemError::Unsupported) => Ok(()),
             answer => answer,
         }
@@ -276,16 +281,11 @@ impl File for RubyFile {
     }
 }
 
-/// A file the guest never closed is closed here, its failure discarded,
-/// and released to Ruby's collector either way.
+/// A file the guest never closed is closed here, its failure discarded.
 impl Drop for RubyFile {
     fn drop(&mut self) {
         if !self.closed {
             let _ = self.release();
         }
-        gvl::reenter(|| {
-            let ruby = Ruby::get().expect("Ruby handle unavailable releasing a file");
-            ruby.gc_unregister_address(&*self.file);
-        });
     }
 }

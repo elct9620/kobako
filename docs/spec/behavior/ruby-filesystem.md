@@ -118,3 +118,16 @@ The Host App gets no exception of its own back. A failure belongs to the guest, 
 | Given | an Overlay holding the only reference to a Ruby Filesystem, after a full collection |
 | When | the script reads a file through a mount of that Overlay |
 | Then | it reads the Ruby Filesystem's content |
+
+## `RF-009` A mounted Ruby Filesystem answers after the host compacts its heap
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-001`, `MT-016` |
+| unverifiable | the invocation's own frames pin the object, so no staged compaction moves it |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox mounting a Ruby Filesystem that only the mount refers to |
+| When | the host compacts its heap between two reads of a file there |
+| Then | the second read answers as the first did |

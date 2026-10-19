@@ -202,3 +202,15 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 | Given | no Memory |
 | When | one is created with a misspelled `limit` keyword |
 | Then | the creation raises `ArgumentError` naming the unknown keyword |
+
+## `MT-016` A mount's block answers after the host compacts its heap
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-007`, `T-071` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose mount's block allows a path |
+| When | the host compacts its heap between two opens of that path |
+| Then | the second open reads the file as the first did |

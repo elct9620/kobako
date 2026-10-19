@@ -21,6 +21,7 @@ mod bridge;
 mod errors;
 mod filesystem;
 mod gvl;
+mod pinned;
 
 use magnus::{
     function, method, prelude::*, scan_args::get_kwargs, typed_data::DataTypeFunctions,
@@ -310,7 +311,7 @@ impl Runtime {
         let handler = build_handler(dispatch);
         let paths: RArray = setup.entry(0)?;
         let preamble = preamble_from(&ruby, paths.to_vec()?, setup.entry(1)?, setup.entry(2)?)?;
-        let grants = filesystem::grants_from(setup.entry(3)?)?;
+        let (grants, _pins) = filesystem::grants_from(&ruby, setup.entry(3)?)?;
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // the closure touches no Ruby VALUE (the driver is magnus-free, and a
         // guest→host dispatch, or a mount's block, re-acquires the GVL).

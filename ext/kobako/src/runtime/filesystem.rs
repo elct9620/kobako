@@ -20,6 +20,8 @@ use magnus::{
 
 use ruby::RubyFilesystem;
 
+use super::pinned::Pinned;
+
 use kobako_runtime::filesystem::{Directory, Filesystem, Memory, Overlay, Temporary};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
@@ -217,23 +219,31 @@ impl Policy for RubyPolicy {
 }
 
 /// The Grants one invocation carries, from the Sandbox's Mounts as
-/// `[at, access, filesystem, block]` entries. Each block stays rooted on
-/// the Ruby side for the synchronous call that hands it over.
-pub(super) fn grants_from(mounts: RArray) -> Result<Vec<Grant>, MagnusError> {
+/// `[at, access, filesystem, block]` entries, beside the pins keeping
+/// each Mount's filesystem and block in place while the guest may reach
+/// them; the caller holds both until the invocation returns.
+pub(super) fn grants_from(
+    ruby: &Ruby,
+    mounts: RArray,
+) -> Result<(Vec<Grant>, Vec<Pinned>), MagnusError> {
     let mut grants = Vec::with_capacity(mounts.len());
+    let mut pins = Vec::with_capacity(mounts.len() * 2);
     for index in 0..mounts.len() as isize {
         let entry: RArray = mounts.entry(index)?;
         let at: String = entry.entry(0)?;
         let access = access_of(entry.entry(1)?)?;
-        let mount = Mount::new(at, filesystem_of(entry.entry(2)?)?, access);
+        let filesystem: Value = entry.entry(2)?;
+        pins.push(Pinned::new(ruby, filesystem));
+        let mount = Mount::new(at, filesystem_of(filesystem)?, access);
         let block: Value = entry.entry(3)?;
         grants.push(Grant::Mount(if block.is_nil() {
             mount
         } else {
+            pins.push(Pinned::new(ruby, block));
             mount.with_policy(Arc::new(RubyPolicy {
                 block: Opaque::from(block),
             }))
         }));
     }
-    Ok(grants)
+    Ok((grants, pins))
 }

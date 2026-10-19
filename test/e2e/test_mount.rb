@@ -78,6 +78,21 @@ class TestE2EMount < Minitest::Test
                  "an open whose Sandbox#mount block raises must reach the guest as Errno::EACCES"
   end
 
+  # Compaction moves every movable object, so a block the ext reached
+  # through a stale address would answer as some other object and refuse.
+  # It runs from a Service call, while the block itself is off the stack.
+  # @behavior MT-016
+  def test_a_mounts_block_answers_after_the_host_compacts_its_heap
+    skip "GC compaction unavailable on this Ruby build" unless GC.respond_to?(:verify_compaction_references)
+
+    sandbox = sandbox_with_note { |path, _access| path == "/data/note.txt" }
+    sandbox.bind("Host::Compact", -> { GC.verify_compaction_references(expand_heap: true, toward: :empty) && nil })
+    script = 'a = File.read("/data/note.txt"); Host::Compact.call; a + File.read("/data/note.txt")'
+
+    assert_equal "hellohello", sandbox.eval(script).value,
+                 "a Sandbox#mount block must still allow an open after the host compacts its heap mid-run"
+  end
+
   # @behavior MT-009
   def test_a_context_replaces_a_mount_for_its_invocation_only
     sandbox = sandbox_with_note
