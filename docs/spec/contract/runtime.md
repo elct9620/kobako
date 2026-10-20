@@ -628,6 +628,18 @@ impl Memory {
 }
 ```
 
+## `Memory::from_iter`
+
+A Memory seeded with files, each a path and its contents, its directories made
+along the way. It panics on the root path and on a file given twice. It also
+panics on a file where another path needs a directory.
+
+```rust
+impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
+    fn from_iter<I: IntoIterator<Item = (P, C)>>(files: I) -> Self {}
+}
+```
+
 ## `Temporary`
 
 The Filesystem kobako ships that holds its files in memory and starts every

@@ -208,6 +208,12 @@ impl Default for Memory {
 
 /// A Memory seeded with files, each `(path, contents)`, its directories
 /// created along the way.
+///
+/// # Panics
+///
+/// When a path names the root, names a file twice, or stands where
+/// another path needs a directory, or the reverse: the list is the Host
+/// App's own, and no Memory holds it as given.
 impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
     fn from_iter<I: IntoIterator<Item = (P, C)>>(files: I) -> Self {
         let memory = Self::new();
@@ -215,13 +221,24 @@ impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
             let mut nodes = memory.nodes();
             for (path, contents) in files {
                 let path = seeded(path.as_ref());
+                assert!(!path.is_empty(), "a Memory seeds no file at its root");
                 for (end, _) in path.match_indices('/') {
-                    if nodes
-                        .insert(path[..end].to_string(), Node::Directory)
-                        .is_none()
-                    {
-                        memory.space.inodes.add(1);
+                    let dir = &path[..end];
+                    match nodes.get(dir) {
+                        Some(Node::Directory) => {}
+                        Some(_) => panic!("a Memory seeds {dir} as both a file and a directory"),
+                        None => {
+                            nodes.insert(dir.to_string(), Node::Directory);
+                            memory.space.inodes.add(1);
+                        }
                     }
+                }
+                match nodes.get(&path) {
+                    Some(Node::Directory) => {
+                        panic!("a Memory seeds {path} as both a file and a directory")
+                    }
+                    Some(_) => panic!("a Memory seeds {path} twice"),
+                    None => {}
                 }
                 nodes.insert(
                     path,
@@ -483,6 +500,34 @@ mod tests {
             b"name: kobako",
             "a file seeded into Memory through FromIterator must read back its content"
         );
+    }
+
+    // @behavior FS-062
+    #[test]
+    #[should_panic(expected = "a Memory seeds no file at its root")]
+    fn a_memory_seeded_at_its_root_panics() {
+        let _: Memory = [("/", "x")].into_iter().collect();
+    }
+
+    // @behavior FS-062
+    #[test]
+    #[should_panic(expected = "a Memory seeds a as both a file and a directory")]
+    fn a_memory_seeded_with_a_file_beneath_a_file_panics() {
+        let _: Memory = [("a", "x"), ("a/b", "y")].into_iter().collect();
+    }
+
+    // @behavior FS-062
+    #[test]
+    #[should_panic(expected = "a Memory seeds a as both a file and a directory")]
+    fn a_memory_seeded_with_a_file_over_a_directory_panics() {
+        let _: Memory = [("a/b", "y"), ("a", "x")].into_iter().collect();
+    }
+
+    // @behavior FS-062
+    #[test]
+    #[should_panic(expected = "a Memory seeds a twice")]
+    fn a_memory_seeded_with_one_path_twice_panics() {
+        let _: Memory = [("a", "x"), ("a", "y")].into_iter().collect();
     }
 
     // @behavior FS-002

@@ -766,3 +766,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay showing the file `dir/file` |
 | When | `dir/file` is renamed to `dir/file/x` through the Overlay |
 | Then | the rename is refused as no directory |
+
+## `FS-062` A Memory seeded with a list it cannot hold panics
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a list naming the root, a file twice, or a file where another path needs a directory |
+| When | a Memory is seeded with it |
+| Then | the seeding panics |
