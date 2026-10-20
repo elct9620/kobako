@@ -15,8 +15,8 @@ engine stays swappable.
 | `error` | the neutral failure types: `Trap`, `SetupError`, and `InvokeError` over both |
 | `profile` | the isolation `Profile` a runtime declares |
 | `grant` | the `Grant` a frontend hands each invocation, and the `GrantKind`s a runtime supports |
-| `mount` | the `Mount` placing a `Filesystem` at a guest path, with its `Access` and `Policy` |
-| `filesystem` | the `Filesystem` behind a Mount, and the `Memory`, `Temporary`, `Directory`, and `Overlay` kobako ships |
+| `mount` | the `Mount` at a guest path, and the `Policy` judging its paths |
+| `filesystem` | the `Filesystem` trait, its `Access`, and the four kinds kobako ships |
 | `dispatch` / `yielder` | the `DispatchHandler` and `Yielder` traits a frontend supplies for guest→host dispatch and block-yield re-entry |
 
 Engine implementations such as `kobako-wasmtime` implement `Runtime`.
