@@ -563,6 +563,18 @@ mod tests {
         );
     }
 
+    // A Layer folding case would hold `.WH.note` as the marker hiding `note`.
+    // @behavior FS-056
+    #[test]
+    fn an_overlay_refuses_its_reserved_name_in_any_case() {
+        let (overlay, _) = layered(Arc::new(Memory::new()));
+        assert_eq!(
+            write(&overlay, "dir/.WH.note", b"x"),
+            Err(FilesystemError::InvalidInput),
+            "a file named .WH.note created through Overlay::open must be refused"
+        );
+    }
+
     // @behavior FS-021
     #[test]
     fn an_overlay_with_no_writable_layer_refuses_every_change_as_read_only() {

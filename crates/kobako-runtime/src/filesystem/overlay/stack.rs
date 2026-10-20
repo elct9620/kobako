@@ -105,9 +105,14 @@ fn copy_whole(source: &mut dyn File, target: &mut dyn File) -> Result<(), Filesy
     }
 }
 
-/// Refuse a path naming an entry reserved for the Overlay's markers.
+/// Refuse a path naming an entry reserved for the Overlay's markers, in
+/// any case, since a Layer that folds case would hold `.WH.name` as one.
 fn reserved(path: &str) -> Result<(), FilesystemError> {
-    if path.split('/').any(|name| name.starts_with(WHITEOUT)) {
+    let marker = |name: &str| {
+        name.get(..WHITEOUT.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(WHITEOUT))
+    };
+    if path.split('/').any(marker) {
         return Err(FilesystemError::InvalidInput);
     }
     Ok(())

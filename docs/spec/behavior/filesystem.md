@@ -34,7 +34,7 @@ nothing writable  every change is refused as read-only
 
 whiteout          .wh.<name>      beside the hidden entry
 opaque directory  .wh..wh..opq    inside a directory made again where one was removed
-both live in the topmost writable layer, never show, and no name may claim .wh.
+both live in the topmost writable layer, never show, and no name may claim .wh. in any case
 ```
 
 ## Includes
@@ -692,3 +692,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh.
 | Given | an Overlay whose writable Layer refuses the close of a file it wrote |
 | When | the lower file is written, copying it up |
 | Then | the write is refused, and the lower file still reads |
+
+## `FS-056` An Overlay refuses its reserved name in any case
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-020` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay with a writable Layer |
+| When | a file named `.WH.note` is created through the Overlay |
+| Then | the creation is refused |
