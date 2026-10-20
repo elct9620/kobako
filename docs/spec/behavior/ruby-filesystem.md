@@ -14,7 +14,7 @@ A Filesystem in Ruby is any object answering `open` and `stat`. Its methods take
 ```
 a change method missing   -> Errno::EROFS in the script
 EOFError raised by pread  -> the end of the file
-an Errno raised           -> that Errno in the script
+an Errno the guest names  -> that Errno in the script
 another StandardError     -> Errno::EIO in the script, which goes on
 anything else raised      -> the run ends, and it raises in the Host App
 ```
@@ -26,6 +26,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 - `test/e2e/test_ruby_filesystem.rb`
 - `test/e2e/test_ruby_filesystem_host_file.rb`
 - `test/e2e/test_host_exception.rb`
+- `test/e2e/test_ruby_filesystem_errno.rb`
 
 ## `RF-001` A Ruby object answering open and stat mounts as a Filesystem
 
@@ -196,3 +197,28 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem whose `open` raises `Interrupt` |
 | When | the script opens a file and rescues every failure |
 | Then | the run raises `Interrupt` in the Host App |
+
+## `RF-015` An Errno the guest names reaches the script as itself
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-004` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `open` raises `Errno::EPERM` |
+| When | the script opens a file |
+| Then | the open raises `Errno::EPERM`, not `Errno::EACCES` |
+
+## `RF-016` An Errno the guest has no class for reaches the script as EIO
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-004` |
+| relates | `RF-005` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `open` raises `Errno::EAGAIN` |
+| When | the script opens a file |
+| Then | the open raises `Errno::EIO` |

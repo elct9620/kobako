@@ -5,8 +5,8 @@
 //! `IO`, so a Host App can hand an open call on to a real `::File`. A
 //! change method the object lacks answers as read-only; any other method
 //! it lacks answers as unsupported. A file's `EOFError` from `pread` is
-//! its end, an `Errno` it raises reaches the guest as that code, and any
-//! other `StandardError` reaches the guest as `EIO`.
+//! its end, an `Errno` the guest has a class for reaches the guest as
+//! that code, and any other `StandardError` reaches the guest as `EIO`.
 
 use magnus::value::{Opaque, ReprValue};
 use magnus::{kwargs, prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, Value};
@@ -70,17 +70,17 @@ fn change(
     })
 }
 
-/// The FilesystemError an `Errno` stands for; anything else is `Other`,
-/// which reaches the guest as `EIO`.
+/// The FilesystemError an `Errno` stands for, one for each class the
+/// guest has; anything else is `Other`, which reaches the guest as `EIO`.
 fn error_of(ruby: &Ruby, err: MagnusError) -> FilesystemError {
-    const CODES: [(&str, FilesystemError); 15] = [
+    const CODES: [(&str, FilesystemError); 25] = [
         ("ENOENT", FilesystemError::NotFound),
         ("EEXIST", FilesystemError::AlreadyExists),
         ("ENOTDIR", FilesystemError::NotADirectory),
         ("EISDIR", FilesystemError::IsADirectory),
         ("ENOTEMPTY", FilesystemError::DirectoryNotEmpty),
         ("EACCES", FilesystemError::PermissionDenied),
-        ("EPERM", FilesystemError::PermissionDenied),
+        ("EPERM", FilesystemError::NotPermitted),
         ("EROFS", FilesystemError::ReadOnly),
         ("EINVAL", FilesystemError::InvalidInput),
         ("ENOTSUP", FilesystemError::Unsupported),
@@ -89,6 +89,16 @@ fn error_of(ruby: &Ruby, err: MagnusError) -> FilesystemError {
         ("EXDEV", FilesystemError::CrossesDevices),
         ("EDEADLK", FilesystemError::Deadlock),
         ("ELOOP", FilesystemError::SymbolicLink),
+        ("EBADF", FilesystemError::BadDescriptor),
+        ("EBUSY", FilesystemError::ResourceBusy),
+        ("EILSEQ", FilesystemError::IllegalSequence),
+        ("EINTR", FilesystemError::Interrupted),
+        ("EMFILE", FilesystemError::TooManyOpenFiles),
+        ("ENAMETOOLONG", FilesystemError::InvalidFilename),
+        ("ENOMEM", FilesystemError::OutOfMemory),
+        ("ENOTSOCK", FilesystemError::NotASocket),
+        ("EOVERFLOW", FilesystemError::ValueTooLarge),
+        ("ESPIPE", FilesystemError::NotSeekable),
     ];
     let errno = ruby.class_object().const_get::<_, RModule>("Errno").ok();
     for (name, error) in CODES {
