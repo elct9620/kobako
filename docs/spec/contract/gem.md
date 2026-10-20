@@ -54,11 +54,107 @@ end
 ## `Kobako::Filesystem`
 
 The kinds of Filesystem a Host App mounts for the guest's `File`. An object
-answering `open` and `stat` mounts as one written in Ruby.
+answering `open` and `stat` mounts as one written in Ruby. The methods such an
+object answers are typed in `sig/kobako/filesystem.rbs`.
 
 ```ruby
 module Kobako
   module Filesystem
+  end
+end
+```
+
+## `Kobako::Filesystem::Memory.new`
+
+A Filesystem held in memory and shared by every invocation, seeded with files.
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
+
+```ruby
+module Kobako
+  module Filesystem
+    class Memory
+      def self.new(files = {}, limit: nil, inodes: nil, **seeded)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Filesystem::Temporary.new`
+
+A Filesystem held in memory that starts every invocation empty.
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
+
+```ruby
+module Kobako
+  module Filesystem
+    class Temporary
+      def self.new(limit: nil, inodes: nil)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Filesystem::Directory.new`
+
+A Filesystem over a host directory, reaching nothing outside it.
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
+
+```ruby
+module Kobako
+  module Filesystem
+    class Directory
+      def self.new(path)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Filesystem::Overlay.new`
+
+A Filesystem stacking Layers into one view, empty until a Layer is added.
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
+
+```ruby
+module Kobako
+  module Filesystem
+    class Overlay
+      def self.new
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Filesystem::Overlay#layer`
+
+Add a Filesystem below the Layers so far, with its own access.
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
+
+```ruby
+module Kobako
+  module Filesystem
+    class Overlay
+      def layer(filesystem, access: :read)
+      end
+    end
   end
 end
 ```
