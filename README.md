@@ -129,7 +129,7 @@ These terms name the concepts the rest of this README builds on.
 | Invocation | — | One run of guest code, by `#eval` or `#run`. |
 | Execution | `Kobako::Execution` | The frozen record an Invocation leaves. |
 | Service | — | A host object the guest reaches by name, such as `MyService::KV`. |
-| Mount | `Kobako::Filesystem` | A Filesystem placed at a guest path for the guest's `File`. |
+| Mount | — | A `Kobako::Filesystem` placed at a guest path by `Sandbox#mount`, for the guest's `File`. |
 | Context | `Kobako::Context` | The per-Invocation object the optional block receives. |
 | Snippet | — | Guest source or bytecode replayed at the start of every Invocation. |
 | Handle | `Kobako::Handle` | An opaque reference to a host object the wire cannot carry by value. |
@@ -207,7 +207,17 @@ sandbox.eval('File.read("/config/app.yml")')
 
 A Memory or Temporary is bounded as a tmpfs mount is. Its files hold 64 MiB unless `limit:` gives another size in bytes. It holds one file or directory for each 4 KiB of that limit, and its root, unless `inodes:` gives another count. `nil` lifts either bound, and the guest raises `Errno::ENOSPC` past one.
 
-A block decides each open and each change in the access's place; a falsy answer or a `StandardError` fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run. With nothing mounted, `File.open` raises `NotImplementedError`.
+A block decides each open and each change in the access's place; a falsy answer or a `StandardError` fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run.
+
+#### Guest File
+
+The guest's `File.open` takes a mode String such as `"r"` or `"w+"`; an Integer mode or `File::Constants` is not supported. The critical flag `disable_file` removes `File` from the guest altogether.
+
+| When | `File.open` in the guest |
+|---|---|
+| nothing is mounted | raises `NotImplementedError` |
+| the path is beneath a mount | reaches its Filesystem |
+| `disable_file` is set | `File` is not defined |
 
 #### Overlays
 
@@ -228,7 +238,7 @@ Any object answering `open` and `stat` mounts as a Filesystem, directly or as a 
 
 | Method | Answers |
 |---|---|
-| `open(path, flags)` | a file answering `pread`, `pwrite`, `size`, `truncate`, `fsync`, `close` |
+| `open(path, flags)` | a file answering `pread` and `size`; `pwrite`, `truncate`, `fsync`, and `close` are optional |
 | `stat(path)` | an object answering `directory?` and `size` |
 | `children(path)` | entry names, as `Dir.children` gives them |
 | `mkdir` · `rmdir` · `unlink` · `rename(from, to, directory:)` | optional; without one, that change raises `Errno::EROFS` |

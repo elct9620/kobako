@@ -24,7 +24,7 @@ ask to stay anonymous.
 ## Scope
 
 In scope is anything that lets guest code cross the isolation boundary it should not:
-reaching host memory, the filesystem, the network, or `ENV`; obtaining ambient time or
+reaching host memory, the filesystem beyond what you mounted, the network, or `ENV`; obtaining ambient time or
 entropy the host froze; reaching a Service you never bound; or a
 memory-safety fault in the host codec or wasmtime driver.
 
