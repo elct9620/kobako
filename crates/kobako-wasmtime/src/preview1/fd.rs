@@ -145,8 +145,11 @@ pub(crate) fn advise(table: &mut Descriptors, fd: u32, advice: u32) -> Answer {
     file(table, fd).map(drop)
 }
 
+/// A Filesystem has no room to reserve ahead of a write, so allocating it
+/// is unsupported rather than answered as done.
 pub(crate) fn allocate(table: &mut Descriptors, fd: u32) -> Answer {
-    file(table, fd).map(drop)
+    file(table, fd)?;
+    Err(Errno::Notsup.into())
 }
 
 pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {

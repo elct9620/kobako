@@ -28,6 +28,7 @@ const ERRNO_INVAL: i32 = 28;
 const ERRNO_ISDIR: i32 = 31;
 const ERRNO_NOENT: i32 = 44;
 const ERRNO_NOTDIR: i32 = 54;
+const ERRNO_NOTSUP: i32 = 58;
 const ERRNO_ROFS: i32 = 69;
 const ERRNO_XDEV: i32 = 75;
 const ERRNO_NOTCAPABLE: i32 = 76;
@@ -47,6 +48,7 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "path_remove_directory" (func $rmdir (param i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_rename" (func $rename (param i32 i32 i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_unlink_file" (func $unlink (param i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_allocate" (func $allocate (param i32 i64 i64) (result i32)))
   (memory (export "memory") 1)
   (data (i32.const 740) ".")
   (data (i32.const 760) "missing/../file.txt")
@@ -110,6 +112,14 @@ const PROBE_WAT: &str = r#"
       (i32.const 0) (i64.const 64) (i64.const 0) (i32.const 1) (i32.const 128)))
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $write (i32.load (i32.const 128)) (i32.const 80) (i32.const 1) (i32.const 132)))
+
+  ;; Open the path to write and allocate 100 bytes from its start.
+  (func (export "allocate_file") (param $path i32) (param $len i32) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open (i32.const 3) (i32.const 0) (local.get $path) (local.get $len)
+      (i32.const 0) (i64.const 64) (i64.const 0) (i32.const 0) (i32.const 128)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $allocate (i32.load (i32.const 128)) (i64.const 0) (i64.const 100)))
 
   ;; Rename `file.txt` to `new.txt`.
   (func (export "rename_to_new") (result i32)
@@ -677,6 +687,20 @@ fn a_stat_of_a_link_named_with_a_trailing_slash_reports_its_directory() {
     );
 }
 
+// @behavior RT-099
+#[test]
+fn an_allocation_for_a_file_beneath_a_mount_is_unsupported() {
+    let memory: Arc<Memory> = Arc::new([("file.txt", "granted")].into_iter().collect());
+    let answer =
+        Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]).call("allocate_file", FILE);
+    assert_eq!(
+        (answer, contents(memory.as_ref(), "file.txt")),
+        (ERRNO_NOTSUP, Some(b"granted".to_vec())),
+        "fd_allocate of a file beneath a read-write Mount through preview1 must answer ENOTSUP \
+         as wasmtime-wasi does, leaving the file as it was"
+    );
+}
+
 /// What each root-changing export answers, and how many changes the
 /// Filesystem was asked for along the way.
 fn change_root(exports: &[&str]) -> (Vec<i32>, usize) {
@@ -803,7 +827,6 @@ const OFLAGS_CREAT: i32 = 1 << 0;
 const OFLAGS_DIRECTORY: i32 = 1 << 1;
 const OFLAGS_TRUNC: i32 = 1 << 3;
 const FDFLAGS_SYNC: i32 = 1 << 4;
-const ERRNO_NOTSUP: i32 = 58;
 
 /// What opening `path` with `oflags` and `fdflags` answers beneath a
 /// read-write Memory holding `file.txt`, and the paths it holds after.

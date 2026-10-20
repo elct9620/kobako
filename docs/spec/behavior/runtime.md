@@ -961,3 +961,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a Directory Mount holding a link to a directory |
 | When | the guest stats the link with a trailing slash, following no link |
 | Then | the stat answers a directory |
+
+## `RT-099` An allocation for a file beneath a Mount is unsupported
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-077` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount holding a file |
+| When | the guest opens the file to write and asks to allocate room in it |
+| Then | the allocation answers NOTSUP, and the file holds what it held |
