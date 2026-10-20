@@ -22,6 +22,7 @@ The Host App gets no exception of its own back. A failure belongs to the guest, 
 ## Includes
 
 - `test/e2e/test_ruby_filesystem.rb`
+- `test/e2e/test_ruby_filesystem_host_file.rb`
 
 ## `RF-001` A Ruby object answering open and stat mounts as a Filesystem
 
@@ -168,3 +169,15 @@ The Host App gets no exception of its own back. A failure belongs to the guest, 
 | Given | a Ruby Filesystem whose file answers more bytes written than it was handed |
 | When | the script writes to that file |
 | Then | the write raises `Errno::EIO` |
+
+## `RF-013` A real File a Ruby Filesystem opens reads to its end
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `open` answers a real `::File` |
+| When | the script reads the whole file |
+| Then | the read answers the file's content |

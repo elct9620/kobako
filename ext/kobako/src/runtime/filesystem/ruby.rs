@@ -243,8 +243,12 @@ impl File for RubyFile {
             self.file.get(),
             "pread",
             FilesystemError::Unsupported,
-            |_, file| {
-                let read: Option<RString> = file.funcall("pread", (buf.len(), offset))?;
+            |ruby, file| {
+                // `IO#pread` raises `EOFError` at the end of a file, which reads as nothing.
+                let read: Option<RString> = match file.funcall("pread", (buf.len(), offset)) {
+                    Err(err) if err.is_kind_of(ruby.exception_eof_error()) => None,
+                    read => read?,
+                };
                 let Some(read) = read else { return Ok(0) };
                 // SAFETY: the bytes are copied out before Ruby runs again.
                 let bytes = unsafe { read.as_slice() };
