@@ -231,3 +231,15 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount |
 | When | the script reads a path holding the byte `0xff` |
 | Then | the read raises `Errno::EILSEQ` |
+
+## `FL-019` A SystemCallError keeps a number no class names
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount |
+| When | the script builds `SystemCallError` with 9999 |
+| Then | it reads `Unknown error: 9999`, and its `errno` is 9999 |

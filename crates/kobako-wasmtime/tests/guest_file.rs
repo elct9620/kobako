@@ -521,6 +521,26 @@ fn an_errno_a_script_raises_reads_as_crubys() {
     );
 }
 
+// No Errno class names 9999, so only the number the error was built with
+// can answer `errno`.
+// @behavior FL-019
+#[test]
+fn a_system_call_error_keeps_a_number_no_class_names() {
+    let Some(answer) = run(
+        r#"e = SystemCallError.new(9999); print [e.class.to_s, e.message, e.errno].inspect"#,
+        &[mount(seeded(), Access::Read)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(r#"["SystemCallError", "Unknown error: 9999", 9999]"#.to_string()),
+        "SystemCallError.new with a number no Errno class names through the bundled guest must \
+         keep that number as its errno, as CRuby does"
+    );
+}
+
 // @behavior FL-017
 #[test]
 fn a_read_or_write_a_stream_was_not_opened_for_raises_ioerror() {

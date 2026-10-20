@@ -6,7 +6,7 @@ use std::io;
 
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{Error, ExceptionClass, IntoValue, Mrb, Value};
+use beni::{Error, Exception, ExceptionClass, IntoValue, Mrb, Value};
 
 /// One `Errno` class: its name, the WASI errno it answers, the number
 /// CRuby on Linux gives it as `Errno`, and its message.
@@ -129,18 +129,23 @@ fn sce_s_new(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
         let message = String::from_value(message).ok_or_else(|| type_error(mrb, message))?;
         text = format!("{text} - {message}");
     }
-    Ok(class.new_str(mrb, mrb.str_new(text.as_bytes())).as_value())
+    let exception = class.new_str(mrb, mrb.str_new(text.as_bytes()));
+    if let (None, Some(number)) = (known, number) {
+        exception.ivar_set(mrb, c"@errno", number)?;
+    }
+    Ok(exception.as_value())
 }
 
-/// The number the error's class stands for. A `SystemCallError` built
-/// with a number no class names answers `nil`, where CRuby keeps that
-/// number: beni sets no state on an exception object.
+/// The number the error's class stands for, or the one it was built with.
 fn sce_errno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let class = self_.funcall(mrb, c"class", &[])?;
-    Ok(match number_of(mrb, class) {
-        Some(number) => number.into_value(mrb),
-        None => qnil().as_value(),
-    })
+    if let Some(number) = number_of(mrb, class) {
+        return Ok(number.into_value(mrb));
+    }
+    match Exception::from_value(self_) {
+        Some(exception) => exception.ivar_get(mrb, c"@errno"),
+        None => Ok(qnil().as_value()),
+    }
 }
 
 fn type_error(mrb: &Mrb, value: Value) -> Error {
