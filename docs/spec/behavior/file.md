@@ -195,3 +195,39 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount whose files take at most three bytes per write |
 | When | the script writes `hello world` to a file with `IO#write` |
 | Then | the write answers 11, and the file holds `hello world` |
+
+## `FL-016` An Errno a script raises reads as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-005` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount |
+| When | the script raises `Errno::ENOENT` with `foo`, builds one bare, and builds `SystemCallError` with `failed` and 2 |
+| Then | the messages read `No such file or directory - foo`, `No such file or directory`, and the last is an `Errno::ENOENT` whose `errno` is 2 |
+
+## `FL-017` A read or write a stream was not opened for raises IOError
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-007` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount |
+| When | the script writes to a file opened with `r`, reads one opened with `w`, and reads `$stdout` |
+| Then | each raises `IOError`, saying the stream was not opened for writing or for reading |
+
+## `FL-018` A path that is no valid UTF-8 raises EILSEQ
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount |
+| When | the script reads a path holding the byte `0xff` |
+| Then | the read raises `Errno::EILSEQ` |

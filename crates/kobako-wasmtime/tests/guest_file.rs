@@ -498,6 +498,72 @@ impl File for WritesInParts {
     }
 }
 
+// @behavior FL-016
+#[test]
+fn an_errno_a_script_raises_reads_as_crubys() {
+    let script = r#"
+        out = []
+        begin; raise Errno::ENOENT, "foo"; rescue => e; out << e.message; end
+        out << Errno::ENOENT.new.message
+        e = SystemCallError.new("failed", 2)
+        out << e.class.to_s << e.errno
+        print out.inspect
+    "#;
+    let Some(answer) = run(script, &[mount(seeded(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(r#"["No such file or directory - foo", "No such file or directory", "Errno::ENOENT", 2]"#
+            .to_string()),
+        "Errno::ENOENT raised with a message, built bare, and SystemCallError.new with a known \
+         number through the bundled guest must read as CRuby's"
+    );
+}
+
+// @behavior FL-017
+#[test]
+fn a_read_or_write_a_stream_was_not_opened_for_raises_ioerror() {
+    let script = r#"
+        out = []
+        [-> { File.open("/data/note.txt", "r") { |f| f.write("x") } },
+         -> { File.open("/data/note.txt", "w") { |f| f.read } },
+         -> { $stdout.read }].each do |call|
+          begin; call.call; rescue IOError => e; out << e.message; end
+        end
+        print out.inspect
+    "#;
+    let Some(answer) = run(script, &[mount(seeded(), Access::ReadWrite)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(
+            r#"["not opened for writing", "not opened for reading", "not opened for reading"]"#
+                .to_string()
+        ),
+        "a write to a file opened with r, a read of one opened with w, and $stdout.read through \
+         the bundled guest must raise IOError as CRuby does"
+    );
+}
+
+// @behavior FL-018
+#[test]
+fn a_path_that_is_no_valid_utf8_raises_eilseq() {
+    let Some(answer) = run(
+        r#"File.read("/data/\xff")"#,
+        &[mount(seeded(), Access::Read)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Err("Errno::EILSEQ".to_string()),
+        "File.read of a path holding the byte 0xff through the bundled guest must raise Errno::EILSEQ"
+    );
+}
+
 // @behavior FL-015
 #[test]
 fn a_write_lands_whole_when_the_filesystem_takes_it_in_parts() {

@@ -68,13 +68,13 @@ pub(crate) fn with_file<R>(
 fn readable(mrb: &Mrb, self_: Value) -> Result<i32, Error> {
     let fd = checked_fd(mrb, self_, READ_REFUSAL)?;
     if descriptors::is_channel(fd) {
-        return Err(argument_error(mrb, READ_REFUSAL));
+        return Err(errno::io_error(mrb, "not opened for reading"));
     }
     Ok(fd)
 }
 
 fn fail(mrb: &Mrb, self_: Value, err: &io::Error) -> Error {
-    errno::from_io(mrb, err, &label(mrb, self_))
+    errno::from_transfer(mrb, err, &label(mrb, self_), "reading")
 }
 
 /// `read` with no length reads to the end, "" at the end; with one, up

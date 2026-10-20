@@ -139,7 +139,8 @@ fn io_write(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
             };
             if n < 0 && !descriptors::is_channel(fd) {
                 let err = std::io::Error::last_os_error();
-                return Err(errno::from_io(mrb, &err, &crate::stream::label(mrb, self_)));
+                let label = crate::stream::label(mrb, self_);
+                return Err(errno::from_transfer(mrb, &err, &label, "writing"));
             }
             if n <= 0 {
                 break;
