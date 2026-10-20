@@ -1008,9 +1008,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a read-write Mount holding the directory `dir` |
-| When | the guest removes `dir/.` and `dir/..`, and renames each |
-| Then | the removals answer EINVAL and ENOTEMPTY, the renames EBUSY, and `dir` stays |
+| Given | an invocation handed a read-write Mount holding the directory `dir` and the file `file.txt` |
+| When | the guest removes and renames `dir/.`, `dir/..`, and `file.txt/..` |
+| Then | the removals answer EINVAL and the renames EBUSY, except ENOTDIR through the file, and `dir` stays |
 
 ## `RT-103` A create of what already stands changes nothing
 

@@ -259,13 +259,22 @@ pub(crate) fn readlink(
     Err(Errno::Notsup.into())
 }
 
-/// The `.` or `..` a guest path ends in, which names no entry a call
-/// may remove or move, as Linux refuses it before resolving the path.
-fn dot_end(path: &str) -> Option<&str> {
-    path.trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .filter(|last| matches!(*last, "." | ".."))
+/// Refuse a guest path ending in `.` or `..` as `refusal`, since it names
+/// no entry a call may remove or move. Linux looks up what stands before
+/// it first, so a missing or non-directory parent answers as itself.
+fn refuse_dot_end(dir: &OpenDirectory, path: &str, refusal: Errno) -> Answer {
+    let trimmed = path.trim_end_matches('/');
+    let (parent, last) = trimmed.rsplit_once('/').unwrap_or(("", trimmed));
+    if !matches!(last, "." | "..") {
+        return Ok(());
+    }
+    if !parent.is_empty() {
+        let parent = resolve(dir, parent)?.path;
+        if dir.mount.filesystem().metadata(&parent)?.kind != Kind::Directory {
+            return Err(Errno::Notdir.into());
+        }
+    }
+    Err(refusal.into())
 }
 
 /// A Mount's root is where the guest stands, not a directory it may
@@ -283,11 +292,11 @@ pub(crate) fn remove_directory(
     fd: u32,
     path: (u32, u32),
 ) -> Answer {
-    match dot_end(&mem.path(path.0, path.1)?) {
-        Some(".") => return Err(Errno::Inval.into()),
-        Some(_) => return Err(Errno::Notempty.into()),
-        None => {}
-    }
+    refuse_dot_end(
+        directory(table, fd)?,
+        &mem.path(path.0, path.1)?,
+        Errno::Inval,
+    )?;
     let (dir, path) = beneath(table, mem, fd, path)?;
     not_root(&path, Errno::Inval)?;
     judge(&dir.mount, &path, Access::ReadWrite, false)?;
@@ -306,9 +315,8 @@ pub(crate) fn rename(
     let from_dir = directory(table, old.0)?;
     let to_dir = directory(table, new.0)?;
     let (from, to) = (mem.path(old.1 .0, old.1 .1)?, mem.path(new.1 .0, new.1 .1)?);
-    if dot_end(&from).or(dot_end(&to)).is_some() {
-        return Err(Errno::Busy.into());
-    }
+    refuse_dot_end(from_dir, &from, Errno::Busy)?;
+    refuse_dot_end(to_dir, &to, Errno::Busy)?;
     let from = resolve(from_dir, &from)?;
     let to = resolve(to_dir, &to)?;
     not_root(&from.path, Errno::Busy)?;

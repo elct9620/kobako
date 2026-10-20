@@ -171,7 +171,6 @@ const DIR_DOT_DOT: (i32, i32) = (890, 6);
 const BENEATH_FILE: (i32, i32) = (900, 10);
 const MOVED: (i32, i32) = (920, 5);
 const DIR: (i32, i32) = (930, 3);
-const ERRNO_NOTEMPTY: i32 = 55;
 const ERRNO_OVERFLOW: i32 = 61;
 const ERRNO_EXIST: i32 = 20;
 const OFLAGS_EXCL: i32 = 1 << 2;
@@ -851,13 +850,25 @@ fn a_path_ending_in_a_dot_is_neither_removed_nor_moved() {
         guest.call("remove_path", DIR_DOT_DOT),
         guest.call_pair("rename_paths", DIR_DOT, MOVED),
         guest.call_pair("rename_paths", DIR_DOT_DOT, MOVED),
+        guest.call("remove_path", OUT_OF_FILE),
+        guest.call_pair("rename_paths", OUT_OF_FILE, MOVED),
     ];
     assert_eq!(
         (answers, memory.metadata("dir/inner").is_ok()),
-        ([ERRNO_INVAL, ERRNO_NOTEMPTY, ERRNO_BUSY, ERRNO_BUSY], true),
+        (
+            [
+                ERRNO_INVAL,
+                ERRNO_INVAL,
+                ERRNO_BUSY,
+                ERRNO_BUSY,
+                ERRNO_NOTDIR,
+                ERRNO_NOTDIR
+            ],
+            true
+        ),
         "path_remove_directory of a path ending in . or .., and path_rename of one, beneath a \
-         Mount through preview1 must answer EINVAL, ENOTEMPTY, and EBUSY as Linux does and \
-         leave the directory in place"
+         Mount through preview1 must answer EINVAL and EBUSY as wasmtime-wasi does, or ENOTDIR \
+         where a file stands before the dot, and leave the directory in place"
     );
 }
 
