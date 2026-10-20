@@ -778,3 +778,16 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a list naming the root, a file twice, or a file where another path needs a directory |
 | When | a Memory is seeded with it |
 | Then | the seeding panics |
+
+## `FS-063` A refused change leaves what a whiteout hid hidden
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-016` |
+| relates | `FS-059` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose writable Layer holds only a whiteout in `dir`, and refuses to move or remove a directory |
+| When | a directory is renamed onto `dir`, and `dir` is removed, through the Overlay |
+| Then | both are refused, and the whited-out file stays hidden |

@@ -114,16 +114,52 @@ fn copy_whole(source: &mut dyn File, target: &mut dyn File) -> Result<(), Filesy
 }
 
 /// Take every marker out of a writable Layer's copy of the directory
-/// `path`, which the view shows empty; any other entry there means it is
-/// not.
-fn clear_markers(filesystem: &dyn Filesystem, path: &str) -> Result<(), FilesystemError> {
-    for entry in filesystem.read_dir(path)? {
-        if !entry.name.starts_with(WHITEOUT) {
-            return Err(FilesystemError::DirectoryNotEmpty);
-        }
-        filesystem.remove_file(&join(path, &entry.name))?;
+/// `path`, which the view shows empty, for `act` to change it; any other
+/// entry there means it is not. When `act` fails, or a marker will not
+/// go, the markers taken out are put back, so the view stays as it was.
+fn without_markers(
+    filesystem: &dyn Filesystem,
+    path: &str,
+    act: impl FnOnce() -> Result<(), FilesystemError>,
+) -> Result<(), FilesystemError> {
+    let markers: Vec<String> = filesystem
+        .read_dir(path)?
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect();
+    if markers.iter().any(|name| !name.starts_with(WHITEOUT)) {
+        return Err(FilesystemError::DirectoryNotEmpty);
     }
-    Ok(())
+    let mut cleared = Vec::new();
+    let changed = markers
+        .iter()
+        .try_for_each(|name| {
+            let marker = join(path, name);
+            filesystem.remove_file(&marker)?;
+            cleared.push(marker);
+            Ok(())
+        })
+        .and_then(|()| act());
+    if changed.is_err() {
+        for marker in cleared {
+            let _ = put_marker(filesystem, &marker);
+        }
+    }
+    changed
+}
+
+/// An empty file at `path`, as every marker is.
+fn put_marker(filesystem: &dyn Filesystem, path: &str) -> Result<(), FilesystemError> {
+    filesystem
+        .open(
+            path,
+            &OpenOptions {
+                write: true,
+                create: true,
+                ..OpenOptions::default()
+            },
+        )?
+        .close()
 }
 
 /// Refuse a path naming an entry reserved for the Overlay's markers, in
@@ -309,17 +345,7 @@ impl Stack {
 
     fn mark(&self, path: &str, into: usize) -> Result<(), FilesystemError> {
         self.copy_up_directories(path, into)?;
-        self.layers[into]
-            .filesystem
-            .open(
-                path,
-                &OpenOptions {
-                    write: true,
-                    create: true,
-                    ..OpenOptions::default()
-                },
-            )?
-            .close()
+        put_marker(self.layers[into].filesystem.as_ref(), path)
     }
 
     /// The Layer a whiteout over `holders` lands in, or `None` when every
@@ -515,8 +541,7 @@ impl Stack {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
         self.withdraw(path, |filesystem, path| {
-            clear_markers(filesystem, path)?;
-            filesystem.remove_dir(path)
+            without_markers(filesystem, path, || filesystem.remove_dir(path))
         })
     }
 
@@ -585,13 +610,16 @@ impl Stack {
             _ => {}
         }
         self.copy_up_directories(to, upper)?;
-        if replaced == Some(Kind::Directory) && self.layers[upper].holds(to) {
-            clear_markers(self.layers[upper].filesystem.as_ref(), to)?;
-        }
         if let Some(upper) = shown_below {
             self.mark(&whiteout(from), upper)?;
         }
-        self.layers[upper].filesystem.rename(from, to, rename)?;
+        let filesystem = self.layers[upper].filesystem.as_ref();
+        let moved = || filesystem.rename(from, to, rename);
+        if replaced == Some(Kind::Directory) && self.layers[upper].holds(to) {
+            without_markers(filesystem, to, moved)?;
+        } else {
+            moved()?;
+        }
         if replaces_below {
             self.mark(&join(to, OPAQUE), upper)?;
         }

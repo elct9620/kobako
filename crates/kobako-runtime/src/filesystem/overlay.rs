@@ -1112,6 +1112,74 @@ mod tests {
         }
     }
 
+    /// A Memory refusing to move or remove a directory.
+    struct HoldsDirectories(Memory);
+
+    impl Filesystem for HoldsDirectories {
+        fn open(
+            &self,
+            path: &str,
+            options: &OpenOptions,
+        ) -> Result<Box<dyn File>, FilesystemError> {
+            self.0.open(path, options)
+        }
+
+        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            self.0.metadata(path)
+        }
+
+        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.0.read_dir(path)
+        }
+
+        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+            self.0.create_dir(path)
+        }
+
+        fn remove_dir(&self, _path: &str) -> Result<(), FilesystemError> {
+            Err(FilesystemError::PermissionDenied)
+        }
+
+        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+            self.0.remove_file(path)
+        }
+
+        fn rename(&self, _from: &str, _to: &str, _rename: Rename) -> Result<(), FilesystemError> {
+            Err(FilesystemError::PermissionDenied)
+        }
+    }
+
+    // The writable Layer refuses each change only after the Overlay has
+    // cleared the whiteout from `dir`, so only putting it back keeps the
+    // read-only Layer's `dir/file` hidden.
+    // @behavior FS-063
+    #[test]
+    fn a_refused_change_leaves_what_a_whiteout_hid_hidden() {
+        let (overlay, _) = layered(Arc::new(HoldsDirectories(Memory::new())));
+        overlay
+            .remove_file("dir/file")
+            .expect("the file must be removed");
+        overlay
+            .create_dir("new")
+            .expect("the directory must be made");
+        let refused = (
+            overlay.rename("new", "dir", Rename::Directory),
+            overlay.remove_dir("dir"),
+        );
+        assert_eq!(
+            (refused, overlay.metadata("dir/file").err()),
+            (
+                (
+                    Err(FilesystemError::PermissionDenied),
+                    Err(FilesystemError::PermissionDenied)
+                ),
+                Some(FilesystemError::NotFound)
+            ),
+            "a rename onto and a removal of a directory whose writable copy holds only a whiteout, \
+             refused by the Layer through an Overlay, must leave the whited-out file hidden"
+        );
+    }
+
     fn trickling(refuses_close: bool) -> Arc<Trickles> {
         Arc::new(Trickles {
             memory: Memory::new(),
