@@ -475,3 +475,44 @@ fn a_close_the_filesystem_refuses_fails_the_scripts_close() {
         "File#close of a file whose Filesystem refuses its close through the bundled guest must raise Errno::EACCES and leave the file closed"
     );
 }
+
+/// An open file taking at most three bytes per write, as a Filesystem a
+/// Host App writes in Ruby may.
+struct WritesInParts(Box<dyn File>);
+
+impl File for WritesInParts {
+    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.read_at(buf, offset)
+    }
+
+    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.write_at(&buf[..buf.len().min(3)], offset)
+    }
+
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        self.0.metadata()
+    }
+
+    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.0.set_len(len)
+    }
+}
+
+// @behavior FL-015
+#[test]
+fn a_write_lands_whole_when_the_filesystem_takes_it_in_parts() {
+    let filesystem = WrapsFiles::over_note("", WritesInParts);
+    let Some(answer) = run(
+        r#"File.open("/data/note.txt", "w") { |f| print f.write("hello world") }; nil"#,
+        &[mount(filesystem.clone(), Access::ReadWrite)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        (answer, contents(filesystem.as_ref(), "note.txt")),
+        (Ok("11".to_string()), b"hello world".to_vec()),
+        "IO#write to a file whose Filesystem takes three bytes per write through the bundled guest \
+         must answer every byte and land them all"
+    );
+}

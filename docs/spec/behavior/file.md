@@ -183,3 +183,15 @@ disable_file flag -> no File constant
 | Given | an invocation handed a read-write Mount at `/data` |
 | When | the script renames `/data` into itself |
 | Then | the rename raises `Errno::EBUSY` |
+
+## `FL-015` A write lands whole when the Filesystem takes it in parts
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-002` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount whose files take at most three bytes per write |
+| When | the script writes `hello world` to a file with `IO#write` |
+| Then | the write answers 11, and the file holds `hello world` |
