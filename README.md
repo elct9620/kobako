@@ -220,7 +220,7 @@ overlay = Kobako::Filesystem::Overlay.new
 sandbox.mount("/app", overlay, access: :read_write)
 ```
 
-A change to a file in a writable Layer stays there. A read-only Layer's file is first copied up to the nearest writable Layer above it, and a new file lands in the topmost one. A removal hides what a read-only Layer still shows with an [OCI whiteout](https://github.com/opencontainers/image-spec/blob/main/layer.md#whiteouts), `.wh.<name>`, kept in the topmost writable Layer. Names starting with `.wh.` are therefore reserved.
+A change to a file in a writable Layer stays there. A read-only Layer's file is first copied up to the nearest writable Layer above it, and a new file lands in the topmost one. A removal hides what a read-only Layer still shows with an [OCI whiteout](https://github.com/opencontainers/image-spec/blob/main/layer.md#whiteouts), `.wh.<name>`, kept in the topmost writable Layer. Names starting with `.wh.`, in any case, are therefore reserved.
 
 #### Filesystems in Ruby
 
