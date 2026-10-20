@@ -270,8 +270,13 @@ that path and holds its access; what the Filesystem holds is yours to choose.
 
 A block decides each open and each change by path. Allow what the guest needs
 rather than refusing what it must not reach: a denylist misses a path you did not
-foresee. A directory beneath a Mount with a block does not move, since its entries
-would take paths the block never judged. The guest's rename raises `Errno::EXDEV`.
+foresee. The block judges paths, so nothing may reach a path it never judged:
+
+| Beneath a Mount with a block | The guest sees |
+|---|---|
+| a rename of a directory | `Errno::EXDEV`, and it copies entry by entry |
+| a path through a host link | `Errno::ELOOP` |
+
 The block does not judge `stat` or a listing, so the guest still sees that a
 refused path exists.
 
@@ -287,7 +292,7 @@ Some risks stay with the host, because kobako cannot see them.
 |---|---|
 | another process changing a Directory's host files | the host directory |
 | a FIFO or device file placed in a Directory | an open of it may block |
-| a link in a Directory | the guest reaches its target, never beyond the Directory, and never reads where it points |
+| a link in a Directory without a block | the guest reaches its target, never beyond the Directory, and never reads where it points |
 | a link below an Overlay's writable Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
 | a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
 | one Overlay's writable Layer shared by another | the two are not serialized against each other |
