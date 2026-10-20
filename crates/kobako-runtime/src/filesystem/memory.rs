@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use super::path::{is_beneath, parent, seeded};
+use super::path::{beneath_itself, is_beneath, parent, seeded};
 use super::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename};
 
 /// Files and directories held in memory. Every Invocation it is handed to
@@ -367,7 +367,7 @@ impl Filesystem for Memory {
         }
         rename.allows(moving.kind())?;
         if is_beneath(to, from) {
-            return Err(FilesystemError::InvalidInput);
+            return Err(beneath_itself(moving.kind()));
         }
         check_parent(&nodes, to)?;
         match (&moving, nodes.get(to)) {

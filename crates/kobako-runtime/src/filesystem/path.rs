@@ -1,6 +1,8 @@
 //! Paths as a Filesystem receives them: relative to its root, components
 //! joined by `/`, the empty path being the root.
 
+use super::{FilesystemError, Kind};
+
 /// The directory holding `path`; the root holds every top-level entry.
 pub(crate) fn parent(path: &str) -> &str {
     path.rsplit_once('/').map_or("", |(parent, _)| parent)
@@ -17,6 +19,16 @@ pub(crate) fn is_beneath(path: &str, dir: &str) -> bool {
         || path
             .strip_prefix(dir)
             .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// Why an entry of `kind` cannot move beneath itself: a directory cannot
+/// hold itself, and a file stands where the new path needs a directory,
+/// as `rename(2)` answers each.
+pub(crate) fn beneath_itself(kind: Kind) -> FilesystemError {
+    match kind {
+        Kind::Directory => FilesystemError::InvalidInput,
+        _ => FilesystemError::NotADirectory,
+    }
 }
 
 /// A path a Host App seeds a Filesystem with, in the form a runtime hands

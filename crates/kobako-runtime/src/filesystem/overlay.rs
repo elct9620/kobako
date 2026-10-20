@@ -436,6 +436,18 @@ mod tests {
         );
     }
 
+    // @behavior FS-061
+    #[test]
+    fn an_overlay_refuses_a_file_moved_beneath_itself_as_no_directory() {
+        let (overlay, _) = layered(Arc::new(Memory::new()));
+        assert_eq!(
+            overlay.rename("dir/file", "dir/file/x", Rename::Any),
+            Err(FilesystemError::NotADirectory),
+            "a file renamed through Overlay::rename to a path beneath itself must be refused as \
+             no directory, as rename(2) refuses it"
+        );
+    }
+
     // The link points at nothing, so only the link itself can be what an
     // exclusive create or a new directory finds there.
     // @behavior FS-052

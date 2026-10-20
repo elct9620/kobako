@@ -754,3 +754,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay where a read-only Layer's directory was removed and made again |
 | When | the directory is renamed through the Overlay |
 | Then | it moves, and nothing of the read-only Layer's directory shows at either path |
+
+## `FS-061` An Overlay refuses a file moved beneath itself as no directory
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay showing the file `dir/file` |
+| When | `dir/file` is renamed to `dir/file/x` through the Overlay |
+| Then | the rename is refused as no directory |

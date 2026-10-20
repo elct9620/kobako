@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use super::super::path::{ancestors, is_beneath, parent};
+use super::super::path::{ancestors, beneath_itself, is_beneath, parent};
 use super::super::{
     Access, DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename,
 };
@@ -548,7 +548,7 @@ impl Stack {
         }
         rename.allows(moving.kind)?;
         if is_beneath(to, from) {
-            return Err(FilesystemError::InvalidInput);
+            return Err(beneath_itself(moving.kind));
         }
         let replaced = self
             .locate_by(to, <dyn Filesystem>::symlink_metadata)?
