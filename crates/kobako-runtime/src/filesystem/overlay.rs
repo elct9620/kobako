@@ -921,6 +921,130 @@ mod tests {
         );
     }
 
+    /// A Memory whose files write at most three bytes per call and, when
+    /// `refuses_close`, refuse their close.
+    struct Trickles {
+        memory: Memory,
+        refuses_close: bool,
+    }
+
+    struct TrickleFile {
+        file: Box<dyn File>,
+        refuses_close: bool,
+    }
+
+    impl File for TrickleFile {
+        fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+            self.file.read_at(buf, offset)
+        }
+
+        fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+            self.file.write_at(&buf[..buf.len().min(3)], offset)
+        }
+
+        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+            self.file.metadata()
+        }
+
+        fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
+            self.file.set_len(len)
+        }
+
+        fn close(self: Box<Self>) -> Result<(), FilesystemError> {
+            if self.refuses_close {
+                return Err(FilesystemError::PermissionDenied);
+            }
+            self.file.close()
+        }
+    }
+
+    impl Filesystem for Trickles {
+        fn open(
+            &self,
+            path: &str,
+            options: &OpenOptions,
+        ) -> Result<Box<dyn File>, FilesystemError> {
+            Ok(Box::new(TrickleFile {
+                file: self.memory.open(path, options)?,
+                refuses_close: self.refuses_close,
+            }))
+        }
+
+        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            self.memory.metadata(path)
+        }
+
+        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.memory.read_dir(path)
+        }
+
+        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+            self.memory.create_dir(path)
+        }
+
+        fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+            self.memory.remove_dir(path)
+        }
+
+        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+            self.memory.remove_file(path)
+        }
+
+        fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+            self.memory.rename(from, to, rename)
+        }
+    }
+
+    fn trickling(refuses_close: bool) -> Arc<Trickles> {
+        Arc::new(Trickles {
+            memory: Memory::new(),
+            refuses_close,
+        })
+    }
+
+    // @behavior FS-054
+    #[test]
+    fn a_copy_up_through_a_layer_writing_in_parts_copies_the_whole_file() {
+        let upper = trickling(false);
+        let (overlay, _) = layered(upper.clone());
+        overlay
+            .open(
+                "dir/file",
+                &OpenOptions {
+                    write: true,
+                    ..OpenOptions::default()
+                },
+            )
+            .expect("the open must copy the lower file up");
+        assert_eq!(
+            read(&upper.memory, "dir/file"),
+            b"lower".to_vec(),
+            "a write open through Overlay::open must copy the whole lower file up into a Layer \
+             whose writes land a few bytes at a time"
+        );
+    }
+
+    // @behavior FS-055
+    #[test]
+    fn a_copy_up_whose_close_a_layer_refuses_leaves_nothing_behind() {
+        let upper = trickling(true);
+        let (overlay, _) = layered(upper.clone());
+        assert_eq!(
+            (
+                write(&overlay, "dir/file", b"x"),
+                upper.metadata("dir/file"),
+                read(&overlay, "dir/file")
+            ),
+            (
+                Err(FilesystemError::PermissionDenied),
+                Err(FilesystemError::NotFound),
+                b"lower".to_vec()
+            ),
+            "a write through Overlay::open whose copy up the writable Layer refuses to close must \
+             leave no copy hiding the lower file"
+        );
+    }
+
     /// Counts each wait its Overlay's lock makes through it.
     struct CountsWaits(AtomicUsize);
 

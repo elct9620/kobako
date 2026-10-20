@@ -90,7 +90,17 @@ fn copy_whole(source: &mut dyn File, target: &mut dyn File) -> Result<(), Filesy
         if read == 0 {
             return Ok(());
         }
-        target.write_at(&buf[..read], offset)?;
+        let mut written = 0;
+        while written < read {
+            match target.write_at(&buf[written..read], offset + written as u64)? {
+                0 => {
+                    return Err(FilesystemError::Other(
+                        "a copy up's write wrote nothing".to_string(),
+                    ))
+                }
+                wrote => written += wrote,
+            }
+        }
         offset += read as u64;
     }
 }
@@ -235,8 +245,7 @@ impl Stack {
                 ..OpenOptions::default()
             },
         )?;
-        let copied = copy_whole(source.as_mut(), copy.as_mut());
-        drop(copy);
+        let copied = copy_whole(source.as_mut(), copy.as_mut()).and(copy.close());
         if copied.is_err() {
             let _ = target.remove_file(path);
         }

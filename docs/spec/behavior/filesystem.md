@@ -667,3 +667,28 @@ both live in the topmost writable layer, never show, and no name may claim .wh.
 | Given | an Overlay whose upper Directory Layer holds a link to nothing where a lower Layer holds a file |
 | When | the path is opened to read through the Overlay |
 | Then | it is not found |
+
+## `FS-054` A copy up through a Layer writing in parts copies the whole file
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose writable Layer writes a few bytes per call, over a lower file |
+| When | the lower file is opened to write, copying it up |
+| Then | the copy in the writable Layer holds the whole lower file |
+
+## `FS-055` A copy up whose close a Layer refuses leaves nothing behind
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-009` |
+| relates | `FS-046` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose writable Layer refuses the close of a file it wrote |
+| When | the lower file is written, copying it up |
+| Then | the write is refused, and the lower file still reads |
