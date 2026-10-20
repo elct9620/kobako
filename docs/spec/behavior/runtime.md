@@ -986,3 +986,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a Directory Mount holding a link to a directory |
 | When | the guest opens the link following no link, then again with a trailing slash |
 | Then | the first answers ELOOP, and the second opens the directory |
+
+## `RT-101` A path through a link beneath a Mount with a Policy answers ELOOP
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-081` |
+| relates | `RT-094`, `RT-100`, `FS-047` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Directory Mount with a Policy, holding a link to a directory |
+| When | the guest opens or removes a path through the link, or opens the link following it |
+| Then | each call answers ELOOP and changes nothing |

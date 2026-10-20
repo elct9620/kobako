@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{Access, Kind, OpenOptions, Rename};
+use kobako_runtime::mount::Mount;
 
 use super::args::{self, FDFLAGS_APPEND, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE};
 use super::beneath::{resolve, Resolved};
@@ -39,6 +40,26 @@ fn directory(table: &Descriptors, fd: u32) -> Answer<&OpenDirectory> {
     }
 }
 
+/// Whether the guest may reach `path` with `access`, as its Mount
+/// decides. A Mount that follows no link refuses one standing on the way,
+/// and at the end too when the call would follow it.
+fn judge(mount: &Mount, path: &str, access: Access, follows_last: bool) -> Answer {
+    mount.check(path, access)?;
+    if mount.follows_links() {
+        return Ok(());
+    }
+    let ends = path.match_indices('/').map(|(end, _)| end);
+    for end in ends.chain(follows_last.then_some(path.len())) {
+        match mount.filesystem().symlink_metadata(&path[..end]) {
+            Ok(metadata) if metadata.kind == Kind::Symlink => return Err(Errno::Loop.into()),
+            Ok(_) => {}
+            // What is missing holds no link; the call answers for it.
+            Err(_) => break,
+        }
+    }
+    Ok(())
+}
+
 /// A path beneath `fd`, relative to its mount's root, refused when it
 /// ends in `/` and names a file.
 fn beneath<'a>(
@@ -63,7 +84,7 @@ pub(crate) fn create_directory(
 ) -> Answer {
     let dir = directory(table, fd)?;
     let path = resolve(dir, &mem.path(path.0, path.1)?)?.path;
-    dir.mount.check(&path, Access::ReadWrite)?;
+    judge(&dir.mount, &path, Access::ReadWrite, false)?;
     Ok(dir.mount.filesystem().create_dir(&path)?)
 }
 
@@ -174,7 +195,7 @@ pub(crate) fn open(
     } else {
         Access::Read
     };
-    mount.check(&path, access)?;
+    judge(&mount, &path, access, follow)?;
 
     let looked_up = if follow {
         mount.filesystem().metadata(&path)
@@ -246,7 +267,7 @@ pub(crate) fn remove_directory(
 ) -> Answer {
     let (dir, path) = beneath(table, mem, fd, path)?;
     not_root(&path, Errno::Inval)?;
-    dir.mount.check(&path, Access::ReadWrite)?;
+    judge(&dir.mount, &path, Access::ReadWrite, false)?;
     Ok(dir.mount.filesystem().remove_dir(&path)?)
 }
 
@@ -281,8 +302,8 @@ pub(crate) fn rename(
     if !Arc::ptr_eq(&from_dir.mount, &to_dir.mount) {
         return Err(Errno::Xdev.into());
     }
-    from_dir.mount.check(&from, Access::ReadWrite)?;
-    to_dir.mount.check(&to, Access::ReadWrite)?;
+    judge(&from_dir.mount, &from, Access::ReadWrite, false)?;
+    judge(&to_dir.mount, &to, Access::ReadWrite, false)?;
     let rename = match (from_dir.mount.moves_directories(), names_directory) {
         (false, _) => Rename::File,
         (true, true) => Rename::Directory,
@@ -313,6 +334,6 @@ pub(crate) fn unlink_file(
 ) -> Answer {
     let (dir, path) = beneath(table, mem, fd, path)?;
     not_root(&path, Errno::Isdir)?;
-    dir.mount.check(&path, Access::ReadWrite)?;
+    judge(&dir.mount, &path, Access::ReadWrite, false)?;
     Ok(dir.mount.filesystem().remove_file(&path)?)
 }

@@ -57,6 +57,7 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 800) "file.txt/")
   (data (i32.const 820) "new.txt/")
   (data (i32.const 840) "new.txt")
+  (data (i32.const 860) "file.txt/key")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
   (data (i32.const 600) "hello")
@@ -129,7 +130,13 @@ const PROBE_WAT: &str = r#"
   (func (export "rename_onto_itself_as_directory") (result i32)
     (call $rename (i32.const 3) (i32.const 700) (i32.const 8) (i32.const 3) (i32.const 800) (i32.const 9)))
   (func (export "unlink_root") (result i32)
-    (call $unlink (i32.const 3) (i32.const 740) (i32.const 1))))
+    (call $unlink (i32.const 3) (i32.const 740) (i32.const 1)))
+  (func (export "unlink_path") (param $path i32) (param $len i32) (result i32)
+    (call $unlink (i32.const 3) (local.get $path) (local.get $len)))
+  ;; Open `path` for reading, following a link standing at its end.
+  (func (export "open_following") (param $path i32) (param $len i32) (result i32)
+    (call $open (i32.const 3) (i32.const 1) (local.get $path) (local.get $len)
+      (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 128))))
 "#;
 
 const FILE: (i32, i32) = (700, 8);
@@ -139,6 +146,7 @@ const THROUGH_MISSING: (i32, i32) = (760, 19);
 const OUT_OF_FILE: (i32, i32) = (780, 11);
 const FILE_AS_DIRECTORY: (i32, i32) = (800, 9);
 const NEW_AS_DIRECTORY: (i32, i32) = (820, 8);
+const THROUGH_FILE: (i32, i32) = (860, 12);
 
 fn grant(
     filesystem: Arc<dyn Filesystem>,
@@ -618,13 +626,24 @@ const FILETYPE_SYMBOLIC_LINK: u8 = 7;
 /// Mount.
 #[cfg(unix)]
 fn linked(name: &str, make_target: fn(&std::path::Path)) -> (std::path::PathBuf, Guest) {
+    linked_under(name, make_target, Access::Read, None)
+}
+
+/// As `linked`, the Mount taking `access` and `policy`.
+#[cfg(unix)]
+fn linked_under(
+    name: &str,
+    make_target: fn(&std::path::Path),
+    access: Access,
+    policy: Option<Arc<dyn Policy>>,
+) -> (std::path::PathBuf, Guest) {
     let host = std::env::temp_dir().join(format!("kobako-granted-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&host);
     std::fs::create_dir_all(&host).expect("the host directory must be created");
     make_target(&host.join("target"));
     std::os::unix::fs::symlink("target", host.join("file.txt")).expect("the link must be made");
     let directory = Directory::new(&host).expect("the host directory must open");
-    let guest = Guest::new(&[grant(Arc::new(directory), Access::Read, None)]);
+    let guest = Guest::new(&[grant(Arc::new(directory), access, policy)]);
     (host, guest)
 }
 
@@ -730,6 +749,48 @@ fn an_open_following_no_link_refuses_a_link_to_a_directory() {
         [ERRNO_LOOP, 0],
         "path_open following no link of a host link to a directory beneath a Directory Mount \
          through preview1 must answer ELOOP, and with a trailing slash open the directory"
+    );
+}
+
+/// A host directory linked in as `file.txt`, holding `key`.
+#[cfg(unix)]
+fn directory_with_key(target: &std::path::Path) {
+    std::fs::create_dir(target).expect("the host directory must be created");
+    std::fs::write(target.join("key"), "secret").expect("the host file must be written");
+}
+
+// The Policy allows everything, so only the link on the way can refuse
+// these; the same calls beneath a Mount without a Policy go through.
+// @behavior RT-101
+#[cfg(unix)]
+#[test]
+fn a_path_through_a_link_beneath_a_mount_with_a_policy_answers_eloop() {
+    let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
+    let (host, mut guest) = linked_under(
+        "policy-link",
+        directory_with_key,
+        Access::ReadWrite,
+        Some(policy),
+    );
+    let refused = [
+        guest.call("read_file", THROUGH_FILE),
+        guest.call("unlink_path", THROUGH_FILE),
+        guest.call("open_following", FILE),
+    ];
+    let kept = host.join("target/key").exists();
+    let _ = std::fs::remove_dir_all(&host);
+    let (host, mut guest) = linked_under("plain-link", directory_with_key, Access::Read, None);
+    let followed = [
+        guest.call("read_file", THROUGH_FILE),
+        guest.call("open_following", FILE),
+    ];
+    let _ = std::fs::remove_dir_all(&host);
+    assert_eq!(
+        (refused, kept, followed),
+        ([ERRNO_LOOP; 3], true, [0, 0]),
+        "path_open and path_unlink_file through a host link, or path_open following one at the \
+         end, beneath a Mount with a Policy through preview1 must answer ELOOP and change \
+         nothing, while a Mount without a Policy follows the link"
     );
 }
 
