@@ -386,6 +386,28 @@ mod tests {
         );
     }
 
+    // The writable Layer's `dir` holds only the whiteout hiding `file`, so
+    // only judging the view, not that copy, lets the move go.
+    // @behavior FS-059
+    #[test]
+    fn a_directory_moves_onto_one_holding_only_markers() {
+        let (overlay, _) = layered(Arc::new(Memory::new()));
+        overlay
+            .remove_file("dir/file")
+            .expect("the file must be removed");
+        overlay
+            .create_dir("new")
+            .expect("the directory must be made");
+        overwrite(&overlay, "new/made", b"made");
+        let moved = overlay.rename("new", "dir", Rename::Directory);
+        assert_eq!(
+            (moved, names(&overlay, "dir")),
+            (Ok(()), vec!["made".to_string()]),
+            "a directory renamed through Overlay::rename onto one the view shows empty, whose \
+             writable copy holds only a whiteout, must take its place and show only its own entries"
+        );
+    }
+
     // The link points at nothing, so only the link itself can be what an
     // exclusive create or a new directory finds there.
     // @behavior FS-052

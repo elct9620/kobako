@@ -110,6 +110,19 @@ fn copy_whole(source: &mut dyn File, target: &mut dyn File) -> Result<(), Filesy
     }
 }
 
+/// Take every marker out of a writable Layer's copy of the directory
+/// `path`, which the view shows empty; any other entry there means it is
+/// not.
+fn clear_markers(filesystem: &dyn Filesystem, path: &str) -> Result<(), FilesystemError> {
+    for entry in filesystem.read_dir(path)? {
+        if !entry.name.starts_with(WHITEOUT) {
+            return Err(FilesystemError::DirectoryNotEmpty);
+        }
+        filesystem.remove_file(&join(path, &entry.name))?;
+    }
+    Ok(())
+}
+
 /// Refuse a path naming an entry reserved for the Overlay's markers, in
 /// any case, since a Layer that folds case would hold `.WH.name` as one.
 fn reserved(path: &str) -> Result<(), FilesystemError> {
@@ -499,12 +512,7 @@ impl Stack {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
         self.withdraw(path, |filesystem, path| {
-            for entry in filesystem.read_dir(path)? {
-                if !entry.name.starts_with(WHITEOUT) {
-                    return Err(FilesystemError::DirectoryNotEmpty);
-                }
-                filesystem.remove_file(&join(path, &entry.name))?;
-            }
+            clear_markers(filesystem, path)?;
             filesystem.remove_dir(path)
         })
     }
@@ -574,6 +582,9 @@ impl Stack {
             _ => {}
         }
         self.copy_up_directories(to, upper)?;
+        if replaced == Some(Kind::Directory) && self.layers[upper].holds(to) {
+            clear_markers(self.layers[upper].filesystem.as_ref(), to)?;
+        }
         if let Some(upper) = shown_below {
             self.mark(&whiteout(from), upper)?;
         }

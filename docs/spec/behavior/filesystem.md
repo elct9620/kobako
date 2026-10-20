@@ -730,3 +730,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay whose higher writable Layer holds file `f` over a lower writable Layer's directory `f` |
 | When | `f` is removed through the Overlay |
 | Then | `f` is gone from the view, and the lower directory is as it was |
+
+## `FS-059` A directory moves onto one whose writable copy holds only markers
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-016`, `FS-018` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose directory `dir` shows empty, its writable copy holding only the whiteout of a removed lower file |
+| When | another directory is renamed onto `dir` through the Overlay |
+| Then | the rename succeeds, and `dir` shows only the moved directory's entries |
