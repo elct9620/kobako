@@ -171,3 +171,15 @@ disable_file flag -> no File constant
 | Given | an invocation handed a read-write Mount |
 | When | the script names a file over 255 bytes, or a path of 4096 bytes |
 | Then | the call raises `Errno::ENAMETOOLONG` |
+
+## `FL-014` A code the engine answers raises its own Errno
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-005`, `RF-015` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount at `/data` |
+| When | the script renames `/data` into itself |
+| Then | the rename raises `Errno::EBUSY` |

@@ -26,6 +26,11 @@ const CODES: &[Code] = &[
         message: "Bad file descriptor",
     },
     Code {
+        name: c"EBUSY",
+        wasi: 10,
+        message: "Device or resource busy",
+    },
+    Code {
         name: c"EDEADLK",
         wasi: 16,
         message: "Resource deadlock avoided",
@@ -34,6 +39,16 @@ const CODES: &[Code] = &[
         name: c"EEXIST",
         wasi: 20,
         message: "File exists",
+    },
+    Code {
+        name: c"EILSEQ",
+        wasi: 25,
+        message: "Invalid or incomplete multibyte or wide character",
+    },
+    Code {
+        name: c"EINTR",
+        wasi: 27,
+        message: "Interrupted system call",
     },
     Code {
         name: c"EINVAL",
@@ -51,6 +66,11 @@ const CODES: &[Code] = &[
         message: "Is a directory",
     },
     Code {
+        name: c"ELOOP",
+        wasi: 32,
+        message: "Too many levels of symbolic links",
+    },
+    Code {
         name: c"EMFILE",
         wasi: 33,
         message: "Too many open files",
@@ -64,6 +84,11 @@ const CODES: &[Code] = &[
         name: c"ENOENT",
         wasi: 44,
         message: "No such file or directory",
+    },
+    Code {
+        name: c"ENOMEM",
+        wasi: 48,
+        message: "Cannot allocate memory",
     },
     Code {
         name: c"ENOSPC",
@@ -81,14 +106,34 @@ const CODES: &[Code] = &[
         message: "Directory not empty",
     },
     Code {
+        name: c"ENOTSOCK",
+        wasi: 57,
+        message: "Socket operation on non-socket",
+    },
+    Code {
         name: c"ENOTSUP",
         wasi: 58,
         message: "Operation not supported",
     },
     Code {
+        name: c"EOVERFLOW",
+        wasi: 61,
+        message: "Value too large for defined data type",
+    },
+    Code {
+        name: c"EPERM",
+        wasi: 63,
+        message: "Operation not permitted",
+    },
+    Code {
         name: c"EROFS",
         wasi: 69,
         message: "Read-only file system",
+    },
+    Code {
+        name: c"ESPIPE",
+        wasi: 70,
+        message: "Illegal seek",
     },
     Code {
         name: c"EXDEV",

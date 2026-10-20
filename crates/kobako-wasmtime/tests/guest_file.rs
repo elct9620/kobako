@@ -228,6 +228,24 @@ fn a_name_or_path_past_linuxs_limits_raises_enametoolong() {
     );
 }
 
+// EBUSY once had no class in the guest, so the script saw an IOError.
+// @behavior FL-014
+#[test]
+fn a_code_the_engine_answers_raises_its_own_errno() {
+    let Some(answer) = run(
+        r#"File.rename("/data", "/data/moved")"#,
+        &[mount(seeded(), Access::ReadWrite)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Err("Errno::EBUSY".to_string()),
+        "File.rename of a Mount's root through the bundled guest must raise Errno::EBUSY"
+    );
+}
+
 // @behavior FL-007
 #[test]
 fn a_file_is_an_io() {
