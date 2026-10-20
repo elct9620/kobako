@@ -130,6 +130,14 @@ impl Mount {
         self.policy.is_none()
     }
 
+    /// Whether a path beneath this Mount may pass through a link the
+    /// Filesystem holds. Under a Policy it may not: the link leads to a
+    /// path the Policy never judged, so the call is refused as one past
+    /// too many links.
+    pub fn follows_links(&self) -> bool {
+        self.policy.is_none()
+    }
+
     /// This Mount as a new Invocation starts from it, over the Filesystem
     /// that Invocation receives.
     pub fn for_invocation(&self) -> Self {

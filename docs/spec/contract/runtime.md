@@ -273,6 +273,16 @@ impl Mount {
 }
 ```
 
+## `Mount::follows_links`
+
+Whether a path beneath the Mount may pass through a link; not under a Policy.
+
+```rust
+impl Mount {
+    pub fn follows_links(&self) -> bool {}
+}
+```
+
 ## `Mount::for_invocation`
 
 The Mount as a new invocation starts from it, over that invocation's Filesystem.
