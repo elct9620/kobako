@@ -51,17 +51,22 @@ impl Layer {
         self.filesystem.symlink_metadata(path).is_ok()
     }
 
-    /// Whether this Layer's markers hide `path` in every Layer below it:
-    /// a whiteout of it or of a directory above it, or an opaque marker
-    /// in one of those directories. A marker lives in a directory, so the
-    /// walk ends at the first directory above `path` this Layer lacks.
+    /// Whether this Layer hides `path` in every Layer below it: a whiteout
+    /// of it or of a directory above it, an opaque marker in one of those
+    /// directories, or a file or link standing at it or above it, as
+    /// overlayfs merges only directories. A marker lives in a directory,
+    /// so the walk ends at the first directory above `path` this Layer
+    /// lacks.
     fn hides(&self, path: &str) -> bool {
         for name in ancestors(path).chain(std::iter::once(path)) {
             if self.holds(&whiteout(name)) || self.holds(&join(parent(name), OPAQUE)) {
                 return true;
             }
-            if name != path && !self.holds(name) {
-                return false;
+            match self.filesystem.symlink_metadata(name) {
+                Ok(metadata) if metadata.kind != Kind::Directory => return true,
+                Ok(_) => {}
+                Err(_) if name != path => return false,
+                Err(_) => {}
             }
         }
         false
@@ -180,17 +185,36 @@ impl Stack {
         Ok(None)
     }
 
-    /// Every Layer still showing or shadowing `path`, topmost first.
-    fn holders(&self, path: &str) -> Vec<usize> {
+    /// Every Layer still showing `path`, topmost first, and the topmost
+    /// Layer below them whose entry there a file or link above shadows.
+    fn holders(&self, path: &str) -> (Vec<usize>, Option<usize>) {
         let mut holders = Vec::new();
         for (index, layer) in self.layers.iter().enumerate() {
             if layer.holds(path) {
                 holders.push(index);
-            } else if layer.hides(path) {
-                break;
+            }
+            if layer.hides(path) {
+                let shadowed = layer
+                    .holds(path)
+                    .then(|| self.beneath(index, path))
+                    .flatten();
+                return (holders, shadowed);
             }
         }
-        holders
+        (holders, None)
+    }
+
+    /// The topmost Layer below `above` holding `path` in sight.
+    fn beneath(&self, above: usize, path: &str) -> Option<usize> {
+        for (index, layer) in self.layers.iter().enumerate().skip(above + 1) {
+            if layer.holds(path) {
+                return Some(index);
+            }
+            if layer.hides(path) {
+                return None;
+            }
+        }
+        None
     }
 
     /// The topmost writable Layer, where every change that is not in place
@@ -283,14 +307,20 @@ impl Stack {
     }
 
     /// The Layer a whiteout over `holders` lands in, or `None` when every
-    /// one is writable; refused as read-only when no writable Layer sits
-    /// above the topmost read-only one.
-    fn whiteout_layer(&self, holders: &[usize]) -> Result<Option<usize>, FilesystemError> {
-        match holders
+    /// one is writable and nothing below is `shadowed`; refused as
+    /// read-only when no writable Layer sits above the topmost Layer the
+    /// whiteout must cover.
+    fn whiteout_layer(
+        &self,
+        holders: &[usize],
+        shadowed: Option<usize>,
+    ) -> Result<Option<usize>, FilesystemError> {
+        let read_only = holders
             .iter()
-            .find(|&&index| !self.layers[index].writable())
-        {
-            Some(&shown) => match self.upper()? {
+            .copied()
+            .find(|&index| !self.layers[index].writable());
+        match read_only.into_iter().chain(shadowed).min() {
+            Some(shown) => match self.upper()? {
                 upper if upper < shown => Ok(Some(upper)),
                 _ => Err(FilesystemError::ReadOnly),
             },
@@ -306,8 +336,8 @@ impl Stack {
         path: &str,
         remove: impl Fn(&dyn Filesystem, &str) -> Result<(), FilesystemError>,
     ) -> Result<(), FilesystemError> {
-        let holders = self.holders(path);
-        if let Some(upper) = self.whiteout_layer(&holders)? {
+        let (holders, shadowed) = self.holders(path);
+        if let Some(upper) = self.whiteout_layer(&holders, shadowed)? {
             self.mark(&whiteout(path), upper)?;
         }
         for &index in &holders {
@@ -531,8 +561,8 @@ impl Stack {
                 .iter()
                 .enumerate()
                 .any(|(index, layer)| index != upper && layer.holds(to));
-        let holders = self.holders(from);
-        let shown_below = self.whiteout_layer(&holders)?;
+        let (holders, shadowed) = self.holders(from);
+        let shown_below = self.whiteout_layer(&holders, shadowed)?;
         match moving.kind {
             Kind::Directory if holders != [upper] => return Err(FilesystemError::CrossesDevices),
             Kind::File if holders.first() != Some(&upper) => {

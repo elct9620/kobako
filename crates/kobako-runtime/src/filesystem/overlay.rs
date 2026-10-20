@@ -343,6 +343,49 @@ mod tests {
         );
     }
 
+    // The lower Memory holds `dirlink/x` beside where the upper link points,
+    // so only the link hiding everything beneath it keeps `x` out.
+    // @behavior FS-057
+    #[cfg(unix)]
+    #[test]
+    fn a_link_a_layer_holds_hides_what_the_layers_below_hold_beneath_it() {
+        let host = Linked::new("shadow-beneath");
+        let upper = super::super::Directory::new(&host.0).expect("the host directory must open");
+        let overlay = Overlay::new()
+            .layer(Arc::new(upper), Access::ReadWrite)
+            .layer(holding("dirlink/x", "lower"), Access::Read);
+        let found = overlay.metadata("dirlink/x").map(|metadata| metadata.kind);
+        assert_eq!(
+            (names(&overlay, "dirlink"), found),
+            (vec!["inner".to_string()], Err(FilesystemError::NotFound)),
+            "a directory a higher Directory Layer holds as a link, listed and looked into through \
+             an Overlay, must show only where the link points and none of a lower Layer's entries"
+        );
+    }
+
+    // The lower directory sits in a writable Layer, so only the whiteout,
+    // not a removal that cannot take a directory, keeps the view whole.
+    // @behavior FS-058
+    #[test]
+    fn removing_a_file_over_a_lower_directory_leaves_it_hidden() {
+        let lower = holding("f/g", "lower");
+        let overlay = Overlay::new()
+            .layer(holding("f", "upper"), Access::ReadWrite)
+            .layer(lower.clone(), Access::ReadWrite);
+        let removed = overlay.remove_file("f");
+        assert_eq!(
+            (
+                removed,
+                overlay.symlink_metadata("f").err(),
+                lower.metadata("f/g").is_ok()
+            ),
+            (Ok(()), Some(FilesystemError::NotFound), true),
+            "a file a higher Layer holds over a lower Layer's directory, removed through \
+             Overlay::remove_file, must leave the path gone from the view and the lower \
+             directory as it was"
+        );
+    }
+
     // The link points at nothing, so only the link itself can be what an
     // exclusive create or a new directory finds there.
     // @behavior FS-052

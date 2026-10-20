@@ -704,3 +704,29 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay with a writable Layer |
 | When | a file named `.WH.note` is created through the Overlay |
 | Then | the creation is refused |
+
+## `FS-057` A link a Layer holds hides what the Layers below hold beneath it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-053` |
+| relates | `FS-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose writable Directory Layer holds `dirlink` as a link to a directory, over a Layer holding `dirlink/x` |
+| When | `dirlink` is listed and `dirlink/x` is looked up through the Overlay |
+| Then | the listing shows only where the link points, and `dirlink/x` is not found |
+
+## `FS-058` Removing a file over a lower directory leaves the directory hidden
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-011` |
+| relates | `FS-013`, `FS-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose higher writable Layer holds file `f` over a lower writable Layer's directory `f` |
+| When | `f` is removed through the Overlay |
+| Then | `f` is gone from the view, and the lower directory is as it was |
