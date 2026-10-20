@@ -4,8 +4,9 @@
 //! Its methods take the names and shapes of Ruby's own `File`, `Dir`, and
 //! `IO`, so a Host App can hand an open call on to a real `::File`. A
 //! change method the object lacks answers as read-only; any other method
-//! it lacks answers as unsupported. An `Errno` it raises reaches the guest
-//! as that code, and anything else it raises reaches the guest as `EIO`.
+//! it lacks answers as unsupported. A file's `EOFError` from `pread` is
+//! its end, an `Errno` it raises reaches the guest as that code, and
+//! anything else it raises reaches the guest as `EIO`.
 
 use magnus::value::{Opaque, ReprValue};
 use magnus::{kwargs, prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, Value};

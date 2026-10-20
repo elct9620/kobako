@@ -13,6 +13,7 @@ A Filesystem in Ruby is any object answering `open` and `stat`. Its methods take
 
 ```
 a change method missing   -> Errno::EROFS in the script
+EOFError raised by pread  -> the end of the file
 an Errno raised           -> that Errno in the script
 anything else raised      -> Errno::EIO in the script, which goes on
 ```
