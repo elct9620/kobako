@@ -198,6 +198,22 @@ pub enum FilesystemError {
     Deadlock,
     /// A symbolic link where the call asked to follow none.
     SymbolicLink,
+    /// A call only a privileged caller may make, as apart from one the
+    /// file's permissions deny.
+    NotPermitted,
+    BadDescriptor,
+    ResourceBusy,
+    /// Bytes that are no valid character where the call needs one.
+    IllegalSequence,
+    Interrupted,
+    TooManyOpenFiles,
+    /// A name too long for the Filesystem.
+    InvalidFilename,
+    OutOfMemory,
+    NotASocket,
+    /// A value too large for the type the call answers in.
+    ValueTooLarge,
+    NotSeekable,
     /// Any other failure, with what the Filesystem knows of it.
     Other(String),
 }
