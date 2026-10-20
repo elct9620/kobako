@@ -50,6 +50,7 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "path_rename" (func $rename (param i32 i32 i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_unlink_file" (func $unlink (param i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_allocate" (func $allocate (param i32 i64 i64) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_seek" (func $seek (param i32 i64 i32 i32) (result i32)))
   (memory (export "memory") 1)
   (data (i32.const 740) ".")
   (data (i32.const 760) "missing/../file.txt")
@@ -58,6 +59,11 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 820) "new.txt/")
   (data (i32.const 840) "new.txt")
   (data (i32.const 860) "file.txt/key")
+  (data (i32.const 880) "dir/.")
+  (data (i32.const 890) "dir/..")
+  (data (i32.const 900) "file.txt/x")
+  (data (i32.const 920) "moved")
+  (data (i32.const 930) "dir")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
   (data (i32.const 600) "hello")
@@ -133,6 +139,19 @@ const PROBE_WAT: &str = r#"
     (call $unlink (i32.const 3) (i32.const 740) (i32.const 1)))
   (func (export "unlink_path") (param $path i32) (param $len i32) (result i32)
     (call $unlink (i32.const 3) (local.get $path) (local.get $len)))
+  (func (export "remove_path") (param $path i32) (param $len i32) (result i32)
+    (call $rmdir (i32.const 3) (local.get $path) (local.get $len)))
+  (func (export "rename_paths") (param $from i32) (param $from_len i32) (param $to i32) (param $to_len i32) (result i32)
+    (call $rename (i32.const 3) (local.get $from) (local.get $from_len) (i32.const 3) (local.get $to) (local.get $to_len)))
+  ;; Open `file.txt`, seek it to the largest offset, then that far again.
+  (func (export "seek_past_the_largest_offset") (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open (i32.const 3) (i32.const 0) (i32.const 700) (i32.const 8)
+      (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 128)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (local.set $errno (call $seek (i32.load (i32.const 128)) (i64.const 0x7fffffffffffffff) (i32.const 0) (i32.const 136)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $seek (i32.load (i32.const 128)) (i64.const 0x7fffffffffffffff) (i32.const 1) (i32.const 136)))
   ;; Open `path` for reading, following a link standing at its end.
   (func (export "open_following") (param $path i32) (param $len i32) (result i32)
     (call $open (i32.const 3) (i32.const 1) (local.get $path) (local.get $len)
@@ -147,6 +166,13 @@ const OUT_OF_FILE: (i32, i32) = (780, 11);
 const FILE_AS_DIRECTORY: (i32, i32) = (800, 9);
 const NEW_AS_DIRECTORY: (i32, i32) = (820, 8);
 const THROUGH_FILE: (i32, i32) = (860, 12);
+const DIR_DOT: (i32, i32) = (880, 5);
+const DIR_DOT_DOT: (i32, i32) = (890, 6);
+const BENEATH_FILE: (i32, i32) = (900, 10);
+const MOVED: (i32, i32) = (920, 5);
+const DIR: (i32, i32) = (930, 3);
+const ERRNO_NOTEMPTY: i32 = 55;
+const ERRNO_OVERFLOW: i32 = 61;
 
 fn grant(
     filesystem: Arc<dyn Filesystem>,
@@ -202,6 +228,15 @@ impl Guest {
             .get_typed_func::<(i32, i32, i32, i32), i32>(&mut self.store, "open_flagged")
             .expect("probe export must resolve")
             .call(&mut self.store, (path.0, path.1, oflags, fdflags))
+            .expect("probe call must not trap")
+    }
+
+    /// Call an export that takes two paths.
+    fn call_pair(&mut self, name: &str, first: (i32, i32), second: (i32, i32)) -> i32 {
+        self.instance
+            .get_typed_func::<(i32, i32, i32, i32), i32>(&mut self.store, name)
+            .expect("probe export must resolve")
+            .call(&mut self.store, (first.0, first.1, second.0, second.1))
             .expect("probe call must not trap")
     }
 
@@ -791,6 +826,115 @@ fn a_path_through_a_link_beneath_a_mount_with_a_policy_answers_eloop() {
         "path_open and path_unlink_file through a host link, or path_open following one at the \
          end, beneath a Mount with a Policy through preview1 must answer ELOOP and change \
          nothing, while a Mount without a Policy follows the link"
+    );
+}
+
+fn file_and_directory() -> Arc<Memory> {
+    Arc::new(
+        [("file.txt", "granted"), ("dir/inner", "x")]
+            .into_iter()
+            .collect(),
+    )
+}
+
+// Resolving `dir/.` reaches `dir` itself, so only refusing the path as
+// written keeps either call from taking `dir`.
+// @behavior RT-102
+#[test]
+fn a_path_ending_in_a_dot_is_neither_removed_nor_moved() {
+    let memory = file_and_directory();
+    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
+    let answers = [
+        guest.call("remove_path", DIR_DOT),
+        guest.call("remove_path", DIR_DOT_DOT),
+        guest.call_pair("rename_paths", DIR_DOT, MOVED),
+        guest.call_pair("rename_paths", DIR_DOT_DOT, MOVED),
+    ];
+    assert_eq!(
+        (answers, memory.metadata("dir/inner").is_ok()),
+        ([ERRNO_INVAL, ERRNO_NOTEMPTY, ERRNO_BUSY, ERRNO_BUSY], true),
+        "path_remove_directory of a path ending in . or .., and path_rename of one, beneath a \
+         Mount through preview1 must answer EINVAL, ENOTEMPTY, and EBUSY as Linux does and \
+         leave the directory in place"
+    );
+}
+
+// The Mount only reads, so only judging a create of what already stands
+// as no change lets the open through.
+// @behavior RT-103
+#[test]
+fn a_create_of_what_already_stands_changes_nothing() {
+    let mut guest = Guest::new(&[grant(file_and_directory(), Access::Read, None)]);
+    let answers = [
+        guest.call_flagged(FILE, OFLAGS_CREAT, 0),
+        guest.call_flagged(DIR, OFLAGS_CREAT, 0),
+    ];
+    assert_eq!(
+        answers,
+        [0, ERRNO_ISDIR],
+        "path_open with O_CREAT and no write of an existing file beneath a read-only Mount \
+         through preview1 must open it, and of an existing directory answer EISDIR, as Linux does"
+    );
+}
+
+// The host file only reads, so a host open asking to create, and so to
+// write, would be refused where the guest asked only to read.
+// @behavior RT-103
+#[cfg(unix)]
+#[test]
+fn a_create_of_a_host_file_that_only_reads_opens_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let host = std::env::temp_dir().join(format!("kobako-granted-creat-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&host);
+    std::fs::create_dir_all(&host).expect("the host directory must be created");
+    std::fs::write(host.join("file.txt"), "granted").expect("the host file must be written");
+    std::fs::set_permissions(
+        host.join("file.txt"),
+        std::fs::Permissions::from_mode(0o444),
+    )
+    .expect("the host file must become read-only");
+    let directory = Directory::new(&host).expect("the host directory must open");
+    let answer = Guest::new(&[grant(Arc::new(directory), Access::ReadWrite, None)]).call_flagged(
+        FILE,
+        OFLAGS_CREAT,
+        0,
+    );
+    let _ = std::fs::remove_dir_all(&host);
+    assert_eq!(
+        answer, 0,
+        "path_open with O_CREAT and no write of a read-only host file beneath a Directory Mount \
+         through preview1 must open it"
+    );
+}
+
+// The second seek would land past what a signed offset holds, so only
+// the cap keeps the position from reaching it.
+// @behavior RT-104
+#[test]
+fn a_seek_past_the_largest_offset_overflows() {
+    let answer = Guest::new(&[grant(file_and_directory(), Access::Read, None)])
+        .call_bare("seek_past_the_largest_offset");
+    assert_eq!(
+        answer, ERRNO_OVERFLOW,
+        "fd_seek past the largest signed 64-bit offset of a file beneath a Mount through \
+         preview1 must answer EOVERFLOW, as Linux does"
+    );
+}
+
+// @behavior RT-105
+#[test]
+fn a_file_moved_beneath_itself_is_no_directory() {
+    let memory = file_and_directory();
+    let answer = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]).call_pair(
+        "rename_paths",
+        FILE,
+        BENEATH_FILE,
+    );
+    assert_eq!(
+        (answer, contents(memory.as_ref(), "file.txt")),
+        (ERRNO_NOTDIR, Some(b"granted".to_vec())),
+        "path_rename of a file to a path beneath it, beneath a Mount through preview1, must \
+         answer ENOTDIR as Linux does and leave the file in place"
     );
 }
 

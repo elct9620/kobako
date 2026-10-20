@@ -438,7 +438,12 @@ pub(crate) fn seek(
         1 => file.position,
         _ => file.file.metadata()?.len,
     };
+    // Linux holds an offset in a signed 64-bit `off_t`, past which a seek
+    // is `OVERFLOW` rather than a position a write could wrap around.
     let position = base.checked_add_signed(offset).ok_or(Errno::Inval)?;
+    if position > i64::MAX as u64 {
+        return Err(Errno::Overflow.into());
+    }
     file.position = position;
     mem.write_u64(out, position)
 }

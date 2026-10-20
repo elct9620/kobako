@@ -189,7 +189,9 @@ pub(crate) fn open(
 
     let read = flags.rights_base & RIGHTS_FD_READ != 0;
     let write = flags.rights_base & RIGHTS_FD_WRITE != 0;
-    let changes = write || oflag(OFLAGS_CREAT) || oflag(OFLAGS_TRUNC);
+    // Creating changes the Mount only where nothing stands yet, so an open
+    // that may create is judged as a read until that is known.
+    let changes = write || oflag(OFLAGS_TRUNC);
     let access = if changes {
         Access::ReadWrite
     } else {
@@ -207,9 +209,14 @@ pub(crate) fn open(
         Err(kobako_runtime::filesystem::FilesystemError::NotFound) => None,
         Err(err) => return Err(err.into()),
     };
+    if existing.is_none() && oflag(OFLAGS_CREAT) && !changes {
+        judge(&mount, &path, Access::ReadWrite, follow)?;
+    }
     let descriptor = match existing {
         Some(_) if oflag(OFLAGS_CREAT) && oflag(OFLAGS_EXCL) => return Err(Errno::Exist.into()),
-        Some(Kind::Directory) if write || oflag(OFLAGS_TRUNC) => return Err(Errno::Isdir.into()),
+        Some(Kind::Directory) if write || oflag(OFLAGS_TRUNC | OFLAGS_CREAT) => {
+            return Err(Errno::Isdir.into())
+        }
         Some(Kind::Directory) => Descriptor::Directory(OpenDirectory {
             mount,
             path,
@@ -221,7 +228,9 @@ pub(crate) fn open(
             let options = OpenOptions {
                 read,
                 write,
-                create: oflag(OFLAGS_CREAT),
+                // A file already there is opened as it is, so a host that
+                // opens only to create never asks for more than the guest.
+                create: oflag(OFLAGS_CREAT) && existing.is_none(),
                 create_new: oflag(OFLAGS_CREAT) && oflag(OFLAGS_EXCL),
                 truncate: oflag(OFLAGS_TRUNC),
                 nofollow: !follow,
@@ -250,6 +259,15 @@ pub(crate) fn readlink(
     Err(Errno::Notsup.into())
 }
 
+/// The `.` or `..` a guest path ends in, which names no entry a call
+/// may remove or move, as Linux refuses it before resolving the path.
+fn dot_end(path: &str) -> Option<&str> {
+    path.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|last| matches!(*last, "." | ".."))
+}
+
 /// A Mount's root is where the guest stands, not a directory it may
 /// remove or move; each call refuses it as Linux refuses its own root.
 fn not_root(path: &str, refusal: Errno) -> Answer {
@@ -265,6 +283,11 @@ pub(crate) fn remove_directory(
     fd: u32,
     path: (u32, u32),
 ) -> Answer {
+    match dot_end(&mem.path(path.0, path.1)?) {
+        Some(".") => return Err(Errno::Inval.into()),
+        Some(_) => return Err(Errno::Notempty.into()),
+        None => {}
+    }
     let (dir, path) = beneath(table, mem, fd, path)?;
     not_root(&path, Errno::Inval)?;
     judge(&dir.mount, &path, Access::ReadWrite, false)?;
@@ -282,8 +305,12 @@ pub(crate) fn rename(
 ) -> Answer {
     let from_dir = directory(table, old.0)?;
     let to_dir = directory(table, new.0)?;
-    let from = resolve(from_dir, &mem.path(old.1 .0, old.1 .1)?)?;
-    let to = resolve(to_dir, &mem.path(new.1 .0, new.1 .1)?)?;
+    let (from, to) = (mem.path(old.1 .0, old.1 .1)?, mem.path(new.1 .0, new.1 .1)?);
+    if dot_end(&from).or(dot_end(&to)).is_some() {
+        return Err(Errno::Busy.into());
+    }
+    let from = resolve(from_dir, &from)?;
+    let to = resolve(to_dir, &to)?;
     not_root(&from.path, Errno::Busy)?;
     not_root(&to.path, Errno::Busy)?;
     // A trailing `/` on either side asks that the source be a directory,

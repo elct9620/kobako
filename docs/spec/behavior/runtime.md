@@ -999,3 +999,51 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a Directory Mount with a Policy, holding a link to a directory |
 | When | the guest opens or removes a path through the link, or opens the link following it |
 | Then | each call answers ELOOP and changes nothing |
+
+## `RT-102` A path ending in a dot is neither removed nor moved
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-083` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount holding the directory `dir` |
+| When | the guest removes `dir/.` and `dir/..`, and renames each |
+| Then | the removals answer EINVAL and ENOTEMPTY, the renames EBUSY, and `dir` stays |
+
+## `RT-103` A create of what already stands changes nothing
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-078` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-only Mount holding a file and a directory |
+| When | the guest opens each with `O_CREAT` and no write |
+| Then | the file opens, and the directory answers EISDIR |
+
+## `RT-104` A seek past the largest offset overflows
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-076` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file |
+| When | the guest seeks the open file past the largest signed 64-bit offset |
+| Then | the seek answers EOVERFLOW |
+
+## `RT-105` A file moved beneath itself is no directory
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-061` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount holding `file.txt` |
+| When | the guest renames `file.txt` to `file.txt/x` |
+| Then | the rename answers ENOTDIR, and `file.txt` stays |

@@ -757,6 +757,10 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 ## `FS-061` An Overlay refuses a file moved beneath itself as no directory
 
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-105` |
+
 | Step | Statement |
 | --- | --- |
 | Given | an Overlay showing the file `dir/file` |
