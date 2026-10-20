@@ -973,3 +973,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a read-write Mount holding a file |
 | When | the guest opens the file to write and asks to allocate room in it |
 | Then | the allocation answers NOTSUP, and the file holds what it held |
+
+## `RT-100` An open following no link refuses a link to a directory
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-047` |
+| relates | `RT-098` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Directory Mount holding a link to a directory |
+| When | the guest opens the link following no link, then again with a trailing slash |
+| Then | the first answers ELOOP, and the second opens the directory |

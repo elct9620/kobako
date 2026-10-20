@@ -26,6 +26,7 @@ const ERRNO_ACCES: i32 = 2;
 const ERRNO_BUSY: i32 = 10;
 const ERRNO_INVAL: i32 = 28;
 const ERRNO_ISDIR: i32 = 31;
+const ERRNO_LOOP: i32 = 32;
 const ERRNO_NOENT: i32 = 44;
 const ERRNO_NOTDIR: i32 = 54;
 const ERRNO_NOTSUP: i32 = 58;
@@ -612,6 +613,21 @@ const FILETYPE_DIRECTORY: u8 = 3;
 const FILETYPE_REGULAR_FILE: u8 = 4;
 const FILETYPE_SYMBOLIC_LINK: u8 = 7;
 
+/// A host directory of its own holding `file.txt` as a link to `target`,
+/// made by `make_target`, and a guest handed it as a read-only Directory
+/// Mount.
+#[cfg(unix)]
+fn linked(name: &str, make_target: fn(&std::path::Path)) -> (std::path::PathBuf, Guest) {
+    let host = std::env::temp_dir().join(format!("kobako-granted-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&host);
+    std::fs::create_dir_all(&host).expect("the host directory must be created");
+    make_target(&host.join("target"));
+    std::os::unix::fs::symlink("target", host.join("file.txt")).expect("the link must be made");
+    let directory = Directory::new(&host).expect("the host directory must open");
+    let guest = Guest::new(&[grant(Arc::new(directory), Access::Read, None)]);
+    (host, guest)
+}
+
 /// What each stat of `path` with the given lookupflags answers, and the
 /// filetype it wrote, beneath a Directory Mount whose host directory
 /// holds `file.txt` as a link to `target`, made by `make_target`.
@@ -621,13 +637,7 @@ fn stat_link(
     make_target: fn(&std::path::Path),
     stats: &[((i32, i32), i32)],
 ) -> Vec<(i32, u8)> {
-    let host = std::env::temp_dir().join(format!("kobako-granted-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&host);
-    std::fs::create_dir_all(&host).expect("the host directory must be created");
-    make_target(&host.join("target"));
-    std::os::unix::fs::symlink("target", host.join("file.txt")).expect("the link must be made");
-    let directory = Directory::new(&host).expect("the host directory must open");
-    let mut guest = Guest::new(&[grant(Arc::new(directory), Access::Read, None)]);
+    let (host, mut guest) = linked(name, make_target);
     let answers = stats
         .iter()
         .map(|&(path, flags)| {
@@ -698,6 +708,28 @@ fn an_allocation_for_a_file_beneath_a_mount_is_unsupported() {
         (ERRNO_NOTSUP, Some(b"granted".to_vec())),
         "fd_allocate of a file beneath a read-write Mount through preview1 must answer ENOTSUP \
          as wasmtime-wasi does, leaving the file as it was"
+    );
+}
+
+// The probe's opens follow no link, so only the trailing `/` can make one
+// reach the directory the link points at, as Linux's `open` does.
+// @behavior RT-100
+#[cfg(unix)]
+#[test]
+fn an_open_following_no_link_refuses_a_link_to_a_directory() {
+    let (host, mut guest) = linked("open-nofollow", |target| {
+        std::fs::create_dir(target).expect("the host directory must be created")
+    });
+    let answers = [
+        guest.call_flagged(FILE, 0, 0),
+        guest.call_flagged(FILE_AS_DIRECTORY, 0, 0),
+    ];
+    let _ = std::fs::remove_dir_all(&host);
+    assert_eq!(
+        answers,
+        [ERRNO_LOOP, 0],
+        "path_open following no link of a host link to a directory beneath a Directory Mount \
+         through preview1 must answer ELOOP, and with a trailing slash open the directory"
     );
 }
 

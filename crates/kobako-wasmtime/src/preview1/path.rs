@@ -158,6 +158,8 @@ pub(crate) fn open(
     if path.ends_with('/') && oflag(OFLAGS_CREAT) {
         return Err(Errno::Isdir.into());
     }
+    // A trailing `/` resolves a link standing there, as Linux's `open` does.
+    let follow = flags.dirflags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 || resolved.names_directory;
     let path = resolved.directory_checked(dir.mount.filesystem().as_ref())?;
     let mount = Arc::clone(&dir.mount);
     if table.is_full() {
@@ -174,7 +176,12 @@ pub(crate) fn open(
     };
     mount.check(&path, access)?;
 
-    let existing = match mount.filesystem().metadata(&path) {
+    let looked_up = if follow {
+        mount.filesystem().metadata(&path)
+    } else {
+        mount.filesystem().symlink_metadata(&path)
+    };
+    let existing = match looked_up {
         Ok(metadata) => Some(metadata.kind),
         Err(kobako_runtime::filesystem::FilesystemError::NotFound) => None,
         Err(err) => return Err(err.into()),
@@ -196,7 +203,7 @@ pub(crate) fn open(
                 create: oflag(OFLAGS_CREAT),
                 create_new: oflag(OFLAGS_CREAT) && oflag(OFLAGS_EXCL),
                 truncate: oflag(OFLAGS_TRUNC),
-                nofollow: flags.dirflags & LOOKUPFLAGS_SYMLINK_FOLLOW == 0,
+                nofollow: !follow,
             };
             Descriptor::File(OpenFile {
                 file: mount.filesystem().open(&path, &options)?,
