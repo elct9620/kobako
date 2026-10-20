@@ -43,7 +43,11 @@ fn answer(
         .and_then(Extern::into_memory)
         .ok_or_else(|| wasmtime::Error::msg("a preview1 call needs the guest's `memory` export"))?;
     let (bytes, invocation) = memory.data_and_store_mut(caller);
-    match call(&mut GuestMemory::new(bytes), invocation) {
+    let answer = call(&mut GuestMemory::new(bytes), invocation);
+    if let Some(trap) = invocation.abandonment() {
+        return Err(trap);
+    }
+    match answer {
         Ok(()) => Ok(0),
         Err(Failure::Errno(errno)) => Ok(errno as i32),
         Err(Failure::Trap(trap)) => Err(trap),

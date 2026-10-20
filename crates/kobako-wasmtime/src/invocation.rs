@@ -90,6 +90,14 @@ impl Invocation {
         self.on_dispatch.clone()
     }
 
+    /// The trap ending an invocation its host gave up on.
+    pub(crate) fn abandonment(&self) -> Option<wasmtime::Error> {
+        self.on_dispatch
+            .as_ref()
+            .is_some_and(|handler| handler.abandoned())
+            .then(|| wasmtime::Error::msg("the host abandoned the invocation"))
+    }
+
     pub(crate) fn wasi(&self) -> &Wasi {
         &self.wasi
     }

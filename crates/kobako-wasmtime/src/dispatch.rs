@@ -49,6 +49,9 @@ pub(crate) fn handle(
     if let Some(trap) = caller.data_mut().take_reentry_trap() {
         return Err(trap);
     }
+    if let Some(trap) = caller.data().abandonment() {
+        return Err(trap);
+    }
     Ok(answer.unwrap_or_else(|reason| {
         eprintln!("[kobako-dispatch] {reason}");
         0

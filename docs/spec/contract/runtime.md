@@ -82,6 +82,17 @@ pub trait DispatchHandler {
 }
 ```
 
+## `DispatchHandler::abandoned`
+
+Whether the Host App gave up on the invocation. The engine then ends it at the
+next host call it answers. The default never gives up.
+
+```rust
+pub trait DispatchHandler {
+    fn abandoned(&self) -> bool;
+}
+```
+
 ## `Yielder`
 
 The engine's way back into the Guest while a Call is out. The host uses it to

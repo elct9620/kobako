@@ -25,4 +25,12 @@ use kobako_transport::envelope::{Call, Reply};
 /// the payload onward without copying it first.
 pub trait DispatchHandler: Send + Sync {
     fn dispatch(&self, call: Call<'_>, yielder: &mut dyn Yielder) -> Option<Reply>;
+
+    /// Whether the host gave up on this invocation, as when one of its
+    /// callbacks raised something meant for the host rather than the
+    /// guest. The engine ends the invocation at the next host call it
+    /// answers, so the guest cannot go on as if it had been answered.
+    fn abandoned(&self) -> bool {
+        false
+    }
 }
