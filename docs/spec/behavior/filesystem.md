@@ -742,3 +742,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay whose directory `dir` shows empty, its writable copy holding only the whiteout of a removed lower file |
 | When | another directory is renamed onto `dir` through the Overlay |
 | Then | the rename succeeds, and `dir` shows only the moved directory's entries |
+
+## `FS-060` A directory made again moves as the writable Layer's own
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-018` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay where a read-only Layer's directory was removed and made again |
+| When | the directory is renamed through the Overlay |
+| Then | it moves, and nothing of the read-only Layer's directory shows at either path |

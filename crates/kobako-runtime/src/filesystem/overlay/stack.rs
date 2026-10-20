@@ -53,11 +53,14 @@ impl Layer {
 
     /// Whether this Layer hides `path` in every Layer below it: a whiteout
     /// of it or of a directory above it, an opaque marker in one of those
-    /// directories, or a file or link standing at it or above it, as
-    /// overlayfs merges only directories. A marker lives in a directory,
-    /// so the walk ends at the first directory above `path` this Layer
-    /// lacks.
+    /// directories or in `path` itself, or a file or link standing at it
+    /// or above it, as overlayfs merges only directories. A marker lives
+    /// in a directory, so the walk ends at the first directory above
+    /// `path` this Layer lacks.
     fn hides(&self, path: &str) -> bool {
+        if self.holds(&join(path, OPAQUE)) {
+            return true;
+        }
         for name in ancestors(path).chain(std::iter::once(path)) {
             if self.holds(&whiteout(name)) || self.holds(&join(parent(name), OPAQUE)) {
                 return true;

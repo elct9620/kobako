@@ -408,6 +408,34 @@ mod tests {
         );
     }
 
+    // The directory made again is marked opaque in the writable Layer, so
+    // only that mark tells it apart from one the read-only Layer still holds.
+    // @behavior FS-060
+    #[test]
+    fn a_directory_made_again_moves_as_the_writable_layers_own() {
+        let (overlay, _) = layered(Arc::new(Memory::new()));
+        overlay
+            .remove_file("dir/file")
+            .expect("the file must be removed");
+        overlay
+            .remove_dir("dir")
+            .expect("the directory must be removed");
+        overlay
+            .create_dir("dir")
+            .expect("the directory must be made again");
+        let moved = overlay.rename("dir", "moved", Rename::Directory);
+        assert_eq!(
+            (
+                moved,
+                overlay.metadata("dir").err(),
+                overlay.read_dir("moved").map(|entries| entries.len())
+            ),
+            (Ok(()), Some(FilesystemError::NotFound), Ok(0)),
+            "a directory made again through an Overlay where a read-only Layer's one was removed, \
+             renamed through Overlay::rename, must move and leave nothing of the lower one behind"
+        );
+    }
+
     // The link points at nothing, so only the link itself can be what an
     // exclusive create or a new directory finds there.
     // @behavior FS-052
