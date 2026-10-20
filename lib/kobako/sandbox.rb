@@ -89,9 +89,9 @@ module Kobako
     # or a StandardError, fails that call as <tt>Errno::EACCES</tt> in the
     # guest and leaves the script running.
     #
-    # Raises ArgumentError for a malformed, duplicate, or nested path, an
-    # unknown access, something other than a Filesystem, or a call after the
-    # first invocation.
+    # Raises TypeError for a path that is no String or something other than
+    # a Filesystem, and ArgumentError for a malformed, duplicate, or nested
+    # path, an unknown access, or a call after the first invocation.
     def mount(at, filesystem, access: :read, &policy)
       refuse_once_invoked!("mount")
       @grants.register(Catalog::Mount.new(at: at, access: access, filesystem: filesystem, policy: policy))
@@ -175,7 +175,13 @@ module Kobako
     def new_invocation
       begin_invocation!
       Context.new(runtime: @runtime, services: @services, extensions: @extensions, grants: @grants,
-                  preamble: [@services.paths, @snippets.entries, @flags.entries])
+                  preamble: preamble(@snippets.entries))
+    end
+
+    # The one place the Preamble's parts are put together, for a compile
+    # and for every invocation alike.
+    def preamble(snippets)
+      [@services.paths, snippets, @flags.entries]
     end
 
     # Registration closes at the first invocation, so every invocation ships
@@ -190,7 +196,7 @@ module Kobako
     def begin_invocation!
       @sealed = true
       @extensions.assert_dependencies!
-      @snippets.compile { |entries| @runtime.compile(@services.paths, entries, @flags.entries) }
+      @snippets.compile { |entries| @runtime.compile(*preamble(entries)) }
     end
   end
 end
