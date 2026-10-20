@@ -24,7 +24,8 @@ module Kobako
     end
 
     # A file a Filesystem written in Ruby opened; +::File+ answers it. One
-    # that also answers _WritableFile takes writes too.
+    # that also answers _WritableFile takes writes too, and any file may
+    # answer _ClosableFile to flush and close.
     interface _File
       def pread: (Integer length, Integer offset) -> String?
       def size: () -> Integer
@@ -33,6 +34,9 @@ module Kobako
     interface _WritableFile
       def pwrite: (String data, Integer offset) -> Integer
       def truncate: (Integer length) -> void
+    end
+
+    interface _ClosableFile
       def fsync: () -> void
       def close: () -> void
     end

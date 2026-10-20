@@ -51,9 +51,10 @@ module Kobako
     # with its own +access+ and block, as Sandbox#mount takes them. Returns
     # +self+.
     #
-    # Raises ArgumentError when nothing was mounted at +at+ on the Sandbox,
-    # for a malformed path, an unknown access, or something other than a
-    # Filesystem, or when called after the block has returned.
+    # Raises TypeError for a path that is no String or something other than
+    # a Filesystem, and ArgumentError when nothing was mounted at +at+ on the
+    # Sandbox, for a malformed path or an unknown access, or when called
+    # after the block has returned.
     def mount(at, filesystem, access: :read, &policy)
       raise ArgumentError, "Kobako::Context is spent; ctx.mount is only valid inside the #eval / #run block" if @spent
 
