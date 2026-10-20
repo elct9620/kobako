@@ -187,6 +187,7 @@ Each row names an entry point and only what reading it will not tell you.
 | Extensions | `docs/guides/extensions.md` | a backend's kind is a keyword |
 | Mounts | `crates/kobako-runtime/src/mount.rs` | the Mount decides access; the driver in `crates/kobako-wasmtime/src/preview1/` maps its `Denial` |
 | Filesystems in Ruby | `ext/kobako/src/runtime/filesystem/ruby.rs` | an invocation pins its Mounts' objects; an Overlay marks its Layers |
+| host exceptions | `ext/kobako/src/runtime/escape.rs` | a callback's non-`StandardError` ends the run and re-raises in Ruby |
 | guest capabilities | `wasm/kobako-{io,regexp,json}/src/` | pure-Rust `beni::Gem`, no mrblib |
 | ABI surface | `wasm/kobako-core/src/guest.rs` | bodies in `wasm/kobako-mruby/src/flows.rs`; host side in `crates/kobako-wasmtime/src/driver.rs` |
 | security | `docs/guides/security.md` | the host is the boundary |
