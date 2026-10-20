@@ -41,6 +41,21 @@ class TestE2EMountLimit < Minitest::Test
                  "a misspelled keyword through Memory.new must be named in the ArgumentError"
   end
 
+  # The Rust Memory panics on such a list, which would reach Ruby as a
+  # fatal no Host App can rescue.
+  # @behavior MT-024
+  def test_a_memory_refuses_files_it_cannot_hold
+    messages = [{ "/" => "x" }, { "a" => "x", "a/b" => "y" }, { "a/b" => "y", "a" => "x" }].map do |files|
+      assert_raises(ArgumentError) { Kobako::Filesystem::Memory.new(files) }.message
+    end
+
+    assert_equal ["a Memory seeds no file at its root",
+                  "a Memory seeds a as both a file and a directory",
+                  "a Memory seeds a as both a file and a directory"], messages,
+                 "files naming the root, or a file where a directory must stand, through Memory.new " \
+                 "must raise ArgumentError naming the path"
+  end
+
   # The files are empty, so only +inodes:+, not the bytes they hold, can
   # refuse the third.
   # @behavior MT-017

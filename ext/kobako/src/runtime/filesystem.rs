@@ -70,6 +70,37 @@ pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     Ok(())
 }
 
+/// Refuse, as an `ArgumentError` the Host App can rescue, a list a Memory
+/// panics on: the root, a file given twice, or a file where another path
+/// needs a directory.
+fn seedable(ruby: &Ruby, files: &[(String, Vec<u8>)]) -> Result<(), MagnusError> {
+    let refuse = |message: String| MagnusError::new(ruby.exception_arg_error(), message);
+    let mut files_at = std::collections::HashMap::new();
+    for (path, _) in files {
+        let names: Vec<&str> = path
+            .split('/')
+            .filter(|name| !name.is_empty() && *name != ".")
+            .collect();
+        if names.is_empty() {
+            return Err(refuse("a Memory seeds no file at its root".to_string()));
+        }
+        for end in 1..=names.len() {
+            let entry = names[..end].join("/");
+            let file = end == names.len();
+            match files_at.insert(entry.clone(), file) {
+                Some(true) if file => return Err(refuse(format!("a Memory seeds {entry} twice"))),
+                Some(was) if was != file => {
+                    return Err(refuse(format!(
+                        "a Memory seeds {entry} as both a file and a directory"
+                    )))
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
 /// `Memory.new(files = {}, limit: 64 MiB, inodes:)`: each
 /// `path => contents` pair becomes a file, its directories created along
 /// the way. Ruby hands a bare `"path" => contents` over as keywords, so
@@ -102,6 +133,7 @@ fn memory_new(args: &[Value]) -> Result<MemoryFs, MagnusError> {
             Ok(magnus::r_hash::ForEach::Continue)
         })?;
     }
+    seedable(&ruby, &files)?;
     let memory = files.into_iter().collect::<Memory>().with_limit(limit);
     Ok(MemoryFs(Arc::new(match inodes {
         Some(inodes) => memory.with_inodes(inodes),

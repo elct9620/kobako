@@ -304,3 +304,15 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Sandbox whose mount's block raises `Interrupt` |
 | When | the script opens a path beneath the mount and rescues every failure |
 | Then | the run raises `Interrupt` in the Host App |
+
+## `MT-024` A Memory given files it cannot hold raises ArgumentError
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-062`, `MT-015` |
+
+| Step | Statement |
+| --- | --- |
+| Given | files naming the root, or a file where another path needs a directory |
+| When | a Memory is created with them |
+| Then | the creation raises `ArgumentError` naming the path |
