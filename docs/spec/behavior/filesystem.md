@@ -791,3 +791,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay whose writable Layer holds only a whiteout in `dir`, and refuses to move or remove a directory |
 | When | a directory is renamed onto `dir`, and `dir` is removed, through the Overlay |
 | Then | both are refused, and the whited-out file stays hidden |
+
+## `FS-064` A Directory opens a file already there without writing to create it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-103`, `FS-006` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory whose host directory holds a file only reading is allowed on |
+| When | the file is opened asking to create it but not to write, and so is a missing one |
+| Then | the file opens, and the missing one is created |

@@ -80,6 +80,18 @@ fn metadata_of(metadata: cap_std::fs::Metadata) -> Metadata {
 
 impl Filesystem for Directory {
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+        // The host creates only for a writer, so a file already there is
+        // opened as asked rather than for writing it was never given.
+        if options.create && !(options.create_new || options.write || options.truncate) {
+            let existing = OpenOptions {
+                create: false,
+                ..*options
+            };
+            match self.open(path, &existing) {
+                Err(FilesystemError::NotFound) => {}
+                opened => return opened,
+            }
+        }
         let creates = options.create || options.create_new || options.truncate;
         let writes = options.write || creates;
         let mut open = CapOpenOptions::new();
@@ -305,6 +317,35 @@ mod tests {
             ),
             "a path holding a backslash opened through a Directory on Windows must be refused as \
              invalid input"
+        );
+    }
+
+    // The host file only reads, so a host open asking to write, as one that
+    // creates must, would be refused where nothing is to be created.
+    // @behavior FS-064
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_opens_a_file_already_there_without_writing_to_create_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let host = HostDir::new("create-existing");
+        fs::write(host.0.join("note"), "x").expect("the host file must be written");
+        fs::set_permissions(host.0.join("note"), fs::Permissions::from_mode(0o444))
+            .expect("the host file must become read-only");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        let creates = OpenOptions {
+            read: true,
+            create: true,
+            ..OpenOptions::default()
+        };
+        assert_eq!(
+            (
+                directory.open("note", &creates).map(drop),
+                directory.open("new", &creates).map(drop),
+                host.0.join("new").exists()
+            ),
+            (Ok(()), Ok(()), true),
+            "a Directory::open that may create, of a read-only host file already there, must open \
+             it, and of a missing one must create it"
         );
     }
 
