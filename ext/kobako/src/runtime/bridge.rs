@@ -147,8 +147,9 @@ impl RubyDispatchHandler {
 impl DispatchHandler for RubyDispatchHandler {
     /// Ruby decodes only the payload, through the codec it already owns,
     /// which keeps a large payload's strings shared with the buffer rather
-    /// than copied. The Proc folds every dispatch failure into the Reply's
-    /// fault arm, so a raise is a contract violation surfaced as `None`.
+    /// than copied. The Proc folds every `StandardError` into the Reply's
+    /// fault arm, so one escaping is a contract violation surfaced as
+    /// `None`.
     fn dispatch(&self, call: Call<'_>, yielder: &mut dyn Yielder) -> Option<Reply> {
         // The guest may be running GVL-free (`gvl: :release`); re-acquire the
         // GVL for the whole callback before touching any Ruby VALUE. In hold
@@ -187,18 +188,32 @@ impl DispatchHandler for RubyDispatchHandler {
                     ),
                 );
             guest_yielder.invalidate();
+            // The Proc rescues only StandardError, so what else escapes it
+            // is the host's own and is held for the host; a StandardError
+            // escaping breaks the Proc's contract.
+            let (ok, body, kind) = match answer {
+                Ok(answer) => answer,
+                Err(error) => {
+                    let _ = super::escape::hold(&ruby, error);
+                    return None;
+                }
+            };
             // The ok arm carries payload bytes the codec owns; the fault
             // arm carries the Fault's own two fields, which the envelope
             // types — so Ruby names a category rather than encoding one.
             // A category outside the closed set cannot come from the
             // public API, so it fails the dispatch rather than degrading.
-            answer.ok().and_then(|(ok, body, kind)| match ok {
+            match ok {
                 true => Some(Reply::Ok(super::rstring_to_vec(body))),
                 false => {
                     let kind = FaultKind::from_name(&kind?.to_string().ok()?)?;
                     Some(Reply::Fault(Fault::new(kind, body.to_string().ok()?)))
                 }
-            })
+            }
         })
+    }
+
+    fn abandoned(&self) -> bool {
+        super::escape::pending()
     }
 }

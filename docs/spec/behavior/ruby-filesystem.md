@@ -15,15 +15,17 @@ A Filesystem in Ruby is any object answering `open` and `stat`. Its methods take
 a change method missing   -> Errno::EROFS in the script
 EOFError raised by pread  -> the end of the file
 an Errno raised           -> that Errno in the script
-anything else raised      -> Errno::EIO in the script, which goes on
+another StandardError     -> Errno::EIO in the script, which goes on
+anything else raised      -> the run ends, and it raises in the Host App
 ```
 
-The Host App gets no exception of its own back. A failure belongs to the guest, which may raise it further.
+A StandardError belongs to the guest, which may raise it further. Anything else, such as `Interrupt` or a `Timeout`, belongs to the host. The guest cannot rescue it.
 
 ## Includes
 
 - `test/e2e/test_ruby_filesystem.rb`
 - `test/e2e/test_ruby_filesystem_host_file.rb`
+- `test/e2e/test_host_exception.rb`
 
 ## `RF-001` A Ruby object answering open and stat mounts as a Filesystem
 
@@ -73,7 +75,7 @@ The Host App gets no exception of its own back. A failure belongs to the guest, 
 | When | the script opens a file |
 | Then | the open raises `Errno::EACCES` |
 
-## `RF-005` Any other error a Ruby Filesystem raises reaches the script as EIO
+## `RF-005` Any other StandardError a Ruby Filesystem raises reaches the script as EIO
 
 | Attribute | Value |
 | --- | --- |
@@ -182,3 +184,15 @@ The Host App gets no exception of its own back. A failure belongs to the guest, 
 | Given | a Ruby Filesystem whose `open` answers a real `::File` |
 | When | the script reads the whole file |
 | Then | the read answers the file's content |
+
+## `RF-014` What a Ruby Filesystem raises beyond StandardError ends the run
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-005`, `MT-023`, `T-282` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `open` raises `Interrupt` |
+| When | the script opens a file and rescues every failure |
+| Then | the run raises `Interrupt` in the Host App |

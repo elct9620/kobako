@@ -5,8 +5,8 @@
 //! `IO`, so a Host App can hand an open call on to a real `::File`. A
 //! change method the object lacks answers as read-only; any other method
 //! it lacks answers as unsupported. A file's `EOFError` from `pread` is
-//! its end, an `Errno` it raises reaches the guest as that code, and
-//! anything else it raises reaches the guest as `EIO`.
+//! its end, an `Errno` it raises reaches the guest as that code, and any
+//! other `StandardError` reaches the guest as `EIO`.
 
 use magnus::value::{Opaque, ReprValue};
 use magnus::{kwargs, prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, Value};
@@ -15,8 +15,8 @@ use kobako_runtime::filesystem::{
     DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename,
 };
 
-use crate::runtime::gvl;
 use crate::runtime::pinned::Pinned;
+use crate::runtime::{escape, gvl};
 
 /// The Ruby object behind a Mount or a Layer. Whatever holds it on the
 /// Ruby side keeps it alive and in place: the invocation pinning its
@@ -50,7 +50,11 @@ fn ask<T>(
         if !object.respond_to(name, false).unwrap_or(false) {
             return Err(missing);
         }
-        answer(&ruby, object).map_err(|err| error_of(&ruby, err))
+        answer(&ruby, object).map_err(|err| match escape::hold(&ruby, err) {
+            Err(err) => error_of(&ruby, err),
+            // The invocation ends before the guest reads this.
+            Ok(()) => FilesystemError::Other(String::new()),
+        })
     })
 }
 

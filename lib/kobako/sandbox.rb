@@ -86,8 +86,8 @@ module Kobako
     #
     # A given block decides each open and each change in +access+'s place,
     # called with the guest path and +:read+ or +:read_write+. A falsy answer,
-    # or a raise, fails that call as <tt>Errno::EACCES</tt> in the guest and
-    # leaves the script running.
+    # or a StandardError, fails that call as <tt>Errno::EACCES</tt> in the
+    # guest and leaves the script running.
     #
     # Raises ArgumentError for a malformed, duplicate, or nested path, an
     # unknown access, something other than a Filesystem, or a call after the

@@ -19,6 +19,7 @@
 
 mod bridge;
 mod errors;
+mod escape;
 mod filesystem;
 mod gvl;
 mod pinned;
@@ -318,6 +319,7 @@ impl Runtime {
         let result = gvl::region(self.release_gvl, || {
             self.driver.invoke(entry, &preamble, handler, &grants)
         });
+        escape::resume()?;
         result
             .map(|snapshot| Snapshot(snapshot, verb))
             .map_err(|e| errors::to_magnus(&ruby, e))

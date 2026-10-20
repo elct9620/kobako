@@ -12,17 +12,19 @@ each invocation ─ Grants ─> runtime ─ preopen ─> guest File
 
 A mount is a registration, like a bind, so it follows the same rules. It is refused once the Sandbox is sealed, a path means one mount, and a path never sits inside another. A Context replaces a mount but never adds one.
 
-A mount's block decides in the access's place, once per open or change. Its refusal reaches the guest as a denied call and leaves the run going. A block that raises refuses the same way.
+A mount's block decides in the access's place, once per open or change. Its refusal reaches the guest as a denied call and leaves the run going. A block raising a StandardError refuses the same way. Anything else it raises belongs to the host.
 
 ```
-block answers truthy  -> the call proceeds
-block answers falsy   -> Errno::EACCES in the guest, the script goes on
-block raises          -> Errno::EACCES in the guest, the script goes on
+block answers truthy        -> the call proceeds
+block answers falsy         -> Errno::EACCES in the guest, the script goes on
+block raises StandardError  -> Errno::EACCES in the guest, the script goes on
+block raises anything else  -> the run ends, and it raises in the Host App
 ```
 
 ## Includes
 
 - `test/e2e/test_mount.rb`
+- `test/e2e/test_host_exception.rb`
 - `test/e2e/test_mount_limit.rb`
 - `test/e2e/test_mount_rename.rb`
 - `test/e2e/test_overlay_threads.rb`
@@ -108,7 +110,7 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 | When | the script opens that path and rescues the failure |
 | Then | it rescues `Errno::EACCES` and runs to its end |
 
-## `MT-008` A mount's block that raises refuses the open
+## `MT-008` A mount's block that raises a StandardError refuses the open
 
 | Attribute | Value |
 | --- | --- |
@@ -116,7 +118,7 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose mount's block raises |
+| Given | a Sandbox whose mount's block raises a `RuntimeError` |
 | When | the script opens a path beneath the mount and rescues the failure |
 | Then | it rescues `Errno::EACCES` |
 
@@ -290,3 +292,15 @@ block raises          -> Errno::EACCES in the guest, the script goes on
 | Given | an object that is no kind kobako ships and answers neither `open` nor `stat` |
 | When | it is mounted on a Sandbox, or added to an Overlay as a Layer |
 | Then | each raises `TypeError` |
+
+## `MT-023` What a mount's block raises beyond StandardError ends the run
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-008`, `RF-014`, `T-282` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose mount's block raises `Interrupt` |
+| When | the script opens a path beneath the mount and rescues every failure |
+| Then | the run raises `Interrupt` in the Host App |

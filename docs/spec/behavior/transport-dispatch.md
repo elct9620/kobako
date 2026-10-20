@@ -30,6 +30,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 - `test/e2e/test_handle_restoration.rb`
 - `test/e2e/test_handle_proxy.rb`
 - `test/e2e/test_dispatch*.rb`
+- `test/e2e/test_host_exception.rb`
 - `test/e2e/test_dsl_composition.rb`
 - `test/e2e/sandbox/test_run_auto_wrap.rb`
 - `test/e2e/sandbox/test_run_references.rb`
@@ -1154,3 +1155,15 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a guest that did not implement compiling its Snippets |
 | When | a compile reaches it |
 | Then | it answers that it does not serve the operation |
+
+## `T-282` What a Service raises beyond StandardError ends the run
+
+| Attribute | Value |
+| --- | --- |
+| relates | `T-140` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Service whose method raises `Interrupt` |
+| When | the script calls it and rescues every failure |
+| Then | the run raises `Interrupt` in the Host App |

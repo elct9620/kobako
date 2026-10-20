@@ -223,8 +223,9 @@ fn filesystem_of(value: Value) -> Result<Arc<dyn Filesystem>, MagnusError> {
     ))
 }
 
-/// A mount's block, asked in its access's place. A block that raises
-/// refuses, so the guest's open fails and its script goes on.
+/// A mount's block, asked in its access's place. A block raising a
+/// StandardError refuses, so the guest's open fails and its script goes
+/// on; anything else it raises is held for the host.
 struct RubyPolicy {
     block: Opaque<Value>,
 }
@@ -241,7 +242,10 @@ impl Policy for RubyPolicy {
             block
                 .funcall::<_, _, Value>("call", (ruby.str_new(path), access))
                 .map(|answer| answer.to_bool())
-                .unwrap_or(false)
+                .unwrap_or_else(|error| {
+                    let _ = super::escape::hold(&ruby, error);
+                    false
+                })
         })
     }
 }

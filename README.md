@@ -207,7 +207,7 @@ sandbox.eval('File.read("/config/app.yml")')
 
 A Memory or Temporary is bounded as a tmpfs mount is. Its files hold 64 MiB unless `limit:` gives another size in bytes. It holds one file or directory for each 4 KiB of that limit, and its root, unless `inodes:` gives another count. `nil` lifts either bound, and the guest raises `Errno::ENOSPC` past one.
 
-A block decides each open and each change in the access's place; a falsy answer or a raise fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run. With nothing mounted, `File.open` raises `NotImplementedError`.
+A block decides each open and each change in the access's place; a falsy answer or a `StandardError` fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run. With nothing mounted, `File.open` raises `NotImplementedError`.
 
 #### Overlays
 
@@ -233,7 +233,7 @@ Any object answering `open` and `stat` mounts as a Filesystem, directly or as a 
 | `children(path)` | entry names, as `Dir.children` gives them |
 | `mkdir` · `rmdir` · `unlink` · `rename(from, to, directory:)` | optional; without one, that change raises `Errno::EROFS` |
 
-A path is relative to the mount, the empty path being its root, and `flags` are `File::Constants`. A `rename` told `directory: false` moves only a file and `true` only a directory; `nil` moves either. A `pread` at the end answers `nil` or raises `EOFError`, as `IO#pread` does. An `Errno` the object raises reaches the script as that `Errno`, and anything else as `Errno::EIO`. Every call re-enters Ruby, and its time counts toward `timeout:` without being interrupted.
+A path is relative to the mount, the empty path being its root, and `flags` are `File::Constants`. A `rename` told `directory: false` moves only a file and `true` only a directory; `nil` moves either. A `pread` at the end answers `nil` or raises `EOFError`, as `IO#pread` does. An `Errno` the object raises reaches the script as that `Errno`, and any other `StandardError` as `Errno::EIO`. Every call re-enters Ruby, and its time counts toward `timeout:` without being interrupted.
 
 ### Output Capture
 
@@ -283,6 +283,15 @@ Each of these carries the failed run's Execution on `#execution`. A rescue reads
 | `Kobako::UndefinedEntrypointError` | `SandboxError` | `#run` named a constant no snippet defined; carries `#name` and `#available` |
 
 `SandboxError` and `ServiceError` carry structured `origin` / `klass` / `backtrace_lines` fields when the guest produced a panic envelope.
+
+#### Host Exceptions
+
+A Service, a mount's block, or a Filesystem written in Ruby is your code running inside the run. What it raises splits by class.
+
+| Raised by your code                     | Result                                        |
+|-----------------------------------------|-----------------------------------------------|
+| a `StandardError`                       | the guest sees a failure it may rescue        |
+| `Interrupt`, `exit`, `throw`, `Timeout` | the run ends; the invocation raises it as is  |
 
 ### Resource Limits
 
