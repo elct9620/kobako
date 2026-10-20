@@ -39,6 +39,8 @@ fn host(path: &str) -> Result<&str, FilesystemError> {
     Ok(if path.is_empty() { "." } else { path })
 }
 
+/// The FilesystemError a host failure names. A link loop stays unnamed
+/// until std's `FilesystemLoop` is stable.
 fn error(err: io::Error) -> FilesystemError {
     match err.kind() {
         io::ErrorKind::NotFound => FilesystemError::NotFound,
@@ -50,6 +52,14 @@ fn error(err: io::Error) -> FilesystemError {
         io::ErrorKind::ReadOnlyFilesystem => FilesystemError::ReadOnly,
         io::ErrorKind::InvalidInput => FilesystemError::InvalidInput,
         io::ErrorKind::Unsupported => FilesystemError::Unsupported,
+        io::ErrorKind::StorageFull => FilesystemError::NoSpace,
+        io::ErrorKind::CrossesDevices => FilesystemError::CrossesDevices,
+        io::ErrorKind::Deadlock => FilesystemError::Deadlock,
+        io::ErrorKind::ResourceBusy => FilesystemError::ResourceBusy,
+        io::ErrorKind::InvalidFilename => FilesystemError::InvalidFilename,
+        io::ErrorKind::NotSeekable => FilesystemError::NotSeekable,
+        io::ErrorKind::Interrupted => FilesystemError::Interrupted,
+        io::ErrorKind::OutOfMemory => FilesystemError::OutOfMemory,
         _ => FilesystemError::Other(err.to_string()),
     }
 }
@@ -317,6 +327,29 @@ mod tests {
             ),
             "a path holding a backslash opened through a Directory on Windows must be refused as \
              invalid input"
+        );
+    }
+
+    // The host answers ENAMETOOLONG, which only a mapping naming it keeps
+    // from reaching the guest as an EIO.
+    // @behavior FS-065
+    #[test]
+    fn a_directory_answers_a_host_failure_as_the_error_naming_it() {
+        let host = HostDir::new("names");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        let created = directory.open(
+            &"x".repeat(300),
+            &OpenOptions {
+                write: true,
+                create: true,
+                ..OpenOptions::default()
+            },
+        );
+        assert_eq!(
+            created.map(drop),
+            Err(FilesystemError::InvalidFilename),
+            "a name past the host's limit created through Directory::open must fail as \
+             InvalidFilename, not as an unnamed failure"
         );
     }
 

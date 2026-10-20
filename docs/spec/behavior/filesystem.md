@@ -803,3 +803,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Directory whose host directory holds a file only reading is allowed on |
 | When | the file is opened asking to create it but not to write, and so is a missing one |
 | Then | the file opens, and the missing one is created |
+
+## `FS-065` A Directory answers a host failure as the error naming it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-015`, `FS-005` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory over a host directory |
+| When | a file is created under a name longer than the host allows |
+| Then | the creation fails as a name too long, not as an unnamed failure |
