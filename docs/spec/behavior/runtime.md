@@ -1047,3 +1047,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a read-write Mount holding `file.txt` |
 | When | the guest renames `file.txt` to `file.txt/x` |
 | Then | the rename answers ENOTDIR, and `file.txt` stays |
+
+## `RT-106` An open following no link finds a dangling link as itself
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-100` |
+| relates | `FS-052` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Directory Mount holding a link to nothing |
+| When | the guest opens the link following no link, then again with `O_CREAT` and `O_EXCL` |
+| Then | the first answers ELOOP, the second EEXIST, and nothing is made where it points |

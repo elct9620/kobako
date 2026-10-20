@@ -173,6 +173,8 @@ const MOVED: (i32, i32) = (920, 5);
 const DIR: (i32, i32) = (930, 3);
 const ERRNO_NOTEMPTY: i32 = 55;
 const ERRNO_OVERFLOW: i32 = 61;
+const ERRNO_EXIST: i32 = 20;
+const OFLAGS_EXCL: i32 = 1 << 2;
 
 fn grant(
     filesystem: Arc<dyn Filesystem>,
@@ -935,6 +937,28 @@ fn a_file_moved_beneath_itself_is_no_directory() {
         (ERRNO_NOTDIR, Some(b"granted".to_vec())),
         "path_rename of a file to a path beneath it, beneath a Mount through preview1, must \
          answer ENOTDIR as Linux does and leave the file in place"
+    );
+}
+
+// The link points at nothing, so only the link itself, not a file it
+// would follow to, can be what each open finds there.
+// @behavior RT-106
+#[cfg(unix)]
+#[test]
+fn an_open_following_no_link_finds_a_dangling_link_as_itself() {
+    let (host, mut guest) = linked_under("dangling", |_| {}, Access::ReadWrite, None);
+    let answers = [
+        guest.call_flagged(FILE, 0, 0),
+        guest.call_flagged(FILE, OFLAGS_CREAT | OFLAGS_EXCL, 0),
+    ];
+    let made = host.join("target").exists();
+    let _ = std::fs::remove_dir_all(&host);
+    assert_eq!(
+        (answers, made),
+        ([ERRNO_LOOP, ERRNO_EXIST], false),
+        "path_open following no link of a dangling host link beneath a Directory Mount through \
+         preview1 must answer ELOOP, and with O_CREAT and O_EXCL EEXIST, as Linux does, making \
+         nothing where it points"
     );
 }
 
