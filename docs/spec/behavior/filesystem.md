@@ -815,3 +815,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Directory over a host directory |
 | When | a file is created under a name longer than the host allows |
 | Then | the creation fails as a name too long, not as an unnamed failure |
+
+## `FS-066` A Directory refuses to list a host name that is not UTF-8
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-065`, `FL-018` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory on a Linux host whose host directory holds a name that is not UTF-8 |
+| When | the directory is listed |
+| Then | the listing fails as an illegal byte sequence, not as an unnamed failure |

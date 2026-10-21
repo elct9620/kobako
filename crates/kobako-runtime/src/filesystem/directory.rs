@@ -147,9 +147,10 @@ impl Filesystem for Directory {
             .map_err(error)?
             .map(|entry| {
                 let entry = entry.map_err(error)?;
-                let name = entry.file_name().into_string().map_err(|name| {
-                    FilesystemError::Other(format!("a host entry name is not UTF-8: {name:?}"))
-                })?;
+                let name = entry
+                    .file_name()
+                    .into_string()
+                    .map_err(|_| FilesystemError::IllegalSequence)?;
                 Ok(DirEntry {
                     name,
                     kind: kind(entry.file_type().map_err(error)?),
@@ -350,6 +351,25 @@ mod tests {
             Err(FilesystemError::InvalidFilename),
             "a name past the host's limit created through Directory::open must fail as \
              InvalidFilename, not as an unnamed failure"
+        );
+    }
+
+    // Only Linux keeps a name that is not UTF-8; macOS refuses to make one.
+    // @behavior FS-066
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_directory_refuses_to_list_a_host_name_that_is_not_utf8() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let host = HostDir::new("ilseq");
+        fs::write(host.0.join(std::ffi::OsStr::from_bytes(b"\xff")), "")
+            .expect("the host file must be written");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        assert_eq!(
+            directory.read_dir("").map(drop),
+            Err(FilesystemError::IllegalSequence),
+            "a host name that is not UTF-8 listed through Directory::read_dir must fail as \
+             IllegalSequence, not as an unnamed failure"
         );
     }
 
