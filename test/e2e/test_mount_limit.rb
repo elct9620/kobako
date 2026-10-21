@@ -41,8 +41,8 @@ class TestE2EMountLimit < Minitest::Test
                  "a misspelled keyword through Memory.new must be named in the ArgumentError"
   end
 
-  # The Rust Memory panics on such a list, which would reach Ruby as a
-  # fatal no Host App can rescue.
+  # A Rust panic on such a list would reach Ruby as a fatal no Host App can
+  # rescue, so the refusal must arrive as an error instead.
   # @behavior MT-024
   def test_a_memory_refuses_files_it_cannot_hold
     messages = [{ "/" => "x" }, { "a" => "x", "a/b" => "y" }, { "a/b" => "y", "a" => "x" }].map do |files|
