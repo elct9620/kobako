@@ -1,7 +1,8 @@
 //! The differential probe beneath a Mount: each path call, made on the
 //! same host directory through kobako's `Directory` Mount and through
 //! wasmtime-wasi's own preopen, must leave the same errno, the same
-//! descriptor, and the same directory behind.
+//! descriptor, and the same directory behind. A listing of the Mount must
+//! answer the same errno.
 //!
 //! A Filesystem reports no timestamps or inode numbers, so of what a
 //! stat writes only the filetype is compared; the errno and the
@@ -334,6 +335,18 @@ fn observe<T>(
 
 fn through_kobako(call: Call, path: &str) -> Observation {
     let host = HostDir::new();
+    let (store, linker) = kobako_preopen(&host);
+    observe(store, &linker, call, path, &host)
+}
+
+fn through_wasmtime_wasi(call: Call, path: &str) -> Observation {
+    let host = HostDir::new();
+    let (store, linker) = wasmtime_wasi_preopen(&host);
+    observe(store, &linker, call, path, &host)
+}
+
+/// `host` behind a kobako `Directory` Mount at `AT`.
+fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
     let engine = shared_engine().expect("shared engine must be constructible");
     let config = Config {
         timeout: None,
@@ -351,11 +364,11 @@ fn through_kobako(call: Call, path: &str) -> Observation {
     let mut store = Store::new(engine, Invocation::new(None, wasi));
     store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
     let linker = imports::linker().expect("host imports must link");
-    observe(store, &linker, call, path, &host)
+    (store, linker)
 }
 
-fn through_wasmtime_wasi(call: Call, path: &str) -> Observation {
-    let host = HostDir::new();
+/// `host` behind wasmtime-wasi's own preopen at `AT`.
+fn wasmtime_wasi_preopen(host: &HostDir) -> (Store<WasiP1Ctx>, Linker<WasiP1Ctx>) {
     let engine = shared_engine().expect("shared engine must be constructible");
     let ctx = WasiCtxBuilder::new()
         .preopened_dir(&host.0, AT, FsPerms::ReadWrite)
@@ -365,7 +378,7 @@ fn through_wasmtime_wasi(call: Call, path: &str) -> Observation {
     store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
     let mut linker = Linker::new(engine);
     p1::add_to_linker_sync(&mut linker, |ctx: &mut WasiP1Ctx| ctx).expect("preview1 must link");
-    observe(store, &linker, call, path, &host)
+    (store, linker)
 }
 
 const ERRNO_NAMETOOLONG: i32 = 37;
@@ -445,5 +458,47 @@ fn every_path_call_beneath_a_mount_answers_as_a_wasmtime_wasi_preopen() {
         "each path call on a host directory through a kobako Directory Mount must answer as \
          wasmtime-wasi's preopen of it does:\n{}",
         differing.join("\n")
+    );
+}
+
+// Only Linux keeps a name that is not UTF-8; macOS refuses to make one.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_listing_holding_a_name_that_is_not_utf8_answers_as_a_wasmtime_wasi_preopen() {
+    use std::os::unix::ffi::OsStrExt;
+
+    /// Lists descriptor 3 into the 256 bytes at 1024 from the first entry,
+    /// the bytes used landing at 128.
+    const READDIR_WAT: &str = r#"
+    (module
+      (import "wasi_snapshot_preview1" "fd_readdir" (func $readdir (param i32 i32 i32 i64 i32) (result i32)))
+      (memory (export "memory") 1)
+      (func (export "readdir") (result i32)
+        (call $readdir (i32.const 3) (i32.const 1024) (i32.const 256) (i64.const 0) (i32.const 128))))
+    "#;
+
+    /// The errno the listing answers; `None` for a call that trapped.
+    fn readdir_errno<T>(mut store: Store<T>, linker: &Linker<T>) -> Option<i32> {
+        let module = Module::new(store.engine(), READDIR_WAT).expect("probe module must compile");
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("probe module must instantiate");
+        instance
+            .get_typed_func::<(), i32>(&mut store, "readdir")
+            .and_then(|f| f.call(&mut store, ()))
+            .ok()
+    }
+
+    let host = HostDir::new();
+    fs::write(host.0.join(std::ffi::OsStr::from_bytes(b"\xff")), "")
+        .expect("the host file must be written");
+    let (store, linker) = kobako_preopen(&host);
+    let kobako = readdir_errno(store, &linker);
+    let (store, linker) = wasmtime_wasi_preopen(&host);
+    let oracle = readdir_errno(store, &linker);
+    assert_eq!(
+        kobako, oracle,
+        "fd_readdir on a host directory holding a name that is not UTF-8 through a kobako \
+         Directory Mount must answer as wasmtime-wasi's preopen of it does"
     );
 }
