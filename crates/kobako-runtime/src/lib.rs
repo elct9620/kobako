@@ -29,7 +29,7 @@ pub use dispatch::DispatchHandler;
 pub use error::{InvokeError, SetupError, Trap};
 pub use filesystem::{
     Access, Blocking, DirEntry, Directory, File, Filesystem, FilesystemError, Kind, Memory,
-    Metadata, OpenOptions, Overlay, Rename, Temporary,
+    Metadata, OpenOptions, Overlay, Rename, SeedError, Temporary,
 };
 pub use grant::{Grant, GrantKind};
 pub use mount::{Denial, InvalidMountPath, Mount, Policy};

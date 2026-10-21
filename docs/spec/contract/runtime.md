@@ -631,13 +631,37 @@ impl Memory {
 ## `Memory::from_iter`
 
 A Memory seeded with files, each a path and its contents, its directories made
-along the way. It panics on the root path and on a file given twice. It also
-panics on a file where another path needs a directory.
+along the way. It panics on a list `Memory::try_from_iter` refuses.
 
 ```rust
 impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
     fn from_iter<I: IntoIterator<Item = (P, C)>>(files: I) -> Self {}
 }
+```
+
+## `Memory::try_from_iter`
+
+A Memory seeded with files as `Memory::from_iter` seeds them. A list no Memory
+holds as given answers the `SeedError` naming why.
+
+```rust
+impl Memory {
+    pub fn try_from_iter<P, C, I>(files: I) -> Result<Self, SeedError>
+    where
+        P: AsRef<str>,
+        C: Into<Vec<u8>>,
+        I: IntoIterator<Item = (P, C)>,
+    {}
+}
+```
+
+## `SeedError`
+
+Why a list of files cannot seed a Memory. The list names the root or gives a
+file twice. Or it gives a file where another path needs a directory.
+
+```rust
+pub enum SeedError {}
 ```
 
 ## `Temporary`

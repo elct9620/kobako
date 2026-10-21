@@ -827,3 +827,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Directory on a Linux host whose host directory holds a name that is not UTF-8 |
 | When | the directory is listed |
 | Then | the listing fails as an illegal byte sequence, not as an unnamed failure |
+
+## `FS-067` A Memory tried with a list it cannot hold answers why
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-062` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a list naming the root, a file twice, or a file where another path needs a directory |
+| When | a Memory is tried with it |
+| Then | the trial answers the error naming what the list holds wrong |

@@ -206,27 +206,55 @@ impl Default for Memory {
     }
 }
 
-/// A Memory seeded with files, each `(path, contents)`, its directories
-/// created along the way.
-///
-/// # Panics
-///
-/// When a path names the root, names a file twice, or stands where
-/// another path needs a directory, or the reverse: the list is the Host
-/// App's own, and no Memory holds it as given.
-impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
-    fn from_iter<I: IntoIterator<Item = (P, C)>>(files: I) -> Self {
+/// Why a list of files cannot seed a Memory as given.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SeedError {
+    /// A path naming the root, where no file can stand.
+    Root,
+    /// A file given twice.
+    Twice(String),
+    /// A path given as a file where another path needs a directory, or
+    /// the reverse.
+    FileAndDirectory(String),
+}
+
+impl std::fmt::Display for SeedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Root => write!(f, "a Memory seeds no file at its root"),
+            Self::Twice(path) => write!(f, "a Memory seeds {path} twice"),
+            Self::FileAndDirectory(path) => {
+                write!(f, "a Memory seeds {path} as both a file and a directory")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SeedError {}
+
+impl Memory {
+    /// A Memory seeded with files, each `(path, contents)`, its directories
+    /// created along the way, or why no Memory holds the list as given.
+    pub fn try_from_iter<P, C, I>(files: I) -> Result<Self, SeedError>
+    where
+        P: AsRef<str>,
+        C: Into<Vec<u8>>,
+        I: IntoIterator<Item = (P, C)>,
+    {
         let memory = Self::new();
         {
             let mut nodes = memory.nodes();
             for (path, contents) in files {
                 let path = seeded(path.as_ref());
-                assert!(!path.is_empty(), "a Memory seeds no file at its root");
+                if path.is_empty() {
+                    return Err(SeedError::Root);
+                }
                 for (end, _) in path.match_indices('/') {
                     let dir = &path[..end];
                     match nodes.get(dir) {
                         Some(Node::Directory) => {}
-                        Some(_) => panic!("a Memory seeds {dir} as both a file and a directory"),
+                        Some(_) => return Err(SeedError::FileAndDirectory(dir.to_string())),
                         None => {
                             nodes.insert(dir.to_string(), Node::Directory);
                             memory.space.inodes.add(1);
@@ -234,10 +262,8 @@ impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
                     }
                 }
                 match nodes.get(&path) {
-                    Some(Node::Directory) => {
-                        panic!("a Memory seeds {path} as both a file and a directory")
-                    }
-                    Some(_) => panic!("a Memory seeds {path} twice"),
+                    Some(Node::Directory) => return Err(SeedError::FileAndDirectory(path)),
+                    Some(_) => return Err(SeedError::Twice(path)),
                     None => {}
                 }
                 nodes.insert(
@@ -246,7 +272,20 @@ impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
                 );
             }
         }
-        memory
+        Ok(memory)
+    }
+}
+
+/// A Memory seeded with files, each `(path, contents)`, its directories
+/// created along the way.
+///
+/// # Panics
+///
+/// When `Memory::try_from_iter` refuses the list: a list written into the
+/// Host App's own code that no Memory holds is a defect in that code.
+impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
+    fn from_iter<I: IntoIterator<Item = (P, C)>>(files: I) -> Self {
+        Self::try_from_iter(files).unwrap_or_else(|error| panic!("{error}"))
     }
 }
 
@@ -499,6 +538,27 @@ mod tests {
             read_all(&memory, "config/app.yml"),
             b"name: kobako",
             "a file seeded into Memory through FromIterator must read back its content"
+        );
+    }
+
+    // @behavior FS-067
+    #[test]
+    fn a_memory_tried_with_a_list_it_cannot_hold_answers_why() {
+        let refused = [
+            Memory::try_from_iter([("/", "x")]),
+            Memory::try_from_iter([("a", "x"), ("a/b", "y")]),
+            Memory::try_from_iter([("a", "x"), ("/a", "y")]),
+        ]
+        .map(|tried| tried.map(drop));
+        assert_eq!(
+            refused,
+            [
+                Err(SeedError::Root),
+                Err(SeedError::FileAndDirectory("a".to_string())),
+                Err(SeedError::Twice("a".to_string())),
+            ],
+            "a list naming the root, a file beneath a file, or a file twice through \
+             Memory::try_from_iter must answer the SeedError naming it"
         );
     }
 

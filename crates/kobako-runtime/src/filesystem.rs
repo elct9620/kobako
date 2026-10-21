@@ -18,7 +18,7 @@ mod temporary;
 use std::sync::Arc;
 
 pub use directory::Directory;
-pub use memory::Memory;
+pub use memory::{Memory, SeedError};
 pub use overlay::{Blocking, Overlay};
 pub use temporary::Temporary;
 
