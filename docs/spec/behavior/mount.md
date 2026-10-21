@@ -309,7 +309,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Attribute | Value |
 | --- | --- |
-| relates | `FS-062`, `MT-015` |
+| relates | `FS-062`, `FS-067`, `MT-015` |
 
 | Step | Statement |
 | --- | --- |
