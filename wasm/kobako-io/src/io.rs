@@ -35,8 +35,18 @@ use core::ffi::CStr;
 
 use crate::{descriptors, errno};
 
-/// Where `IO.new` records the descriptor `write` later reads back.
-pub(crate) const FD_IVAR: &CStr = c"@__kobako_fd__";
+/// Where `IO.new` records the descriptor `write` later reads back. A name
+/// without `@` is one mruby lists nowhere and `instance_variable_get` /
+/// `instance_variable_set` refuse, so a stream shows no instance variable,
+/// as CRuby's does.
+pub(crate) const FD_IVAR: &CStr = c"__kobako_fd__";
+
+/// Where `File.open` records the path its errors name, hidden as
+/// `FD_IVAR` is.
+pub(crate) const PATH_IVAR: &CStr = c"__kobako_path__";
+
+/// Where `IO#sync=` keeps its flag, hidden as `FD_IVAR` is.
+const SYNC_IVAR: &CStr = c"__kobako_sync__";
 
 /// The gem-init step named after mruby's own `mrb_init_io`; the body order
 /// is the dependency order, the class before the instances built from it.
@@ -110,10 +120,9 @@ fn io_initialize(mrb: &Mrb, self_: RObject, fd: i32, mode: RString) -> Result<()
 /// `Errno` it names, as CRuby's does.
 fn io_write(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     // The construction-time allowlist in `io_initialize` is not
-    // self-enforcing: `@__kobako_fd__` is an ordinary ivar that guest mruby
-    // can rewrite via `instance_variable_set`. Re-validate where the fd
-    // reaches a syscall, so the restriction holds rather than being a
-    // construction-time courtesy.
+    // self-enforcing: a copy keeps the descriptor after the original
+    // closes it. Re-validate where the fd reaches a syscall, so the
+    // restriction holds rather than being a construction-time courtesy.
     let fd = checked_fd(
         mrb,
         self_,
@@ -264,13 +273,13 @@ fn io_tty_p(_mrb: &Mrb, _self: Value) -> bool {
 
 /// Defaults to `true`, since the capture pipe is effectively unbuffered.
 fn io_sync(mrb: &Mrb, self_: RObject) -> Result<Value, Error> {
-    let v: Value = self_.ivar_get(mrb, c"@__kobako_sync")?;
+    let v: Value = self_.ivar_get(mrb, SYNC_IVAR)?;
     Ok(if v.is_nil() { qtrue().as_value() } else { v })
 }
 
 /// A no-op for the write path, kept for mruby-io surface compatibility.
 fn io_sync_set(mrb: &Mrb, self_: RObject, v: Value) -> Result<Value, Error> {
-    self_.ivar_set(mrb, c"@__kobako_sync", v)?;
+    self_.ivar_set(mrb, SYNC_IVAR, v)?;
     Ok(v)
 }
 
@@ -300,8 +309,8 @@ pub(crate) fn argument_error(mrb: &Mrb, msg: &str) -> Error {
     }
 }
 
-/// The value is untrusted: the ivar is guest-mutable, so a caller that
-/// forwards it to a syscall must re-validate the descriptor first.
+/// The value may be stale: a copy keeps it after the original closes it,
+/// so a caller that forwards it to a syscall must re-validate it first.
 fn read_fd(mrb: &Mrb, self_: Value) -> i32 {
     RObject::from_value(self_)
         .and_then(|obj| obj.ivar_get::<_, Value>(mrb, FD_IVAR).ok())
@@ -317,8 +326,8 @@ pub(crate) fn is_closed(mrb: &Mrb, self_: Value) -> bool {
 }
 
 /// The descriptor `self_` stands for, checked again where it reaches a
-/// syscall: a closed stream is an `IOError`, and one rewritten to a
-/// descriptor this guest may not reach is `refusal`.
+/// syscall: a closed stream is an `IOError`, and one whose descriptor this
+/// guest may no longer reach is `refusal`.
 pub(crate) fn checked_fd(mrb: &Mrb, self_: Value, refusal: &str) -> Result<i32, Error> {
     if is_closed(mrb, self_) {
         return Err(errno::io_error(mrb, "closed stream"));

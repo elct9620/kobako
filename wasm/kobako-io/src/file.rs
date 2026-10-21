@@ -15,7 +15,7 @@ use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::{Error, IntoValue, Mrb, Object, Proc, RArray, RClass, RObject, Value};
 
-use crate::io::{argument_error, FD_IVAR};
+use crate::io::{argument_error, FD_IVAR, PATH_IVAR};
 use crate::stream::with_file;
 use crate::{descriptors, errno};
 
@@ -130,11 +130,11 @@ fn file_initialize(mrb: &Mrb, self_: RObject, _args: &[Value]) -> Result<(), Err
     let fd = file.into_raw_fd();
     descriptors::remember(fd);
     self_.ivar_set(mrb, FD_IVAR, fd)?;
-    self_.ivar_set(mrb, c"@path", mrb.str_new(path.as_bytes()).as_value())
+    self_.ivar_set(mrb, PATH_IVAR, mrb.str_new(path.as_bytes()).as_value())
 }
 
 fn file_path(mrb: &Mrb, self_: RObject) -> Result<Value, Error> {
-    self_.ivar_get(mrb, c"@path")
+    self_.ivar_get(mrb, PATH_IVAR)
 }
 
 fn file_size(mrb: &Mrb, self_: Value) -> Result<Value, Error> {

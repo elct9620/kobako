@@ -18,7 +18,7 @@ use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{Error, IntoValue, Module, Mrb, Proc, RArray, RClass, RObject, Value};
 
-use crate::io::{argument_error, checked_fd, is_closed, FD_IVAR};
+use crate::io::{argument_error, checked_fd, is_closed, FD_IVAR, PATH_IVAR};
 use crate::{descriptors, errno};
 
 /// What a stream that may not be read from is refused with.
@@ -49,7 +49,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
 /// The path a stream's errors name: a `File`'s own, or its descriptor.
 pub(crate) fn label(mrb: &Mrb, self_: Value) -> String {
     let path = RObject::from_value(self_)
-        .and_then(|obj| obj.ivar_get::<_, Value>(mrb, c"@path").ok())
+        .and_then(|obj| obj.ivar_get::<_, Value>(mrb, PATH_IVAR).ok())
         .and_then(String::from_value);
     path.unwrap_or_else(|| "IO".to_string())
 }

@@ -4,7 +4,7 @@ The two descriptors guest code may write to, and the writing surface it reaches 
 
 ### Why these scenarios
 
-Guest code can write to two descriptors and no others. The constraint is witnessed twice: where a stream is opened and where it is written through. The descriptor a stream carries is guest-mutable, so the opening check alone is only a courtesy.
+Guest code can write to the two captured descriptors and the files it opened, and no others. The constraint is witnessed twice: where a stream is opened and where it is written through. A copy of a stream keeps its descriptor after the original closes it. The opening check alone is therefore only a courtesy.
 
 The rest is fidelity. Bytes go out as bytes: inline and heap strings alike, zero bytes included. A String goes out unchanged, and anything else goes out through its string form.
 
@@ -16,6 +16,7 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 
 - `test/e2e/test_io_write.rb`
 - `test/e2e/test_io_kernel.rb`
+- `test/e2e/test_io_state.rb`
 
 ## `IO-001` Only the captured descriptors and the guest's own files may be opened
 
@@ -38,8 +39,8 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| Given | guest code that reassigned an opened IO's descriptor to another number |
-| When | it writes through that IO |
+| Given | guest code that copied an opened file and closed the original |
+| When | it writes through the copy |
 | Then | the invocation fails with a message naming the descriptor constraint |
 
 ## `IO-004` The standard output stream reports its descriptor
@@ -311,3 +312,15 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Given | a Sandbox |
 | When | guest code writes many values to the output stream in one call |
 | Then | each value's string form is released for collection once it is written |
+
+## `IO-037` A stream shows no instance variable of its own
+
+| Attribute | Value |
+| --- | --- |
+| relates | `IO-003` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Mount |
+| When | guest code lists the instance variables of the output stream and of an opened file |
+| Then | both lists are empty |
