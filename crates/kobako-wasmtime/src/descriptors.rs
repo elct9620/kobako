@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::File;
+use kobako_runtime::filesystem::{DirEntry, File};
 use kobako_runtime::mount::Mount;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
@@ -29,6 +29,9 @@ pub(crate) struct OpenDirectory {
     /// The directory's path relative to the mount's root.
     pub(crate) path: String,
     pub(crate) preopen: bool,
+    /// The entries a listing began with, held until it reaches its end, so
+    /// each later call reads on without listing the directory again.
+    pub(crate) listing: Option<Vec<DirEntry>>,
 }
 
 pub(crate) struct OpenFile {
@@ -69,6 +72,7 @@ impl Descriptors {
                     mount: Arc::new(mount),
                     path: String::new(),
                     preopen: true,
+                    listing: None,
                 }),
             );
         }

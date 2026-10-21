@@ -363,34 +363,38 @@ pub(crate) fn read(
 }
 
 /// A directory's entries as preview1 `dirent`s, `.` and `..` first, from
-/// the `cookie`th on, cut off where the buffer ends.
+/// the `cookie`th on, cut off where the buffer ends. A listing from the
+/// start reads the directory; one going on reads the entries that listing
+/// began with, so a guest reading in small steps costs one listing, not one
+/// per step.
 pub(crate) fn readdir(
-    table: &Descriptors,
+    table: &mut Descriptors,
     mem: &mut GuestMemory,
     fd: u32,
     buf: (u32, u32),
     cookie: u64,
     bufused: u32,
 ) -> Answer {
-    let dir = match descriptor(table, fd)? {
+    let dir = match descriptor_mut(table, fd)? {
         Descriptor::Directory(dir) => dir,
         _ => return Err(Errno::Badf.into()),
     };
-    let listed = dir.mount.filesystem().read_dir(&dir.path)?;
-    let entries = [
-        (".".to_string(), FILETYPE_DIRECTORY),
-        ("..".to_string(), FILETYPE_DIRECTORY),
-    ]
-    .into_iter()
-    .chain(
-        listed
-            .into_iter()
-            .map(|entry| (entry.name, filetype(entry.kind))),
-    );
     let skip = usize::try_from(cookie).map_err(|_| Errno::Overflow)?;
+    let listing = match dir.listing.take() {
+        Some(listing) if cookie != 0 => listing,
+        _ => dir.mount.filesystem().read_dir(&dir.path)?,
+    };
+    let entries = [(".", FILETYPE_DIRECTORY), ("..", FILETYPE_DIRECTORY)]
+        .into_iter()
+        .chain(
+            listing
+                .iter()
+                .map(|entry| (entry.name.as_str(), filetype(entry.kind))),
+        );
     let (start, capacity) = buf;
     let mut used: u32 = 0;
-    for (index, (name, filetype)) in entries.enumerate().skip(skip) {
+    let mut full = false;
+    'entries: for (index, (name, filetype)) in entries.enumerate().skip(skip) {
         let mut dirent = [0u8; DIRENT_SIZE as usize];
         dirent[0..8].copy_from_slice(&(index as u64 + 1).to_le_bytes());
         dirent[16..20].copy_from_slice(&(name.len() as u32).to_le_bytes());
@@ -401,9 +405,13 @@ pub(crate) fn readdir(
             mem.write(GuestMemory::field(start, used)?, &part[..take])?;
             used += take as u32;
             if used == capacity {
-                return mem.write_u32(bufused, used);
+                full = true;
+                break 'entries;
             }
         }
+    }
+    if full {
+        dir.listing = Some(listing);
     }
     mem.write_u32(bufused, used)
 }

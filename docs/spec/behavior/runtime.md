@@ -1060,3 +1060,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a Directory Mount holding a link to nothing |
 | When | the guest opens the link following no link, then again with `O_CREAT` and `O_EXCL` |
 | Then | the first answers ELOOP, the second EEXIST, and nothing is made where it points |
+
+## `RT-107` A listing goes on over the entries it began with
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-075` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount whose directory a guest began to list, and a file then made in it |
+| When | the guest lists on from where it stopped, then lists again from the start |
+| Then | only the listing from the start holds the new file |

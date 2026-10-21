@@ -37,7 +37,8 @@ const ERRNO_NOTCAPABLE: i32 = 76;
 /// Memory holds an `iovec` at 64 over 512..576, a `ciovec` at 80 over
 /// "hello" at 600, the paths `file.txt` at 700 and `../file.txt` at 720,
 /// and from 740 the paths the resolution rules turn on. An opened
-/// descriptor lands at 128, a count at 132, and a stat at 384.
+/// descriptor lands at 128, a count at 132, a listing's count at 136, a
+/// stat at 384, and a listing at 2048.
 const PROBE_WAT: &str = r#"
 (module
   (import "wasi_snapshot_preview1" "fd_prestat_get" (func $prestat (param i32 i32) (result i32)))
@@ -51,6 +52,7 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "path_unlink_file" (func $unlink (param i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_allocate" (func $allocate (param i32 i64 i64) (result i32)))
   (import "wasi_snapshot_preview1" "fd_seek" (func $seek (param i32 i64 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_readdir" (func $readdir (param i32 i32 i32 i64 i32) (result i32)))
   (memory (export "memory") 1)
   (data (i32.const 740) ".")
   (data (i32.const 760) "missing/../file.txt")
@@ -152,6 +154,9 @@ const PROBE_WAT: &str = r#"
     (local.set $errno (call $seek (i32.load (i32.const 128)) (i64.const 0x7fffffffffffffff) (i32.const 0) (i32.const 136)))
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $seek (i32.load (i32.const 128)) (i64.const 0x7fffffffffffffff) (i32.const 1) (i32.const 136)))
+  ;; List the root from `cookie` into the `len` bytes at 2048.
+  (func (export "list") (param $cookie i64) (param $len i32) (result i32)
+    (call $readdir (i32.const 3) (i32.const 2048) (local.get $len) (local.get $cookie) (i32.const 136)))
   ;; Open `path` for reading, following a link standing at its end.
   (func (export "open_following") (param $path i32) (param $len i32) (result i32)
     (call $open (i32.const 3) (i32.const 1) (local.get $path) (local.get $len)
@@ -250,6 +255,35 @@ impl Guest {
             .expect("probe call must not trap")
     }
 
+    /// The names a listing from `cookie` into `len` bytes holds whole.
+    fn list(&mut self, cookie: u64, len: i32) -> Vec<String> {
+        let errno = self
+            .instance
+            .get_typed_func::<(i64, i32), i32>(&mut self.store, "list")
+            .expect("probe export must resolve")
+            .call(&mut self.store, (cookie as i64, len))
+            .expect("probe call must not trap");
+        assert_eq!(errno, 0, "the listing must succeed");
+        let memory = self
+            .instance
+            .get_memory(&mut self.store, "memory")
+            .expect("probe exports its memory");
+        let data = memory.data(&self.store);
+        let used = u32::from_le_bytes(data[136..140].try_into().unwrap()) as usize;
+        let listed = &data[2048..2048 + used];
+        let mut names = Vec::new();
+        let mut at = 0;
+        while at + 24 <= listed.len() {
+            let len = u32::from_le_bytes(listed[at + 16..at + 20].try_into().unwrap()) as usize;
+            let Some(name) = listed.get(at + 24..at + 24 + len) else {
+                break;
+            };
+            names.push(String::from_utf8(name.to_vec()).expect("a listed name is UTF-8"));
+            at += 24 + len;
+        }
+        names
+    }
+
     /// The bytes the last read placed at 512.
     fn read_back(&mut self) -> Vec<u8> {
         let memory = self
@@ -311,6 +345,40 @@ fn a_mount_appears_as_a_directory_at_its_path() {
         &memory.data(&guest.store)[512..517],
         b"/data",
         "a Mount at /data through Runtime::invoke must preopen /data as descriptor 3"
+    );
+}
+
+// The first listing fills its buffer with `.` and `..` exactly, so it has
+// not reached its end when the file is made.
+// @behavior RT-107
+#[test]
+fn a_listing_goes_on_over_the_entries_it_began_with() {
+    let memory: Arc<Memory> = Arc::new([("a.txt", "")].into_iter().collect());
+    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
+    assert_eq!(
+        guest.list(0, 51),
+        [".", ".."],
+        "the first listing must hold the dots"
+    );
+    memory
+        .open(
+            "b.txt",
+            &OpenOptions {
+                write: true,
+                create: true,
+                ..OpenOptions::default()
+            },
+        )
+        .expect("the file must be made");
+    assert_eq!(
+        guest.list(2, 4096),
+        ["a.txt"],
+        "a listing going on through fd_readdir must read the entries it began with"
+    );
+    assert_eq!(
+        guest.list(0, 4096),
+        [".", "..", "a.txt", "b.txt"],
+        "a listing from the start through fd_readdir must read the directory as it stands"
     );
 }
 

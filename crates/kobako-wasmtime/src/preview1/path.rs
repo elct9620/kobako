@@ -221,6 +221,7 @@ pub(crate) fn open(
             mount,
             path,
             preopen: false,
+            listing: None,
         }),
         Some(_) if oflag(OFLAGS_DIRECTORY) => return Err(Errno::Notdir.into()),
         None if oflag(OFLAGS_DIRECTORY) || !oflag(OFLAGS_CREAT) => return Err(Errno::Noent.into()),
