@@ -66,7 +66,7 @@ end
 
 ## `Kobako::Filesystem::Memory.new`
 
-A Filesystem held in memory and shared by every invocation, seeded with files.
+A Filesystem held in memory and shared by every invocation, seeded with files. A `nil` limit or count lifts that bound.
 
 | Attribute | Value |
 | --- | --- |
@@ -76,7 +76,7 @@ A Filesystem held in memory and shared by every invocation, seeded with files.
 module Kobako
   module Filesystem
     class Memory
-      def self.new(files = {}, limit: nil, inodes: nil, **seeded)
+      def self.new(files = {}, limit: 64 << 20, inodes: limit && (limit.ceildiv(4096) + 1), **seeded)
       end
     end
   end
@@ -85,7 +85,7 @@ end
 
 ## `Kobako::Filesystem::Temporary.new`
 
-A Filesystem held in memory that starts every invocation empty.
+A Filesystem held in memory that starts every invocation empty. A `nil` limit or count lifts that bound.
 
 | Attribute | Value |
 | --- | --- |
@@ -95,7 +95,7 @@ A Filesystem held in memory that starts every invocation empty.
 module Kobako
   module Filesystem
     class Temporary
-      def self.new(limit: nil, inodes: nil)
+      def self.new(limit: 64 << 20, inodes: limit && (limit.ceildiv(4096) + 1))
       end
     end
   end
