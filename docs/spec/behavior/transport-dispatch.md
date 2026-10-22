@@ -43,6 +43,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 - `crates/kobako/src/msgpack/handles.rs`
 - `crates/kobako/tests/byte_surface.rs`
 - `crates/kobako-wasmtime/tests/unsupported_call.rs`
+- `crates/kobako-wasmtime/tests/unanswered_call.rs`
 - `wasm/kobako-core/src/proxy.rs`
 - `wasm/kobako-core/src/abi/downcall.rs`
 
@@ -1167,3 +1168,27 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a Sandbox with a Service whose method raises `Interrupt` |
 | When | the script calls it and rescues every failure |
 | Then | the run raises `Interrupt` in the Host App |
+
+## `T-286` An answer larger than a message carries is the Service's failure
+
+| Attribute | Value |
+| --- | --- |
+| refines | `T-044` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service answering more bytes than one message carries |
+| When | the guest calls it |
+| Then | the call raises a Service failure naming the limit |
+
+## `T-287` A Call the host could not answer is a wire-level failure naming why
+
+| Attribute | Value |
+| --- | --- |
+| relates | `T-244` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a host frontend whose handler gives no answer to a Call |
+| When | the guest calls it |
+| Then | the call raises `Kobako::Transport::Error` naming why |

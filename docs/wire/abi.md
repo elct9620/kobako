@@ -35,7 +35,7 @@ Each direction has one symbol, named for the way it crosses. An operation is a t
 2. The callee reads it, runs the operation its tag names, and encodes the answer.
 3. The callee writes the answer into guest memory and returns its packed location.
 
-The host writes into guest memory through `__kobako_alloc`. On a wire-layer fault in an upcall, such as a failed allocation, the host answers an empty packed value, which the guest refuses (→ [`spec/behavior/envelope.md`](../spec/behavior/envelope.md)).
+The host writes into guest memory through `__kobako_alloc`. A Call the host cannot answer is answered on the fault arm, naming why. When not even that fits in guest memory, the invocation traps with the reason.
 
 ### Call Nesting
 
