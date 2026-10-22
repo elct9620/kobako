@@ -184,7 +184,7 @@ Guest code passed alongside a Call. It stays in the guest, and only its presence
 
 ### Yield
 
-One synchronous round-trip from a Service method into the Block it received.
+One synchronous round-trip from the host into a Block whose Call is still open.
 
 ### Yielder
 

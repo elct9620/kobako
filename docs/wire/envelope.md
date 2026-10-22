@@ -186,7 +186,14 @@ To the Service method, `yield` is an ordinary synchronous call ([transport-yield
 
 ### Yield Layouts
 
-A Yield Call is the `yield` tag over the arguments alone, since its dispatch frame already supplies target and block. The arguments are the codec-encoded remainder.
+A Yield Call names the open Call whose block it runs, since a Service may run an outer Call's block from inside a later one. The target and method stay with that Call.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `frame` | `u32` | the open Call, counted from `0` at the outermost |
+| `args` | remainder | the arguments, codec-encoded |
+
+The Yield Reply answers by arm:
 
 | Tag | Variant | Body | Host yield site |
 |-----|---------|------|-----------------|

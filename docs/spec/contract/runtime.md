@@ -102,13 +102,23 @@ run the block that rode along.
 pub trait Yielder {}
 ```
 
-## `Yielder::yield_to_block`
+## `Yielder::frame`
 
-Run the block once with the given arguments and return its decoded Reply.
+The open Call this Yielder was lent for, counted from the outermost.
 
 ```rust
 pub trait Yielder {
-    fn yield_to_block(&mut self, args: &[u8]) -> Result<YieldReply, Trap>;
+    fn frame(&self) -> u32;
+}
+```
+
+## `Yielder::yield_to_block`
+
+Run the block of the open Call `frame` names once with the given arguments, and return its decoded Reply.
+
+```rust
+pub trait Yielder {
+    fn yield_to_block(&mut self, frame: u32, args: &[u8]) -> Result<YieldReply, Trap>;
 }
 ```
 

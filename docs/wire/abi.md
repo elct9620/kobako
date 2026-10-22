@@ -39,7 +39,7 @@ The host writes into guest memory through `__kobako_alloc`. On a wire-layer faul
 
 ### Call Nesting
 
-Initiators alternate by depth, and every answer is the return value of the call at its depth. Correlation comes from the Wasm call stack, so no message carries an id.
+Initiators alternate by depth, and every answer is the return value of the call at its depth. Correlation comes from the Wasm call stack, so no answer carries an id. A yield alone names a Call: the open Call whose block it runs.
 
 ```
 downcall{run}                  <- host, depth 0
@@ -84,7 +84,7 @@ The Preamble arrives as a `u32` big-endian length followed by that many bytes. I
 
 ## ABI Version
 
-The ABI version is one u32 defined in `kobako-transport`, independent of every package version. The current version is `4`.
+The ABI version is one u32 defined in `kobako-transport`, independent of every package version. The current version is `5`.
 
 | Inside the version | Outside the version |
 |--------------------|---------------------|
@@ -106,12 +106,13 @@ A host implements exactly one ABI version, so an increment is the cost of a chan
 
 A sandbox is short-lived, so no connection or stored payload outlasts a version. An independently built Guest Binary conforms by rebuilding against the new one. Release notes list wire-affecting changes under Breaking Changes.
 
-### Version 4
+### Version 5
 
-Version `4` carries the operation in the message, so an added operation is a registry entry rather than a new symbol.
+Version `5` carries the operation in the message, so an added operation is a registry entry rather than a new symbol. A Yield Call names the open Call whose block it runs.
 
 | Decision | Consequence |
 |----------|-------------|
+| a Yield Call names its open Call | a stored block runs as itself from inside a later Call |
 | one message symbol per direction | the symbol set stays at four |
 | one tag space for every message | an answer's tag never collides across operations |
 | every answer is a return value | a call and its answer are one round trip |

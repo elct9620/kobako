@@ -206,11 +206,11 @@ pub trait MrbGuest {
 
 ## `MrbGuest::yield_to_block`
 
-The flow that re-enters the guest to run a block for the host.
+The flow that re-enters the guest to run the block of the open Call `frame` names.
 
 ```rust
 pub trait MrbGuest {
-    fn yield_to_block(req: &[u8]) -> YieldReply;
+    fn yield_to_block(frame: u32, req: &[u8]) -> YieldReply;
 }
 ```
 

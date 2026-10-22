@@ -540,3 +540,41 @@ That last exit has no parity scenario, because the frontends close it at differe
 | Given | a Sandbox whose Service left an unsupported yield unrescued |
 | When | the Host App reads the failure's message |
 | Then | it does not wear the shape a Service's own exception crosses in |
+
+## `T-283` A stored block called inside a later Call runs as itself
+
+| Attribute | Value |
+| --- | --- |
+| refines | `T-092` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service storing an open Call's block, and a later Call with its own block |
+| When | the later Service calls the stored block |
+| Then | the stored block runs, and the later Call's block does not |
+
+## `T-284` A stored block's raise left unrescued stays the guest's own exception
+
+| Attribute | Value |
+| --- | --- |
+| refines | `T-095` |
+| relates | `T-283` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service storing an open Call's block, run by a later Service |
+| When | the block raises and neither Service rescues it |
+| Then | guest code around the first Call rescues the exception the block raised |
+
+## `T-285` A break from a stored block inside a later Call names a local jump
+
+| Attribute | Value |
+| --- | --- |
+| refines | `T-134` |
+| relates | `T-283` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service storing an open Call's block, run by a later Service |
+| When | the block breaks |
+| Then | the invocation fails naming a local jump |

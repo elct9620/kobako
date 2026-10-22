@@ -57,11 +57,11 @@ pub trait Guest {
 
 ## `Guest::yield_to_block`
 
-Re-enter the guest to run a block for the host, answering with its Reply.
+Re-enter the guest to run the block of the open Call `frame` names, answering with its Reply.
 
 ```rust
 pub trait Guest {
-    fn yield_to_block(_req: &[u8]) -> YieldReply;
+    fn yield_to_block(_frame: u32, _args: &[u8]) -> YieldReply;
 }
 ```
 
