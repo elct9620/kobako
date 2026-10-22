@@ -62,13 +62,13 @@ pub struct Options {
 }
 
 impl Default for Options {
-    /// Secure by default: a 60-second deadline, 1 MiB for memory and for
-    /// each output channel, 1024 open files, and the hermetic floor — the
-    /// same defaults the Ruby frontend applies.
+    /// Secure by default: a 60-second deadline, 4 MiB for memory, 1 MiB
+    /// for each output channel, 1024 open files, and the hermetic floor —
+    /// the same defaults the Ruby frontend applies.
     fn default() -> Self {
         Options {
             timeout: Some(Duration::from_secs(60)),
-            memory_limit: Some(1 << 20),
+            memory_limit: Some(4 << 20),
             stdout_limit: Some(1 << 20),
             stderr_limit: Some(1 << 20),
             open_file_limit: Some(1024),
@@ -564,12 +564,12 @@ mod tests {
 
     // Pins the literal values rather than a shared constant, so a drift
     // from the Ruby frontend's defaults in either direction fails here.
-    // @behavior S-004
+    // @behavior S-004 S-203
     #[test]
     fn absent_caps_take_their_spec_defaults() {
         let options = Options::default();
         assert_eq!(options.timeout, Some(Duration::from_secs(60)));
-        assert_eq!(options.memory_limit, Some(1 << 20));
+        assert_eq!(options.memory_limit, Some(4 * 1024 * 1024));
         assert_eq!(options.stdout_limit, Some(1 << 20));
         assert_eq!(options.stderr_limit, Some(1 << 20));
         assert_eq!(options.open_file_limit, Some(1024));
