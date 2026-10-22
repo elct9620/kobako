@@ -21,7 +21,7 @@
 use crate::errors::{generator_error, key_added_error, parser_error};
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Mrb, Qfalse, Qtrue, RArray, RHash, RString, Symbol, Value};
+use beni::{Error, Integer, IntoValue, Mrb, Qfalse, Qtrue, RArray, RHash, RString, Symbol, Value};
 use serde_json::{Map, Number, Value as JsonValue};
 
 /// The maximum container nesting `generate` accepts. serde_json's parse
@@ -58,8 +58,7 @@ pub(crate) fn decode(mrb: &Mrb, json: &JsonValue, symbolize: bool) -> Result<Val
     }
 }
 
-/// An integer past the signed 64-bit range raises rather than lose
-/// precision as a `Float`.
+/// An integer of any length reads as that exact Integer, as in CRuby.
 fn decode_number(mrb: &Mrb, n: &Number) -> Result<Value, Error> {
     // `arbitrary_precision` keeps the original literal, so its textual
     // form distinguishes an integer from a real even past `u64` range.
@@ -70,31 +69,20 @@ fn decode_number(mrb: &Mrb, n: &Number) -> Result<Value, Error> {
             .ok_or_else(|| parser_error(mrb, "number is out of range"))?;
         return Ok(f.into_value(mrb));
     }
-    match literal.parse::<i64>() {
-        Ok(value) => Ok(value.into_value(mrb)),
-        Err(_) => Err(too_large(mrb, &literal)),
+    if let Ok(value) = literal.parse::<i64>() {
+        return Ok(value.into_value(mrb));
     }
-}
-
-fn too_large(mrb: &Mrb, literal: &str) -> Error {
-    parser_error(
-        mrb,
-        &format!(
-            "integer {} exceeds the range the guest can represent exactly",
-            clamp_literal(literal)
-        ),
-    )
-}
-
-/// An untrusted literal is capped before it enters an error message, so a
-/// pathologically long digit run cannot inflate the exception.
-fn clamp_literal(literal: &str) -> String {
-    const MAX: usize = 32;
-    if literal.len() <= MAX {
-        return literal.to_string();
+    if let Ok(value) = literal.parse::<i128>() {
+        return Ok(value.into_value(mrb));
     }
-    let head: String = literal.chars().take(MAX).collect();
-    format!("{head}... ({} digits)", literal.len())
+    if let Ok(value) = literal.parse::<u128>() {
+        return Ok(value.into_value(mrb));
+    }
+    // beni builds no Integer wider than 128 bits from text, so the
+    // interpreter reads the digits serde has already validated.
+    mrb.str_new(literal.as_bytes())
+        .as_value()
+        .funcall(mrb, c"to_i", ())
 }
 
 /// Interning routes through `String#to_sym` rather than a `CStr`, so a key
@@ -113,8 +101,8 @@ pub(crate) fn encode(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, E
     // downcast / tag predicates — never on its Ruby class identity, so a
     // native subclass still serializes as its kind and a capability proxy
     // cannot masquerade by answering a name.
-    if let Some(n) = i64::from_value(val) {
-        return Ok(JsonValue::Number(Number::from(n)));
+    if let Some(int) = Integer::from_value(val) {
+        return number_from_integer(mrb, int);
     }
     if let Some(f) = f64::from_value(val) {
         return number_from_f64(mrb, f);
@@ -143,6 +131,23 @@ pub(crate) fn encode(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, E
     // Any other value — including a `Kobako::Handle` or a bound constant — is reached
     // only through the `Object`-rooted `as_json` hook.
     encode_via_as_json(mrb, val, depth)
+}
+
+/// An Integer of any width is written as its exact digits, as in CRuby.
+fn number_from_integer(mrb: &Mrb, int: Integer) -> Result<JsonValue, Error> {
+    if let Ok(n) = int.to_i64(mrb) {
+        return Ok(JsonValue::Number(Number::from(n)));
+    }
+    integer_digits(mrb, int)?
+        .parse::<Number>()
+        .map(JsonValue::Number)
+        .map_err(|_| generator_error(mrb, "integer is not a valid JSON number"))
+}
+
+/// The digits come from mruby's own render, not a `to_s` the guest could
+/// redefine.
+fn integer_digits(mrb: &Mrb, int: Integer) -> Result<String, Error> {
+    int.to_r_string_radix(mrb, 10)?.to_string(mrb)
 }
 
 fn number_from_f64(mrb: &Mrb, f: f64) -> Result<JsonValue, Error> {
@@ -204,8 +209,8 @@ fn encode_hash(mrb: &Mrb, hash: RHash, depth: usize) -> Result<JsonValue, Error>
 /// host-dispatching `to_s`. The `as_json` opt-in applies to values, never
 /// to keys.
 fn encode_key(mrb: &Mrb, key: Value) -> Result<String, Error> {
-    if let Some(n) = i64::from_value(key) {
-        return Ok(n.to_string());
+    if let Some(int) = Integer::from_value(key) {
+        return integer_digits(mrb, int);
     }
     if f64::from_value(key).is_some() {
         return Ok(key.to_string(mrb));

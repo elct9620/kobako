@@ -2,10 +2,9 @@
 
 require "test_helper"
 
-# E2E — JSON.parse integer-range policy through the real json
-# guest. The guest Integer is 64-bit, so the policy keeps every integer
-# that width holds as an exact Integer and refuses anything past it rather
-# than silently degrade it to a Float.
+# E2E — JSON.parse integer policy through the real json guest. The guest
+# Integer has no width of its own, so every integer literal reads as that
+# exact Integer, as in CRuby, rather than degrade to a Float.
 class TestJsonParseInteger < Minitest::Test
   include JsonGuestHelper
 
@@ -25,12 +24,20 @@ class TestJsonParseInteger < Minitest::Test
                  "JSON.parse of 2**53 + 1 through the json guest must yield that exact Integer"
   end
 
-  # Past the 64-bit width the only other form is a rounded Float, so the
-  # parse raises instead — on either sign.
+  # One literal per way the guest builds the Integer: past 64 bits on each
+  # sign, past 128 bits on each sign. The guest answers each as its digits
+  # so the check reads what the guest holds, not what the wire could carry.
   # @behavior JS-010
-  def test_integer_past_the_width_raises_parser_error
-    assert_guest_raises "JSON::ParserError", 'JSON.parse("9223372036854775808")'
-    assert_guest_raises "JSON::ParserError", 'JSON.parse("-9223372036854775809")'
+  def test_integer_past_64_bits_stays_exact
+    literals = %w[
+      9223372036854775808 -9223372036854775809
+      340282366920938463463374607431768211456 -340282366920938463463374607431768211457
+    ]
+    source = "#{literals.inspect}.map { |s| JSON.parse(s).to_s }"
+
+    assert_equal literals, eval_json(source),
+                 "JSON.parse of integers past 64 and 128 bits through the json guest must yield " \
+                 "each exact Integer"
   end
 
   # A JSON real maps to Float regardless of magnitude.

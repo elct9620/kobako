@@ -36,6 +36,19 @@ class TestJsonGenerate < Minitest::Test
                  "JSON.generate of Symbol key and value through the json guest must render each as its name"
   end
 
+  # @behavior JS-064
+  def test_integer_past_64_bits_is_written_as_its_digits
+    assert_equal "[1180591620717411303424,-1180591620717411303424]",
+                 eval_json("JSON.generate([2**70, -(2**70)])"),
+                 "JSON.generate of 2**70 and its negation through the json guest must write each exact Integer"
+  end
+
+  # @behavior JS-065
+  def test_integer_key_past_64_bits_is_written_as_its_digits
+    assert_equal '{"1180591620717411303424":1}', eval_json("JSON.generate({ 2**70 => 1 })"),
+                 "JSON.generate of a Hash keyed by 2**70 through the json guest must write the key as its digits"
+  end
+
   # A JSON-native scalar key renders as its string form, as in CRuby.
   # @behavior JS-022
   def test_scalar_key_renders_as_string

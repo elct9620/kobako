@@ -25,10 +25,9 @@ beni = "0.25.0"
 
 # Pure-Rust JSON engine. `preserve_order` makes a parsed object an
 # insertion-ordered map (CRuby member-order parity). `arbitrary_precision`
-# keeps each number's original literal so the parse integer policy can tell
-# a large integer from a real and refuse one beyond exact Float range
-# instead of silently degrading it. No default features so only `std` and
-# these two come in.
+# keeps each number's original literal, so an integer of any length reads
+# and writes exactly instead of degrading to a Float. No default features so
+# only `std` and these two come in.
 serde_json = { version = "1", default-features = false, features = [
     "std",
     "preserve_order",
