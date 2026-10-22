@@ -578,3 +578,15 @@ That last exit has no parity scenario, because the frontends close it at differe
 | Given | a Service storing an open Call's block, run by a later Service |
 | When | the block breaks |
 | Then | the invocation fails naming a local jump |
+
+## `T-289` A block answer past the value budget never reaches the Service
+
+| Attribute | Value |
+| --- | --- |
+| relates | `T-288` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service yielding to a block that answers more values than the memory cap allows |
+| When | the block answers |
+| Then | the yield raises instead of answering the Service |

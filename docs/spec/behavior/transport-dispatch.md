@@ -1192,3 +1192,15 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | Given | a host frontend whose handler gives no answer to a Call |
 | When | the guest calls it |
 | Then | the call raises `Kobako::Transport::Error` naming why |
+
+## `T-288` A Call carrying more values than the budget allows is contained
+
+| Attribute | Value |
+| --- | --- |
+| refines | `T-043` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a dispatch whose arguments hold more values than the memory cap allows |
+| When | the host reads it |
+| Then | it answers on the fault arm as an internal failure |

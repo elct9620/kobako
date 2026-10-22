@@ -123,6 +123,16 @@ impl<'a> Decoder<'a> {
 }
 ```
 
+## `Decoder::with_value_limit`
+
+Refuse to read more than a given number of values in all, or read without a limit.
+
+```rust
+impl<'a> Decoder<'a> {
+    pub fn with_value_limit(self, limit: Option<usize>) -> Self {}
+}
+```
+
 ## `Arguments::new`
 
 A Run's or a Call's positional and keyword arguments, kept apart.
@@ -130,6 +140,16 @@ A Run's or a Call's positional and keyword arguments, kept apart.
 ```rust
 impl Arguments {
     pub fn new(args: Vec<Value>, kwargs: Vec<(String, Value)>) -> Self {}
+}
+```
+
+## `Arguments::decode_within`
+
+Decode a Run's or a Call's arguments, refusing a payload past a value limit.
+
+```rust
+impl Arguments {
+    pub fn decode_within(bytes: &[u8], limit: Option<usize>) -> Result<Self, Error> {}
 }
 ```
 

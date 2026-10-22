@@ -105,6 +105,18 @@ A value past the bound, a reference cycle included, fails as a clean error, neve
 
 ---
 
+## Value Budget
+
+A payload the guest sends holds at most one value for each 16 bytes of the invocation's memory cap, the least one guest value occupies. Every array, map, key, and element counts as one value. With no memory cap there is no budget.
+
+```
+values in a guest payload <= memory_limit / 16
+```
+
+The host refuses a payload past the budget as it refuses one nested too deep. What a guest makes the host build then stays in proportion to what the guest could hold, however it shares values. A payload the host sends needs no budget, since the guest pays for it in its own memory.
+
+---
+
 ## Ext Types
 
 kobako uses two ext codes. A Fault has none: it rides the envelope's own arm (→ [`envelope.md`](envelope.md) § Fault), so a replacement codec owes it nothing.

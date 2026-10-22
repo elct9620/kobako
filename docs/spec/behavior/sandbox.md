@@ -36,6 +36,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_run_as_eval.rb`
 - `test/e2e/sandbox/test_run_preflight.rb`
 - `test/e2e/sandbox/test_run_envelope.rb`
+- `test/e2e/sandbox/test_value_budget.rb`
 - `test/e2e/sandbox/test_preload.rb`
 - `test/e2e/sandbox/test_flag.rb`
 - `test/e2e/sandbox/test_usage.rb`
@@ -67,6 +68,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `crates/kobako/src/catalog.rs`
 - `crates/kobako/tests/flags.rs`
 - `crates/kobako/tests/snippet_compile.rs`
+- `crates/kobako/tests/value_budget.rs`
 
 ## `S-001` A Sandbox names the artifact it was built over
 
@@ -1766,3 +1768,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | Sandbox options carrying no memory cap |
 | When | the memory cap is read |
 | Then | it answers 4 MiB |
+
+## `S-204` A guest answer past the value budget is a Sandbox failure
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-004` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose memory cap allows fewer values than the script answers |
+| When | the script is evaluated |
+| Then | it fails as a Sandbox failure |
