@@ -18,6 +18,7 @@ pub use bindings::InstallError;
 pub use values::IntegerOutOfRange;
 
 use beni::sys;
+use beni::value::Opaque;
 use beni::Mrb;
 use beni::ReprValue;
 
@@ -60,9 +61,10 @@ pub struct Kobako {
 ///
 /// Every guest→host dispatch enters a bridge body that needs them, and
 /// resolving them is seven constant lookups — so the first resolution
-/// caches them and the rest of the invocation reads the cache. Each
-/// handle is a plain pointer the mruby GC keeps alive for the VM's
-/// lifetime, which is why they cross into a `static` without a cell.
+/// caches them and the rest of the invocation reads the cache. The mruby
+/// GC keeps each handle alive for the VM's lifetime; a handle stays on the
+/// interpreter's thread, so the `static` holds it as an `Opaque` that a
+/// reader unwraps through the `Mrb` it runs on.
 ///
 /// ## Cross-invocation isolation
 ///
@@ -84,10 +86,10 @@ pub struct Kobako {
 struct Registrations {
     /// `Kobako::Proxy` capability module — extended onto every bound
     /// constant installed via `Kobako::install_bindings`.
-    proxy_module: beni::RModule,
-    handle_class: beni::RClass,
-    service_error_class: beni::ExceptionClass,
-    transport_error_class: beni::ExceptionClass,
+    proxy_module: Opaque<beni::RModule>,
+    handle_class: Opaque<beni::RClass>,
+    service_error_class: Opaque<beni::ExceptionClass>,
+    transport_error_class: Opaque<beni::ExceptionClass>,
 }
 
 static REGISTRATIONS: std::sync::OnceLock<Registrations> = std::sync::OnceLock::new();
@@ -107,14 +109,18 @@ impl Registrations {
             .expect(INITIALIZED);
         let runtime_error_class = mrb.exception_runtime_error().expect(INITIALIZED);
         Self {
-            proxy_module: kobako_mod.define_module(mrb, c"Proxy").expect(INITIALIZED),
-            handle_class: kobako_mod.class_get(mrb, c"Handle").expect(INITIALIZED),
-            service_error_class: kobako_mod
-                .define_error(mrb, c"ServiceError", runtime_error_class)
-                .expect(INITIALIZED),
-            transport_error_class: transport_mod
-                .define_error(mrb, c"Error", runtime_error_class)
-                .expect(INITIALIZED),
+            proxy_module: Opaque::from(kobako_mod.define_module(mrb, c"Proxy").expect(INITIALIZED)),
+            handle_class: Opaque::from(kobako_mod.class_get(mrb, c"Handle").expect(INITIALIZED)),
+            service_error_class: Opaque::from(
+                kobako_mod
+                    .define_error(mrb, c"ServiceError", runtime_error_class)
+                    .expect(INITIALIZED),
+            ),
+            transport_error_class: Opaque::from(
+                transport_mod
+                    .define_error(mrb, c"Error", runtime_error_class)
+                    .expect(INITIALIZED),
+            ),
         }
     }
 }
@@ -157,7 +163,10 @@ impl Kobako {
     /// `Kobako::Transport::Error` carrying `msg` — the wire-level failure a
     /// bridge body hands back, which beni raises at the guest call site.
     pub fn transport_error(&self, msg: &str) -> beni::Error {
-        beni::Error::new(self.mrb(), self.registrations.transport_error_class, msg)
+        let class = self
+            .mrb()
+            .get_inner(self.registrations.transport_error_class);
+        beni::Error::new(self.mrb(), class, msg)
     }
 
     /// The exception this Fault's category names, carrying its message, so
@@ -180,14 +189,15 @@ impl Kobako {
     fn class_for(&self, kind: kobako_transport::envelope::FaultKind) -> beni::ExceptionClass {
         use kobako_transport::envelope::FaultKind;
 
+        let mrb = self.mrb();
+        let base = mrb.get_inner(self.registrations.service_error_class);
         let narrowed = match kind {
-            FaultKind::Internal => return self.registrations.transport_error_class,
+            FaultKind::Internal => return mrb.get_inner(self.registrations.transport_error_class),
             FaultKind::Undefined => c"NoServiceError",
             FaultKind::Argument => c"ServiceArgumentError",
-            _ => return self.registrations.service_error_class,
+            _ => return base,
         };
-        self.kobako_class(narrowed)
-            .unwrap_or(self.registrations.service_error_class)
+        self.kobako_class(narrowed).unwrap_or(base)
     }
 
     /// `Kobako::UnsupportedError` carrying the host's message: the host
@@ -195,9 +205,10 @@ impl Kobako {
     /// rescue and fall back from. A shell that did not register the class
     /// falls back to `Kobako::Transport::Error`.
     pub(crate) fn unsupported_error(&self, message: &str) -> beni::Error {
-        let class = self
-            .kobako_class(c"UnsupportedError")
-            .unwrap_or(self.registrations.transport_error_class);
+        let class = self.kobako_class(c"UnsupportedError").unwrap_or_else(|| {
+            self.mrb()
+                .get_inner(self.registrations.transport_error_class)
+        });
         beni::Error::new(self.mrb(), class, message)
     }
 

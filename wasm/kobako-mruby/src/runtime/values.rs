@@ -99,7 +99,8 @@ impl Kobako {
     /// this before reading an id, the same question the dispatch seam asks
     /// of a receiver.
     pub fn is_handle(&self, val: Value) -> bool {
-        val.is_instance_of(self.mrb(), self.registrations.handle_class)
+        let handle_class = self.mrb().get_inner(self.registrations.handle_class);
+        val.is_instance_of(self.mrb(), handle_class)
     }
 
     /// The Handle id, or 0 — which the host resolves as undefined — when
@@ -144,8 +145,7 @@ impl Kobako {
             return nil;
         }
         let mrb = self.mrb();
-        self.registrations
-            .handle_class
+        mrb.get_inner(self.registrations.handle_class)
             .obj_alloc(mrb)
             .and_then(|handle| {
                 RObject::try_convert(handle, mrb)?.ivar_set(

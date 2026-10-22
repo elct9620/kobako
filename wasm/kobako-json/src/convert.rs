@@ -183,7 +183,7 @@ fn encode_hash(mrb: &Mrb, hash: RHash, depth: usize) -> Result<JsonValue, Error>
     // a snapshot of the keys rather than the live table, whose walk ends in
     // an error once a hook changes the pair count. A key the hook removed is
     // skipped and one it added is refused, as in CRuby.
-    let size = hash.len(mrb);
+    let size = hash.len();
     let keys = hash.keys(mrb);
     let mut map = Map::with_capacity(size);
     for key in keys.entries(mrb) {
@@ -194,7 +194,7 @@ fn encode_hash(mrb: &Mrb, hash: RHash, depth: usize) -> Result<JsonValue, Error>
         }
         let value = hash.get(mrb, key).unwrap_or(qnil().as_value());
         map.insert(encode_key(mrb, key)?, encode(mrb, value, depth + 1)?);
-        if hash.len(mrb) > size {
+        if hash.len() > size {
             return Err(key_added_error(mrb));
         }
     }
@@ -205,7 +205,7 @@ fn encode_hash(mrb: &Mrb, hash: RHash, depth: usize) -> Result<JsonValue, Error>
         .entries(mrb)
         .filter(|&key| hash.contains_key(mrb, key).unwrap_or(true))
         .count();
-    if hash.len(mrb) > kept {
+    if hash.len() > kept {
         return Err(key_added_error(mrb));
     }
     Ok(JsonValue::Object(map))

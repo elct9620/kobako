@@ -165,7 +165,7 @@ impl Kobako {
             kobako_codec::msgpack::codec::Value,
         )>,
     > {
-        let mut pairs = Vec::with_capacity(hash.len(self.mrb()));
+        let mut pairs = Vec::with_capacity(hash.len());
         let mut representable = true;
         hash.foreach(self.mrb(), |key: Value, val: Value| {
             match self

@@ -116,7 +116,9 @@ impl Kobako {
 
         class
             .singleton_class(mrb)
-            .and_then(|singleton| singleton.include_module(mrb, self.registrations.proxy_module))
+            .and_then(|singleton| {
+                singleton.include_module(mrb, mrb.get_inner(self.registrations.proxy_module))
+            })
             .map_err(|e| InstallError::Rejected(e.message(mrb)))
     }
 }
