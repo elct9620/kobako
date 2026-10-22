@@ -85,13 +85,13 @@ pub trait MrbGuest {
         flows::run::<Self>(preamble, run)
     }
 
-    /// The `yield` operation — host-initiated re-entry into the guest
-    /// block bound to the active dispatch frame.
-    fn yield_to_block(req: &[u8]) -> YieldReply
+    /// The `yield` operation — host-initiated re-entry into the block of
+    /// the open Call `frame` counts to.
+    fn yield_to_block(frame: u32, req: &[u8]) -> YieldReply
     where
         Self: Sized,
     {
-        flows::yield_to_block::<Self>(req)
+        flows::yield_to_block::<Self>(frame, req)
     }
 
     /// The `compile` operation — compiles the Preamble's source snippets

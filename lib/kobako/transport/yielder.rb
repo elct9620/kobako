@@ -6,26 +6,12 @@ require_relative "../errors"
 module Kobako
   module Transport
     class Yielder # :nodoc:
-      def initialize(guest_yielder, break_tag, handles)
+      def initialize(guest_yielder, break_tag, handles, failure)
         @guest_yielder = guest_yielder
         @break_tag = break_tag
         @handles = handles
+        @failure = failure
         @active = true
-        @raised = nil
-      end
-
-      # Identity rather than class: a Service that rescued the block's
-      # failure and raised its own has reported something else, and the
-      # guest must hear about that instead.
-      #
-      # The class travels with the message because not every block failure
-      # is an exception the guest holds — a block value the guest refused
-      # has a class to raise under and no object to continue.
-      def fault_text(error)
-        raised = @raised
-        return if raised.nil? || !error.equal?(raised)
-
-        "#{raised.klass}: #{raised.message}"
       end
 
       # The ok value is consumed by the host Service, so a Capability Handle
@@ -37,7 +23,7 @@ module Kobako
 
         arm, body, klass = @guest_yielder.call(encode_args(args))
         raise UnsupportedError, "the Sandbox runtime does not support yielding to a block" if arm == :unsupported
-        raise remember(BlockError.new(body, klass: klass)) if arm == :error
+        raise @failure.remember(BlockError.new(body, klass: klass)) if arm == :error
 
         value, carried_handle = decode_body(body)
         throw @break_tag, value if arm == :break
@@ -62,12 +48,6 @@ module Kobako
         Kobako::Codec::Encoder.encode(args)
       rescue Kobako::Codec::Error => e
         raise YieldValueError, "Service yielded a value the block cannot receive: #{e.message}"
-      end
-
-      # Only the newest is kept: a Service that rescued an earlier one and
-      # yielded again has already handled it.
-      def remember(error)
-        @raised = error
       end
 
       # The tracking bracket opens only around this decode: the guest

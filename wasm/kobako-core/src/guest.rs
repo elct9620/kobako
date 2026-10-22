@@ -26,9 +26,10 @@ pub trait Guest {
     /// The `run` operation — calls the entrypoint the host's Run names.
     fn run(preamble: Preamble, run: Run) -> Outcome;
 
-    /// The `yield` operation — host-initiated re-entry into a guest
-    /// block; `req` carries the yield arguments.
-    fn yield_to_block(_req: &[u8]) -> YieldReply {
+    /// The `yield` operation — host-initiated re-entry into the block of
+    /// the open Call `frame` counts to, from `0` at the outermost; `args`
+    /// carries the yield arguments.
+    fn yield_to_block(_frame: u32, _args: &[u8]) -> YieldReply {
         YieldReply::Unsupported(Unsupported::new("this guest serves no block"))
     }
 

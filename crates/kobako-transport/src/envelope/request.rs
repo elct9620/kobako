@@ -18,9 +18,9 @@ pub enum Downcall {
     Eval(Vec<u8>),
     /// Call the entrypoint the Run names.
     Run(Run),
-    /// Re-enter the block bound to the active dispatch; the bytes are
-    /// its arguments, codec-encoded.
-    Yield(Vec<u8>),
+    /// Re-enter the block of the open Call `frame` counts to, from `0`
+    /// at the outermost; `args` are its arguments, codec-encoded.
+    Yield { frame: u32, args: Vec<u8> },
     /// Compile the Preamble's source Snippets without running them. It
     /// carries no body: what it compiles is the Preamble an invocation
     /// would read.
@@ -37,7 +37,10 @@ impl Downcall {
         Ok(match tag {
             tag::EVAL => Downcall::Eval(body.to_vec()),
             tag::RUN => Downcall::Run(Run::decode(body)?),
-            tag::YIELD => Downcall::Yield(body.to_vec()),
+            tag::YIELD => Downcall::Yield {
+                frame: reader.u32()?,
+                args: reader.remaining().to_vec(),
+            },
             tag::COMPILE if body.is_empty() => Downcall::Compile,
             tag::COMPILE => return Err(DecodeError::new("a compile request carries no body")),
             tag => Downcall::Unknown {
@@ -52,7 +55,7 @@ impl Downcall {
         match self {
             Downcall::Eval(source) => writer.u8(tag::EVAL).remainder(source),
             Downcall::Run(run) => writer.u8(tag::RUN).remainder(&run.encode()),
-            Downcall::Yield(args) => writer.u8(tag::YIELD).remainder(args),
+            Downcall::Yield { frame, args } => writer.u8(tag::YIELD).u32(*frame).remainder(args),
             Downcall::Compile => writer.u8(tag::COMPILE),
             Downcall::Unknown { tag, body } => writer.u8(tag.get()).remainder(body),
         };
@@ -146,14 +149,18 @@ mod tests {
             (
                 Downcall::Eval(b"1".to_vec()).encode(),
                 Downcall::Run(run).encode(),
-                Downcall::Yield(vec![0x90]).encode(),
+                Downcall::Yield {
+                    frame: 2,
+                    args: vec![0x90],
+                }
+                .encode(),
                 Downcall::Compile.encode(),
                 Upcall::Call(call).encode(),
             ),
             (
                 vec![0x01, b'1'],
                 vec![0x02, 0, 0, 0, 1, b'M', 0x90],
-                vec![0x03, 0x90],
+                vec![0x03, 0, 0, 0, 2, 0x90],
                 vec![0x08],
                 vec![
                     0x04, // tag: call
@@ -177,7 +184,10 @@ mod tests {
                 entrypoint: "Main".into(),
                 payload: vec![0x90],
             }),
-            Downcall::Yield(vec![0x91, 0x01]),
+            Downcall::Yield {
+                frame: 0,
+                args: vec![0x91, 0x01],
+            },
             Downcall::Compile,
             Downcall::Unknown {
                 tag: UnknownTag::new(0xf0).unwrap(),

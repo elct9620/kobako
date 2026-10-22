@@ -177,9 +177,14 @@ pub(crate) fn unpack_guest_buffer(packed: u64) -> (usize, usize) {
 
 pub(crate) fn drive_yield(
     caller: &mut Caller<'_, Invocation>,
+    frame: u32,
     args: &[u8],
 ) -> Result<Vec<u8>, &'static str> {
-    let request = Downcall::Yield(args.to_vec()).encode();
+    let request = Downcall::Yield {
+        frame,
+        args: args.to_vec(),
+    }
+    .encode();
     let len_i32 = checked_payload_len(request.len())?;
     let req_ptr = write_from_callback(caller, &request)? as i32;
 

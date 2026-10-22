@@ -10,7 +10,7 @@
 /// version it reports equals this one, so a framing or symbol change is
 /// an increment rather than a negotiation. A new request tag needs
 /// neither, but a new answer arm is an increment.
-pub const ABI_VERSION: u32 = 4;
+pub const ABI_VERSION: u32 = 5;
 
 /// Width in bytes of the length prefix that frames a message on WASI
 /// stdin, such as the Preamble.

@@ -15,10 +15,9 @@
 //! exception would be handed to a later failure that has none of its own,
 //! such as a refused block value.
 //!
-//! The block is held alongside the exception and only its own dispatch may
-//! take it. With both rules above in force nothing reaches the slot out of
-//! turn, so the check is a floor: a mismatch degrades to the ordinary
-//! fault path rather than continuing the wrong exception.
+//! Between those two points the only answer the guest can hear is that
+//! Service's own, so whatever is held belongs to the dispatch that takes
+//! it — even when the block that raised was carried by an earlier Call.
 //!
 //! ## Cross-Sandbox isolation
 //!
@@ -27,71 +26,46 @@
 //! module-level static.
 
 use beni::sys::AsRawValue;
-use beni::{Proc, ReprValue, Value};
+use beni::Value;
 
 use core::cell::UnsafeCell;
 
-/// One block's failure, waiting for the answer that says whether the
-/// Service rescued it.
-struct Held {
-    block: Proc,
-    exception: Value,
-}
-
 /// Single-threaded interior-mutability slot for the exception the most
 /// recent guest block raised.
-pub(crate) struct RaisedBlock(UnsafeCell<Option<Held>>);
+pub(crate) struct RaisedBlock(UnsafeCell<Option<Value>>);
 
 impl RaisedBlock {
     const fn new() -> Self {
         Self(UnsafeCell::new(None))
     }
 
-    /// Record `exception` as what `block` raised, rooting it against GC:
+    /// Record `exception` as what a block raised, rooting it against GC:
     /// the mruby frame that raised has already unwound by the time the
     /// host sees the failure, so nothing else keeps it alive.
-    pub(crate) fn set(&self, mrb: &beni::Mrb, block: Proc, exception: Value) {
+    pub(crate) fn set(&self, mrb: &beni::Mrb, exception: Value) {
         self.clear(mrb);
         // SAFETY: see type doc.
-        unsafe { *self.0.get() = Some(Held { block, exception }) };
+        unsafe { *self.0.get() = Some(exception) };
         // SAFETY: `exception` is live on this VM; the paired unregister
-        // runs in `take_for` or in the next `clear`.
+        // runs in `take` or in the next `clear`.
         unsafe { beni::sys::mrb_gc_register(mrb.as_ptr(), exception.as_raw()) };
     }
 
     /// Release whatever is held, dropping its GC root.
     pub(crate) fn clear(&self, mrb: &beni::Mrb) {
-        // SAFETY: see type doc.
-        let held = unsafe { (*self.0.get()).take() };
-        unroot(mrb, held);
+        let _ = self.take(mrb);
     }
 
-    /// Take the exception held for `block`, releasing the GC root, or
-    /// `None` when what is held belongs to another block. The caller
-    /// either re-raises it — which roots it again through mruby's own
-    /// exception slot — or drops it, having answered on an arm that is
-    /// not the block's failure.
-    pub(crate) fn take_for(&self, mrb: &beni::Mrb, block: Proc) -> Option<Value> {
+    /// Take the held exception, releasing its GC root. The caller either
+    /// re-raises it — which roots it again through mruby's own exception
+    /// slot — or drops it, having answered on an arm that is not a block's
+    /// failure.
+    pub(crate) fn take(&self, mrb: &beni::Mrb) -> Option<Value> {
         // SAFETY: see type doc.
-        let slot = unsafe { &mut *self.0.get() };
-        if !slot
-            .as_ref()?
-            .block
-            .as_value()
-            .is_equal(mrb, block.as_value())
-        {
-            return None;
-        }
-        let exception = slot.as_ref()?.exception;
-        unroot(mrb, slot.take());
-        Some(exception)
-    }
-}
-
-fn unroot(mrb: &beni::Mrb, held: Option<Held>) {
-    if let Some(one) = held {
+        let held = unsafe { (*self.0.get()).take() }?;
         // SAFETY: paired with the register in `set`.
-        unsafe { beni::sys::mrb_gc_unregister(mrb.as_ptr(), one.exception.as_raw()) };
+        unsafe { beni::sys::mrb_gc_unregister(mrb.as_ptr(), held.as_raw()) };
+        Some(held)
     }
 }
 

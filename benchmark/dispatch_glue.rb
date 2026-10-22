@@ -61,6 +61,7 @@ runner = Kobako::Bench::Runner.new("dispatch_glue")
 # degenerates to the registry, so we pass Services directly and keep this
 # bench free of a Runtime.
 handles = Kobako::Catalog::Handles.new
+failure = Kobako::Transport::BlockFailure.new
 services = Kobako::Catalog::Services.new
 services.bind("Bench::Noop", -> {})
         .bind("Bench::Echo", ->(x) { x })
@@ -90,26 +91,26 @@ LARGE_CALL = call_for(:Large, "call")
 
 # Warm process-wide codec / inline caches so the first measured case
 # does not pay cold-cache cost. Mirrors the warm-up in the other suites.
-Kobako::Transport::Dispatcher.dispatch(NOOP_CALL, services, handles, guest_yielder)
+Kobako::Transport::Dispatcher.dispatch(NOOP_CALL, services, handles, failure, guest_yielder)
 
 runner.case("10a-empty-call") do
-  Kobako::Transport::Dispatcher.dispatch(NOOP_CALL, services, handles, guest_yielder)
+  Kobako::Transport::Dispatcher.dispatch(NOOP_CALL, services, handles, failure, guest_yielder)
 end
 
 runner.case("10b-primitive-arg") do
-  Kobako::Transport::Dispatcher.dispatch(ECHO_CALL, services, handles, guest_yielder)
+  Kobako::Transport::Dispatcher.dispatch(ECHO_CALL, services, handles, failure, guest_yielder)
 end
 
 runner.case("10c-kwargs") do
-  Kobako::Transport::Dispatcher.dispatch(GREET_CALL, services, handles, guest_yielder)
+  Kobako::Transport::Dispatcher.dispatch(GREET_CALL, services, handles, failure, guest_yielder)
 end
 
 runner.case("10d-small-return-16") do
-  Kobako::Transport::Dispatcher.dispatch(SMALL_CALL, services, handles, guest_yielder)
+  Kobako::Transport::Dispatcher.dispatch(SMALL_CALL, services, handles, failure, guest_yielder)
 end
 
 runner.case("10e-large-return-256") do
-  Kobako::Transport::Dispatcher.dispatch(LARGE_CALL, services, handles, guest_yielder)
+  Kobako::Transport::Dispatcher.dispatch(LARGE_CALL, services, handles, failure, guest_yielder)
 end
 
 puts runner.write!

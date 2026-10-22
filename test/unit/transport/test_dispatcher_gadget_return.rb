@@ -27,7 +27,8 @@ class TestDispatchGadgetReturn < Minitest::Test
 
   def dispatch(method)
     call = DispatcherHelpers.call_for("Cfg::S", method)
-    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handles, @yield))
+    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handles,
+                                                                   Kobako::Transport::BlockFailure.new, @yield))
   end
 
   # @behavior T-122 T-195 T-201
@@ -100,7 +101,8 @@ class TestDispatchGadgetReturn < Minitest::Test
   def extract_gadget_from_a_container_reference
     id = @handles.alloc(Struct.new(:held).new(binding)).id
     call = DispatcherHelpers.call_for(id, "held")
-    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handles, @yield))
+    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handles,
+                                                                   Kobako::Transport::BlockFailure.new, @yield))
   end
 
   def assert_gadget_refused(meth)

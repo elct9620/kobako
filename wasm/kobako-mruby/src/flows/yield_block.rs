@@ -8,7 +8,7 @@
 //! ## Body
 //!
 //! 1. Resolve the active `mrb_state` via the module-level `MRB` slot and
-//!    read the topmost block off `BLOCK_STACK`.
+//!    read the block of the open Call the request names off `BLOCK_STACK`.
 //! 2. Read the yield arguments out of the request buffer through the
 //!    guest's payload codec, which needs that VM to build values.
 //! 3. Yield to the block through beni's protected `Proc::call` so any
@@ -25,7 +25,7 @@
 
 use kobako_transport::envelope::{ErrorRecord, YieldReply};
 
-pub(crate) fn yield_to_block<G: crate::MrbGuest>(req: &[u8]) -> YieldReply {
+pub(crate) fn yield_to_block<G: crate::MrbGuest>(frame: u32, req: &[u8]) -> YieldReply {
     use super::mrb_slot::MRB;
     use crate::codec::PayloadCodec;
     use crate::runtime::block_stack::BLOCK_STACK;
@@ -50,7 +50,7 @@ pub(crate) fn yield_to_block<G: crate::MrbGuest>(req: &[u8]) -> YieldReply {
     // arguments are read so a refusal there — which holds no exception of
     // its own — cannot be answered with the spent one.
     crate::runtime::raised_block::RAISED_BLOCK.clear(mrb);
-    let Some(block) = BLOCK_STACK.last() else {
+    let Some(block) = BLOCK_STACK.get(frame) else {
         return error_reply("LocalJumpError", "no block given (yield)", Vec::new());
     };
 
@@ -124,12 +124,13 @@ fn classify_protected_error<G: crate::MrbGuest>(
             crate::refusal::Position::BreakValue,
         )
     } else {
-        // RBreak whose destination is deeper than the yielder's frame
-        // is a non-orphan Proc `return` aimed at an outer guest method
-        // — unrepresentable across the host yield boundary.
+        // RBreak whose destination is deeper than the yielder's frame —
+        // a non-orphan Proc `return` aimed at an outer guest method, or a
+        // `break` from a block run inside a later Call — would unwind
+        // across a host yield boundary, which the wire cannot carry.
         error_reply(
             "LocalJumpError",
-            "cannot return from a block passed into the Sandbox",
+            "cannot break or return from a block past the Service that runs it",
             Vec::new(),
         )
     }
@@ -156,13 +157,10 @@ fn value_reply<G: crate::MrbGuest>(
 
 fn exception_reply(kobako: &crate::runtime::Kobako, exc: beni::Value) -> YieldReply {
     let (class, message, backtrace) = super::panic::exception_fields(kobako, exc);
-    // Held for the rest of the round-trip against the block that raised
-    // it: the Service may rescue this, and if it does not, that block's
-    // own dispatch re-raises this very object rather than a class and
-    // message rebuilt from the wire.
-    if let Some(block) = crate::runtime::block_stack::BLOCK_STACK.last() {
-        crate::runtime::raised_block::RAISED_BLOCK.set(kobako.mrb(), block, exc);
-    }
+    // Held for the rest of the round-trip: the Service may rescue this,
+    // and if it does not, its dispatch re-raises this very object rather
+    // than a class and message rebuilt from the wire.
+    crate::runtime::raised_block::RAISED_BLOCK.set(kobako.mrb(), exc);
     error_reply(&class, &message, backtrace)
 }
 

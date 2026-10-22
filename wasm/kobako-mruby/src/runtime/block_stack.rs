@@ -1,11 +1,11 @@
-//! Per-invocation LIFO stack of guest-supplied blocks.
+//! Per-invocation LIFO stack holding one slot for each open Call: the
+//! block it carried, or none.
 //!
 //! When guest code calls `Service.method(...) { ... }`, the C-bridge reads
 //! the block off its call frame and `crate::dispatch` parks it here for the
-//! host round-trip.
-//! The host's eventual `yield` downcall reads
-//! `BLOCK_STACK.last()` to find the block bound to the active dispatch
-//! frame, which is why the park has to outlive the call.
+//! host round-trip. A `yield` downcall names the open Call by its slot,
+//! counted from the outermost as the host counts the Calls it answers, so
+//! a block runs as itself even from inside a later Call.
 //!
 //! The wire-level `block_given` bit is read off the guard rather than
 //! computed beside it, so a parked block and the bit announcing it are
@@ -27,14 +27,14 @@ use core::cell::UnsafeCell;
 /// Modelled after `crate::flows::mrb_slot::MrbSlot`
 /// — the wasm Instance's single-threaded execution model is what
 /// licenses the `UnsafeCell` interior mutation here.
-pub(crate) struct BlockStack(UnsafeCell<Vec<Proc>>);
+pub(crate) struct BlockStack(UnsafeCell<Vec<Option<Proc>>>);
 
 impl BlockStack {
     const fn new() -> Self {
         Self(UnsafeCell::new(Vec::new()))
     }
 
-    pub(crate) fn push(&self, block: Proc) {
+    pub(crate) fn push(&self, block: Option<Proc>) {
         // SAFETY: see type doc.
         unsafe { (*self.0.get()).push(block) };
     }
@@ -46,12 +46,14 @@ impl BlockStack {
         }
     }
 
-    /// The stored `mrb_value` keeps the block GC-rooted for the dispatch
-    /// frame, so a copy of the top is safe to use inside the same
-    /// single-threaded invocation that pushed it.
-    pub(crate) fn last(&self) -> Option<Proc> {
+    /// The block of the open Call `frame` counts to, if that Call is open
+    /// and carried one. The Call's own frame on the mruby stack keeps the
+    /// block alive while it is open, so a copy is safe to use inside the
+    /// same single-threaded invocation that pushed it.
+    pub(crate) fn get(&self, frame: u32) -> Option<Proc> {
         // SAFETY: see type doc.
-        unsafe { (*self.0.get()).last().copied() }
+        let slots = unsafe { &*self.0.get() };
+        slots.get(frame as usize).copied().flatten()
     }
 }
 
@@ -61,44 +63,39 @@ impl BlockStack {
 // guarantee operationally. `static` requires `Sync` regardless.
 unsafe impl Sync for BlockStack {}
 
-/// Per-invocation LIFO stack of guest-supplied blocks.
+/// Per-invocation LIFO stack of the open Calls' blocks.
 pub(crate) static BLOCK_STACK: BlockStack = BlockStack::new();
 
 /// RAII drop-guard that owns one push/pop pair on `BLOCK_STACK`.
-/// Constructed via `BlockFrame::park` — inert when the caller passed no
-/// block. Drop pops the block when the dispatch bridge frame returns, so
-/// its several return points need no manual pop.
+/// Constructed via `BlockFrame::park` for every Call, block or none.
+/// Drop pops the slot when the dispatch bridge frame returns, so its
+/// several return points need no manual pop.
 ///
 /// Internal because holding it is only half of taking a block, and the
 /// other half is a bit on the wire: `crate::dispatch` owns both so the
 /// two cannot disagree.
 pub(crate) struct BlockFrame {
-    active: bool,
+    block_given: bool,
 }
 
 impl BlockFrame {
-    /// Push `block` onto `BLOCK_STACK` when there is one and return a guard
-    /// whose drop pops the same frame. With no block the guard is inert —
-    /// `Drop` is a no-op.
+    /// Push this Call's slot onto `BLOCK_STACK` and return a guard whose
+    /// drop pops it.
     pub(crate) fn park(block: Option<Proc>) -> Self {
-        let active = block.is_some();
-        if let Some(block) = block {
-            BLOCK_STACK.push(block);
-        }
-        Self { active }
+        let block_given = block.is_some();
+        BLOCK_STACK.push(block);
+        Self { block_given }
     }
 
     /// Whether this frame parked a block — the wire's `block_given` bit,
     /// read off the guard so the two cannot be stated differently.
     pub(crate) fn block_given(&self) -> bool {
-        self.active
+        self.block_given
     }
 }
 
 impl Drop for BlockFrame {
     fn drop(&mut self) {
-        if self.active {
-            BLOCK_STACK.pop();
-        }
+        BLOCK_STACK.pop();
     }
 }

@@ -56,7 +56,7 @@ module DispatcherHelpers
   # +Sandbox+ hands to +Runtime#eval+ / +#run+ so these unit tests exercise
   # the same entry point as the live ext callback.
   def dispatch(call, server: @registry, handles: @handles)
-    Kobako::Transport::Dispatcher.dispatch(call, server, handles, NO_YIELD)
+    Kobako::Transport::Dispatcher.dispatch(call, server, handles, Kobako::Transport::BlockFailure.new, NO_YIELD)
   end
 
   # Instance-side shorthands for the two module functions above, so an

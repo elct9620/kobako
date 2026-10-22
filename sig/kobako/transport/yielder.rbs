@@ -4,12 +4,10 @@ module Kobako
       @guest_yielder: Kobako::Transport::_GuestYielder
       @break_tag: Symbol
       @handles: Kobako::Codec::_HandleTable
+      @failure: Kobako::Transport::BlockFailure
       @active: bool
-      @raised: Kobako::BlockError?
 
-      def initialize: (Kobako::Transport::_GuestYielder guest_yielder, Symbol break_tag, Kobako::Codec::_HandleTable handles) -> void
-
-      def fault_text: (Exception error) -> String?
+      def initialize: (Kobako::Transport::_GuestYielder guest_yielder, Symbol break_tag, Kobako::Codec::_HandleTable handles, Kobako::Transport::BlockFailure failure) -> void
 
       def yield: (*untyped args) -> untyped
 
@@ -20,8 +18,6 @@ module Kobako
       private
 
       def encode_args: (Array[untyped] args) -> String
-
-      def remember: (Kobako::BlockError error) -> Kobako::BlockError
 
       def decode_body: (String body) -> [untyped, bool]
 

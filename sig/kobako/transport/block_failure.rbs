@@ -1,0 +1,13 @@
+module Kobako
+  module Transport
+    class BlockFailure
+      @raised: Kobako::BlockError?
+
+      def initialize: () -> void
+
+      def remember: (Kobako::BlockError error) -> Kobako::BlockError
+
+      def fault_text: (Exception error) -> String?
+    end
+  end
+end

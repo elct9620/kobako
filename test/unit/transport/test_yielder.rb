@@ -32,7 +32,7 @@ class TestYielder < Minitest::Test
   # class]+ shape the ext's GuestYielder hands back.
   def yielder_answering(arm, value: @handle)
     reply = [arm, Kobako::Codec::Encoder.encode(value), nil]
-    Yielder.new(->(_args) { reply }, BREAK_TAG, @table)
+    Yielder.new(->(_args) { reply }, BREAK_TAG, @table, Kobako::Transport::BlockFailure.new)
   end
 
   # @behavior T-100

@@ -31,7 +31,8 @@ class TestDispatchReflectionRefusal < Minitest::Test
 
   def dispatch(target, method, args)
     call = DispatcherHelpers.call_for(target, method, args)
-    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handles, @yield))
+    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handles,
+                                                                   Kobako::Transport::BlockFailure.new, @yield))
   end
 
   # @behavior T-116

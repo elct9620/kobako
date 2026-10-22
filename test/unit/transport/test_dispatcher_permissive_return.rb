@@ -26,7 +26,8 @@ class TestDispatchPermissiveReturn < Minitest::Test
 
   def dispatch(method)
     call = DispatcherHelpers.call_for("Dsl::S", method)
-    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handles, @yield))
+    DispatcherHelpers.reify(Kobako::Transport::Dispatcher.dispatch(call, @services, @handles,
+                                                                   Kobako::Transport::BlockFailure.new, @yield))
   end
 
   # @behavior T-160

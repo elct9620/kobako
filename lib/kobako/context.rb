@@ -108,11 +108,14 @@ module Kobako
 
     # Handed to the Runtime as a call argument, so the Runtime holds no
     # dispatch state and the Proc stays GC-rooted for the synchronous call.
+    # Built once per invocation, so every Call it answers shares one
+    # BlockFailure.
     def dispatch_handler
+      failure = Transport::BlockFailure.new
       lambda do |target, method_name, block_given, payload, guest_yielder|
         call = Transport::Call.new(target: target, method_name: method_name,
                                    block_given: block_given, payload: payload)
-        Transport::Dispatcher.dispatch(call, self, @handles, guest_yielder)
+        Transport::Dispatcher.dispatch(call, self, @handles, failure, guest_yielder)
       end
     end
 

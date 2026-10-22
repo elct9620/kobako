@@ -17,7 +17,7 @@ pub fn serve<G: Guest>(request: &[u8]) -> Vec<u8> {
     match Downcall::decode(request) {
         Ok(Downcall::Eval(source)) => invoke(|preamble| G::eval(preamble, source)),
         Ok(Downcall::Run(run)) => invoke(|preamble| G::run(preamble, run)),
-        Ok(Downcall::Yield(args)) => G::yield_to_block(&args).encode(),
+        Ok(Downcall::Yield { frame, args }) => G::yield_to_block(frame, &args).encode(),
         Ok(Downcall::Compile) => compile::<G>().encode(),
         Ok(_) => {
             Unsupported::new(format!("this guest does not serve tag {:#04x}", request[0])).encode()
@@ -73,7 +73,7 @@ mod tests {
     // @behavior T-181
     #[test]
     fn a_guest_serving_no_block_answers_a_yield_as_unsupported() {
-        let answer = serve::<NoBlockGuest>(&[0x03, 0x90]);
+        let answer = serve::<NoBlockGuest>(&[0x03, 0, 0, 0, 0, 0x90]);
 
         assert!(
             matches!(YieldReply::decode(&answer), Ok(YieldReply::Unsupported(_))),

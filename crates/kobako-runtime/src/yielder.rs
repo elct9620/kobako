@@ -15,11 +15,16 @@ use crate::error::Trap;
 /// Host-initiated re-entry into the in-flight guest instance to run a
 /// yielded block.
 ///
-/// `yield_to_block` ships `args` as a `yield` downcall and returns the
-/// decoded Yield Reply, `Unsupported` arm included, or a `Trap` — surfaced
-/// through the frontend's trap-error mapping — when the re-entry traps,
-/// the guest returns an empty or unframeable result, or a payload exceeds
-/// the 16 MiB cap.
+/// Each open Call has a `frame`, counted from `0` at the outermost.
+/// `yield_to_block` ships `args` as a `yield` downcall to the block of the
+/// open Call `frame` names, and returns the decoded Yield Reply,
+/// `Unsupported` arm included, or a `Trap` — surfaced through the
+/// frontend's trap-error mapping — when the re-entry traps, the guest
+/// returns an empty or unframeable result, or a payload exceeds the
+/// 16 MiB cap.
 pub trait Yielder {
-    fn yield_to_block(&mut self, args: &[u8]) -> Result<YieldReply, Trap>;
+    /// The frame of the Call this Yielder was lent for.
+    fn frame(&self) -> u32;
+
+    fn yield_to_block(&mut self, frame: u32, args: &[u8]) -> Result<YieldReply, Trap>;
 }

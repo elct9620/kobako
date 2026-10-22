@@ -51,7 +51,11 @@ mod tests {
     }
 
     impl RawYielder for Scripted {
-        fn yield_to_block(&mut self, args: &[u8]) -> Result<YieldReply, Trap> {
+        fn frame(&self) -> u32 {
+            0
+        }
+
+        fn yield_to_block(&mut self, _frame: u32, args: &[u8]) -> Result<YieldReply, Trap> {
             self.sent.push(args.to_vec());
             self.replies.pop_front().expect("script exhausted")
         }

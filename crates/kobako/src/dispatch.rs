@@ -134,8 +134,13 @@ mod tests {
     struct NoYield;
 
     impl RawYielder for NoYield {
+        fn frame(&self) -> u32 {
+            0
+        }
+
         fn yield_to_block(
             &mut self,
+            _frame: u32,
             _args: &[u8],
         ) -> Result<YieldReply, kobako_runtime::error::Trap> {
             panic!("dispatch under test must not yield");
@@ -157,8 +162,13 @@ mod tests {
     }
 
     impl RawYielder for Scripted {
+        fn frame(&self) -> u32 {
+            0
+        }
+
         fn yield_to_block(
             &mut self,
+            _frame: u32,
             _args: &[u8],
         ) -> Result<YieldReply, kobako_runtime::error::Trap> {
             Ok(self.0.pop_front().expect("script exhausted"))

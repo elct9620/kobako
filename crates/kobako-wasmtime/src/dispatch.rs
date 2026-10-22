@@ -27,11 +27,16 @@ use crate::invocation::Invocation;
 /// stack on the Rust call stack with no shared slot.
 struct CallerYielder<'a, 'c> {
     caller: &'a mut Caller<'c, Invocation>,
+    frame: u32,
 }
 
 impl Yielder for CallerYielder<'_, '_> {
-    fn yield_to_block(&mut self, args: &[u8]) -> Result<YieldReply, Trap> {
-        let bytes = guest_mem::drive_yield(self.caller, args)
+    fn frame(&self) -> u32 {
+        self.frame
+    }
+
+    fn yield_to_block(&mut self, frame: u32, args: &[u8]) -> Result<YieldReply, Trap> {
+        let bytes = guest_mem::drive_yield(self.caller, frame, args)
             .map_err(|msg| Trap::Other(msg.to_string()))?;
         YieldReply::decode(&bytes).map_err(|err| Trap::Other(err.to_string()))
     }
@@ -92,11 +97,13 @@ fn try_handle(
     // handler. The borrow ends with the block, freeing the Caller for
     // `write_reply`; nested dispatch frames each build their own, so
     // the LIFO re-entry lives on the Rust stack — no shared slot.
+    let frame = caller.data_mut().open_call();
     let reply = {
-        let mut yielder = CallerYielder { caller };
+        let mut yielder = CallerYielder { caller, frame };
         handler.dispatch(call, &mut yielder)
-    }
-    .ok_or(
+    };
+    caller.data_mut().close_call();
+    let reply = reply.ok_or(
         "a Sandbox callback raised an exception instead of returning a fault — please report this as a kobako bug",
     )?;
 

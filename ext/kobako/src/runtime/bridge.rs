@@ -5,8 +5,9 @@
 //! dispatch seam touches `magnus`. The wasm-side dispatch path
 //! (`kobako_wasmtime`'s dispatch module) sees only the contract traits.
 
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 use core::ptr::NonNull;
+use std::sync::Arc;
 
 use magnus::value::{Opaque, ReprValue};
 use magnus::{method, prelude::*, Error as MagnusError, RClass, RString, Ruby, Symbol, Value};
@@ -33,79 +34,109 @@ pub(super) fn register(runtime_class: RClass) -> Result<(), MagnusError> {
     Ok(())
 }
 
-/// Frame-scoped Ruby handle that lets the dispatch `Proc` re-enter the
-/// guest to run a yielded block. It wraps the active `&mut dyn Yielder`
-/// for exactly one `__kobako_upcall` frame: the bridge builds one, hands
-/// it to the `Proc` as the second argument, and `invalidate`s it the
+/// The Yielders one invocation's open Calls lent, innermost last. A yield
+/// re-enters the guest only through the innermost, whatever Call's block
+/// it runs, so no Yielder is reached while a later Call holds the guest.
+///
+/// This is the one place the host↔guest re-entry still costs raw
+/// pointers: `magnus`' `funcall` sits between two Rust frames, so the
+/// typed `&mut dyn Yielder` cannot cross it and is erased here. Each
+/// pointer is pushed before its frame's `funcall` and popped after it, so
+/// every pointer on the stack belongs to a frame still on the Rust stack.
+#[derive(Default)]
+struct OpenFrames(RefCell<Vec<NonNull<dyn Yielder>>>);
+
+// SAFETY: the stack is pushed, read, and popped only on the one Ruby
+// thread driving the invocation that owns it; it is never read from
+// another thread.
+unsafe impl Send for OpenFrames {}
+unsafe impl Sync for OpenFrames {}
+
+impl OpenFrames {
+    /// Lend `yielder` for the frame `run` answers, popping it however
+    /// `run` returns.
+    fn lend<T>(&self, yielder: &mut dyn Yielder, run: impl FnOnce() -> T) -> T {
+        struct Pop<'a>(&'a OpenFrames);
+        impl Drop for Pop<'_> {
+            fn drop(&mut self) {
+                self.0 .0.borrow_mut().pop();
+            }
+        }
+        // SAFETY: the lifetime is erased only for as long as `Pop` keeps
+        // the pointer on the stack, which ends before `yielder` does.
+        let ptr: NonNull<dyn Yielder> = unsafe {
+            std::mem::transmute::<NonNull<dyn Yielder + '_>, NonNull<dyn Yielder + 'static>>(
+                NonNull::from(yielder),
+            )
+        };
+        self.0.borrow_mut().push(ptr);
+        let _pop = Pop(self);
+        run()
+    }
+
+    fn innermost(&self) -> Option<NonNull<dyn Yielder>> {
+        self.0.borrow().last().copied()
+    }
+}
+
+/// Frame-scoped Ruby handle that lets the dispatch `Proc` run the block
+/// one Call carried. The bridge builds one per `__kobako_upcall` frame,
+/// hands it to the `Proc` as the last argument, and `invalidate`s it the
 /// instant the `Proc` returns. A guest block stashed and called after that
 /// frame normally raises `LocalJumpError` at the Ruby
 /// `Transport::Yielder` net — invalidated in the dispatcher's `ensure`,
 /// which fires before this handle is reached. This inner invalidation is
-/// the backstop behind that outer net: it keeps `call`'s `unsafe`
-/// `NonNull` deref from touching freed stack should the outer net ever be
-/// bypassed, so neither net is redundant.
+/// the backstop behind that outer net, so neither net is redundant.
 ///
-/// This is the single, explicit, frame-scoped FFI pointer the host↔guest
-/// re-entry still costs: `magnus`' `funcall` sits between two Rust frames,
-/// so the typed `&mut dyn Yielder` cannot cross it and is erased to a raw
-/// pointer here. Unlike the dispatch `Proc`, this handle holds **no Ruby
-/// `Value`**, so GC has nothing to trace through it — it needs no `mark`.
+/// It holds **no Ruby `Value`**, so GC has nothing to trace through it —
+/// it needs no `mark`.
 #[magnus::wrap(class = "Kobako::Runtime::GuestYielder", free_immediately, size)]
 struct GuestYielder {
-    yielder: Cell<Option<NonNull<dyn Yielder>>>,
+    frame: u32,
+    open: Arc<OpenFrames>,
+    live: Cell<bool>,
 }
 
-// SAFETY: magnus requires `Send + Sync` on wrapped types. The raw pointer
-// is created, used, and invalidated within a single `__kobako_upcall`
-// frame on the one Ruby thread that owns the active Invocation; it is
-// never read from another thread.
+// SAFETY: magnus requires `Send + Sync` on wrapped types. The handle is
+// created, used, and invalidated on the one Ruby thread that owns the
+// active Invocation; it is never read from another thread.
 unsafe impl Send for GuestYielder {}
 unsafe impl Sync for GuestYielder {}
 
 impl GuestYielder {
-    /// Erase the frame-scoped `&mut dyn Yielder` into a Ruby-owned handle.
-    /// Safety contract for the caller: `invalidate` MUST run before the
-    /// borrow this pointer came from ends (i.e. before the dispatch frame
-    /// returns).
-    fn new(yielder: &mut dyn Yielder) -> Self {
-        let ptr = NonNull::from(yielder);
-        // Erase the borrow's lifetime to `'static`; the pointer is only
-        // ever dereferenced while it is still `Some` (i.e. `invalidate`
-        // has not run), so the referent is guaranteed live.
-        let ptr: NonNull<dyn Yielder> = unsafe {
-            std::mem::transmute::<NonNull<dyn Yielder + '_>, NonNull<dyn Yielder + 'static>>(ptr)
-        };
+    fn new(frame: u32, open: Arc<OpenFrames>) -> Self {
         Self {
-            yielder: Cell::new(Some(ptr)),
+            frame,
+            open,
+            live: Cell::new(true),
         }
     }
 
     /// Runs the instant the dispatch frame's `funcall` returns, so a guest
-    /// block stashed beyond its frame raises instead of dereferencing freed
-    /// stack.
+    /// block stashed beyond its frame raises instead of re-entering.
     fn invalidate(&self) {
-        self.yielder.set(None);
+        self.live.set(false);
     }
 
     /// The arm is named here off the decoded Yield Reply, so the host
     /// `Transport::Yielder` decodes only a payload.
     fn call(&self, args: RString) -> Result<(Symbol, RString, Option<String>), MagnusError> {
         let ruby = Ruby::get().expect("Ruby handle unavailable in the block bridge");
-        let Some(mut ptr) = self.yielder.get() else {
+        let innermost = self.open.innermost().filter(|_| self.live.get());
+        let Some(mut ptr) = innermost else {
             return Err(super::errors::trap_err(
                 &ruby,
                 "guest block invoked after the host dispatch frame returned",
             ));
         };
         let bytes = super::rstring_to_vec(args);
-        // SAFETY: `yielder` is `Some`, so `invalidate` has not run — the
-        // dispatch frame that lent the `&mut dyn Yielder` is still on the
-        // Rust stack, and each dispatch frame lends its own Yielder on the
-        // one thread driving the invocation, so no other frame aliases it.
-        // The borrow ends with this method.
+        // SAFETY: this frame is live, so the innermost frame — this one or
+        // a later Call — is still on the Rust stack with its Yielder lent.
+        // Only the innermost frame's Ruby code runs, so no other borrow of
+        // that Yielder is live; the borrow ends with this method.
         let yielder: &mut dyn Yielder = unsafe { ptr.as_mut() };
         let reply = yielder
-            .yield_to_block(&bytes)
+            .yield_to_block(self.frame, &bytes)
             .map_err(|t| super::errors::trap_to_magnus(&ruby, t))?;
         Ok(match reply {
             YieldReply::Ok(body) => (ruby.to_symbol(ARM_OK), ruby.str_from_slice(&body), None),
@@ -136,11 +167,15 @@ impl GuestYielder {
 /// `Opaque` copy of the same handle.
 pub(super) struct RubyDispatchHandler {
     on_dispatch: Opaque<Value>,
+    open: Arc<OpenFrames>,
 }
 
 impl RubyDispatchHandler {
     pub(super) fn new(on_dispatch: Opaque<Value>) -> Self {
-        Self { on_dispatch }
+        Self {
+            on_dispatch,
+            open: Arc::default(),
+        }
     }
 }
 
@@ -172,21 +207,22 @@ impl DispatchHandler for RubyDispatchHandler {
             };
             // Hand the Proc a frame-scoped yielder object as its last arg and
             // invalidate it the instant the Proc returns, so a guest block that
-            // escapes the dispatch frame can never deref the freed stack
-            // pointer. `guest_yielder` holds no Ruby Value, so it needs no GC
-            // mark — the GC has nothing to trace through it.
-            let guest_yielder = ruby.obj_wrap(GuestYielder::new(yielder));
-            let answer: Result<(bool, RString, Option<RString>), magnus::Error> = proc_value
-                .funcall(
-                    "call",
-                    (
-                        target,
-                        ruby.str_new(call.method),
-                        call.block_given,
-                        ruby.str_from_slice(call.payload),
-                        guest_yielder,
-                    ),
-                );
+            // escapes the dispatch frame never re-enters the guest.
+            let guest_yielder =
+                ruby.obj_wrap(GuestYielder::new(yielder.frame(), self.open.clone()));
+            let answer: Result<(bool, RString, Option<RString>), magnus::Error> =
+                self.open.lend(yielder, || {
+                    proc_value.funcall(
+                        "call",
+                        (
+                            target,
+                            ruby.str_new(call.method),
+                            call.block_given,
+                            ruby.str_from_slice(call.payload),
+                            guest_yielder,
+                        ),
+                    )
+                });
             guest_yielder.invalidate();
             // The Proc rescues only StandardError, so what else escapes it
             // is the host's own and is held for the host; a StandardError

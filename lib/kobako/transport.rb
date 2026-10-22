@@ -2,6 +2,7 @@
 
 require_relative "transport/call"
 require_relative "transport/run"
+require_relative "transport/block_failure"
 require_relative "transport/yielder"
 require_relative "transport/error"
 require_relative "transport/exposure"

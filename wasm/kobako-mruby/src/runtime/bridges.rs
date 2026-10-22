@@ -115,11 +115,9 @@ fn forward_to_dispatch(
     // raise above this line — an unreadable symbol, a denied name, an
     // argument this schema cannot carry — long-jumps past no guard.
     let answer = dispatch(target, &method_name, block, &payload);
-    // Asked on every arm, and only for this call's own block: a failure
-    // the Service rescued is spent, and one still held for another block
-    // belongs to the dispatch that parked it.
-    let raised =
-        block.and_then(|one| super::raised_block::RAISED_BLOCK.take_for(kobako.mrb(), one));
+    // Asked on every arm: a failure the Service rescued is spent, and one
+    // it did not is this answer's, whichever Call's block raised it.
+    let raised = super::raised_block::RAISED_BLOCK.take(kobako.mrb());
     match answer {
         // A dispatch return value the guest's codec cannot read raises in
         // the calling guest code.
@@ -131,12 +129,12 @@ fn forward_to_dispatch(
         // envelope typed it, so there is nothing left to decode and no
         // codec to consult.
         Err(DispatchError::Fault(fault)) => match (fault.kind, raised) {
-            // The Service did not rescue what this frame's own block
-            // raised, so the exception continues from where it was
-            // raised — the same thing it would do with no host in
-            // between. A `block` fault with nothing held is a peer
-            // reporting a failure this frame did not produce, which has
-            // no exception to continue and takes the ordinary path.
+            // The Service did not rescue what a block it ran raised, so
+            // the exception continues from where it was raised — the same
+            // thing it would do with no host in between. A `block` fault
+            // with nothing held is a peer reporting a failure this guest
+            // did not produce, which has no exception to continue and
+            // takes the ordinary path.
             // The exception continues as itself rather than as a
             // reconstruction; `exc` was held live by the GC root the take
             // just released.

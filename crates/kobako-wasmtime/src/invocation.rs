@@ -38,6 +38,7 @@ pub(crate) struct Invocation {
     wall_time: Duration,
     reentry_trap: Option<wasmtime::Error>,
     exports: Option<Exports>,
+    open_calls: u32,
 }
 
 impl Invocation {
@@ -51,6 +52,7 @@ impl Invocation {
             wall_time: Duration::ZERO,
             reentry_trap: None,
             exports: None,
+            open_calls: 0,
         }
     }
 
@@ -78,6 +80,17 @@ impl Invocation {
 
     pub(crate) fn take_reentry_trap(&mut self) -> Option<wasmtime::Error> {
         self.reentry_trap.take()
+    }
+
+    /// Count a Call the host is about to answer and name its frame, as the
+    /// guest counts the Calls it has open.
+    pub(crate) fn open_call(&mut self) -> u32 {
+        self.open_calls += 1;
+        self.open_calls - 1
+    }
+
+    pub(crate) fn close_call(&mut self) {
+        self.open_calls -= 1;
     }
 
     pub(crate) fn bind_on_dispatch(&mut self, handler: Arc<dyn DispatchHandler>) {

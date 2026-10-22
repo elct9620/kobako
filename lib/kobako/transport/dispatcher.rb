@@ -3,6 +3,7 @@
 require_relative "../codec"
 require_relative "../errors"
 require_relative "../payload"
+require_relative "block_failure"
 require_relative "call"
 require_relative "reflection"
 require_relative "yielder"
@@ -45,8 +46,8 @@ module Kobako
       # The per-invocation state arrives as arguments so the Dispatcher
       # stays stateless and neither the resolver nor the Context publishes
       # accessors for it.
-      def self.dispatch(call, resolver, handles, guest_yielder)
-        yielder = Yielder.new(guest_yielder, BREAK_THROW, handles) if call.block_given
+      def self.dispatch(call, resolver, handles, failure, guest_yielder)
+        yielder = Yielder.new(guest_yielder, BREAK_THROW, handles, failure) if call.block_given
         [true, encode_ok(run(call, resolver, handles, yielder), handles), nil] # : [bool, String, String?]
       # StandardError is the boundary by intent: a Service method's
       # application fault folds into a guest-rescuable fault, while a
@@ -54,7 +55,7 @@ module Kobako
       # stays uncaught and traps the invocation rather than being masked as a
       # rescuable fault.
       rescue StandardError => e
-        [false, *caught_fault(e, yielder)] # : [bool, String, String?]
+        [false, *caught_fault(e, failure)] # : [bool, String, String?]
       ensure
         yielder&.invalidate!
       end
@@ -93,8 +94,8 @@ module Kobako
         # The guest's own block failing is not the Service's to report at
         # all, so the Yielder that raised it is asked first — it recognises
         # its own by identity and words the failure the guest's way.
-        def caught_fault(error, yielder)
-          block_failure = yielder&.fault_text(error)
+        def caught_fault(error, failure)
+          block_failure = failure.fault_text(error)
           return fault("block", block_failure) if block_failure
 
           own = OWN_FAULTS.find { |klass, _| error.is_a?(klass) }

@@ -132,9 +132,10 @@ impl<'y> Yielder<'y> {
         if self.broke.is_some() {
             return Err(YieldError::Break);
         }
+        let frame = self.raw.frame();
         let reply = self
             .raw
-            .yield_to_block(args)
+            .yield_to_block(frame, args)
             .map_err(|trap| YieldError::Aborted(format!("yield re-entry trapped: {trap:?}")))?;
         match reply {
             YieldReply::Ok(body) => Ok(body),
@@ -176,22 +177,48 @@ mod tests {
     struct Scripted {
         replies: VecDeque<Result<YieldReply, Trap>>,
         sent: Vec<Vec<u8>>,
+        frames: Vec<u32>,
     }
 
     impl Scripted {
+        /// The frame this double stands in for, apart from `0` so a yield
+        /// that names no frame shows.
+        const FRAME: u32 = 3;
+
         fn new(replies: Vec<Result<YieldReply, Trap>>) -> Self {
             Scripted {
                 replies: replies.into(),
                 sent: Vec::new(),
+                frames: Vec::new(),
             }
         }
     }
 
     impl RawYielder for Scripted {
-        fn yield_to_block(&mut self, args: &[u8]) -> Result<YieldReply, Trap> {
+        fn frame(&self) -> u32 {
+            Self::FRAME
+        }
+
+        fn yield_to_block(&mut self, frame: u32, args: &[u8]) -> Result<YieldReply, Trap> {
+            self.frames.push(frame);
             self.sent.push(args.to_vec());
             self.replies.pop_front().expect("script exhausted")
         }
+    }
+
+    // A receiver's Yielder borrows its own dispatch frame, so the block it
+    // runs is always the one its Call carried.
+    // @behavior T-092
+    #[test]
+    fn a_yield_names_the_frame_its_yielder_was_lent_for() {
+        let mut raw = Scripted::new(vec![Ok(YieldReply::Ok(Vec::new()))]);
+        Yielder::new(&mut raw).call_payload(&[]).unwrap();
+
+        assert_eq!(
+            raw.frames,
+            vec![3],
+            "a yield through call_payload must name the frame its Yielder was lent for"
+        );
     }
 
     // @behavior T-085

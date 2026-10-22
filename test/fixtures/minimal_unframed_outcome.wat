@@ -16,4 +16,4 @@
       (then (i64.const 0))
       (else (i64.or (i64.shl (i64.const 8) (i64.const 32)) (i64.const 2)))))
 
-  (func (export "__kobako_abi_version") (result i32) (i32.const 4)))
+  (func (export "__kobako_abi_version") (result i32) (i32.const 5)))

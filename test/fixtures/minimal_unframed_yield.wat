@@ -48,4 +48,4 @@
     (call $call_with_block)
     (call $nil))
 
-  (func (export "__kobako_abi_version") (result i32) (i32.const 4)))
+  (func (export "__kobako_abi_version") (result i32) (i32.const 5)))
