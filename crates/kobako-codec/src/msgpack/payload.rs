@@ -46,7 +46,15 @@ impl Encode for Arguments {
 
 impl Decode for Arguments {
     fn decode(bytes: &[u8]) -> Result<Self, codec::Error> {
-        let mut decoder = Decoder::new(bytes);
+        Arguments::decode_within(bytes, None)
+    }
+}
+
+impl Arguments {
+    /// Decode as `Decode::decode` does, refusing a payload that holds more
+    /// than `limit` values in all.
+    pub fn decode_within(bytes: &[u8], limit: Option<usize>) -> Result<Self, codec::Error> {
+        let mut decoder = Decoder::new(bytes).with_value_limit(limit);
         let frame = decoder.read_only_value()?;
         // `try_into` on a Vec succeeds iff the length matches, which the
         // guard establishes.

@@ -10,11 +10,23 @@ use super::{Error, Value, EXT_HANDLE, EXT_SYMBOL, HANDLE_ID_MAX, MAX_NESTING_DEP
 pub struct Decoder<'a> {
     input: &'a [u8],
     pos: usize,
+    budget: Option<usize>,
 }
 
 impl<'a> Decoder<'a> {
     pub fn new(input: &'a [u8]) -> Self {
-        Self { input, pos: 0 }
+        Self {
+            input,
+            pos: 0,
+            budget: None,
+        }
+    }
+
+    /// Refuse to read more than `limit` values in all, each array, map,
+    /// key, and element counting as one; `None` reads without a limit.
+    pub fn with_value_limit(mut self, limit: Option<usize>) -> Self {
+        self.budget = limit;
+        self
     }
 
     pub fn position(&self) -> usize {
@@ -27,7 +39,7 @@ impl<'a> Decoder<'a> {
 
     pub fn read_value(&mut self) -> Result<Value, Error> {
         let mut cursor = &self.input[self.pos..];
-        let value = read_value_from(&mut cursor, 0)?;
+        let value = read_value_from(&mut cursor, 0, &mut self.budget)?;
         self.pos = self.input.len() - cursor.len();
         Ok(value)
     }
@@ -48,10 +60,20 @@ impl<'a> Decoder<'a> {
 }
 
 /// Recursing past `MAX_NESTING_DEPTH` is refused as a clean error, so a
-/// deeply nested payload cannot overflow the wasm stack.
-fn read_value_from(cursor: &mut &[u8], depth: usize) -> Result<Value, Error> {
+/// deeply nested payload cannot overflow the wasm stack. Each value read
+/// spends one of `budget`, so a payload cannot build more than it allows.
+fn read_value_from(
+    cursor: &mut &[u8],
+    depth: usize,
+    budget: &mut Option<usize>,
+) -> Result<Value, Error> {
     if depth > MAX_NESTING_DEPTH {
         return Err(Error::Malformed("nesting exceeds maximum depth"));
+    }
+    if let Some(left) = budget {
+        *left = left.checked_sub(1).ok_or(Error::Malformed(
+            "payload holds more values than its budget",
+        ))?;
     }
     let marker = read_marker(cursor).map_err(|_| Error::Truncated)?;
     match marker {
@@ -107,24 +129,24 @@ fn read_value_from(cursor: &mut &[u8], depth: usize) -> Result<Value, Error> {
             read_bin_body(cursor, len)
         }
 
-        Marker::FixArray(len) => read_array_body(cursor, len as usize, depth),
+        Marker::FixArray(len) => read_array_body(cursor, len as usize, depth, budget),
         Marker::Array16 => {
             let len = cursor.read_data_u16()? as usize;
-            read_array_body(cursor, len, depth)
+            read_array_body(cursor, len, depth, budget)
         }
         Marker::Array32 => {
             let len = cursor.read_data_u32()? as usize;
-            read_array_body(cursor, len, depth)
+            read_array_body(cursor, len, depth, budget)
         }
 
-        Marker::FixMap(len) => read_map_body(cursor, len as usize, depth),
+        Marker::FixMap(len) => read_map_body(cursor, len as usize, depth, budget),
         Marker::Map16 => {
             let len = cursor.read_data_u16()? as usize;
-            read_map_body(cursor, len, depth)
+            read_map_body(cursor, len, depth, budget)
         }
         Marker::Map32 => {
             let len = cursor.read_data_u32()? as usize;
-            read_map_body(cursor, len, depth)
+            read_map_body(cursor, len, depth, budget)
         }
 
         Marker::FixExt1 => read_ext(cursor, 1),
@@ -169,19 +191,29 @@ fn read_bin_body(cursor: &mut &[u8], len: usize) -> Result<Value, Error> {
     Ok(Value::Bin(take(cursor, len)?))
 }
 
-fn read_array_body(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value, Error> {
+fn read_array_body(
+    cursor: &mut &[u8],
+    len: usize,
+    depth: usize,
+    budget: &mut Option<usize>,
+) -> Result<Value, Error> {
     // Every msgpack value is at least one byte, so the element count
     // cannot exceed the bytes remaining; cap the pre-allocation at that
     // bound so a forged `array 32` length cannot trigger a huge eager
     // allocation before the read loop reaches the clean `Truncated`.
     let mut items = Vec::with_capacity(len.min(cursor.len()));
     for _ in 0..len {
-        items.push(read_value_from(cursor, depth + 1)?);
+        items.push(read_value_from(cursor, depth + 1, budget)?);
     }
     Ok(Value::Array(items))
 }
 
-fn read_map_body(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value, Error> {
+fn read_map_body(
+    cursor: &mut &[u8],
+    len: usize,
+    depth: usize,
+    budget: &mut Option<usize>,
+) -> Result<Value, Error> {
     // A pair is at least two bytes — a key byte and a value byte — so half
     // the remaining byte count bounds the pair count, the tight analogue of
     // `read_array_body`'s one-byte-per-element bound. Capping the
@@ -189,8 +221,8 @@ fn read_map_body(cursor: &mut &[u8], len: usize, depth: usize) -> Result<Value, 
     // huge Vec before the read loop reaches the clean `Truncated`.
     let mut pairs = Vec::with_capacity(len.min(cursor.len() / 2));
     for _ in 0..len {
-        let k = read_value_from(cursor, depth + 1)?;
-        let v = read_value_from(cursor, depth + 1)?;
+        let k = read_value_from(cursor, depth + 1, budget)?;
+        let v = read_value_from(cursor, depth + 1, budget)?;
         pairs.push((k, v));
     }
     Ok(Value::Map(pairs))
