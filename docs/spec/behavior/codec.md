@@ -470,3 +470,15 @@ The table is specified with the wire format, and its scenarios are the payload e
 | Given | a Sandbox |
 | When | guest code answers an Integer past the signed 64-bit range |
 | Then | the invocation fails naming Integer as a type the wire does not carry |
+
+## `CD-054` The smallest 64-bit Integer a guest computes does not cross
+
+| Attribute | Value |
+| --- | --- |
+| refines | `CD-053` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code answers −2⁶³ computed from a larger Integer |
+| Then | the invocation fails naming Integer as a type the wire does not carry |

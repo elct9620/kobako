@@ -89,6 +89,20 @@ class TestE2EIntegerRange < Minitest::Test
                  "as a value the wire does not carry"
   end
 
+  # @behavior CD-054
+  # A known limit, not a design: mruby normalizes a big integer only when
+  # its magnitude fits the positive range, so -2**63 stays big and the
+  # guest's 64-bit read does not reach it.
+  def test_smallest_i64_computed_from_a_big_integer_does_not_cross
+    err = assert_raises(Kobako::SandboxError) do
+      Kobako::Sandbox.new(wasm_path: REAL_WASM).eval("-(2**63)")
+    end
+
+    assert_equal "return value of type Integer is not a supported sandbox value type", err.message,
+                 "-(2**63) answered through Sandbox#eval must fail the invocation as a value the " \
+                 "wire does not carry, until the guest can read a big integer as 64 bits"
+  end
+
   # @behavior MR-026
   # The parser hands a literal past 32 bits to mruby-bigint, which must keep
   # every digit rather than raise or round.

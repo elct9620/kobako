@@ -70,7 +70,7 @@ Both sides hold an `Integer` of any precision, but one crosses the wire only wit
 | Host Gem | arbitrary precision | signed 64-bit |
 | Guest Binary | arbitrary precision | signed 64-bit |
 
-The guest refuses an inbound integer outside that range rather than saturating it, so neither side sees a number the wire did not carry. This holds on every host→guest path: a `#run` argument, a block argument, and a dispatch return value. Each reports the refusal as it reports a malformed payload ([codec](../spec/behavior/codec.md)). An outbound guest Integer past the range is a value with no wire form.
+The guest refuses an inbound integer outside that range rather than saturating it, so neither side sees a number the wire did not carry. This holds on every host→guest path: a `#run` argument, a block argument, and a dispatch return value. Each reports the refusal as it reports a malformed payload ([codec](../spec/behavior/codec.md)). An outbound guest Integer past the range is a value with no wire form. So is −2⁶³ when the guest computes it from a larger Integer. mruby keeps that one value as a big integer, which the guest cannot yet read as 64 bits.
 
 ---
 
