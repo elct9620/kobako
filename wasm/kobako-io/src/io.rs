@@ -33,7 +33,8 @@ use std::cell::RefCell;
 use beni::prelude::*;
 use beni::value::qnil;
 use beni::{
-    Error, IntoValue, Mrb, RArray, RClass, RString, RTypedData, TryConvert, TypedData, Value,
+    Error, Integer, IntoValue, Mrb, RArray, RClass, RString, RTypedData, TryConvert, TypedData,
+    Value,
 };
 
 use crate::{descriptors, errno};
@@ -293,10 +294,11 @@ fn io_printf(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<(), Error> {
 }
 
 /// Mirrors mruby-io's `io_putc`; a String's first character is its first
-/// byte in this non-UTF8 build.
+/// byte in this non-UTF8 build. A number past 64 bits raises `RangeError`,
+/// as CRuby's does.
 fn io_putc(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
-    if let Some(n) = i64::from_value(obj) {
-        let byte = [(n & 0xff) as u8];
+    if let Some(int) = Integer::from_value(obj) {
+        let byte = [(int.to_i64(mrb)? & 0xff) as u8];
         let s = mrb.str_new(&byte).as_value();
         write_one(mrb, self_, s)?;
         return Ok(obj);

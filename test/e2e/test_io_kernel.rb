@@ -37,6 +37,20 @@ class TestE2EIoKernel < Minitest::Test
                  "Kernel#putc must not bleed into stderr"
   end
 
+  # @behavior IO-039
+  # The mask applies to a number a C long holds; past that, CRuby raises
+  # before writing anything rather than masking a big integer.
+  def test_putc_number_past_64_bits_raises_range_error
+    source = "[-> { putc 2**64 + 65 }, -> { $stdout.putc 2**64 + 65 }]" \
+             ".map { |call| begin; call.call; rescue RangeError => e; e.class.to_s; end }"
+    execution = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(source)
+
+    assert_equal %w[RangeError RangeError], execution.value,
+                 "Kernel#putc and $stdout.putc with 2**64 + 65 through Sandbox#eval must raise RangeError"
+    assert_empty execution.stdout,
+                 "a putc that raised RangeError must write nothing to the capture"
+  end
+
   # @behavior IO-023 IO-026
   # Pinned by mruby-io's mrblib/kernel.rb:95-98: +IO#putc+ returns its
   # argument, but the Kernel delegator deliberately drops it, so collapsing

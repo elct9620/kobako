@@ -6,7 +6,7 @@ use std::io;
 
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{Error, Exception, ExceptionClass, IntoValue, Mrb, Value};
+use beni::{Error, Exception, ExceptionClass, Integer, IntoValue, Mrb, Value};
 
 /// One `Errno` class: its name, the WASI errno it answers, the number
 /// CRuby on Linux gives it as `Errno`, and its message.
@@ -100,6 +100,14 @@ fn number_of(mrb: &Mrb, class: Value) -> Option<i32> {
         .and_then(i32::from_value)
 }
 
+/// An Integer errno past the C `int` range raises `RangeError`, as CRuby's
+/// does; anything else names no number.
+fn errno_number(mrb: &Mrb, number: Value) -> Result<Option<i32>, Error> {
+    Integer::from_value(number)
+        .map(|int| int.to_i32(mrb))
+        .transpose()
+}
+
 /// `SystemCallError.new(message = nil, errno = nil)` and each `Errno`
 /// class's `new(message = nil)`, as CRuby builds them: the message
 /// leads with the code's own, and a known number on `SystemCallError`
@@ -110,7 +118,7 @@ fn sce_s_new(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
         (Some(own), [message] | [message, ..]) => (Some(*message), Some(own)),
         (Some(own), []) => (None, Some(own)),
         (None, [number]) if i32::from_value(*number).is_some() => (None, i32::from_value(*number)),
-        (None, [message, number, ..]) => (Some(*message), i32::from_value(*number)),
+        (None, [message, number, ..]) => (Some(*message), errno_number(mrb, *number)?),
         (None, [message]) => (Some(*message), None),
         (None, []) => (None, None),
     };

@@ -16,7 +16,7 @@ use std::os::fd::FromRawFd;
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Module, Mrb, Proc, RArray, RClass, Value};
+use beni::{Error, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, Value};
 
 use crate::io::{argument_error, checked_fd, is_closed, release, Stream};
 use crate::{descriptors, errno};
@@ -84,7 +84,9 @@ fn io_read(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
     let length = match length.filter(|v| !v.is_nil()) {
         None => None,
         Some(v) => Some(
-            i64::from_value(v)
+            Integer::from_value(v)
+                .map(|int| int.to_i64(mrb))
+                .transpose()?
                 .filter(|n| *n >= 0)
                 .ok_or_else(|| argument_error(mrb, "negative length given"))? as usize,
         ),

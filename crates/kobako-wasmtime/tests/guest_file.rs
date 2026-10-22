@@ -541,6 +541,51 @@ fn a_system_call_error_keeps_a_number_no_class_names() {
     );
 }
 
+// @behavior FL-022
+#[test]
+fn a_read_length_past_64_bits_raises_range_error() {
+    let script = r#"
+        begin
+          File.open("/data/note.txt") { |f| f.read(2**70) }
+        rescue RangeError => e
+          print e.class.to_s
+        end
+    "#;
+    let Some(answer) = run(script, &[mount(seeded(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok("RangeError".to_string()),
+        "File#read with a length of 2**70 through the bundled guest must raise RangeError, as \
+         CRuby does"
+    );
+}
+
+// The C errno is an `int`, so 2**40 is already past it although it is no
+// big integer.
+// @behavior FL-023
+#[test]
+fn a_system_call_error_number_past_the_errno_range_raises_range_error() {
+    let script = r#"
+        out = [2**40, 2**70].map do |number|
+          SystemCallError.new("failed", number)
+        rescue RangeError => e
+          e.class.to_s
+        end
+        print out.inspect
+    "#;
+    let Some(answer) = run(script, &[mount(seeded(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(r#"["RangeError", "RangeError"]"#.to_string()),
+        "SystemCallError.new with a message and 2**40 or 2**70 through the bundled guest must \
+         raise RangeError, as CRuby does"
+    );
+}
+
 // @behavior FL-017
 #[test]
 fn a_read_or_write_a_stream_was_not_opened_for_raises_ioerror() {
