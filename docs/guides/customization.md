@@ -212,7 +212,8 @@ A gem that reaches the host names one more tier: `kobako-mruby`, whose `dispatch
 rounds one Call through the host. A method taking a block passes it along, as the
 block read off its own frame or `None`; that is the whole obligation. A guest that
 is not mruby calls `kobako_core::proxy::dispatch` directly and states the
-`block_given` bit itself.
+`block_given` bit itself. A yield names the open Call whose block it runs. So the
+guest counts every Call it has open, block or not, from `0` at the outermost.
 
 ```text
   gem ──► dispatch(target, method, Option<Proc>, payload) ──► Service

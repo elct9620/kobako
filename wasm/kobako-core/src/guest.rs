@@ -27,8 +27,9 @@ pub trait Guest {
     fn run(preamble: Preamble, run: Run) -> Outcome;
 
     /// The `yield` operation — host-initiated re-entry into the block of
-    /// the open Call `frame` counts to, from `0` at the outermost; `args`
-    /// carries the yield arguments.
+    /// the open Call `frame` names. The host counts every Call the guest
+    /// has open, block or not, from `0` at the outermost, so a guest
+    /// counts them the same way. `args` carries the yield arguments.
     fn yield_to_block(_frame: u32, _args: &[u8]) -> YieldReply {
         YieldReply::Unsupported(Unsupported::new("this guest serves no block"))
     }
