@@ -16,9 +16,9 @@ use std::os::fd::FromRawFd;
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Module, Mrb, Proc, RArray, RClass, RObject, Value};
+use beni::{Error, IntoValue, Module, Mrb, Proc, RArray, RClass, Value};
 
-use crate::io::{argument_error, checked_fd, is_closed, FD_IVAR, PATH_IVAR};
+use crate::io::{argument_error, checked_fd, is_closed, release, Stream};
 use crate::{descriptors, errno};
 
 /// What a stream that may not be read from is refused with.
@@ -48,10 +48,9 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
 
 /// The path a stream's errors name: a `File`'s own, or its descriptor.
 pub(crate) fn label(mrb: &Mrb, self_: Value) -> String {
-    let path = RObject::from_value(self_)
-        .and_then(|obj| obj.ivar_get::<_, Value>(mrb, PATH_IVAR).ok())
-        .and_then(String::from_value);
-    path.unwrap_or_else(|| "IO".to_string())
+    Stream::state(mrb, self_)
+        .and_then(|state| state.path)
+        .unwrap_or_else(|| "IO".to_string())
 }
 
 /// Run `body` over the descriptor as a `std::fs::File` it does not own.
@@ -220,9 +219,7 @@ fn io_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     // nothing else closes it.
     let failed = descriptors::forget(fd) && unsafe { close(fd) } != 0;
     let refusal = failed.then(io::Error::last_os_error);
-    if let Some(obj) = RObject::from_value(self_) {
-        obj.ivar_set(mrb, FD_IVAR, qnil().as_value())?;
-    }
+    release(mrb, self_);
     match refusal {
         Some(err) => Err(fail(mrb, self_, &err)),
         None => Ok(qnil().as_value()),

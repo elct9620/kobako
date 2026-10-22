@@ -2,9 +2,9 @@
 //! each file this guest opened and has not yet closed.
 //!
 //! The record lives in guest memory, which every invocation starts from
-//! the baked image, so no invocation inherits another's. An `IO`'s
-//! descriptor is a guest-writable ivar, so each read and write checks it
-//! here again.
+//! the baked image, so no invocation inherits another's. A copy of an
+//! `IO` keeps its descriptor after the original closes it, so each read
+//! and write checks it here again.
 
 use std::collections::BTreeSet;
 use std::sync::Mutex;

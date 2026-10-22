@@ -13,9 +13,10 @@ use std::os::fd::IntoRawFd;
 
 use beni::prelude::*;
 use beni::scan_args::scan_args;
-use beni::{Error, IntoValue, Mrb, Object, Proc, RArray, RClass, RObject, Value};
+use beni::value::qnil;
+use beni::{Error, IntoValue, Mrb, Object, Proc, RArray, RClass, Value};
 
-use crate::io::{argument_error, FD_IVAR, PATH_IVAR};
+use crate::io::{argument_error, Stream};
 use crate::stream::with_file;
 use crate::{descriptors, errno};
 
@@ -114,7 +115,7 @@ fn options(mrb: &Mrb, mode: &str) -> Result<fs::OpenOptions, Error> {
     Ok(options)
 }
 
-fn file_initialize(mrb: &Mrb, self_: RObject, _args: &[Value]) -> Result<(), Error> {
+fn file_initialize(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<(), Error> {
     require_mount(mrb, "File.open")?;
     let args = scan_args::<(Value,), (Option<Value>, Option<Value>), (), (), (), ()>(mrb)?;
     let (path,) = args.required;
@@ -129,12 +130,15 @@ fn file_initialize(mrb: &Mrb, self_: RObject, _args: &[Value]) -> Result<(), Err
         .map_err(|err| errno::from_io(mrb, &err, &path))?;
     let fd = file.into_raw_fd();
     descriptors::remember(fd);
-    self_.ivar_set(mrb, FD_IVAR, fd)?;
-    self_.ivar_set(mrb, PATH_IVAR, mrb.str_new(path.as_bytes()).as_value())
+    crate::io::open(mrb, self_, fd, Some(path));
+    Ok(())
 }
 
-fn file_path(mrb: &Mrb, self_: RObject) -> Result<Value, Error> {
-    self_.ivar_get(mrb, PATH_IVAR)
+fn file_path(mrb: &Mrb, self_: Value) -> Value {
+    match Stream::state(mrb, self_).and_then(|state| state.path) {
+        Some(path) => mrb.str_new(path.as_bytes()).as_value(),
+        None => qnil().as_value(),
+    }
 }
 
 fn file_size(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
@@ -152,7 +156,7 @@ fn file_size(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// block ends, answering the block's value.
 fn file_s_open(mrb: &Mrb, self_: RClass, args: &[Value]) -> Result<Value, Error> {
     let block = scan_args::<(), (), RArray, (), (), Option<Proc>>(mrb)?.block;
-    let file = self_.new_instance(mrb, args)?;
+    let file = crate::io::new(mrb, self_, args)?;
     let Some(block) = block else {
         return Ok(file);
     };

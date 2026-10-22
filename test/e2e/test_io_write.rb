@@ -77,6 +77,21 @@ class TestE2EIoWrite < Minitest::Test
                  "$stdout << must write its argument bytes to the stdout capture channel"
   end
 
+  # @behavior IO-038
+  # CRuby keeps only whether sync is on, so a script reading the flag
+  # after assigning a non-boolean sees true or false, never the value.
+  def test_io_sync_reads_back_as_a_boolean
+    result = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(<<~RUBY).value
+      $stdout.sync = 1
+      on = $stdout.sync
+      $stdout.sync = nil
+      [on, $stdout.sync]
+    RUBY
+
+    assert_equal [true, false], result,
+                 "assigning 1 then nil to $stdout.sync through Sandbox#eval must read back as true then false"
+  end
+
   # IO#write byte-pumping coverage — pins the two paths the safe
   # layer exercises through every `print` / `puts` / `$stdout.write`:
   # `mrb_obj_as_string` coercion (already-String vs to_s detour) and

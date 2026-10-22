@@ -28,25 +28,69 @@
 //! `ArgumentError` immediately. Reading, seeking, and closing live in
 //! `crate::stream`.
 
+use std::cell::RefCell;
+
 use beni::prelude::*;
-use beni::value::{qnil, qtrue};
-use beni::{Error, IntoValue, Mrb, RArray, RClass, RObject, RString, Value};
-use core::ffi::CStr;
+use beni::value::qnil;
+use beni::{
+    Error, IntoValue, Mrb, RArray, RClass, RString, RTypedData, TryConvert, TypedData, Value,
+};
 
 use crate::{descriptors, errno};
 
-/// Where `IO.new` records the descriptor `write` later reads back. A name
-/// without `@` is one mruby lists nowhere and `instance_variable_get` /
-/// `instance_variable_set` refuse, so a stream shows no instance variable,
-/// as CRuby's does.
-pub(crate) const FD_IVAR: &CStr = c"__kobako_fd__";
+/// What an `IO` stands for, kept in its payload: a script reaches every
+/// instance variable, and the descriptor reaches a syscall.
+#[derive(Clone)]
+#[beni::wrap(class = "IO", name = "Kobako::IO")]
+pub(crate) struct Stream(RefCell<State>);
 
-/// Where `File.open` records the path its errors name, hidden as
-/// `FD_IVAR` is.
-pub(crate) const PATH_IVAR: &CStr = c"__kobako_path__";
+#[derive(Clone)]
+pub(crate) struct State {
+    /// `None` once `close` released it.
+    pub fd: Option<i32>,
+    /// Where a `File` was opened, which its errors name.
+    pub path: Option<String>,
+    pub sync: bool,
+}
 
-/// Where `IO#sync=` keeps its flag, hidden as `FD_IVAR` is.
-const SYNC_IVAR: &CStr = c"__kobako_sync__";
+impl Stream {
+    /// A copy of `value`'s state, or `None` for a value carrying none.
+    pub(crate) fn state(mrb: &Mrb, value: Value) -> Option<State> {
+        <&Stream>::try_convert(value, mrb)
+            .ok()
+            .map(|stream| stream.0.borrow().clone())
+    }
+
+    fn update(mrb: &Mrb, value: Value, change: impl FnOnce(&mut State)) {
+        if let Ok(stream) = <&Stream>::try_convert(value, mrb) {
+            change(&mut stream.0.borrow_mut());
+        }
+    }
+}
+
+/// Points `self_` at `fd`, and at `path` when one is given.
+pub(crate) fn open(mrb: &Mrb, self_: Value, fd: i32, path: Option<String>) {
+    Stream::update(mrb, self_, |state| {
+        state.fd = Some(fd);
+        if path.is_some() {
+            state.path = path;
+        }
+    });
+}
+
+/// `IO.new` and `File.new` wrap a stream standing for no descriptor
+/// before `initialize` points it, since a class whose instances carry
+/// Rust data has no allocator of its own.
+pub(crate) fn new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error> {
+    let stream = Stream(RefCell::new(State {
+        fd: None,
+        path: None,
+        sync: true,
+    }));
+    let stream = mrb.wrap_as(stream, class).as_value();
+    stream.funcall(mrb, c"initialize", args)?;
+    Ok(stream)
+}
 
 /// The gem-init step named after mruby's own `mrb_init_io`; the body order
 /// is the dependency order, the class before the instances built from it.
@@ -59,10 +103,18 @@ pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
     // `"no super class for 'IO', Object assumed"` via `mrb_warn` on
     // every install, leaking onto the guest `stderr` capture pipe.
     let io = mrb.define_class(c"IO", mrb.object_class())?;
+    // Marked before `File` derives from it, so a `File` carries a `Stream`.
+    Stream::mark_carriers(mrb)?;
 
     // A body with a fixed argument list takes them as typed parameters;
     // the variadic ones take the call's arguments as a slice.
+    io.define_singleton_method(mrb, c"new", beni::method!(new, -1))?;
     io.define_method(mrb, c"initialize", beni::method!(io_initialize, 2))?;
+    io.define_method(
+        mrb,
+        c"initialize_copy",
+        beni::method!(io_initialize_copy, 1),
+    )?;
     io.define_method(mrb, c"write", beni::method!(io_write, -1))?;
     io.define_method(mrb, c"fileno", beni::method!(io_fileno, 0))?;
     io.define_method(mrb, c"to_i", beni::method!(io_fileno, 0))?;
@@ -83,8 +135,8 @@ pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
     // the whole point of routing through the Kernel delegators that
     // `crate::kernel_ext::init` registers afterwards.
     let mode_str = mrb.str_new_cstr(c"w").as_value();
-    let stdout_val = io.new_instance(mrb, &[1i32.into_value(mrb), mode_str])?;
-    let stderr_val = io.new_instance(mrb, &[2i32.into_value(mrb), mode_str])?;
+    let stdout_val = new(mrb, io, &[1i32.into_value(mrb), mode_str])?;
+    let stderr_val = new(mrb, io, &[2i32.into_value(mrb), mode_str])?;
 
     mrb.define_global_const(c"STDOUT", stdout_val)?;
     mrb.define_global_const(c"STDERR", stderr_val)?;
@@ -98,7 +150,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
 /// opened: stdin carries the Preamble and a preopened directory is the
 /// host's, so neither is the guest's to wrap. A captured descriptor only
 /// writes, so its `mode` must be `"w"`.
-fn io_initialize(mrb: &Mrb, self_: RObject, fd: i32, mode: RString) -> Result<(), Error> {
+fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode: RString) -> Result<(), Error> {
     if !descriptors::is_reachable(fd) {
         return Err(argument_error(
             mrb,
@@ -110,7 +162,20 @@ fn io_initialize(mrb: &Mrb, self_: RObject, fd: i32, mode: RString) -> Result<()
         return Err(argument_error(mrb, "kobako IO only supports mode \"w\""));
     }
 
-    self_.ivar_set(mrb, FD_IVAR, fd)
+    open(mrb, self_, fd, None);
+    Ok(())
+}
+
+/// `dup` and `clone` copy the payload, so a copy stands for its
+/// original's descriptor, which every use re-validates.
+fn io_initialize_copy(mrb: &Mrb, self_: RTypedData, orig: Value) -> Result<Value, Error> {
+    if let Some(state) = Stream::state(mrb, orig) {
+        if let Err(Stream(state)) = self_.init(mrb, Stream(RefCell::new(state))) {
+            let state = state.into_inner();
+            Stream::update(mrb, self_.as_value(), |own| *own = state);
+        }
+    }
+    Ok(self_.as_value())
 }
 
 /// Truncation at the output cap surfaces as a short return value, not a
@@ -272,15 +337,15 @@ fn io_tty_p(_mrb: &Mrb, _self: Value) -> bool {
 }
 
 /// Defaults to `true`, since the capture pipe is effectively unbuffered.
-fn io_sync(mrb: &Mrb, self_: RObject) -> Result<Value, Error> {
-    let v: Value = self_.ivar_get(mrb, SYNC_IVAR)?;
-    Ok(if v.is_nil() { qtrue().as_value() } else { v })
+fn io_sync(mrb: &Mrb, self_: Value) -> bool {
+    Stream::state(mrb, self_).is_none_or(|state| state.sync)
 }
 
-/// A no-op for the write path, kept for mruby-io surface compatibility.
-fn io_sync_set(mrb: &Mrb, self_: RObject, v: Value) -> Result<Value, Error> {
-    self_.ivar_set(mrb, SYNC_IVAR, v)?;
-    Ok(v)
+/// A no-op for the write path, kept for mruby-io surface compatibility;
+/// the flag keeps only whether `v` is truthy, as CRuby's does.
+fn io_sync_set(mrb: &Mrb, self_: Value, v: Value) -> Value {
+    Stream::update(mrb, self_, |state| state.sync = v.to_bool());
+    v
 }
 
 /// A no-op, since writes go straight to `write(2)`.
@@ -312,17 +377,20 @@ pub(crate) fn argument_error(mrb: &Mrb, msg: &str) -> Error {
 /// The value may be stale: a copy keeps it after the original closes it,
 /// so a caller that forwards it to a syscall must re-validate it first.
 fn read_fd(mrb: &Mrb, self_: Value) -> i32 {
-    RObject::from_value(self_)
-        .and_then(|obj| obj.ivar_get::<_, Value>(mrb, FD_IVAR).ok())
-        .and_then(i32::from_value)
+    Stream::state(mrb, self_)
+        .and_then(|state| state.fd)
         .unwrap_or(0)
 }
 
-/// Whether `self_`'s descriptor was closed: `close` clears the ivar.
+/// Whether `self_` stands for no descriptor: `close` released it, or no
+/// `initialize` gave it one.
 pub(crate) fn is_closed(mrb: &Mrb, self_: Value) -> bool {
-    RObject::from_value(self_)
-        .and_then(|obj| obj.ivar_get::<_, Value>(mrb, FD_IVAR).ok())
-        .is_some_and(|fd| fd.is_nil())
+    Stream::state(mrb, self_).is_none_or(|state| state.fd.is_none())
+}
+
+/// Releases `self_`'s descriptor from the stream, as `close` does.
+pub(crate) fn release(mrb: &Mrb, self_: Value) {
+    Stream::update(mrb, self_, |state| state.fd = None);
 }
 
 /// The descriptor `self_` stands for, checked again where it reaches a

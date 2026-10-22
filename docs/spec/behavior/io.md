@@ -324,3 +324,16 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Given | a Sandbox with a Mount |
 | When | guest code lists the instance variables of the output stream and of an opened file |
 | Then | both lists are empty |
+
+## `IO-038` The sync flag reads back as the truth of what was set
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-010` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| Given | guest code that set the standard output stream's sync flag to a truthy value other than true |
+| When | it reads the flag back |
+| Then | it is true |
