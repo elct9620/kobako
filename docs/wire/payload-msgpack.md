@@ -63,12 +63,12 @@ Any other ext code is refused. `Guest Value` is `kobako_codec::msgpack::Value`, 
 
 ## Integer Range
 
-The host's `Integer` is arbitrary precision; the guest's is signed 32-bit. Only the host→guest direction can therefore overflow.
+The host's `Integer` is arbitrary precision; the guest's is signed 64-bit. Only the host→guest direction can therefore overflow.
 
 | Side | `Integer` width |
 |------|-----------------|
 | Host Gem | arbitrary precision |
-| Guest Binary | signed 32-bit |
+| Guest Binary | signed 64-bit |
 
 The guest refuses an inbound integer outside its range rather than saturating it, so neither side sees a number the wire did not carry. This holds on every host→guest path: a `#run` argument, a block argument, and a dispatch return value. Each reports the refusal as it reports a malformed payload ([codec](../spec/behavior/codec.md)).
 

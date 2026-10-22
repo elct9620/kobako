@@ -6,8 +6,8 @@
 # computation whose only host cost is the constant Sandbox#eval
 # per-invocation overhead.
 #
-#   4a — integer arithmetic loop (100k XOR accumulations; a sum
-#        overflows the guest's MRB_INT32, see ARITH_SCRIPT below)
+#   4a — integer arithmetic loop (100k XOR accumulations, see
+#        ARITH_SCRIPT below)
 #   4b — string concatenation (1000 appends to a String)
 #   4c — exception raise/rescue 100 times (exercises the
 #        setjmp/longjmp path mruby exception unwind relies on)
@@ -31,7 +31,7 @@ require "runner"
 
 runner = Kobako::Bench::Runner.new("mruby_eval")
 
-# memory_limit: nil keeps the default 1 MiB per-invocation delta cap
+# memory_limit: nil keeps the default 4 MiB per-invocation delta cap
 # out of the hot loop. Even though per-invocation reset means each
 # benchmark-ips iteration gets a fresh budget, disabling the cap
 # entirely removes the limiter call from the wasmtime callback path
@@ -41,9 +41,9 @@ runner = Kobako::Bench::Runner.new("mruby_eval")
 sandbox = Kobako::Sandbox.new(wasm_path: Kobako::Bench::Guest.path, memory_limit: nil)
 sandbox.eval("nil") # warm
 
-# build_config/wasi.rb pins guest mruby to MRB_INT32; a 100k sum
-# overflows i32, so the loop body avoids accumulating into the
-# counter and the script returns the iteration count only.
+# The loop XORs rather than sums, the form it took while the guest
+# Integer was 32 bits wide, so its figures stay comparable across that
+# change.
 ARITH_SCRIPT = <<~RUBY
   acc = 0
   100_000.times { |i| acc ^= i }

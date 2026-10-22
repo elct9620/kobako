@@ -102,8 +102,8 @@ fn group_str(mrb: &Mrb, state: &MatchState, index: usize) -> Value {
 /// An undefined capture name raises IndexError; an argument that is neither
 /// index nor name (e.g. a Range) yields `None`, so the caller delegates to
 /// `Array#[]` on the group list.
-fn numeric_index(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<i32>, Error> {
-    if let Some(n) = i32::from_value(arg) {
+fn numeric_index(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<i64>, Error> {
+    if let Some(n) = i64::from_value(arg) {
         return Ok(Some(n));
     }
     if Symbol::from_value(arg).is_some() || RString::from_value(arg).is_some() {
@@ -114,7 +114,7 @@ fn numeric_index(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<i32
                 &format!("undefined group name reference: {name}"),
             ));
         };
-        return Ok(Some(*i as i32));
+        return Ok(Some(*i as i64));
     }
     Ok(None)
 }
@@ -136,7 +136,7 @@ fn md_aref(mrb: &Mrb, state: &MatchState, args: &[Value]) -> Result<Value, Error
 fn group_at(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<(usize, usize)>, Error> {
     let index = match numeric_index(mrb, state, arg)? {
         Some(index) => index,
-        None => i32::try_convert(arg, mrb)?,
+        None => i64::try_convert(arg, mrb)?,
     };
     if index < 0 || index as usize >= state.groups.len() {
         return Err(index_error(mrb, &format!("index {index} out of matches")));

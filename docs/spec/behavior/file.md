@@ -243,3 +243,27 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount |
 | When | the script builds `SystemCallError` with 9999 |
 | Then | it reads `Unknown error: 9999`, and its `errno` is 9999 |
+
+## `FL-020` A file past 2 GiB reports its whole size
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file of 3 GiB |
+| When | the script asks the file for its size |
+| Then | it answers 3 GiB |
+
+## `FL-021` A position past 2 GiB is reported whole
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-020` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file of 3 GiB |
+| When | the script seeks to 2 GiB and one more byte and reads its position |
+| Then | it answers 2 GiB and one more byte |

@@ -102,7 +102,7 @@ fn call_entrypoint<G: crate::MrbGuest>(preamble: &Preamble, run: Run) -> Result<
     // `def call(req, opts = {})` rather than `def call(req,
     // multiplier: 1)`).
     // An argument the guest cannot represent — an integer outside the
-    // 32-bit range — fails the invocation rather than reaching the
+    // 64-bit range — fails the invocation rather than reaching the
     // entrypoint with a saturated value (docs/wire/payload-msgpack.md § Integer
     // Range).
     let mut argv = arguments.args;

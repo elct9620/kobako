@@ -1754,3 +1754,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox whose earlier invocation reached its open-file cap |
 | When | a later invocation opens a file |
 | Then | the file opens |
+
+## `S-203` An invocation may grow guest memory by 4 MiB by default
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-004` |
+
+| Step | Statement |
+| --- | --- |
+| Given | Sandbox options carrying no memory cap |
+| When | the memory cap is read |
+| Then | it answers 4 MiB |

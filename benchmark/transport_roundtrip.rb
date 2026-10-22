@@ -50,7 +50,7 @@ allowlist = Class.new do
   def respond_to_guest?(name) = name == :ping
 end
 
-# memory_limit: nil — see benchmark/mruby_eval.rb. The default 1 MiB
+# memory_limit: nil — see benchmark/mruby_eval.rb. The default
 # per-invocation delta cap is enforced on its own dedicated path; this
 # suite measures Transport throughput, so we keep the limiter callback out
 # of the wasmtime hot loop.

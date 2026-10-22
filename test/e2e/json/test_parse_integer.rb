@@ -3,37 +3,34 @@
 require "test_helper"
 
 # E2E — JSON.parse integer-range policy through the real json
-# guest. The guest Integer is 32-bit, so the policy keeps an in-range
-# integer as Integer, widens an exactly-representable magnitude to Float,
-# and refuses anything beyond exact Float range rather than silently
-# degrade it.
+# guest. The guest Integer is 64-bit, so the policy keeps every integer
+# that width holds as an exact Integer and refuses anything past it rather
+# than silently degrade it to a Float.
 class TestJsonParseInteger < Minitest::Test
   include JsonGuestHelper
 
   # @behavior JS-006 JS-007
   def test_in_range_integer_stays_integer
-    assert_equal "Integer", eval_json('JSON.parse("2147483647").class.to_s'),
-                 "JSON.parse of the largest 32-bit value through the json guest must yield an Integer"
+    assert_equal 9_223_372_036_854_775_807, eval_json('JSON.parse("9223372036854775807")'),
+                 "JSON.parse of the largest 64-bit value through the json guest must yield that Integer"
     assert_equal(-100, eval_json('JSON.parse("-100")'),
                  "JSON.parse of a small negative integer through the json guest must yield that Integer")
   end
 
-  # Widening a magnitude that is exact in an f64 covers millisecond
-  # timestamps and ordinary 53-bit ids.
-  # @behavior JS-008 JS-009
-  def test_exact_float_range_widens_to_float
-    assert_equal "Float", eval_json('JSON.parse("2147483648").class.to_s'),
-                 "JSON.parse of 2**31 through the json guest must widen to Float (beyond the 32-bit Integer width)"
-    assert_equal "Float", eval_json('JSON.parse("9007199254740992").class.to_s'),
-                 "JSON.parse of 2**53 through the json guest must yield an exact Float"
+  # An id past 2**53 would lose its low digits as a Float, so it stays an
+  # Integer as long as the guest's width holds it.
+  # @behavior JS-009
+  def test_integer_past_exact_float_range_stays_exact
+    assert_equal 9_007_199_254_740_993, eval_json('JSON.parse("9007199254740993")'),
+                 "JSON.parse of 2**53 + 1 through the json guest must yield that exact Integer"
   end
 
-  # A magnitude beyond exact Float range raises rather than lose precision —
-  # including an integer larger than any 64-bit width.
+  # Past the 64-bit width the only other form is a rounded Float, so the
+  # parse raises instead — on either sign.
   # @behavior JS-010
-  def test_inexact_magnitude_raises_parser_error
-    assert_guest_raises "JSON::ParserError", 'JSON.parse("9007199254740993")'
-    assert_guest_raises "JSON::ParserError", 'JSON.parse("100000000000000000000")'
+  def test_integer_past_the_width_raises_parser_error
+    assert_guest_raises "JSON::ParserError", 'JSON.parse("9223372036854775808")'
+    assert_guest_raises "JSON::ParserError", 'JSON.parse("-9223372036854775809")'
   end
 
   # A JSON real maps to Float regardless of magnitude.

@@ -24,8 +24,8 @@ require "test_helper"
 # The guest's value domain is narrower than the wire's in two ways the
 # harness encodes rather than works around:
 #
-#   * The Guest Binary is built MRB_INT32, so integers outside the signed
-#     32-bit range have no guest representation and are refused at the
+#   * The Guest Binary is built MRB_INT64, so integers outside the signed
+#     64-bit range have no guest representation and are refused at the
 #     boundary (covered in test/e2e/test_integer_range.rb). The
 #     generator draws only bands the guest can hold.
 #   * mruby Strings carry no encoding tag, so a guest re-encoding a String

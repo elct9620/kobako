@@ -204,8 +204,8 @@ impl Kobako {
         depth: usize,
     ) -> Option<kobako_codec::msgpack::codec::Value> {
         // Scalar-leaf downcast through the safe `FromValue` seam.
-        if let Some(n) = i32::from_value(val) {
-            return Some(CodecValue::Int(n as i64));
+        if let Some(n) = i64::from_value(val) {
+            return Some(CodecValue::Int(n));
         }
         if let Some(f) = f64::from_value(val) {
             return Some(CodecValue::Float(f));
@@ -268,7 +268,7 @@ impl Kobako {
             CodecValue::Sym(name) => {
                 // Intern via String#to_sym — mruby's mrb_symbol_value
                 // bit-layout is build-private (we use
-                // MRB_WORDBOX_NO_INLINE_FLOAT) so we go through the VM.
+                // MRB_NO_BOXING) so we go through the VM.
                 // `to_sym` on this fresh String cannot raise; degrade to
                 // the String itself.
                 let s = mrb.str_new(name.as_bytes()).as_value();

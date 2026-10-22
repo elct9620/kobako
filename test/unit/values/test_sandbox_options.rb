@@ -9,11 +9,12 @@ require "test_helper"
 # The profile option is the one non-cap: nil is NOT a disable switch there
 # — the no-floor request is an explicit :permissive.
 class TestSandboxOptions < Minitest::Test
-  # Pins the literal default values (60 s / 1 MiB / 1024), not just the
-  # DEFAULT_* constants, so a drift in either direction is caught here.
-  # @behavior S-004
+  # Pins the literal default values (60 s / 4 MiB / 1 MiB / 1024), not
+  # just the DEFAULT_* constants, so a drift in either direction is caught
+  # here.
+  # @behavior S-004 S-203
   def test_absent_caps_take_their_spec_defaults
-    defaults = { timeout: 60.0, memory_limit: 1 << 20, stdout_limit: 1 << 20, stderr_limit: 1 << 20,
+    defaults = { timeout: 60.0, memory_limit: 4_194_304, stdout_limit: 1 << 20, stderr_limit: 1 << 20,
                  open_file_limit: 1024 }
 
     assert_equal defaults, Kobako::SandboxOptions.new.to_h.slice(*defaults.keys),

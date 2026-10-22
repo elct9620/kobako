@@ -53,12 +53,12 @@ class TestE2ECaps < Minitest::Test
     assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize').value
   end
 
-  # Pins that the cap is wired through the real guest at the default 1 MiB
+  # Pins that the cap is wired through the real guest at the default 4 MiB
   # budget, not some far larger figure; the exact-threshold bisection lives
   # in the cargo `KobakoLimiter` unit tests.
   # @behavior OC-033
   def test_memory_limit_traps_single_invocation_past_default_cap
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
     err = assert_raises(Kobako::MemoryLimitError) do
       sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; nil')
@@ -174,7 +174,7 @@ class TestE2ECaps < Minitest::Test
 
     assert_equal 100, sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; a.size').value,
                  "with both caps disabled, an allocation that traps under the default " \
-                 "1 MiB cap must complete — nil disables the cap rather than falling back " \
+                 "4 MiB cap must complete — nil disables the cap rather than falling back " \
                  "to DEFAULT_MEMORY_LIMIT"
   end
 end

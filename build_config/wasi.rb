@@ -17,8 +17,8 @@
 #         -mllvm -wasm-enable-sjlj
 #         -lsetjmp
 #         -mllvm -wasm-use-legacy-eh=false
-#   4. `-D` flag central management; integer width pinned to MRB_INT32 and
-#      mrb_value layout pinned to MRB_WORDBOX_NO_INLINE_FLOAT.
+#   4. `-D` flag central management; integer width pinned to MRB_INT64 and
+#      mrb_value layout pinned to MRB_NO_BOXING.
 #   5. VM dispatch mode left at mruby default (no MRB_USE_VM_SWITCH_DISPATCH).
 #
 # Rules #2 and #3 are implemented by the `:wasi` toolchain file the beni
@@ -82,10 +82,9 @@ unless defined?(KobakoBuildConfig)
       mruby-metaprog
     ].freeze
 
-    # The `-D` flags (rule #4). MRB_WORDBOX_NO_INLINE_FLOAT pins mrb_value
-    # layout to the wasm32 default; the host-side wire codec assumes this
-    # layout, changing it breaks the ABI. MRB_INT32 pins the integer width.
-    GUEST_DEFINES = %w[MRB_WORDBOX_NO_INLINE_FLOAT MRB_INT32].freeze
+    # The `-D` flags (rule #4). MRB_INT64 gives the guest a 64-bit Integer,
+    # which a 32-bit target holds only without boxing, hence MRB_NO_BOXING.
+    GUEST_DEFINES = %w[MRB_NO_BOXING MRB_INT64].freeze
   end
 end
 

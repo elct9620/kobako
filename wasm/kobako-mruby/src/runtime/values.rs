@@ -32,8 +32,8 @@ const HANDLE_ID_IVAR: &core::ffi::CStr = c"@__kobako_id__";
 /// inheriting it from the one before.
 const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
 
-/// An inbound integer fell outside the guest's signed 32-bit `Integer`
-/// range, which the MRB_INT32 build cannot hold. `Kobako::narrow_int`
+/// An inbound integer fell outside the guest's signed 64-bit `Integer`
+/// range, which the MRB_INT64 build cannot hold. `Kobako::narrow_int`
 /// refuses it rather than saturating to the nearest bound; each call site
 /// fails its path the way that path reports any malformed inbound payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +43,7 @@ impl IntegerOutOfRange {
     /// Operator-facing message naming the value the guest could not hold.
     pub fn message(self) -> String {
         format!(
-            "integer {} is outside the guest's 32-bit Integer range",
+            "integer {} is outside the guest's 64-bit Integer range",
             self.0
         )
     }
@@ -158,16 +158,16 @@ impl Kobako {
             .unwrap_or(nil)
     }
 
-    /// Represent `n` as an mruby `Integer`, refusing anything the MRB_INT32
+    /// Represent `n` as an mruby `Integer`, refusing anything the MRB_INT64
     /// build cannot hold rather than saturating it — neither side may ever
     /// see a different number than the wire carried.
     pub fn narrow_int<N>(&self, n: N) -> Result<Value, IntegerOutOfRange>
     where
-        N: TryInto<i32> + Into<i128> + Copy,
+        N: TryInto<i64> + Into<i128> + Copy,
     {
         use beni::IntoValue;
         match n.try_into() {
-            Ok(narrowed) => Ok(i32::into_value(narrowed, self.mrb())),
+            Ok(narrowed) => Ok(i64::into_value(narrowed, self.mrb())),
             Err(_) => Err(IntegerOutOfRange(n.into())),
         }
     }

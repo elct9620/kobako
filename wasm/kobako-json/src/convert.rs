@@ -30,10 +30,6 @@ use serde_json::{Map, Number, Value as JsonValue};
 /// always re-parses — a value one path rejects the other rejects too.
 const MAX_NESTING_DEPTH: usize = 127;
 
-/// 2^53 — the largest magnitude an f64 carries without integer precision
-/// loss, the ceiling of the parse integer policy's `Float` band.
-const FLOAT_EXACT_INT_LIMIT: u128 = 1 << 53;
-
 pub(crate) fn decode(mrb: &Mrb, json: &JsonValue, symbolize: bool) -> Result<Value, Error> {
     match json {
         JsonValue::Null => Ok(qnil().as_value()),
@@ -62,8 +58,8 @@ pub(crate) fn decode(mrb: &Mrb, json: &JsonValue, symbolize: bool) -> Result<Val
     }
 }
 
-/// An integer past the guest's 32-bit width becomes an exact `Float` up to
-/// 2^53 and otherwise raises rather than lose precision.
+/// An integer past the guest's 64-bit width raises rather than lose
+/// precision as a `Float`.
 fn decode_number(mrb: &Mrb, n: &Number) -> Result<Value, Error> {
     // `arbitrary_precision` keeps the original literal, so its textual
     // form distinguishes an integer from a real even past `u64` range.
@@ -74,16 +70,8 @@ fn decode_number(mrb: &Mrb, n: &Number) -> Result<Value, Error> {
             .ok_or_else(|| parser_error(mrb, "number is out of range"))?;
         return Ok(f.into_value(mrb));
     }
-    match literal.parse::<i128>() {
-        Ok(value) => {
-            if let Ok(small) = i32::try_from(value) {
-                Ok(small.into_value(mrb))
-            } else if value.unsigned_abs() <= FLOAT_EXACT_INT_LIMIT {
-                Ok((value as f64).into_value(mrb))
-            } else {
-                Err(too_large(mrb, &literal))
-            }
-        }
+    match literal.parse::<i64>() {
+        Ok(value) => Ok(value.into_value(mrb)),
         Err(_) => Err(too_large(mrb, &literal)),
     }
 }
@@ -125,7 +113,7 @@ pub(crate) fn encode(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, E
     // downcast / tag predicates — never on its Ruby class identity, so a
     // native subclass still serializes as its kind and a capability proxy
     // cannot masquerade by answering a name.
-    if let Some(n) = i32::from_value(val) {
+    if let Some(n) = i64::from_value(val) {
         return Ok(JsonValue::Number(Number::from(n)));
     }
     if let Some(f) = f64::from_value(val) {
@@ -216,7 +204,7 @@ fn encode_hash(mrb: &Mrb, hash: RHash, depth: usize) -> Result<JsonValue, Error>
 /// host-dispatching `to_s`. The `as_json` opt-in applies to values, never
 /// to keys.
 fn encode_key(mrb: &Mrb, key: Value) -> Result<String, Error> {
-    if let Some(n) = i32::from_value(key) {
+    if let Some(n) = i64::from_value(key) {
         return Ok(n.to_string());
     }
     if f64::from_value(key).is_some() {

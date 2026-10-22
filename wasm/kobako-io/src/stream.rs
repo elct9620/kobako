@@ -192,7 +192,7 @@ fn io_rewind(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 fn io_pos(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let fd = readable(mrb, self_)?;
     let pos = with_file(fd, |file| file.stream_position()).map_err(|err| fail(mrb, self_, &err))?;
-    Ok(i32::try_from(pos).unwrap_or(i32::MAX).into_value(mrb))
+    Ok(i64::try_from(pos).unwrap_or(i64::MAX).into_value(mrb))
 }
 
 unsafe extern "C" {

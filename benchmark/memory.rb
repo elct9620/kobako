@@ -74,7 +74,7 @@ end
 def warm_sandbox
   # memory_limit: nil — see benchmark/mruby_eval.rb for the rationale.
   # The 8c large-payload return (512 KiB String) and the 8d stdout-fill
-  # script (2 MiB written) would both exceed the default 1 MiB per-
+  # script (2 MiB written) would both press on the default per-
   # invocation delta cap; this suite measures host-side RSS / allocator
   # behavior and intentionally keeps the cap path out of the hot loop.
   Kobako::Sandbox.new(wasm_path: GUEST, memory_limit: nil).tap { |s| s.eval("nil") }

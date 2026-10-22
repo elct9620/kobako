@@ -24,9 +24,10 @@ module Kobako
     # The default +timeout+: 60 seconds.
     DEFAULT_TIMEOUT_SECONDS = 60.0
 
-    # The default +memory_limit+: 1 MiB of growth past the guest's starting
-    # memory.
-    DEFAULT_MEMORY_LIMIT = 1 << 20
+    # The default +memory_limit+: 4 MiB of growth past the guest's starting
+    # memory, room for as many values as 1 MiB held before Integers widened
+    # to 64 bits.
+    DEFAULT_MEMORY_LIMIT = 4 << 20
 
     # The default +stdout_limit+ and +stderr_limit+: 1 MiB each.
     DEFAULT_OUTPUT_LIMIT = 1 << 20

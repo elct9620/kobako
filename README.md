@@ -310,7 +310,7 @@ Each invocation enforces a wall-clock `timeout` and a per-invocation linear-memo
 ```ruby
 sandbox = Kobako::Sandbox.new(
   timeout:      5.0,              # seconds, default 60.0
-  memory_limit: 10 * 1024 * 1024, # bytes,   default 1 MiB
+  memory_limit: 10 * 1024 * 1024, # bytes,   default 4 MiB
   stdout_limit: 64 * 1024,        # bytes,   default 1 MiB
   stderr_limit: 64 * 1024,
   open_file_limit: 16             # descriptors, default 1024
@@ -320,7 +320,7 @@ sandbox = Kobako::Sandbox.new(
 | Cap               | Raises                         | Default |
 |-------------------|--------------------------------|---------|
 | `timeout`         | `Kobako::TimeoutError`         | 60.0 s  |
-| `memory_limit`    | `Kobako::MemoryLimitError`     | 1 MiB   |
+| `memory_limit`    | `Kobako::MemoryLimitError`     | 4 MiB   |
 | `stdout_limit`    | output clipped (no raise)      | 1 MiB   |
 | `stderr_limit`    | output clipped (no raise)      | 1 MiB   |
 | `open_file_limit` | `Errno::EMFILE` in the guest   | 1024    |

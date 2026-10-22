@@ -107,16 +107,14 @@ class TestE2EOutcomeValues < Minitest::Test
 
   # H-2 regression: an Integer must round-trip via the direct unbox
   # path — a text-coercion round-trip would silently fall back to 0 on
-  # parse failure. mruby's MRB_INT32 word-box reserves a
-  # tag bit on wasm32, so the addressable Fixnum range is narrower than
-  # i32; use 2^28 ± 1 as a representative magnitude that exercises the
-  # signed 32-bit return path of `kobako_fixnum_value` without leaving
-  # the Fixnum-tagged range.
+  # parse failure. 2^40 ± 1 lies past 32 bits, so it exercises the
+  # 64-bit unbox of the MRB_INT64 build; the script computes it because
+  # the guest's parser reads only 32-bit literals without mruby-bigint.
   # @behavior S-076
   def test_outcome_integer_round_trips_via_direct_unbox
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    assert_equal 268_435_457, sandbox.eval("268_435_457").value
-    assert_equal(-268_435_457, sandbox.eval("-268_435_457").value)
+    assert_equal 1_099_511_627_777, sandbox.eval("2**40 + 1").value
+    assert_equal(-1_099_511_627_777, sandbox.eval("-(2**40 + 1)").value)
   end
 
   # outcome path: +try_codec_value+ raises on a type outside the 11-entry

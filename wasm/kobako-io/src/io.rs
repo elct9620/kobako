@@ -193,7 +193,7 @@ fn io_write(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
         self_,
         "kobako IO writes only to fd 1 (stdout), fd 2 (stderr), or a file this guest opened",
     )?;
-    let mut total: i32 = 0;
+    let mut total: i64 = 0;
     for &val in args {
         let _scope = mrb.arena_scope();
         // A guest-defined `to_s` that raises propagates as an ordinary
@@ -219,7 +219,7 @@ fn io_write(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
             if n <= 0 {
                 break;
             }
-            total = total.saturating_add(n as i32);
+            total = total.saturating_add(n as i64);
             if descriptors::is_channel(fd) {
                 break;
             }
@@ -295,7 +295,7 @@ fn io_printf(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<(), Error> {
 /// Mirrors mruby-io's `io_putc`; a String's first character is its first
 /// byte in this non-UTF8 build.
 fn io_putc(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
-    if let Some(n) = i32::from_value(obj) {
+    if let Some(n) = i64::from_value(obj) {
         let byte = [(n & 0xff) as u8];
         let s = mrb.str_new(&byte).as_value();
         write_one(mrb, self_, s)?;

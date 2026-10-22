@@ -74,28 +74,28 @@ The depth bound is witnessed on both directions at the same depth. A reader and 
 | When | guest code parses a small negative integer |
 | Then | it yields that Integer |
 
-## `JS-008` An integer past the width widens rather than wraps
+## `JS-009` An integer past exact Float range stays an exact Integer
+
+| Attribute | Value |
+| --- | --- |
+| refines | `JS-006` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the JSON-capable Guest Binary |
-| When | guest code parses a value one past the guest's Integer width |
-| Then | it yields a Float |
+| When | guest code parses an integer one past the largest a Float represents exactly |
+| Then | it yields that Integer |
 
-## `JS-009` A widened integer is still exact where a Float can be
+## `JS-010` An integer past the guest's width is refused, not rounded
+
+| Attribute | Value |
+| --- | --- |
+| relates | `JS-006` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the JSON-capable Guest Binary |
-| When | guest code parses the largest integer a Float represents exactly |
-| Then | it yields that value as an exact Float |
-
-## `JS-010` An integer too large to represent is refused, not rounded
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox over the JSON-capable Guest Binary |
-| When | guest code parses an integer beyond exact Float representation |
+| When | guest code parses an integer one past the guest's Integer width |
 | Then | a parser error is raised |
 
 ## `JS-011` A JSON real reads as a Float

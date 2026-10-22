@@ -106,11 +106,9 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     let cls = mrb.define_class(c"Regexp", mrb.object_class())?;
     RegexpState::mark_carriers(mrb)?;
 
-    // The archive is built MRB_INT32, so an option flag crosses into the
-    // value domain as the width mruby actually carries.
-    cls.const_set(mrb, c"IGNORECASE", translate::IGNORECASE as i32)?;
-    cls.const_set(mrb, c"EXTENDED", translate::EXTENDED as i32)?;
-    cls.const_set(mrb, c"MULTILINE", translate::MULTILINE as i32)?;
+    cls.const_set(mrb, c"IGNORECASE", translate::IGNORECASE)?;
+    cls.const_set(mrb, c"EXTENDED", translate::EXTENDED)?;
+    cls.const_set(mrb, c"MULTILINE", translate::MULTILINE)?;
 
     cls.define_singleton_method(mrb, c"new", beni::method!(rx_compile, 1, 1))?;
     cls.define_singleton_method(mrb, c"compile", beni::method!(rx_compile, 1, 1))?;
@@ -220,8 +218,8 @@ fn parse_options(mrb: &Mrb, flags: Option<Value>) -> Result<i64, Error> {
     let Some(value) = flags else {
         return Ok(0);
     };
-    if let Some(mask) = i32::from_value(value) {
-        Ok(i64::from(mask))
+    if let Some(mask) = i64::from_value(value) {
+        Ok(mask)
     } else if RString::from_value(value).is_some() {
         let flags = text_of(mrb, value)?;
         translate::parse_flag_string(&flags)

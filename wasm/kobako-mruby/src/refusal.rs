@@ -223,7 +223,7 @@ mod tests {
         for position in EVERY_POSITION {
             let refusal = at(
                 position,
-                CodecError::Interpreter(IntegerOutOfRange(1 << 40)),
+                CodecError::Interpreter(IntegerOutOfRange(1 << 70)),
             );
 
             assert_eq!(
@@ -281,7 +281,7 @@ mod tests {
         let refusals = [
             at(
                 Position::RunArguments,
-                CodecError::Interpreter(IntegerOutOfRange(1 << 40)),
+                CodecError::Interpreter(IntegerOutOfRange(1 << 70)),
             ),
             at(Position::RunArguments, CodecError::Malformed),
             at(Position::RunArguments, CodecError::Unserved),
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn an_unframed_run_is_worded_apart_from_every_argument_refusal() {
         let argument_refusals = [
-            CodecError::Interpreter(IntegerOutOfRange(1 << 40)),
+            CodecError::Interpreter(IntegerOutOfRange(1 << 70)),
             CodecError::Malformed,
             CodecError::Unserved,
             unrepresentable(),
@@ -392,7 +392,7 @@ mod tests {
         for position in [Position::CallArguments, Position::ReplyValue] {
             for err in [
                 unrepresentable(),
-                CodecError::Interpreter(IntegerOutOfRange(1 << 40)),
+                CodecError::Interpreter(IntegerOutOfRange(1 << 70)),
                 CodecError::Malformed,
                 CodecError::Unserved,
             ] {

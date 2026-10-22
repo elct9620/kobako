@@ -149,7 +149,7 @@ fn file_size(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     )?;
     let len = with_file(fd, |file| Ok(file.metadata()?.len()))
         .map_err(|err| errno::from_io(mrb, &err, &crate::stream::label(mrb, self_)))?;
-    Ok(i32::try_from(len).unwrap_or(i32::MAX).into_value(mrb))
+    Ok(i64::try_from(len).unwrap_or(i64::MAX).into_value(mrb))
 }
 
 /// `File.open` with a block yields the file and closes it however the
@@ -181,8 +181,8 @@ fn file_s_write(mrb: &Mrb, _self: Value, path: Value, data: Value) -> Result<Val
     fs::File::create(&path)
         .and_then(|mut file| file.write_all(&bytes))
         .map_err(|err| errno::from_io(mrb, &err, &path))?;
-    Ok(i32::try_from(bytes.len())
-        .unwrap_or(i32::MAX)
+    Ok(i64::try_from(bytes.len())
+        .unwrap_or(i64::MAX)
         .into_value(mrb))
 }
 
@@ -210,7 +210,7 @@ fn file_s_size(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
     let len = fs::metadata(&path)
         .map_err(|err| errno::from_io(mrb, &err, &path))?
         .len();
-    Ok(i32::try_from(len).unwrap_or(i32::MAX).into_value(mrb))
+    Ok(i64::try_from(len).unwrap_or(i64::MAX).into_value(mrb))
 }
 
 fn file_s_delete(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
@@ -219,8 +219,8 @@ fn file_s_delete(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error
         let path = path_arg(mrb, path)?;
         fs::remove_file(&path).map_err(|err| errno::from_io(mrb, &err, &path))?;
     }
-    Ok(i32::try_from(args.len())
-        .unwrap_or(i32::MAX)
+    Ok(i64::try_from(args.len())
+        .unwrap_or(i64::MAX)
         .into_value(mrb))
 }
 

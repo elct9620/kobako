@@ -602,3 +602,69 @@ fn a_write_lands_whole_when_the_filesystem_takes_it_in_parts() {
          must answer every byte and land them all"
     );
 }
+
+/// An open file reporting a length it does not hold, so a script meets a
+/// file of several GiB without the test allocating one.
+struct ReportsLen(Box<dyn File>, u64);
+
+impl File for ReportsLen {
+    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.read_at(buf, offset)
+    }
+
+    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.write_at(buf, offset)
+    }
+
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        Ok(Metadata {
+            len: self.1,
+            ..self.0.metadata()?
+        })
+    }
+
+    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.0.set_len(len)
+    }
+}
+
+fn three_gib_note() -> Grant {
+    let filesystem = WrapsFiles::over_note("hello", |file| ReportsLen(file, 3 << 30));
+    mount(filesystem, Access::Read)
+}
+
+// @behavior FL-020
+#[test]
+fn a_file_past_2_gib_reports_its_whole_size() {
+    let Some(answer) = run(
+        r#"File.open("/data/note.txt") { |f| print f.size }"#,
+        &[three_gib_note()],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok("3221225472".to_string()),
+        "File#size of a 3 GiB file through the bundled guest must answer 3221225472, not a \
+         32-bit ceiling"
+    );
+}
+
+// @behavior FL-021
+#[test]
+fn a_position_past_2_gib_is_reported_whole() {
+    let Some(answer) = run(
+        r#"File.open("/data/note.txt") { |f| f.seek(2**31 + 1); print f.pos }"#,
+        &[three_gib_note()],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok("2147483649".to_string()),
+        "IO#pos after seeking a 3 GiB file to 2 GiB and one byte through the bundled guest \
+         must answer 2147483649"
+    );
+}
