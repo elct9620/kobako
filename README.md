@@ -614,7 +614,7 @@ Order-of-magnitude figures on macOS arm64, Ruby 3.4.7, YJIT off. Absolute values
 | Snippet replay per invocation                                | ~2.7 µs each          |
 | Per additional idle Sandbox (RSS)                            | < 1 KB                |
 
-The Cranelift JIT runs once per machine and gem version — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance, which is why a thousand idle tenants cost ~37 MB total. The canonical boot state is baked into the artifact and instantiated per invocation. A +10% regression on any gated benchmark blocks release.
+The Cranelift JIT runs once per machine and wasmtime release — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance, which is why a thousand idle tenants cost ~37 MB total. The canonical boot state is baked into the artifact and instantiated per invocation. A +10% regression on any gated benchmark blocks release.
 
 #### Throughput Levers
 

@@ -30,8 +30,6 @@ class TestRuntimeArtifactCache < Minitest::Test
       assert_instance_of Kobako::Runtime,
                          Kobako::Runtime.from_path(wasm_path, **runtime_options),
                          "a corrupt compiled-artifact cache entry must fall back to compilation"
-      # Key-derivation witness: the test and the ext name the entry
-      # independently — a drift would leave it unconsulted and vacuous.
       refute_equal "not a serialized wasmtime artifact", File.binread(entry),
                    "the fallback compile must overwrite the corrupt cache entry in place"
     end
@@ -87,27 +85,24 @@ class TestRuntimeArtifactCache < Minitest::Test
     ENV["XDG_CACHE_HOME"] = original
   end
 
-  # Copy the fixture to a fresh path under +dir+ and plant garbage bytes
-  # at the cache entry its content hashes to (the entry name carries the
-  # driver crate's version), so the artifact-load path is forced
-  # onto the corrupt-entry branch. Returns the wasm path and the planted
-  # entry.
+  # Let a first build cache the fixture, then overwrite that entry with
+  # garbage and hand back a fresh copy of the fixture, so the next build
+  # misses the in-process cache and reaches the corrupt entry on disk.
+  # The entry is found by the content digest the test derives itself; the
+  # engine segment beside it is wasmtime's to name. Returns the wasm path
+  # and the planted entry.
   def plant_corrupt_artifact(dir)
+    seed = File.join(dir, "seed_probe.wat")
+    FileUtils.cp(FIXTURE_PATH, seed)
+    Kobako::Runtime.from_path(seed, **runtime_options)
+    digest = Digest::SHA256.hexdigest(File.binread(seed))
+    entries = Dir.glob(File.join(dir, "kobako", "#{digest}-*.cwasm"))
+    assert_equal 1, entries.size, "a first build must cache the fixture under its content digest"
+
+    File.write(entries.first, "not a serialized wasmtime artifact")
     wasm_path = File.join(dir, "corrupt_probe.wat")
     FileUtils.cp(FIXTURE_PATH, wasm_path)
-    digest = Digest::SHA256.hexdigest(File.binread(wasm_path))
-    entry = File.join(dir, "kobako", "#{digest}-#{driver_crate_version}.cwasm")
-    FileUtils.mkdir_p(File.dirname(entry))
-    File.write(entry, "not a serialized wasmtime artifact")
-    [wasm_path, entry]
-  end
-
-  # Independent derivation source for the cache-entry version segment:
-  # the ext embeds the kobako-wasmtime crate's CARGO_PKG_VERSION at
-  # compile time, so the crate manifest is the witness the test reads.
-  def driver_crate_version
-    manifest = TestPaths.source("crates", "kobako-wasmtime", "Cargo.toml")
-    File.read(manifest)[/^version = "([^"]+)"/, 1]
+    [wasm_path, entries.first]
   end
 
   # Plant an empty cache entry whose mtime sits past the 30-day

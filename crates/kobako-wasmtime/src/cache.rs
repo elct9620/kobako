@@ -10,8 +10,8 @@
 //!
 //! Across processes, the Cranelift compile cost is amortised by a
 //! best-effort `.cwasm` disk cache keyed by the SHA-256 of the Guest
-//! Binary bytes; every cache failure falls
-//! back to in-process compilation.
+//! Binary bytes and the engine that compiles them; every cache failure
+//! falls back to in-process compilation.
 //!
 //! Concurrency: the Mutex is held only for the HashMap lookup and insert,
 //! never across a compile, so threads building Drivers at once do not
@@ -21,6 +21,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::fs;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
@@ -102,7 +103,7 @@ pub(crate) fn cached_module(path: &Path) -> Result<WtModule, SetupError> {
         ))
     })?;
     let engine = shared_engine()?;
-    let artifact = artifact_path(&bytes);
+    let artifact = artifact_path(engine, &bytes);
     let module = match artifact.as_deref().and_then(|p| load_artifact(engine, p)) {
         Some(module) => module,
         None => {
@@ -127,21 +128,31 @@ pub(crate) fn cached_module(path: &Path) -> Result<WtModule, SetupError> {
 const ARTIFACT_TTL: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 /// Content addressing makes a rebuilt Guest Binary a new entry rather than
-/// an invalidation problem; the crate-version segment keeps two installed
-/// kobako-wasmtime versions, each pinning its own wasmtime, from thrashing
-/// one key. wasmtime itself rejects an artifact from an incompatible
-/// version or Config at deserialize time.
-fn artifact_path(wasm_bytes: &[u8]) -> Option<PathBuf> {
+/// an invalidation problem. The engine segment names the wasmtime release
+/// and Config that compiled the artifact, because wasmtime's own
+/// deserialize check compares only the major version: without it, an
+/// artifact from a release with a since-fixed miscompile would load
+/// under the patched one.
+fn artifact_path(engine: &WtEngine, wasm_bytes: &[u8]) -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))?;
     let digest = Sha256::digest(wasm_bytes);
-    let mut name = String::with_capacity(80);
+    let mut name = String::with_capacity(96);
     for byte in digest {
         let _ = write!(name, "{:02x}", byte);
     }
-    let _ = write!(name, "-{}.cwasm", env!("CARGO_PKG_VERSION"));
+    let _ = write!(name, "-{:016x}.cwasm", engine_key(engine));
     Some(base.join("kobako").join(name))
+}
+
+/// wasmtime's hash of everything an artifact's compatibility depends on,
+/// its full release version included. `DefaultHasher::new` is unseeded,
+/// so every process of one build derives the same key.
+fn engine_key(engine: &WtEngine) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    engine.precompile_compatibility_hash().hash(&mut hasher);
+    hasher.finish()
 }
 
 /// A hit refreshes the file's mtime, so the retention window measures time
@@ -250,4 +261,45 @@ fn cache_entry_name(path: &Path) -> bool {
         return false;
     };
     name.ends_with(".cwasm") || name.contains(".tmp")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wasmtime::ModuleVersionStrategy;
+
+    fn engine_of(version: &str) -> WtEngine {
+        let mut config = WtConfig::new();
+        config
+            .module_version(ModuleVersionStrategy::Custom(version.into()))
+            .expect("a short version string is accepted");
+        WtEngine::new(&config).expect("engine")
+    }
+
+    fn entry_name(engine: &WtEngine) -> PathBuf {
+        let path = artifact_path(engine, b"\0asm").expect("a cache root");
+        PathBuf::from(path.file_name().expect("an entry name"))
+    }
+
+    // A custom module version stands in for another wasmtime release:
+    // wasmtime's compatibility hash covers its full version the same way.
+    // @behavior RT-108
+    #[test]
+    fn an_artifact_from_another_engine_release_is_never_the_entry_read() {
+        assert_ne!(
+            entry_name(&engine_of("49.0.3")),
+            entry_name(&engine_of("49.0.4")),
+            "a Guest Binary cached by one engine release must not be the entry another release reads"
+        );
+    }
+
+    // @behavior RT-108
+    #[test]
+    fn engines_of_one_release_and_config_share_the_entry() {
+        assert_eq!(
+            entry_name(&engine_of("49.0.4")),
+            entry_name(&engine_of("49.0.4")),
+            "two engines of one release and Config must read the entry either of them cached"
+        );
+    }
 }
