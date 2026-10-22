@@ -69,7 +69,7 @@ impl Stream {
 }
 
 /// Points `self_` at `fd`, and at `path` when one is given.
-pub(crate) fn open(mrb: &Mrb, self_: Value, fd: i32, path: Option<String>) {
+pub(crate) fn point_at(mrb: &Mrb, self_: Value, fd: i32, path: Option<String>) {
     Stream::update(mrb, self_, |state| {
         state.fd = Some(fd);
         if path.is_some() {
@@ -162,7 +162,7 @@ fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode: RString) -> Result<(), 
         return Err(argument_error(mrb, "kobako IO only supports mode \"w\""));
     }
 
-    open(mrb, self_, fd, None);
+    point_at(mrb, self_, fd, None);
     Ok(())
 }
 

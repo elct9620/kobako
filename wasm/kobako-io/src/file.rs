@@ -130,7 +130,7 @@ fn file_initialize(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<(), Error
         .map_err(|err| errno::from_io(mrb, &err, &path))?;
     let fd = file.into_raw_fd();
     descriptors::remember(fd);
-    crate::io::open(mrb, self_, fd, Some(path));
+    crate::io::point_at(mrb, self_, fd, Some(path));
     Ok(())
 }
 
