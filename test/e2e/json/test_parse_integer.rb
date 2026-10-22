@@ -25,12 +25,14 @@ class TestJsonParseInteger < Minitest::Test
   end
 
   # One literal per way the guest builds the Integer: past 64 bits on each
-  # sign, past 128 bits on each sign. The guest answers each as its digits
-  # so the check reads what the guest holds, not what the wire could carry.
+  # sign, past the signed 128-bit range, and past 128 bits on each sign. The
+  # guest answers each as its digits so the check reads what the guest
+  # holds, not what the wire could carry.
   # @behavior JS-010
   def test_integer_past_64_bits_stays_exact
     literals = %w[
       9223372036854775808 -9223372036854775809
+      170141183460469231731687303715884105728
       340282366920938463463374607431768211456 -340282366920938463463374607431768211457
     ]
     source = "#{literals.inspect}.map { |s| JSON.parse(s).to_s }"
