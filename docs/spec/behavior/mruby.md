@@ -262,6 +262,10 @@ A host may keep the guest's compiled snippets and replay them in place of the so
 
 ## `MR-026` An integer literal past 64 bits stays exact inside the guest
 
+| Attribute | Value |
+| --- | --- |
+| relates | `CD-053` |
+
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
