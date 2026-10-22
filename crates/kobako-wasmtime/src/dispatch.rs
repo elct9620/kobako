@@ -3,21 +3,19 @@
 //! A request under a tag the host does not serve is answered as
 //! unsupported, so a guest asking for a later operation can fall back.
 //!
-//! A failure lands on whoever is answerable for it. A trap the guest
-//! raises during a callback into it ends the invocation as that trap; any
-//! other failure is the guest's or the wire's, so the import answers 0,
-//! which the guest receives as a wire failure.
-//!
-//! Each 0 also writes one `[kobako-dispatch] <reason>` line to stderr,
-//! since the 0 itself carries no reason. It is the one place the driver
-//! logs, and normal operation never reaches it.
+//! A failure lands on whoever is answerable for it, and always says why.
+//! A trap the guest raises during a callback into it ends the invocation
+//! as that trap. A Call the host could not answer is answered as an
+//! internal failure naming why, and an answer too large for a message as
+//! the Service's own failure. Only an answer that cannot be written into
+//! guest memory at all ends the invocation, as a trap naming why.
 
 use wasmtime::Caller;
 
 use kobako_runtime::error::Trap;
 use kobako_runtime::yielder::Yielder;
 use kobako_transport::abi::pack_ptr_len;
-use kobako_transport::envelope::{Unsupported, Upcall, YieldReply};
+use kobako_transport::envelope::{Fault, FaultKind, Reply, Unsupported, Upcall, YieldReply};
 
 use crate::guest_mem;
 use crate::invocation::Invocation;
@@ -42,32 +40,43 @@ impl Yielder for CallerYielder<'_, '_> {
     }
 }
 
-/// Answer one `__kobako_upcall` call: the packed `(ptr<<32)|len` of the
-/// Reply, 0 for a failure the guest or the wire is answerable for, or the
-/// trap a callback into the guest raised.
+/// Answer one `__kobako_upcall` call with the packed `(ptr<<32)|len` of
+/// the Reply, or the trap a callback into the guest raised.
 pub(crate) fn handle(
     caller: &mut Caller<'_, Invocation>,
     req_ptr: i32,
     req_len: i32,
 ) -> wasmtime::Result<i64> {
-    let answer = try_handle(caller, req_ptr, req_len);
+    let reply = reply_to(caller, req_ptr, req_len)
+        .unwrap_or_else(|reason| Reply::Fault(Fault::new(FaultKind::Internal, reason)));
+    let written = write_reply(caller, &within_message(reply).encode());
     if let Some(trap) = caller.data_mut().take_reentry_trap() {
         return Err(trap);
     }
     if let Some(trap) = caller.data().abandonment() {
         return Err(trap);
     }
-    Ok(answer.unwrap_or_else(|reason| {
-        eprintln!("[kobako-dispatch] {reason}");
-        0
-    }))
+    written.map_err(wasmtime::Error::msg)
 }
 
-fn try_handle(
+/// An answer past the message cap is the Service's to change, as any other
+/// answer the host cannot write is.
+fn within_message(reply: Reply) -> Reply {
+    let bytes = reply.encode().len();
+    match guest_mem::checked_payload_len(bytes) {
+        Ok(_) => reply,
+        Err(limit) => Reply::Fault(Fault::new(
+            FaultKind::Runtime,
+            format!("Sandbox could not write the Service's answer: {limit}"),
+        )),
+    }
+}
+
+fn reply_to(
     caller: &mut Caller<'_, Invocation>,
     req_ptr: i32,
     req_len: i32,
-) -> Result<i64, &'static str> {
+) -> Result<Reply, &'static str> {
     let req_bytes = guest_mem::read_request(caller, req_ptr, req_len)?;
     // The driver decodes the core envelope, here and in `CallerYielder`, so
     // the frontend never sees a frame; the payload inside it stays bytes
@@ -75,8 +84,9 @@ fn try_handle(
     let call = match Upcall::decode(&req_bytes) {
         Ok(Upcall::Call(call)) => call,
         Ok(_) => {
-            let refusal = Unsupported::new("the host does not serve this request");
-            return write_reply(caller, &refusal.encode());
+            return Ok(Reply::Unsupported(Unsupported::new(
+                "the host does not serve this request",
+            )))
         }
         Err(_) => {
             return Err(
@@ -103,11 +113,9 @@ fn try_handle(
         handler.dispatch(call, &mut yielder)
     };
     caller.data_mut().close_call();
-    let reply = reply.ok_or(
+    reply.ok_or(
         "a Sandbox callback raised an exception instead of returning a fault — please report this as a kobako bug",
-    )?;
-
-    write_reply(caller, &reply.encode())
+    )
 }
 
 fn write_reply(caller: &mut Caller<'_, Invocation>, bytes: &[u8]) -> Result<i64, &'static str> {
