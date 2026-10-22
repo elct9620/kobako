@@ -45,6 +45,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `test/fuzz/test_dispatch_scheduling_fuzz.rb`
 - `test/parity/test_hermetic.rb`
 - `crates/kobako-wasmtime/src/ambient.rs`
+- `crates/kobako-wasmtime/src/cache.rs`
 - `crates/kobako-wasmtime/src/wasi.rs`
 - `crates/kobako-wasmtime/src/preview1/poll.rs`
 - `crates/kobako-wasmtime/src/preview1/granted.rs`
@@ -1072,3 +1073,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a Mount whose directory a guest began to list, and a file then made in it |
 | When | the guest lists on from where it stopped, then lists again from the start |
 | Then | only the listing from the start holds the new file |
+
+## `RT-108` A cached artifact is read only by the engine that could have compiled it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-035` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an artifact compiled and cached by an engine of another release or another configuration |
+| When | a runtime is built over the same Guest Binary |
+| Then | it compiles the Guest Binary again rather than reading that artifact |
