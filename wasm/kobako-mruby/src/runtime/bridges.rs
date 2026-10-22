@@ -121,8 +121,8 @@ fn forward_to_dispatch(
     let raised =
         block.and_then(|one| super::raised_block::RAISED_BLOCK.take_for(kobako.mrb(), one));
     match answer {
-        // A dispatch return value the guest cannot represent raises in the
-        // calling guest code (docs/wire/payload-msgpack.md § Integer Range).
+        // A dispatch return value the guest's codec cannot read raises in
+        // the calling guest code.
         Ok(body) => match codec_slot::get().decode_reply_value(&kobako, &body) {
             Ok(value) => Ok(value),
             Err(err) => Err(refusal(&kobako, Position::ReplyValue, err)),

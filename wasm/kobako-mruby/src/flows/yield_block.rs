@@ -54,10 +54,8 @@ pub(crate) fn yield_to_block<G: crate::MrbGuest>(req: &[u8]) -> YieldReply {
         return error_reply("LocalJumpError", "no block given (yield)", Vec::new());
     };
 
-    // Step 2: read the yield arguments through the guest's codec. One
-    // the guest cannot represent — an integer outside the 64-bit range —
-    // fails the round-trip rather than reaching the block with a saturated
-    // value (docs/wire/payload-msgpack.md § Integer Range).
+    // Step 2: read the yield arguments through the guest's codec. One it
+    // cannot read fails the round-trip rather than reaching the block.
     let args = match G::Codec::decode_yield_arguments(&kobako, req) {
         Ok(args) => args,
         Err(err) => {

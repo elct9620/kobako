@@ -136,7 +136,6 @@ pub(crate) fn at(position: Position, err: CodecError) -> Refusal {
                 position.value_name()
             ),
         },
-        CodecError::Interpreter(err) => Refusal::transport(err.message()),
         CodecError::Malformed => Refusal::transport(position.unreadable_message()),
         CodecError::Unserved => Refusal {
             class: position.unserved_class(),
@@ -155,7 +154,6 @@ pub(crate) fn at(position: Position, err: CodecError) -> Refusal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::IntegerOutOfRange;
     use kobako_transport::envelope::Outcome;
 
     fn unrepresentable() -> CodecError {
@@ -250,10 +248,7 @@ mod tests {
     #[test]
     fn a_run_payload_reports_what_the_codec_reported() {
         let refusals = [
-            at(
-                Position::RunArguments,
-                CodecError::Interpreter(IntegerOutOfRange(1 << 70)),
-            ),
+            at(Position::RunArguments, unrepresentable()),
             at(Position::RunArguments, CodecError::Malformed),
             at(Position::RunArguments, CodecError::Unserved),
         ];
@@ -274,7 +269,6 @@ mod tests {
     #[test]
     fn an_unframed_run_is_worded_apart_from_every_argument_refusal() {
         let argument_refusals = [
-            CodecError::Interpreter(IntegerOutOfRange(1 << 70)),
             CodecError::Malformed,
             CodecError::Unserved,
             unrepresentable(),
@@ -363,7 +357,6 @@ mod tests {
         for position in [Position::CallArguments, Position::ReplyValue] {
             for err in [
                 unrepresentable(),
-                CodecError::Interpreter(IntegerOutOfRange(1 << 70)),
                 CodecError::Malformed,
                 CodecError::Unserved,
             ] {

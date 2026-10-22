@@ -24,10 +24,10 @@
 //!    `CodecError`.
 
 use crate::codec::CodecError;
-use crate::runtime::{IntegerOutOfRange, Kobako};
+use crate::runtime::Kobako;
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{ForEach, RArray, RHash, Symbol, Value};
+use beni::{ForEach, Integer, Mrb, RArray, RHash, Symbol, Value};
 use kobako_codec::msgpack::codec::Value as CodecValue;
 // The encode-side walk caps at the same depth the decoder enforces; the
 // constant lives in `kobako-codec` so the two guest walks share one bound
@@ -204,8 +204,8 @@ impl Kobako {
         depth: usize,
     ) -> Option<kobako_codec::msgpack::codec::Value> {
         // Scalar-leaf downcast through the safe `FromValue` seam.
-        if let Some(n) = i64::from_value(val) {
-            return Some(CodecValue::Int(n));
+        if let Some(int) = Integer::from_value(val) {
+            return integer_to_codec(self.mrb(), int);
         }
         if let Some(f) = f64::from_value(val) {
             return Some(CodecValue::Float(f));
@@ -250,17 +250,14 @@ impl Kobako {
         }
     }
 
-    pub(crate) fn to_mrb_value(
-        &self,
-        val: kobako_codec::msgpack::codec::Value,
-    ) -> Result<Value, IntegerOutOfRange> {
+    pub(crate) fn to_mrb_value(&self, val: kobako_codec::msgpack::codec::Value) -> Value {
         use beni::IntoValue;
         let mrb = self.mrb();
-        Ok(match val {
+        match val {
             CodecValue::Nil => qnil().as_value(),
             CodecValue::Bool(b) => b.into_value(mrb),
-            CodecValue::Int(n) => self.narrow_int(n)?,
-            CodecValue::UInt(n) => self.narrow_int(n)?,
+            CodecValue::Int(n) => n.into_value(mrb),
+            CodecValue::UInt(n) => n.into_value(mrb),
             CodecValue::Float(f) => f.into_value(mrb),
             CodecValue::Str(s) => mrb.str_new(s.as_bytes()).as_value(),
             CodecValue::Handle(id) => self.mint_handle(id),
@@ -277,7 +274,7 @@ impl Kobako {
             CodecValue::Array(items) => {
                 let ary = mrb.ary_new();
                 for item in items {
-                    let elem = self.to_mrb_value(item)?;
+                    let elem = self.to_mrb_value(item);
                     // Fresh array, never frozen — the push cannot raise.
                     let _ = ary.push(mrb, elem);
                 }
@@ -286,13 +283,22 @@ impl Kobako {
             CodecValue::Map(pairs) => {
                 let hash = mrb.hash_new();
                 for (k, v) in pairs {
-                    let key = self.to_mrb_value(k)?;
-                    let val = self.to_mrb_value(v)?;
+                    let key = self.to_mrb_value(k);
+                    let val = self.to_mrb_value(v);
                     // Fresh hash, never frozen — the set cannot raise.
                     let _ = hash.aset(mrb, key, val);
                 }
                 hash.as_value()
             }
-        })
+        }
     }
+}
+
+/// msgpack's two integer families together reach from −2⁶³ to 2⁶⁴−1, so a
+/// guest Integer outside both has no wire form.
+fn integer_to_codec(mrb: &Mrb, int: Integer) -> Option<CodecValue> {
+    int.to_i64(mrb)
+        .map(CodecValue::Int)
+        .or_else(|_| int.to_u64(mrb).map(CodecValue::UInt))
+        .ok()
 }

@@ -21,19 +21,13 @@ require "test_helper"
 # so the value the Service was handed tells the two directions apart when
 # one of them loses something.
 #
-# The guest's value domain is narrower than the wire's in two ways the
-# harness encodes rather than works around:
-#
-#   * An Integer crosses the wire only within the signed 64-bit range, so
-#     integers outside it are refused at the boundary (covered in
-#     test/e2e/test_integer_range.rb). The
-#     generator draws only bands the guest can hold.
-#   * mruby Strings carry no encoding tag, so a guest re-encoding a String
-#     has exactly one rule available: valid UTF-8 travels as msgpack str,
-#     any other bytes as bin (docs/wire/payload-msgpack.md § Text and
-#     Bytes). Both sides are re-tagged by that rule before comparing,
-#     which pins the bytes the guest can lose without pinning a tag it
-#     cannot know.
+# The guest's value domain is narrower than the wire's in one way the
+# harness encodes rather than works around: mruby Strings carry no
+# encoding tag, so a guest re-encoding a String has exactly one rule
+# available: valid UTF-8 travels as msgpack str, any other bytes as bin
+# (docs/wire/payload-msgpack.md § Text and Bytes). Both sides are re-tagged
+# by that rule before comparing, which pins the bytes the guest can lose
+# without pinning a tag it cannot know.
 #
 # Handles and Faults stay out of the generated domain: a Handle argument
 # is restored to its host object rather than compared as a value, and a
@@ -72,9 +66,7 @@ class TestGuestValueFuzz < Minitest::Test
     @iterations = (ENV["KOBAKO_FUZZ_ITERATIONS"] || "1000").to_i
     @iterations = 10_000 if ENV["KOBAKO_FUZZ_HEAVY"] == "1"
     @seed = (ENV["KOBAKO_FUZZ_SEED"] || Random.new_seed.to_s).to_i
-    @generator = WireValueGenerator.new(rng: Random.new(@seed),
-                                        int_bands: WireValueGenerator::GUEST_INT_BANDS,
-                                        ext_values: false)
+    @generator = WireValueGenerator.new(rng: Random.new(@seed), ext_values: false)
   end
 
   def echo_sandbox

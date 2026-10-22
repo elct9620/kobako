@@ -32,7 +32,7 @@ pub use call::{dispatch, DispatchError, Target};
 pub use codec::{Arguments, CodecError, PayloadCodec};
 #[cfg(feature = "msgpack")]
 pub use msgpack::MsgpackCodec;
-pub use runtime::{InstallError, IntegerOutOfRange, Kobako};
+pub use runtime::{InstallError, Kobako};
 
 use beni::{Error, Mrb};
 use kobako_transport::envelope::{CompileReply, Flag, Outcome, Preamble, Run, YieldReply};

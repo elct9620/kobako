@@ -15,7 +15,6 @@ pub(crate) mod raised_block;
 mod values;
 
 pub use bindings::InstallError;
-pub use values::IntegerOutOfRange;
 
 use beni::sys;
 use beni::value::Opaque;
@@ -44,9 +43,8 @@ use beni::ReprValue;
 /// which group a method belongs to says who it is for:
 ///
 ///   * **The payload codec seam** (`PayloadCodec`) — `mrb`, `is_handle`,
-///     `mint_handle`, `extract_handle_id`, `narrow_int`. A codec walking
-///     its own value tree needs all five: VM access, the Handle spelling,
-///     and the integer-range guard.
+///     `mint_handle`, `extract_handle_id`. A codec walking its own value
+///     tree needs all four: VM access and the Handle spelling.
 ///   * **The invocation flow seam** (`MrbGuest::run` and friends) —
 ///     `init`, `resolve_raw`, `install_bindings`, `top_level_constants`,
 ///     `extract_backtrace`, `transport_error`.

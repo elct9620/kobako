@@ -2,52 +2,50 @@
 
 require "test_helper"
 
-# E2E — host→guest integer representability through real mruby
-# (docs/wire/payload-msgpack.md § Integer Range). An Integer crosses the
-# wire only within the signed 64-bit range, so the guest refuses a wire
-# integer outside it rather than saturating it to the nearest bound, and
-# the script never receives a different number than the wire carried.
+# E2E — integer representability across the wire through real mruby
+# (docs/wire/payload-msgpack.md § Integer Range). msgpack's integer
+# families reach from -2**63 to 2**64-1, every one of which the guest holds,
+# so the only bound is the one a guest Integer meets on the way out.
 class TestE2EIntegerRange < Minitest::Test
   include E2eGuestHelper
 
-  I64_MAX = 9_223_372_036_854_775_807
+  U64_MAX = 18_446_744_073_709_551_615
 
   # @behavior CD-002
-  # Pinned against the refusal above so a check that over-reached by one
-  # would be caught rather than read as caution.
-  def test_service_return_at_i64_max_round_trips
+  # The value sits one past what a signed 64-bit read holds, so it reaches
+  # the script only as a big integer and leaves only as an unsigned one.
+  def test_widest_wire_integer_crosses_both_ways
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.bind("Clock::Max", -> { I64_MAX })
+    sandbox.bind("Clock::Max", -> { U64_MAX })
 
-    assert_equal I64_MAX, sandbox.eval("Clock::Max.call").value,
-                 "an inbound integer at the 64-bit ceiling must round-trip, not be refused"
+    assert_equal [U64_MAX, "18446744073709551615"],
+                 sandbox.eval("x = Clock::Max.call; [x, x.to_s]").value,
+                 "2**64-1 answered by a Service through Sandbox#eval must reach the script and " \
+                 "come back as that exact Integer"
   end
 
   # @behavior CD-053
-  # The guest holds an Integer of any size, so the bound it meets on the
-  # way out is the wire's, refused like any value with no wire form.
-  def test_guest_integer_past_i64_range_does_not_cross_to_the_host
-    err = assert_raises(Kobako::SandboxError) do
-      Kobako::Sandbox.new(wasm_path: REAL_WASM).eval("2**64")
-    end
+  # Each side of the wire's range is paired against CD-002 and CD-054, the
+  # values just inside it.
+  def test_guest_integer_past_the_wire_range_does_not_cross_to_the_host
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    assert_equal "return value of type Integer is not a supported sandbox value type", err.message,
-                 "an Integer of 2**64 answered through Sandbox#eval must fail the invocation " \
-                 "as a value the wire does not carry"
+    %w[2**64 -(2**63)-1].each do |source|
+      err = assert_raises(Kobako::SandboxError) { sandbox.eval(source) }
+
+      assert_equal "return value of type Integer is not a supported sandbox value type", err.message,
+                   "#{source} answered through Sandbox#eval must fail the invocation as a value " \
+                   "the wire does not carry"
+    end
   end
 
   # @behavior CD-054
-  # A known limit, not a design: mruby normalizes a big integer only when
-  # its magnitude fits the positive range, so -2**63 stays big and the
-  # guest's 64-bit read does not reach it.
-  def test_smallest_i64_computed_from_a_big_integer_does_not_cross
-    err = assert_raises(Kobako::SandboxError) do
-      Kobako::Sandbox.new(wasm_path: REAL_WASM).eval("-(2**63)")
-    end
-
-    assert_equal "return value of type Integer is not a supported sandbox value type", err.message,
-                 "-(2**63) answered through Sandbox#eval must fail the invocation as a value the " \
-                 "wire does not carry, until the guest can read a big integer as 64 bits"
+  # mruby normalizes a big integer only when its magnitude fits the
+  # positive range, so -2**63 computed this way stays big inside the guest.
+  def test_smallest_i64_computed_from_a_big_integer_crosses
+    assert_equal(-9_223_372_036_854_775_808,
+                 Kobako::Sandbox.new(wasm_path: REAL_WASM).eval("-(2**63)").value,
+                 "-(2**63) answered through Sandbox#eval must reach the host as -9223372036854775808")
   end
 
   # @behavior MR-026

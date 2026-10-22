@@ -42,14 +42,6 @@ class WireValueGenerator
   }.freeze
   INT_BANDS = INT_BAND_SAMPLERS.keys.freeze
 
-  # The bands a guest-domain run may draw from. An Integer crosses the
-  # wire only within the signed 64-bit range, so a wire integer outside it
-  # is refused at the boundary rather than carried (covered on its own in
-  # test/e2e/test_integer_range.rb).
-  # Leaving out +u64+ keeps a guest harness's subject the value
-  # conversion instead of the range refusal.
-  GUEST_INT_BANDS = %i[pos_fix neg_fix u8 u16 u32 i8 i16 i32 i64].freeze
-
   # Special-value floats indexed 0..5; bucket 6..9 falls through to
   # +random_general_float+. NaN is deliberately omitted because +f64::from_bits+ round-trip can
   # mutate the bit pattern and break the byte-equality check.
@@ -109,24 +101,19 @@ class WireValueGenerator
 
   attr_reader :coverage
 
-  # +int_bands+ narrows the integer bands to those the consumer's value
-  # domain can hold; +ext_values+ turns off Handle, which no round trip
-  # through a guest compares as a value — a Handle argument is restored to
-  # its host object rather than carried back.
-  def initialize(rng:, int_bands: INT_BANDS, ext_values: true)
+  # +ext_values+ turns off Handle, which no round trip through a guest
+  # compares as a value — a Handle argument is restored to its host object
+  # rather than carried back.
+  def initialize(rng:, ext_values: true)
     @rng = rng
-    @int_bands = int_bands
     @ext_values = ext_values
     @coverage = Hash.new(0)
   end
 
   # The coverage keys this configuration can reach, so a narrowed run
-  # asserts against what it can produce. A band the configuration excludes
-  # leaves the set together with the values that would bump it.
+  # asserts against what it can produce.
   def coverage_keys
-    excluded = (INT_BANDS - @int_bands).map { |band| :"int_#{band}" }
-    excluded += %i[handle] unless @ext_values
-    COVERAGE_KEYS - excluded
+    @ext_values ? COVERAGE_KEYS : COVERAGE_KEYS - %i[handle]
   end
 
   # Entry point. Returns a wire-encodable Ruby value bounded by
@@ -181,7 +168,7 @@ class WireValueGenerator
   end
 
   def generate_integer
-    band = @int_bands.sample(random: @rng)
+    band = INT_BANDS.sample(random: @rng)
     @coverage[:"int_#{band}"] += 1
     INT_BAND_SAMPLERS.fetch(band).call(@rng)
   end

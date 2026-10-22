@@ -17,7 +17,7 @@
 //! positions it implements and refuses at the rest, so the set of methods
 //! it writes is the set of capabilities it offers.
 
-use crate::runtime::{IntegerOutOfRange, Kobako};
+use crate::runtime::Kobako;
 use beni::ReprValue;
 
 /// Why a codec could not carry a value across.
@@ -39,11 +39,6 @@ pub enum CodecError {
     Unrepresentable { type_name: String },
     /// Bytes this schema cannot read, or a value it cannot write.
     Malformed,
-    /// The interpreter refused the value, not the schema. A codec reaches
-    /// this by forwarding a refusal it did not make — the only place that
-    /// conversion happens is inside a codec, so it travels on the codec's
-    /// paths while naming whose refusal it is.
-    Interpreter(IntegerOutOfRange),
     /// This codec does not serve the position it was asked at. Distinct
     /// from `Malformed` because nothing was wrong with the bytes or the
     /// value: the capability is absent, and a reader that cannot tell the
@@ -61,15 +56,6 @@ impl CodecError {
     }
 }
 
-impl From<IntegerOutOfRange> for CodecError {
-    /// Lets a codec forward the interpreter's refusal with `?` — every
-    /// codec builds its guest values through `Kobako`, so every codec
-    /// meets this one.
-    fn from(err: IntegerOutOfRange) -> Self {
-        CodecError::Interpreter(err)
-    }
-}
-
 impl std::fmt::Display for CodecError {
     /// The refusal without the position it happened at. Each call site
     /// still phrases its own guest-visible wording; this is what a codec
@@ -80,7 +66,6 @@ impl std::fmt::Display for CodecError {
                 write!(f, "{type_name} has no representation in this schema")
             }
             CodecError::Malformed => f.write_str("bytes this schema cannot read"),
-            CodecError::Interpreter(err) => f.write_str(&err.message()),
             CodecError::Unserved => f.write_str("a position this schema does not serve"),
         }
     }

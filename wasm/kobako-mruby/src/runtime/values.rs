@@ -4,15 +4,13 @@
 //! This is the surface a payload codec is handed. A codec is the shell's
 //! choice and may come from outside this repository, so what it may do to
 //! the interpreter is what this module exposes and no more: mint a
-//! Handle, tell one from a look-alike, narrow an integer, and read a class
-//! name through `super::Kobako::mrb`. The dispatch bridge reaches the same
-//! surface for the ivar and funcall readers.
+//! Handle, tell one from a look-alike, and read a class name through
+//! `super::Kobako::mrb`. The dispatch bridge reaches the same surface for
+//! the ivar and funcall readers.
 //!
-//! The two constructions carrying an invariant of their own — a minted
-//! Handle and a narrowed Integer — are reachable only by calling them.
-//! A codec that assembled either value itself could hand the guest a
-//! Handle it can re-point or an Integer that is not the number the wire
-//! carried.
+//! A minted Handle carries an invariant of its own, so it is reachable
+//! only by calling `Kobako::mint_handle`. A codec that assembled one itself
+//! could hand the guest a Handle it can re-point.
 
 use beni::ReprValue;
 use beni::Value;
@@ -31,23 +29,6 @@ const HANDLE_ID_IVAR: &core::ffi::CStr = c"@__kobako_id__";
 /// itself: every layer that can admit an id states the bound rather than
 /// inheriting it from the one before.
 const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
-
-/// An inbound integer fell outside the signed 64-bit range an `Integer`
-/// crosses into the guest within. `Kobako::narrow_int`
-/// refuses it rather than saturating to the nearest bound; each call site
-/// fails its path the way that path reports any malformed inbound payload.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct IntegerOutOfRange(pub i128);
-
-impl IntegerOutOfRange {
-    /// Operator-facing message naming the value the guest could not hold.
-    pub fn message(self) -> String {
-        format!(
-            "integer {} is outside the 64-bit range the guest carries",
-            self.0
-        )
-    }
-}
 
 impl Kobako {
     /// Empty when the call raises or answers anything else, so the Panic
@@ -156,19 +137,5 @@ impl Kobako {
                 Ok(handle.freeze(mrb))
             })
             .unwrap_or(nil)
-    }
-
-    /// Represent `n` as an mruby `Integer`, refusing anything past the
-    /// signed 64-bit range rather than saturating it — neither side may
-    /// ever see a different number than the wire carried.
-    pub fn narrow_int<N>(&self, n: N) -> Result<Value, IntegerOutOfRange>
-    where
-        N: TryInto<i64> + Into<i128> + Copy,
-    {
-        use beni::IntoValue;
-        match n.try_into() {
-            Ok(narrowed) => Ok(i64::into_value(narrowed, self.mrb())),
-            Err(_) => Err(IntegerOutOfRange(n.into())),
-        }
     }
 }

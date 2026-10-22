@@ -113,8 +113,9 @@ the shippable artifact.
 
 ## Building
 
-Every build links the `libmruby.a` archive that `beni-sys` discovers,
-and the [beni](https://github.com/elct9620/beni) gem's rake tasks vendor
+Every build links the `libmruby.a` archive that `beni-sys` discovers.
+That archive carries `mruby-bigint`, so every integer the wire carries
+has a guest `Integer`. The [beni](https://github.com/elct9620/beni) gem's rake tasks vendor
 the toolchain that builds it.
 
 | Target | Where the archive is discovered |
