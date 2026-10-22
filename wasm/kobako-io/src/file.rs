@@ -160,8 +160,8 @@ fn file_s_open(mrb: &Mrb, self_: RClass, args: &[Value]) -> Result<Value, Error>
     let Some(block) = block else {
         return Ok(file);
     };
-    let answer = block.call(mrb, &[file]);
-    file.funcall(mrb, c"close", &[])?;
+    let answer = block.call(mrb, [file]);
+    file.funcall::<_, _, Value>(mrb, c"close", ())?;
     answer
 }
 

@@ -25,7 +25,7 @@ impl Gem for KobakoBridge {
     /// `mrb_func_t` in this crate. The handles the definitions produce are
     /// owned by mruby and live for the duration of `mrb`.
     fn init(mrb: &Mrb) -> Result<(), Error> {
-        let object_class = mrb.object_class();
+        let object_class = mrb.class_object();
 
         // Kobako module.
         let kobako_mod = mrb.define_module(c"Kobako")?;

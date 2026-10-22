@@ -48,7 +48,7 @@ fn string_to_codec(val: Value) -> Option<CodecValue> {
 /// The name rides as ext 0x00, which must be UTF-8; reading the bytes
 /// rather than rendering is what makes a non-UTF-8 name detectable at all.
 fn symbol_name(kobako: &Kobako, symbol: Symbol) -> Option<String> {
-    String::from_utf8(symbol.name_bytes(kobako.mrb())?).ok()
+    String::from_utf8(symbol.name_bytes(kobako.mrb()).ok()?).ok()
 }
 
 /// A name the wire cannot carry leaves the value unrepresentable, so the
@@ -272,7 +272,7 @@ impl Kobako {
                 // `to_sym` on this fresh String cannot raise; degrade to
                 // the String itself.
                 let s = mrb.str_new(name.as_bytes()).as_value();
-                s.funcall(mrb, c"to_sym", &[]).unwrap_or(s)
+                s.funcall(mrb, c"to_sym", ()).unwrap_or(s)
             }
             CodecValue::Array(items) => {
                 let ary = mrb.ary_new();
@@ -289,7 +289,7 @@ impl Kobako {
                     let key = self.to_mrb_value(k)?;
                     let val = self.to_mrb_value(v)?;
                     // Fresh hash, never frozen — the set cannot raise.
-                    let _ = hash.set(mrb, key, val);
+                    let _ = hash.aset(mrb, key, val);
                 }
                 hash.as_value()
             }

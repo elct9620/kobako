@@ -41,7 +41,7 @@ pub(crate) fn build(mrb: &Mrb, regexp: Value, state: MatchState) -> Value {
 }
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
-    let cls = mrb.define_class(c"MatchData", mrb.object_class())?;
+    let cls = mrb.define_class(c"MatchData", mrb.class_object())?;
     MatchState::mark_carriers(mrb)?;
     cls.define_singleton_method(mrb, c"new", beni::method!(md_new_forbidden, -1))?;
     cls.define_method(mrb, c"[]", beni::method!(md_aref, -1))?;
@@ -124,7 +124,7 @@ fn md_aref(mrb: &Mrb, state: &MatchState, args: &[Value]) -> Result<Value, Error
     let array = to_a(mrb, state)?.as_value();
     if let [arg] = args {
         if let Some(index) = numeric_index(mrb, state, *arg)? {
-            return array.funcall(mrb, c"[]", &[index.into_value(mrb)]);
+            return array.funcall(mrb, c"[]", [index.into_value(mrb)]);
         }
     }
     array.funcall(mrb, c"[]", args)
@@ -187,11 +187,11 @@ fn md_named_captures(mrb: &Mrb, state: &MatchState, args: &[Value]) -> Result<Va
     for (name, index) in &state.names {
         let key = mrb.str_new(name.as_bytes()).as_value();
         let key = if symbolize {
-            key.funcall(mrb, c"to_sym", &[])?
+            key.funcall(mrb, c"to_sym", ())?
         } else {
             key
         };
-        map.set(mrb, key, group_str(mrb, state, *index))?;
+        map.aset(mrb, key, group_str(mrb, state, *index))?;
     }
     Ok(map.as_value())
 }
@@ -208,8 +208,8 @@ fn symbolize_names_requested(mrb: &Mrb, args: &[Value]) -> Result<bool, Error> {
     let key = mrb
         .str_new(b"symbolize_names")
         .as_value()
-        .funcall(mrb, c"to_sym", &[])?;
-    Ok(options.funcall(mrb, c"[]", &[key])?.to_bool())
+        .funcall::<_, _, Value>(mrb, c"to_sym", ())?;
+    options.funcall(mrb, c"[]", [key])
 }
 
 fn md_names(mrb: &Mrb, state: &MatchState) -> Result<Value, Error> {

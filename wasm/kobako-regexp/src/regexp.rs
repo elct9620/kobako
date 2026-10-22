@@ -69,7 +69,7 @@ static COMPILE_CACHE_TYPE: DataType<CompileCache> = DataType::new(c"Kobako::Rege
 // carrier rather than raise.
 unsafe impl TypedData for CompileCache {
     fn class(mrb: &Mrb) -> RClass {
-        mrb.object_class()
+        mrb.class_object()
     }
 
     fn data_type() -> &'static DataType<Self> {
@@ -103,7 +103,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     // backtracking limit raises; the gem owns it as a StandardError subclass.
     mrb.define_error(c"RegexpError", mrb.exception_standard_error())?;
 
-    let cls = mrb.define_class(c"Regexp", mrb.object_class())?;
+    let cls = mrb.define_class(c"Regexp", mrb.class_object())?;
     RegexpState::mark_carriers(mrb)?;
 
     cls.const_set(mrb, c"IGNORECASE", translate::IGNORECASE)?;
@@ -273,7 +273,7 @@ fn rx_match(mrb: &Mrb, self_: Value, arg: Value, pos: Option<Value>) -> Result<V
 /// Mirrors `Regexp#match`'s block form: the block is never called on a miss.
 pub(crate) fn yield_match(mrb: &Mrb, md: Value, block: Option<Proc>) -> Result<Value, Error> {
     match block {
-        Some(b) if !md.is_nil() => b.call(mrb, &[md]),
+        Some(b) if !md.is_nil() => b.call(mrb, [md]),
         _ => Ok(md),
     }
 }
@@ -305,7 +305,7 @@ fn rx_eqtilde(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, Error> {
     if md.is_nil() {
         Ok(qnil().as_value())
     } else {
-        md.funcall(mrb, c"begin", &[0i32.into_value(mrb)])
+        md.funcall(mrb, c"begin", [0i32.into_value(mrb)])
     }
 }
 
@@ -338,7 +338,7 @@ fn rx_named_captures(mrb: &Mrb, state: &RegexpState) -> Result<Value, Error> {
         for index in indexes {
             array.push(mrb, (index as i32).into_value(mrb))?;
         }
-        map.set(
+        map.aset(
             mrb,
             mrb.str_new(name.as_bytes()).as_value(),
             array.as_value(),
@@ -413,7 +413,7 @@ fn rx_eq(mrb: &Mrb, self_: Value, arg: Value) -> bool {
 
 /// Read straight from `$~`: MRI keeps the two in lock-step and every match
 /// refreshes `$~`, so no separate state is needed.
-fn rx_last_match(mrb: &Mrb, _self: Value) -> Value {
+fn rx_last_match(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     mrb.gv_get(c"$~")
 }
 
@@ -513,7 +513,7 @@ pub(crate) fn text_of(mrb: &Mrb, val: Value) -> Result<String, Error> {
     let string = match RString::from_value(val) {
         Some(string) => string,
         None => {
-            let rendered = val.funcall(mrb, c"to_s", &[])?;
+            let rendered = val.funcall(mrb, c"to_s", ())?;
             RString::from_value(rendered).unwrap_or_else(|| val.any_to_s(mrb))
         }
     };
@@ -541,7 +541,7 @@ fn string_text(mrb: &Mrb, val: Value) -> Result<String, Error> {
 /// subject or a text to escape; anything else raises `TypeError`.
 pub(crate) fn string_or_symbol_text(mrb: &Mrb, arg: Value) -> Result<String, Error> {
     match Symbol::from_value(arg) {
-        Some(symbol) => chars_of(mrb, symbol.to_str(mrb)),
+        Some(symbol) => chars_of(mrb, symbol.to_r_string(mrb)?),
         None => string_text(mrb, arg),
     }
 }

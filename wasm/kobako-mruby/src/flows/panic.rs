@@ -114,7 +114,7 @@ pub(super) fn exception_fields(
     };
     let message = {
         let msg_val = exc_val
-            .funcall(mrb, c"message", &[])
+            .funcall(mrb, c"message", ())
             .unwrap_or(beni::value::qnil().as_value());
         let m = msg_val.to_string(mrb);
         if m.is_empty() {

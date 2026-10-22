@@ -57,7 +57,7 @@ impl Kobako {
         use beni::Module;
 
         let mrb = self.mrb();
-        let object_class = mrb.object_class();
+        let object_class = mrb.class_object();
         // Namespaces this call has already registered. Paths gathered under
         // one namespace are the ordinary registry shape, so resolving each
         // prefix once is what keeps a nested binding close to the price of
@@ -100,7 +100,7 @@ impl Kobako {
         let first_cstr = std::ffi::CString::new(first).map_err(|_| InstallError::NulInName)?;
         let mut module = mrb
             .define_module(first_cstr.as_c_str())
-            .map_err(|e| install_error(mrb, mrb.object_class(), &first_cstr, e))?;
+            .map_err(|e| install_error(mrb, mrb.class_object(), &first_cstr, e))?;
         for segment in segments {
             let segment_cstr =
                 std::ffi::CString::new(segment).map_err(|_| InstallError::NulInName)?;

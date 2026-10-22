@@ -44,7 +44,7 @@ fn compile_source(kobako: &Kobako, name: &str, body: &str) -> Result<Vec<u8>, Pa
 
 #[cfg(test)]
 mod tests {
-    use beni::{Error, Mrb, TryConvert};
+    use beni::{Error, Mrb};
 
     use super::*;
     use crate::codec::{CodecError, PayloadCodec};
@@ -89,9 +89,7 @@ mod tests {
             // this same mruby release.
             unsafe { mrb.load_irep(bytecode) }.map_err(|err| err.message(&mrb))?;
         }
-        mrb.load_string(script.as_bytes())
-            .and_then(|value| String::try_convert(value, &mrb))
-            .map_err(|err| err.message(&mrb))
+        mrb.eval::<String>(script).map_err(|err| err.message(&mrb))
     }
 
     // @behavior MR-019

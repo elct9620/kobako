@@ -144,7 +144,7 @@ fn io_each_line(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error
     let fd = readable(mrb, self_)?;
     while let Some(line) = read_line(fd).map_err(|err| fail(mrb, self_, &err))? {
         let _scope = mrb.arena_scope();
-        block.call(mrb, &[mrb.str_new(&line).as_value()])?;
+        block.call::<_, Value>(mrb, [mrb.str_new(&line).as_value()])?;
     }
     Ok(self_)
 }

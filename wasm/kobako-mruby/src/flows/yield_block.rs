@@ -76,7 +76,7 @@ pub(crate) fn yield_to_block<G: crate::MrbGuest>(req: &[u8]) -> YieldReply {
     // the VM-internal `mrb_context.ci` / `cibase` frame indices, which
     // carry no MRB_API accessor and so stay on the unsafe `sys` seam.
     let enter_idx = unsafe { sys::mrb_current_ci_index_func(mrb.as_ptr()) };
-    let result = block.call(mrb, &args);
+    let result = block.call(mrb, args.as_slice());
 
     // Step 4: classify the outcome. Extract any exception fields
     // immediately on the Err path before any other mruby allocation

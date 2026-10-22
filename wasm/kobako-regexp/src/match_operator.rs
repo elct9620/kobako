@@ -15,7 +15,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 
 /// `Symbol#=~` — the name, never its rendering, answers as a String would.
 fn sym_eqtilde(mrb: &Mrb, self_: Symbol, operand: Value) -> Result<Value, Error> {
-    string_ext::str_eqtilde(mrb, self_.to_str(mrb).as_value(), operand)
+    string_ext::str_eqtilde(mrb, self_.to_r_string(mrb)?.as_value(), operand)
 }
 
 /// `NilClass#=~` — always `nil`.

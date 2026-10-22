@@ -17,7 +17,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 /// The String methods read the block from this same frame, so a block given
 /// to the Symbol reaches the match.
 fn sym_match(mrb: &Mrb, self_: Symbol, pattern: Value, pos: Option<Value>) -> Result<Value, Error> {
-    string_ext::str_match(mrb, self_.to_str(mrb).as_value(), pattern, pos)
+    string_ext::str_match(mrb, self_.to_r_string(mrb)?.as_value(), pattern, pos)
 }
 
 fn sym_match_p(
@@ -26,9 +26,9 @@ fn sym_match_p(
     pattern: Value,
     pos: Option<Value>,
 ) -> Result<Value, Error> {
-    string_ext::str_match_p(mrb, self_.to_str(mrb).as_value(), pattern, pos)
+    string_ext::str_match_p(mrb, self_.to_r_string(mrb)?.as_value(), pattern, pos)
 }
 
 fn sym_aref(mrb: &Mrb, self_: Symbol, args: &[Value]) -> Result<Value, Error> {
-    string_ext::str_aref(mrb, self_.to_str(mrb).as_value(), args)
+    string_ext::str_aref(mrb, self_.to_r_string(mrb)?.as_value(), args)
 }

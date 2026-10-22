@@ -51,7 +51,7 @@ pub(crate) fn decode(mrb: &Mrb, json: &JsonValue, symbolize: bool) -> Result<Val
                 let key = decode_key(mrb, k, symbolize);
                 let val = decode(mrb, v, symbolize)?;
                 // Fresh hash, never frozen — the set cannot raise.
-                let _ = hash.set(mrb, key, val);
+                let _ = hash.aset(mrb, key, val);
             }
             Ok(hash.as_value())
         }
@@ -102,7 +102,7 @@ fn clamp_literal(literal: &str) -> String {
 fn decode_key(mrb: &Mrb, key: &str, symbolize: bool) -> Value {
     let s = mrb.str_new(key.as_bytes()).as_value();
     if symbolize {
-        s.funcall(mrb, c"to_sym", &[]).unwrap_or(s)
+        s.funcall(mrb, c"to_sym", ()).unwrap_or(s)
     } else {
         s
     }
@@ -175,12 +175,12 @@ fn encode_hash(mrb: &Mrb, hash: RHash, depth: usize) -> Result<JsonValue, Error>
     let keys = hash.keys(mrb);
     let mut map = Map::with_capacity(size);
     for key in keys.entries(mrb) {
-        // `contains_key` and `get` are the C lookups, not a Ruby `[]`
+        // `contains_key` and `aref` are the C lookups, not a Ruby `[]`
         // dispatch; a key whose own `hash` raises still reads as present.
         if !hash.contains_key(mrb, key).unwrap_or(true) {
             continue;
         }
-        let value = hash.get(mrb, key).unwrap_or(qnil().as_value());
+        let value = hash.aref(mrb, key).unwrap_or(qnil().as_value());
         map.insert(encode_key(mrb, key)?, encode(mrb, value, depth + 1)?);
         if hash.len() > size {
             return Err(key_added_error(mrb));
@@ -239,7 +239,7 @@ fn encode_via_as_json(mrb: &Mrb, val: Value, depth: usize) -> Result<JsonValue, 
     // object that overrode it returns a value to encode. The raise
     // resolves on `Object`, never `method_missing`, so a proxy refuses
     // here without forwarding to the host.
-    let projected = val.funcall(mrb, c"as_json", &[])?;
+    let projected = val.funcall(mrb, c"as_json", ())?;
     encode(mrb, projected, depth + 1)
 }
 
@@ -256,6 +256,7 @@ fn utf8_string(mrb: &Mrb, s: RString) -> Result<String, Error> {
 fn utf8_symbol_name(mrb: &Mrb, symbol: Symbol) -> Result<String, Error> {
     symbol
         .name_bytes(mrb)
+        .ok()
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .ok_or_else(|| generator_error(mrb, "symbol name is not valid UTF-8"))
 }

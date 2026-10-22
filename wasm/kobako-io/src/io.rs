@@ -88,7 +88,7 @@ pub(crate) fn new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Err
         sync: true,
     }));
     let stream = mrb.wrap_as(stream, class).as_value();
-    stream.funcall(mrb, c"initialize", args)?;
+    stream.funcall::<_, _, Value>(mrb, c"initialize", args)?;
     Ok(stream)
 }
 
@@ -102,7 +102,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
     // Passing a NULL super to `mrb_define_class` makes mruby emit
     // `"no super class for 'IO', Object assumed"` via `mrb_warn` on
     // every install, leaking onto the guest `stderr` capture pipe.
-    let io = mrb.define_class(c"IO", mrb.object_class())?;
+    let io = mrb.define_class(c"IO", mrb.class_object())?;
     // Marked before `File` derives from it, so a `File` carries a `Stream`.
     Stream::mark_carriers(mrb)?;
 
@@ -134,7 +134,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
     // them. Guests can reassign either global at script time, which is
     // the whole point of routing through the Kernel delegators that
     // `crate::kernel_ext::init` registers afterwards.
-    let mode_str = mrb.str_new_cstr(c"w").as_value();
+    let mode_str = mrb.str_new(b"w").as_value();
     let stdout_val = new(mrb, io, &[1i32.into_value(mrb), mode_str])?;
     let stderr_val = new(mrb, io, &[2i32.into_value(mrb), mode_str])?;
 
@@ -315,9 +315,9 @@ fn io_putc(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
 fn io_p(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     for &val in args {
         let _scope = mrb.arena_scope();
-        let insp = val.funcall(mrb, c"inspect", &[])?;
+        let insp: Value = val.funcall(mrb, c"inspect", ())?;
         let nl = mrb.str_new(b"\n").as_value();
-        self_.funcall(mrb, c"write", &[insp, nl])?;
+        self_.funcall::<_, _, Value>(mrb, c"write", [insp, nl])?;
     }
     Ok(match args {
         [] => qnil().as_value(),
@@ -356,7 +356,7 @@ fn io_flush(_mrb: &Mrb, self_: Value) -> Value {
 /// Dispatches through `self.write`, so a subclass overriding `#write`
 /// redirects every composite method.
 fn write_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
-    self_.funcall(mrb, c"write", &[val])?;
+    self_.funcall::<_, _, Value>(mrb, c"write", [val])?;
     Ok(())
 }
 

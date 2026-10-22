@@ -172,7 +172,7 @@ fn load_bytecode_snippet(kobako: &Kobako, body: &[u8]) -> Result<(), Panic> {
     let program = unsafe { mrb.read_irep(body) }
         .map_err(|err| sandbox_panic("Kobako::BytecodeError", err.message(mrb)))?;
     program
-        .call(mrb, &[])
+        .call::<_, beni::Value>(mrb, ())
         .map(drop)
         .map_err(|err| replay_panic(panic_from_error(kobako, err)))
 }

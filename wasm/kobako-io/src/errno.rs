@@ -74,7 +74,7 @@ const CODES: &[Code] = &[
 const WASI_NOTCAPABLE: i32 = 76;
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
-    let object = mrb.object_class();
+    let object = mrb.class_object();
     let io_error = object.define_error(mrb, c"IOError", mrb.exception_standard_error())?;
     object.define_error(mrb, c"EOFError", io_error)?;
     let system_call =
@@ -138,7 +138,7 @@ fn sce_s_new(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
 
 /// The number the error's class stands for, or the one it was built with.
 fn sce_errno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let class = self_.funcall(mrb, c"class", &[])?;
+    let class = self_.funcall(mrb, c"class", ())?;
     if let Some(number) = number_of(mrb, class) {
         return Ok(number.into_value(mrb));
     }

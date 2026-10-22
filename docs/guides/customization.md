@@ -172,7 +172,7 @@ struct Greeter;
 
 impl beni::Gem for Greeter {
     fn init(mrb: &Mrb) -> Result<(), beni::Error> {
-        let class = mrb.define_class(c"Greeter", mrb.object_class())?;
+        let class = mrb.define_class(c"Greeter", mrb.class_object())?;
         class.define_method(mrb, c"hello", beni::method!(hello, 1))?;
         Ok(())
     }
@@ -202,7 +202,7 @@ struct Counter {
 }
 
 // inside the gem's init
-mrb.define_class(c"Counter", mrb.object_class())?;
+mrb.define_class(c"Counter", mrb.class_object())?;
 Counter::mark_carriers(mrb)?;
 ```
 

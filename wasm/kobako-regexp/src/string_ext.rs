@@ -26,10 +26,11 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     ];
     let mut hidden = Vec::with_capacity(ALIASES.len());
     for (alias, original) in ALIASES {
-        cls.alias_method(mrb, alias, original)?;
+        cls.define_alias(mrb, alias, original)?;
         hidden.push(mrb.intern_cstr(alias)?.into_value(mrb));
     }
-    cls.as_value().funcall(mrb, c"private", &hidden)?;
+    cls.as_value()
+        .funcall::<_, _, Value>(mrb, c"private", hidden.as_slice())?;
 
     cls.define_method(mrb, c"=~", beni::method!(str_eqtilde, 1))?;
     cls.define_method(mrb, c"match", beni::method!(str_match, 1, 1))?;
@@ -54,7 +55,7 @@ pub(crate) fn str_eqtilde(mrb: &Mrb, self_: Value, arg: Value) -> Result<Value, 
     if RString::from_value(arg).is_some() {
         return Err(type_error(mrb, "type mismatch: String given"));
     }
-    arg.funcall(mrb, c"=~", &[self_])
+    arg.funcall(mrb, c"=~", [self_])
 }
 
 pub(crate) fn str_match(
@@ -65,7 +66,7 @@ pub(crate) fn str_match(
 ) -> Result<Value, Error> {
     let block = crate::args::block(mrb)?;
     let re = regexp::spelled_regexp(mrb, pattern)?;
-    let md = re.funcall(mrb, c"match", &forwarded(self_, pos))?;
+    let md = re.funcall(mrb, c"match", forwarded(self_, pos).as_slice())?;
     regexp::yield_match(mrb, md, block)
 }
 
@@ -76,7 +77,7 @@ pub(crate) fn str_match_p(
     pos: Option<Value>,
 ) -> Result<Value, Error> {
     let re = regexp::spelled_regexp(mrb, pattern)?;
-    re.funcall(mrb, c"match?", &forwarded(self_, pos))
+    re.funcall(mrb, c"match?", forwarded(self_, pos).as_slice())
 }
 
 /// The subject, then the position only when the caller gave one, so the
@@ -95,7 +96,7 @@ fn str_scan(mrb: &Mrb, self_: Value, pattern: Value) -> Result<Value, Error> {
         let item = scan_item(mrb, &subject, span)?;
         match block {
             Some(b) => {
-                b.call(mrb, &[item])?;
+                b.call::<_, Value>(mrb, [item])?;
             }
             None => result.push(mrb, item)?,
         }
@@ -200,7 +201,7 @@ fn substitution(
     if let Some(rep) = replacement {
         if RHash::from_value(rep).is_some() {
             let matched = mrb.str_new(&subject.as_bytes()[start..end]).as_value();
-            let value = rep.funcall(mrb, c"[]", &[matched])?;
+            let value = rep.funcall(mrb, c"[]", [matched])?;
             return regexp::text_of(mrb, value);
         }
         return regexp::expand_replacement(mrb, re, subject, span, &regexp::text_of(mrb, rep)?);
@@ -208,7 +209,7 @@ fn substitution(
     if let Some(b) = block {
         regexp::set_span_globals(mrb, re, subject, span);
         let matched = mrb.str_new(&subject.as_bytes()[start..end]).as_value();
-        return regexp::text_of(mrb, b.call(mrb, &[matched])?);
+        return regexp::text_of(mrb, b.call(mrb, [matched])?);
     }
     Ok(String::new())
 }
@@ -219,8 +220,8 @@ fn enum_for(mrb: &Mrb, self_: Value, method: &CStr, pattern: Value) -> Result<Va
     let symbol = mrb
         .str_new(method.to_bytes())
         .as_value()
-        .funcall(mrb, c"to_sym", &[])?;
-    self_.funcall(mrb, c"to_enum", &[symbol, pattern])
+        .funcall(mrb, c"to_sym", ())?;
+    self_.funcall(mrb, c"to_enum", [symbol, pattern])
 }
 
 /// `String#split` on a `Regexp`: the text between matches, with each match's
@@ -291,7 +292,7 @@ fn str_index(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     };
     let tail = mrb.str_new(&subject.as_bytes()[start..]).as_value();
     Ok(
-        match i32::from_value(args[0].funcall(mrb, c"=~", &[tail])?) {
+        match i32::from_value(args[0].funcall(mrb, c"=~", [tail])?) {
             Some(offset) => ((i64::from(offset) + start as i64) as i32).into_value(mrb),
             None => qnil().as_value(),
         },
@@ -302,12 +303,12 @@ pub(crate) fn str_aref(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value,
     if !args.first().is_some_and(|a| regexp::is_regexp(mrb, *a)) {
         return self_.funcall(mrb, c"__kobako_aref", args);
     }
-    let md = args[0].funcall(mrb, c"match", &[self_])?;
+    let md: Value = args[0].funcall(mrb, c"match", [self_])?;
     if md.is_nil() {
         return Ok(qnil().as_value());
     }
     let group = args.get(1).copied().unwrap_or_else(|| 0i32.into_value(mrb));
-    md.funcall(mrb, c"[]", &[group])
+    md.funcall(mrb, c"[]", [group])
 }
 
 /// A non-matching pattern raises `IndexError`, as `str[regexp] = x` does in
@@ -321,17 +322,17 @@ fn str_aset(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
         3 => (args[1], args[2]),
         n => return Err(Error::argnum(mrb, n, 2, 3)),
     };
-    let md = args[0].funcall(mrb, c"match", &[self_])?;
+    let md: Value = args[0].funcall(mrb, c"match", [self_])?;
     if md.is_nil() {
         return Err(index_error(mrb, "regexp not matched"));
     }
-    let begin = md.funcall(mrb, c"begin", &[group])?;
-    let end = md.funcall(mrb, c"end", &[group])?;
+    let begin: Value = md.funcall(mrb, c"begin", [group])?;
+    let end: Value = md.funcall(mrb, c"end", [group])?;
     let (Some(b), Some(e)) = (i32::from_value(begin), i32::from_value(end)) else {
         return Err(index_error(mrb, "regexp not matched"));
     };
     let len = (e - b).into_value(mrb);
-    self_.funcall(mrb, c"__kobako_aset", &[begin, len, replacement])?;
+    self_.funcall::<_, _, Value>(mrb, c"__kobako_aset", [begin, len, replacement])?;
     Ok(self_)
 }
 
@@ -342,14 +343,16 @@ fn str_slice_bang(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Erro
     let Some(&nth) = args.first() else {
         return Err(Error::argnum(mrb, 0, 1, 2));
     };
-    let result = self_.funcall(mrb, c"slice", args)?;
+    let result: Value = self_.funcall(mrb, c"slice", args)?;
     let regexp_form = regexp::is_regexp(mrb, nth);
-    let saved = regexp_form.then(|| mrb.gv_get(c"$~"));
+    let saved = regexp_form
+        .then(|| mrb.gv_get::<_, Value>(c"$~"))
+        .transpose()?;
     if !result.is_nil() && slice_bang_should_delete(mrb, self_, args, regexp_form)? {
         let empty = mrb.str_new(b"").as_value();
         match args.get(1) {
-            Some(&len) => self_.funcall(mrb, c"[]=", &[nth, len, empty])?,
-            None => self_.funcall(mrb, c"[]=", &[nth, empty])?,
+            Some(&len) => self_.funcall::<_, _, Value>(mrb, c"[]=", [nth, len, empty])?,
+            None => self_.funcall::<_, _, Value>(mrb, c"[]=", [nth, empty])?,
         };
     }
     if let Some(last_match) = saved {
@@ -370,7 +373,7 @@ fn slice_bang_should_delete(
     if regexp_form || args.len() < 2 {
         return Ok(true);
     }
-    let size = self_.funcall(mrb, c"size", &[])?;
+    let size = self_.funcall(mrb, c"size", ())?;
     Ok(i32::from_value(args[0]) != i32::from_value(size))
 }
 

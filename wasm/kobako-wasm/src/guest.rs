@@ -39,7 +39,7 @@ impl kobako_mruby::MrbGuest for KobakoGuest {
 
         match flag.name.as_str() {
             "disable_file" => {
-                mrb.object_class().const_remove(mrb, c"File")?;
+                mrb.class_object().const_remove(mrb, c"File")?;
                 Ok(true)
             }
             _ => Ok(false),

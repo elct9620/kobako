@@ -91,9 +91,9 @@ fn forward_to_dispatch(
     let kwargs_hash = args.keywords;
     let block = args.block;
 
-    let method_name = match kobako.mrb().sym_name(method_sym.into()) {
-        Some(name) => name,
-        None => return Err(kobako.transport_error(sym_err_msg)),
+    let method_name = match method_sym.name(kobako.mrb()) {
+        Ok(name) => name,
+        Err(_) => return Err(kobako.transport_error(sym_err_msg)),
     };
 
     // Guest-side mirror of the host's reflection rejection:

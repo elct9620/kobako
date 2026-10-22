@@ -56,7 +56,7 @@ impl Kobako {
     /// guest cannot choose it.
     fn strings_from_funcall(&self, recv: Value, method: &std::ffi::CStr) -> Vec<String> {
         use beni::FromValue;
-        let Ok(val) = recv.funcall(self.mrb(), method, &[]) else {
+        let Ok(val) = recv.funcall::<_, _, Value>(self.mrb(), method, ()) else {
             return Vec::new();
         };
         if val.classname(self.mrb()) != "Array" {
@@ -88,7 +88,7 @@ impl Kobako {
     /// Every top-level constant currently defined on `Object`. It costs one
     /// allocation per name, so take it where the answer is kept.
     pub fn top_level_constants(&self) -> Vec<String> {
-        let object_value = self.mrb().object_class().as_value();
+        let object_value = self.mrb().class_object().as_value();
         self.strings_from_funcall(object_value, c"constants")
     }
 

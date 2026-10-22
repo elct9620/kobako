@@ -30,36 +30,36 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 
 /// An unset global reads as `nil`, so the funcall that follows raises
 /// `NoMethodError` exactly as the mrblib delegator would.
-fn global(mrb: &Mrb, name: &core::ffi::CStr) -> Value {
+fn global(mrb: &Mrb, name: &core::ffi::CStr) -> Result<Value, Error> {
     mrb.gv_get(name)
 }
 
 fn kernel_print(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
-    global(mrb, c"$stdout").funcall(mrb, c"print", args)
+    global(mrb, c"$stdout")?.funcall(mrb, c"print", args)
 }
 
 fn kernel_puts(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
-    global(mrb, c"$stdout").funcall(mrb, c"puts", args)
+    global(mrb, c"$stdout")?.funcall(mrb, c"puts", args)
 }
 
 fn kernel_printf(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
-    global(mrb, c"$stdout").funcall(mrb, c"printf", args)
+    global(mrb, c"$stdout")?.funcall(mrb, c"printf", args)
 }
 
 fn kernel_p(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
-    global(mrb, c"$stdout").funcall(mrb, c"p", args)
+    global(mrb, c"$stdout")?.funcall(mrb, c"p", args)
 }
 
 /// `Kernel#warn` routes through `$stderr.puts` — symmetric with the
 /// `$stdout` delegators above.
 fn kernel_warn(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
-    global(mrb, c"$stderr").funcall(mrb, c"puts", args)
+    global(mrb, c"$stderr")?.funcall(mrb, c"puts", args)
 }
 
 /// `Kernel#putc` returns `nil`, not the argument — pinned by
 /// mruby-io's `mrblib/kernel.rb`; the IO-level `IO#putc` does return
 /// the original argument, and this delegator deliberately drops it.
 fn kernel_putc(mrb: &Mrb, _self: Value, obj: Value) -> Result<(), Error> {
-    global(mrb, c"$stdout").funcall(mrb, c"putc", &[obj])?;
+    global(mrb, c"$stdout")?.funcall::<_, _, Value>(mrb, c"putc", [obj])?;
     Ok(())
 }

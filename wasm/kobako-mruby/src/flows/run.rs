@@ -59,7 +59,7 @@ fn call_entrypoint<G: crate::MrbGuest>(preamble: &Preamble, run: Run) -> Result<
     // Looked up without interning: a constant is named by a symbol that
     // already exists, so a name with none is undefined without adding one
     // to the guest's symbol table.
-    let object_class = mrb.object_class();
+    let object_class = mrb.class_object();
     let defined = mrb
         .check_id(run.entrypoint.as_bytes())
         .filter(|&sym| object_class.const_defined(mrb, sym));
@@ -111,7 +111,7 @@ fn call_entrypoint<G: crate::MrbGuest>(preamble: &Preamble, run: Run) -> Result<
     }
 
     let result_val = target_val
-        .funcall(mrb, c"call", &argv)
+        .funcall(mrb, c"call", argv.as_slice())
         .map_err(|err| panic::panic_from_error(&kobako, err))?;
 
     Ok(panic::value_outcome::<G>(&kobako, result_val))
