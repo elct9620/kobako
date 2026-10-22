@@ -67,6 +67,17 @@ module Kobako
       super
     end
 
+    # The least guest memory one value occupies, so a guest payload may hold
+    # one value for each of these bytes of +memory_limit+
+    # (docs/wire/payload-msgpack.md § Value Budget).
+    VALUE_BYTES = 16
+
+    # The most values a guest payload may make the host build, or nil
+    # without a memory cap.
+    def value_budget # :nodoc:
+      memory_limit&./(VALUE_BYTES)
+    end
+
     # Both fallbacks fail closed: an unknown declaration ranks below every
     # request, and an unknown request refuses every declaration.
     def enforce_floor!(declared) # :nodoc:

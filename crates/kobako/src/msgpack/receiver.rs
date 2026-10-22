@@ -3,7 +3,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use kobako_codec::msgpack::codec::{Decode, Encoder, Value};
+use kobako_codec::msgpack::codec::{Encoder, Value};
 use kobako_codec::msgpack::payload::Arguments;
 
 use crate::handles::Handles;
@@ -81,12 +81,13 @@ impl<V: ValueReceiver> Receiver for IntoReceiver<V> {
         block: Option<&mut Yielder<'_>>,
         handles: &Handles<'_>,
     ) -> Result<Vec<u8>, Fault> {
-        let arguments = Arguments::decode(payload).map_err(|err| {
-            Fault::new(
-                FaultKind::Internal,
-                format!("Sandbox could not read the request: {err}"),
-            )
-        })?;
+        let arguments =
+            Arguments::decode_within(payload, super::budget::current()).map_err(|err| {
+                Fault::new(
+                    FaultKind::Internal,
+                    format!("Sandbox could not read the request: {err}"),
+                )
+            })?;
         let value = self
             .0
             .call(method, &arguments.args, &arguments.kwargs, block, handles)?;
@@ -168,6 +169,30 @@ mod tests {
             matches!(refusal, Err(fault) if fault.kind == FaultKind::Internal),
             "a payload this schema cannot read must refuse as an internal fault — the \
              receiver never ran, so nothing about it failed"
+        );
+    }
+
+    // [[nil, nil, nil, nil], {}] is seven values against a budget of six.
+    // @behavior T-288
+    #[test]
+    fn a_call_past_the_value_budget_folds_into_an_internal_fault() {
+        let table = Detached::new();
+        let wide = [0x92, 0x94, 0xc0, 0xc0, 0xc0, 0xc0, 0x80];
+
+        let refusal = crate::msgpack::budget::scope(Some(6), || {
+            Echo.into_receiver()
+                .call("echo", &wide, None, &table.as_handles())
+        });
+
+        assert_eq!(
+            refusal,
+            Err(Fault::new(
+                FaultKind::Internal,
+                "Sandbox could not read the request: malformed msgpack structure: payload \
+                 holds more values than its budget"
+            )),
+            "a Call whose arguments hold more values than the budget through into_receiver \
+             must refuse as an internal fault naming the budget"
         );
     }
 

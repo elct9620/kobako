@@ -18,6 +18,21 @@ module Kobako
 
       def initialize
         @carried_handle = false
+        @value_limit = nil
+      end
+
+      # The most values a decode on this thread may build, or nil for no
+      # budget.
+      attr_reader :value_limit
+
+      # A nested invocation on the same thread restores the outer one's
+      # budget when it returns.
+      def limit_values(limit)
+        outer = @value_limit
+        @value_limit = limit
+        yield
+      ensure
+        @value_limit = outer
       end
 
       # ExtTypes#unpack_handle is the sole chokepoint every Handle passes

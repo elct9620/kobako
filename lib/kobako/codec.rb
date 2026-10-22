@@ -5,6 +5,7 @@ require_relative "codec/utils"
 require_relative "codec/handle_walk"
 require_relative "codec/nesting"
 require_relative "codec/state"
+require_relative "codec/value_budget"
 require_relative "codec/ext_types"
 require_relative "codec/encoder"
 require_relative "codec/decoder"
@@ -22,6 +23,12 @@ module Kobako
     # Capability Handle, so a caller can skip an all-identity restore walk.
     def self.track_handles(&block)
       State.current.track_handles(&block)
+    end
+
+    # Holds every decode the block runs on this thread to +limit+ values,
+    # or to none when +limit+ is nil.
+    def self.limit_values(limit, &block)
+      State.current.limit_values(limit, &block)
     end
   end
 end

@@ -15,6 +15,7 @@
 //! same reason the guest tiers carry one namespace per schema — turning
 //! the `msgpack` feature off removes this module whole.
 
+pub(crate) mod budget;
 mod execution;
 mod handles;
 mod payload;

@@ -18,7 +18,7 @@ impl Execution {
     /// It decodes per call, so a caller reading the value more than once
     /// holds onto what it gets.
     pub fn value(&self) -> Result<Value, Error> {
-        let value = decode_value(self.payload().map_err(Clone::clone)?)?;
+        let value = decode_value(self.payload().map_err(Clone::clone)?, self.value_budget)?;
         self.require_live_handles(&value)?;
         Ok(value)
     }
@@ -44,8 +44,9 @@ impl Execution {
 /// Attribution already framed the outcome, so a fault here is the
 /// schema's: a sandbox-origin wire violation with the codec detail kept for
 /// operator triage.
-fn decode_value(body: &[u8]) -> Result<Value, Error> {
+fn decode_value(body: &[u8], budget: Option<usize>) -> Result<Value, Error> {
     Decoder::new(body)
+        .with_value_limit(budget)
         .read_only_value()
         .map_err(|err| wire_violation("Sandbox produced an invalid result value", &err))
 }
@@ -71,7 +72,7 @@ mod tests {
         let outcome = Outcome::Ok(Encoder::encode(&Value::Int(42)).unwrap());
 
         assert_eq!(
-            decode_value(&classify(outcome, "eval").unwrap()).unwrap(),
+            decode_value(&classify(outcome, "eval").unwrap(), None).unwrap(),
             Value::Int(42),
             "an ok arm carrying an encodable value must read back through the codec unchanged"
         );
@@ -81,7 +82,8 @@ mod tests {
     #[test]
     fn a_malformed_value_body_is_a_wire_violation_sandbox_error() {
         // The ok arm followed by a truncated msgpack str header.
-        let result = classify(Outcome::Ok(vec![0xd9]), "eval").and_then(|body| decode_value(&body));
+        let result =
+            classify(Outcome::Ok(vec![0xd9]), "eval").and_then(|body| decode_value(&body, None));
 
         assert!(
             matches!(result, Err(Error::Sandbox(f)) if f.name == WIRE_ERROR_CLASS),

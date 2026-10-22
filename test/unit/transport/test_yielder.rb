@@ -61,4 +61,17 @@ class TestYielder < Minitest::Test
     assert_equal @handle.id, thrown.id,
                  "the same Handle id rides back to the guest — no fresh Catalog::Handles entry is churned"
   end
+
+  # [1, 2, 3] is four values against a budget of three.
+  # @behavior T-289
+  def test_a_block_answer_past_the_value_budget_raises_at_the_yield
+    yielder = yielder_answering(:ok, value: [1, 2, 3])
+
+    error = assert_raises(Kobako::Codec::InvalidTypeError) do
+      Kobako::Codec.limit_values(3) { yielder.yield }
+    end
+    assert_equal "payload holds more than 3 values", error.message,
+                 "a block answer holding more values than the budget through Yielder#yield must " \
+                 "raise at the Service's yield site rather than reach the Service"
+  end
 end

@@ -1,0 +1,23 @@
+module Kobako
+  module Codec
+    module ValueBudget
+      SCALARS: Hash[Integer, Integer]
+
+      COUNTS: Hash[Integer, [Integer, Integer]]
+
+      LENGTHS: Hash[Integer, [Integer, Integer]]
+
+      UINT: Hash[Integer, String]
+
+      def self.assert_within!: (String bytes, Integer? limit) -> void
+
+      private
+
+      def self.step: (String bytes, Integer pos) -> [Integer?, Integer]
+
+      def self.framed: (String bytes, Integer pos, Integer marker) -> [Integer?, Integer]
+
+      def self.uint: (String bytes, Integer pos, Integer width) -> Integer
+    end
+  end
+end

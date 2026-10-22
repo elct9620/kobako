@@ -44,6 +44,10 @@ pub struct Execution {
     stdout: Capture,
     stderr: Capture,
     usage: Usage,
+    // The outcome decodes after the invocation returns, so it keeps the
+    // budget the invocation ran under.
+    #[cfg(feature = "msgpack")]
+    pub(crate) value_budget: Option<usize>,
 }
 
 impl Execution {
@@ -60,6 +64,8 @@ impl Execution {
             stdout,
             stderr,
             usage,
+            #[cfg(feature = "msgpack")]
+            value_budget: crate::msgpack::budget::current(),
         }
     }
 

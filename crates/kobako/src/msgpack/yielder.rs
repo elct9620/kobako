@@ -29,6 +29,7 @@ fn encode_args(args: &[Value]) -> Result<Vec<u8>, YieldError> {
 /// endpoint's schema cannot read.
 fn decode_body(body: &[u8]) -> Result<Value, YieldError> {
     Decoder::new(body)
+        .with_value_limit(super::budget::current())
         .read_only_value()
         .map_err(|err| YieldError::Aborted(format!("malformed Yield Reply payload: {err}")))
 }
@@ -100,6 +101,27 @@ mod tests {
             answer,
             Value::Int(42),
             "the block's answer through Yielder::call must read back as this schema's value"
+        );
+    }
+
+    // [1, 2, 3] is four values against a budget of three.
+    // @behavior T-289
+    #[test]
+    fn an_answer_past_the_value_budget_never_reaches_the_receiver() {
+        let mut raw = scripted(vec![YieldReply::Ok(vec![0x93, 0x01, 0x02, 0x03])]);
+
+        let answer =
+            crate::msgpack::budget::scope(Some(3), || Yielder::new(&mut raw).call_values(&[]));
+
+        assert_eq!(
+            answer,
+            Err(YieldError::Aborted(
+                "malformed Yield Reply payload: malformed msgpack structure: payload holds \
+                 more values than its budget"
+                    .into()
+            )),
+            "a block answer holding more values than the budget through Yielder::call_values \
+             must fail the yield instead of answering the receiver"
         );
     }
 

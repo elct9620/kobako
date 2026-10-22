@@ -13,6 +13,7 @@ module Kobako
       # from the decoded payload reports a broken invariant as
       # InvalidTypeError without its own Utils.with_boundary.
       def self.decode(bytes)
+        ValueBudget.assert_within!(bytes, State.current.value_limit)
         value = FACTORY.load(bytes.b)
         validate_utf8!(value)
         block_given? ? yield(value) : value

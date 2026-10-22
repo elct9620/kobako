@@ -136,6 +136,10 @@ pub struct Sandbox {
     // an `Arc<Sandbox>` drives concurrent `&self` invocations.
     registry: Mutex<Registry>,
     extensions: Extensions,
+    // The most values a guest payload may make the host build. An engine
+    // the caller brought keeps its memory cap to itself, so its Sandbox
+    // holds no budget.
+    value_budget: Option<usize>,
 }
 
 impl Sandbox {
@@ -157,7 +161,12 @@ impl Sandbox {
             profile: options.profile,
         };
         let driver = Driver::new(wasm_path.as_ref(), config).map_err(Error::Setup)?;
-        Sandbox::with_runtime(driver, options.profile)
+        // The least guest memory one value occupies, so a guest payload may
+        // hold one value for each of these bytes of the memory cap.
+        const VALUE_BYTES: usize = 16;
+        let mut sandbox = Sandbox::with_runtime(driver, options.profile)?;
+        sandbox.value_budget = options.memory_limit.map(|limit| limit / VALUE_BYTES);
+        Ok(sandbox)
     }
 
     /// Drive a guest through an engine of the caller's own, which carries its
@@ -181,6 +190,7 @@ impl Sandbox {
             runtime: Box::new(runtime),
             registry: Mutex::new(Registry::Open(Catalog::default())),
             extensions: Extensions::default(),
+            value_budget: None,
         })
     }
 
@@ -370,10 +380,12 @@ impl Sandbox {
             Entry::Run { .. } => "run",
         };
         let handler = Arc::new(CatalogHandler::new(catalog, handles.clone(), resolved));
-        let snapshot = self
-            .runtime
-            .invoke(entry, &preamble, Some(handler), &grants)?;
-        Ok(build_execution(snapshot, handles, verb))
+        within_value_budget(self.value_budget, || {
+            let snapshot = self
+                .runtime
+                .invoke(entry, &preamble, Some(handler), &grants)?;
+            Ok(build_execution(snapshot, handles, verb))
+        })
     }
 
     /// The seal locks the registry, so concurrent first invocations serialize
@@ -406,6 +418,18 @@ fn open_catalog(registry: &mut Mutex<Registry>) -> Result<&mut Catalog, Error> {
 
 /// The `handles` table rides along so the result's Handles resolve on the
 /// Execution, which is also where the payload meets a schema.
+/// Every guest payload the invocation decodes, its outcome included, is
+/// held to the budget; only the bundled schema can count values.
+#[cfg(feature = "msgpack")]
+fn within_value_budget<T>(limit: Option<usize>, run: impl FnOnce() -> T) -> T {
+    crate::msgpack::budget::scope(limit, run)
+}
+
+#[cfg(not(feature = "msgpack"))]
+fn within_value_budget<T>(_limit: Option<usize>, run: impl FnOnce() -> T) -> T {
+    run()
+}
+
 fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>, verb: &str) -> Execution {
     let outcome = match snapshot.completion {
         Completion::Outcome(outcome) => classify(outcome, verb),

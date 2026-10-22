@@ -5,8 +5,14 @@ module Kobako
 
       def self.current: () -> State
 
+      @carried_handle: bool
+      @value_limit: Integer?
+
+      attr_reader value_limit: Integer?
+
       def track_handles: [T] { () -> T } -> [T, bool]
       def record_handle!: () -> void
+      def limit_values: [T] (Integer? limit) { () -> T } -> T
 
       private
 

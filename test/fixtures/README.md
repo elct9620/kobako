@@ -102,6 +102,16 @@ Hand-written text-format module that satisfies the whole ABI and does nothing el
 
 Unlike the fixtures above it exists for measurement rather than for a behaviour branch. `benchmark/host_invocation.rb` drives it, so the host's per-invocation cost is the total rather than a subtraction of two near-equal numbers. `test/e2e/sandbox/test_null_guest.rb` keeps it honest.
 
+## `minimal_wide_outcome.wat`
+
+Hand-written text-format module whose every downcall answers the same Array of five Integers, six values in all, without growing its memory.
+
+```
+0x10 0x95 0x00 0x00 0x00 0x00 0x00   ok, then [0, 0, 0, 0, 0]
+```
+
+A Sandbox whose memory cap allows fewer values must refuse that answer. The real Guest Binary cannot be made to send it, since encoding a value costs it more memory than the budget grants.
+
 ## `minimal_runaway_compile.wat`
 
 Hand-written text-format module whose compile never finishes, so a cap has to stop it. The real Guest Binary compiles too quickly to reach one.

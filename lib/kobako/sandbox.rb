@@ -142,7 +142,7 @@ module Kobako
     # Handle or a non-Symbol keyword. A failed run raises as #eval does.
     def run(target, *args, **kwargs, &block)
       request = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
-      new_invocation.run(request, &block)
+      within_value_budget { new_invocation.run(request, &block) }
     end
 
     # Evaluate +code+, mruby source as a String, and return the Execution,
@@ -157,10 +157,16 @@ module Kobako
     def eval(code, &block)
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
-      new_invocation.eval(code, &block)
+      within_value_budget { new_invocation.eval(code, &block) }
     end
 
     private
+
+    # What a guest payload makes the host build stays in proportion to what
+    # the guest could hold in its memory cap.
+    def within_value_budget(&block)
+      Codec.limit_values(@options.value_budget, &block)
+    end
 
     # A runtime whose declared posture falls below the request never runs
     # guest code.

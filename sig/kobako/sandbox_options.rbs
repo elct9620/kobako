@@ -8,6 +8,7 @@ module Kobako
     PROFILES: Array[Symbol]
     GVL_MODES: Array[Symbol]
     DEFAULT_GVL: Symbol
+    VALUE_BYTES: Integer
 
     attr_reader timeout: Float?
     attr_reader memory_limit: Integer?
@@ -46,6 +47,8 @@ module Kobako
       profile: Symbol,
       gvl: Symbol
     }
+
+    def value_budget: () -> Integer?
 
     def enforce_floor!: (Symbol declared) -> void
 

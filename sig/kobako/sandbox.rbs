@@ -42,6 +42,8 @@ module Kobako
 
     def new_invocation: () -> Kobako::Context
 
+    def within_value_budget: [T] () { () -> T } -> T
+
     def preamble: (Array[Kobako::Catalog::Snippets::tuple] snippets) -> Kobako::Context::preamble
 
     def refuse_once_invoked!: (String verb) -> void
