@@ -40,7 +40,7 @@ kobako-transport = { version = "0.18.0", path = "../kobako-transport" }
 # feature so test fixtures can be expressed as text.
 # `cache` / `parallel-compilation` / `pooling` / `component-model` / `async`
 # are intentionally off — kobako runs short-lived synchronous sandboxes.
-wasmtime = { version = "49.0.3", default-features = false, features = [
+wasmtime = { version = "49.0.4", default-features = false, features = [
     "cranelift",
     "runtime",
     "gc",
@@ -55,7 +55,7 @@ wasmtime = { version = "49.0.3", default-features = false, features = [
 # own descriptor table. The `p1` feature is all of it kobako links. We
 # omit `p2` (component-model) and `p0`/`p3` (async) because kobako runs
 # synchronous sandboxes only.
-wasmtime-wasi = { version = "49.0.3", default-features = false, features = ["p1"] }
+wasmtime-wasi = { version = "49.0.4", default-features = false, features = ["p1"] }
 # bytes is the buffer type wasmtime-wasi's stream traits take, for the
 # capture pipes kobako's own preview1 imports write into.
 bytes = "1.11"
