@@ -68,4 +68,13 @@ class TestRegexpMatchDataBounds < Minitest::Test
     assert_equal [2, 3, [2, 3]], eval_regexp('m = /(a)(b)/.match("xab"); [m.begin(2.9), m.end(2.9), m.offset(2.9)]'),
                  "a Float group through MatchData#begin, #end and #offset must read as its whole part"
   end
+
+  # @behavior RX-256
+  def test_a_group_number_past_64_bits_raises_range_error
+    source = 'm = /(a)/.match("a"); [-> { m[2**70] }, -> { m.begin(2**70) }]' \
+             ".map { |call| begin; call.call; rescue RangeError => e; e.class.to_s; end }"
+
+    assert_equal %w[RangeError RangeError], eval_regexp(source),
+                 "MatchData#[] and #begin with 2**70 through the regexp guest must raise RangeError"
+  end
 end
