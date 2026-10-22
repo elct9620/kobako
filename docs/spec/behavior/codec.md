@@ -458,3 +458,15 @@ The table is specified with the wire format, and its scenarios are the payload e
 | Given | a Sandbox with a bound Service |
 | When | guest code passes it a value nesting past the wire bound or holding itself |
 | Then | the Service is never reached |
+
+## `CD-053` A guest Integer past 64 bits does not cross to the host
+
+| Attribute | Value |
+| --- | --- |
+| relates | `CD-001`, `CD-028` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code answers an Integer past the signed 64-bit range |
+| Then | the invocation fails naming Integer as a type the wire does not carry |

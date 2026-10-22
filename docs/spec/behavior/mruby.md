@@ -19,6 +19,7 @@ A host may keep the guest's compiled snippets and replay them in place of the so
 - `test/e2e/test_canonical_boot.rb`
 - `test/e2e/test_capability_exception_safety.rb`
 - `test/e2e/test_guest_string_cap.rb`
+- `test/e2e/test_integer_range.rb`
 - `test/e2e/regexp/test_raising_lookup.rb`
 - `test/e2e/json/test_raising_hook.rb`
 - `wasm/kobako-mruby/src/runtime.rs`
@@ -258,3 +259,11 @@ A host may keep the guest's compiled snippets and replay them in place of the so
 | Given | a Preamble carrying a critical flag the default Guest Binary does not recognise |
 | When | the guest compiles its snippets |
 | Then | nothing is compiled |
+
+## `MR-026` An integer literal past 64 bits stays exact inside the guest
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code writes an integer literal past the signed 64-bit range |
+| Then | it reads as that exact Integer |

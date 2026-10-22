@@ -58,7 +58,7 @@ pub(crate) fn decode(mrb: &Mrb, json: &JsonValue, symbolize: bool) -> Result<Val
     }
 }
 
-/// An integer past the guest's 64-bit width raises rather than lose
+/// An integer past the signed 64-bit range raises rather than lose
 /// precision as a `Float`.
 fn decode_number(mrb: &Mrb, n: &Number) -> Result<Value, Error> {
     // `arbitrary_precision` keeps the original literal, so its textual

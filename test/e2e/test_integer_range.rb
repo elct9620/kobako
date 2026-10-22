@@ -3,11 +3,10 @@
 require "test_helper"
 
 # E2E — host→guest integer representability through real mruby
-# (docs/wire/payload-msgpack.md § Integer Range). The guest is built MRB_INT64, so a
-# wire integer outside the signed 64-bit range has no faithful guest
-# representation. The guest refuses such a value rather than saturating it
-# to the nearest bound, so the script never receives a different number
-# than the wire carried.
+# (docs/wire/payload-msgpack.md § Integer Range). An Integer crosses the
+# wire only within the signed 64-bit range, so the guest refuses a wire
+# integer outside it rather than saturating it to the nearest bound, and
+# the script never receives a different number than the wire carried.
 class TestE2EIntegerRange < Minitest::Test
   include E2eGuestHelper
 
@@ -24,9 +23,9 @@ class TestE2EIntegerRange < Minitest::Test
     err = assert_raises(Kobako::SandboxError) { sandbox.eval("Clock::Millis.call") }
 
     assert_equal "Kobako::Transport::Error", err.klass,
-                 "a Service return above the guest's 64-bit range through Sandbox#eval must " \
+                 "a Service return above the 64-bit range the guest carries through Sandbox#eval must " \
                  "attribute to the wire-level class, since the exchange is what did not complete"
-    assert_match(/9223372036854775808.*64-bit Integer range/, err.message,
+    assert_match(/9223372036854775808.*64-bit range the guest carries/, err.message,
                  "the refusal must name the value it could not hold, not just that one failed")
   end
 
@@ -51,9 +50,9 @@ class TestE2EIntegerRange < Minitest::Test
     err = assert_raises(Kobako::SandboxError) { sandbox.run(:Echo, OVER_I64) }
 
     assert_equal "Kobako::Transport::Error", err.klass,
-                 "a #run argument above the guest's 64-bit range must fail the invocation at " \
+                 "a #run argument above the 64-bit range the guest carries must fail the invocation at " \
                  "the wire level, before the entrypoint sees a saturated value"
-    assert_match(/9223372036854775808.*64-bit Integer range/, err.message,
+    assert_match(/9223372036854775808.*64-bit range the guest carries/, err.message,
                  "the Panic is the only account of why the invocation never started, so it " \
                  "must say which value stopped it rather than that decoding failed")
   end
@@ -71,9 +70,32 @@ class TestE2EIntegerRange < Minitest::Test
       sandbox.eval("Probe::Feed.call { |x| x }")
     end
 
-    assert_match(/Transport::Error.*64-bit Integer range/, err.message,
-                 "a yield argument above the guest's 64-bit range through Sandbox#eval must " \
+    assert_match(/Transport::Error.*64-bit range the guest carries/, err.message,
+                 "a yield argument above the 64-bit range the guest carries through Sandbox#eval must " \
                  "reach the script naming both the hop that refused and the range it " \
                  "exceeded, since the block never runs to report anything else")
+  end
+
+  # @behavior CD-053
+  # The guest holds an Integer of any size, so the bound it meets on the
+  # way out is the wire's, refused like any value with no wire form.
+  def test_guest_integer_past_i64_range_does_not_cross_to_the_host
+    err = assert_raises(Kobako::SandboxError) do
+      Kobako::Sandbox.new(wasm_path: REAL_WASM).eval("2**64")
+    end
+
+    assert_equal "return value of type Integer is not a supported sandbox value type", err.message,
+                 "an Integer of 2**64 answered through Sandbox#eval must fail the invocation " \
+                 "as a value the wire does not carry"
+  end
+
+  # @behavior MR-026
+  # The parser hands a literal past 32 bits to mruby-bigint, which must keep
+  # every digit rather than raise or round.
+  def test_integer_literal_past_i64_range_stays_exact_inside_the_guest
+    digits = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval("18446744073709551617.to_s").value
+
+    assert_equal "18446744073709551617", digits,
+                 "the literal 18446744073709551617 through Sandbox#eval must read back with every digit"
   end
 end

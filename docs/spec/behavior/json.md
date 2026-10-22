@@ -63,7 +63,7 @@ The depth bound is witnessed on both directions at the same depth. A reader and 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the JSON-capable Guest Binary |
-| When | guest code parses the largest value the guest's Integer width holds |
+| When | guest code parses the largest value the signed 64-bit range holds |
 | Then | it yields an Integer |
 
 ## `JS-007` A small negative integer stays an integer
@@ -86,7 +86,7 @@ The depth bound is witnessed on both directions at the same depth. A reader and 
 | When | guest code parses an integer one past the largest a Float represents exactly |
 | Then | it yields that Integer |
 
-## `JS-010` An integer past the guest's width is refused, not rounded
+## `JS-010` An integer past 64 bits is refused, not rounded
 
 | Attribute | Value |
 | --- | --- |
@@ -95,7 +95,7 @@ The depth bound is witnessed on both directions at the same depth. A reader and 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the JSON-capable Guest Binary |
-| When | guest code parses an integer one past the guest's Integer width |
+| When | guest code parses an integer one past the signed 64-bit range |
 | Then | a parser error is raised |
 
 ## `JS-011` A JSON real reads as a Float

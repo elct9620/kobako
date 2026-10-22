@@ -655,7 +655,7 @@ fn a_file_past_2_gib_reports_its_whole_size() {
 #[test]
 fn a_position_past_2_gib_is_reported_whole() {
     let Some(answer) = run(
-        r#"File.open("/data/note.txt") { |f| f.seek(2**31 + 1); print f.pos }"#,
+        r#"File.open("/data/note.txt") { |f| f.seek(2147483649); print f.pos }"#,
         &[three_gib_note()],
         Vec::new(),
     ) else {

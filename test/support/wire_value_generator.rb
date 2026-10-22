@@ -42,10 +42,10 @@ class WireValueGenerator
   }.freeze
   INT_BANDS = INT_BAND_SAMPLERS.keys.freeze
 
-  # The bands a guest-domain run may draw from. The Guest Binary is built
-  # MRB_INT64, so a wire integer outside the signed 64-bit range has no
-  # guest representation and is refused at the boundary rather than
-  # carried (covered on its own in test/e2e/test_integer_range.rb).
+  # The bands a guest-domain run may draw from. An Integer crosses the
+  # wire only within the signed 64-bit range, so a wire integer outside it
+  # is refused at the boundary rather than carried (covered on its own in
+  # test/e2e/test_integer_range.rb).
   # Leaving out +u64+ keeps a guest harness's subject the value
   # conversion instead of the range refusal.
   GUEST_INT_BANDS = %i[pos_fix neg_fix u8 u16 u32 i8 i16 i32 i64].freeze

@@ -68,6 +68,7 @@ unless defined?(KobakoBuildConfig)
     # security-review-bearing change.
     MRBGEM_ALLOWLIST = %w[
       mruby-compiler
+      mruby-bigint
       mruby-array-ext
       mruby-enum-ext
       mruby-hash-ext
