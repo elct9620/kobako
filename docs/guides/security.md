@@ -237,6 +237,10 @@ its object stays in host memory until the invocation ends
 ([transport-dispatch](../spec/behavior/transport-dispatch.md)). For hostile input,
 bound the calls and Handles a single invocation can create.
 
+Each payload the guest sends holds at most one value per 16 bytes of `memory_limit`
+([payload-msgpack](../wire/payload-msgpack.md)). Raising the memory cap raises what one
+call may make the host build.
+
 ```ruby
 sandbox.bind("Cur::Next")  # filled per invocation
 

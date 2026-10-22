@@ -557,7 +557,7 @@ sandbox.install(
     source: VFS,
     backend: Kobako::Extension::Backend.new(
       path: "Vfs",
-      provider: -> { OverlayFileSystem.new(root) }  # invoked once per invocation
+      provider: -> { CopyOnWriteFiles.new(root) }  # invoked once per invocation
     )
   )
 )
