@@ -63,14 +63,14 @@ Any other ext code is refused. `Guest Value` is `kobako_codec::msgpack::Value`, 
 
 ## Integer Range
 
-Both sides hold an `Integer` of any precision, but one crosses the wire only within the signed 64-bit range. The guest carries the integer word and mruby's arbitrary-precision Integer beside it.
+Both sides hold an `Integer` of any precision, and one crosses the wire within the range msgpack's integer families encode. The guest carries the integer word and mruby's arbitrary-precision Integer beside it.
 
 | Side | `Integer` width | Crosses within |
 |------|-----------------|----------------|
-| Host Gem | arbitrary precision | signed 64-bit |
-| Guest Binary | arbitrary precision | signed 64-bit |
+| Host Gem | arbitrary precision | −2⁶³ to 2⁶⁴−1 |
+| Guest Binary | arbitrary precision | −2⁶³ to 2⁶⁴−1 |
 
-The guest refuses an inbound integer outside that range rather than saturating it, so neither side sees a number the wire did not carry. This holds on every host→guest path: a `#run` argument, a block argument, and a dispatch return value. Each reports the refusal as it reports a malformed payload ([codec](../spec/behavior/codec.md)). An outbound guest Integer past the range is a value with no wire form. So is −2⁶³ when the guest computes it from a larger Integer. mruby keeps that one value as a big integer, which the guest cannot yet read as 64 bits.
+Every integer the wire carries fits both sides, so neither refuses one inbound. An `Integer` past the range has no wire form, and the side holding it refuses to send it ([codec](../spec/behavior/codec.md)). A guest `Integer` within the range crosses whichever form mruby keeps it in.
 
 ---
 

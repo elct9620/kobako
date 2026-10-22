@@ -158,16 +158,6 @@ mod tests {
     use crate::runtime::IntegerOutOfRange;
     use kobako_transport::envelope::Outcome;
 
-    const EVERY_POSITION: [Position; 7] = [
-        Position::CallArguments,
-        Position::ReplyValue,
-        Position::RunArguments,
-        Position::YieldArguments,
-        Position::BlockReturnValue,
-        Position::BreakValue,
-        Position::InvocationValue,
-    ];
-
     fn unrepresentable() -> CodecError {
         CodecError::Unrepresentable {
             type_name: "Proc".into(),
@@ -213,25 +203,6 @@ mod tests {
             "the refusal must name the type the codec reported, so a developer sees which \
              one failed without an implicit inspect"
         );
-    }
-
-    // The interpreter's own limit is not the schema's, and it is not the
-    // script's either — the value simply could not survive the crossing.
-    // @behavior CD-029
-    #[test]
-    fn the_interpreter_s_own_refusal_travels_as_a_wire_fault_everywhere() {
-        for position in EVERY_POSITION {
-            let refusal = at(
-                position,
-                CodecError::Interpreter(IntegerOutOfRange(1 << 70)),
-            );
-
-            assert_eq!(
-                refusal.class, TRANSPORT_ERROR,
-                "an interpreter limit at any position must refuse as an exchange that did \
-                 not complete, not as a schema or script fault"
-            );
-        }
     }
 
     // A message that could not be carried says nothing about a value, so

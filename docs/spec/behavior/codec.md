@@ -6,11 +6,11 @@ What the payload codec will carry between host and guest, and what it refuses ra
 
 A codec that changes a value on the way is worse than one that refuses it. The caller reads a plausible answer and never learns it was not the one sent. So every refusal here is paired against the value just inside the bound it refuses:
 
-- An integer at the guest's widest.
+- An integer at the widest the wire carries.
 - Nesting at the deepest the wire encodes.
 - A keyword name that is text after all.
 
-The bounds are reached from three directions: an answer, an argument, a yield. Each direction is witnessed, since a check placed on one path leaves the others carrying whatever they were given.
+Nesting and keyword names are reached from three directions: an answer, an argument, a yield. Each direction is witnessed, since a check placed on one path leaves the others carrying whatever they were given. Only the guest can hold an integer the wire cannot carry, so that bound is met on the way out.
 
 ### Three implementations
 
@@ -42,37 +42,13 @@ The table is specified with the wire format, and its scenarios are the payload e
 - `test/fuzz/test_guest_value_fuzz.rb`
 - `wasm/kobako-mruby/src/refusal.rs`
 
-## `CD-001` A Service answer past the guest's integer width is refused
+## `CD-002` The widest integer the wire carries crosses both ways
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a Service answering an integer wider than the guest carries |
-| When | guest code calls it |
-| Then | the invocation fails naming the guest's integer range |
-
-## `CD-002` The widest integer the guest carries still crosses
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox with a Service answering the largest integer the guest carries |
-| When | guest code calls it |
-| Then | the answer comes back unchanged |
-
-## `CD-003` A run argument past the guest's integer width fails at entry
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox with a preloaded entrypoint |
-| When | the entrypoint verb carries an integer wider than the guest carries |
-| Then | the invocation fails before the entrypoint is reached |
-
-## `CD-004` A yield argument past the guest's integer width is refused at the yield
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox with a Service yielding an integer wider than the guest carries |
-| When | guest code calls it with a block |
-| Then | the failure reaches the Host App as the Service's |
+| Given | a Sandbox with a Service answering 2⁶⁴−1 |
+| When | guest code calls it and answers what it received |
+| Then | the host receives 2⁶⁴−1 |
 
 ## `CD-005` A string the wire cannot read as text keeps its bytes
 
@@ -266,14 +242,6 @@ The table is specified with the wire format, and its scenarios are the payload e
 | When | the refusal's message is read |
 | Then | it names the type rather than describing the value |
 
-## `CD-029` The interpreter's own limit travels as a wire failure everywhere
-
-| Step | Statement |
-| --- | --- |
-| Given | a value the interpreter itself cannot carry, at each position there is |
-| When | the refusal is made |
-| Then | each is an exchange that did not complete, not a schema or script fault |
-
 ## `CD-030` A message that could not be carried names its position and direction
 
 | Step | Statement |
@@ -459,26 +427,26 @@ The table is specified with the wire format, and its scenarios are the payload e
 | When | guest code passes it a value nesting past the wire bound or holding itself |
 | Then | the Service is never reached |
 
-## `CD-053` A guest Integer past 64 bits does not cross to the host
+## `CD-053` A guest Integer past the wire's range does not cross to the host
 
 | Attribute | Value |
 | --- | --- |
-| relates | `CD-001`, `CD-028` |
+| relates | `CD-002`, `CD-028` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | guest code answers an Integer past the signed 64-bit range |
+| When | guest code answers an Integer past the unsigned 64-bit range |
 | Then | the invocation fails naming Integer as a type the wire does not carry |
 
-## `CD-054` The smallest 64-bit Integer a guest computes does not cross
+## `CD-054` The smallest 64-bit Integer a guest computes crosses
 
 | Attribute | Value |
 | --- | --- |
-| refines | `CD-053` |
+| relates | `CD-053` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
 | When | guest code answers −2⁶³ computed from a larger Integer |
-| Then | the invocation fails naming Integer as a type the wire does not carry |
+| Then | the host receives −2⁶³ |

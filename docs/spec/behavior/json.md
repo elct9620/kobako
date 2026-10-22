@@ -6,7 +6,7 @@ What the guest's JSON surface reads, what it writes, and what it refuses to let 
 
 Reading and writing JSON is compute the guest does on its own. The scenarios follow what each direction produces and, more importantly, what each refuses.
 
-The guest refuses a value with no JSON form rather than approximating it. Such values include an integer too large to represent exactly and a number that is not finite. They also include bytes that are not text and a key that is not a scalar.
+The guest refuses a value with no JSON form rather than approximating it. Such values include a number that is not finite and bytes that are not text. A key that is not a scalar is another. An integer of any length has a form, so it reads and writes exactly.
 
 ### Capability boundary
 
@@ -86,17 +86,17 @@ The depth bound is witnessed on both directions at the same depth. A reader and 
 | When | guest code parses an integer one past the largest a Float represents exactly |
 | Then | it yields that Integer |
 
-## `JS-010` An integer past 64 bits is refused, not rounded
+## `JS-010` An integer past 64 bits stays an exact Integer
 
 | Attribute | Value |
 | --- | --- |
-| relates | `JS-006` |
+| refines | `JS-009` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the JSON-capable Guest Binary |
-| When | guest code parses an integer one past the signed 64-bit range |
-| Then | a parser error is raised |
+| When | guest code parses integers past the 64-bit and the 128-bit ranges |
+| Then | each yields that exact Integer |
 
 ## `JS-011` A JSON real reads as a Float
 
@@ -527,3 +527,27 @@ The depth bound is witnessed on both directions at the same depth. A reader and 
 | Given | a guest class ready to build itself from a document |
 | When | guest code parses a document whose class-naming member names that class |
 | Then | the class is never asked to build |
+
+## `JS-064` An Integer past 64 bits is written as its digits
+
+| Attribute | Value |
+| --- | --- |
+| relates | `JS-010` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| When | guest code generates from an Integer past 64 bits and its negation |
+| Then | each appears as its exact digits |
+
+## `JS-065` An Integer key past 64 bits is written as its digits
+
+| Attribute | Value |
+| --- | --- |
+| refines | `JS-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the JSON-capable Guest Binary |
+| When | guest code generates from a Hash keyed by an Integer past 64 bits |
+| Then | the key appears as that Integer's exact digits |

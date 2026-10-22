@@ -108,34 +108,6 @@ impl Kobako {
 }
 ```
 
-## `Kobako::narrow_int`
-
-Build a guest Integer from a wire integer, refusing one the guest cannot hold.
-
-```rust
-impl Kobako {
-    pub fn narrow_int<N>(&self, n: N) -> Result<Value, IntegerOutOfRange> {}
-}
-```
-
-## `IntegerOutOfRange`
-
-A wire integer outside what a guest Integer holds.
-
-```rust
-pub struct IntegerOutOfRange(pub i128);
-```
-
-## `IntegerOutOfRange::message`
-
-The message naming the integer the guest could not hold.
-
-```rust
-impl IntegerOutOfRange {
-    pub fn message(self) -> String {}
-}
-```
-
 ## `PayloadCodec`
 
 The Codec a Guest names for every payload an Envelope carries. Those payloads
@@ -157,7 +129,7 @@ pub struct Arguments {}
 ## `CodecError`
 
 Why a Codec could not do its part. Causes: a value with no form, bytes it cannot
-read, a position it does not serve, or an interpreter refusal.
+read, or a position it does not serve.
 
 ```rust
 pub enum CodecError {}

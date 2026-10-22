@@ -267,3 +267,27 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount holding a file of 3 GiB |
 | When | the script seeks to 2 GiB and one more byte and reads its position |
 | Then | it answers 2 GiB and one more byte |
+
+## `FL-022` A read length past 64 bits raises RangeError
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file |
+| When | the script reads the file by a length past 64 bits |
+| Then | the read raises `RangeError` |
+
+## `FL-023` A SystemCallError number past the errno range raises RangeError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-019` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount |
+| When | the script builds `SystemCallError` with a message and 2⁴⁰, then with a message and 2⁷⁰ |
+| Then | each raises `RangeError` |

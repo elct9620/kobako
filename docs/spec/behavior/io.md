@@ -337,3 +337,15 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Given | guest code that set the standard output stream's sync flag to a truthy value other than true |
 | When | it reads the flag back |
 | Then | it is true |
+
+## `IO-039` A character number past 64 bits raises RangeError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-025` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code puts a character by a number past 64 bits, through `Kernel` and through `$stdout` |
+| Then | each raises `RangeError` and the capture holds nothing |

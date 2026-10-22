@@ -278,3 +278,15 @@ A match cannot be constructed. It exists because a pattern matched. That is what
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code locates a group by a Float |
 | Then | it reads as the Float's whole part |
+
+## `RX-256` A group number past 64 bits raises RangeError
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-245` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads a match and locates a group by a number past 64 bits |
+| Then | each raises `RangeError` |

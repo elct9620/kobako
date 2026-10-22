@@ -141,7 +141,7 @@ behavior is decided.
 | Category | Covers | Pinned by |
 |---|---|---|
 | Language surface | setup validation, pre-flight refusals, `Kobako::Pool`, option readers, construction failures, result shape | each frontend, in its own idiom |
-| Guest-internal | Regexp, JSON, guest proxies, capability callbacks, unrepresentable-integer guest entry | guest E2E suites and codec oracles |
+| Guest-internal | Regexp, JSON, guest proxies, capability callbacks | guest E2E suites and codec oracles |
 | Unshipped codec | a payload position the guest's own codec does not serve | `wasm/kobako-mruby`'s refusal table |
 | Wire corners | malformed envelopes and outcome bytes with no deterministic trigger | nothing yet |
 
