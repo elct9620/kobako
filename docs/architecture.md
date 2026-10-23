@@ -175,7 +175,7 @@ Each context owns the rules below and the parts that keep them.
 
 | Context | Owns | Lives in |
 |---|---|---|
-| Host | the Sandbox lifecycle, Handles and Exposure, outcome attribution | `lib/`, `kobako` |
+| Host | the Sandbox lifecycle, what the guest may call, how a failure reaches the Host App | `lib/`, `kobako` |
 | Wire | the envelope, the tag registry, the codecs | `kobako-transport`, `kobako-codec`, `lib/kobako/{codec,payload}/`, `docs/wire/` |
 | Isolation | the engine and the Ambient authority a Posture grants | `kobako-runtime`, `kobako-wasmtime`, `ext/` |
 | Filesystem | Mounts, Policies, and the Filesystem kinds | `kobako-runtime`'s filesystem, the preview1 driver, their bridges in `ext/` and `lib/` |
@@ -191,6 +191,8 @@ A word crosses a context only at an interface, which translates it.
 | Host or guest, and Wire | each endpoint takes the Fixed Pillar unchanged | its dialect overlay |
 | Host and Isolation | the Host drives the engine | the `kobako-runtime` contract, through `ext/` for Ruby |
 | Isolation and Filesystem | the Filesystem conforms to the Grant contract | `Grant`, `Mount` |
+
+A Frontend hands every context's words to the Host App, and an ABI endpoint reads the Wire's on behalf of its side. A word used there therefore stays in the context that defines it.
 
 A new kind of Grant joins as a context beside Filesystem. It conforms to the same contract and brings its own words.
 
