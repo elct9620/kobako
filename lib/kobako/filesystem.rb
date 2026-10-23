@@ -29,6 +29,5 @@ module Kobako
   # Any object answering +open+ and +stat+ mounts too, as a Filesystem
   # written in Ruby; its methods take the names of +File+, +Dir+, and +IO+.
   module Filesystem
-    KINDS = [Memory, Temporary, Directory, Overlay].freeze # :nodoc:
   end
 end

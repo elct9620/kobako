@@ -7,8 +7,6 @@ module Kobako
 
       type tuple = [String, access, Kobako::Filesystem::kind, policy?]
 
-      ACCESS: Array[access]
-
       attr_reader at: String
       attr_reader access: access
       attr_reader filesystem: Kobako::Filesystem::kind
@@ -25,10 +23,6 @@ module Kobako
       def to_native: () -> tuple
 
       private
-
-      def filesystem?: (untyped filesystem) -> bool
-
-      def malformed?: (String path) -> bool
 
       def nested?: (String other) -> bool
     end

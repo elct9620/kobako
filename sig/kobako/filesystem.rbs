@@ -66,6 +66,6 @@ module Kobako
       def layer: (kind filesystem, ?access: access) -> Overlay
     end
 
-    KINDS: Array[Class]
+    def self.validate_mount: (untyped at, untyped access, untyped filesystem) -> nil
   end
 end

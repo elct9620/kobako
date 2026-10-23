@@ -67,7 +67,24 @@ pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     let overlay = module.define_class("Overlay", ruby.class_object())?;
     overlay.define_singleton_method("new", function!(overlay_new, 0))?;
     overlay.define_method("layer", method!(overlay_layer, -1))?;
+    module.define_singleton_method("validate_mount", function!(validate_mount, 3))?;
     Ok(())
+}
+
+/// Refuse a Mount at `mount` time by the same rules an invocation builds
+/// it with, so a mistake raises where it was made.
+fn validate_mount(at: Value, access: Value, filesystem: Value) -> Result<(), MagnusError> {
+    mount_of(at, access, filesystem).map(drop)
+}
+
+/// The Mount a Sandbox's `[at, access, filesystem]` stands for: one owner
+/// of the path, access, and Filesystem rules.
+fn mount_of(at: Value, access: Value, filesystem: Value) -> Result<Mount, MagnusError> {
+    let ruby = Ruby::get().expect("Ruby thread");
+    let at = RString::try_convert(at)?.to_string()?;
+    let access = access_of(access)?;
+    Mount::new(at, filesystem_of(filesystem)?, access)
+        .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))
 }
 
 /// `Memory.new(files = {}, limit: 64 MiB, inodes:)`: each
@@ -171,7 +188,7 @@ impl Blocking for ReleasesGvl {
 /// beneath this one's Layers.
 fn overlay_layer(overlay: &OverlayFs, args: &[Value]) -> Result<OverlayFs, MagnusError> {
     let args = scan_args::<(Value,), (), (), (), RHash, ()>(args)?;
-    let kwargs = get_kwargs::<_, (), (Option<Symbol>,), ()>(args.keywords, &[], &["access"])?;
+    let kwargs = get_kwargs::<_, (), (Option<Value>,), ()>(args.keywords, &[], &["access"])?;
     let (filesystem,) = args.required;
     let access = match kwargs.optional.0 {
         Some(access) => access_of(access)?,
@@ -188,13 +205,19 @@ fn overlay_layer(overlay: &OverlayFs, args: &[Value]) -> Result<OverlayFs, Magnu
     })
 }
 
-fn access_of(access: Symbol) -> Result<Access, MagnusError> {
-    match access.name()?.as_ref() {
-        "read" => Ok(Access::Read),
-        "read_write" => Ok(Access::ReadWrite),
-        other => Err(MagnusError::new(
+fn access_of(access: Value) -> Result<Access, MagnusError> {
+    let name = Symbol::from_value(access)
+        .map(|symbol| symbol.name())
+        .transpose()?;
+    match name.as_deref() {
+        Some("read") => Ok(Access::Read),
+        Some("read_write") => Ok(Access::ReadWrite),
+        _ => Err(MagnusError::new(
             Ruby::get().expect("Ruby thread").exception_arg_error(),
-            format!("access must be :read or :read_write, got :{other}"),
+            format!(
+                "access must be :read or :read_write, got {}",
+                access.inspect()
+            ),
         )),
     }
 }
@@ -265,12 +288,9 @@ pub(super) fn grants_from(
     let mut pins = Vec::with_capacity(mounts.len() * 2);
     for index in 0..mounts.len() as isize {
         let entry: RArray = mounts.entry(index)?;
-        let at: String = entry.entry(0)?;
-        let access = access_of(entry.entry(1)?)?;
         let filesystem: Value = entry.entry(2)?;
         pins.push(PinnedValue::new(ruby, filesystem));
-        let mount = Mount::new(at, filesystem_of(filesystem)?, access)
-            .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))?;
+        let mount = mount_of(entry.entry(0)?, entry.entry(1)?, filesystem)?;
         let block: Value = entry.entry(3)?;
         grants.push(Grant::Mount(if block.is_nil() {
             mount

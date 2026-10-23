@@ -3,17 +3,10 @@
 module Kobako
   module Catalog
     class Mount < Data.define(:at, :access, :filesystem, :policy) # :nodoc:
-      ACCESS = %i[read read_write].freeze
-
+      # The native side owns what a Mount may be, and refuses here by the
+      # rules it builds every invocation's Mount with.
       def initialize(at:, access:, filesystem:, policy:)
-        raise TypeError, "mount path must be a String, got #{at.class}" unless at.is_a?(String)
-        raise ArgumentError, "mount path must be an absolute guest path, got #{at.inspect}" if malformed?(at)
-        raise ArgumentError, "access must be :read or :read_write, got #{access.inspect}" unless ACCESS.include?(access)
-        unless filesystem?(filesystem)
-          raise TypeError,
-                "filesystem must be a Kobako::Filesystem or answer open and stat, got #{filesystem.class}"
-        end
-
+        Kobako::Filesystem.validate_mount(at, access, filesystem)
         super
       end
 
@@ -32,20 +25,6 @@ module Kobako
       def to_native = [at, access, filesystem, policy]
 
       private
-
-      # A kind kobako ships, or a Filesystem written in Ruby.
-      def filesystem?(filesystem)
-        Kobako::Filesystem::KINDS.any? { |kind| filesystem.is_a?(kind) } ||
-          (filesystem.respond_to?(:open) && filesystem.respond_to?(:stat))
-      end
-
-      # An absolute guest path has no empty, +.+, or +..+ component; the
-      # root is +/+ alone.
-      def malformed?(path)
-        return false if path == "/"
-
-        !path.start_with?("/") || path.delete_prefix("/").split("/", -1).intersect?(["", ".", ".."])
-      end
 
       def nested?(other)
         [at, other].include?("/") || at.start_with?("#{other}/") || other.start_with?("#{at}/")
