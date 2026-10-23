@@ -56,6 +56,10 @@ guest code ──by name─────────────> Service
 
 - `adapter` - Names a translation role. What distinguishes a Service is that the guest can name it at all.
 
+### Handle
+
+An opaque reference the guest holds to a host object the Codec cannot carry by value. It names that object only within the Invocation that issued it. Where the capability it grants is the point, it is called a Capability Handle.
+
 ### Transport
 
 The exchange of messages across the boundary. One Call is answered by one Reply, and both directions use that same pair.
@@ -124,10 +128,6 @@ A bounded set of identically set-up Sandboxes, each handed to one holder at a ti
 
 What a Sandbox has registered: the bindings, preloads, and Flags fixed at setup. It also holds the Handle table each Invocation mints for itself.
 
-### Handle
-
-An opaque reference the guest holds to a host object the Codec cannot carry by value. It names that object only within the Invocation that issued it. Where the capability it grants is the point, it is called a Capability Handle.
-
 ### Receiver
 
 The host object a Call resolves to — a Service by its path, or the object a Handle names.
@@ -147,30 +147,6 @@ A guest idiom paired with an optional Backend, installed as one unit so guest co
 ### Backend
 
 The host side of an Extension: the object bound at its path. It is fixed for the Sandbox, supplied afresh each Invocation, or left for the Host App to fill.
-
-### Yielder
-
-The host-side stand-in for a Block, valid only while the dispatch that received the Block lasts.
-
-### Panic
-
-The failed arm of an Outcome. It attributes the failure to a side of the boundary and carries the Error Record describing it.
-
-### Trap
-
-A failed Invocation the engine is answerable for: a cap was reached, or no Outcome could be framed.
-
-### Sandbox failure
-
-A failed Invocation the guest's own code or the wire is answerable for.
-
-### Service failure
-
-A failed Invocation a Service is answerable for.
-
-### Channel
-
-One of the two streams guest code writes to: output and error. Each is captured apart, so what a script printed never mixes with what it warned.
 
 ## Wire
 
@@ -233,6 +209,18 @@ The answer that the receiver does not serve the operation it was sent, returned 
 
 A failure's name, message, and backtrace as one unit. Every answer that reports a guest failure carries this same shape.
 
+### Panic
+
+The failed arm of an Outcome. It attributes the failure to a side of the boundary and carries the Error Record describing it.
+
+### Sandbox failure
+
+A failed Invocation the guest's own code or the wire is answerable for.
+
+### Service failure
+
+A failed Invocation a Service is answerable for.
+
 ### Preamble
 
 What the guest reads before an Invocation's entry runs or its preloads compile: the Catalog's bindings, preloads, and Flags. The guest starts knowing what this run was configured with.
@@ -287,6 +275,18 @@ Each kind of Grant carries what it hands over and decides its own access. The ru
 Grant ─┬─ Mount   -> a Filesystem at a guest path
        └─ ...     -> another kind, its own access
 ```
+
+### Trap
+
+A failed Invocation the engine is answerable for: a cap was reached, or no Outcome could be framed.
+
+### Yielder
+
+The host-side stand-in for a Block, valid only while the dispatch that received the Block lasts.
+
+### Channel
+
+One of the two streams guest code writes to: output and error. Each is captured apart, so what a script printed never mixes with what it warned.
 
 ## Filesystem
 
