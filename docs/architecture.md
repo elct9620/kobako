@@ -175,10 +175,10 @@ Each context owns the rules below and the parts that keep them.
 
 | Context | Owns | Lives in |
 |---|---|---|
-| Host | the Sandbox lifecycle, Services, Handles, outcome attribution | `lib/`, `kobako` |
+| Host | the Sandbox lifecycle, Handles and Exposure, outcome attribution | `lib/`, `kobako` |
 | Wire | the envelope, the tag registry, the codecs | `kobako-transport`, `kobako-codec`, `lib/kobako/{codec,payload}/`, `docs/wire/` |
 | Isolation | the engine and the Ambient authority a Posture grants | `kobako-runtime`, `kobako-wasmtime`, `ext/` |
-| Filesystem | Mounts, Policies, and the Filesystem kinds | `kobako-runtime`'s filesystem, the preview1 driver |
+| Filesystem | Mounts, Policies, and the Filesystem kinds | `kobako-runtime`'s filesystem, the preview1 driver, their bridges in `ext/` and `lib/` |
 
 The guest has no context of its own. Its words are either shared or the Wire's, and the capability gems speak CRuby's, which [`parity.md`](parity.md) governs.
 
