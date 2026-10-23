@@ -119,7 +119,7 @@ A scenario test's assertion message is a contract: "<input> through <public API>
 
 ## Architecture
 
-`docs/architecture.md` draws the crate map, the seams a replacement plugs in at, the Ruby tiers, and the placement rules that keep those tiers acyclic. Read it before adding a type or a crate.
+`docs/architecture.md` draws the crate map, the seams a replacement plugs in at, and the contexts a name is judged within. It also draws the Ruby tiers and the placement rules that keep them acyclic. Read it before adding a type or a crate.
 
 ```
 lib/  Orchestration → Catalog → Transport · Outcome → Payload → Codec → Root
@@ -180,7 +180,7 @@ Each row names an entry point and only what reading it will not tell you.
 | core envelope | `crates/kobako-transport/src/` | one implementation for both sides |
 | host payload codec | `lib/kobako/{codec,payload}/` | a Fault rides the envelope instead |
 | guest payload codec | `crates/kobako-codec/src/msgpack/` | wire-symmetric peer of `lib/` |
-| vocabulary | `docs/spec/glossary.md` | a later term replaces an earlier one |
+| vocabulary | `docs/spec/glossary.md` | one section per context; a later term replaces an earlier one |
 | naming | `docs/convention.md` | the baseline a rename is judged against |
 | sandbox lifecycle | `lib/kobako/sandbox.rb` | each run settles into an `Execution` |
 | dispatch | `lib/kobako/transport/dispatcher.rb` | answers an ok or fault triple, never raises |

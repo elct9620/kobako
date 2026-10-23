@@ -24,6 +24,8 @@ Because names carry the intent, a comment is left for what no name can say: a re
 
 ## Precedence
 
+A name is judged inside its context, as The Contexts in [`architecture.md`](architecture.md) draws them. Across two contexts only the interface that translates between them is compared, so the same word may stand in both.
+
 A name is settled by three steps, in order; the first that decides it ends the search.
 
 1. Keep a name the language or another side already fixes, as Fixed Names lists.
