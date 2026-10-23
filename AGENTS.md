@@ -181,6 +181,7 @@ Each row names an entry point and only what reading it will not tell you.
 | host payload codec | `lib/kobako/{codec,payload}/` | a Fault rides the envelope instead |
 | guest payload codec | `crates/kobako-codec/src/msgpack/` | wire-symmetric peer of `lib/` |
 | vocabulary | `docs/spec/glossary.md` | a later term replaces an earlier one |
+| naming | `docs/convention.md` | the baseline a rename is judged against |
 | sandbox lifecycle | `lib/kobako/sandbox.rb` | each run settles into an `Execution` |
 | dispatch | `lib/kobako/transport/dispatcher.rb` | answers an ok or fault triple, never raises |
 | Handles | `lib/kobako/catalog/handles.rb` | minted per invocation by `Context` |
