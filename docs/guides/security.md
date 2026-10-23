@@ -58,6 +58,22 @@ engine that cannot deny ambient authority is then refused at construction, not
 silently weakening these guarantees. The ladder is specified in
 [runtime](../spec/behavior/runtime.md).
 
+## Uncapped Limits
+
+Passing `nil` turns a cap off, and with it the bound that cap kept. Each one then
+leaves the host exposed in its own way.
+
+| `nil` cap | What the guest can then cost the host |
+|---|---|
+| `timeout` | a thread held for as long as the guest runs |
+| `memory_limit` | up to 4 GiB of guest memory, and no value budget |
+| `stdout_limit`, `stderr_limit` | host memory without bound, read back after the run ends |
+
+An uncapped output is the sharpest: a guest writing one buffer in a loop grows the
+capture on the host, not in its own memory. Reading that capture back also runs
+after the timeout fires, so the call returns late. Keep both output caps set for
+untrusted code.
+
 ## Preloaded Bytecode
 
 `preload(binary:)` runs its blob as guest code without compiling it. mruby checks

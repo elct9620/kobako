@@ -69,9 +69,9 @@ impl Wasi {
         Self::new(&[], Some(0), Some(0), None, Profile::Hermetic, Vec::new())
     }
 
-    /// An uncapped output channel relies on `memory_limit` for its real
-    /// ceiling. The 16 MiB cap keeps the Preamble's `u32` length prefix
-    /// from wrapping.
+    /// An uncapped output channel has no ceiling on the host: a guest
+    /// rewriting one buffer grows the pipe, not its own memory. The 16 MiB
+    /// cap keeps the Preamble's `u32` length prefix from wrapping.
     fn new(
         preamble: &[u8],
         stdout_limit: Option<usize>,
