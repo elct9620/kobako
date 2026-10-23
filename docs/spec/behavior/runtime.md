@@ -1097,3 +1097,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a read-write Mount with nothing named `missing` |
 | When | the guest makes the directory `missing/.` and opens `missing/.` with `O_CREAT` |
 | Then | both answer ENOENT and nothing named `missing` is made |
+
+## `RT-110` A cache directory reached through a link is neither read nor written
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-037`, `RT-038` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a cache entry in a private directory the cache directory only links to |
+| When | a runtime is built over the artifact that entry names |
+| Then | it is built by compiling and the entry still holds what it held |
