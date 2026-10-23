@@ -10,13 +10,14 @@ The block-failure scenarios are about what a failure leaves behind. A Service ma
 
 Both are witnessed because neither shows up in the single-yield case.
 
-A block's answer is restored on its way in, and a break's value is not. This is the one asymmetry here.
+### Exits past the Service
+
+A `break` or a `return` leaves the block for a frame further out. A yield names the frame whose block it runs, but an exit names nothing. The guest keeps the exit, and each host frame it passes only unwinds its Service. So the exit lands where it would through a plain method, however many Calls lie between.
 
 ### Raising exits
 
 The exits that raise are followed too. Each ends the conversation somewhere the ordinary closes cannot reach:
 
-- An unwind aimed past the boundary.
 - An answer the wire cannot carry.
 - A Yielder reached after its frame returned.
 - A block run on a fiber other than its invocation's.
@@ -96,14 +97,6 @@ The last two exits have no parity scenario, because the frontends close them at 
 | Given | a Sandbox with a bound Service that yields to a lambda |
 | When | the lambda breaks with a value |
 | Then | the Service goes on to answer with that value |
-
-## `T-091` A break value the wire cannot carry is refused
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox with a bound Service that yields |
-| When | guest code's block breaks with a value having no wire representation |
-| Then | the invocation fails rather than carrying it across |
 
 ## `T-092` Each nested frame carries its own block
 
@@ -185,14 +178,6 @@ The last two exits have no parity scenario, because the frontends close them at 
 | When | the Service receives the answer |
 | Then | it holds that value unchanged |
 
-## `T-102` A break value is not restored on its way out
-
-| Step | Statement |
-| --- | --- |
-| Given | a yield whose block broke with a capability reference |
-| When | the break unwinds |
-| Then | the reference passes through without being restored |
-
 ## `T-103` Both frontends yield and answer the same way
 
 | Step | Statement |
@@ -217,13 +202,13 @@ The last two exits have no parity scenario, because the frontends close them at 
 | When | both frontends run it |
 | Then | they observe the same value |
 
-## `T-106` Both frontends refuse a block exit aimed past the boundary the same way
+## `T-106` Both frontends carry a block exit past the Service the same way
 
 | Step | Statement |
 | --- | --- |
-| Given | a scenario whose block tries to leave past the yield boundary |
+| Given | a scenario whose block returns from the method around the Call |
 | When | both frontends run it |
-| Then | they refuse it the same way |
+| Then | they observe the same value |
 
 ## `T-107` Both frontends surface an unrescued block raise the same way
 
@@ -233,13 +218,13 @@ The last two exits have no parity scenario, because the frontends close them at 
 | When | both frontends run it |
 | Then | they attribute it the same way |
 
-## `T-134` An unwind aimed past the yield boundary
+## `T-134` A return from the block leaves the method around the Call
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox with a bound Service that yields |
-| When | guest code's block returns to an enclosing method still on the guest stack |
-| Then | the invocation fails naming a local jump |
+| When | guest code's block returns a value from the method around the Call |
+| Then | that method answers the value without the Service finishing |
 
 ## `T-135` An answer the wire cannot carry is refused at the yield site
 
@@ -379,21 +364,21 @@ The last two exits have no parity scenario, because the frontends close them at 
 | When | guest code's block raises |
 | Then | the failure's message leads with the Service exception's class |
 
-## `T-203` A block exit the wire cannot carry reaches the Host App as a Service failure
+## `T-203` A block answer the wire cannot carry reaches the Host App as a Service failure
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox with a bound Service that yields |
-| Given | a guest block that returns past the boundary, answers a value, or breaks with a value having no wire representation |
+| Given | a guest block answering a value having no wire representation |
 | When | nobody rescues the failure |
 | Then | it fails as a Service failure |
 
-## `T-204` A refused block value names the type error it stands for
+## `T-204` A refused block answer names the type error it stands for
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox with a bound Service that yields |
-| When | guest code's block breaks with a value having no wire representation |
+| When | guest code's block answers a value having no wire representation |
 | Then | the failure's message names the type error and the slot it stopped at |
 
 ## `T-205` A Yielder reached after its frame returned is the Service's failure
@@ -567,18 +552,18 @@ The last two exits have no parity scenario, because the frontends close them at 
 | When | the block raises and neither Service rescues it |
 | Then | guest code around the first Call rescues the exception the block raised |
 
-## `T-285` A break from a stored block inside a later Call names a local jump
+## `T-285` A break from a stored block inside a later Call ends the Call that carried it
 
 | Attribute | Value |
 | --- | --- |
-| refines | `T-134` |
+| refines | `T-089` |
 | relates | `T-283` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a Service storing an open Call's block, run by a later Service |
-| When | the block breaks |
-| Then | the invocation fails naming a local jump |
+| When | the block breaks with a value |
+| Then | the first Call answers that value, with neither Service finishing |
 
 ## `T-289` A block answer past the value budget never reaches the Service
 
@@ -615,3 +600,40 @@ The last two exits have no parity scenario, because the frontends close them at 
 | Given | a Service running its block inside an external enumerator |
 | When | guest code calls it with a block |
 | Then | the block raises a thread error instead of running |
+
+## `T-292` A return from a stored block inside a later Call leaves the method around the first
+
+| Attribute | Value |
+| --- | --- |
+| refines | `T-134` |
+| relates | `T-283`, `T-285` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service storing an open Call's block, run by a later Service |
+| When | the block returns a value from the method around the first Call |
+| Then | that method answers the value, with neither Service finishing |
+
+## `T-293` A Service's ensure runs as a block exit unwinds it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `T-089`, `T-134` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service whose yield sits inside an ensure clause |
+| When | guest code's block breaks |
+| Then | the ensure clause runs before the call answers |
+
+## `T-294` A Service cannot rescue a block exit
+
+| Attribute | Value |
+| --- | --- |
+| relates | `T-089`, `T-134` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service rescuing every exception around its yield |
+| When | guest code's block breaks with a value |
+| Then | the call answers that value rather than the Service's rescue |

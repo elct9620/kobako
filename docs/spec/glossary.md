@@ -70,10 +70,10 @@ A message asking the other side to run one method. The guest issues one to reach
 
 ### Reply
 
-The answer to one Call: a value, a Fault, or Unsupported. The answer to a Yield may instead be a break, or the Error Record of a Block that raised.
+The answer to one Call: a value, a Fault, a break, or Unsupported. A break carries nothing; it continues the exit a Block took. The answer to a Yield may instead be the Error Record of a Block that raised.
 
 ```
-Call  -> value | Fault | Unsupported
+Call  -> value | Fault | break | Unsupported
 Yield -> value | break | Error Record | Unsupported
 ```
 

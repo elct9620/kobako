@@ -294,7 +294,7 @@ The table is specified with the wire format, and its scenarios are the payload e
 
 | Step | Statement |
 | --- | --- |
-| Given | a codec refusing the block return, the break value or the invocation value as unserved |
+| Given | a codec refusing the block return or the invocation value as unserved |
 | When | the refusal is made |
 | Then | it carries a message rather than being treated as unreachable |
 
@@ -361,14 +361,6 @@ The table is specified with the wire format, and its scenarios are the payload e
 | --- | --- |
 | Given | a Sandbox with a bound Service that yields |
 | When | the block answers a value nesting past the wire's bound, or one referring to itself |
-| Then | the Service's yield fails with the guest's `TypeError` rather than receiving it |
-
-## `CD-045` A break value the wire cannot nest is refused at the yield
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox with a bound Service that yields |
-| When | the block breaks with a value nesting past the wire's bound, or one referring to itself |
 | Then | the Service's yield fails with the guest's `TypeError` rather than receiving it |
 
 ## `CD-046` A block answering a Symbol whose name is not text is refused at the yield
