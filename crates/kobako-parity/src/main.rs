@@ -503,7 +503,7 @@ fn read_label(args: &[Value], handles: &Handles<'_>) -> Result<Value, Fault> {
         .map_err(|err| Fault::new(FaultKind::Runtime, err.to_string()))?;
     let body = object.call("label", &payload, None, handles)?;
     Decoder::new(&body)
-        .read_only_value()
+        .read_sole_value()
         .map_err(|err| Fault::new(FaultKind::Runtime, err.to_string()))
 }
 

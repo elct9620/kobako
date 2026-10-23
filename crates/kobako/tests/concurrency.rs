@@ -25,7 +25,7 @@ use common::real_sandbox;
 /// bytes, with the decoder for the schema the guest speaks.
 fn decode(bytes: &[u8]) -> Value {
     Decoder::new(bytes)
-        .read_only_value()
+        .read_sole_value()
         .expect("the guest answers in the schema it was built with")
 }
 

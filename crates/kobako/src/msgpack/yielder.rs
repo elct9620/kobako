@@ -29,8 +29,8 @@ fn encode_args(args: &[Value]) -> Result<Vec<u8>, YieldError> {
 /// endpoint's schema cannot read.
 fn decode_body(body: &[u8]) -> Result<Value, YieldError> {
     Decoder::new(body)
-        .with_value_limit(super::budget::current())
-        .read_only_value()
+        .with_value_budget(super::budget::current())
+        .read_sole_value()
         .map_err(|err| YieldError::Aborted(format!("malformed Yield Reply payload: {err}")))
 }
 

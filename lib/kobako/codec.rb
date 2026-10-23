@@ -25,10 +25,10 @@ module Kobako
       State.current.track_handles(&block)
     end
 
-    # Holds every decode the block runs on this thread to +limit+ values,
-    # or to none when +limit+ is nil.
-    def self.limit_values(limit, &block)
-      State.current.limit_values(limit, &block)
+    # Holds every decode the block runs on this thread to +budget+ values,
+    # or to none when +budget+ is nil.
+    def self.within_value_budget(budget, &block)
+      State.current.within_value_budget(budget, &block)
     end
   end
 end

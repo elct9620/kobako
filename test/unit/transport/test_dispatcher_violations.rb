@@ -89,7 +89,7 @@ class TestTransportDispatchViolations < Minitest::Test
   def test_a_call_past_the_value_budget_is_contained_as_an_internal_fault
     wide_payload = "\x92\x94\xC0\xC0\xC0\xC0\x80".b
 
-    answer = Kobako::Codec.limit_values(6) { reify(dispatch(payload_call(wide_payload))) }
+    answer = Kobako::Codec.within_value_budget(6) { reify(dispatch(payload_call(wide_payload))) }
 
     assert_equal ["internal", "Sandbox could not read the request: payload holds more than 6 values"],
                  [answer.payload.type, answer.payload.message],

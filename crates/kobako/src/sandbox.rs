@@ -416,20 +416,20 @@ fn open_catalog(registry: &mut Mutex<Registry>) -> Result<&mut Catalog, Error> {
         .open_mut()
 }
 
-/// The `handles` table rides along so the result's Handles resolve on the
-/// Execution, which is also where the payload meets a schema.
 /// Every guest payload the invocation decodes, its outcome included, is
 /// held to the budget; only the bundled schema can count values.
 #[cfg(feature = "msgpack")]
-fn within_value_budget<T>(limit: Option<usize>, run: impl FnOnce() -> T) -> T {
-    crate::msgpack::budget::scope(limit, run)
+fn within_value_budget<T>(budget: Option<usize>, run: impl FnOnce() -> T) -> T {
+    crate::msgpack::budget::scope(budget, run)
 }
 
 #[cfg(not(feature = "msgpack"))]
-fn within_value_budget<T>(_limit: Option<usize>, run: impl FnOnce() -> T) -> T {
+fn within_value_budget<T>(_budget: Option<usize>, run: impl FnOnce() -> T) -> T {
     run()
 }
 
+/// The `handles` table rides along so the result's Handles resolve on the
+/// Execution, which is also where the payload meets a schema.
 fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>, verb: &str) -> Execution {
     let outcome = match snapshot.completion {
         Completion::Outcome(outcome) => classify(outcome, verb),

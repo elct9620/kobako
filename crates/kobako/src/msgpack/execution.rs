@@ -46,8 +46,8 @@ impl Execution {
 /// operator triage.
 fn decode_value(body: &[u8], budget: Option<usize>) -> Result<Value, Error> {
     Decoder::new(body)
-        .with_value_limit(budget)
-        .read_only_value()
+        .with_value_budget(budget)
+        .read_sole_value()
         .map_err(|err| wire_violation("Sandbox produced an invalid result value", &err))
 }
 

@@ -65,14 +65,14 @@ impl PayloadCodec for MsgpackCodec {
 
     fn decode_reply_value(kobako: &Kobako, bytes: &[u8]) -> Result<Value, CodecError> {
         let value = Decoder::new(bytes)
-            .read_only_value()
+            .read_sole_value()
             .map_err(|_| CodecError::Malformed)?;
         Ok(kobako.to_mrb_value(value))
     }
 
     fn decode_yield_arguments(kobako: &Kobako, bytes: &[u8]) -> Result<Vec<Value>, CodecError> {
         let CodecValue::Array(items) = Decoder::new(bytes)
-            .read_only_value()
+            .read_sole_value()
             .map_err(|_| CodecError::Malformed)?
         else {
             return Err(CodecError::Malformed);

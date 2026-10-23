@@ -14,7 +14,7 @@ module Kobako
 
     def self.track_handles: [T] { () -> T } -> [T, bool]
 
-    def self.limit_values: [T] (Integer? limit) { () -> T } -> T
+    def self.within_value_budget: [T] (Integer? budget) { () -> T } -> T
 
     # The Handle allocator/resolver a wire walk works against: alloc
     # registers a non-wire-representable object and returns its Handle,

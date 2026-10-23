@@ -68,7 +68,7 @@ class TestYielder < Minitest::Test
     yielder = yielder_answering(:ok, value: [1, 2, 3])
 
     error = assert_raises(Kobako::Codec::InvalidTypeError) do
-      Kobako::Codec.limit_values(3) { yielder.yield }
+      Kobako::Codec.within_value_budget(3) { yielder.yield }
     end
     assert_equal "payload holds more than 3 values", error.message,
                  "a block answer holding more values than the budget through Yielder#yield must " \

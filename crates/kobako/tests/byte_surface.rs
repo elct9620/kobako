@@ -17,7 +17,7 @@ mod common;
 
 use std::sync::{Arc, Mutex};
 
-use kobako::handles::Detached;
+use kobako::handles::DetachedHandles;
 use kobako::{Fault, FaultKind, Handles, Receiver, RunPayload, Yielder};
 use kobako_codec::msgpack::codec::{Decode, Decoder, Encode, Encoder, Value};
 use kobako_codec::msgpack::payload::Arguments;
@@ -33,7 +33,7 @@ fn run_args(value: Value) -> Vec<u8> {
 
 fn decode(bytes: &[u8]) -> Value {
     Decoder::new(bytes)
-        .read_only_value()
+        .read_sole_value()
         .expect("the guest answered with readable bytes")
 }
 
@@ -106,7 +106,7 @@ fn a_run_carries_the_host_s_own_bytes_and_payload_hands_them_back() {
 #[test]
 fn a_receiver_answers_through_a_detached_handle_table() {
     let echo = ByteEcho::new();
-    let table = Detached::new();
+    let table = DetachedHandles::new();
 
     let answer = echo
         .call("call", &run_args(Value::Int(7)), None, &table.as_handles())

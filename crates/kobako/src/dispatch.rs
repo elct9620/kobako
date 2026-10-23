@@ -259,7 +259,7 @@ mod tests {
                         .map_err(|err| Fault::new(FaultKind::Runtime, err.to_string()))?;
                     let body = object.call("label", &payload, None, handles)?;
                     Decoder::new(&body)
-                        .read_only_value()
+                        .read_sole_value()
                         .map_err(|err| Fault::new(FaultKind::Runtime, err.to_string()))
                 }
                 _ => Err(Fault::new(FaultKind::Undefined, "no such method")),
@@ -317,7 +317,7 @@ mod tests {
 
     fn answer(reply: Reply) -> Answer {
         match reply {
-            Reply::Ok(body) => Answer::Ok(Decoder::new(&body).read_only_value().unwrap()),
+            Reply::Ok(body) => Answer::Ok(Decoder::new(&body).read_sole_value().unwrap()),
             Reply::Fault(fault) => Answer::Fault(fault),
             Reply::Unsupported(_) => unreachable!("a dispatch handler serves every Call"),
         }

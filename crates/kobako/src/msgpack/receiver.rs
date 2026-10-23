@@ -110,7 +110,7 @@ mod tests {
     use kobako_codec::msgpack::payload::Arguments;
 
     use super::*;
-    use crate::handles::Detached;
+    use crate::handles::DetachedHandles;
 
     /// Answers `echo` with its first positional argument, and narrows
     /// every other name away.
@@ -139,7 +139,7 @@ mod tests {
         let payload = Arguments::new(vec![Value::Int(42)], Vec::new())
             .encode()
             .unwrap();
-        let table = Detached::new();
+        let table = DetachedHandles::new();
 
         let answer = Echo
             .into_receiver()
@@ -157,7 +157,7 @@ mod tests {
     // @behavior T-163
     #[test]
     fn a_payload_this_schema_cannot_read_folds_into_an_internal_fault() {
-        let table = Detached::new();
+        let table = DetachedHandles::new();
 
         // A truncated msgpack str header — framed as a payload, unreadable
         // as one.
@@ -176,7 +176,7 @@ mod tests {
     // @behavior T-288
     #[test]
     fn a_call_past_the_value_budget_folds_into_an_internal_fault() {
-        let table = Detached::new();
+        let table = DetachedHandles::new();
         let wide = [0x92, 0x94, 0xc0, 0xc0, 0xc0, 0xc0, 0x80];
 
         let refusal = crate::msgpack::budget::scope(Some(6), || {
@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn an_answer_this_schema_cannot_write_is_the_services_failure() {
         let payload = Arguments::new(Vec::new(), Vec::new()).encode().unwrap();
-        let table = Detached::new();
+        let table = DetachedHandles::new();
 
         let refusal = TooDeep
             .into_receiver()

@@ -22,10 +22,10 @@ impl<'a> Decoder<'a> {
         }
     }
 
-    /// Refuse to read more than `limit` values in all, each array, map,
-    /// key, and element counting as one; `None` reads without a limit.
-    pub fn with_value_limit(mut self, limit: Option<usize>) -> Self {
-        self.budget = limit;
+    /// Refuse to read more than `budget` values in all, each array, map,
+    /// key, and element counting as one; `None` reads without a budget.
+    pub fn with_value_budget(mut self, budget: Option<usize>) -> Self {
+        self.budget = budget;
         self
     }
 
@@ -33,7 +33,7 @@ impl<'a> Decoder<'a> {
         self.pos
     }
 
-    pub fn at_end(&self) -> bool {
+    pub fn is_at_end(&self) -> bool {
         self.pos >= self.input.len()
     }
 
@@ -50,9 +50,9 @@ impl<'a> Decoder<'a> {
     /// the same case ("extra bytes after the deserialized object"); matching
     /// that here keeps the two wire peers equally strict and fails loud
     /// instead of silently decoding a truncated stream.
-    pub fn read_only_value(&mut self) -> Result<Value, Error> {
+    pub fn read_sole_value(&mut self) -> Result<Value, Error> {
         let value = self.read_value()?;
-        if !self.at_end() {
+        if !self.is_at_end() {
             return Err(Error::Malformed("trailing bytes after the payload value"));
         }
         Ok(value)
@@ -277,7 +277,7 @@ mod tests {
         let bytes = encode(&v);
         let mut dec = Decoder::new(&bytes);
         let out = dec.read_value().expect("decode");
-        assert!(dec.at_end(), "decoder must consume all bytes");
+        assert!(dec.is_at_end(), "decoder must consume all bytes");
         out
     }
 
@@ -291,34 +291,34 @@ mod tests {
         let bytes = [0xc0_u8];
         let dec = Decoder::new(&bytes);
         assert_eq!(dec.position(), 0);
-        assert!(!dec.at_end());
+        assert!(!dec.is_at_end());
     }
 
     // @behavior WP-075
     #[test]
     fn decoder_empty_input_is_at_end() {
         let dec = Decoder::new(&[]);
-        assert!(dec.at_end());
+        assert!(dec.is_at_end());
     }
 
     // @behavior WP-077
     #[test]
-    fn read_only_value_accepts_a_sole_value() {
+    fn read_sole_value_accepts_a_sole_value() {
         let bytes = encode(&Value::Int(42));
         let mut dec = Decoder::new(&bytes);
-        assert_eq!(dec.read_only_value(), Ok(Value::Int(42)));
+        assert_eq!(dec.read_sole_value(), Ok(Value::Int(42)));
     }
 
     // @behavior WP-057
     #[test]
-    fn read_only_value_rejects_trailing_bytes() {
+    fn read_sole_value_rejects_trailing_bytes() {
         // Two concatenated values: an envelope buffer must hold exactly
         // one, so the second is a framing desync the host codec rejects too.
         let mut bytes = encode(&Value::Int(1));
         bytes.extend(encode(&Value::Int(2)));
         let mut dec = Decoder::new(&bytes);
         assert_eq!(
-            dec.read_only_value(),
+            dec.read_sole_value(),
             Err(Error::Malformed("trailing bytes after the payload value"))
         );
     }

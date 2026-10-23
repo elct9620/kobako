@@ -100,11 +100,11 @@ impl<'a> Handles<'a> {
 /// does not have is a guest on the other end, so the ids it issues name
 /// nothing beyond it.
 #[derive(Default)]
-pub struct Detached(Mutex<HandleTable>);
+pub struct DetachedHandles(Mutex<HandleTable>);
 
-impl Detached {
+impl DetachedHandles {
     pub fn new() -> Self {
-        Detached::default()
+        DetachedHandles::default()
     }
 
     /// This table as the `Handles` a `Receiver` takes.

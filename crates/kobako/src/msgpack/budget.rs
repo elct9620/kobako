@@ -11,23 +11,23 @@
 use std::cell::Cell;
 
 thread_local! {
-    static LIMIT: Cell<Option<usize>> = const { Cell::new(None) };
+    static BUDGET: Cell<Option<usize>> = const { Cell::new(None) };
 }
 
 /// Run `run` with every guest payload decoded on this thread held to
-/// `limit` values, putting the outer budget back however `run` returns.
-pub(crate) fn scope<T>(limit: Option<usize>, run: impl FnOnce() -> T) -> T {
+/// `budget` values, putting the outer budget back however `run` returns.
+pub(crate) fn scope<T>(budget: Option<usize>, run: impl FnOnce() -> T) -> T {
     struct Restore(Option<usize>);
     impl Drop for Restore {
         fn drop(&mut self) {
-            LIMIT.with(|cell| cell.set(self.0));
+            BUDGET.with(|cell| cell.set(self.0));
         }
     }
-    let _restore = Restore(LIMIT.with(|cell| cell.replace(limit)));
+    let _restore = Restore(BUDGET.with(|cell| cell.replace(budget)));
     run()
 }
 
 /// The budget of the invocation this thread is driving, if any.
 pub(crate) fn current() -> Option<usize> {
-    LIMIT.with(Cell::get)
+    BUDGET.with(Cell::get)
 }

@@ -42,7 +42,7 @@ mod tests {
     use kobako_codec::msgpack::codec::Value;
 
     use super::*;
-    use crate::handles::Detached;
+    use crate::handles::DetachedHandles;
     use crate::receiver::{Fault, Probe, Receiver};
     use crate::yielder::Yielder;
 
@@ -64,7 +64,7 @@ mod tests {
     // @behavior T-173
     #[test]
     fn resolve_as_hands_back_the_type_that_was_bound() {
-        let table = Detached::new();
+        let table = DetachedHandles::new();
         let handles = table.as_handles();
         let id = handles.alloc(Kv.into_receiver()).unwrap();
 
@@ -80,7 +80,7 @@ mod tests {
     // @behavior T-174
     #[test]
     fn resolve_as_refuses_an_id_standing_for_another_type() {
-        let table = Detached::new();
+        let table = DetachedHandles::new();
         let handles = table.as_handles();
         let id = handles.alloc(Arc::new(Probe) as Arc<dyn Receiver>).unwrap();
 
@@ -96,7 +96,7 @@ mod tests {
     // @behavior T-017
     #[test]
     fn resolve_as_refuses_an_id_the_invocation_never_issued() {
-        let table = Detached::new();
+        let table = DetachedHandles::new();
         let handles = table.as_handles();
         let id = handles.alloc(Kv.into_receiver()).unwrap();
 

@@ -92,7 +92,7 @@ fn write_frame<W: Write>(out: &mut W, payload: &[u8], is_error: bool) -> io::Res
 fn roundtrip_once(input: &[u8]) -> Result<Vec<u8>, (u8, String)> {
     let mut dec = Decoder::new(input);
     let value = dec.read_value().map_err(codec_to_tag)?;
-    if !dec.at_end() {
+    if !dec.is_at_end() {
         return Err((b'X', format!("trailing bytes at offset {}", dec.position())));
     }
     let mut enc = Encoder::new();

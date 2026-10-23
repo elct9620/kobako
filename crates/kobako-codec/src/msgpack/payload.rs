@@ -52,10 +52,10 @@ impl Decode for Arguments {
 
 impl Arguments {
     /// Decode as `Decode::decode` does, refusing a payload that holds more
-    /// than `limit` values in all.
-    pub fn decode_within(bytes: &[u8], limit: Option<usize>) -> Result<Self, codec::Error> {
-        let mut decoder = Decoder::new(bytes).with_value_limit(limit);
-        let frame = decoder.read_only_value()?;
+    /// than `budget` values in all.
+    pub fn decode_within(bytes: &[u8], budget: Option<usize>) -> Result<Self, codec::Error> {
+        let mut decoder = Decoder::new(bytes).with_value_budget(budget);
+        let frame = decoder.read_sole_value()?;
         // `try_into` on a Vec succeeds iff the length matches, which the
         // guard establishes.
         let [args_value, kwargs_value]: [Value; 2] = match frame {
@@ -133,7 +133,7 @@ mod tests {
         let encoded = Arguments::new(Vec::new(), vec![("name".into(), Value::Nil)])
             .encode()
             .unwrap();
-        let frame = Decoder::new(&encoded).read_only_value().unwrap();
+        let frame = Decoder::new(&encoded).read_sole_value().unwrap();
         let kwargs = match frame {
             Value::Array(items) => items[1].clone(),
             other => panic!("expected a 2-element frame, got {other:?}"),
