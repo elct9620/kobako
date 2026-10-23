@@ -214,6 +214,10 @@ A request from the guest to the host. It carries a Call.
 
 The agreement two endpoints reach about how values become bytes. It is replaceable: only the two endpoints need to share one.
 
+### Value Budget
+
+The most values one guest payload may hold, worked out from the memory cap. Decoding spends it, so a short payload cannot make the host build a large value.
+
 ### Outcome
 
 The final result of one Invocation. Every Invocation answers exactly one, whether it succeeded or failed.
