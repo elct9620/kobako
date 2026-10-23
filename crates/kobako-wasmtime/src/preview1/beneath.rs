@@ -42,8 +42,9 @@ impl ResolvedPath {
 }
 
 /// `path`, beneath `dir`. An empty path names nothing; an absolute path or
-/// a `..` above the root is not the guest's to reach; a `..` after a
-/// component that is missing or no directory is `NOENT` or `NOTDIR`. A
+/// a `..` above the root is not the guest's to reach; a `..` or a final `.`
+/// after a component that is missing or no directory is `NOENT` or
+/// `NOTDIR`. A
 /// name past `NAME_MAX`, or a resolved path the Filesystem could not be
 /// handed within `PATH_MAX`, is `NAMETOOLONG`.
 pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
@@ -73,6 +74,10 @@ pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
     let path = components.join("/");
     if path.len() >= PATH_MAX {
         return Err(Errno::Nametoolong.into());
+    }
+    // A final `.` resolves through the name before it, as a `..` does.
+    if last == "." && components.len() > opened {
+        step_out_of(dir.mount.filesystem().as_ref(), &path)?;
     }
     Ok(ResolvedPath {
         path,

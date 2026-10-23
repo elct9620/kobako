@@ -53,6 +53,7 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "fd_allocate" (func $allocate (param i32 i64 i64) (result i32)))
   (import "wasi_snapshot_preview1" "fd_seek" (func $seek (param i32 i64 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_readdir" (func $readdir (param i32 i32 i32 i64 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_create_directory" (func $mkdir (param i32 i32 i32) (result i32)))
   (memory (export "memory") 1)
   (data (i32.const 740) ".")
   (data (i32.const 760) "missing/../file.txt")
@@ -66,6 +67,7 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 900) "file.txt/x")
   (data (i32.const 920) "moved")
   (data (i32.const 930) "dir")
+  (data (i32.const 940) "missing/.")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
   (data (i32.const 600) "hello")
@@ -143,6 +145,8 @@ const PROBE_WAT: &str = r#"
     (call $unlink (i32.const 3) (local.get $path) (local.get $len)))
   (func (export "remove_path") (param $path i32) (param $len i32) (result i32)
     (call $rmdir (i32.const 3) (local.get $path) (local.get $len)))
+  (func (export "make_dir") (param $path i32) (param $len i32) (result i32)
+    (call $mkdir (i32.const 3) (local.get $path) (local.get $len)))
   (func (export "rename_paths") (param $from i32) (param $from_len i32) (param $to i32) (param $to_len i32) (result i32)
     (call $rename (i32.const 3) (local.get $from) (local.get $from_len) (i32.const 3) (local.get $to) (local.get $to_len)))
   ;; Open `file.txt`, seek it to the largest offset, then that far again.
@@ -176,6 +180,7 @@ const DIR_DOT_DOT: (i32, i32) = (890, 6);
 const BENEATH_FILE: (i32, i32) = (900, 10);
 const MOVED: (i32, i32) = (920, 5);
 const DIR: (i32, i32) = (930, 3);
+const MISSING_DOT: (i32, i32) = (940, 9);
 const ERRNO_OVERFLOW: i32 = 61;
 const ERRNO_EXIST: i32 = 20;
 const OFLAGS_EXCL: i32 = 1 << 2;
@@ -904,6 +909,25 @@ fn file_and_directory() -> Arc<Memory> {
             .into_iter()
             .collect(),
     )
+}
+
+// A `.` after a name resolves through it, so Linux and macOS both refuse
+// `missing/.` at the missing name rather than make it.
+// @behavior RT-109
+#[test]
+fn a_path_ending_in_a_dot_makes_nothing_where_no_directory_stands() {
+    let memory = file_and_directory();
+    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
+    let answers = [
+        guest.call("make_dir", MISSING_DOT),
+        guest.call_flagged(MISSING_DOT, OFLAGS_CREAT, 0),
+    ];
+    assert_eq!(
+        (answers, memory.metadata("missing").is_err()),
+        ([ERRNO_NOENT, ERRNO_NOENT], true),
+        "path_create_directory and path_open with O_CREAT of missing/. beneath a Mount through \
+         preview1 must answer ENOENT, as Linux does, and make nothing named missing"
+    );
 }
 
 // Resolving `dir/.` reaches `dir` itself, so only refusing the path as
