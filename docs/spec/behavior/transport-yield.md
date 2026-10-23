@@ -19,8 +19,9 @@ The exits that raise are followed too. Each ends the conversation somewhere the 
 - An unwind aimed past the boundary.
 - An answer the wire cannot carry.
 - A Yielder reached after its frame returned.
+- A block run on a fiber other than its invocation's.
 
-That last exit has no parity scenario, because the frontends close it at different times. One refuses the stored block when it runs. The other lends its Yielder for the frame alone, so a Service storing it never builds. Each is witnessed on its own frontend.
+The last two exits have no parity scenario, because the frontends close them at different times. One refuses the block when it runs. The other lends its Yielder to the frame's thread alone, so a Service storing or sending it never builds. Each is witnessed on its own frontend.
 
 ## Includes
 
@@ -590,3 +591,27 @@ That last exit has no parity scenario, because the frontends close it at differe
 | Given | a Service yielding to a block that answers more values than the memory cap allows |
 | When | the block answers |
 | Then | the yield raises instead of answering the Service |
+
+## `T-290` A block run on another thread refuses before it reaches the guest
+
+| Attribute | Value |
+| --- | --- |
+| relates | `T-136` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service running its block on a thread of its own |
+| When | guest code calls it with a block |
+| Then | the block raises a thread error instead of running |
+
+## `T-291` A block run on another fiber refuses before it reaches the guest
+
+| Attribute | Value |
+| --- | --- |
+| relates | `T-290` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Service running its block inside an external enumerator |
+| When | guest code calls it with a block |
+| Then | the block raises a thread error instead of running |
