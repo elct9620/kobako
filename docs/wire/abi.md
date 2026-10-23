@@ -113,6 +113,7 @@ Version `5` carries the operation in the message, so an added operation is a reg
 | Decision | Consequence |
 |----------|-------------|
 | a Yield Call names its open Call | a stored block runs as itself from inside a later Call |
+| a break carries nothing, on a Reply as on a Yield Reply | a block exit lands past any number of Calls, as through a plain method |
 | one message symbol per direction | the symbol set stays at four |
 | one tag space for every message | an answer's tag never collides across operations |
 | every answer is a return value | a call and its answer are one round trip |

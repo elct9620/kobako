@@ -21,7 +21,7 @@ A codec owns exactly these positions; everything else in a message is the envelo
 | Call `payload` | `args` and `kwargs` |
 | Reply `body`, success | the Service method's return value |
 | Yield Call | the yield arguments, as a list |
-| Yield Reply `body`, ok or break | the block's value, or the `break` value |
+| Yield Reply `body`, ok | the block's value |
 | Outcome `body`, ok | the invocation's value |
 | Run `payload` | the entrypoint's `args` and `kwargs` |
 

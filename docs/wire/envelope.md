@@ -80,7 +80,7 @@ All tags share one number space, so a byte means one thing in every message. The
 | `0x08` | compile | downcall | none |
 | `0x10` | ok | an answer to any | that operation's value |
 | `0x11` | fault | an answer to call | a Fault |
-| `0x12` | break | an answer to yield | the break value |
+| `0x12` | break | an answer to yield, call | none |
 | `0x13` | error | an answer to yield, compile | an Error Record |
 | `0x14` | panic | an answer to eval, run | a Panic |
 | `0x15` | unsupported | an answer to any | an Unsupported |
@@ -127,9 +127,10 @@ A Reply answers one Call. Success versus fault is decided by one byte, whatever 
 |-----|-----|------|
 | `0x10` | ok | the codec-encoded value |
 | `0x11` | fault | a Fault |
+| `0x12` | break | none |
 | `0x15` | unsupported | an Unsupported |
 
-There is no partial success or streaming answer.
+There is no partial success or streaming answer. A break answers a Call whose Service a block exit unwound; the guest continues that exit itself.
 
 ### Unsupported
 
@@ -190,7 +191,7 @@ A Yield Call names the open Call whose block it runs, since a Service may run an
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `frame` | `u32` | the open Call, counted from `0` at the outermost |
+| `frame` | `u32` | the dispatch frame of an open Call, counted from `0` at the outermost |
 | `args` | remainder | the arguments, codec-encoded |
 
 The Yield Reply answers by arm:
@@ -198,11 +199,11 @@ The Yield Reply answers by arm:
 | Tag | Variant | Body | Host yield site |
 |-----|---------|------|-----------------|
 | `0x10` | ok | the block value | returns it to the Service |
-| `0x12` | break | the `break` value | ends the Service with it |
+| `0x12` | break | none | unwinds the Service, then answers its Call with break |
 | `0x13` | error | an Error Record | re-raises the named class |
 | `0x15` | unsupported | an Unsupported | raises that the guest serves no block |
 
-An ok value's Handles are restored, because host code consumes it. A break value returns to the guest, so its Handles ride back unchanged. Any other tag, or a reply the host cannot frame, fails the yield as a trap.
+An ok value's Handles are restored, because host code consumes it. A `break` or `return` stays in the guest, which knows where it lands, so nothing of it crosses. Any other tag, or a reply the host cannot frame, fails the yield as a trap.
 
 ### Error Record
 
