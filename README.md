@@ -449,13 +449,28 @@ sandbox.eval('Seq::Map.call([1, 2, 3]) { |x| x * 2 }').value
 # => [2, 4, 6]
 ```
 
-A `yield` that cannot complete raises at the Service's call site, so the Service may rescue it. Left unrescued, a `BlockError` hands the guest its own exception back; the other two fail the Service call.
+A `yield` that cannot complete raises at the Service's call site, so the Service may rescue it. Left unrescued, a `BlockError` hands the guest its own exception back; the others fail the Service call.
 
 | Class                      | Trigger at `yield`                    |
 |----------------------------|---------------------------------------|
 | `Kobako::BlockError`       | The guest block raised                |
 | `Kobako::YieldValueError`  | An argument cannot cross to the guest |
 | `Kobako::UnsupportedError` | The Guest Binary serves no block      |
+| `ThreadError`              | The block runs off the calling Fiber  |
+
+#### Block Fiber
+
+A block runs only on the Fiber that called the Service. The guest's Wasm stack lives on that Fiber's native stack, so entering it from another raises `ThreadError` before the block runs. CRuby itself lets a block run anywhere; kobako narrows that to keep the guest's stack checks sound.
+
+```
+Service on the calling Fiber
+  ├─ blk.call / yield                     ─> runs in the guest
+  ├─ Thread.new { blk.call }              ─> ThreadError
+  └─ Enumerator.new { |y| y << blk.call }
+       .next   (runs its body on a Fiber) ─> ThreadError
+```
+
+`Enumerator#next` counts as another Fiber, because it runs the enumerator's body on one. Internal iteration such as `each` or `map` stays on the calling Fiber and runs the block normally.
 
 ### Handle Management
 

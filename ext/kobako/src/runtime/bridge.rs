@@ -9,6 +9,7 @@ use core::cell::{Cell, RefCell};
 use core::ptr::NonNull;
 use std::sync::Arc;
 
+use magnus::rb_sys::AsRawValue;
 use magnus::value::{Opaque, ReprValue};
 use magnus::{method, prelude::*, Error as MagnusError, RClass, RString, Ruby, Symbol, Value};
 
@@ -46,9 +47,9 @@ pub(super) fn register(runtime_class: RClass) -> Result<(), MagnusError> {
 #[derive(Default)]
 struct OpenFrames(RefCell<Vec<NonNull<dyn Yielder>>>);
 
-// SAFETY: the stack is pushed, read, and popped only on the one Ruby
-// thread driving the invocation that owns it; it is never read from
-// another thread.
+// SAFETY: the stack is pushed and popped by the dispatch frames on the
+// fiber driving the invocation, and read only by a `GuestYielder` that
+// refuses every other fiber, so it is never reached from another thread.
 unsafe impl Send for OpenFrames {}
 unsafe impl Sync for OpenFrames {}
 
@@ -88,27 +89,36 @@ impl OpenFrames {
 /// which fires before this handle is reached. This inner invalidation is
 /// the backstop behind that outer net, so neither net is redundant.
 ///
+/// The guest's Store is entered from the fiber that drives the
+/// invocation, and only from it: another fiber runs on its own native
+/// stack, which wasmtime's stack limit and the value budget never saw. A
+/// block run from any other fiber, including one on another thread, is
+/// refused before it reaches the guest.
+///
 /// It holds **no Ruby `Value`**, so GC has nothing to trace through it —
-/// it needs no `mark`.
+/// it needs no `mark`. The driving fiber is kept as its raw identity,
+/// compared only while the frame is live and so while that fiber is.
 #[magnus::wrap(class = "Kobako::Runtime::GuestYielder", free_immediately, size)]
 struct GuestYielder {
     frame: u32,
     open: Arc<OpenFrames>,
     live: Cell<bool>,
+    fiber: rb_sys::VALUE,
 }
 
-// SAFETY: magnus requires `Send + Sync` on wrapped types. The handle is
-// created, used, and invalidated on the one Ruby thread that owns the
-// active Invocation; it is never read from another thread.
+// SAFETY: magnus requires `Send + Sync` on wrapped types. `call` refuses
+// every fiber but the one driving the invocation, so the frames it reaches
+// are only ever read on that fiber's thread.
 unsafe impl Send for GuestYielder {}
 unsafe impl Sync for GuestYielder {}
 
 impl GuestYielder {
-    fn new(frame: u32, open: Arc<OpenFrames>) -> Self {
+    fn new(ruby: &Ruby, frame: u32, open: Arc<OpenFrames>) -> Self {
         Self {
             frame,
             open,
             live: Cell::new(true),
+            fiber: ruby.fiber_current().as_raw(),
         }
     }
 
@@ -129,6 +139,12 @@ impl GuestYielder {
                 "guest block invoked after the host dispatch frame returned",
             ));
         };
+        if ruby.fiber_current().as_raw() != self.fiber {
+            return Err(MagnusError::new(
+                ruby.exception_thread_error(),
+                "guest block called from a thread or fiber other than its invocation's",
+            ));
+        }
         let bytes = super::rstring_to_vec(args);
         // SAFETY: this frame is live, so the innermost frame — this one or
         // a later Call — is still on the Rust stack with its Yielder lent.
@@ -209,7 +225,7 @@ impl DispatchHandler for RubyDispatchHandler {
             // invalidate it the instant the Proc returns, so a guest block that
             // escapes the dispatch frame never re-enters the guest.
             let guest_yielder =
-                ruby.obj_wrap(GuestYielder::new(yielder.frame(), self.open.clone()));
+                ruby.obj_wrap(GuestYielder::new(&ruby, yielder.frame(), self.open.clone()));
             let answer: Result<(bool, RString, Option<RString>), magnus::Error> =
                 self.open.lend(yielder, || {
                     proc_value.funcall(
