@@ -19,7 +19,7 @@ class TestE2EYieldForeignFiber < Minitest::Test
   def test_a_block_run_on_another_thread_refuses
     %i[hold release].each do |gvl|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl)
-      sandbox.bind("Probe::Runs", ->(&block) { refusal { Thread.new { block.call }.value } })
+      sandbox.bind("Probe::Runs", ->(&block) { refusal { quiet_thread { block.call }.value } })
 
       assert_equal ["ThreadError", false], sandbox.eval(GUEST).value,
                    "a guest block a Service runs on its own Thread through Sandbox#eval (gvl: #{gvl}) " \
@@ -38,6 +38,11 @@ class TestE2EYieldForeignFiber < Minitest::Test
   end
 
   private
+
+  # The refusal is expected, so the thread leaves reporting it to +value+.
+  def quiet_thread(&)
+    Thread.new(&).tap { |thread| thread.report_on_exception = false }
+  end
 
   def refusal
     yield
