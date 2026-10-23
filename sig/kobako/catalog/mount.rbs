@@ -14,8 +14,6 @@ module Kobako
 
       def self.new: (at: untyped, access: untyped, filesystem: untyped, policy: policy?) -> Mount
 
-      def initialize: (at: untyped, access: untyped, filesystem: untyped, policy: policy?) -> void
-
       def key: () -> String
 
       def conflict: (Mount other) -> String?

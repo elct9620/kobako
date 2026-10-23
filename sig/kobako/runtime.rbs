@@ -2,6 +2,8 @@ module Kobako
   class Runtime
     def self.default_path: () -> String
 
+    def self.validate_mount: (untyped at, untyped access, untyped filesystem) -> nil
+
     def self.from_path: (
       String path,
       timeout: (Float | Integer)?,

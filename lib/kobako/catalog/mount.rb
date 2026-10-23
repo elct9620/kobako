@@ -3,13 +3,6 @@
 module Kobako
   module Catalog
     class Mount < Data.define(:at, :access, :filesystem, :policy) # :nodoc:
-      # The native side owns what a Mount may be, and refuses here by the
-      # rules it builds every invocation's Mount with.
-      def initialize(at:, access:, filesystem:, policy:)
-        Kobako::Filesystem.validate_mount(at, access, filesystem)
-        super
-      end
-
       # The path a Context replaces this Mount at.
       def key = at
 

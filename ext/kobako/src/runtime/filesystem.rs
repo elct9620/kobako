@@ -67,13 +67,16 @@ pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     let overlay = module.define_class("Overlay", ruby.class_object())?;
     overlay.define_singleton_method("new", function!(overlay_new, 0))?;
     overlay.define_method("layer", method!(overlay_layer, -1))?;
-    module.define_singleton_method("validate_mount", function!(validate_mount, 3))?;
     Ok(())
 }
 
 /// Refuse a Mount at `mount` time by the same rules an invocation builds
 /// it with, so a mistake raises where it was made.
-fn validate_mount(at: Value, access: Value, filesystem: Value) -> Result<(), MagnusError> {
+pub(super) fn validate_mount(
+    at: Value,
+    access: Value,
+    filesystem: Value,
+) -> Result<(), MagnusError> {
     mount_of(at, access, filesystem).map(drop)
 }
 
