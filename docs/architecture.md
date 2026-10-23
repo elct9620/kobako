@@ -7,6 +7,7 @@ kobako is assembled from parts. This document is the baseline for where a change
 | which part owns this | The Parts |
 | what every assembly shares | The Fixed Pillar |
 | where a replacement plugs in | The Seams |
+| what a word means where | The Contexts |
 | what holds across builds | Build Rules |
 | where a Ruby type goes | Ruby Tiers |
 
@@ -150,6 +151,48 @@ A change to the wire therefore stays inside the endpoints and `kobako-transport`
 The two sides replace different units.
 The host ABI endpoint shares `kobako-wasmtime` with the engine mechanics, so an engine is replaced whole.
 A guest replaces only its model and keeps `kobako-core`.
+
+## The Contexts
+
+A context is an area with its own vocabulary and rules.
+A name is judged inside its context, so the same word in two contexts may mean two things, as Overlay and a dialect overlay do.
+The glossary keeps one section per context, scoped by its includes.
+
+```
+ ┌─ Everywhere: the terms every context shares ──────────────────┐
+ │                                                                │
+ │  Host ──dialect overlay──► Wire ◄──dialect overlay── guest     │
+ │   │                                                            │
+ │   │ ext/                                                       │
+ │   ▼                                                            │
+ │  Isolation ──Grant contract──► Filesystem                      │
+ └────────────────────────────────────────────────────────────────┘
+```
+
+### Context Ownership
+
+Each context owns the rules below and the parts that keep them.
+
+| Context | Owns | Lives in |
+|---|---|---|
+| Host | the Sandbox lifecycle, Services, Handles, outcome attribution | `lib/`, `kobako` |
+| Wire | the envelope, the tag registry, the codecs | `kobako-transport`, `kobako-codec`, `lib/kobako/{codec,payload}/`, `docs/wire/` |
+| Isolation | the engine and the Ambient authority a Posture grants | `kobako-runtime`, `kobako-wasmtime`, `ext/` |
+| Filesystem | Mounts, Policies, and the Filesystem kinds | `kobako-runtime`'s filesystem, the preview1 driver |
+
+The guest has no context of its own. Its words are either shared or the Wire's, and the capability gems speak CRuby's, which [`parity.md`](parity.md) governs.
+
+### Context Relations
+
+A word crosses a context only at an interface, which translates it.
+
+| Between | Relation | Translated by |
+|---|---|---|
+| Host or guest, and Wire | each endpoint takes the Fixed Pillar unchanged | its dialect overlay |
+| Host and Isolation | the Host drives the engine | the `kobako-runtime` contract, through `ext/` for Ruby |
+| Isolation and Filesystem | the Filesystem conforms to the Grant contract | `Grant`, `Mount` |
+
+A new kind of Grant joins as a context beside Filesystem. It conforms to the same contract and brings its own words.
 
 ## Build Rules
 
