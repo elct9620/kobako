@@ -51,7 +51,7 @@ fn ask<T>(
             return Err(missing);
         }
         answer(&ruby, object).map_err(|err| match escape::hold(&ruby, err) {
-            Err(err) => error_of(&ruby, err),
+            Err(err) => to_error(&ruby, err),
             // The invocation ends before the guest reads this.
             Ok(()) => FilesystemError::Other(String::new()),
         })
@@ -72,7 +72,7 @@ fn change(
 
 /// The FilesystemError an `Errno` stands for, one for each class the
 /// guest has; anything else is `Other`, which reaches the guest as `EIO`.
-fn error_of(ruby: &Ruby, err: MagnusError) -> FilesystemError {
+fn to_error(ruby: &Ruby, err: MagnusError) -> FilesystemError {
     const CODES: [(&str, FilesystemError); 25] = [
         ("ENOENT", FilesystemError::NotFound),
         ("EEXIST", FilesystemError::AlreadyExists),
@@ -112,7 +112,7 @@ fn error_of(ruby: &Ruby, err: MagnusError) -> FilesystemError {
 
 /// `File::Constants` flags for `options`, read from Ruby since their
 /// values differ by platform.
-fn flags_of(ruby: &Ruby, options: &OpenOptions) -> Result<i64, MagnusError> {
+fn to_flags(ruby: &Ruby, options: &OpenOptions) -> Result<i64, MagnusError> {
     let constants: RModule = ruby
         .class_object()
         .const_get::<_, RClass>("File")?
@@ -153,7 +153,7 @@ impl Filesystem for RubyFilesystem {
             "open",
             FilesystemError::Unsupported,
             |ruby, fs| {
-                let file: Value = fs.funcall("open", (path, flags_of(ruby, options)?))?;
+                let file: Value = fs.funcall("open", (path, to_flags(ruby, options)?))?;
                 Ok(Box::new(RubyFile::pin(ruby, file)) as Box<dyn File>)
             },
         )

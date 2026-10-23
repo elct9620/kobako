@@ -267,7 +267,7 @@ mod tests {
     #[test]
     fn resolve_shares_one_object_across_paths_of_a_shared_provider() {
         let shared: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);
-        let resolved = resolve_of(&[("File", shared.clone()), ("Dir", shared.clone())]);
+        let resolved = resolve_specs(&[("File", shared.clone()), ("Dir", shared.clone())]);
         assert_eq!(resolved.len(), 2);
         assert!(
             Arc::ptr_eq(&resolved[0].1, &resolved[1].1),
@@ -280,7 +280,7 @@ mod tests {
     fn resolve_gives_distinct_providers_distinct_objects() {
         let a: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);
         let b: ProviderFn = Arc::new(|| Arc::new(Probe) as Arc<dyn Receiver>);
-        let resolved = resolve_of(&[("File", a), ("Dir", b)]);
+        let resolved = resolve_specs(&[("File", a), ("Dir", b)]);
         assert!(
             !Arc::ptr_eq(&resolved[0].1, &resolved[1].1),
             "distinct providers resolve to distinct objects"
@@ -289,7 +289,7 @@ mod tests {
 
     // Drive Extensions::resolve with per-invocation backends built from the
     // given (path, provider) pairs.
-    fn resolve_of(specs: &[(&'static str, ProviderFn)]) -> Resolutions {
+    fn resolve_specs(specs: &[(&'static str, ProviderFn)]) -> Resolutions {
         struct BackendExt {
             path: &'static str,
             provider: ProviderFn,

@@ -53,7 +53,7 @@ pub(crate) fn epoch_deadline_callback(
 /// The message leaves out the ABI export symbol, so the Sandbox layer can
 /// attach the caller's verb instead. A cap trap carries its own message,
 /// since wasmtime's backtrace framing is noise there.
-pub(crate) fn trap_from(err: wasmtime::Error) -> Trap {
+pub(crate) fn to_trap(err: wasmtime::Error) -> Trap {
     if let Some(t) = err.downcast_ref::<TimeoutTrap>() {
         Trap::Timeout(t.to_string())
     } else if let Some(t) = err.downcast_ref::<MemoryLimitTrap>() {
@@ -85,7 +85,7 @@ pub(crate) fn instantiate_err(err: wasmtime::Error) -> SetupError {
 
 #[cfg(test)]
 mod tests {
-    use super::{other_trap_message, trap_from, TimeoutTrap, NO_TIMEOUT_EPOCH_DELTA};
+    use super::{other_trap_message, to_trap, TimeoutTrap, NO_TIMEOUT_EPOCH_DELTA};
     use crate::limiter::MemoryLimitTrap;
     use kobako_runtime::error::Trap;
 
@@ -107,26 +107,26 @@ mod tests {
 
     // @behavior OC-032
     #[test]
-    fn trap_from_routes_timeout_trap_to_timeout() {
+    fn to_trap_routes_timeout_trap_to_timeout() {
         let err = wasmtime::Error::new(TimeoutTrap);
         let expected = TimeoutTrap.to_string();
-        assert!(matches!(trap_from(err), Trap::Timeout(msg) if msg == expected));
+        assert!(matches!(to_trap(err), Trap::Timeout(msg) if msg == expected));
     }
 
     // @behavior OC-033
     #[test]
-    fn trap_from_routes_memory_limit_trap_to_memory_limit() {
+    fn to_trap_routes_memory_limit_trap_to_memory_limit() {
         let trap = MemoryLimitTrap::new(1 << 20, 1 << 19);
         let expected = trap.to_string();
         let err = wasmtime::Error::new(trap);
-        assert!(matches!(trap_from(err), Trap::MemoryLimit(msg) if msg == expected));
+        assert!(matches!(to_trap(err), Trap::MemoryLimit(msg) if msg == expected));
     }
 
     // @behavior OC-028
     #[test]
-    fn trap_from_falls_back_to_other_for_unknown_errors() {
+    fn to_trap_falls_back_to_other_for_unknown_errors() {
         let err = wasmtime::Error::msg("some other wasmtime fault");
-        assert!(matches!(trap_from(err), Trap::Other(_)));
+        assert!(matches!(to_trap(err), Trap::Other(_)));
     }
 
     // A guest hard trap reaches the host as a wasmtime error whose Display is

@@ -27,7 +27,7 @@ pub(crate) struct MatchState {
     pub names: Vec<(String, usize)>,
 }
 
-pub(crate) fn state_of(mrb: &Mrb, value: Value) -> Option<&MatchState> {
+pub(crate) fn read_state(mrb: &Mrb, value: Value) -> Option<&MatchState> {
     <&MatchState>::try_convert(value, mrb).ok()
 }
 

@@ -32,7 +32,7 @@ impl Directory {
 /// `path` as `cap_std` takes it, the root being `.`. Windows reads `\` as
 /// a separator too, so there a name holding one is refused rather than
 /// reached as names a Mount's Policy never saw.
-fn host(path: &str) -> Result<&str, FilesystemError> {
+fn to_host_path(path: &str) -> Result<&str, FilesystemError> {
     if cfg!(windows) && path.contains('\\') {
         return Err(FilesystemError::InvalidInput);
     }
@@ -41,7 +41,7 @@ fn host(path: &str) -> Result<&str, FilesystemError> {
 
 /// The FilesystemError a host failure names. A link loop stays unnamed
 /// until std's `FilesystemLoop` is stable.
-fn error(err: io::Error) -> FilesystemError {
+fn to_error(err: io::Error) -> FilesystemError {
     match err.kind() {
         io::ErrorKind::NotFound => FilesystemError::NotFound,
         io::ErrorKind::AlreadyExists => FilesystemError::AlreadyExists,
@@ -64,7 +64,7 @@ fn error(err: io::Error) -> FilesystemError {
     }
 }
 
-fn kind(file_type: FileType) -> Kind {
+fn to_kind(file_type: FileType) -> Kind {
     if file_type.is_symlink() {
         Kind::Symlink
     } else if file_type.is_dir() {
@@ -76,8 +76,8 @@ fn kind(file_type: FileType) -> Kind {
 
 /// What a host entry is, a file's size alone counted: a link reports no
 /// size, so nothing of where it points reaches the guest.
-fn metadata_of(metadata: cap_std::fs::Metadata) -> Metadata {
-    let kind = kind(metadata.file_type());
+fn to_metadata(metadata: cap_std::fs::Metadata) -> Metadata {
+    let kind = to_kind(metadata.file_type());
     Metadata {
         kind,
         len: if kind == Kind::File {
@@ -117,13 +117,16 @@ impl Filesystem for Directory {
         if options.nofollow
             && self
                 .dir
-                .symlink_metadata(host(path)?)
+                .symlink_metadata(to_host_path(path)?)
                 .is_ok_and(|metadata| metadata.is_symlink())
         {
             return Err(FilesystemError::SymbolicLink);
         }
-        let file = self.dir.open_with(host(path)?, &open).map_err(error)?;
-        if file.metadata().map_err(error)?.is_dir() {
+        let file = self
+            .dir
+            .open_with(to_host_path(path)?, &open)
+            .map_err(to_error)?;
+        if file.metadata().map_err(to_error)?.is_dir() {
             return Err(FilesystemError::IsADirectory);
         }
         Ok(Box::new(DirectoryFile {
@@ -132,39 +135,43 @@ impl Filesystem for Directory {
     }
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        Ok(metadata_of(self.dir.metadata(host(path)?).map_err(error)?))
+        Ok(to_metadata(
+            self.dir.metadata(to_host_path(path)?).map_err(to_error)?,
+        ))
     }
 
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        Ok(metadata_of(
-            self.dir.symlink_metadata(host(path)?).map_err(error)?,
+        Ok(to_metadata(
+            self.dir
+                .symlink_metadata(to_host_path(path)?)
+                .map_err(to_error)?,
         ))
     }
 
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
         self.dir
-            .read_dir(host(path)?)
-            .map_err(error)?
+            .read_dir(to_host_path(path)?)
+            .map_err(to_error)?
             .map(|entry| {
-                let entry = entry.map_err(error)?;
+                let entry = entry.map_err(to_error)?;
                 let name = entry
                     .file_name()
                     .into_string()
                     .map_err(|_| FilesystemError::IllegalSequence)?;
                 Ok(DirEntry {
                     name,
-                    kind: kind(entry.file_type().map_err(error)?),
+                    kind: to_kind(entry.file_type().map_err(to_error)?),
                 })
             })
             .collect()
     }
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.dir.create_dir(host(path)?).map_err(error)
+        self.dir.create_dir(to_host_path(path)?).map_err(to_error)
     }
 
     fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.dir.remove_dir(host(path)?).map_err(error)
+        self.dir.remove_dir(to_host_path(path)?).map_err(to_error)
     }
 
     /// A directory is refused as one on every host, where the host itself
@@ -172,12 +179,12 @@ impl Filesystem for Directory {
     fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
         if self
             .dir
-            .symlink_metadata(host(path)?)
+            .symlink_metadata(to_host_path(path)?)
             .is_ok_and(|m| m.is_dir())
         {
             return Err(FilesystemError::IsADirectory);
         }
-        self.dir.remove_file(host(path)?).map_err(error)
+        self.dir.remove_file(to_host_path(path)?).map_err(to_error)
     }
 
     /// A host directory takes no lock a Filesystem could check the source
@@ -189,8 +196,8 @@ impl Filesystem for Directory {
             rename.allows(self.symlink_metadata(from)?.kind)?;
         }
         self.dir
-            .rename(host(from)?, &self.dir, host(to)?)
-            .map_err(error)
+            .rename(to_host_path(from)?, &self.dir, to_host_path(to)?)
+            .map_err(to_error)
     }
 }
 
@@ -202,17 +209,17 @@ struct DirectoryFile {
 
 impl File for DirectoryFile {
     fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.file.seek(SeekFrom::Start(offset)).map_err(error)?;
-        self.file.read(buf).map_err(error)
+        self.file.seek(SeekFrom::Start(offset)).map_err(to_error)?;
+        self.file.read(buf).map_err(to_error)
     }
 
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.file.seek(SeekFrom::Start(offset)).map_err(error)?;
-        self.file.write(buf).map_err(error)
+        self.file.seek(SeekFrom::Start(offset)).map_err(to_error)?;
+        self.file.write(buf).map_err(to_error)
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        let metadata = self.file.metadata().map_err(error)?;
+        let metadata = self.file.metadata().map_err(to_error)?;
         Ok(Metadata {
             kind: Kind::File,
             len: metadata.len(),
@@ -220,11 +227,11 @@ impl File for DirectoryFile {
     }
 
     fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.file.set_len(len).map_err(error)
+        self.file.set_len(len).map_err(to_error)
     }
 
     fn sync(&mut self) -> Result<(), FilesystemError> {
-        self.file.sync_all().map_err(error)
+        self.file.sync_all().map_err(to_error)
     }
 }
 

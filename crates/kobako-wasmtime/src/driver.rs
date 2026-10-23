@@ -180,7 +180,7 @@ impl ContractRuntime for Driver {
                 Ok(outcome) => Completion::Outcome(outcome),
                 Err(t) => Completion::Trap(t),
             },
-            Err(e) => Completion::Trap(trap::trap_from(e)),
+            Err(e) => Completion::Trap(trap::to_trap(e)),
         };
         Ok(self.build_snapshot(&store, completion))
     }

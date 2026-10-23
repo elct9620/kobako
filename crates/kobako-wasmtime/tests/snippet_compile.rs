@@ -11,14 +11,14 @@ use kobako_transport::envelope::{Flag, Outcome, Preamble, Snippet, Snippets};
 
 use support::bundled_driver as driver;
 
-fn preamble_of(entries: Vec<Snippet>) -> Preamble {
+fn preamble_with(entries: Vec<Snippet>) -> Preamble {
     let mut preamble = Preamble::default();
     preamble.snippets = Snippets { entries };
     preamble
 }
 
 fn greeter() -> Preamble {
-    preamble_of(vec![Snippet::Source {
+    preamble_with(vec![Snippet::Source {
         name: "Greeter".into(),
         body: "module Greeter; def self.hi = 'hi'; end".into(),
     }])
@@ -33,7 +33,7 @@ fn compiled_snippets_replay_in_a_later_invocation() {
     let bytecodes = driver
         .compile(&greeter())
         .expect("a source snippet that parses must compile");
-    let replay = preamble_of(
+    let replay = preamble_with(
         bytecodes
             .into_iter()
             .map(|body| Snippet::Bytecode { body })

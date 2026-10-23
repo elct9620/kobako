@@ -207,7 +207,7 @@ mod tests {
     use crate::config::Config;
     use crate::imports;
     use crate::invocation::Invocation;
-    use crate::trap::{trap_from, NO_TIMEOUT_EPOCH_DELTA};
+    use crate::trap::{to_trap, NO_TIMEOUT_EPOCH_DELTA};
     use crate::wasi::Wasi;
     use kobako_runtime::error::Trap;
     use kobako_runtime::profile::Profile;
@@ -282,7 +282,7 @@ mod tests {
         let (ended, spent) = wait_ten_seconds(Profile::Permissive, Some(Duration::from_millis(50)));
         let trap = ended.expect_err("a wait past the deadline must not return to the guest");
         assert!(
-            matches!(trap_from(trap), Trap::Timeout(_)),
+            matches!(to_trap(trap), Trap::Timeout(_)),
             "a clock wait past the deadline through a permissive guest's poll_oneoff must end \
              as a timeout"
         );

@@ -243,7 +243,7 @@ mod tests {
         writer.into_bytes()
     }
 
-    fn preamble_of(records: &[Vec<u8>]) -> Vec<u8> {
+    fn preamble_with(records: &[Vec<u8>]) -> Vec<u8> {
         let mut bytes = (records.len() as u32).to_be_bytes().to_vec();
         for record in records {
             bytes.extend_from_slice(record);
@@ -307,7 +307,7 @@ mod tests {
     // @behavior WE-053
     #[test]
     fn an_absent_record_reads_as_empty() {
-        let bytes = preamble_of(&[record(0, 0x07, &encode_flag(&flag("f", "", false)))]);
+        let bytes = preamble_with(&[record(0, 0x07, &encode_flag(&flag("f", "", false)))]);
         let preamble = Preamble::decode(&bytes).expect("a flag-only Preamble must decode");
         assert_eq!(
             (preamble.bindings, preamble.snippets),
@@ -375,7 +375,7 @@ mod tests {
     // @behavior WE-056
     #[test]
     fn an_unknown_snippet_kind_is_refused() {
-        let bytes = preamble_of(&[record(1, 0x06, &[0, 0, 0, 1, 9])]);
+        let bytes = preamble_with(&[record(1, 0x06, &[0, 0, 0, 1, 9])]);
         assert!(
             Preamble::decode(&bytes).is_err(),
             "a snippet kind that is neither source nor bytecode through Preamble::decode must \
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn a_count_the_preamble_cannot_satisfy_is_refused() {
         let records = [0xff, 0xff, 0xff, 0xff];
-        let snippets = preamble_of(&[record(1, 0x06, &[0xff, 0xff, 0xff, 0xff])]);
+        let snippets = preamble_with(&[record(1, 0x06, &[0xff, 0xff, 0xff, 0xff])]);
         assert!(
             Preamble::decode(&records).is_err() && Preamble::decode(&snippets).is_err(),
             "a record or snippet count larger than what follows through Preamble::decode must \
@@ -400,7 +400,7 @@ mod tests {
     fn trailing_bytes_are_refused() {
         let mut past_the_list = Preamble::default().encode();
         past_the_list.push(0);
-        let past_a_body = preamble_of(&[record(1, 0x05, &[0, 0, 0, 0, 0])]);
+        let past_a_body = preamble_with(&[record(1, 0x05, &[0, 0, 0, 0, 0])]);
         assert!(
             Preamble::decode(&past_the_list).is_err() && Preamble::decode(&past_a_body).is_err(),
             "bytes past the last record or past a record body's last field through \
@@ -411,7 +411,7 @@ mod tests {
     // @behavior WE-077
     #[test]
     fn an_advisory_record_of_an_unknown_kind_is_skipped() {
-        let bytes = preamble_of(&[
+        let bytes = preamble_with(&[
             record(0, 0x7e, b"anything"),
             record(
                 1,
@@ -432,7 +432,7 @@ mod tests {
     // @behavior WE-078
     #[test]
     fn a_critical_record_of_an_unknown_kind_is_refused() {
-        let bytes = preamble_of(&[record(1, 0x7e, b"anything")]);
+        let bytes = preamble_with(&[record(1, 0x7e, b"anything")]);
         assert!(
             Preamble::decode(&bytes).is_err(),
             "a critical record of a kind the registry has not assigned through \
@@ -444,7 +444,7 @@ mod tests {
     #[test]
     fn a_record_kind_assigned_to_another_message_is_refused() {
         for kind in [0x00, 0x01, 0x10] {
-            let bytes = preamble_of(&[record(0, kind, b"")]);
+            let bytes = preamble_with(&[record(0, kind, b"")]);
             assert!(
                 Preamble::decode(&bytes).is_err(),
                 "an advisory record of kind {kind:#04x}, which the registry assigns elsewhere, \
@@ -459,7 +459,7 @@ mod tests {
         let bindings = encode_bindings(&Bindings::default());
         let snippets = encode_snippets(&Snippets::default());
         for (kind, body) in [(0x05, bindings), (0x06, snippets)] {
-            let bytes = preamble_of(&[record(1, kind, &body), record(1, kind, &body)]);
+            let bytes = preamble_with(&[record(1, kind, &body), record(1, kind, &body)]);
             assert!(
                 Preamble::decode(&bytes).is_err(),
                 "a second record of kind {kind:#04x} through Preamble::decode must be refused"
@@ -485,7 +485,7 @@ mod tests {
     // @behavior WE-082
     #[test]
     fn a_criticality_that_is_neither_value_is_refused() {
-        let bytes = preamble_of(&[record(2, 0x07, &encode_flag(&flag("f", "", false)))]);
+        let bytes = preamble_with(&[record(2, 0x07, &encode_flag(&flag("f", "", false)))]);
         assert!(
             Preamble::decode(&bytes).is_err(),
             "a criticality byte other than 0 or 1 through Preamble::decode must be refused"
@@ -504,8 +504,8 @@ mod tests {
         );
         let flag = record(0, 0x07, &encode_flag(&flag("f", "", false)));
         assert_eq!(
-            Preamble::decode(&preamble_of(&[flag.clone(), bindings.clone()])),
-            Preamble::decode(&preamble_of(&[bindings, flag])),
+            Preamble::decode(&preamble_with(&[flag.clone(), bindings.clone()])),
+            Preamble::decode(&preamble_with(&[bindings, flag])),
             "the same records in another order through Preamble::decode must read as the same \
              Preamble"
         );

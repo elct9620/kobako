@@ -45,7 +45,7 @@ pub(crate) struct RegexpState {
     options: i64,
 }
 
-pub(crate) fn state_of(mrb: &Mrb, value: Value) -> Option<&RegexpState> {
+pub(crate) fn read_state(mrb: &Mrb, value: Value) -> Option<&RegexpState> {
     <&RegexpState>::try_convert(value, mrb).ok()
 }
 
@@ -160,7 +160,7 @@ fn rx_compile(
 ) -> Result<Value, Error> {
     // A pattern keeps its own source and options; MRI ignores any given
     // alongside.
-    if let Some(state) = state_of(mrb, pattern) {
+    if let Some(state) = read_state(mrb, pattern) {
         return compile(mrb, state.source.clone(), state.options);
     }
     let source = string_text(mrb, pattern)?;
@@ -221,7 +221,7 @@ fn parse_options(mrb: &Mrb, flags: Option<Value>) -> Result<i64, Error> {
     if let Some(mask) = i64::from_value(value) {
         Ok(mask)
     } else if RString::from_value(value).is_some() {
-        let flags = text_of(mrb, value)?;
+        let flags = to_text(mrb, value)?;
         translate::parse_flag_string(&flags)
             .ok_or_else(|| argument_error(mrb, &format!("unknown regexp option: {flags}")))
     } else if value.to_bool() {
@@ -287,7 +287,7 @@ fn rx_match_p(mrb: &Mrb, self_: Value, arg: Value, pos: Option<Value>) -> Result
     let Some(pos) = resolve_pos(&subject, pos) else {
         return Ok(false);
     };
-    let Some(state) = state_of(mrb, self_) else {
+    let Some(state) = read_state(mrb, self_) else {
         return Ok(false);
     };
     match state.regex.find_from_pos(&subject, pos) {
@@ -348,7 +348,7 @@ fn rx_named_captures(mrb: &Mrb, state: &RegexpState) -> Result<Value, Error> {
 }
 
 fn rx_names(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let Some(state) = state_of(mrb, self_) else {
+    let Some(state) = read_state(mrb, self_) else {
         return Ok(qnil().as_value());
     };
     let names = mrb.ary_new();
@@ -373,7 +373,7 @@ fn named_groups(state: &RegexpState) -> Vec<(&str, Vec<usize>)> {
 }
 
 fn rx_inspect(mrb: &Mrb, self_: Value) -> Value {
-    let Some(state) = state_of(mrb, self_) else {
+    let Some(state) = read_state(mrb, self_) else {
         return qnil().as_value();
     };
     mrb.str_new(
@@ -388,7 +388,7 @@ fn rx_inspect(mrb: &Mrb, self_: Value) -> Value {
 }
 
 fn rx_to_s(mrb: &Mrb, self_: Value) -> Value {
-    let Some(state) = state_of(mrb, self_) else {
+    let Some(state) = read_state(mrb, self_) else {
         return qnil().as_value();
     };
     let (options, body) = match render::lift_inline_group(&state.source) {
@@ -405,7 +405,7 @@ fn rx_to_s(mrb: &Mrb, self_: Value) -> Value {
 }
 
 fn rx_eq(mrb: &Mrb, self_: Value, arg: Value) -> bool {
-    let (Some(this), Some(other)) = (state_of(mrb, self_), state_of(mrb, arg)) else {
+    let (Some(this), Some(other)) = (read_state(mrb, self_), read_state(mrb, arg)) else {
         return false;
     };
     this.source == other.source && this.options == other.options
@@ -431,7 +431,7 @@ fn rx_escape(mrb: &Mrb, _self: Value, text: Value) -> Result<Value, Error> {
 }
 
 fn do_match(mrb: &Mrb, regexp: Value, subject: String, pos: usize) -> Result<Value, Error> {
-    let Some(state) = state_of(mrb, regexp) else {
+    let Some(state) = read_state(mrb, regexp) else {
         return Ok(qnil().as_value());
     };
     match state.regex.captures_from_pos(&subject, pos) {
@@ -459,7 +459,7 @@ fn do_match(mrb: &Mrb, regexp: Value, subject: String, pos: usize) -> Result<Val
 }
 
 pub(crate) fn is_regexp(mrb: &Mrb, value: Value) -> bool {
-    state_of(mrb, value).is_some()
+    read_state(mrb, value).is_some()
 }
 
 /// A `String` pattern compiles as its literal characters, as scanning and
@@ -487,7 +487,7 @@ fn string_pattern(
     let Some(source) = RString::from_value(arg) else {
         return Err(not_a_pattern(mrb, arg));
     };
-    compile(mrb, read(chars_of(mrb, source)?), 0)
+    compile(mrb, read(to_chars(mrb, source)?), 0)
 }
 
 /// The `TypeError` for a pattern that is neither a `Regexp` nor a
@@ -509,7 +509,7 @@ fn not_a_pattern(mrb: &Mrb, arg: Value) -> Error {
 /// A String's own characters, or another value's `to_s`, as MRI renders a
 /// value it needs as text; a `to_s` that answers no String gives way to the
 /// value's default description, as `rb_obj_as_string` does.
-pub(crate) fn text_of(mrb: &Mrb, val: Value) -> Result<String, Error> {
+pub(crate) fn to_text(mrb: &Mrb, val: Value) -> Result<String, Error> {
     let string = match RString::from_value(val) {
         Some(string) => string,
         None => {
@@ -517,13 +517,13 @@ pub(crate) fn text_of(mrb: &Mrb, val: Value) -> Result<String, Error> {
             RString::from_value(rendered).unwrap_or_else(|| val.any_to_s(mrb))
         }
     };
-    chars_of(mrb, string)
+    to_chars(mrb, string)
 }
 
 /// Everything here works over `&str`, so non-UTF-8 bytes are refused rather
 /// than read as an empty string, where an empty subject silently matches
 /// nothing and an empty pattern silently matches everywhere.
-fn chars_of(mrb: &Mrb, string: RString) -> Result<String, Error> {
+fn to_chars(mrb: &Mrb, string: RString) -> Result<String, Error> {
     String::from_value(string.as_value()).ok_or_else(|| not_text(mrb))
 }
 
@@ -534,14 +534,14 @@ fn not_text(mrb: &Mrb) -> Error {
 /// A `String`'s characters; anything else raises the `TypeError` mruby
 /// raises for a value it cannot convert to a String.
 fn string_text(mrb: &Mrb, val: Value) -> Result<String, Error> {
-    chars_of(mrb, RString::try_convert(val, mrb)?)
+    to_chars(mrb, RString::try_convert(val, mrb)?)
 }
 
 /// A `String`'s characters or a `Symbol`'s name, as MRI reads a match
 /// subject or a text to escape; anything else raises `TypeError`.
 pub(crate) fn string_or_symbol_text(mrb: &Mrb, arg: Value) -> Result<String, Error> {
     match Symbol::from_value(arg) {
-        Some(symbol) => chars_of(mrb, symbol.to_r_string(mrb)?),
+        Some(symbol) => to_chars(mrb, symbol.to_r_string(mrb)?),
         None => string_text(mrb, arg),
     }
 }

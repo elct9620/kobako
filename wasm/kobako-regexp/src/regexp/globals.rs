@@ -79,7 +79,7 @@ fn set_derived(mrb: &Mrb, subject: &str, groups: &[Option<(usize, usize)>]) {
 /// globals clear.
 pub(super) fn set_last_match(mrb: &Mrb, value: Value) {
     let _ = mrb.gv_set(c"$~", value);
-    match matchdata::state_of(mrb, value) {
+    match matchdata::read_state(mrb, value) {
         Some(state) => set_derived(mrb, &state.subject, &state.groups),
         None => clear_derived(mrb),
     }

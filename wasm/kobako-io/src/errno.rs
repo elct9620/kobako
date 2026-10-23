@@ -93,7 +93,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
 
 /// The `Errno` number a class stands for; `SystemCallError` itself, whose
 /// `Errno` lookup reaches the module, stands for none.
-fn number_of(mrb: &Mrb, class: Value) -> Option<i32> {
+fn to_number(mrb: &Mrb, class: Value) -> Option<i32> {
     ExceptionClass::from_value(class)?
         .const_get::<_, Value>(mrb, c"Errno")
         .ok()
@@ -113,7 +113,7 @@ fn errno_number(mrb: &Mrb, number: Value) -> Result<Option<i32>, Error> {
 /// leads with the code's own, and a known number on `SystemCallError`
 /// answers its `Errno` class.
 fn sce_s_new(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let own = number_of(mrb, self_);
+    let own = to_number(mrb, self_);
     let (message, number) = match (own, args) {
         (Some(own), [message] | [message, ..]) => (Some(*message), Some(own)),
         (Some(own), []) => (None, Some(own)),
@@ -147,7 +147,7 @@ fn sce_s_new(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
 /// The number the error's class stands for, or the one it was built with.
 fn sce_errno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let class = self_.funcall(mrb, c"class", ())?;
-    if let Some(number) = number_of(mrb, class) {
+    if let Some(number) = to_number(mrb, class) {
         return Ok(number.into_value(mrb));
     }
     match Exception::from_value(self_) {

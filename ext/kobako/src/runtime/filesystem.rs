@@ -77,16 +77,16 @@ pub(super) fn validate_mount(
     access: Value,
     filesystem: Value,
 ) -> Result<(), MagnusError> {
-    mount_of(at, access, filesystem).map(drop)
+    to_mount(at, access, filesystem).map(drop)
 }
 
 /// The Mount a Sandbox's `[at, access, filesystem]` stands for: one owner
 /// of the path, access, and Filesystem rules.
-fn mount_of(at: Value, access: Value, filesystem: Value) -> Result<Mount, MagnusError> {
+fn to_mount(at: Value, access: Value, filesystem: Value) -> Result<Mount, MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
     let at = RString::try_convert(at)?.to_string()?;
-    let access = access_of(access)?;
-    Mount::new(at, filesystem_of(filesystem)?, access)
+    let access = to_access(access)?;
+    Mount::new(at, to_filesystem(filesystem)?, access)
         .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))
 }
 
@@ -106,8 +106,8 @@ fn memory_new(args: &[Value]) -> Result<MemoryFs, MagnusError> {
     for hash in args.optional.0.into_iter().chain([args.keywords]) {
         hash.foreach(|key: Value, value: Value| {
             match Symbol::from_value(key) {
-                Some(key) if key.equal(limit_key)? => limit = limit_of(value)?,
-                Some(key) if key.equal(inodes_key)? => inodes = Some(limit_of(value)?),
+                Some(key) if key.equal(limit_key)? => limit = to_limit(value)?,
+                Some(key) if key.equal(inodes_key)? => inodes = Some(to_limit(value)?),
                 Some(key) => {
                     return Err(MagnusError::new(
                         ruby.exception_arg_error(),
@@ -142,18 +142,18 @@ fn temporary_new(args: &[Value]) -> Result<TemporaryFs, MagnusError> {
     )?;
     let (limit, inodes) = kwargs.optional;
     let limit = match limit {
-        Some(limit) => limit_of(limit)?,
+        Some(limit) => to_limit(limit)?,
         None => Some(Memory::DEFAULT_LIMIT),
     };
     let temporary = Temporary::new().with_limit(limit);
     Ok(TemporaryFs(Arc::new(match inodes {
-        Some(inodes) => temporary.with_inodes(limit_of(inodes)?),
+        Some(inodes) => temporary.with_inodes(to_limit(inodes)?),
         None => temporary,
     })))
 }
 
 /// A `limit:` or `inodes:` count, or `nil` for none.
-fn limit_of(limit: Value) -> Result<Option<usize>, MagnusError> {
+fn to_limit(limit: Value) -> Result<Option<usize>, MagnusError> {
     Option::<usize>::try_convert(limit)
 }
 
@@ -194,7 +194,7 @@ fn overlay_layer(overlay: &OverlayFs, args: &[Value]) -> Result<OverlayFs, Magnu
     let kwargs = get_kwargs::<_, (), (Option<Value>,), ()>(args.keywords, &[], &["access"])?;
     let (filesystem,) = args.required;
     let access = match kwargs.optional.0 {
-        Some(access) => access_of(access)?,
+        Some(access) => to_access(access)?,
         None => Access::Read,
     };
     let mut layers = overlay.layers.clone();
@@ -203,12 +203,12 @@ fn overlay_layer(overlay: &OverlayFs, args: &[Value]) -> Result<OverlayFs, Magnu
         overlay: overlay
             .overlay
             .clone()
-            .layer(filesystem_of(filesystem)?, access),
+            .layer(to_filesystem(filesystem)?, access),
         layers,
     })
 }
 
-fn access_of(access: Value) -> Result<Access, MagnusError> {
+fn to_access(access: Value) -> Result<Access, MagnusError> {
     let name = Symbol::from_value(access)
         .map(|symbol| symbol.name())
         .transpose()?;
@@ -226,7 +226,7 @@ fn access_of(access: Value) -> Result<Access, MagnusError> {
 }
 
 /// The Filesystem a Ruby handle of any kobako kind stands for.
-fn filesystem_of(value: Value) -> Result<Arc<dyn Filesystem>, MagnusError> {
+fn to_filesystem(value: Value) -> Result<Arc<dyn Filesystem>, MagnusError> {
     if let Ok(fs) = <&MemoryFs>::try_convert(value) {
         return Ok(fs.0.clone());
     }
@@ -283,7 +283,7 @@ impl Policy for RubyPolicy {
 /// `[at, access, filesystem, block]` entries, beside the pins keeping
 /// each Mount's filesystem and block in place while the guest may reach
 /// them; the caller holds both until the invocation returns.
-pub(super) fn grants_from(
+pub(super) fn to_grants(
     ruby: &Ruby,
     mounts: RArray,
 ) -> Result<(Vec<Grant>, Vec<PinnedValue>), MagnusError> {
@@ -293,7 +293,7 @@ pub(super) fn grants_from(
         let entry: RArray = mounts.entry(index)?;
         let filesystem: Value = entry.entry(2)?;
         pins.push(PinnedValue::new(ruby, filesystem));
-        let mount = mount_of(entry.entry(0)?, entry.entry(1)?, filesystem)?;
+        let mount = to_mount(entry.entry(0)?, entry.entry(1)?, filesystem)?;
         let block: Value = entry.entry(3)?;
         grants.push(Grant::Mount(if block.is_nil() {
             mount

@@ -43,7 +43,7 @@ impl Wasi {
             config.stderr_limit,
             config.open_file_limit,
             config.profile,
-            grants.iter().filter_map(mount).collect(),
+            grants.iter().filter_map(to_mount).collect(),
         )
     }
 
@@ -162,7 +162,7 @@ impl Wasi {
 /// A Mount as this invocation presents it. A kind this driver does not
 /// support has no descriptor to stand behind; `Driver::supports` keeps a
 /// frontend from handing one over.
-fn mount(grant: &Grant) -> Option<Mount> {
+fn to_mount(grant: &Grant) -> Option<Mount> {
     match grant {
         Grant::Mount(mount) => Some(mount.for_invocation()),
         _ => None,

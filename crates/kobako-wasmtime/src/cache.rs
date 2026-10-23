@@ -270,7 +270,7 @@ mod tests {
     use super::*;
     use wasmtime::ModuleVersionStrategy;
 
-    fn engine_of(version: &str) -> WtEngine {
+    fn engine_with(version: &str) -> WtEngine {
         let mut config = WtConfig::new();
         config
             .module_version(ModuleVersionStrategy::Custom(version.into()))
@@ -289,8 +289,8 @@ mod tests {
     #[test]
     fn an_artifact_from_another_engine_release_is_never_the_entry_read() {
         assert_ne!(
-            entry_name(&engine_of("49.0.3")),
-            entry_name(&engine_of("49.0.4")),
+            entry_name(&engine_with("49.0.3")),
+            entry_name(&engine_with("49.0.4")),
             "a Guest Binary cached by one engine release must not be the entry another release reads"
         );
     }
@@ -299,8 +299,8 @@ mod tests {
     #[test]
     fn engines_of_one_release_and_config_share_the_entry() {
         assert_eq!(
-            entry_name(&engine_of("49.0.4")),
-            entry_name(&engine_of("49.0.4")),
+            entry_name(&engine_with("49.0.4")),
+            entry_name(&engine_with("49.0.4")),
             "two engines of one release and Config must read the entry either of them cached"
         );
     }

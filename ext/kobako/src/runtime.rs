@@ -57,7 +57,7 @@ fn rstring_to_vec(s: RString) -> Vec<u8> {
 
 /// `kind` arrives as a Symbol so the registry never names the wire's
 /// discriminant; an off-ladder kind raises rather than defaulting.
-fn snippets_from(ruby: &Ruby, entries: RArray) -> Result<Snippets, MagnusError> {
+fn to_snippets(ruby: &Ruby, entries: RArray) -> Result<Snippets, MagnusError> {
     let mut snippets = Snippets {
         entries: Vec::with_capacity(entries.len()),
     };
@@ -86,14 +86,14 @@ fn snippets_from(ruby: &Ruby, entries: RArray) -> Result<Snippets, MagnusError> 
 /// One owner for the Preamble every guest entry reads, so an invocation
 /// and a compile cannot drift in what they send. An invocation's setup
 /// and a compile's preamble both open with its paths, snippets, and flags.
-fn preamble_from(ruby: &Ruby, parts: RArray) -> Result<Preamble, MagnusError> {
+fn to_preamble(ruby: &Ruby, parts: RArray) -> Result<Preamble, MagnusError> {
     let paths: RArray = parts.entry(0)?;
     let flags: RArray = parts.entry(2)?;
     let mut preamble = Preamble::default();
     preamble.bindings = Bindings {
         paths: paths.to_vec()?,
     };
-    preamble.snippets = snippets_from(ruby, parts.entry(1)?)?;
+    preamble.snippets = to_snippets(ruby, parts.entry(1)?)?;
     preamble.flags = flags
         .to_vec::<(String, String, bool)>()?
         .into_iter()
@@ -267,7 +267,7 @@ impl Runtime {
     //
     // `setup` is the invocation's `[paths, snippets, flags, mounts]`: the
     // Preamble's three parts, then the Mounts as
-    // `filesystem::grants_from` reads them.
+    // `filesystem::to_grants` reads them.
     // -----------------------------------------------------------------
 
     fn eval(
@@ -311,8 +311,8 @@ impl Runtime {
             Entry::Run { .. } => "run",
         };
         let handler = build_handler(dispatch);
-        let preamble = preamble_from(&ruby, setup)?;
-        let (grants, _pins) = filesystem::grants_from(&ruby, setup.entry(3)?)?;
+        let preamble = to_preamble(&ruby, setup)?;
+        let (grants, _pins) = filesystem::to_grants(&ruby, setup.entry(3)?)?;
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // the closure touches no Ruby VALUE (the driver is magnus-free, and a
         // guest→host dispatch, or a mount's block, re-acquires the GVL).
@@ -333,7 +333,7 @@ impl Runtime {
     /// compiling runs no script.
     fn compile(&self, preamble: RArray) -> Result<Option<RArray>, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let preamble = preamble_from(&ruby, preamble)?;
+        let preamble = to_preamble(&ruby, preamble)?;
         let bytecodes = gvl::region(self.release_gvl, || self.driver.compile(&preamble));
         Ok(bytecodes.map(|bytecodes| {
             ruby.ary_from_iter(
