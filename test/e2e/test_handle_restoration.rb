@@ -82,8 +82,8 @@ class TestE2EHandleRestoration < Minitest::Test
                 "as the original host object"
   end
 
-  # The break value returns to the guest bound-constant call, not to host
-  # code, so there is nothing for the host to restore.
+  # A break value never leaves the guest, so the Handle it carries is the
+  # guest's own reference all along.
   # @behavior T-058
   def test_broken_handle_returns_to_guest_and_still_routes_to_host_object
     greeter = Greeter.new("Bob")

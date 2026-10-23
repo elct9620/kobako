@@ -3,8 +3,8 @@
 require "test_helper"
 
 # E2E — a value the guest builds and the wire cannot carry. The guest
-# encodes its own outbound values, so a dispatch argument, a block answer
-# or a break value nesting past the wire's bound — one nesting without end
+# encodes its own outbound values, so a dispatch argument or a block
+# answer nesting past the wire's bound — one nesting without end
 # included — or a Symbol whose name is not text, stops where the guest
 # handed it over rather than reaching the host in some other shape. The
 # host-built halves live in test_answer_value_refusal.rb and
