@@ -440,31 +440,31 @@ impl<'y> Yielder<'y> {
 }
 ```
 
-## `Detached`
+## `DetachedHandles`
 
 A Handle table with no invocation behind it. It lets a Receiver written outside
 this crate be called on its own.
 
 ```rust
-pub struct Detached {}
+pub struct DetachedHandles {}
 ```
 
-## `Detached::new`
+## `DetachedHandles::new`
 
 An empty table.
 
 ```rust
-impl Detached {
+impl DetachedHandles {
     pub fn new() -> Self {}
 }
 ```
 
-## `Detached::as_handles`
+## `DetachedHandles::as_handles`
 
 The table as the Handles a Receiver takes.
 
 ```rust
-impl Detached {
+impl DetachedHandles {
     pub fn as_handles(&self) -> Handles<'_> {}
 }
 ```

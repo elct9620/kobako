@@ -93,13 +93,13 @@ impl<'a> Decoder<'a> {
 }
 ```
 
-## `Decoder::at_end`
+## `Decoder::is_at_end`
 
 Whether every byte has been read.
 
 ```rust
 impl<'a> Decoder<'a> {
-    pub fn at_end(&self) -> bool {}
+    pub fn is_at_end(&self) -> bool {}
 }
 ```
 
@@ -113,23 +113,23 @@ impl<'a> Decoder<'a> {
 }
 ```
 
-## `Decoder::read_only_value`
+## `Decoder::read_sole_value`
 
 Read the one value the bytes hold, refusing any bytes after it.
 
 ```rust
 impl<'a> Decoder<'a> {
-    pub fn read_only_value(&mut self) -> Result<Value, Error> {}
+    pub fn read_sole_value(&mut self) -> Result<Value, Error> {}
 }
 ```
 
-## `Decoder::with_value_limit`
+## `Decoder::with_value_budget`
 
-Refuse to read more than a given number of values in all, or read without a limit.
+Refuse to read more values in all than a value budget allows, or read without one.
 
 ```rust
 impl<'a> Decoder<'a> {
-    pub fn with_value_limit(self, limit: Option<usize>) -> Self {}
+    pub fn with_value_budget(self, budget: Option<usize>) -> Self {}
 }
 ```
 
@@ -145,11 +145,11 @@ impl Arguments {
 
 ## `Arguments::decode_within`
 
-Decode a Run's or a Call's arguments, refusing a payload past a value limit.
+Decode a Run's or a Call's arguments, refusing a payload past a value budget.
 
 ```rust
 impl Arguments {
-    pub fn decode_within(bytes: &[u8], limit: Option<usize>) -> Result<Self, Error> {}
+    pub fn decode_within(bytes: &[u8], budget: Option<usize>) -> Result<Self, Error> {}
 }
 ```
 
