@@ -2,21 +2,12 @@
 
 require "test_helper"
 
-# Coverage for the host-side Yielder's Handle handling across the two
-# value-bearing Yield Reply arms. The distinction is invisible
-# end-to-end — both paths leave the guest with a usable Handle — so it is
-# pinned here at the seam between the reply the native side split and
-# what the Service yield site receives:
-#
-#   * ok    — the value is consumed by the host Service method, so a
-#             Handle is restored to its host object.
-#   * break — the value unwinds past the Service back to the guest
-#             bound-constant call, so a Handle passes through
-#             unchanged; restoring it would churn a fresh
-#             Catalog::Handles id.
-#
-# The Handle-free ok case pins the complement: a payload whose decode
-# carried no Handle reaches the yield site unchanged.
+# Coverage for the host-side Yielder's Handle handling on the ok arm, the
+# one Yield Reply arm that carries a value to host code. It is pinned here
+# at the seam between the reply the native side split and what the
+# Service yield site receives: a Handle is restored to its host object,
+# and a payload whose decode carried no Handle reaches the yield site
+# unchanged.
 class TestYielder < Minitest::Test
   Yielder = Kobako::Transport::Yielder
   BREAK_TAG = :__test_break__
@@ -49,17 +40,6 @@ class TestYielder < Minitest::Test
 
     assert_equal ["sum", { "count" => 42 }], result,
                  "a Handle-free ok payload reaches the Service yield site unchanged"
-  end
-
-  # @behavior T-102
-  def test_break_value_handle_passes_through_without_restoration
-    thrown = catch(BREAK_TAG) { yielder_answering(:break).yield }
-
-    assert_kind_of Kobako::Handle, thrown,
-                   "a break value returns to the guest, so a Handle passes through " \
-                   "unrestored rather than resolving to its host object"
-    assert_equal @handle.id, thrown.id,
-                 "the same Handle id rides back to the guest — no fresh Catalog::Handles entry is churned"
   end
 
   # [1, 2, 3] is four values against a budget of three.

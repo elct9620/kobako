@@ -49,17 +49,27 @@ class TestE2EYieldStoredBlock < Minitest::Test
                  "through Sandbox#eval as the exception the block raised"
   end
 
-  # Unwinding to the first Call would cross the later Call's host frame,
-  # which the wire cannot carry.
+  # Had either Service finished, +wrap+ would answer +fire+'s pair rather
+  # than the break value.
   # @behavior T-285
-  def test_a_break_from_a_stored_block_inside_a_later_call_names_a_local_jump
-    error = assert_raises(Kobako::ServiceError) do
-      relay_sandbox.eval("S.wrap { |x| x == 1 ? S.fire : (break :out) }")
-    end
+  def test_a_break_from_a_stored_block_inside_a_later_call_ends_the_first_call
+    result = relay_sandbox.eval("S.wrap { |x| x == 1 ? S.fire : (break :out) }").value
 
-    assert_match(/LocalJumpError/, error.message,
+    assert_equal :out, result,
                  "a break from a stored block run inside a later Call through Sandbox#eval " \
-                 "must fail naming a local jump")
+                 "must end the Call that carried the block with the break value"
+  end
+
+  # @behavior T-292
+  def test_a_return_from_a_stored_block_inside_a_later_call_leaves_the_method
+    result = relay_sandbox.eval(<<~RUBY).value
+      def around = (S.wrap { |x| x == 1 ? S.fire : (return :out) }; :fell_through)
+      around
+    RUBY
+
+    assert_equal :out, result,
+                 "a return from a stored block run inside a later Call through Sandbox#eval " \
+                 "must leave the method around the first Call with its value"
   end
 
   private

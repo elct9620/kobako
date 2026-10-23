@@ -22,10 +22,6 @@ pub(crate) const TRANSPORT_ERROR: &str = "Kobako::Transport::Error";
 pub(crate) const SANDBOX_ERROR: &str = "Kobako::SandboxError";
 
 /// A place a payload codec is asked to carry a value across.
-///
-/// Two of these — a block's return and its `break` value — share one
-/// envelope position and differ only in the value they name, because the
-/// reader is told which of the two it was handed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Position {
     /// A guest→host dispatch's arguments, written by the calling script.
@@ -38,8 +34,6 @@ pub(crate) enum Position {
     YieldArguments,
     /// The value a block returned.
     BlockReturnValue,
-    /// The value a block `break`ed with.
-    BreakValue,
     /// The value one invocation finished with.
     InvocationValue,
 }
@@ -74,7 +68,6 @@ impl Position {
             Position::RunArguments => "invocation argument",
             Position::YieldArguments => "block argument",
             Position::BlockReturnValue => "block return value",
-            Position::BreakValue => "break value",
         }
     }
 
@@ -83,10 +76,9 @@ impl Position {
     /// frame is running to hear that, the invocation failed instead.
     fn unrepresentable_class(self) -> &'static str {
         match self {
-            Position::CallArguments
-            | Position::ReplyValue
-            | Position::BlockReturnValue
-            | Position::BreakValue => "TypeError",
+            Position::CallArguments | Position::ReplyValue | Position::BlockReturnValue => {
+                "TypeError"
+            }
             Position::InvocationValue => SANDBOX_ERROR,
             Position::RunArguments | Position::YieldArguments => TRANSPORT_ERROR,
         }
@@ -103,7 +95,6 @@ impl Position {
             Position::RunArguments => "failed to decode the invocation arguments",
             Position::YieldArguments => "failed to read the block argument",
             Position::BlockReturnValue => "failed to write the block return value",
-            Position::BreakValue => "failed to write the break value",
             Position::InvocationValue => "failed to write the invocation value",
         }
     }
@@ -116,10 +107,9 @@ impl Position {
     /// half-served rather than a feature unoffered.
     fn unserved_class(self) -> &'static str {
         match self {
-            Position::CallArguments
-            | Position::YieldArguments
-            | Position::BlockReturnValue
-            | Position::BreakValue => "NotImplementedError",
+            Position::CallArguments | Position::YieldArguments | Position::BlockReturnValue => {
+                "NotImplementedError"
+            }
             Position::RunArguments | Position::InvocationValue => SANDBOX_ERROR,
             Position::ReplyValue => TRANSPORT_ERROR,
         }
@@ -172,7 +162,6 @@ mod tests {
             Position::CallArguments,
             Position::ReplyValue,
             Position::BlockReturnValue,
-            Position::BreakValue,
         ] {
             assert_eq!(
                 at(position, unrepresentable()).class,
@@ -227,7 +216,6 @@ mod tests {
                 Position::BlockReturnValue,
                 "failed to write the block return value",
             ),
-            (Position::BreakValue, "failed to write the break value"),
             (
                 Position::InvocationValue,
                 "failed to write the invocation value",
@@ -307,7 +295,6 @@ mod tests {
             Position::CallArguments,
             Position::YieldArguments,
             Position::BlockReturnValue,
-            Position::BreakValue,
         ] {
             assert_eq!(
                 at(position, CodecError::Unserved).class,
@@ -379,11 +366,7 @@ mod tests {
     // @behavior CD-036
     #[test]
     fn the_floor_s_own_positions_still_answer_an_unserved_refusal() {
-        for position in [
-            Position::BlockReturnValue,
-            Position::BreakValue,
-            Position::InvocationValue,
-        ] {
+        for position in [Position::BlockReturnValue, Position::InvocationValue] {
             assert!(
                 !at(position, CodecError::Unserved).message.is_empty(),
                 "a codec refusing at {position:?} must still be reported, since the trait \

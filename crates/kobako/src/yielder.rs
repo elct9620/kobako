@@ -110,12 +110,12 @@ impl From<YieldError> for Fault {
 /// ```
 pub struct Yielder<'y> {
     raw: &'y mut dyn RawYielder,
-    broke: Option<Vec<u8>>,
+    broke: bool,
 }
 
 impl<'y> Yielder<'y> {
     pub(crate) fn new(raw: &'y mut dyn RawYielder) -> Self {
-        Yielder { raw, broke: None }
+        Yielder { raw, broke: false }
     }
 
     /// Run the guest block once with `args` and return its value.
@@ -125,11 +125,11 @@ impl<'y> Yielder<'y> {
     /// `Handles` — the explicit spelling of the Ruby frontend's
     /// automatic restore at the yield site.
     ///
-    /// A `break` in the block ends the receiver call: this returns
-    /// `YieldError::Break` now and on every later call, without
-    /// re-entering the guest.
+    /// A `break` or `return` leaving the block ends the receiver call:
+    /// this returns `YieldError::Break` now and on every later call,
+    /// without re-entering the guest.
     pub fn call_payload(&mut self, args: &[u8]) -> Result<Vec<u8>, YieldError> {
-        if self.broke.is_some() {
+        if self.broke {
             return Err(YieldError::Break);
         }
         let frame = self.raw.frame();
@@ -139,8 +139,8 @@ impl<'y> Yielder<'y> {
             .map_err(|trap| YieldError::Aborted(format!("yield re-entry trapped: {trap:?}")))?;
         match reply {
             YieldReply::Ok(body) => Ok(body),
-            YieldReply::Break(body) => {
-                self.broke = Some(body);
+            YieldReply::Break => {
+                self.broke = true;
                 Err(YieldError::Break)
             }
             YieldReply::Error(record) => Err(YieldError::Failure {
@@ -155,10 +155,9 @@ impl<'y> Yielder<'y> {
         }
     }
 
-    /// The recorded break value as the guest wrote it, consumed by the
-    /// dispatch frame once the receiver returns. Bytes, so the frame
-    /// answers with what the block produced rather than a re-encoding.
-    pub(crate) fn into_break(self) -> Option<Vec<u8>> {
+    /// Whether a block exit unwound the receiver, read by the dispatch
+    /// frame once the receiver returns.
+    pub(crate) fn broke(&self) -> bool {
         self.broke
     }
 }
@@ -239,17 +238,18 @@ mod tests {
 
     // @behavior T-089
     #[test]
-    fn break_records_the_body_and_stops_re_entering_the_guest() {
-        let mut raw = ScriptedYielder::new(vec![Ok(YieldReply::Break(vec![0x2a]))]);
+    fn break_is_recorded_and_stops_re_entering_the_guest() {
+        let mut raw = ScriptedYielder::new(vec![Ok(YieldReply::Break)]);
         let mut block = Yielder::new(&mut raw);
 
         assert_eq!(block.call_payload(&[]), Err(YieldError::Break));
         assert_eq!(block.call_payload(&[]), Err(YieldError::Break));
+        let broke = block.broke();
         assert_eq!(
-            (block.into_break(), raw.sent.len()),
-            (Some(vec![0x2a]), 1),
-            "a block that broke must hand its body back as the guest wrote it, and a \
-             broken Yielder must not re-enter the guest again"
+            (broke, raw.sent.len()),
+            (true, 1),
+            "a block exit must be recorded for the dispatch frame, and a broken Yielder \
+             must not re-enter the guest again"
         );
     }
 

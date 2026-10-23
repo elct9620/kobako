@@ -66,11 +66,10 @@ impl CatalogHandler {
         let handles = Handles::new(&self.handles);
         let mut block = call.block_given.then(|| Yielder::new(yielder));
         let result = object.call(call.method, call.payload, block.as_mut(), &handles);
-        // A break unwinds the receiver transparently: the guest receives
-        // the break value no matter what the receiver returned, and the
-        // bytes ride back exactly as the block wrote them.
-        if let Some(body) = block.and_then(Yielder::into_break) {
-            return Reply::Ok(body);
+        // A block exit unwinds the receiver transparently: the guest kept
+        // the exit and continues it no matter what the receiver returned.
+        if block.as_ref().is_some_and(Yielder::broke) {
+            return Reply::Break;
         }
         match result {
             Ok(body) => Reply::Ok(body),
@@ -313,12 +312,14 @@ mod tests {
     enum Answer {
         Ok(Value),
         Fault(Fault),
+        Break,
     }
 
     fn answer(reply: Reply) -> Answer {
         match reply {
             Reply::Ok(body) => Answer::Ok(Decoder::new(&body).read_sole_value().unwrap()),
             Reply::Fault(fault) => Answer::Fault(fault),
+            Reply::Break => Answer::Break,
             Reply::Unsupported(_) => unreachable!("a dispatch handler serves every Call"),
         }
     }
@@ -595,18 +596,18 @@ mod tests {
 
     // @behavior T-089
     #[test]
-    fn break_answers_the_guest_with_the_break_value() {
+    fn break_answers_the_guest_with_a_break() {
         let req = block_request(
             "yield_each",
             vec![Value::Int(1), Value::Int(2), Value::Int(3)],
         );
-        let mut yielder = ScriptedYielder::new(vec![
-            arm(YieldReply::Ok, Value::Int(10)),
-            arm(YieldReply::Break, Value::Sym("stop".into())),
-        ]);
+        let mut yielder =
+            ScriptedYielder::new(vec![arm(YieldReply::Ok, Value::Int(10)), YieldReply::Break]);
         assert_eq!(
             roundtrip_with(&req, &mut yielder),
-            Answer::Ok(Value::Sym("stop".into()))
+            Answer::Break,
+            "a block exit must unwind the receiver and answer the guest with a break, \
+             leaving the exit to the guest that kept it"
         );
     }
 
@@ -614,12 +615,12 @@ mod tests {
     #[test]
     fn break_overrides_even_a_receiver_that_swallows_it() {
         let req = block_request("swallow_break", vec![]);
-        let mut yielder =
-            ScriptedYielder::new(vec![arm(YieldReply::Break, Value::Sym("stop".into()))]);
+        let mut yielder = ScriptedYielder::new(vec![YieldReply::Break]);
         assert_eq!(
             roundtrip_with(&req, &mut yielder),
-            Answer::Ok(Value::Sym("stop".into())),
-            "the guest must receive the break value even when the receiver discards YieldError::Break"
+            Answer::Break,
+            "the guest must still be answered with a break when the receiver discards \
+             YieldError::Break"
         );
     }
 

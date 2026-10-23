@@ -7,11 +7,11 @@
 //! values lives in `values`, which is also what a payload codec is handed.
 
 mod bindings;
+pub(crate) mod block_exit;
 pub(crate) mod block_stack;
 pub(crate) mod bridges;
 pub(crate) mod codec_slot;
 mod init;
-pub(crate) mod raised_block;
 mod values;
 
 pub use bindings::InstallError;

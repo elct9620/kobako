@@ -10,12 +10,13 @@ require_relative "yielder"
 
 module Kobako
   module Transport
-    # Answers a routed Call with +[true, body, nil]+ or
-    # +[false, message, fault_type]+ and never raises, so every failure
-    # reaches the guest as a fault.
+    # Answers a routed Call with +[true, body, nil]+,
+    # +[false, message, fault_type]+, or +[false, "", "break"]+ — a block
+    # exit the guest kept carries nothing. It never raises, so every
+    # failure reaches the guest as a fault.
     module Dispatcher # :nodoc:
-      # Throw tag for the Yielder's break unwind back to the
-      # dispatcher's +catch+ frame. +private_constant+ is a
+      # Thrown rather than raised, so a Service unwound by a block exit runs
+      # its +ensure+ and cannot +rescue+ the exit. +private_constant+ is a
       # convention boundary — not a defence.
       BREAK_THROW = :__kobako_break__
       private_constant :BREAK_THROW
@@ -48,7 +49,8 @@ module Kobako
       # accessors for it.
       def self.dispatch(call, resolver, handles, failure, guest_yielder)
         yielder = Yielder.new(guest_yielder, BREAK_THROW, handles, failure) if call.block_given
-        [true, encode_ok(run(call, resolver, handles, yielder), handles), nil] # : [bool, String, String?]
+        catch(BREAK_THROW) { return [true, encode_ok(run(call, resolver, handles, yielder), handles), nil] }
+        [false, "", "break"] # : [bool, String, String?]
       # StandardError is the boundary by intent: a Service method's
       # application fault folds into a guest-rescuable fault, while a
       # host-process failure (NoMemoryError, SignalException, a bare Exception)
@@ -67,7 +69,7 @@ module Kobako
           arguments, carried_handle = decode_arguments(call.payload)
           exposure = resolve_target(call.target, resolver, handles)
           args, kwargs = resolve_call_args(arguments, handles, carried_handle)
-          catch(BREAK_THROW) { invoke(exposure, call.method_name, args, kwargs, yielder) }
+          invoke(exposure, call.method_name, args, kwargs, yielder)
         end
 
         # A codec fault here is a request that never became a call, restated

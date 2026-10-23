@@ -37,6 +37,9 @@ pub enum DispatchError {
     /// Service raising an exception. Typed by the envelope, so a guest
     /// reads its own refusals whatever payload schema it speaks.
     Fault(envelope::Fault),
+    /// A block exit unwound the Service; the guest that kept the exit
+    /// continues it.
+    Break,
     /// The exchange failed before a Reply could be framed: malformed
     /// bytes, an answer that is not a Reply envelope, or the host
     /// signalling `len == 0`.
@@ -55,6 +58,7 @@ impl std::fmt::Display for DispatchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DispatchError::Fault(_) => f.write_str("the Service answered on the fault arm"),
+            DispatchError::Break => f.write_str("a block exit unwound the Service"),
             DispatchError::Envelope(err) => write!(f, "Sandbox communication error: {err}"),
             DispatchError::Unsupported(refusal) => {
                 write!(
@@ -116,6 +120,7 @@ pub fn dispatch(
     match Reply::decode(&reply_bytes)? {
         Reply::Ok(body) => Ok(body),
         Reply::Fault(fault) => Err(DispatchError::Fault(fault)),
+        Reply::Break => Err(DispatchError::Break),
         Reply::Unsupported(refusal) => Err(DispatchError::Unsupported(refusal)),
     }
 }

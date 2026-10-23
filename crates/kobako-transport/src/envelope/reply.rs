@@ -17,6 +17,9 @@ pub enum Reply {
     /// every field of a Fault is kobako's, so a guest reads a refusal
     /// whatever schema it speaks.
     Fault(Fault),
+    /// A block exit unwound the method; the guest continues that exit,
+    /// which it kept, so nothing of it crosses.
+    Break,
     /// The receiver does not serve the request it was sent.
     Unsupported(Unsupported),
 }
@@ -29,9 +32,13 @@ impl Reply {
             // No `finish` here: a Fault owns everything after the tag,
             // including the fields a later contract version appends.
             tag::FAULT => Ok(Reply::Fault(Fault::read(&mut reader)?)),
+            tag::BREAK => {
+                reader.finish()?;
+                Ok(Reply::Break)
+            }
             tag::UNSUPPORTED => Ok(Reply::Unsupported(Unsupported::read(&mut reader)?)),
             _ => Err(DecodeError::new(
-                "Reply tag must be 0x10 (ok), 0x11 (fault), or 0x15 (unsupported)",
+                "Reply tag must be 0x10 (ok), 0x11 (fault), 0x12 (break), or 0x15 (unsupported)",
             )),
         }
     }
@@ -46,21 +53,23 @@ impl Reply {
                 writer.u8(tag::FAULT);
                 fault.write(&mut writer);
             }
+            Reply::Break => {
+                writer.u8(tag::BREAK);
+            }
             Reply::Unsupported(refusal) => return refusal.encode(),
         }
         writer.into_bytes()
     }
 }
 
-/// The answer to one Yield Call. Carries a `Break` outcome the dispatch
-/// Reply has no counterpart for, because a block can end its caller.
+/// The answer to one Yield Call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum YieldReply {
     /// The block completed; the bytes are its value, codec-encoded.
     Ok(Vec<u8>),
-    /// The block ran `break`; the bytes are the break value,
-    /// codec-encoded. It returns to the guest rather than to host code.
-    Break(Vec<u8>),
+    /// The block ran `break` or `return` to a frame past the Service.
+    /// The guest keeps the exit, so the Service is only unwound.
+    Break,
     /// The block raised, or failed in a way the host re-raises at the
     /// yield site.
     Error(ErrorRecord),
@@ -73,7 +82,10 @@ impl YieldReply {
         let mut reader = Reader::new(bytes);
         match reader.u8()? {
             tag::OK => Ok(YieldReply::Ok(reader.remaining().to_vec())),
-            tag::BREAK => Ok(YieldReply::Break(reader.remaining().to_vec())),
+            tag::BREAK => {
+                reader.finish()?;
+                Ok(YieldReply::Break)
+            }
             tag::ERROR => {
                 let record = ErrorRecord::read(&mut reader)?;
                 reader.finish()?;
@@ -90,8 +102,8 @@ impl YieldReply {
             YieldReply::Ok(body) => {
                 writer.u8(tag::OK).remainder(body);
             }
-            YieldReply::Break(body) => {
-                writer.u8(tag::BREAK).remainder(body);
+            YieldReply::Break => {
+                writer.u8(tag::BREAK);
             }
             YieldReply::Error(record) => {
                 writer.u8(tag::ERROR);
@@ -116,6 +128,7 @@ mod tests {
                 super::super::FaultKind::Undefined,
                 "no such method",
             )),
+            Reply::Break,
             Reply::Unsupported(Unsupported::new("no such operation")),
         ] {
             let encoded = reply.encode();
@@ -142,7 +155,7 @@ mod tests {
     #[test]
     fn an_unknown_reply_tag_is_refused() {
         assert!(
-            Reply::decode(&[0x12, 0]).is_err(),
+            Reply::decode(&[0x13, 0]).is_err(),
             "a Reply tag outside its arms must be rejected as a wire violation"
         );
     }
@@ -161,7 +174,7 @@ mod tests {
     fn every_live_yield_arm_round_trips() {
         let arms = [
             YieldReply::Ok(vec![0xa4]),
-            YieldReply::Break(vec![0xa4]),
+            YieldReply::Break,
             YieldReply::Error(ErrorRecord {
                 name: "LocalJumpError".into(),
                 message: "no block".into(),
@@ -214,6 +227,11 @@ mod tests {
             "an unsupported Reply must encode as tag byte 0x15 followed by kind 0 and the \
              message"
         );
+        assert_eq!(
+            Reply::Break.encode(),
+            vec![0x12],
+            "a break Reply must encode as tag byte 0x12 alone, since the guest keeps the exit"
+        );
     }
 
     // @behavior WE-068
@@ -242,9 +260,9 @@ mod tests {
             "a Yield Reply carrying the block's value must encode as tag byte 0x10"
         );
         assert_eq!(
-            YieldReply::Break(vec![0xc0]).encode(),
-            vec![0x12, 0xc0],
-            "a Yield Reply carrying a break value must encode as tag byte 0x12"
+            YieldReply::Break.encode(),
+            vec![0x12],
+            "a Yield Reply for a block exit must encode as tag byte 0x12 alone"
         );
         assert_eq!(
             YieldReply::Unsupported(Unsupported::new("x")).encode(),

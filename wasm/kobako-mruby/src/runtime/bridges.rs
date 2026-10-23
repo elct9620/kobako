@@ -117,7 +117,7 @@ fn forward_to_dispatch(
     let answer = dispatch(target, &method_name, block, &payload);
     // Asked on every arm: a failure the Service rescued is spent, and one
     // it did not is this answer's, whichever Call's block raised it.
-    let raised = super::raised_block::RAISED_BLOCK.take(kobako.mrb());
+    let raised = super::block_exit::RAISED_BLOCK.take(kobako.mrb());
     match answer {
         // A dispatch return value the guest's codec cannot read raises in
         // the calling guest code.
@@ -140,6 +140,14 @@ fn forward_to_dispatch(
             // just released.
             (FaultKind::Block, Some(exc)) => Err(beni::Error::Exception(exc)),
             _ => Err(kobako.service_error(&fault)),
+        },
+        // A block's `break` or `return` unwound the Service, so the exit
+        // continues from this call as it would through a plain method. A
+        // break with nothing held is a peer reporting an exit this guest
+        // did not take.
+        Err(DispatchError::Break) => match super::block_exit::BROKEN_BLOCK.take(kobako.mrb()) {
+            Some(exit) => Err(beni::Error::Exception(exit)),
+            None => Err(kobako.transport_error(envelope_err_msg)),
         },
         Err(DispatchError::Unsupported(refusal)) => Err(kobako.unsupported_error(&refusal.message)),
         // Anything that is not the Service's own fault means the exchange

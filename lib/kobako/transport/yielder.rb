@@ -15,9 +15,8 @@ module Kobako
       end
 
       # The ok value is consumed by the host Service, so a Capability Handle
-      # in it is restored. The break value unwinds back to the guest, so it
-      # passes through verbatim and rides back on the same id rather than
-      # churning a new one.
+      # in it is restored. A block exit stays in the guest, so the Service
+      # is only unwound.
       def yield(*args)
         raise LocalJumpError, "guest block invoked after host dispatch frame returned" unless @active
 
@@ -25,10 +24,9 @@ module Kobako
         raise UnsupportedError, "the Sandbox runtime does not support yielding to a block" if arm == :unsupported
         raise @failure.remember(BlockError.new(body, klass: klass)) if arm == :error
 
-        value, carried_handle = decode_body(body)
-        throw @break_tag, value if arm == :break
+        throw @break_tag if arm == :break
 
-        restore(value, carried_handle)
+        restore(*decode_body(body))
       end
 
       def to_proc

@@ -51,15 +51,6 @@ class TestE2EGuestValueRefusal < Minitest::Test
     end
   end
 
-  # @behavior CD-045
-  def test_a_break_value_the_wire_cannot_nest_is_refused_at_the_yield_site
-    UNENCODABLE.each do |shape, build|
-      assert_equal "TypeError", yield_outcome("Probe::Yields.call { #{build}; break a }"),
-                   "#{shape} broken out of a block through #eval must be refused at the " \
-                   "Service's yield as a guest TypeError, never carried across to it"
-    end
-  end
-
   # A Symbol travels as its name, and a name that is not text has no
   # spelling on the wire.
   # @behavior CD-046

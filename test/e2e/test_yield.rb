@@ -102,10 +102,10 @@ class TestE2EYield < Minitest::Test
                  "on to the outer Service's yield site"
   end
 
-  # @behavior T-135 T-203
+  # @behavior T-135 T-203 T-204
   # Coercing the answer to a String would hand the Service a plausible
   # value in place of one that never crossed, so the round-trip reports
-  # the refusal at the yield site instead.
+  # the refusal at the yield site instead, naming the slot it stopped at.
   def test_block_returns_unrepresentable_value_raises_at_yield_site
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
@@ -116,28 +116,25 @@ class TestE2EYield < Minitest::Test
       sandbox.eval("Probe::OnceX.call(1) { |_x| Object.new }")
     end
 
-    assert_match(/not a supported sandbox value type/, err.message,
+    assert_match(/TypeError: block return value of type Object is not a supported sandbox value type/,
+                 err.message,
                  "a guest block returning a value of a type the wire cannot represent " \
-                 "must surface as an error answer at the yield site, not a coerced String")
+                 "must surface at the yield site as a type error naming the block return slot")
   end
 
-  # @behavior T-091 T-203
-  # The break arm returns to the guest rather than to host code, so it
-  # needs its own witness that the value is refused rather than coerced
-  # on the way out.
-  def test_break_with_unrepresentable_value_raises_at_yield_site
+  # @behavior T-089
+  # A break value never crosses the wire, so one with no wire
+  # representation reaches the guest as the very object the block broke
+  # with.
+  def test_break_with_a_value_the_wire_cannot_carry_reaches_the_guest
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
 
-    # `break Object.new` is a real break, but its value cannot ride the
-    # break arm, so the guest answers on the error arm instead of coercing it.
-    err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval("Probe::Each.call([1, 2, 3]) { |_x| break Object.new }")
-    end
+    result = sandbox.eval("o = Object.new; Probe::Each.call([1, 2]) { break o }.equal?(o)").value
 
-    assert_match(/not a supported sandbox value type/, err.message,
-                 "a break value of a type the wire cannot represent must surface as an " \
-                 "error answer, not unwind the Service method with a coerced String")
+    assert result,
+           "a `break` through Sandbox#eval carrying a value the wire cannot carry must " \
+           "answer the Call with that same object"
   end
 
   # @behavior T-088

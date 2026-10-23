@@ -2,12 +2,9 @@
 
 require "test_helper"
 
-# E2E — break / lambda-break / Proc-return discrimination at the
-# yield boundary. The guest's yield flow classifies the post-protect RBreak by comparing its
-# `ci_break_index` against the pre-yield baseline: an index ≥ baseline lands
-# on the yielder's frame (a real `break`, tag 0x12); an index < baseline
-# aims past the yielder (a non-orphan Proc `return`) and emits tag 0x13
-# LocalJumpError. The basic yield round-trip lives in test_yield.rb.
+# E2E — a block's `break` and `return` unwinding a Service as they would
+# a plain method, and a lambda's `break` staying inside the lambda. The
+# basic yield round-trip lives in test_yield.rb.
 class TestE2EYieldUnwind < Minitest::Test
   include E2eGuestHelper
 
@@ -40,41 +37,19 @@ class TestE2EYieldUnwind < Minitest::Test
                  "yield observes the break value as a normal `next` outcome"
   end
 
-  # A `return` whose target frame is still on the guest stack would have
-  # to unwind across the host yield boundary, which the wire cannot carry.
-  # The guest classifier sees a break index pointing deeper than the
-  # yielder's frame and reports the local jump instead.
-  PROC_RETURN_SCRIPT = "def make_return; Probe::OnceX.call(5) { |x| return x * 2 }; end; make_return"
+  # A Service that would answer :finished shows whether it ran to its end.
+  PROC_RETURN_SCRIPT = "def make_return; Probe::OnceX.call(5) { |x| return x * 2 }; :fell_through; end; make_return"
 
-  # @behavior T-134 T-203
-  def test_proc_return_aimed_past_yield_boundary_raises_local_jump_error
+  # @behavior T-134
+  def test_proc_return_leaves_the_method_around_the_call
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) })
+    sandbox.bind("Probe::OnceX", ->(x, &blk) { blk.call(x) && :finished })
 
-    err = assert_raises(Kobako::ServiceError) { sandbox.eval(PROC_RETURN_SCRIPT) }
+    result = sandbox.eval(PROC_RETURN_SCRIPT).value
 
-    assert_match(/LocalJumpError/, err.message,
-                 "Proc `return` aimed past the host yield boundary " \
-                 "must surface as a LocalJumpError at the yield site")
-  end
-
-  # The `break` value crosses the wire like any other, so a value with no
-  # representation is refused there too — the sibling of the block-return
-  # rejection, on the one arm that returns to the guest rather than
-  # to host code.
-  # @behavior T-091 T-203 T-204
-  def test_break_value_with_no_wire_representation_is_refused
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.bind("Probe::Each", ->(items, &blk) { items.each(&blk) })
-
-    err = assert_raises(Kobako::ServiceError) do
-      sandbox.eval("Probe::Each.call([1, 2]) { |x| break Object.new }")
-    end
-
-    assert_match(/TypeError: break value of type Object/, err.message,
-                 "a `break` value with no wire representation through Sandbox#eval must be " \
-                 "refused as a type error naming the break slot — the block-return rejection " \
-                 "raises the same class, so only the slot tells the two arms apart")
+    assert_equal 10, result,
+                 "a `return` from a block through Sandbox#eval must leave the method around " \
+                 "the Call with its value, the Service unwound before it finished"
   end
 
   # The guest's BLOCK_STACK pushes / pops in strict LIFO so each yield

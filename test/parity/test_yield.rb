@@ -65,9 +65,10 @@ class TestParityYield < Parity::Case
     )
   end
 
-  # A block `return` aimed past the yield boundary and an unrepresentable
-  # block value both surface at the Service's yield site and, unrescued,
-  # attribute to the service origin.
+  # A block `return` leaves the method around the Call on both frontends,
+  # each unwinding its own Service; an unrepresentable block value
+  # surfaces at the Service's yield site and, unrescued, attributes to the
+  # service origin.
   ESCAPE_INVOCATIONS = [
     { verb: "eval", source: "def leaker; MyService::KV.each(5) { |x| return x }; end; leaker" },
     { verb: "eval",

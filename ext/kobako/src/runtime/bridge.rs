@@ -156,9 +156,7 @@ impl GuestYielder {
             .map_err(|t| super::errors::trap_to_magnus(&ruby, t))?;
         Ok(match reply {
             YieldReply::Ok(body) => (ruby.to_symbol(ARM_OK), ruby.str_from_slice(&body), None),
-            YieldReply::Break(body) => {
-                (ruby.to_symbol(ARM_BREAK), ruby.str_from_slice(&body), None)
-            }
+            YieldReply::Break => (ruby.to_symbol(ARM_BREAK), ruby.str_from_slice(&[]), None),
             YieldReply::Error(record) => (
                 ruby.to_symbol(ARM_ERROR),
                 ruby.str_new(&record.message),
@@ -253,15 +251,21 @@ impl DispatchHandler for RubyDispatchHandler {
             // The ok arm carries payload bytes the codec owns; the fault
             // arm carries the Fault's own two fields, which the envelope
             // types — so Ruby names a category rather than encoding one.
-            // A category outside the closed set cannot come from the
-            // public API, so it fails the dispatch rather than degrading.
-            match ok {
-                true => Some(Reply::Ok(super::rstring_to_vec(body))),
-                false => {
-                    let kind = FaultKind::from_name(&kind?.to_string().ok()?)?;
-                    Some(Reply::Fault(Fault::new(kind, body.to_string().ok()?)))
-                }
+            // A block exit names the break arm in that slot, since nothing
+            // of it crosses. A category outside the closed set cannot come
+            // from the public API, so it fails the dispatch rather than
+            // degrading.
+            if ok {
+                return Some(Reply::Ok(super::rstring_to_vec(body)));
             }
+            let kind = kind?.to_string().ok()?;
+            if kind == ARM_BREAK {
+                return Some(Reply::Break);
+            }
+            Some(Reply::Fault(Fault::new(
+                FaultKind::from_name(&kind)?,
+                body.to_string().ok()?,
+            )))
         })
     }
 
