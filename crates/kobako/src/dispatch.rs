@@ -20,7 +20,7 @@ use crate::yielder::Yielder;
 /// Per-invocation path→object resolutions the handler answers ahead of the
 /// sealed Catalog: the `ctx.bind` overrides followed by each
 /// `PerInvocation` provider's fresh object.
-pub(crate) type Resolved = Vec<(String, Arc<dyn Receiver>)>;
+pub(crate) type Resolutions = Vec<(String, Arc<dyn Receiver>)>;
 
 /// `DispatchHandler` over a sealed Catalog and the invocation's Handle
 /// table: resolve each Call's target to its Receiver and fold every
@@ -30,14 +30,14 @@ pub(crate) struct CatalogHandler {
     handles: Arc<Mutex<HandleTable>>,
     /// Answered first, so an override or a fresh backend serves its path
     /// while the bound paths stay fixed.
-    resolved: Resolved,
+    resolved: Resolutions,
 }
 
 impl CatalogHandler {
     pub(crate) fn new(
         catalog: Arc<Catalog>,
         handles: Arc<Mutex<HandleTable>>,
-        resolved: Resolved,
+        resolved: Resolutions,
     ) -> Self {
         CatalogHandler {
             catalog,
@@ -148,11 +148,11 @@ mod tests {
     }
 
     /// A yielder answering from a canned script of Yield Replies.
-    struct Scripted(std::collections::VecDeque<YieldReply>);
+    struct ScriptedYielder(std::collections::VecDeque<YieldReply>);
 
-    impl Scripted {
+    impl ScriptedYielder {
         fn new(replies: Vec<YieldReply>) -> Self {
-            Scripted(replies.into())
+            ScriptedYielder(replies.into())
         }
     }
 
@@ -161,7 +161,7 @@ mod tests {
         make(Encoder::encode(&value).unwrap())
     }
 
-    impl RawYielder for Scripted {
+    impl RawYielder for ScriptedYielder {
         fn frame(&self) -> u32 {
             0
         }
@@ -177,9 +177,9 @@ mod tests {
 
     /// A Handle-table entry for the chaining tests: answers `label`
     /// with its tag.
-    struct Tagged(&'static str);
+    struct TaggedEntry(&'static str);
 
-    impl ValueReceiver for Tagged {
+    impl ValueReceiver for TaggedEntry {
         fn call(
             &self,
             method: &str,
@@ -240,7 +240,7 @@ mod tests {
                     Ok(Value::Sym("swallowed".into()))
                 }
                 "make" => handles
-                    .alloc(Tagged("bob").into_receiver())
+                    .alloc(TaggedEntry("bob").into_receiver())
                     .map(Value::Handle),
                 "read_label" => {
                     // A Handle is an id wherever it travels; this schema
@@ -425,7 +425,7 @@ mod tests {
             Arc::default(),
             vec![(
                 "File".to_string(),
-                Tagged("fresh").into_receiver() as Arc<dyn Receiver>,
+                TaggedEntry("fresh").into_receiver() as Arc<dyn Receiver>,
             )],
         );
         let req = request(Target::Path("File"), "label", vec![]);
@@ -462,9 +462,9 @@ mod tests {
     }
 
     /// An Echo narrowed to its `echo` method by the opt-in predicate.
-    struct Narrowed;
+    struct NarrowedEcho;
 
-    impl ValueReceiver for Narrowed {
+    impl ValueReceiver for NarrowedEcho {
         fn call(
             &self,
             method: &str,
@@ -490,7 +490,7 @@ mod tests {
     fn narrowing_predicate_rejects_an_unexposed_method_before_it_runs() {
         let mut catalog = Catalog::default();
         catalog
-            .bind("MyService::Narrow", Narrowed.into_receiver())
+            .bind("MyService::Narrow", NarrowedEcho.into_receiver())
             .expect("a constant path binds");
         let handler = CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new());
         let visible = request(
@@ -518,7 +518,7 @@ mod tests {
         let id = handles
             .lock()
             .unwrap()
-            .alloc(Narrowed.into_receiver())
+            .alloc(NarrowedEcho.into_receiver())
             .unwrap();
         let handler = CatalogHandler::new(Arc::new(Catalog::default()), handles, Vec::new());
         let visible = request(Target::Handle(id), "echo", vec![Value::Int(7)]);
@@ -583,7 +583,7 @@ mod tests {
     #[test]
     fn yield_results_flow_back_through_the_receiver_value() {
         let req = block_request("yield_each", vec![Value::Int(1), Value::Int(2)]);
-        let mut yielder = Scripted::new(vec![
+        let mut yielder = ScriptedYielder::new(vec![
             arm(YieldReply::Ok, Value::Int(10)),
             arm(YieldReply::Ok, Value::Int(20)),
         ]);
@@ -600,7 +600,7 @@ mod tests {
             "yield_each",
             vec![Value::Int(1), Value::Int(2), Value::Int(3)],
         );
-        let mut yielder = Scripted::new(vec![
+        let mut yielder = ScriptedYielder::new(vec![
             arm(YieldReply::Ok, Value::Int(10)),
             arm(YieldReply::Break, Value::Sym("stop".into())),
         ]);
@@ -614,7 +614,8 @@ mod tests {
     #[test]
     fn break_overrides_even_a_receiver_that_swallows_it() {
         let req = block_request("swallow_break", vec![]);
-        let mut yielder = Scripted::new(vec![arm(YieldReply::Break, Value::Sym("stop".into()))]);
+        let mut yielder =
+            ScriptedYielder::new(vec![arm(YieldReply::Break, Value::Sym("stop".into()))]);
         assert_eq!(
             roundtrip_with(&req, &mut yielder),
             Answer::Ok(Value::Sym("stop".into())),
@@ -662,7 +663,7 @@ mod tests {
     #[test]
     fn propagated_block_failure_folds_into_a_block_fault() {
         let req = block_request("yield_each", vec![Value::Int(1)]);
-        let mut yielder = Scripted::new(vec![YieldReply::Error(ErrorRecord {
+        let mut yielder = ScriptedYielder::new(vec![YieldReply::Error(ErrorRecord {
             name: "LocalJumpError".into(),
             message: "crossed".into(),
             backtrace: Vec::new(),

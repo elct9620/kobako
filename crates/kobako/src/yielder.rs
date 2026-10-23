@@ -174,19 +174,19 @@ mod tests {
 
     /// A raw yielder answering from a canned script, recording
     /// what the Yielder sent into the guest.
-    struct Scripted {
+    struct ScriptedYielder {
         replies: VecDeque<Result<YieldReply, Trap>>,
         sent: Vec<Vec<u8>>,
         frames: Vec<u32>,
     }
 
-    impl Scripted {
+    impl ScriptedYielder {
         /// The frame this double stands in for, apart from `0` so a yield
         /// that names no frame shows.
         const FRAME: u32 = 3;
 
         fn new(replies: Vec<Result<YieldReply, Trap>>) -> Self {
-            Scripted {
+            ScriptedYielder {
                 replies: replies.into(),
                 sent: Vec::new(),
                 frames: Vec::new(),
@@ -194,7 +194,7 @@ mod tests {
         }
     }
 
-    impl RawYielder for Scripted {
+    impl RawYielder for ScriptedYielder {
         fn frame(&self) -> u32 {
             Self::FRAME
         }
@@ -211,7 +211,7 @@ mod tests {
     // @behavior T-092
     #[test]
     fn a_yield_names_the_frame_its_yielder_was_lent_for() {
-        let mut raw = Scripted::new(vec![Ok(YieldReply::Ok(Vec::new()))]);
+        let mut raw = ScriptedYielder::new(vec![Ok(YieldReply::Ok(Vec::new()))]);
         Yielder::new(&mut raw).call_payload(&[]).unwrap();
 
         assert_eq!(
@@ -224,7 +224,7 @@ mod tests {
     // @behavior T-085
     #[test]
     fn call_payload_ships_the_bytes_it_was_handed_and_returns_the_ok_body() {
-        let mut raw = Scripted::new(vec![Ok(YieldReply::Ok(vec![0x2a]))]);
+        let mut raw = ScriptedYielder::new(vec![Ok(YieldReply::Ok(vec![0x2a]))]);
         let mut block = Yielder::new(&mut raw);
 
         let body = block.call_payload(&[0x15]).unwrap();
@@ -240,7 +240,7 @@ mod tests {
     // @behavior T-089
     #[test]
     fn break_records_the_body_and_stops_re_entering_the_guest() {
-        let mut raw = Scripted::new(vec![Ok(YieldReply::Break(vec![0x2a]))]);
+        let mut raw = ScriptedYielder::new(vec![Ok(YieldReply::Break(vec![0x2a]))]);
         let mut block = Yielder::new(&mut raw);
 
         assert_eq!(block.call_payload(&[]), Err(YieldError::Break));
@@ -261,7 +261,7 @@ mod tests {
             message: "boom".into(),
             backtrace: vec!["(eval):1".into()],
         });
-        let mut raw = Scripted::new(vec![Ok(record)]);
+        let mut raw = ScriptedYielder::new(vec![Ok(record)]);
         let mut block = Yielder::new(&mut raw);
 
         assert_eq!(
@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn a_yield_the_guest_does_not_serve_fails_at_the_yield_site() {
         let refusal = YieldReply::Unsupported(kobako_transport::envelope::Unsupported::new("no"));
-        let mut raw = Scripted::new(vec![Ok(refusal)]);
+        let mut raw = ScriptedYielder::new(vec![Ok(refusal)]);
         let mut block = Yielder::new(&mut raw);
 
         assert!(
@@ -291,7 +291,7 @@ mod tests {
     // @behavior T-165
     #[test]
     fn trap_during_re_entry_aborts() {
-        let mut raw = Scripted::new(vec![Err(Trap::Timeout("deadline".into()))]);
+        let mut raw = ScriptedYielder::new(vec![Err(Trap::Timeout("deadline".into()))]);
         let mut block = Yielder::new(&mut raw);
 
         assert!(

@@ -37,7 +37,7 @@ module Kobako
 
       def self.with_singleton: (untyped object, Set[Symbol] names) -> Set[Symbol]
 
-      def self.authored: (Module owner) -> Array[Symbol]
+      def self.authored_names:(Module owner) -> Array[Symbol]
     end
   end
 end

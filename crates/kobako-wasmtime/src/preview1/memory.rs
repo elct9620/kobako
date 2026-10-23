@@ -52,7 +52,7 @@ impl<'a> GuestMemory<'a> {
     }
 
     /// Hold `ptr` to the alignment of the struct or integer it points at.
-    pub(crate) fn aligned(ptr: u32, align: u32) -> Answer {
+    pub(crate) fn check_aligned(ptr: u32, align: u32) -> Answer {
         if !ptr.is_multiple_of(align) {
             return Err(trap("pointer not aligned for what it points at"));
         }
@@ -82,7 +82,7 @@ impl<'a> GuestMemory<'a> {
     }
 
     fn read<const N: usize>(&self, ptr: u32) -> Answer<[u8; N]> {
-        Self::aligned(ptr, N as u32)?;
+        Self::check_aligned(ptr, N as u32)?;
         let mut out = [0; N];
         out.copy_from_slice(self.bytes(ptr, N as u32)?);
         Ok(out)
@@ -112,7 +112,7 @@ impl<'a> GuestMemory<'a> {
     }
 
     fn write_aligned<const N: usize>(&mut self, ptr: u32, bytes: [u8; N]) -> Answer {
-        Self::aligned(ptr, N as u32)?;
+        Self::check_aligned(ptr, N as u32)?;
         self.write(ptr, &bytes)
     }
 

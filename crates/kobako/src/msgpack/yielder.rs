@@ -46,12 +46,12 @@ mod tests {
 
     /// A raw yielder answering from a canned script, recording
     /// what the Yielder sent into the guest.
-    struct Scripted {
+    struct ScriptedYielder {
         replies: VecDeque<Result<YieldReply, Trap>>,
         sent: Vec<Vec<u8>>,
     }
 
-    impl RawYielder for Scripted {
+    impl RawYielder for ScriptedYielder {
         fn frame(&self) -> u32 {
             0
         }
@@ -62,8 +62,8 @@ mod tests {
         }
     }
 
-    fn scripted(replies: Vec<YieldReply>) -> Scripted {
-        Scripted {
+    fn scripted(replies: Vec<YieldReply>) -> ScriptedYielder {
+        ScriptedYielder {
             replies: replies.into_iter().map(Ok).collect(),
             sent: Vec::new(),
         }

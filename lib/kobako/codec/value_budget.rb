@@ -55,11 +55,11 @@ module Kobako
         when 0x80..0x8f then [pos, (marker & 0x0f) * 2]
         when 0x90..0x9f then [pos, marker & 0x0f]
         when 0xa0..0xbf then [pos + (marker & 0x1f), 0]
-        else framed(bytes, pos, marker)
+        else step_framed(bytes, pos, marker)
         end
       end
 
-      def self.framed(bytes, pos, marker)
+      def self.step_framed(bytes, pos, marker)
         return [pos + SCALARS.fetch(marker), 0] if SCALARS.key?(marker)
 
         width, per = COUNTS[marker]
@@ -80,7 +80,7 @@ module Kobako
         slice.unpack1(UINT.fetch(width)) # : Integer
       end
 
-      private_class_method :step, :framed, :uint
+      private_class_method :step, :step_framed, :uint
     end
   end
 end

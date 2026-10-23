@@ -20,7 +20,7 @@ use magnus::{
 
 use ruby::RubyFilesystem;
 
-use super::pinned::Pinned;
+use super::pinned_value::PinnedValue;
 
 use kobako_runtime::filesystem::{
     Access, Blocking, Directory, Filesystem, Memory, Overlay, Temporary,
@@ -260,7 +260,7 @@ impl Policy for RubyPolicy {
 pub(super) fn grants_from(
     ruby: &Ruby,
     mounts: RArray,
-) -> Result<(Vec<Grant>, Vec<Pinned>), MagnusError> {
+) -> Result<(Vec<Grant>, Vec<PinnedValue>), MagnusError> {
     let mut grants = Vec::with_capacity(mounts.len());
     let mut pins = Vec::with_capacity(mounts.len() * 2);
     for index in 0..mounts.len() as isize {
@@ -268,14 +268,14 @@ pub(super) fn grants_from(
         let at: String = entry.entry(0)?;
         let access = access_of(entry.entry(1)?)?;
         let filesystem: Value = entry.entry(2)?;
-        pins.push(Pinned::new(ruby, filesystem));
+        pins.push(PinnedValue::new(ruby, filesystem));
         let mount = Mount::new(at, filesystem_of(filesystem)?, access)
             .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))?;
         let block: Value = entry.entry(3)?;
         grants.push(Grant::Mount(if block.is_nil() {
             mount
         } else {
-            pins.push(Pinned::new(ruby, block));
+            pins.push(PinnedValue::new(ruby, block));
             mount.with_policy(Arc::new(RubyPolicy {
                 block: Opaque::from(block),
             }))

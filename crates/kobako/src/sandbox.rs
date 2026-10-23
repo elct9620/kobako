@@ -23,7 +23,7 @@ use kobako_runtime::snapshot::{Completion, Snapshot};
 use kobako_wasmtime::{Config, Driver};
 
 use crate::catalog::Catalog;
-use crate::dispatch::{CatalogHandler, Resolved};
+use crate::dispatch::{CatalogHandler, Resolutions};
 use crate::error::{Error, SetupError};
 use crate::execution::{classify, Execution};
 use crate::extension::{unresolved, Extension, Extensions};
@@ -447,7 +447,7 @@ fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>, verb: &
 /// What one invocation's override closure chose: the Services it rebound
 /// and the Mounts it replaced.
 struct Overrides {
-    resolved: Resolved,
+    resolved: Resolutions,
     mounts: Vec<Mount>,
 }
 
@@ -476,7 +476,7 @@ where
 /// closure, which is what spends it.
 pub struct Context<'a> {
     catalog: &'a Catalog,
-    overrides: Resolved,
+    overrides: Resolutions,
     mounts: Vec<Mount>,
 }
 

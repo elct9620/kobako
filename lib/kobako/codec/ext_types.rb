@@ -63,7 +63,7 @@ module Kobako
         # shape. The sighting is recorded so a Handle-free decode can skip the
         # downstream resolution walk.
         def unpack_handle(payload, state)
-          state.record_handle!
+          state.record_handle
           bytes = payload.b
           raise InvalidTypeError, "Handle payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
 

@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::catalog::Catalog;
-use crate::dispatch::Resolved;
+use crate::dispatch::Resolutions;
 use crate::error::Error;
 use crate::handles::Handles;
 use crate::receiver::{Fault, FaultKind, Receiver};
@@ -169,7 +169,7 @@ impl Extensions {
 
     /// One object per provider identity, so provider identity is resource
     /// identity.
-    pub(crate) fn resolve(&self) -> Resolved {
+    pub(crate) fn resolve(&self) -> Resolutions {
         let mut by_provider: Vec<(ProviderFn, Arc<dyn Receiver>)> = Vec::new();
         let mut resolved = Vec::new();
         for extension in &self.entries {
@@ -289,7 +289,7 @@ mod tests {
 
     // Drive Extensions::resolve with per-invocation backends built from the
     // given (path, provider) pairs.
-    fn resolve_of(specs: &[(&'static str, ProviderFn)]) -> Resolved {
+    fn resolve_of(specs: &[(&'static str, ProviderFn)]) -> Resolutions {
         struct BackendExt {
             path: &'static str,
             provider: ProviderFn,

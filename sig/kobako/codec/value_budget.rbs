@@ -15,7 +15,7 @@ module Kobako
 
       def self.step: (String bytes, Integer pos) -> [Integer?, Integer]
 
-      def self.framed: (String bytes, Integer pos, Integer marker) -> [Integer?, Integer]
+      def self.step_framed:(String bytes, Integer pos, Integer marker) -> [Integer?, Integer]
 
       def self.uint: (String bytes, Integer pos, Integer width) -> Integer
     end

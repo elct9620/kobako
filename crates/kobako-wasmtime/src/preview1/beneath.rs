@@ -19,15 +19,15 @@ pub(crate) const NAME_MAX: usize = 255;
 /// A guest path resolved beneath a directory: relative to the mount's
 /// root, and whether it ended in `/` or `/.`, which only a directory
 /// satisfies.
-pub(crate) struct Resolved {
+pub(crate) struct ResolvedPath {
     pub(crate) path: String,
     pub(crate) names_directory: bool,
 }
 
-impl Resolved {
+impl ResolvedPath {
     /// The path, refused as `NOTDIR` when it must name a directory and
     /// names a file instead.
-    pub(crate) fn directory_checked(self, filesystem: &dyn Filesystem) -> Answer<String> {
+    pub(crate) fn check_directory(self, filesystem: &dyn Filesystem) -> Answer<String> {
         if self.names_directory {
             match filesystem.metadata(&self.path) {
                 Ok(metadata) if metadata.kind != Kind::Directory => {
@@ -46,7 +46,7 @@ impl Resolved {
 /// component that is missing or no directory is `NOENT` or `NOTDIR`. A
 /// name past `NAME_MAX`, or a resolved path the Filesystem could not be
 /// handed within `PATH_MAX`, is `NAMETOOLONG`.
-pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<Resolved> {
+pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
     if path.is_empty() {
         return Err(Errno::Noent.into());
     }
@@ -74,7 +74,7 @@ pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<Resolved> {
     if path.len() >= PATH_MAX {
         return Err(Errno::Nametoolong.into());
     }
-    Ok(Resolved {
+    Ok(ResolvedPath {
         path,
         names_directory: matches!(last, "" | "."),
     })

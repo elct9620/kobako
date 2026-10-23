@@ -82,7 +82,7 @@ fn path_arg(mrb: &Mrb, value: Value) -> Result<String, Error> {
     if let Some(bytes) = Vec::<u8>::from_value(value) {
         return String::from_utf8(bytes).map_err(|err| {
             let path = String::from_utf8_lossy(err.as_bytes());
-            errno::named(mrb, c"EILSEQ", &path)
+            errno::error_by_name(mrb, c"EILSEQ", &path)
         });
     }
     Err(match mrb.exception_type_error() {

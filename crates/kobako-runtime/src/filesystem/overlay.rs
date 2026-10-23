@@ -174,14 +174,14 @@ mod tests {
         names
     }
 
-    fn holding(path: &str, contents: &str) -> Arc<Memory> {
+    fn memory_with(path: &str, contents: &str) -> Arc<Memory> {
         Arc::new([(path, contents)].into_iter().collect())
     }
 
     /// A writable `upper` over a read-only Memory holding `dir/file` =
     /// "lower".
-    fn layered(upper: Arc<dyn Filesystem>) -> (Overlay, Arc<Memory>) {
-        let lower = holding("dir/file", "lower");
+    fn overlay_on(upper: Arc<dyn Filesystem>) -> (Overlay, Arc<Memory>) {
+        let lower = memory_with("dir/file", "lower");
         let overlay = Overlay::new()
             .layer(upper, Access::ReadWrite)
             .layer(lower.clone(), Access::Read);
@@ -192,10 +192,10 @@ mod tests {
     /// to `target`, `dirlink` to `dir`, and `dangling` to nothing, removed
     /// when it drops.
     #[cfg(unix)]
-    struct Linked(std::path::PathBuf);
+    struct LinkTree(std::path::PathBuf);
 
     #[cfg(unix)]
-    impl Linked {
+    impl LinkTree {
         fn new(name: &str) -> Self {
             let path =
                 std::env::temp_dir().join(format!("kobako-overlay-{name}-{}", std::process::id()));
@@ -224,7 +224,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    impl Drop for Linked {
+    impl Drop for LinkTree {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
@@ -236,7 +236,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn an_overlay_reports_a_link_its_layer_holds_as_a_link() {
-        let host = Linked::new("lstat");
+        let host = LinkTree::new("lstat");
         let overlay = host.overlay();
         let kind = |path| overlay.symlink_metadata(path).map(|metadata| metadata.kind);
         assert_eq!(
@@ -253,7 +253,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn an_overlay_removes_a_link_its_read_only_layer_holds_as_itself() {
-        let host = Linked::new("unlink");
+        let host = LinkTree::new("unlink");
         let overlay = host.overlay();
         let removed = (
             overlay.remove_dir("dirlink"),
@@ -286,7 +286,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn an_overlay_refuses_a_change_through_a_link_its_read_only_layer_holds() {
-        let host = Linked::new("through");
+        let host = LinkTree::new("through");
         let overlay = host.overlay();
         let creates = OpenOptions {
             write: true,
@@ -322,11 +322,11 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_link_a_layer_holds_hides_what_the_layers_below_hold_there() {
-        let host = Linked::new("shadow");
+        let host = LinkTree::new("shadow");
         let upper = super::super::Directory::new(&host.0).expect("the host directory must open");
         let overlay = Overlay::new()
             .layer(Arc::new(upper), Access::ReadWrite)
-            .layer(holding("dangling", "lower"), Access::Read);
+            .layer(memory_with("dangling", "lower"), Access::Read);
         assert_eq!(
             overlay
                 .open(
@@ -349,11 +349,11 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_link_a_layer_holds_hides_what_the_layers_below_hold_beneath_it() {
-        let host = Linked::new("shadow-beneath");
+        let host = LinkTree::new("shadow-beneath");
         let upper = super::super::Directory::new(&host.0).expect("the host directory must open");
         let overlay = Overlay::new()
             .layer(Arc::new(upper), Access::ReadWrite)
-            .layer(holding("dirlink/x", "lower"), Access::Read);
+            .layer(memory_with("dirlink/x", "lower"), Access::Read);
         let found = overlay.metadata("dirlink/x").map(|metadata| metadata.kind);
         assert_eq!(
             (names(&overlay, "dirlink"), found),
@@ -368,9 +368,9 @@ mod tests {
     // @behavior FS-058
     #[test]
     fn removing_a_file_over_a_lower_directory_leaves_it_hidden() {
-        let lower = holding("f/g", "lower");
+        let lower = memory_with("f/g", "lower");
         let overlay = Overlay::new()
-            .layer(holding("f", "upper"), Access::ReadWrite)
+            .layer(memory_with("f", "upper"), Access::ReadWrite)
             .layer(lower.clone(), Access::ReadWrite);
         let removed = overlay.remove_file("f");
         assert_eq!(
@@ -391,7 +391,7 @@ mod tests {
     // @behavior FS-059
     #[test]
     fn a_directory_moves_onto_one_holding_only_markers() {
-        let (overlay, _) = layered(Arc::new(Memory::new()));
+        let (overlay, _) = overlay_on(Arc::new(Memory::new()));
         overlay
             .remove_file("dir/file")
             .expect("the file must be removed");
@@ -413,7 +413,7 @@ mod tests {
     // @behavior FS-060
     #[test]
     fn a_directory_made_again_moves_as_the_writable_layers_own() {
-        let (overlay, _) = layered(Arc::new(Memory::new()));
+        let (overlay, _) = overlay_on(Arc::new(Memory::new()));
         overlay
             .remove_file("dir/file")
             .expect("the file must be removed");
@@ -439,7 +439,7 @@ mod tests {
     // @behavior FS-061
     #[test]
     fn an_overlay_refuses_a_file_moved_beneath_itself_as_no_directory() {
-        let (overlay, _) = layered(Arc::new(Memory::new()));
+        let (overlay, _) = overlay_on(Arc::new(Memory::new()));
         assert_eq!(
             overlay.rename("dir/file", "dir/file/x", Rename::Any),
             Err(FilesystemError::NotADirectory),
@@ -454,7 +454,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn an_overlay_finds_a_dangling_link_where_a_new_entry_would_go() {
-        let host = Linked::new("dangling");
+        let host = LinkTree::new("dangling");
         let overlay = host.overlay();
         let exclusive = OpenOptions {
             write: true,
@@ -478,7 +478,7 @@ mod tests {
     // @behavior FS-008
     #[test]
     fn an_overlay_reads_through_to_a_lower_layer() {
-        let (overlay, _) = layered(Arc::new(Memory::new()));
+        let (overlay, _) = overlay_on(Arc::new(Memory::new()));
         assert_eq!(
             read(&overlay, "dir/file"),
             b"lower",
@@ -490,7 +490,7 @@ mod tests {
     #[test]
     fn a_write_to_a_read_only_layers_file_lands_in_the_nearest_writable_layer_above_it() {
         let upper = Arc::new(Memory::new());
-        let (overlay, _) = layered(upper.clone());
+        let (overlay, _) = overlay_on(upper.clone());
         overwrite(&overlay, "dir/file", b"upper");
         assert_eq!(
             read(upper.as_ref(), "dir/file"),
@@ -502,7 +502,7 @@ mod tests {
     // @behavior FS-010
     #[test]
     fn an_overlay_leaves_a_read_only_layer_as_it_was() {
-        let (overlay, lower) = layered(Arc::new(Memory::new()));
+        let (overlay, lower) = overlay_on(Arc::new(Memory::new()));
         overwrite(&overlay, "dir/file", b"upper");
         overlay
             .remove_file("dir/file")
@@ -517,7 +517,7 @@ mod tests {
     // @behavior FS-011
     #[test]
     fn a_file_removed_through_an_overlay_is_gone_from_its_view() {
-        let (overlay, _) = layered(Arc::new(Memory::new()));
+        let (overlay, _) = overlay_on(Arc::new(Memory::new()));
         overlay
             .remove_file("dir/file")
             .expect("the file must be removed");
@@ -531,7 +531,7 @@ mod tests {
     // @behavior FS-012
     #[test]
     fn an_overlay_over_a_temporary_starts_every_invocation_from_its_lower_layers() {
-        let (overlay, _) = layered(Arc::new(Temporary::new()));
+        let (overlay, _) = overlay_on(Arc::new(Temporary::new()));
         overwrite(&overlay, "dir/file", b"upper");
         let next = overlay
             .for_invocation()
@@ -547,8 +547,8 @@ mod tests {
     #[test]
     fn an_upper_layer_hides_the_same_path_in_a_lower_one() {
         let overlay = Overlay::new()
-            .layer(holding("note", "upper"), Access::Read)
-            .layer(holding("note", "lower"), Access::Read);
+            .layer(memory_with("note", "upper"), Access::Read)
+            .layer(memory_with("note", "lower"), Access::Read);
         assert_eq!(
             read(&overlay, "note"),
             b"upper",
@@ -560,7 +560,7 @@ mod tests {
     #[test]
     fn a_write_to_a_writable_layers_file_changes_it_in_place() {
         let upper = Arc::new(Memory::new());
-        let lower = holding("note", "lower");
+        let lower = memory_with("note", "lower");
         let overlay = Overlay::new()
             .layer(upper.clone(), Access::ReadWrite)
             .layer(lower.clone(), Access::ReadWrite);
@@ -593,7 +593,7 @@ mod tests {
     #[test]
     fn a_removal_leaves_a_whiteout_in_the_topmost_writable_layer() {
         let upper = Arc::new(Memory::new());
-        let (overlay, _) = layered(upper.clone());
+        let (overlay, _) = overlay_on(upper.clone());
         overlay
             .remove_file("dir/file")
             .expect("the file must be removed");
@@ -608,7 +608,7 @@ mod tests {
     #[test]
     fn a_whiteout_lasts_as_long_as_its_writable_layer() {
         let upper = Arc::new(Memory::new());
-        let (overlay, lower) = layered(upper.clone());
+        let (overlay, lower) = overlay_on(upper.clone());
         overlay
             .remove_file("dir/file")
             .expect("the file must be removed");
@@ -625,7 +625,7 @@ mod tests {
     // @behavior FS-018
     #[test]
     fn a_directory_made_again_where_one_was_removed_shows_nothing_from_below() {
-        let (overlay, _) = layered(Arc::new(Memory::new()));
+        let (overlay, _) = overlay_on(Arc::new(Memory::new()));
         overlay
             .remove_file("dir/file")
             .expect("the file must be removed");
@@ -645,7 +645,7 @@ mod tests {
     // @behavior FS-019
     #[test]
     fn an_overlay_lists_none_of_its_markers() {
-        let (overlay, _) = layered(Arc::new(Memory::new()));
+        let (overlay, _) = overlay_on(Arc::new(Memory::new()));
         overwrite(&overlay, "dir/new", b"made");
         overlay
             .remove_file("dir/file")
@@ -660,7 +660,7 @@ mod tests {
     // @behavior FS-020
     #[test]
     fn an_overlay_refuses_a_name_reserved_for_its_markers() {
-        let (overlay, _) = layered(Arc::new(Memory::new()));
+        let (overlay, _) = overlay_on(Arc::new(Memory::new()));
         assert_eq!(
             write(&overlay, "dir/.wh.note", b"x"),
             Err(FilesystemError::InvalidInput),
@@ -672,7 +672,7 @@ mod tests {
     // @behavior FS-056
     #[test]
     fn an_overlay_refuses_its_reserved_name_in_any_case() {
-        let (overlay, _) = layered(Arc::new(Memory::new()));
+        let (overlay, _) = overlay_on(Arc::new(Memory::new()));
         assert_eq!(
             write(&overlay, "dir/.WH.note", b"x"),
             Err(FilesystemError::InvalidInput),
@@ -683,7 +683,7 @@ mod tests {
     // @behavior FS-021
     #[test]
     fn an_overlay_with_no_writable_layer_refuses_every_change_as_read_only() {
-        let overlay = Overlay::new().layer(holding("dir/file", "lower"), Access::Read);
+        let overlay = Overlay::new().layer(memory_with("dir/file", "lower"), Access::Read);
         assert_eq!(
             write(&overlay, "dir/file", b"x"),
             Err(FilesystemError::ReadOnly),
@@ -693,7 +693,7 @@ mod tests {
 
     #[test]
     fn an_overlay_lists_every_layer_without_what_it_hid() {
-        let (overlay, _) = layered(Arc::new(Memory::new()));
+        let (overlay, _) = overlay_on(Arc::new(Memory::new()));
         overwrite(&overlay, "dir/new", b"made");
         assert_eq!(names(&overlay, "dir"), ["file", "new"]);
     }
@@ -701,7 +701,7 @@ mod tests {
     #[test]
     fn a_lower_file_renamed_through_an_overlay_moves_into_the_writable_layer() {
         let upper = Arc::new(Memory::new());
-        let (overlay, lower) = layered(upper.clone());
+        let (overlay, lower) = overlay_on(upper.clone());
         overlay
             .rename("dir/file", "dir/moved", Rename::Any)
             .expect("the file must move");
@@ -883,7 +883,7 @@ mod tests {
         let upper = Arc::new(upper);
         let overlay = Overlay::new()
             .layer(upper.clone(), Access::ReadWrite)
-            .layer(holding("dir/file", "lower"), Access::Read);
+            .layer(memory_with("dir/file", "lower"), Access::Read);
         (overlay, upper)
     }
 
@@ -946,7 +946,7 @@ mod tests {
     // @behavior FS-043
     #[test]
     fn a_directory_a_lower_layer_holds_does_not_move_through_an_overlay() {
-        let (overlay, _) = layered(Arc::new(Memory::new()));
+        let (overlay, _) = overlay_on(Arc::new(Memory::new()));
         assert_eq!(
             (
                 overlay.rename("dir", "moved", Rename::Any),
@@ -967,7 +967,7 @@ mod tests {
     #[test]
     fn a_rename_onto_what_an_overlay_shows_is_checked_against_the_view() {
         let upper = Arc::new(Memory::new());
-        let (overlay, _) = layered(upper.clone());
+        let (overlay, _) = overlay_on(upper.clone());
         overwrite(&overlay, "note", b"x");
         overlay
             .create_dir("empty")
@@ -1021,7 +1021,7 @@ mod tests {
     #[test]
     fn a_copy_up_that_fails_part_way_leaves_nothing_behind() {
         let upper = Arc::new(Memory::new().with_limit(Some(2)).with_inodes(Some(8)));
-        let (overlay, _) = layered(upper.clone());
+        let (overlay, _) = overlay_on(upper.clone());
         assert_eq!(
             (
                 write(&overlay, "dir/file", b"x"),
@@ -1155,7 +1155,7 @@ mod tests {
     // @behavior FS-063
     #[test]
     fn a_refused_change_leaves_what_a_whiteout_hid_hidden() {
-        let (overlay, _) = layered(Arc::new(HoldsDirectories(Memory::new())));
+        let (overlay, _) = overlay_on(Arc::new(HoldsDirectories(Memory::new())));
         overlay
             .remove_file("dir/file")
             .expect("the file must be removed");
@@ -1180,7 +1180,7 @@ mod tests {
         );
     }
 
-    fn trickling(refuses_close: bool) -> Arc<Trickles> {
+    fn trickles(refuses_close: bool) -> Arc<Trickles> {
         Arc::new(Trickles {
             memory: Memory::new(),
             refuses_close,
@@ -1190,8 +1190,8 @@ mod tests {
     // @behavior FS-054
     #[test]
     fn a_copy_up_through_a_layer_writing_in_parts_copies_the_whole_file() {
-        let upper = trickling(false);
-        let (overlay, _) = layered(upper.clone());
+        let upper = trickles(false);
+        let (overlay, _) = overlay_on(upper.clone());
         overlay
             .open(
                 "dir/file",
@@ -1212,8 +1212,8 @@ mod tests {
     // @behavior FS-055
     #[test]
     fn a_copy_up_whose_close_a_layer_refuses_leaves_nothing_behind() {
-        let upper = trickling(true);
-        let (overlay, _) = layered(upper.clone());
+        let upper = trickles(true);
+        let (overlay, _) = overlay_on(upper.clone());
         assert_eq!(
             (
                 write(&overlay, "dir/file", b"x"),
@@ -1245,7 +1245,7 @@ mod tests {
     fn a_contended_overlay_waits_through_its_blocking() {
         let counts = Arc::new(CountsWaits(AtomicUsize::new(0)));
         let overlay = Overlay::new()
-            .layer(holding("note", "x"), Access::Read)
+            .layer(memory_with("note", "x"), Access::Read)
             .with_blocking(counts.clone());
         let held = overlay.lock.hold().expect("the lock must be free");
         let other = overlay.clone();

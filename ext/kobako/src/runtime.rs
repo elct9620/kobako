@@ -22,7 +22,7 @@ mod errors;
 mod escape;
 mod filesystem;
 mod gvl;
-mod pinned;
+mod pinned_value;
 
 use magnus::{
     function, method, prelude::*, scan_args::get_kwargs, typed_data::DataTypeFunctions,

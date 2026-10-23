@@ -35,7 +35,7 @@ module Kobako
         method(:yield).to_proc
       end
 
-      def invalidate!
+      def invalidate
         @active = false
       end
 

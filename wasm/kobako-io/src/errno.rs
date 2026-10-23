@@ -224,13 +224,13 @@ pub(crate) fn from_io(mrb: &Mrb, err: &io::Error, path: &str) -> Error {
             CODES.iter().find(|code| code.name == name)
         });
     match code {
-        Some(code) => named(mrb, code.name, path),
+        Some(code) => error_by_name(mrb, code.name, path),
         None => io_error(mrb, &format!("{err} - {path}")),
     }
 }
 
 /// The `Errno` class `name` names, from an operation on `path`.
-pub(crate) fn named(mrb: &Mrb, name: &core::ffi::CStr, path: &str) -> Error {
+pub(crate) fn error_by_name(mrb: &Mrb, name: &core::ffi::CStr, path: &str) -> Error {
     let message = CODES
         .iter()
         .find(|code| code.name == name)

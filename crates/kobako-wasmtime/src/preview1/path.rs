@@ -9,7 +9,7 @@ use kobako_runtime::filesystem::{Access, Kind, OpenOptions, Rename};
 use kobako_runtime::mount::Mount;
 
 use super::args::{self, FDFLAGS_APPEND, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE};
-use super::beneath::{resolve, Resolved};
+use super::beneath::{resolve, ResolvedPath};
 use super::errno::{Answer, Errno};
 use super::fd::write_metadata;
 use super::memory::GuestMemory;
@@ -70,7 +70,7 @@ fn beneath<'a>(
 ) -> Answer<(&'a OpenDirectory, String)> {
     let dir = directory(table, fd)?;
     let path = resolve(dir, &mem.path(path.0, path.1)?)?
-        .directory_checked(dir.mount.filesystem().as_ref())?;
+        .check_directory(dir.mount.filesystem().as_ref())?;
     Ok((dir, path))
 }
 
@@ -102,7 +102,7 @@ pub(crate) fn filestat_get(
     // A trailing `/` resolves a link standing there, as Linux's `lstat` does.
     let follow = flags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 || resolved.names_directory;
     let filesystem = dir.mount.filesystem();
-    let path = resolved.directory_checked(filesystem.as_ref())?;
+    let path = resolved.check_directory(filesystem.as_ref())?;
     let metadata = if follow {
         filesystem.metadata(&path)?
     } else {
@@ -181,7 +181,7 @@ pub(crate) fn open(
     }
     // A trailing `/` resolves a link standing there, as Linux's `open` does.
     let follow = flags.dirflags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 || resolved.names_directory;
-    let path = resolved.directory_checked(dir.mount.filesystem().as_ref())?;
+    let path = resolved.check_directory(dir.mount.filesystem().as_ref())?;
     let mount = Arc::clone(&dir.mount);
     if table.is_full() {
         return Err(Errno::Mfile.into());
@@ -326,14 +326,14 @@ pub(crate) fn rename(
     // which `rename(2)` checks before it finds a rename onto its own path
     // leaves everything as it was.
     let names_directory = from.names_directory || to.names_directory;
-    let from = Resolved {
+    let from = ResolvedPath {
         names_directory,
         ..from
     }
-    .directory_checked(from_dir.mount.filesystem().as_ref())?;
+    .check_directory(from_dir.mount.filesystem().as_ref())?;
     let to = match to {
         to if to.path == from => to.path,
-        to => to.directory_checked(to_dir.mount.filesystem().as_ref())?,
+        to => to.check_directory(to_dir.mount.filesystem().as_ref())?,
     };
     if !Arc::ptr_eq(&from_dir.mount, &to_dir.mount) {
         return Err(Errno::Xdev.into());

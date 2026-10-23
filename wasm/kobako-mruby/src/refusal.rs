@@ -276,8 +276,8 @@ mod tests {
         .map(|err| at(Position::RunArguments, err).message);
 
         // Never entered: the run's body fails to frame before any entry.
-        struct Unentered;
-        impl kobako_core::Guest for Unentered {
+        struct UnenteredGuest;
+        impl kobako_core::Guest for UnenteredGuest {
             fn eval(_: kobako_core::Preamble, _: Vec<u8>) -> Outcome {
                 unreachable!()
             }
@@ -285,7 +285,7 @@ mod tests {
                 unreachable!()
             }
         }
-        let answer = kobako_core::abi::serve::<Unentered>(&[0x02, 0xff]);
+        let answer = kobako_core::abi::serve::<UnenteredGuest>(&[0x02, 0xff]);
         let Ok(Outcome::Panic(unframed)) = Outcome::decode(&answer) else {
             panic!("a Run whose envelope does not frame must answer with a Panic");
         };

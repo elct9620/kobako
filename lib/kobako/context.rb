@@ -121,7 +121,7 @@ module Kobako
 
     # Every Snapshot carries usage and captures, trap or not, so they stay
     # readable after a rescued trap.
-    def populate_observability!(snapshot)
+    def populate_observability(snapshot)
       @usage = Usage.new(wall_time: snapshot.wall_time, memory_peak: snapshot.memory_peak)
       @stdout_capture = Capture.new(bytes: snapshot.stdout, truncated: snapshot.stdout_truncated?)
       @stderr_capture = Capture.new(bytes: snapshot.stderr, truncated: snapshot.stderr_truncated?)
@@ -165,7 +165,7 @@ module Kobako
       rescue Kobako::TrapError => e
         raise with_verb(e, verb)
       end
-      populate_observability!(snapshot)
+      populate_observability(snapshot)
       trap = snapshot.trap_error
       return settle_outcome(snapshot, verb, entrypoint) unless trap
 

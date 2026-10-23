@@ -495,12 +495,12 @@ fn each_invocation_is_handed_the_filesystem_it_starts_from() {
 
 /// A Memory holding `file.txt` that counts every change it is asked for,
 /// so a test can tell the runtime refused before asking it.
-struct Counted {
+struct ChangeCounter {
     memory: Memory,
     changes: AtomicUsize,
 }
 
-impl Counted {
+impl ChangeCounter {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             memory: [("file.txt", "granted")].into_iter().collect(),
@@ -513,7 +513,7 @@ impl Counted {
     }
 }
 
-impl Filesystem for Counted {
+impl Filesystem for ChangeCounter {
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.memory.open(path, options)
     }
@@ -1044,7 +1044,7 @@ fn an_open_following_no_link_finds_a_dangling_link_as_itself() {
 /// What each root-changing export answers, and how many changes the
 /// Filesystem was asked for along the way.
 fn change_root(exports: &[&str]) -> (Vec<i32>, usize) {
-    let counted = Counted::new();
+    let counted = ChangeCounter::new();
     let mut guest = Guest::new(&[grant(counted.clone(), Access::ReadWrite, None)]);
     let answers = exports.iter().map(|name| guest.call_bare(name)).collect();
     (answers, counted.changes.load(Ordering::Relaxed))

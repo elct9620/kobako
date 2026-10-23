@@ -11,7 +11,7 @@ module Kobako
       attr_reader value_budget: Integer?
 
       def track_handles: [T] { () -> T } -> [T, bool]
-      def record_handle!: () -> void
+      def record_handle: () -> void
       def within_value_budget: [T] (Integer? budget) { () -> T } -> T
 
       private

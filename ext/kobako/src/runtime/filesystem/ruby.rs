@@ -15,7 +15,7 @@ use kobako_runtime::filesystem::{
     DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename,
 };
 
-use crate::runtime::pinned::Pinned;
+use crate::runtime::pinned_value::PinnedValue;
 use crate::runtime::{escape, gvl};
 
 /// The Ruby object behind a Mount or a Layer. Whatever holds it on the
@@ -229,14 +229,14 @@ impl Filesystem for RubyFilesystem {
 /// One file the Ruby object opened, which only the guest's descriptor
 /// refers to.
 struct RubyFile {
-    file: Pinned,
+    file: PinnedValue,
     closed: bool,
 }
 
 impl RubyFile {
     fn pin(ruby: &Ruby, file: Value) -> Self {
         Self {
-            file: Pinned::new(ruby, file),
+            file: PinnedValue::new(ruby, file),
             closed: false,
         }
     }

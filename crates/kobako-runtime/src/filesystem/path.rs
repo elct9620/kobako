@@ -33,7 +33,7 @@ pub(crate) fn beneath_itself(kind: Kind) -> FilesystemError {
 
 /// A path a Host App seeds a Filesystem with, in the form a runtime hands
 /// over: no leading `/`, and no empty or `.` component.
-pub(crate) fn seeded(path: &str) -> String {
+pub(crate) fn normalize_seed(path: &str) -> String {
     path.split('/')
         .filter(|component| !component.is_empty() && *component != ".")
         .collect::<Vec<_>>()

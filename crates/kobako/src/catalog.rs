@@ -100,7 +100,7 @@ impl Catalog {
         preamble.bindings = Bindings {
             paths: self.bindings.iter().map(|(path, _)| path.clone()).collect(),
         };
-        preamble.snippets = self.snippets.preloaded().clone();
+        preamble.snippets = self.snippets.table().clone();
         preamble.flags = self.flags.clone();
         preamble
     }

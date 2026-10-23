@@ -45,7 +45,7 @@ module Kobako
 
       # Record that an ext 0x01 Capability Handle crossed the current
       # decode; #track_handles reports it to the bracketing caller.
-      def record_handle!
+      def record_handle
         @carried_handle = true
       end
     end

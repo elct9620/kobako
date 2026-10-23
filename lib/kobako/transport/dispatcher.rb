@@ -57,7 +57,7 @@ module Kobako
       rescue StandardError => e
         [false, *caught_fault(e, failure)] # : [bool, String, String?]
       ensure
-        yielder&.invalidate!
+        yielder&.invalidate
       end
 
       class << self

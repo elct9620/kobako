@@ -31,7 +31,7 @@ module Kobako
 
     def checkin: (Kobako::Sandbox sandbox) -> void
 
-    def release_capacity!: () -> void
+    def release_capacity: () -> void
 
     def monotonic_now: () -> Float
 

@@ -30,7 +30,7 @@ module Kobako
 
     def dispatch_handler: () -> Kobako::Transport::dispatch_proc
 
-    def populate_observability!: (Kobako::Runtime::Snapshot snapshot) -> void
+    def populate_observability:(Kobako::Runtime::Snapshot snapshot) -> void
 
     def with_verb: (Kobako::TrapError err, Symbol verb) -> Kobako::TrapError
 

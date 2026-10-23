@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use super::path::{beneath_itself, is_beneath, parent, seeded};
+use super::path::{beneath_itself, is_beneath, normalize_seed, parent};
 use super::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename};
 
 /// Files and directories held in memory. Every Invocation it is handed to
@@ -95,19 +95,19 @@ struct Content {
 
 impl Content {
     /// A file the Host App seeds, counted but never refused.
-    fn seeded(bytes: Vec<u8>, space: &Arc<Space>) -> Arc<Mutex<Self>> {
+    fn seed(bytes: Vec<u8>, space: &Arc<Space>) -> Arc<Mutex<Self>> {
         space.bytes.add(bytes.len());
         space.inodes.add(1);
-        Self::holding(bytes, space)
+        Self::new(bytes, space)
     }
 
     /// An empty file the guest creates, refused once no inode is left.
-    fn created(space: &Arc<Space>) -> Result<Arc<Mutex<Self>>, FilesystemError> {
+    fn create(space: &Arc<Space>) -> Result<Arc<Mutex<Self>>, FilesystemError> {
         space.inodes.take(1)?;
-        Ok(Self::holding(Vec::new(), space))
+        Ok(Self::new(Vec::new(), space))
     }
 
-    fn holding(bytes: Vec<u8>, space: &Arc<Space>) -> Arc<Mutex<Self>> {
+    fn new(bytes: Vec<u8>, space: &Arc<Space>) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
             bytes,
             space: space.clone(),
@@ -184,7 +184,7 @@ impl Memory {
     }
 
     /// An empty Memory bounded as this one is.
-    pub(crate) fn emptied(&self) -> Self {
+    pub(crate) fn to_empty(&self) -> Self {
         let memory = Self::new().with_limit(self.space.bytes.limit());
         if self.inodes_follow_limit {
             memory
@@ -246,7 +246,7 @@ impl Memory {
         {
             let mut nodes = memory.nodes();
             for (path, contents) in files {
-                let path = seeded(path.as_ref());
+                let path = normalize_seed(path.as_ref());
                 if path.is_empty() {
                     return Err(SeedError::Root);
                 }
@@ -268,7 +268,7 @@ impl Memory {
                 }
                 nodes.insert(
                     path,
-                    Node::File(Content::seeded(contents.into(), &memory.space)),
+                    Node::File(Content::seed(contents.into(), &memory.space)),
                 );
             }
         }
@@ -332,7 +332,7 @@ impl Filesystem for Memory {
             }
             None if options.create || options.create_new => {
                 check_parent(&nodes, path)?;
-                let data = Content::created(&self.space)?;
+                let data = Content::create(&self.space)?;
                 nodes.insert(path.to_string(), Node::File(data.clone()));
                 data
             }

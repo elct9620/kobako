@@ -46,7 +46,7 @@ fn mount(filesystem: Arc<dyn Filesystem>, access: Access) -> Grant {
     Grant::Mount(Mount::new("/data", filesystem, access).expect("/data is a guest path"))
 }
 
-fn seeded() -> Arc<Memory> {
+fn note_memory() -> Arc<Memory> {
     Arc::new([("note.txt", "hello\nworld\n")].into_iter().collect())
 }
 
@@ -71,7 +71,7 @@ fn contents(filesystem: &dyn Filesystem, path: &str) -> Vec<u8> {
 fn a_script_reads_a_file_beneath_a_mounted_path() {
     let Some(answer) = run(
         r#"print File.read("/data/note.txt")"#,
-        &[mount(seeded(), Access::Read)],
+        &[mount(note_memory(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -111,7 +111,7 @@ fn a_script_writes_a_file_beneath_a_read_write_mount() {
 fn a_script_reads_a_file_line_by_line() {
     let Some(answer) = run(
         r#"File.open("/data/note.txt") { |f| f.each_line { |line| print line.upcase } }; nil"#,
-        &[mount(seeded(), Access::Read)],
+        &[mount(note_memory(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -142,7 +142,7 @@ fn opening_a_file_with_nothing_mounted_is_unimplemented() {
 fn opening_a_missing_file_raises_enoent() {
     let Some(answer) = run(
         r#"File.read("/data/missing.txt")"#,
-        &[mount(seeded(), Access::Read)],
+        &[mount(note_memory(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -160,7 +160,7 @@ fn opening_a_missing_file_raises_enoent() {
 fn writing_beneath_a_read_only_mount_raises_erofs() {
     let Some(answer) = run(
         r#"File.write("/data/note.txt", "changed")"#,
-        &[mount(seeded(), Access::Read)],
+        &[mount(note_memory(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -234,7 +234,7 @@ fn a_name_or_path_past_linuxs_limits_raises_enametoolong() {
 fn a_code_the_engine_answers_raises_its_own_errno() {
     let Some(answer) = run(
         r#"File.rename("/data", "/data/moved")"#,
-        &[mount(seeded(), Access::ReadWrite)],
+        &[mount(note_memory(), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
@@ -282,7 +282,7 @@ fn the_disable_file_flag_removes_file() {
 fn an_io_may_stand_for_a_file_the_guest_opened() {
     let Some(answer) = run(
         r#"File.open("/data/note.txt") { |f| print IO.new(f.fileno, "r").read }; nil"#,
-        &[mount(seeded(), Access::Read)],
+        &[mount(note_memory(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -509,7 +509,7 @@ fn an_errno_a_script_raises_reads_as_crubys() {
         out << e.class.to_s << e.errno
         print out.inspect
     "#;
-    let Some(answer) = run(script, &[mount(seeded(), Access::Read)], Vec::new()) else {
+    let Some(answer) = run(script, &[mount(note_memory(), Access::Read)], Vec::new()) else {
         return;
     };
     assert_eq!(
@@ -528,7 +528,7 @@ fn an_errno_a_script_raises_reads_as_crubys() {
 fn a_system_call_error_keeps_a_number_no_class_names() {
     let Some(answer) = run(
         r#"e = SystemCallError.new(9999); print [e.class.to_s, e.message, e.errno].inspect"#,
-        &[mount(seeded(), Access::Read)],
+        &[mount(note_memory(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -551,7 +551,7 @@ fn a_read_length_past_64_bits_raises_range_error() {
           print e.class.to_s
         end
     "#;
-    let Some(answer) = run(script, &[mount(seeded(), Access::Read)], Vec::new()) else {
+    let Some(answer) = run(script, &[mount(note_memory(), Access::Read)], Vec::new()) else {
         return;
     };
     assert_eq!(
@@ -575,7 +575,7 @@ fn a_system_call_error_number_past_the_errno_range_raises_range_error() {
         end
         print out.inspect
     "#;
-    let Some(answer) = run(script, &[mount(seeded(), Access::Read)], Vec::new()) else {
+    let Some(answer) = run(script, &[mount(note_memory(), Access::Read)], Vec::new()) else {
         return;
     };
     assert_eq!(
@@ -598,7 +598,11 @@ fn a_read_or_write_a_stream_was_not_opened_for_raises_ioerror() {
         end
         print out.inspect
     "#;
-    let Some(answer) = run(script, &[mount(seeded(), Access::ReadWrite)], Vec::new()) else {
+    let Some(answer) = run(
+        script,
+        &[mount(note_memory(), Access::ReadWrite)],
+        Vec::new(),
+    ) else {
         return;
     };
     assert_eq!(
@@ -617,7 +621,7 @@ fn a_read_or_write_a_stream_was_not_opened_for_raises_ioerror() {
 fn a_path_that_is_no_valid_utf8_raises_eilseq() {
     let Some(answer) = run(
         r#"File.read("/data/\xff")"#,
-        &[mount(seeded(), Access::Read)],
+        &[mount(note_memory(), Access::Read)],
         Vec::new(),
     ) else {
         return;

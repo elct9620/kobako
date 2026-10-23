@@ -68,7 +68,7 @@ impl Filesystem for Temporary {
 
     fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
         Some(Arc::new(Self {
-            memory: self.memory.emptied(),
+            memory: self.memory.to_empty(),
         }))
     }
 }

@@ -10,14 +10,14 @@
 //! time.
 
 use kobako_runtime::runtime::Runtime;
-use kobako_transport::envelope::{Preamble, Snippet, Snippets as Preloaded};
+use kobako_transport::envelope::{self, Preamble, Snippet};
 
 use crate::error::Error;
 
 /// Insertion-ordered snippet table for one Sandbox.
 #[derive(Default)]
 pub(crate) struct Snippets {
-    preloaded: Preloaded,
+    table: envelope::Snippets,
 }
 
 impl Snippets {
@@ -30,7 +30,7 @@ impl Snippets {
             )));
         }
         let duplicate = self
-            .preloaded
+            .table
             .entries
             .iter()
             .any(|entry| matches!(entry, Snippet::Source { name: taken, .. } if taken == name));
@@ -39,7 +39,7 @@ impl Snippets {
                 "snippet {name:?} already preloaded"
             )));
         }
-        self.preloaded.entries.push(Snippet::Source {
+        self.table.entries.push(Snippet::Source {
             name: name.to_string(),
             body: body.to_string(),
         });
@@ -48,11 +48,11 @@ impl Snippets {
 
     /// Recorded verbatim; the guest validates it at first replay.
     pub(crate) fn register_binary(&mut self, body: Vec<u8>) {
-        self.preloaded.entries.push(Snippet::Bytecode { body });
+        self.table.entries.push(Snippet::Bytecode { body });
     }
 
-    pub(crate) fn preloaded(&self) -> &Preloaded {
-        &self.preloaded
+    pub(crate) fn table(&self) -> &envelope::Snippets {
+        &self.table
     }
 
     /// Has `runtime` compile the source entries under `preamble`, which
@@ -61,7 +61,7 @@ impl Snippets {
     /// compiling again. When nothing comes back the source stays.
     pub(crate) fn compile(&mut self, runtime: &dyn Runtime, preamble: &Preamble) {
         let has_source = self
-            .preloaded
+            .table
             .entries
             .iter()
             .any(|entry| matches!(entry, Snippet::Source { .. }));
@@ -72,7 +72,7 @@ impl Snippets {
             return;
         };
         let sources = self
-            .preloaded
+            .table
             .entries
             .iter_mut()
             .filter(|entry| matches!(entry, Snippet::Source { .. }));
@@ -104,8 +104,8 @@ mod tests {
         snippets.register_source("Helper", "X = 1").unwrap();
         snippets.register_binary(vec![0x01, 0x02]);
         assert_eq!(
-            snippets.preloaded(),
-            &Preloaded {
+            snippets.table(),
+            &envelope::Snippets {
                 entries: vec![
                     Snippet::Source {
                         name: "Helper".into(),
@@ -179,6 +179,6 @@ mod tests {
         let mut snippets = Snippets::default();
         snippets.register_binary(vec![0x01]);
         snippets.register_binary(vec![0x01]);
-        assert_eq!(snippets.preloaded().entries.len(), 2);
+        assert_eq!(snippets.table().entries.len(), 2);
     }
 }

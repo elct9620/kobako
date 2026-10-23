@@ -94,7 +94,7 @@ module Kobako
       done = true
       sandbox
     ensure
-      release_capacity! unless done
+      release_capacity unless done
     end
 
     def checkin(sandbox)
@@ -104,7 +104,7 @@ module Kobako
       end
     end
 
-    def release_capacity!
+    def release_capacity
       @mutex.synchronize do
         @constructed -= 1
         @slot_freed.signal

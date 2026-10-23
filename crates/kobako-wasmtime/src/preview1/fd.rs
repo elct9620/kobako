@@ -115,7 +115,7 @@ fn file_or_directory(table: &Descriptors, fd: u32) -> Answer {
 }
 
 fn write_filestat(mem: &mut GuestMemory, out: u32, filetype: u8, size: u64) -> Answer {
-    GuestMemory::aligned(out, 8)?;
+    GuestMemory::check_aligned(out, 8)?;
     mem.write(out, &[0; 64])?;
     mem.write_u8(GuestMemory::field(out, 16)?, filetype)?;
     if filetype != FILETYPE_UNKNOWN {
@@ -193,7 +193,7 @@ pub(crate) fn fdstat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, ou
             (FILETYPE_REGULAR_FILE, flags, rights, rights)
         }
     };
-    GuestMemory::aligned(out, 8)?;
+    GuestMemory::check_aligned(out, 8)?;
     mem.write_u8(out, filetype)?;
     mem.write_u16(GuestMemory::field(out, 2)?, flags)?;
     mem.write_u64(GuestMemory::field(out, 8)?, base)?;
@@ -282,7 +282,7 @@ pub(crate) fn pread(
 pub(crate) fn prestat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, out: u32) -> Answer {
     match descriptor(table, fd)? {
         Descriptor::Directory(dir) if dir.preopen => {
-            GuestMemory::aligned(out, 4)?;
+            GuestMemory::check_aligned(out, 4)?;
             mem.write_u8(out, 0)?;
             mem.write_u32(GuestMemory::field(out, 4)?, dir.mount.at().len() as u32)
         }

@@ -7,9 +7,9 @@ use magnus::{Ruby, Value};
 
 use super::gvl;
 
-pub(crate) struct Pinned(Box<Opaque<Value>>);
+pub(crate) struct PinnedValue(Box<Opaque<Value>>);
 
-impl Pinned {
+impl PinnedValue {
     pub(crate) fn new(ruby: &Ruby, value: Value) -> Self {
         let value = Box::new(Opaque::from(value));
         ruby.gc_register_address(&*value);
@@ -21,7 +21,7 @@ impl Pinned {
     }
 }
 
-impl Drop for Pinned {
+impl Drop for PinnedValue {
     fn drop(&mut self) {
         gvl::reenter(|| {
             let ruby = Ruby::get().expect("Ruby handle unavailable releasing a pinned object");
