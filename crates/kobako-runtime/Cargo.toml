@@ -32,4 +32,6 @@ categories = ["wasm", "virtualization"]
 kobako-transport = { version = "0.18.0", path = "../kobako-transport" }
 # cap-std resolves every path of the Directory Filesystem beneath its host
 # directory, refusing a `..` or a symbolic link that would lead out of it.
-cap-std = "4"
+# 4.0.3 is the first release whose trailing-slash lookup keeps that
+# refusal (GHSA-hp8f-xmx4-4qrg).
+cap-std = "4.0.3"
