@@ -25,9 +25,9 @@ use crate::receiver::{Fault, FaultKind};
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum YieldError {
-    /// The guest block terminated the call with `break`: the receiver
-    /// must stop; the dispatch answers the guest with the break value
-    /// no matter what the receiver returns after this.
+    /// The guest block left with `break` or `return`: the receiver must
+    /// stop; the dispatch answers the guest with a break, which continues
+    /// that exit, no matter what the receiver returns after this.
     Break,
     /// The block body raised, or its value could not ride the wire.
     /// The receiver observes it at the yield site and may recover or
@@ -67,7 +67,7 @@ impl From<YieldError> for Fault {
     /// it answers on `runtime`, as an answer the receiver cannot write
     /// does. The rest are the exchange itself going wrong: a propagated
     /// `Break` never reaches the guest at all, since the dispatch answers
-    /// with the break value first.
+    /// with a break first.
     fn from(err: YieldError) -> Self {
         let kind = match err {
             YieldError::Failure { .. } => FaultKind::Block,
@@ -110,12 +110,12 @@ impl From<YieldError> for Fault {
 /// ```
 pub struct Yielder<'y> {
     raw: &'y mut dyn RawYielder,
-    broke: bool,
+    broken: bool,
 }
 
 impl<'y> Yielder<'y> {
     pub(crate) fn new(raw: &'y mut dyn RawYielder) -> Self {
-        Yielder { raw, broke: false }
+        Yielder { raw, broken: false }
     }
 
     /// Run the guest block once with `args` and return its value.
@@ -129,7 +129,7 @@ impl<'y> Yielder<'y> {
     /// this returns `YieldError::Break` now and on every later call,
     /// without re-entering the guest.
     pub fn call_payload(&mut self, args: &[u8]) -> Result<Vec<u8>, YieldError> {
-        if self.broke {
+        if self.broken {
             return Err(YieldError::Break);
         }
         let frame = self.raw.frame();
@@ -140,7 +140,7 @@ impl<'y> Yielder<'y> {
         match reply {
             YieldReply::Ok(body) => Ok(body),
             YieldReply::Break => {
-                self.broke = true;
+                self.broken = true;
                 Err(YieldError::Break)
             }
             YieldReply::Error(record) => Err(YieldError::Failure {
@@ -157,8 +157,8 @@ impl<'y> Yielder<'y> {
 
     /// Whether a block exit unwound the receiver, read by the dispatch
     /// frame once the receiver returns.
-    pub(crate) fn broke(&self) -> bool {
-        self.broke
+    pub(crate) fn broken(&self) -> bool {
+        self.broken
     }
 }
 
@@ -244,9 +244,9 @@ mod tests {
 
         assert_eq!(block.call_payload(&[]), Err(YieldError::Break));
         assert_eq!(block.call_payload(&[]), Err(YieldError::Break));
-        let broke = block.broke();
+        let broken = block.broken();
         assert_eq!(
-            (broke, raw.sent.len()),
+            (broken, raw.sent.len()),
             (true, 1),
             "a block exit must be recorded for the dispatch frame, and a broken Yielder \
              must not re-enter the guest again"

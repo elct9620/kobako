@@ -68,7 +68,7 @@ impl CatalogHandler {
         let result = object.call(call.method, call.payload, block.as_mut(), &handles);
         // A block exit unwinds the receiver transparently: the guest kept
         // the exit and continues it no matter what the receiver returned.
-        if block.as_ref().is_some_and(Yielder::broke) {
+        if block.as_ref().is_some_and(Yielder::broken) {
             return Reply::Break;
         }
         match result {
