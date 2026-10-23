@@ -101,7 +101,7 @@ class TestE2EPreloadCompile < Minitest::Test
     runtime = Kobako::Runtime.from_path(REAL_WASM, **runtime_options(timeout: 10))
     table = Kobako::Catalog::Snippets.new
     sources.each { |name, code| table.register(code: code, name: name) }
-    table.compile { |entries| runtime.compile([], entries, []) }
+    table.compile { |entries| runtime.compile([[], entries, []]) }
     table
   end
 

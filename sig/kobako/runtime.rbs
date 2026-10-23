@@ -31,11 +31,7 @@ module Kobako
 
     def profile: () -> Symbol
 
-    def compile: (
-      Array[String] paths,
-      Array[Kobako::Catalog::Snippets::tuple] snippets,
-      Array[Kobako::Catalog::Flags::tuple] flags
-    ) -> Array[String]?
+    def compile: (Kobako::Context::preamble preamble) -> Array[String]?
 
     # Frame-scoped guest re-entry handle the ext hands the dispatch Proc as
     # its last argument — the production conformer of
