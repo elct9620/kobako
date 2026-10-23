@@ -634,6 +634,18 @@ The last two exits have no parity scenario, because the frontends close them at 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a bound Service rescuing every exception around its yield |
+| Given | a Sandbox with a bound Service whose bare rescue surrounds its yield |
 | When | guest code's block breaks with a value |
 | Then | the call answers that value rather than the Service's rescue |
+
+## `T-295` A Service yielding again while a block exit unwinds it runs the block, and the exit goes on
+
+| Attribute | Value |
+| --- | --- |
+| refines | `T-293` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service whose ensure clause yields again |
+| When | guest code's block breaks on the first yield and answers on the second |
+| Then | the second yield receives the answer, and the call answers the first break's value |
