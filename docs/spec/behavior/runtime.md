@@ -1085,3 +1085,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an artifact compiled and cached by an engine of another release or another configuration |
 | When | a runtime is built over the same Guest Binary |
 | Then | it compiles the Guest Binary again rather than reading that artifact |
+
+## `RT-109` A path ending in a dot makes nothing where no directory stands
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-102` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount with nothing named `missing` |
+| When | the guest makes the directory `missing/.` and opens `missing/.` with `O_CREAT` |
+| Then | both answer ENOENT and nothing named `missing` is made |
