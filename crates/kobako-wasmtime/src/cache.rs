@@ -217,15 +217,17 @@ fn create_cache_dir(dir: &Path) -> std::io::Result<()> {
 /// deserialize relies on: owned by the current effective user and
 /// writable by no one else. A pre-existing directory another user owns
 /// or can write to — e.g. under a shared `XDG_CACHE_HOME` — fails here
-/// and both disk-cache tiers are skipped.
+/// and both disk-cache tiers are skipped, and so does a link standing in
+/// its place, which would point the deserialize and the pruning wherever
+/// whoever placed it chose.
 #[cfg(unix)]
 fn dir_is_private(dir: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
-    let Ok(meta) = fs::metadata(dir) else {
+    let Ok(meta) = fs::symlink_metadata(dir) else {
         return false;
     };
     // SAFETY: `geteuid` reads process state and has no preconditions.
-    meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o022 == 0
+    meta.is_dir() && meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o022 == 0
 }
 
 #[cfg(not(unix))]

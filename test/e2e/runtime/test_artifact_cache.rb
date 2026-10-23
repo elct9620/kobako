@@ -53,6 +53,23 @@ class TestRuntimeArtifactCache < Minitest::Test
     end
   end
 
+  # A link in the cache directory's place would let whoever placed it
+  # point the unsafe deserialize, and the pruning, at a directory of their
+  # choosing, so a link is trusted no more than a shared directory.
+  # @behavior RT-110
+  def test_a_linked_cache_directory_is_not_trusted
+    with_private_cache_root do |dir|
+      wasm_path, entry = plant_corrupt_artifact(dir)
+      link_cache_directory(dir, entry)
+
+      assert_instance_of Kobako::Runtime,
+                         Kobako::Runtime.from_path(wasm_path, **runtime_options),
+                         "construction over a linked cache directory must fall back to compilation"
+      assert_equal "not a serialized wasmtime artifact", File.binread(entry),
+                   "an artifact in a linked cache directory must be neither loaded nor overwritten"
+    end
+  end
+
   # Writing a new artifact opportunistically removes cache entries unused
   # for the retention window, so the cache directory does not grow without
   # bound across Guest Binary rebuilds.
@@ -103,6 +120,14 @@ class TestRuntimeArtifactCache < Minitest::Test
     wasm_path = File.join(dir, "corrupt_probe.wat")
     FileUtils.cp(FIXTURE_PATH, wasm_path)
     [wasm_path, entries.first]
+  end
+
+  # Move the cache directory holding +entry+ aside and leave a link in its
+  # place, so the entry is still reached at the same path.
+  def link_cache_directory(dir, entry)
+    linked = File.join(dir, "linked")
+    File.rename(File.dirname(entry), linked)
+    File.symlink(linked, File.dirname(entry))
   end
 
   # Plant an empty cache entry whose mtime sits past the 30-day
