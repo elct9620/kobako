@@ -51,7 +51,7 @@ fn ask<T>(
             return Err(missing);
         }
         answer(&ruby, object).map_err(|err| match escape::hold(&ruby, err) {
-            Err(err) => to_error(&ruby, err),
+            Err(err) => to_error(err),
             // The invocation ends before the guest reads this.
             Ok(()) => FilesystemError::Other(String::new()),
         })
@@ -70,44 +70,21 @@ fn change(
     })
 }
 
-/// The FilesystemError an `Errno` stands for, one for each class the
-/// guest has; anything else is `Other`, which reaches the guest as `EIO`.
-fn to_error(ruby: &Ruby, err: MagnusError) -> FilesystemError {
-    const CODES: [(&str, FilesystemError); 25] = [
-        ("ENOENT", FilesystemError::NotFound),
-        ("EEXIST", FilesystemError::AlreadyExists),
-        ("ENOTDIR", FilesystemError::NotADirectory),
-        ("EISDIR", FilesystemError::IsADirectory),
-        ("ENOTEMPTY", FilesystemError::DirectoryNotEmpty),
-        ("EACCES", FilesystemError::PermissionDenied),
-        ("EPERM", FilesystemError::NotPermitted),
-        ("EROFS", FilesystemError::ReadOnlyFilesystem),
-        ("EINVAL", FilesystemError::InvalidInput),
-        ("ENOTSUP", FilesystemError::Unsupported),
-        ("EOPNOTSUPP", FilesystemError::Unsupported),
-        ("ENOSPC", FilesystemError::StorageFull),
-        ("EXDEV", FilesystemError::CrossesDevices),
-        ("EDEADLK", FilesystemError::Deadlock),
-        ("ELOOP", FilesystemError::FilesystemLoop),
-        ("EBADF", FilesystemError::BadDescriptor),
-        ("EBUSY", FilesystemError::ResourceBusy),
-        ("EILSEQ", FilesystemError::IllegalSequence),
-        ("EINTR", FilesystemError::Interrupted),
-        ("EMFILE", FilesystemError::TooManyOpenFiles),
-        ("ENAMETOOLONG", FilesystemError::InvalidFilename),
-        ("ENOMEM", FilesystemError::OutOfMemory),
-        ("ENOTSOCK", FilesystemError::NotASocket),
-        ("EOVERFLOW", FilesystemError::ValueTooLarge),
-        ("ESPIPE", FilesystemError::NotSeekable),
-    ];
-    let errno = ruby.class_object().const_get::<_, RModule>("Errno").ok();
-    for (name, error) in CODES {
-        let class = errno.and_then(|errno| errno.const_get::<_, RClass>(name).ok());
-        if class.is_some_and(|class| err.is_kind_of(class)) {
-            return error;
-        }
-    }
-    FilesystemError::Other(err.to_string())
+/// The FilesystemError the nearest `Errno` class of `err` stands for, by
+/// its POSIX name; anything else is `Other`, which reaches the guest as
+/// `EIO`.
+fn to_error(err: MagnusError) -> FilesystemError {
+    let named = err.value().and_then(|exception| {
+        exception
+            .class()
+            .ancestors()
+            .into_iter()
+            .find_map(|module| {
+                let name: Option<String> = module.funcall("name", ()).ok()?;
+                FilesystemError::from_posix_name(name?.strip_prefix("Errno::")?)
+            })
+    });
+    named.unwrap_or_else(|| FilesystemError::Other(err.to_string()))
 }
 
 /// `File::Constants` flags for `options`, read from Ruby since their
