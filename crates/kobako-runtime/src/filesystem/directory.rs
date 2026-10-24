@@ -362,27 +362,18 @@ mod tests {
         );
     }
 
-    // A write ending past `i64::MAX` is past every host's largest file.
+    // Which offset a host refuses depends on its filesystem: tmpfs, XFS and
+    // overlay keep files up to `i64::MAX`. The host's own EFBIG, 27 on Linux
+    // and macOS alike, is what the Directory must name.
     // @behavior FS-068
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
-    fn a_directory_answers_a_write_past_the_largest_host_file_as_too_large() {
-        let host = HostDir::new("too-large");
-        let directory = Directory::new(&host.0).expect("the host directory must open");
-        let mut file = directory
-            .open(
-                "big",
-                &OpenOptions {
-                    write: true,
-                    create: true,
-                    ..OpenOptions::default()
-                },
-            )
-            .expect("the host file must be created");
+    fn a_directory_answers_a_host_file_too_large_as_too_large() {
         assert_eq!(
-            file.write_at(b"xx", i64::MAX as u64 - 1),
-            Err(FilesystemError::FileTooLarge),
-            "a write past the largest host file through Directory's write_at must fail as \
-             FileTooLarge, not as an unnamed failure"
+            to_error(io::Error::from_raw_os_error(27)),
+            FilesystemError::FileTooLarge,
+            "a host EFBIG through Directory's error mapping must fail as FileTooLarge, \
+             not as an unnamed failure"
         );
     }
 
