@@ -165,6 +165,8 @@ class TestDispatchReflectionRefusal < Minitest::Test
     # A Method built for a name respond_to_missing? answers interns that
     # name for good, so the floor must decide such names without building
     # one. Collectable Symbols go at GC; only interned ones stay counted.
+    # The bound of 50 leaves room for Symbols the VM interns on its own
+    # during the loop; a kept name would add one per call, 500 in all.
     GC.start
     before = Symbol.all_symbols.size
     500.times { |i| dispatch("Cfg::Any", "kobako_probe_#{i}", []) }
