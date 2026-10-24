@@ -1270,4 +1270,28 @@ mod tests {
              Blocking given by Overlay::with_blocking, then answer"
         );
     }
+
+    // Copying up makes the directory in the writable Layer, whose own
+    // identity differs, so only reporting the lower Layer's keeps it.
+    // @behavior FS-072
+    #[test]
+    fn an_overlay_keeps_a_directorys_identity_when_a_write_copies_it_up() {
+        let lower: Arc<dyn Filesystem> =
+            Arc::new([("dir/a.txt", "a")].into_iter().collect::<Memory>());
+        let overlay = Overlay::new()
+            .layer(Arc::new(Memory::new()), Access::ReadWrite)
+            .layer(lower, Access::Read);
+        let identity = |overlay: &Overlay| {
+            let metadata = overlay.metadata("dir").expect("the directory must stand");
+            (metadata.dev, metadata.ino)
+        };
+        let before = identity(&overlay);
+        overwrite(&overlay, "dir/b.txt", b"b");
+        assert_eq!(
+            (identity(&overlay) == before, before.1 != 0),
+            (true, true),
+            "a directory of a read-only Layer copied up by a write through an Overlay's open must \
+             keep the identity Overlay::metadata reported before"
+        );
+    }
 }

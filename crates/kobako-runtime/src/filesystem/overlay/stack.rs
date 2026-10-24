@@ -455,11 +455,27 @@ impl Stack {
         }
     }
 
+    /// A merged directory reports the identity of the lowest Layer the view
+    /// still shows it from, so copying it up into a writable Layer leaves
+    /// the identity as it was.
     pub(super) fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         refuse_reserved(path)?;
-        self.locate(path)?
-            .map(|(_, metadata)| metadata)
-            .ok_or(FilesystemError::NotFound)
+        let (index, metadata) = self.locate(path)?.ok_or(FilesystemError::NotFound)?;
+        if metadata.file_type != FileType::Directory {
+            return Ok(metadata);
+        }
+        let mut lowest = metadata;
+        for layer in &self.layers[index..] {
+            match layer.find(path)? {
+                Some(found) if found.file_type == FileType::Directory => lowest = found,
+                Some(_) => break,
+                None => {}
+            }
+            if layer.hides(path) {
+                break;
+            }
+        }
+        Ok(metadata.with_identity(lowest.dev, lowest.ino))
     }
 
     /// What the Layer showing `path` holds there, a link it holds

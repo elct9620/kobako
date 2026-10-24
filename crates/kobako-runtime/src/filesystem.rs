@@ -170,11 +170,26 @@ pub struct Metadata {
     pub file_type: FileType,
     /// The length in bytes; zero for a directory or a link.
     pub len: u64,
+    /// The device and inode numbers naming what the path holds, as
+    /// `st_dev` and `st_ino` do; an `ino` of zero reports none, and a
+    /// directory descriptor beneath one follows its path alone.
+    pub dev: u64,
+    pub ino: u64,
 }
 
 impl Metadata {
+    /// Metadata reporting no identity.
     pub fn new(file_type: FileType, len: u64) -> Self {
-        Self { file_type, len }
+        Self {
+            file_type,
+            len,
+            dev: 0,
+            ino: 0,
+        }
+    }
+
+    pub fn with_identity(self, dev: u64, ino: u64) -> Self {
+        Self { dev, ino, ..self }
     }
 }
 

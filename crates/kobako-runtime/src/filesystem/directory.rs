@@ -76,17 +76,22 @@ fn to_file_type(host: cap_std::fs::FileType) -> FileType {
 }
 
 /// What a host entry is, a file's size alone counted: a link reports no
-/// size, so nothing of where it points reaches the guest.
+/// size, so nothing of where it points reaches the guest. The host names
+/// its identity on unix; elsewhere a Directory reports none.
 fn to_metadata(metadata: cap_std::fs::Metadata) -> Metadata {
     let file_type = to_file_type(metadata.file_type());
-    Metadata {
-        file_type,
-        len: if file_type == FileType::File {
-            metadata.len()
-        } else {
-            0
-        },
+    let len = if file_type == FileType::File {
+        metadata.len()
+    } else {
+        0
+    };
+    #[cfg(unix)]
+    {
+        use cap_std::fs::MetadataExt;
+        Metadata::new(file_type, len).with_identity(metadata.dev(), metadata.ino())
     }
+    #[cfg(not(unix))]
+    Metadata::new(file_type, len)
 }
 
 impl Filesystem for Directory {
@@ -242,10 +247,7 @@ impl File for DirectoryFile {
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
         let metadata = self.file.metadata().map_err(to_error)?;
-        Ok(Metadata {
-            file_type: FileType::File,
-            len: metadata.len(),
-        })
+        Ok(Metadata::new(FileType::File, metadata.len()))
     }
 
     fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
@@ -492,22 +494,17 @@ mod tests {
             .into_iter()
             .find(|entry| entry.name == "link")
             .map(|entry| entry.file_type);
+        let shape = |metadata: Metadata| (metadata.file_type, metadata.len);
         assert_eq!(
             (
-                directory.symlink_metadata("link"),
+                directory.symlink_metadata("link").map(shape),
                 listed,
-                directory.metadata("link")
+                directory.metadata("link").map(shape)
             ),
             (
-                Ok(Metadata {
-                    file_type: FileType::Symlink,
-                    len: 0
-                }),
+                Ok((FileType::Symlink, 0)),
                 Some(FileType::Symlink),
-                Ok(Metadata {
-                    file_type: FileType::File,
-                    len: 5
-                })
+                Ok((FileType::File, 5))
             ),
             "a host link looked up through Directory::symlink_metadata and listed through \
              Directory::read_dir must report a link with no size, and Directory::metadata must \
@@ -565,6 +562,25 @@ mod tests {
                 )
                 .is_err(),
             "a link out of the host directory opened through a Directory's open must be refused"
+        );
+    }
+
+    // @behavior FS-071
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_reports_the_identity_its_host_gives_a_path() {
+        use std::os::unix::fs::MetadataExt;
+
+        let host = HostDir::new("identity");
+        fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
+        let expected = fs::metadata(host.0.join("dir")).expect("the host must stat it");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        let reported = directory.metadata("dir").expect("the directory must stand");
+        assert_eq!(
+            (reported.dev, reported.ino),
+            (expected.dev(), expected.ino()),
+            "a host directory's metadata through Directory::metadata must carry the device and \
+             inode numbers the host reports"
         );
     }
 

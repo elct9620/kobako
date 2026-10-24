@@ -571,7 +571,7 @@ pub enum FileType {}
 
 ## `Metadata`
 
-What a path names, and its length.
+What a path names, its length, and its identity.
 
 ```rust
 pub struct Metadata {}
@@ -584,6 +584,17 @@ What a path names and its length, as a Filesystem reports it.
 ```rust
 impl Metadata {
     pub fn new(file_type: FileType, len: u64) -> Self {}
+}
+```
+
+## `Metadata::with_identity`
+
+The same metadata naming the device and inode numbers a Filesystem gives what
+the path holds.
+
+```rust
+impl Metadata {
+    pub fn with_identity(self, dev: u64, ino: u64) -> Self {}
 }
 ```
 
