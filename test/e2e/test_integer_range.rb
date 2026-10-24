@@ -25,8 +25,8 @@ class TestE2EIntegerRange < Minitest::Test
   end
 
   # @behavior CD-053
-  # Each side of the wire's range is paired against CD-002 and CD-054, the
-  # values just inside it.
+  # Each side of the wire's range is paired against the values just inside
+  # it, which cross.
   def test_guest_integer_past_the_wire_range_does_not_cross_to_the_host
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
