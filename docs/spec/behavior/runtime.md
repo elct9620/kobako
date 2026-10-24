@@ -1233,3 +1233,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Mount whose Policy refuses one spelling, over a Filesystem storing that spelling |
 | When | the guest opens the path in another spelling the Filesystem reaches |
 | Then | the open answers EACCES |
+
+## `RT-121` A directory descriptor holds its directory while open
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-117` |
+| relates | `FS-086` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened, on a Filesystem reusing inode numbers |
+| When | the directory is removed and another made at its path |
+| Then | each call through the descriptor answers ENOENT |
