@@ -706,3 +706,15 @@ The methods a Host App cannot foresee handing over are the ones it never wrote. 
 | Given | a guest class subclassing the reference type, or a module mixing in its forwarding seam |
 | When | guest code reaches for the Service through it |
 | Then | the Service is never asked |
+
+## `T-296` A name the guest picks leaves nothing behind on the host
+
+| Attribute | Value |
+| --- | --- |
+| relates | `T-121` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound Service that answers any name it is asked |
+| When | guest code calls it by names the Service does not define |
+| Then | the host keeps none of those names once the calls end |
