@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-baker-v0.18.0...kobako-baker-v0.19.0) (2026-10-24)
+
+
+### Bug Fixes
+
+* **wasmtime:** require wasmtime 49.0.4 for the aarch64 br_table fix ([390e30b](https://github.com/elct9620/kobako/commit/390e30ba51ed4175820f2bb230e3ad5b0ad1e9a5))
+* **wasmtime:** take wasmtime 49.0.3 for its sandbox advisories ([7672592](https://github.com/elct9620/kobako/commit/76725923cac50473c7e3a21cc5121e3cbba0cba5))
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-baker-v0.17.0...kobako-baker-v0.18.0) (2026-10-13)
 
 

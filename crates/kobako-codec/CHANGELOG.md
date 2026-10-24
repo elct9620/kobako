@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.18.0...kobako-codec-v0.19.0) (2026-10-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* kobako-codec renames `Decoder::at_end` to `is_at_end`, `Decoder::read_only_value` to `read_sole_value`, and `Decoder::with_value_limit` to `with_value_budget`; the kobako crate renames `handles::Detached` to `handles::DetachedHandles`.
+
+### Features
+
+* **codec:** decode a payload within a limit on the values it holds ([68dc912](https://github.com/elct9620/kobako/commit/68dc912c29010f049890ef53ca6462591477d672))
+
+
+### Code Refactoring
+
+* name the value budget and decoder queries by the conventions ([918f748](https://github.com/elct9620/kobako/commit/918f7488dea13d27def92dca9e31128d90856f1c))
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.17.0...kobako-codec-v0.18.0) (2026-10-13)
 
 
