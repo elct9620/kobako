@@ -26,9 +26,16 @@ kobako owes you, and it is set by what you do with the name.
 | **exhaustive** | match a set completely | a new member breaks your match on purpose |
 | **replaceable** | write your own in kobako's place | the obligations below are all you owe |
 
-An append-only enum or read-only struct carries `#[non_exhaustive]`, and a new trait
-method carries a default. An exhaustive set has neither, so there is no wildcard to
-fall into. kobako swapping its own replaceable implementation is not a break.
+An append-only enum carries `#[non_exhaustive]`, and a new trait method carries a
+default. An exhaustive set has neither, so there is no wildcard to fall into. kobako
+swapping its own replaceable implementation is not a break.
+
+A struct with public fields is graded by whether its fields can grow:
+
+| Its fields | Mark | Grade | You build it with |
+|---|---|---|---|
+| can grow | `#[non_exhaustive]` | append-only | its `new`, or `Default` and then each field |
+| fixed by what it models | none | stable · exhaustive | a struct literal |
 
 Source compatibility is the owning crate's semantic version; wire compatibility is
 the ABI version. A rename moves no byte, and a wire change need not touch a name.
@@ -55,9 +62,9 @@ The types those seams carry, by grade:
 
 | Grade | Names |
 |---|---|
-| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, Arguments, dispatch, MsgpackCodec}` · `kobako_runtime::{Snapshot, Capture, Usage, OpenOptions, Metadata, DirEntry, Memory, Temporary, Directory, Overlay, Mount, InvalidMountPath}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, Arguments, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Options, Execution, Context, Handles, RunPayload, Backend, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::{Config, Driver}` |
-| **stable · exhaustive** | `kobako_runtime::{Profile, Entry, Completion, Access, Denial}` · `kobako_codec::msgpack::Value` · `kobako::{Provider, msgpack::RunArg}` |
-| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, FileType, Rename, FilesystemError, SeedError}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension}` · `kobako::msgpack::ValueReceiver` |
+| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_runtime::{Memory, Temporary, Directory, Overlay, Mount, InvalidMountPath}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
+| **stable · exhaustive** | `kobako_mruby::Arguments` · `kobako_runtime::{Profile, Entry, Completion, Access, Denial}` · `kobako_codec::msgpack::{Value, Arguments}` · `kobako::{Backend, Provider, msgpack::RunArg}` |
+| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, FileType, Rename, FilesystemError, SeedError, Snapshot, Capture, Usage, OpenOptions, Metadata, DirEntry}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |
 | **append-only, read by an older peer as `Unknown`** | `kobako_transport::envelope::{Downcall, Upcall}` |
 | **append-only, a record an older peer skips or refuses as its sender marked** | `kobako_transport::envelope::Preamble`, re-exported from `kobako_core` |
