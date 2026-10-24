@@ -14,7 +14,6 @@ use std::panic::{self, AssertUnwindSafe};
 #[cfg(feature = "wasmtime")]
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime};
@@ -23,7 +22,7 @@ use kobako_runtime::snapshot::{Completion, Snapshot};
 use kobako_wasmtime::{Config, Driver};
 
 use crate::catalog::Catalog;
-use crate::dispatch::{CatalogHandler, Resolutions};
+use crate::dispatch::CatalogHandler;
 use crate::error::{Error, SetupError};
 use crate::execution::{classify, Execution};
 use crate::extension::{unresolved, Extension, Extensions};
@@ -36,51 +35,13 @@ use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::grant::GrantKind;
 use kobako_runtime::mount::{Mount, Policy};
 
-/// Per-Sandbox caps and posture, the counterpart of the Ruby
-/// `SandboxOptions` value object. `None` means "no cap".
-///
-/// Field-for-field the same shape as the wasmtime driver's `Config`, and
-/// deliberately not that type: naming an engine's type here would make the
-/// engine unremovable, and the SDK holds itself to an engine a host can
-/// take out.
-#[derive(Clone)]
-pub struct Options {
-    /// Wall-clock cap for one invocation.
-    pub timeout: Option<Duration>,
-    /// Wall-clock cap for setting the Guest Binary up the first time its
-    /// path is loaded; past it, construction fails.
-    pub setup_timeout: Option<Duration>,
-    /// Guest linear-memory cap, in bytes.
-    pub memory_limit: Option<usize>,
-    /// Captured-stdout cap, in bytes.
-    pub stdout_limit: Option<usize>,
-    /// Captured-stderr cap, in bytes.
-    pub stderr_limit: Option<usize>,
-    /// Descriptors one invocation may hold open, the standard ones and
-    /// each Mount's included.
-    pub open_file_limit: Option<usize>,
-    /// Requested isolation floor; the driver declares its posture and
-    /// construction fails below the floor.
-    pub profile: Profile,
-}
+mod context;
+mod options;
 
-impl Default for Options {
-    /// Secure by default: a 60-second deadline, 10 seconds to set the
-    /// Guest Binary up, 4 MiB for memory, 1 MiB for each output channel,
-    /// 1024 open files, and the hermetic floor — the same defaults the
-    /// Ruby frontend applies.
-    fn default() -> Self {
-        Options {
-            timeout: Some(Duration::from_secs(60)),
-            setup_timeout: Some(Duration::from_secs(10)),
-            memory_limit: Some(4 << 20),
-            stdout_limit: Some(1 << 20),
-            stderr_limit: Some(1 << 20),
-            open_file_limit: Some(1024),
-            profile: Profile::Hermetic,
-        }
-    }
-}
+pub use context::Context;
+pub use options::Options;
+
+use context::{collect_overrides, Overrides};
 
 /// What a panic carries as it unwinds.
 type Panic = Box<dyn Any + Send>;
@@ -450,94 +411,6 @@ fn build_execution(snapshot: Snapshot, handles: Arc<Mutex<HandleTable>>, verb: &
     )
 }
 
-/// What one invocation's override closure chose: the Services it rebound
-/// and the Mounts it replaced.
-struct Overrides {
-    resolved: Resolutions,
-    mounts: Vec<Mount>,
-}
-
-fn collect_overrides<F>(catalog: &Catalog, overrides: F) -> Result<Overrides, Error>
-where
-    F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
-{
-    let mut ctx = Context {
-        catalog,
-        overrides: Vec::new(),
-        mounts: Vec::new(),
-    };
-    overrides(&mut ctx)?;
-    Ok(Overrides {
-        resolved: ctx.overrides,
-        mounts: ctx.mounts,
-    })
-}
-
-/// The per-invocation Context handed to an `eval_with` / `run_with` override closure — the
-/// Rust peer of the Ruby frontend's `Kobako::Context`. Here it carries only the
-/// `ctx.bind` and `ctx.mount` overrides; the run's Handle table and observables ride into its
-/// `Execution` instead. Each override takes priority over that path's
-/// per-invocation provider result and its static base for that one invocation,
-/// and is discarded when it ends. The borrow keeps it from outliving the
-/// closure, which is what spends it.
-pub struct Context<'a> {
-    catalog: &'a Catalog,
-    overrides: Resolutions,
-    mounts: Vec<Mount>,
-}
-
-impl Context<'_> {
-    /// Use `filesystem` for the Mount at `at` during this invocation only,
-    /// with its own `access`. Replacing a path nothing was mounted at returns
-    /// `Error::Argument`, so an override never adds a Mount.
-    pub fn mount(
-        &mut self,
-        at: &str,
-        filesystem: Arc<dyn Filesystem>,
-        access: Access,
-    ) -> Result<(), Error> {
-        self.replace_mount(Mount::new(at, filesystem, access)?)
-    }
-
-    /// `mount` with a `policy` deciding in the access's place, as
-    /// `Sandbox::mount_with_policy` takes it.
-    pub fn mount_with_policy(
-        &mut self,
-        at: &str,
-        filesystem: Arc<dyn Filesystem>,
-        policy: Arc<dyn Policy>,
-    ) -> Result<(), Error> {
-        self.replace_mount(Mount::new(at, filesystem, Access::ReadWrite)?.with_policy(policy))
-    }
-
-    fn replace_mount(&mut self, mount: Mount) -> Result<(), Error> {
-        let at = mount.at();
-        if !self.catalog.grants.is_mounted(at) {
-            return Err(Error::Argument(format!(
-                "cannot override unmounted path {at:?}"
-            )));
-        }
-        self.mounts.retain(|mounted| mounted.at() != at);
-        self.mounts.push(mount);
-        Ok(())
-    }
-
-    /// Override the object bound at an already-declared `path` for this
-    /// invocation. Overriding a path that was never declared returns
-    /// `Error::Argument`, so an override can never grow the sealed key set;
-    /// a second override of the same `path` wins over the first.
-    pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
-        if self.catalog.lookup(path).is_none() {
-            return Err(Error::Argument(format!(
-                "cannot override undeclared path {path:?}"
-            )));
-        }
-        self.overrides.retain(|(bound, _)| bound != path);
-        self.overrides.push((path.to_string(), object));
-        Ok(())
-    }
-}
-
 /// `Arc<Sandbox>` drives concurrent `&self` invocations, which requires
 /// `Sandbox: Send + Sync`. Assert it at compile time so a future field that
 /// breaks the property fails the build here, not at a distant call site.
@@ -548,6 +421,8 @@ const _: fn() = || {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     /// Sealing an empty table asks the engine for nothing, so one that
