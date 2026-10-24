@@ -2,7 +2,7 @@ PATH
   remote: .
   specs:
     kobako (0.28.0)
-      msgpack (~> 1.7)
+      msgpack (>= 1.8.2, < 2)
       rb_sys (~> 0.9.128)
 
 GEM
