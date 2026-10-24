@@ -231,6 +231,9 @@ pub enum SeedError {
     /// A path given as a file where another path needs a directory, or
     /// the reverse.
     FileAndDirectory(String),
+    /// A path naming `..`, which no runtime hands a Filesystem, so the
+    /// file would never be reached.
+    DotDot(String),
 }
 
 impl std::fmt::Display for SeedError {
@@ -241,6 +244,7 @@ impl std::fmt::Display for SeedError {
             Self::FileAndDirectory(path) => {
                 write!(f, "a Memory seeds {path} as both a file and a directory")
             }
+            Self::DotDot(path) => write!(f, "a Memory seeds no path through `..`, got {path}"),
         }
     }
 }
@@ -263,6 +267,9 @@ impl Memory {
                 let path = normalize_seed(path.as_ref());
                 if path.is_empty() {
                     return Err(SeedError::Root);
+                }
+                if path.split('/').any(|name| name == "..") {
+                    return Err(SeedError::DotDot(path));
                 }
                 for (end, _) in path.match_indices('/') {
                     let dir = &path[..end];
@@ -572,6 +579,19 @@ mod tests {
             ],
             "a list naming the root, a file beneath a file, or a file twice through \
              Memory::try_from_iter must answer the SeedError naming it"
+        );
+    }
+
+    // A runtime never hands a Filesystem `..`, so a file seeded through one
+    // would be held where no call reaches it.
+    // @behavior FS-087
+    #[test]
+    fn a_memory_tried_with_a_path_through_dot_dot_answers_why() {
+        assert_eq!(
+            Memory::try_from_iter([("a/../b", "x")]).map(drop),
+            Err(SeedError::DotDot("a/../b".to_string())),
+            "a list naming a path through `..` through Memory::try_from_iter must answer \
+             SeedError::DotDot naming it"
         );
     }
 
