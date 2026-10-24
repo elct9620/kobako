@@ -264,6 +264,26 @@ impl Mount {
 }
 ```
 
+## `Mount::at`
+
+The absolute guest path the Filesystem appears at.
+
+```rust
+impl Mount {
+    pub fn at(&self) -> &str {}
+}
+```
+
+## `Mount::filesystem`
+
+The Filesystem an engine hands each call beneath the Mount.
+
+```rust
+impl Mount {
+    pub fn filesystem(&self) -> &Arc<dyn Filesystem> {}
+}
+```
+
 ## `Mount::guest_path`
 
 The absolute guest path a path relative to the Mount's root stands for.

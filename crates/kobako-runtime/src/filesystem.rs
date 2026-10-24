@@ -188,6 +188,7 @@ impl Metadata {
         }
     }
 
+    /// This metadata naming `dev` and `ino` as what the path holds.
     pub fn with_identity(self, dev: u64, ino: u64) -> Self {
         Self { dev, ino, ..self }
     }
@@ -201,6 +202,7 @@ pub struct DirEntry {
 }
 
 impl DirEntry {
+    /// The entry `name` in its directory, naming a `file_type`.
     pub fn new(name: impl Into<String>, file_type: FileType) -> Self {
         Self {
             name: name.into(),

@@ -95,6 +95,7 @@ impl Mount {
         &self.at
     }
 
+    /// The Filesystem an engine hands each call beneath this Mount.
     pub fn filesystem(&self) -> &Arc<dyn Filesystem> {
         &self.filesystem
     }

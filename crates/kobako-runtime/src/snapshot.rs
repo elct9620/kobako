@@ -65,6 +65,7 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// What an engine hands back from one invocation.
     pub fn new(completion: Completion, stdout: Capture, stderr: Capture, usage: Usage) -> Self {
         Self {
             completion,
