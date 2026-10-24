@@ -6,7 +6,7 @@
 //! A `..` steps out of what the Filesystem holds rather than out of the
 //! path's text, as a host resolves it, so `missing/..` names nothing.
 
-use kobako_runtime::filesystem::{Filesystem, FilesystemError, Kind};
+use kobako_runtime::filesystem::{FileType, Filesystem, FilesystemError};
 
 use super::errno::{Answer, Errno};
 use crate::descriptors::OpenDirectory;
@@ -30,7 +30,7 @@ impl ResolvedPath {
     pub(crate) fn check_directory(self, filesystem: &dyn Filesystem) -> Answer<String> {
         if self.names_directory {
             match filesystem.metadata(&self.path) {
-                Ok(metadata) if metadata.kind != Kind::Directory => {
+                Ok(metadata) if metadata.file_type != FileType::Directory => {
                     return Err(Errno::Notdir.into())
                 }
                 Ok(_) | Err(FilesystemError::NotFound) => {}
@@ -88,7 +88,7 @@ pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
 /// A `..` leaves `path` only when it is a directory the Filesystem holds.
 fn step_out_of(filesystem: &dyn Filesystem, path: &str) -> Answer {
     match filesystem.metadata(path) {
-        Ok(metadata) if metadata.kind == Kind::Directory => Ok(()),
+        Ok(metadata) if metadata.file_type == FileType::Directory => Ok(()),
         Ok(_) => Err(Errno::Notdir.into()),
         Err(err) => Err(err.into()),
     }

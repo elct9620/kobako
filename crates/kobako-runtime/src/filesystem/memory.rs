@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::path::{beneath_itself, is_beneath, normalize_seed, parent};
-use super::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename};
+use super::{DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
 
 /// Files and directories held in memory. Every Invocation it is handed to
 /// shares it, so what one writes the next reads. What its files hold
@@ -26,10 +26,10 @@ enum Node {
 }
 
 impl Node {
-    fn kind(&self) -> Kind {
+    fn file_type(&self) -> FileType {
         match self {
-            Self::File(_) => Kind::File,
-            Self::Directory => Kind::Directory,
+            Self::File(_) => FileType::File,
+            Self::Directory => FileType::Directory,
         }
     }
 }
@@ -345,11 +345,11 @@ impl Filesystem for Memory {
         let nodes = self.nodes();
         match nodes.get(path) {
             Some(Node::File(data)) => Ok(Metadata {
-                kind: Kind::File,
+                file_type: FileType::File,
                 len: lock(data).bytes.len() as u64,
             }),
             Some(Node::Directory) => Ok(Metadata {
-                kind: Kind::Directory,
+                file_type: FileType::Directory,
                 len: 0,
             }),
             None => Err(missing(&nodes, path)),
@@ -368,7 +368,7 @@ impl Filesystem for Memory {
             .filter(|(key, _)| !key.is_empty() && parent(key) == path)
             .map(|(key, node)| DirEntry {
                 name: key.rsplit('/').next().unwrap_or(key).to_string(),
-                kind: node.kind(),
+                file_type: node.file_type(),
             })
             .collect())
     }
@@ -421,9 +421,9 @@ impl Filesystem for Memory {
         if from == to {
             return Ok(());
         }
-        rename.check(moving.kind())?;
+        rename.check(moving.file_type())?;
         if is_beneath(to, from) {
-            return Err(beneath_itself(moving.kind()));
+            return Err(beneath_itself(moving.file_type()));
         }
         check_parent(&nodes, to)?;
         match (&moving, nodes.get(to)) {
@@ -499,7 +499,7 @@ impl File for MemoryFile {
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
         Ok(Metadata {
-            kind: Kind::File,
+            file_type: FileType::File,
             len: lock(&self.data).bytes.len() as u64,
         })
     }
@@ -825,14 +825,14 @@ mod tests {
             (
                 memory.rename("dir", "moved", Rename::File),
                 memory.rename("file", "moved", Rename::Directory),
-                memory.metadata("dir/inner").map(|m| m.kind),
-                memory.metadata("file").map(|m| m.kind),
+                memory.metadata("dir/inner").map(|m| m.file_type),
+                memory.metadata("file").map(|m| m.file_type),
             ),
             (
                 Err(FilesystemError::CrossesDevices),
                 Err(FilesystemError::NotADirectory),
-                Ok(Kind::File),
-                Ok(Kind::File)
+                Ok(FileType::File),
+                Ok(FileType::File)
             ),
             "Memory::rename must refuse a directory a file-only rename names as crossing \
              devices, and a file a directory-only rename names as no directory, moving neither"

@@ -141,11 +141,11 @@ pub enum Rename {
 }
 
 impl Rename {
-    /// Refuse moving an entry of `kind` this rename may not move.
-    pub fn check(self, kind: Kind) -> Result<(), FilesystemError> {
-        match (self, kind) {
-            (Self::File, Kind::Directory) => Err(FilesystemError::CrossesDevices),
-            (Self::Directory, kind) if kind != Kind::Directory => {
+    /// Refuse moving an entry of `file_type` this rename may not move.
+    pub fn check(self, file_type: FileType) -> Result<(), FilesystemError> {
+        match (self, file_type) {
+            (Self::File, FileType::Directory) => Err(FilesystemError::CrossesDevices),
+            (Self::Directory, file_type) if file_type != FileType::Directory => {
                 Err(FilesystemError::NotADirectory)
             }
             _ => Ok(()),
@@ -156,7 +156,7 @@ impl Rename {
 /// What a path names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum Kind {
+pub enum FileType {
     File,
     Directory,
     /// A link, as only `symlink_metadata` and a listing report one.
@@ -165,7 +165,7 @@ pub enum Kind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Metadata {
-    pub kind: Kind,
+    pub file_type: FileType,
     /// The length in bytes; zero for a directory or a link.
     pub len: u64,
 }
@@ -173,7 +173,7 @@ pub struct Metadata {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DirEntry {
     pub name: String,
-    pub kind: Kind,
+    pub file_type: FileType,
 }
 
 /// Why a Filesystem call failed. The runtime hands the guest the matching

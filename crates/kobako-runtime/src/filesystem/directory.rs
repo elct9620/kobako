@@ -9,9 +9,9 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use cap_std::ambient_authority;
-use cap_std::fs::{Dir, FileType, OpenOptions as CapOpenOptions};
+use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
-use super::{DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename};
+use super::{DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
@@ -64,23 +64,23 @@ fn to_error(err: io::Error) -> FilesystemError {
     }
 }
 
-fn to_kind(file_type: FileType) -> Kind {
-    if file_type.is_symlink() {
-        Kind::Symlink
-    } else if file_type.is_dir() {
-        Kind::Directory
+fn to_file_type(host: cap_std::fs::FileType) -> FileType {
+    if host.is_symlink() {
+        FileType::Symlink
+    } else if host.is_dir() {
+        FileType::Directory
     } else {
-        Kind::File
+        FileType::File
     }
 }
 
 /// What a host entry is, a file's size alone counted: a link reports no
 /// size, so nothing of where it points reaches the guest.
 fn to_metadata(metadata: cap_std::fs::Metadata) -> Metadata {
-    let kind = to_kind(metadata.file_type());
+    let file_type = to_file_type(metadata.file_type());
     Metadata {
-        kind,
-        len: if kind == Kind::File {
+        file_type,
+        len: if file_type == FileType::File {
             metadata.len()
         } else {
             0
@@ -160,7 +160,7 @@ impl Filesystem for Directory {
                     .map_err(|_| FilesystemError::IllegalSequence)?;
                 Ok(DirEntry {
                     name,
-                    kind: to_kind(entry.file_type().map_err(to_error)?),
+                    file_type: to_file_type(entry.file_type().map_err(to_error)?),
                 })
             })
             .collect()
@@ -193,7 +193,7 @@ impl Filesystem for Directory {
     /// moves one.
     fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
         if from != to {
-            rename.check(self.symlink_metadata(from)?.kind)?;
+            rename.check(self.symlink_metadata(from)?.file_type)?;
         }
         self.dir
             .rename(to_host_path(from)?, &self.dir, to_host_path(to)?)
@@ -221,7 +221,7 @@ impl File for DirectoryFile {
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
         let metadata = self.file.metadata().map_err(to_error)?;
         Ok(Metadata {
-            kind: Kind::File,
+            file_type: FileType::File,
             len: metadata.len(),
         })
     }
@@ -454,7 +454,7 @@ mod tests {
             .expect("the host directory must list")
             .into_iter()
             .find(|entry| entry.name == "link")
-            .map(|entry| entry.kind);
+            .map(|entry| entry.file_type);
         assert_eq!(
             (
                 directory.symlink_metadata("link"),
@@ -463,12 +463,12 @@ mod tests {
             ),
             (
                 Ok(Metadata {
-                    kind: Kind::Symlink,
+                    file_type: FileType::Symlink,
                     len: 0
                 }),
-                Some(Kind::Symlink),
+                Some(FileType::Symlink),
                 Ok(Metadata {
-                    kind: Kind::File,
+                    file_type: FileType::File,
                     len: 5
                 })
             ),

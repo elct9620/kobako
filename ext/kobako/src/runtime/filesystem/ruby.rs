@@ -12,7 +12,7 @@ use magnus::value::{Opaque, ReprValue};
 use magnus::{kwargs, prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, Value};
 
 use kobako_runtime::filesystem::{
-    DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename,
+    DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
 };
 
 use crate::runtime::pinned_value::PinnedValue;
@@ -145,12 +145,12 @@ impl Filesystem for RubyFilesystem {
                 let stat: Value = fs.funcall("stat", (path,))?;
                 if stat.funcall::<_, _, bool>("directory?", ())? {
                     return Ok(Metadata {
-                        kind: Kind::Directory,
+                        file_type: FileType::Directory,
                         len: 0,
                     });
                 }
                 Ok(Metadata {
-                    kind: Kind::File,
+                    file_type: FileType::File,
                     len: stat.funcall("size", ())?,
                 })
             },
@@ -167,8 +167,8 @@ impl Filesystem for RubyFilesystem {
         names
             .into_iter()
             .map(|name| {
-                let kind = self.metadata(&join(path, &name))?.kind;
-                Ok(DirEntry { name, kind })
+                let file_type = self.metadata(&join(path, &name))?.file_type;
+                Ok(DirEntry { name, file_type })
             })
             .collect()
     }
@@ -289,7 +289,7 @@ impl File for RubyFile {
             FilesystemError::Unsupported,
             |_, file| {
                 Ok(Metadata {
-                    kind: Kind::File,
+                    file_type: FileType::File,
                     len: file.funcall("size", ())?,
                 })
             },

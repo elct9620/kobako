@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use super::super::path::{ancestors, beneath_itself, is_beneath, parent};
 use super::super::{
-    Access, DirEntry, File, Filesystem, FilesystemError, Kind, Metadata, OpenOptions, Rename,
+    Access, DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
 };
 
 /// The prefix of a whiteout, and of every name reserved for a marker.
@@ -66,7 +66,7 @@ impl Layer {
                 return true;
             }
             match self.filesystem.symlink_metadata(name) {
-                Ok(metadata) if metadata.kind != Kind::Directory => return true,
+                Ok(metadata) if metadata.file_type != FileType::Directory => return true,
                 Ok(_) => {}
                 Err(_) if name != path => return false,
                 Err(_) => {}
@@ -214,7 +214,8 @@ impl Stack {
     /// link shown points at nothing.
     fn locate(&self, path: &str) -> Result<Option<(usize, Metadata)>, FilesystemError> {
         match self.locate_by(path, <dyn Filesystem>::symlink_metadata)? {
-            Some((index, metadata)) if metadata.kind == Kind::Symlink => Ok(self.layers[index]
+            Some((index, metadata)) if metadata.file_type == FileType::Symlink => Ok(self.layers
+                [index]
                 .find(path)?
                 .map(|metadata| (index, metadata))),
             found => Ok(found),
@@ -289,9 +290,9 @@ impl Stack {
                 continue;
             }
             match self.locate_by(dir, <dyn Filesystem>::symlink_metadata)? {
-                Some((_, metadata)) => match metadata.kind {
-                    Kind::Directory => target.filesystem.create_dir(dir)?,
-                    Kind::Symlink => return Err(FilesystemError::CrossesDevices),
+                Some((_, metadata)) => match metadata.file_type {
+                    FileType::Directory => target.filesystem.create_dir(dir)?,
+                    FileType::Symlink => return Err(FilesystemError::CrossesDevices),
                     _ => return Err(FilesystemError::NotADirectory),
                 },
                 None => return Err(FilesystemError::NotFound),
@@ -305,7 +306,12 @@ impl Stack {
     /// taken away again rather than left to hide the whole file. A link
     /// is not copied up, as no Layer is handed one to hold.
     fn copy_up_file(&self, path: &str, from: usize, into: usize) -> Result<(), FilesystemError> {
-        if self.layers[from].filesystem.symlink_metadata(path)?.kind == Kind::Symlink {
+        if self.layers[from]
+            .filesystem
+            .symlink_metadata(path)?
+            .file_type
+            == FileType::Symlink
+        {
             return Err(FilesystemError::CrossesDevices);
         }
         self.copy_up_directories(path, into)?;
@@ -402,7 +408,7 @@ impl Stack {
             Some((
                 _,
                 Metadata {
-                    kind: Kind::Directory,
+                    file_type: FileType::Directory,
                     ..
                 },
             )) => Err(FilesystemError::IsADirectory),
@@ -466,7 +472,7 @@ impl Stack {
     }
 
     pub(super) fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-        if self.metadata(path)?.kind != Kind::Directory {
+        if self.metadata(path)?.file_type != FileType::Directory {
             return Err(FilesystemError::NotADirectory);
         }
         let mut entries: Vec<DirEntry> = Vec::new();
@@ -474,7 +480,7 @@ impl Stack {
         for layer in &self.layers {
             match layer.find(path)? {
                 Some(Metadata {
-                    kind: Kind::Directory,
+                    file_type: FileType::Directory,
                     ..
                 }) => {
                     let listed = layer.filesystem.read_dir(path)?;
@@ -534,7 +540,7 @@ impl Stack {
     /// A writable Layer's copy of the directory may hold only markers; any
     /// other entry there means the view is not what was found empty.
     pub(super) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        if self.symlink_metadata(path)?.kind != Kind::Directory {
+        if self.symlink_metadata(path)?.file_type != FileType::Directory {
             return Err(FilesystemError::NotADirectory);
         }
         if !self.read_dir(path)?.is_empty() {
@@ -547,7 +553,7 @@ impl Stack {
 
     /// A link is removed as itself, wherever it points.
     pub(super) fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        if self.symlink_metadata(path)?.kind == Kind::Directory {
+        if self.symlink_metadata(path)?.file_type == FileType::Directory {
             return Err(FilesystemError::IsADirectory);
         }
         self.withdraw(path, |filesystem, path| filesystem.remove_file(path))
@@ -571,27 +577,27 @@ impl Stack {
         if from == to {
             return Ok(());
         }
-        rename.check(moving.kind)?;
+        rename.check(moving.file_type)?;
         if is_beneath(to, from) {
-            return Err(beneath_itself(moving.kind));
+            return Err(beneath_itself(moving.file_type));
         }
         let replaced = self
             .locate_by(to, <dyn Filesystem>::symlink_metadata)?
-            .map(|(_, metadata)| metadata.kind);
-        match (moving.kind, replaced) {
-            (Kind::File | Kind::Symlink, Some(Kind::Directory)) => {
+            .map(|(_, metadata)| metadata.file_type);
+        match (moving.file_type, replaced) {
+            (FileType::File | FileType::Symlink, Some(FileType::Directory)) => {
                 return Err(FilesystemError::IsADirectory)
             }
-            (Kind::Directory, Some(Kind::File | Kind::Symlink)) => {
+            (FileType::Directory, Some(FileType::File | FileType::Symlink)) => {
                 return Err(FilesystemError::NotADirectory)
             }
-            (Kind::Directory, Some(Kind::Directory)) if !self.read_dir(to)?.is_empty() => {
+            (FileType::Directory, Some(FileType::Directory)) if !self.read_dir(to)?.is_empty() => {
                 return Err(FilesystemError::DirectoryNotEmpty)
             }
             _ => {}
         }
         let upper = self.upper()?;
-        let replaces_below = moving.kind == Kind::Directory
+        let replaces_below = moving.file_type == FileType::Directory
             && self
                 .layers
                 .iter()
@@ -599,12 +605,14 @@ impl Stack {
                 .any(|(index, layer)| index != upper && layer.holds(to));
         let (holders, shadowed) = self.holders(from);
         let shown_below = self.whiteout_layer(&holders, shadowed)?;
-        match moving.kind {
-            Kind::Directory if holders != [upper] => return Err(FilesystemError::CrossesDevices),
-            Kind::File if holders.first() != Some(&upper) => {
+        match moving.file_type {
+            FileType::Directory if holders != [upper] => {
+                return Err(FilesystemError::CrossesDevices)
+            }
+            FileType::File if holders.first() != Some(&upper) => {
                 self.copy_up_file(from, holders[0], upper)?
             }
-            Kind::Symlink if holders.first() != Some(&upper) => {
+            FileType::Symlink if holders.first() != Some(&upper) => {
                 return Err(FilesystemError::CrossesDevices)
             }
             _ => {}
@@ -615,7 +623,7 @@ impl Stack {
         }
         let filesystem = self.layers[upper].filesystem.as_ref();
         let moved = || filesystem.rename(from, to, rename);
-        if replaced == Some(Kind::Directory) && self.layers[upper].holds(to) {
+        if replaced == Some(FileType::Directory) && self.layers[upper].holds(to) {
             without_markers(filesystem, to, moved)?;
         } else {
             moved()?;

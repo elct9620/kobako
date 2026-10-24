@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::{Access, Kind, OpenOptions, Rename};
+use kobako_runtime::filesystem::{Access, FileType, OpenOptions, Rename};
 use kobako_runtime::mount::Mount;
 
 use super::args::{self, FDFLAGS_APPEND, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE};
@@ -51,7 +51,9 @@ fn judge(mount: &Mount, path: &str, access: Access, follows_last: bool) -> Answe
     let ends = path.match_indices('/').map(|(end, _)| end);
     for end in ends.chain(follows_last.then_some(path.len())) {
         match mount.filesystem().symlink_metadata(&path[..end]) {
-            Ok(metadata) if metadata.kind == Kind::Symlink => return Err(Errno::Loop.into()),
+            Ok(metadata) if metadata.file_type == FileType::Symlink => {
+                return Err(Errno::Loop.into())
+            }
             Ok(_) => {}
             // What is missing holds no link; the call answers for it.
             Err(_) => break,
@@ -205,7 +207,7 @@ pub(crate) fn open(
         mount.filesystem().symlink_metadata(&path)
     };
     let existing = match looked_up {
-        Ok(metadata) => Some(metadata.kind),
+        Ok(metadata) => Some(metadata.file_type),
         Err(kobako_runtime::filesystem::FilesystemError::NotFound) => None,
         Err(err) => return Err(err.into()),
     };
@@ -214,10 +216,10 @@ pub(crate) fn open(
     }
     let descriptor = match existing {
         Some(_) if oflag(OFLAGS_CREAT) && oflag(OFLAGS_EXCL) => return Err(Errno::Exist.into()),
-        Some(Kind::Directory) if write || oflag(OFLAGS_TRUNC | OFLAGS_CREAT) => {
+        Some(FileType::Directory) if write || oflag(OFLAGS_TRUNC | OFLAGS_CREAT) => {
             return Err(Errno::Isdir.into())
         }
-        Some(Kind::Directory) => Descriptor::Directory(OpenDirectory {
+        Some(FileType::Directory) => Descriptor::Directory(OpenDirectory {
             mount,
             path,
             preopen: false,
@@ -271,7 +273,7 @@ fn refuse_dot_end(dir: &OpenDirectory, path: &str, refusal: Errno) -> Answer {
     }
     if !parent.is_empty() {
         let parent = resolve(dir, parent)?.path;
-        if dir.mount.filesystem().metadata(&parent)?.kind != Kind::Directory {
+        if dir.mount.filesystem().metadata(&parent)?.file_type != FileType::Directory {
             return Err(Errno::Notdir.into());
         }
     }

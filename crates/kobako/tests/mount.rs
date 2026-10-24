@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use common::real_sandbox;
 use kobako::filesystem::{
-    DirEntry, File, Filesystem, FilesystemError, Kind, Memory, Metadata, OpenOptions, Rename,
+    DirEntry, File, FileType, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Rename,
 };
 use kobako::msgpack::Value;
 use kobako::{Access, Error, Policy, Profile, Sandbox};
@@ -226,7 +226,7 @@ impl File for NoteFile {
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
         Ok(Metadata {
-            kind: Kind::File,
+            file_type: FileType::File,
             len: self.0.len() as u64,
         })
     }
@@ -247,7 +247,7 @@ impl Filesystem for OneNote {
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         match path {
             "" => Ok(Metadata {
-                kind: Kind::Directory,
+                file_type: FileType::Directory,
                 len: 0,
             }),
             "note.txt" => NoteFile(self.0).metadata(),
@@ -258,7 +258,7 @@ impl Filesystem for OneNote {
     fn read_dir(&self, _path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
         Ok(vec![DirEntry {
             name: "note.txt".into(),
-            kind: Kind::File,
+            file_type: FileType::File,
         }])
     }
 

@@ -126,7 +126,7 @@ mod tests {
 
     use super::super::memory::Memory;
     use super::super::temporary::Temporary;
-    use super::super::Kind;
+    use super::super::FileType;
     use super::*;
 
     fn read(fs: &dyn Filesystem, path: &str) -> Vec<u8> {
@@ -238,10 +238,14 @@ mod tests {
     fn an_overlay_reports_a_link_its_layer_holds_as_a_link() {
         let host = LinkTree::new("lstat");
         let overlay = host.overlay();
-        let kind = |path| overlay.symlink_metadata(path).map(|metadata| metadata.kind);
+        let file_type = |path| {
+            overlay
+                .symlink_metadata(path)
+                .map(|metadata| metadata.file_type)
+        };
         assert_eq!(
-            (kind("link"), kind("dangling")),
-            (Ok(Kind::Symlink), Ok(Kind::Symlink)),
+            (file_type("link"), file_type("dangling")),
+            (Ok(FileType::Symlink), Ok(FileType::Symlink)),
             "a link a Directory Layer holds, pointing at a file or at nothing, looked up through \
              Overlay::symlink_metadata must be reported as a link"
         );
@@ -354,7 +358,9 @@ mod tests {
         let overlay = Overlay::new()
             .layer(Arc::new(upper), Access::ReadWrite)
             .layer(memory_with("dirlink/x", "lower"), Access::Read);
-        let found = overlay.metadata("dirlink/x").map(|metadata| metadata.kind);
+        let found = overlay
+            .metadata("dirlink/x")
+            .map(|metadata| metadata.file_type);
         assert_eq!(
             (names(&overlay, "dirlink"), found),
             (vec!["inner".to_string()], Err(FilesystemError::NotFound)),
@@ -598,8 +604,8 @@ mod tests {
             .remove_file("dir/file")
             .expect("the file must be removed");
         assert_eq!(
-            upper.metadata("dir/.wh.file").map(|metadata| metadata.kind),
-            Ok(Kind::File),
+            upper.metadata("dir/.wh.file").map(|metadata| metadata.file_type),
+            Ok(FileType::File),
             "a read-only Layer's file removed through Overlay::remove_file must leave .wh.file beside it in the writable Layer"
         );
     }
@@ -1008,8 +1014,8 @@ mod tests {
         assert_eq!(
             upper
                 .metadata("dir/.wh..wh..opq")
-                .map(|metadata| metadata.kind),
-            Ok(Kind::File),
+                .map(|metadata| metadata.file_type),
+            Ok(FileType::File),
             "a directory moved through Overlay::rename over one a read-only Layer holds must be \
              marked opaque in the writable Layer"
         );
@@ -1249,7 +1255,7 @@ mod tests {
             .with_blocking(counts.clone());
         let held = overlay.lock.hold().expect("the lock must be free");
         let other = overlay.clone();
-        let waiter = thread::spawn(move || other.metadata("note").map(|m| m.kind));
+        let waiter = thread::spawn(move || other.metadata("note").map(|m| m.file_type));
         while counts.0.load(Ordering::SeqCst) == 0 {
             thread::sleep(Duration::from_millis(1));
         }
@@ -1259,7 +1265,7 @@ mod tests {
                 waiter.join().expect("the waiter must not panic"),
                 counts.0.load(Ordering::SeqCst)
             ),
-            (Ok(Kind::File), 1),
+            (Ok(FileType::File), 1),
             "a call through an Overlay whose lock another thread holds must wait through the \
              Blocking given by Overlay::with_blocking, then answer"
         );

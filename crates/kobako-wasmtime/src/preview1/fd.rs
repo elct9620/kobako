@@ -6,7 +6,7 @@
 //! and the descriptor's position and rights stay here.
 
 use bytes::Bytes;
-use kobako_runtime::filesystem::{Kind, Metadata};
+use kobako_runtime::filesystem::{FileType, Metadata};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::p2::{InputStream, OutputStream, StreamError};
 
@@ -125,17 +125,17 @@ fn write_filestat(mem: &mut GuestMemory, out: u32, filetype: u8, size: u64) -> A
     Ok(())
 }
 
-fn to_filetype(kind: Kind) -> u8 {
-    match kind {
-        Kind::Directory => FILETYPE_DIRECTORY,
-        Kind::Symlink => FILETYPE_SYMBOLIC_LINK,
+fn to_filetype(file_type: FileType) -> u8 {
+    match file_type {
+        FileType::Directory => FILETYPE_DIRECTORY,
+        FileType::Symlink => FILETYPE_SYMBOLIC_LINK,
         _ => FILETYPE_REGULAR_FILE,
     }
 }
 
 /// A `filestat` for what a Filesystem reports a path names.
 pub(crate) fn write_metadata(mem: &mut GuestMemory, out: u32, metadata: Metadata) -> Answer {
-    write_filestat(mem, out, to_filetype(metadata.kind), metadata.len)
+    write_filestat(mem, out, to_filetype(metadata.file_type), metadata.len)
 }
 
 /// The hints preview1 offers about a file. A Filesystem that ignores them
@@ -389,7 +389,7 @@ pub(crate) fn readdir(
         .chain(
             listing
                 .iter()
-                .map(|entry| (entry.name.as_str(), to_filetype(entry.kind))),
+                .map(|entry| (entry.name.as_str(), to_filetype(entry.file_type))),
         );
     let (start, capacity) = buf;
     let mut used: u32 = 0;

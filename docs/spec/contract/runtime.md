@@ -542,20 +542,20 @@ pub enum Rename {}
 
 ## `Rename::check`
 
-Refuse moving an entry of a kind the rename may not move.
+Refuse moving an entry of a file type the rename may not move.
 
 ```rust
 impl Rename {
-    pub fn check(self, kind: Kind) -> Result<(), FilesystemError> {}
+    pub fn check(self, file_type: FileType) -> Result<(), FilesystemError> {}
 }
 ```
 
-## `Kind`
+## `FileType`
 
 What a path names: a file, a directory, or a link.
 
 ```rust
-pub enum Kind {}
+pub enum FileType {}
 ```
 
 ## `Metadata`
