@@ -238,6 +238,11 @@ mod tests {
                     let _ = block.call_values(&[Value::Int(0)]);
                     Ok(Value::Sym("swallowed".into()))
                 }
+                "yield_after_break" => {
+                    let block = block.expect("scenario always supplies a block here");
+                    let _ = block.call_values(&[Value::Int(0)]);
+                    block.call_values(&[Value::Int(1)]).map_err(Fault::from)
+                }
                 "make" => handles
                     .alloc(TaggedEntry("bob").into_receiver())
                     .map(Value::Handle),
@@ -621,6 +626,23 @@ mod tests {
             Answer::Break,
             "the guest must still be answered with a break when the receiver discards \
              YieldError::Break"
+        );
+    }
+
+    // The script holding nothing afterwards shows the second yield reached
+    // the guest rather than being answered on the Yielder's own.
+    // @behavior T-295
+    #[test]
+    fn a_yield_after_a_break_runs_the_block_and_the_break_goes_on() {
+        let req = block_request("yield_after_break", vec![]);
+        let mut yielder =
+            ScriptedYielder::new(vec![YieldReply::Break, arm(YieldReply::Ok, Value::Int(7))]);
+        let answer = roundtrip_with(&req, &mut yielder);
+        assert_eq!(
+            (answer, yielder.0.len()),
+            (Answer::Break, 0),
+            "a receiver yielding again after a break through call_values must run the block, \
+             and the Call must still answer the first break"
         );
     }
 

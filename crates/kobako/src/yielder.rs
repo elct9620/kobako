@@ -25,8 +25,8 @@ use crate::receiver::{Fault, FaultKind};
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum YieldError {
-    /// The guest block left with `break` or `return`: the receiver must
-    /// stop; the dispatch answers the guest with a break, which continues
+    /// The guest block left with `break` or `return`: the receiver unwinds,
+    /// and the dispatch answers the guest with a break, which continues
     /// that exit, no matter what the receiver returns after this.
     Break,
     /// The block body raised, or its value could not ride the wire.
@@ -126,12 +126,10 @@ impl<'y> Yielder<'y> {
     /// automatic restore at the yield site.
     ///
     /// A `break` or `return` leaving the block ends the receiver call:
-    /// this returns `YieldError::Break` now and on every later call,
-    /// without re-entering the guest.
+    /// this returns `YieldError::Break`, and the Call answers the exit
+    /// whatever the receiver returns. A later call still runs the block,
+    /// as a yield from a Ruby `ensure` does.
     pub fn call_payload(&mut self, args: &[u8]) -> Result<Vec<u8>, YieldError> {
-        if self.broken {
-            return Err(YieldError::Break);
-        }
         let frame = self.raw.frame();
         let reply = self
             .raw
@@ -238,18 +236,14 @@ mod tests {
 
     // @behavior T-089
     #[test]
-    fn break_is_recorded_and_stops_re_entering_the_guest() {
+    fn break_is_recorded_for_the_dispatch_frame() {
         let mut raw = ScriptedYielder::new(vec![Ok(YieldReply::Break)]);
         let mut block = Yielder::new(&mut raw);
 
         assert_eq!(block.call_payload(&[]), Err(YieldError::Break));
-        assert_eq!(block.call_payload(&[]), Err(YieldError::Break));
-        let broken = block.broken();
-        assert_eq!(
-            (broken, raw.sent.len()),
-            (true, 1),
-            "a block exit must be recorded for the dispatch frame, and a broken Yielder \
-             must not re-enter the guest again"
+        assert!(
+            block.broken(),
+            "a block exit must be recorded for the dispatch frame to answer with a break"
         );
     }
 
