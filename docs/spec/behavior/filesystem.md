@@ -1069,3 +1069,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Directory over a Linux host reusing inode numbers, holding a directory |
 | When | the directory is removed and another made at its path |
 | Then | the new directory takes another inode number |
+
+## `FS-087` A Memory tried with a path through `..` answers why
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-067` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a list naming a path through `..` |
+| When | a Memory is tried with it |
+| Then | the trial answers the error naming that path |

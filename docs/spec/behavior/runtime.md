@@ -1246,3 +1246,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a directory it opened, on a Filesystem reusing inode numbers |
 | When | the directory is removed and another made at its path |
 | Then | each call through the descriptor answers ENOENT |
+
+## `RT-122` A path holding a NUL is invalid
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-086` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding `file.txt` |
+| When | the guest opens `file.txt` followed by a NUL beneath it |
+| Then | the open answers EINVAL |
