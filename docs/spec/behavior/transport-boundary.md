@@ -36,6 +36,7 @@ The methods a Host App cannot foresee handing over are the ones it never wrote. 
 - `test/unit/transport/test_dispatcher_gadget_return.rb`
 - `test/unit/transport/test_dispatcher_permissive_return.rb`
 - `test/unit/transport/test_dispatcher_narrowing.rb`
+- `test/unit/transport/test_dispatcher_authorship.rb`
 - `test/unit/transport/test_dispatcher_callables.rb`
 - `test/unit/transport/test_dispatcher_singletons.rb`
 - `test/unit/transport/test_exposure.rb`
@@ -718,3 +719,15 @@ The methods a Host App cannot foresee handing over are the ones it never wrote. 
 | Given | a bound Service that answers any name it is asked |
 | When | guest code calls it by names the Service does not define |
 | Then | the host keeps none of those names once the calls end |
+
+## `T-297` Narrowing reaches no method built into Ruby
+
+| Attribute | Value |
+| --- | --- |
+| refines | `T-127` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object whose narrowing predicate permits a name resolving to a method built into Ruby |
+| When | the guest calls that name |
+| Then | it is still refused |
