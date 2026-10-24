@@ -49,6 +49,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-wasmtime/src/abi.rs`
 - `crates/kobako-wasmtime/src/wasi.rs`
 - `crates/kobako-wasmtime/src/preview1/poll.rs`
+- `crates/kobako-wasmtime/src/preview1/fd.rs`
 - `crates/kobako-wasmtime/src/preview1/mount_view.rs`
 - `crates/kobako-wasmtime/src/preview1/memory.rs`
 - `crates/kobako-wasmtime/tests/compile_posture.rs`
@@ -1146,3 +1147,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | two writers in one process storing the same compiled artifact |
 | When | each takes a temporary file to write into |
 | Then | each holds a file of its own |
+
+## `RT-114` Moving a descriptor onto an open file closes that file first
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-010` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding two open files, the second on a Filesystem that refuses to close it |
+| When | the guest renumbers the first onto the second |
+| Then | the call answers that refusal and the second descriptor is closed |
