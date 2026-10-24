@@ -180,7 +180,7 @@ fn load_artifact(engine: &WtEngine, artifact: &Path) -> Option<WtModule> {
 /// rebuilds.
 #[cfg(unix)]
 fn store_artifact(module: &WtModule, artifact: &Path) {
-    use rustix::fs::{openat, renameat, Mode, OFlags};
+    use rustix::fs::renameat;
     use std::io::Write as _;
     let (Some(dir), Some(name)) = (artifact.parent(), artifact.file_name()) else {
         return;
@@ -194,18 +194,30 @@ fn store_artifact(module: &WtModule, artifact: &Path) {
     let Some(dir) = open_private_dir(dir) else {
         return;
     };
-    let tmp = Path::new(name).with_extension(format!("tmp{}", std::process::id()));
-    let flags =
-        OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    let Ok(fd) = openat(&dir, &tmp, flags, Mode::RUSR | Mode::WUSR) else {
+    let Some((tmp, mut file)) = create_temp(&dir, name) else {
         return;
     };
-    if fs::File::from(fd).write_all(&bytes).is_err() {
+    if file.write_all(&bytes).is_err() {
         return;
     }
     if renameat(&dir, &tmp, &dir, name).is_ok() {
         prune_stale(&dir, name);
     }
+}
+
+/// A temp file no other writer shares: two threads of one process storing
+/// the same artifact at once would otherwise write into one file, and a
+/// reader could load the interleaved bytes the unsafe deserialize trusts.
+#[cfg(unix)]
+fn create_temp(dir: &rustix::fd::OwnedFd, name: &std::ffi::OsStr) -> Option<(PathBuf, fs::File)> {
+    use rustix::fs::{openat, Mode, OFlags};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+    let serial = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+    let tmp = Path::new(name).with_extension(format!("tmp{}.{serial}", std::process::id()));
+    let flags = OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let fd = openat(dir, &tmp, flags, Mode::RUSR | Mode::WUSR).ok()?;
+    Some((tmp, fs::File::from(fd)))
 }
 
 /// The disk cache trusts its directory's owner, which only Unix reports,
@@ -307,6 +319,29 @@ mod tests {
             entry_name(&engine_with("49.0.3")),
             entry_name(&engine_with("49.0.4")),
             "a Guest Binary cached by one engine release must not be the entry another release reads"
+        );
+    }
+
+    // Two writers in one process take temp files in turn; each must get a
+    // file of its own rather than reopen the other's.
+    // @behavior RT-113
+    #[cfg(unix)]
+    #[test]
+    fn two_writers_of_one_artifact_never_share_a_temp_file() {
+        let root = std::env::temp_dir().join(format!("kobako-temp-{}", std::process::id()));
+        create_cache_dir(&root).expect("a scratch directory");
+        let dir = open_private_dir(&root).expect("a private directory");
+        let name = std::ffi::OsStr::new("entry.cwasm");
+        let first = create_temp(&dir, name).map(|(path, _)| path);
+        let second = create_temp(&dir, name).map(|(path, _)| path);
+        fs::remove_dir_all(&root).expect("the scratch directory removed");
+        let (first, second) = (
+            first.expect("a temp file"),
+            second.expect("a second temp file"),
+        );
+        assert_ne!(
+            first, second,
+            "two stores of one artifact in one process must each write a temp file of their own"
         );
     }
 
