@@ -108,7 +108,7 @@ fn seekable(table: &mut Descriptors, fd: u32) -> Answer<&mut OpenFile> {
 
 /// An offset or size `pread`, `pwrite`, or `ftruncate` names, which Linux
 /// reads as a signed `off_t` and refuses once negative.
-fn signed(offset: u64) -> Answer<u64> {
+fn refuse_negative(offset: u64) -> Answer<u64> {
     if offset > i64::MAX as u64 {
         return Err(Errno::Inval.into());
     }
@@ -258,7 +258,7 @@ pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> 
     if !file.writable {
         return Err(Errno::Badf.into());
     }
-    Ok(file.file.set_len(signed(size)?)?)
+    Ok(file.file.set_len(refuse_negative(size)?)?)
 }
 
 /// A Filesystem keeps no timestamps of the guest's choosing, so setting
@@ -288,7 +288,7 @@ pub(crate) fn pread(
     }
     let read = file
         .file
-        .read_at(mem.bytes_mut(ptr, len)?, signed(offset)?)?;
+        .read_at(mem.bytes_mut(ptr, len)?, refuse_negative(offset)?)?;
     mem.write_u32(nread, read as u32)
 }
 
@@ -339,7 +339,7 @@ pub(crate) fn pwrite(
     if !file.writable {
         return Err(Errno::Badf.into());
     }
-    let offset = signed(offset)?;
+    let offset = refuse_negative(offset)?;
     // Linux's `pwrite` ignores the offset of a file opened to append.
     let buf = mem.bytes(ptr, len)?;
     let written = if file.append {
