@@ -239,11 +239,11 @@ Any object answering `open` and `stat` mounts as a Filesystem, directly or as a 
 | Method | Answers |
 |---|---|
 | `open(path, flags)` | a file answering `pread` and `size`; `pwrite`, `truncate`, `fsync`, and `close` are optional |
-| `stat(path)` | an object answering `directory?`, `size`, and `ino`, as `File::Stat` does; `dev` is optional, the Filesystem standing for one device |
+| `stat(path)` | an object answering `directory?`, `size`, and `ino`, as `File::Stat` does |
 | `children(path)` | entry names, as `Dir.children` gives them |
 | `mkdir` · `rmdir` · `unlink` · `rename(from, to, directory:)` | optional; without one, that change raises `Errno::EROFS` |
 
-A path is relative to the mount, the empty path being its root, and `flags` are `File::Constants`. A `rename` told `directory: false` moves only a file and `true` only a directory; `nil` moves either. A `pread` at the end answers `nil` or raises `EOFError`, as `IO#pread` does. An `Errno` the guest has a class for reaches the script as itself, and any other `StandardError` as `Errno::EIO`. Every call re-enters Ruby, and its time counts toward `timeout:` without being interrupted.
+A `stat` may also answer `dev`; without one, the Filesystem stands for a single device. A path is relative to the mount, the empty path being its root, and `flags` are `File::Constants`. A `rename` told `directory: false` moves only a file and `true` only a directory; `nil` moves either. A `pread` at the end answers `nil` or raises `EOFError`, as `IO#pread` does. An `Errno` the guest has a class for reaches the script as itself, and any other `StandardError` as `Errno::EIO`. Every call re-enters Ruby, and its time counts toward `timeout:` without being interrupted.
 
 ### Output Capture
 
