@@ -72,6 +72,8 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 930) "dir")
   (data (i32.const 940) "missing/.")
   (data (i32.const 960) "inner")
+  (data (i32.const 970) "file.txt/.")
+  (data (i32.const 990) "file.txt/../file.txt")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
   (data (i32.const 600) "hello")
@@ -222,6 +224,8 @@ const BENEATH_FILE: (i32, i32) = (900, 10);
 const MOVED: (i32, i32) = (920, 5);
 const DIR: (i32, i32) = (930, 3);
 const MISSING_DOT: (i32, i32) = (940, 9);
+const LINK_DOT: (i32, i32) = (970, 10);
+const OUT_OF_LINK: (i32, i32) = (990, 20);
 const ERRNO_OVERFLOW: i32 = 61;
 const ERRNO_EXIST: i32 = 20;
 const OFLAGS_EXCL: i32 = 1 << 2;
@@ -1041,6 +1045,27 @@ fn a_path_through_a_link_beneath_a_mount_with_a_policy_answers_eloop() {
         "path_open and path_unlink_file through a host link, or path_open following one at the \
          end, beneath a Mount with a Policy through preview1 must answer ELOOP and change \
          nothing, while a Mount without a Policy follows the link"
+    );
+}
+
+// The Mount has no Policy and follows links, so only the step out of
+// the link can refuse these.
+// @behavior RT-119
+#[cfg(unix)]
+#[test]
+fn a_step_out_of_a_link_answers_eloop() {
+    assert_eq!(
+        stat_link(
+            "dot-link",
+            directory_with_key,
+            &[(LINK_DOT, 1), (OUT_OF_LINK, 0)]
+        )
+        .into_iter()
+        .map(|(errno, _)| errno)
+        .collect::<Vec<_>>(),
+        [ERRNO_LOOP; 2],
+        "path_filestat_get of `file.txt/.` and `file.txt/../file.txt`, where `file.txt` is a \
+         host link to a directory, beneath a Directory Mount through preview1 must answer ELOOP"
     );
 }
 

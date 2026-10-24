@@ -104,6 +104,9 @@ const PATHS: &[&str] = &[
     "../a",
     "d/../../a",
     "/a",
+    "n/..",
+    "n/../f",
+    "n/.",
 ];
 
 /// Paths at Linux's limits: a name of `NAME_MAX` bytes and one past it,
@@ -198,8 +201,9 @@ const CALLS: &[Call] = &[
     Call::RenameTo,
 ];
 
-/// A host directory of the probe's own, holding `a`, `d/f`, and a link
-/// `l` to `a`, removed when it drops.
+/// A host directory of the probe's own, holding `a`, `d/f`, `d/e/`, a
+/// link `l` to `a`, and a link `n` to `d/e`, whose parent is not the
+/// root, removed when it drops.
 struct HostDir(PathBuf);
 
 impl HostDir {
@@ -210,11 +214,14 @@ impl HostDir {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
-        fs::create_dir_all(path.join("d")).expect("the host directory must be created");
+        fs::create_dir_all(path.join("d/e")).expect("the host directory must be created");
         fs::write(path.join("a"), "hello").expect("the host file must be written");
         fs::write(path.join("d/f"), "inner").expect("the host file must be written");
         #[cfg(unix)]
-        std::os::unix::fs::symlink("a", path.join("l")).expect("the host link must be made");
+        for (target, link) in [("a", "l"), ("d/e", "n")] {
+            std::os::unix::fs::symlink(target, path.join(link))
+                .expect("the host link must be made");
+        }
         Self(path)
     }
 
@@ -382,12 +389,28 @@ fn wasmtime_wasi_preopen(host: &HostDir) -> (Store<WasiP1Ctx>, Linker<WasiP1Ctx>
     (store, linker)
 }
 
+const ERRNO_BUSY: i32 = 10;
+const ERRNO_INVAL: i32 = 28;
+const ERRNO_LOOP: i32 = 32;
 const ERRNO_NAMETOOLONG: i32 = 37;
 const ERRNO_NOTDIR: i32 = 54;
+const ERRNO_NOTSUP: i32 = 58;
 const ERRNO_PERM: i32 = 63;
 const ERRNO_NOTCAPABLE: i32 = 76;
 
 /// Whether `path` reaches above the root it is resolved beneath.
+/// Whether `path` takes a `..`, or ends in a `.`, right after one of the
+/// host directory's links.
+fn steps_out_of_a_link(path: &str) -> bool {
+    let mut components = path.split('/');
+    matches!(components.next(), Some("l" | "n"))
+        && match components.next() {
+            Some("..") => true,
+            Some(".") => components.next().is_none(),
+            _ => false,
+        }
+}
+
 fn escapes(path: &str) -> bool {
     let mut depth = 0usize;
     path.starts_with('/')
@@ -415,8 +438,19 @@ fn escapes(path: &str) -> bool {
 /// at a time and never hands Linux the whole of it. A stat following no
 /// link of a file named with a trailing `/` is `NOTDIR` as Linux answers
 /// it, where cap-std's shortcut for one name drops the `/` and finds the
-/// file.
+/// file. A `..` or a final `.` after a link is `LOOP` and changes
+/// nothing, where cap-std steps out of where the link points; a call
+/// refused before its path resolves answers alike.
 fn expected(call: Call, path: &str, mut oracle: Observation) -> Observation {
+    let refused_first = matches!(oracle.errno, Some(ERRNO_BUSY | ERRNO_INVAL | ERRNO_NOTSUP));
+    if steps_out_of_a_link(path) && !refused_first {
+        return Observation {
+            errno: Some(ERRNO_LOOP),
+            opened: [0; 4],
+            filetype: 0,
+            tree: HostDir::new().tree(),
+        };
+    }
     if escapes(path) && oracle.errno == Some(ERRNO_PERM) {
         oracle.errno = Some(ERRNO_NOTCAPABLE);
     }

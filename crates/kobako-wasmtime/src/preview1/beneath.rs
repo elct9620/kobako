@@ -5,7 +5,8 @@
 //! the Mount is asked what the guest may do there before the Filesystem
 //! is, so a Filesystem of a third party's need check neither.
 //! A `..` steps out of what the Filesystem holds rather than out of the
-//! path's text, as a host resolves it, so `missing/..` names nothing.
+//! path's text, as a host resolves it, so `missing/..` names nothing and
+//! a `..` out of a link is refused rather than taken from its text.
 
 use kobako_runtime::filesystem::{FileType, Filesystem, FilesystemError};
 
@@ -44,8 +45,8 @@ impl ResolvedPath {
 
 /// `path`, beneath `dir`. An empty path names nothing; an absolute path or
 /// a `..` above `dir` itself is not the guest's to reach; a `..` or a final `.`
-/// after a component that is missing or no directory is `NOENT` or
-/// `NOTDIR`. A
+/// after a component that is missing, no directory, or a link is `NOENT`,
+/// `NOTDIR`, or `LOOP`. A
 /// name past `NAME_MAX`, or a resolved path the Filesystem could not be
 /// handed within `PATH_MAX`, is `NAMETOOLONG`.
 pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
@@ -105,9 +106,13 @@ pub(crate) fn confirm(dir: &OpenDirectory) -> Answer {
 }
 
 /// A `..` leaves `path` only when it is a directory the Filesystem holds.
+/// A host leaves a link by the parent of where it points, which no guest
+/// is told, so a link there is refused as `LOOP`, as `openat2(2)`
+/// refuses a link it may not follow.
 fn step_out_of(filesystem: &dyn Filesystem, path: &str) -> Answer {
-    match filesystem.metadata(path) {
+    match filesystem.symlink_metadata(path) {
         Ok(metadata) if metadata.file_type == FileType::Directory => Ok(()),
+        Ok(metadata) if metadata.file_type == FileType::Symlink => Err(Errno::Loop.into()),
         Ok(_) => Err(Errno::Notdir.into()),
         Err(err) => Err(err.into()),
     }

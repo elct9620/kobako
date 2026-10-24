@@ -318,6 +318,7 @@ Some risks stay with the host, because kobako cannot see them.
 | a FIFO or device file placed in a Directory | an open of it may block |
 | a link in a Directory without a block | the guest reaches its target, never beyond the Directory, and never reads where it points |
 | a link loop in a Directory without a block | the guest sees `Errno::EIO`, not `Errno::ELOOP` |
+| a `..` right after a link in a Directory | `Errno::ELOOP`, as the guest never learns where it points |
 | a directory the guest lists in steps | its entries held in host memory until the listing ends, once per descriptor |
 | a link below an Overlay's writable Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
 | a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
