@@ -492,7 +492,7 @@ impl Stack {
     pub(super) fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         refuse_reserved(path)?;
         let (index, metadata) = self.locate(path)?.ok_or(FilesystemError::NotFound)?;
-        self.merged(path, index, metadata)
+        self.merge_identity(path, index, metadata)
     }
 
     /// What the Layer showing `path` holds there, a link it holds
@@ -502,7 +502,7 @@ impl Stack {
         let (index, metadata) = self
             .locate_by(path, <dyn Filesystem>::symlink_metadata)?
             .ok_or(FilesystemError::NotFound)?;
-        self.merged(path, index, metadata)
+        self.merge_identity(path, index, metadata)
     }
 
     /// `path` spelled as the topmost Layer showing it stores it; a name
@@ -525,7 +525,7 @@ impl Stack {
     /// view reports it: a directory takes the identity of the lowest Layer
     /// still showing it, so copying it up into a writable Layer leaves the
     /// identity as it was.
-    fn merged(
+    fn merge_identity(
         &self,
         path: &str,
         index: usize,
