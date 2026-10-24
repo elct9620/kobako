@@ -15,6 +15,7 @@ mod overlay;
 mod path;
 mod temporary;
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 pub use directory::Directory;
@@ -199,6 +200,14 @@ impl Metadata {
     /// This metadata naming `dev` and `ino` as what the path holds.
     pub fn with_identity(self, dev: u64, ino: u64) -> Self {
         Self { dev, ino, ..self }
+    }
+
+    /// A device number for a Filesystem with none of its own, as each
+    /// tmpfs mount takes one: no earlier call returned it, and its top bit,
+    /// which no host's `st_dev` sets, keeps it apart from a host's.
+    pub fn unique_device() -> u64 {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        (1 << 63) | NEXT.fetch_add(1, Ordering::Relaxed)
     }
 }
 

@@ -18,15 +18,12 @@ pub struct Memory {
     space: Arc<Space>,
     inodes_follow_limit: bool,
     /// The device number this Memory reports, its own as each tmpfs mount
-    /// has its own, so two Memories never share an identity.
+    /// has its own, so it shares an identity with no other Filesystem.
     dev: u64,
     /// The inode number the next directory takes, so each one made has an
     /// identity no other directory of this Memory had.
     next_ino: AtomicU64,
 }
-
-/// The device number the next Memory takes.
-static NEXT_DEV: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone)]
 enum Node {
@@ -170,7 +167,7 @@ impl Memory {
             nodes: Mutex::new(BTreeMap::from([(String::new(), Node::Directory(1))])),
             space: Arc::new(space),
             inodes_follow_limit: true,
-            dev: NEXT_DEV.fetch_add(1, Ordering::Relaxed),
+            dev: Metadata::unique_device(),
             next_ino: AtomicU64::new(2),
         }
     }
@@ -895,6 +892,23 @@ mod tests {
             (Err(FilesystemError::StorageFull), Ok(())),
             "the inode of a file removed through Memory::remove_file must stay taken while a \
              handle holds it, and be free once it closes"
+        );
+    }
+
+    // A host's `st_dev` never sets the top bit, so a device carrying it
+    // cannot name a host's device, nor one another Filesystem took.
+    // @behavior FS-085
+    #[test]
+    fn a_device_of_its_own_stands_apart_from_every_other_device() {
+        let (first, second) = (Metadata::unique_device(), Metadata::unique_device());
+        let memory = Memory::new().metadata("").expect("the root must stand").dev;
+        assert!(
+            [first, second, memory].iter().all(|dev| dev >> 63 == 1)
+                && first != second
+                && memory != first
+                && memory != second,
+            "devices from Metadata::unique_device and a Memory's root must each set the top bit \
+             and differ from one another"
         );
     }
 

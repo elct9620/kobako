@@ -23,6 +23,8 @@ use crate::runtime::{escape, gvl};
 /// Mounts, or the Overlay marking its Layers.
 pub(crate) struct RubyFilesystem {
     object: Opaque<Value>,
+    /// The device a stat without a `dev` names, the object's own.
+    dev: u64,
 }
 
 impl RubyFilesystem {
@@ -31,6 +33,7 @@ impl RubyFilesystem {
         let answers = |name| value.respond_to(name, false).unwrap_or(false);
         (answers("open") && answers("stat")).then(|| Self {
             object: Opaque::from(value),
+            dev: Metadata::unique_device(),
         })
     }
 }
@@ -137,6 +140,7 @@ impl Filesystem for RubyFilesystem {
     }
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        let own_dev = self.dev;
         ask(
             self.object,
             "stat",
@@ -149,12 +153,12 @@ impl Filesystem for RubyFilesystem {
                     Metadata::new(FileType::File, stat.funcall("size", ())?)
                 };
                 // A stat names its identity as `File::Stat` does; without a
-                // `dev` the Filesystem object stands for its one device, so
-                // two Layers of one Overlay never share an identity.
+                // `dev` the Filesystem stands for a device of its own, so it
+                // shares an identity with no other Filesystem.
                 let dev = if stat.respond_to("dev", false)? {
                     stat.funcall("dev", ())?
                 } else {
-                    fs.funcall("object_id", ())?
+                    own_dev
                 };
                 Ok(metadata.with_identity(dev, stat.funcall("ino", ())?))
             },
