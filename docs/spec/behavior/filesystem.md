@@ -31,6 +31,7 @@ change   a file in a writable layer changes in place
 create   lands in the topmost writable layer
 remove   leaves every writable layer it empties; a whiteout hides what any layer keeps
 nothing writable  every change is refused as read-only
+covered           a change a read-only layer above would hide is refused as read-only
 
 whiteout          .wh.<name>      beside the hidden entry
 opaque directory  .wh..wh..opq    inside a directory made again where one was removed
@@ -937,3 +938,29 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay whose full writable Layer holds a directory, over an empty lower one |
 | When | the first directory is renamed onto the second |
 | Then | the rename is refused as out of space, and nothing moves |
+
+## `FS-076` An Overlay refuses a rename a read-only Layer above would cover
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-015` |
+| relates | `FS-010` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose writable Layer sits beneath a read-only Layer holding `to` |
+| When | a lower file is renamed onto `to` |
+| Then | the rename is refused as read-only, and both names read as before |
+
+## `FS-077` An Overlay makes nothing a read-only Layer above would hide
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-015` |
+| relates | `FS-076` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose writable Layer sits beneath a read-only Layer holding whiteouts |
+| When | a file and a directory are made under the whited-out names |
+| Then | both are refused as read-only, and the writable Layer holds neither |
