@@ -17,19 +17,15 @@ const FIXTURE: &str = concat!(
 // @behavior RT-072
 #[test]
 fn a_compile_reads_no_host_time_or_entropy_under_a_permissive_request() {
-    let driver = Driver::new(
-        Path::new(FIXTURE),
-        Config {
-            timeout: None,
-            setup_timeout: None,
-            memory_limit: None,
-            stdout_limit: None,
-            stderr_limit: None,
-            open_file_limit: None,
-            profile: Profile::Permissive,
-        },
-    )
-    .expect("the fixture guest must load");
+    let mut config = Config::default();
+    config.timeout = None;
+    config.setup_timeout = None;
+    config.memory_limit = None;
+    config.stdout_limit = None;
+    config.stderr_limit = None;
+    config.open_file_limit = None;
+    config.profile = Profile::Permissive;
+    let driver = Driver::new(Path::new(FIXTURE), config).expect("the fixture guest must load");
     let mut preamble = Preamble::default();
     preamble.snippets = Snippets {
         entries: vec![Snippet::Source {

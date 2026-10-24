@@ -18,19 +18,13 @@ pub fn bundled_driver() -> Option<Driver> {
         );
         return None;
     }
-    Some(
-        Driver::new(
-            Path::new(WASM),
-            Config {
-                timeout: Some(Duration::from_secs(10)),
-                setup_timeout: Some(Duration::from_secs(10)),
-                memory_limit: None,
-                stdout_limit: None,
-                stderr_limit: None,
-                open_file_limit: None,
-                profile: Profile::Hermetic,
-            },
-        )
-        .expect("the Guest Binary must load"),
-    )
+    let mut config = Config::default();
+    config.timeout = Some(Duration::from_secs(10));
+    config.setup_timeout = Some(Duration::from_secs(10));
+    config.memory_limit = None;
+    config.stdout_limit = None;
+    config.stderr_limit = None;
+    config.open_file_limit = None;
+    config.profile = Profile::Hermetic;
+    Some(Driver::new(Path::new(WASM), config).expect("the Guest Binary must load"))
 }

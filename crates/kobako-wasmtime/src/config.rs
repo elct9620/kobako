@@ -17,6 +17,7 @@ use kobako_runtime::profile::Profile;
 
 /// The caps and requested isolation profile for one `Driver`. `None` on
 /// any cap field disables that cap.
+#[non_exhaustive]
 pub struct Config {
     /// Wall-clock cap for one guest `#eval` / `#run`; the invocation traps
     /// once it passes.
@@ -40,4 +41,54 @@ pub struct Config {
     /// sources, and `Driver::profile` declares it back as the built
     /// posture.
     pub profile: Profile,
+}
+
+impl Default for Config {
+    /// The caps every frontend defaults to: a 60-second deadline, 10
+    /// seconds to set the Guest Binary up, 4 MiB for memory, 1 MiB for
+    /// each output channel, 1024 open files, and the hermetic floor.
+    fn default() -> Self {
+        Config {
+            timeout: Some(Duration::from_secs(60)),
+            setup_timeout: Some(Duration::from_secs(10)),
+            memory_limit: Some(4 << 20),
+            stdout_limit: Some(1 << 20),
+            stderr_limit: Some(1 << 20),
+            open_file_limit: Some(1024),
+            profile: Profile::Hermetic,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Literal values, so a drift from the defaults the SDK's Options and
+    // the Ruby frontend apply fails here.
+    #[test]
+    fn a_default_config_carries_every_frontends_default_caps() {
+        let config = Config::default();
+        assert_eq!(
+            (
+                config.timeout,
+                config.setup_timeout,
+                config.memory_limit,
+                config.stdout_limit,
+                config.stderr_limit,
+                config.open_file_limit,
+                config.profile
+            ),
+            (
+                Some(Duration::from_secs(60)),
+                Some(Duration::from_secs(10)),
+                Some(4 * 1024 * 1024),
+                Some(1024 * 1024),
+                Some(1024 * 1024),
+                Some(1024),
+                Profile::Hermetic
+            ),
+            "Config::default must carry the caps every frontend defaults to"
+        );
+    }
 }

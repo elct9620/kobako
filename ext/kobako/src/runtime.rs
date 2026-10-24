@@ -243,19 +243,16 @@ impl Runtime {
             }
         };
 
-        let driver = Driver::new(
-            Path::new(&path),
-            Config {
-                timeout,
-                setup_timeout,
-                memory_limit,
-                stdout_limit,
-                stderr_limit,
-                open_file_limit,
-                profile,
-            },
-        )
-        .map_err(|e| errors::setup_to_magnus(&ruby, e))?;
+        let mut config = Config::default();
+        config.timeout = timeout;
+        config.setup_timeout = setup_timeout;
+        config.memory_limit = memory_limit;
+        config.stdout_limit = stdout_limit;
+        config.stderr_limit = stderr_limit;
+        config.open_file_limit = open_file_limit;
+        config.profile = profile;
+        let driver =
+            Driver::new(Path::new(&path), config).map_err(|e| errors::setup_to_magnus(&ruby, e))?;
         Ok(Self {
             driver,
             release_gvl,
