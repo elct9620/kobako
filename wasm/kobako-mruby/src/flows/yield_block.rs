@@ -47,7 +47,7 @@ pub(crate) fn yield_to_block<G: crate::MrbGuest>(frame: u32, req: &[u8]) -> Yiel
     // last one raised, which is what rescuing it means. Cleared before the
     // arguments are read so a refusal there — which holds no exception of
     // its own — cannot be answered with the spent one.
-    crate::runtime::block_exit::RAISED_BLOCK.clear(mrb);
+    crate::runtime::block_exit::BLOCK_RAISE.clear(mrb);
     let Some(block) = BLOCK_STACK.get(frame) else {
         return error_reply("LocalJumpError", "no block given (yield)", Vec::new());
     };
@@ -92,7 +92,7 @@ fn exit_reply(kobako: &crate::runtime::Kobako, exc: beni::Value) -> YieldReply {
     if exc.as_break().is_none() {
         return exception_reply(kobako, exc);
     }
-    crate::runtime::block_exit::BROKEN_BLOCK.set(kobako.mrb(), exc);
+    crate::runtime::block_exit::BLOCK_EXIT.set(kobako.mrb(), exc);
     YieldReply::Break
 }
 
@@ -118,7 +118,7 @@ fn exception_reply(kobako: &crate::runtime::Kobako, exc: beni::Value) -> YieldRe
     // Held for the rest of the round-trip: the Service may rescue this,
     // and if it does not, its dispatch re-raises this very object rather
     // than a class and message rebuilt from the wire.
-    crate::runtime::block_exit::RAISED_BLOCK.set(kobako.mrb(), exc);
+    crate::runtime::block_exit::BLOCK_RAISE.set(kobako.mrb(), exc);
     error_reply(&class, &message, backtrace)
 }
 

@@ -27,7 +27,7 @@ pub(crate) struct RubyFilesystem {
 
 impl RubyFilesystem {
     /// The object as a Filesystem, when it answers `open` and `stat`.
-    pub(crate) fn of(value: Value) -> Option<Self> {
+    pub(crate) fn from_value(value: Value) -> Option<Self> {
         let answers = |name| value.respond_to(name, false).unwrap_or(false);
         (answers("open") && answers("stat")).then(|| Self {
             object: Opaque::from(value),

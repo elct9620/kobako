@@ -20,7 +20,7 @@ mod sock;
 #[cfg(test)]
 mod differential;
 #[cfg(test)]
-mod granted;
+mod mount_view;
 
 use wasmtime::{Caller, Extern, Linker};
 

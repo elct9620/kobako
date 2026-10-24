@@ -78,8 +78,8 @@ unsafe impl Sync for HeldExit {}
 
 /// The exception the most recent guest block raised, if it is still
 /// waiting for the answer that says whether the Service rescued it.
-pub(crate) static RAISED_BLOCK: HeldExit = HeldExit::new();
+pub(crate) static BLOCK_RAISE: HeldExit = HeldExit::new();
 
 /// The `break` or `return` the most recent guest block left with, waiting
 /// for the Service it unwinds to answer.
-pub(crate) static BROKEN_BLOCK: HeldExit = HeldExit::new();
+pub(crate) static BLOCK_EXIT: HeldExit = HeldExit::new();

@@ -30,16 +30,16 @@ module Kobako
       UINT = { 1 => "C", 2 => "n", 4 => "N" }.freeze
       private_constant :SCALARS, :COUNTS, :LENGTHS, :UINT
 
-      def self.assert_within!(bytes, limit)
-        return if limit.nil? || bytes.bytesize <= limit
+      def self.assert_within!(bytes, budget)
+        return if budget.nil? || bytes.bytesize <= budget
 
-        remaining = limit
+        remaining = budget
         pending = 1
         pos = 0
         while pending.positive?
           pos, children = step(bytes, pos)
           return if pos.nil?
-          raise InvalidTypeError, "payload holds more than #{limit} values" if (remaining -= 1).negative?
+          raise InvalidTypeError, "payload holds more than #{budget} values" if (remaining -= 1).negative?
 
           pending += children - 1
         end

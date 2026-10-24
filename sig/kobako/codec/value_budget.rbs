@@ -9,7 +9,7 @@ module Kobako
 
       UINT: Hash[Integer, String]
 
-      def self.assert_within!: (String bytes, Integer? limit) -> void
+      def self.assert_within!: (String bytes, Integer? budget) -> void
 
       private
 

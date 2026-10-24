@@ -540,13 +540,13 @@ a directory.
 pub enum Rename {}
 ```
 
-## `Rename::allows`
+## `Rename::check`
 
-Whether an entry of the given kind may move, or the refusal of it.
+Refuse moving an entry of a kind the rename may not move.
 
 ```rust
 impl Rename {
-    pub fn allows(self, kind: Kind) -> Result<(), FilesystemError> {}
+    pub fn check(self, kind: Kind) -> Result<(), FilesystemError> {}
 }
 ```
 

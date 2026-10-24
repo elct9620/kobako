@@ -164,7 +164,7 @@ fn put_marker(filesystem: &dyn Filesystem, path: &str) -> Result<(), FilesystemE
 
 /// Refuse a path naming an entry reserved for the Overlay's markers, in
 /// any case, since a Layer that folds case would hold `.WH.name` as one.
-fn reserved(path: &str) -> Result<(), FilesystemError> {
+fn refuse_reserved(path: &str) -> Result<(), FilesystemError> {
     let marker = |name: &str| {
         name.get(..WHITEOUT.len())
             .is_some_and(|start| start.eq_ignore_ascii_case(WHITEOUT))
@@ -396,7 +396,7 @@ impl Stack {
         path: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        reserved(path)?;
+        refuse_reserved(path)?;
         let changes = options.write || options.truncate;
         match self.locate(path)? {
             Some((
@@ -450,7 +450,7 @@ impl Stack {
     }
 
     pub(super) fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        reserved(path)?;
+        refuse_reserved(path)?;
         self.locate(path)?
             .map(|(_, metadata)| metadata)
             .ok_or(FilesystemError::NotFound)
@@ -459,7 +459,7 @@ impl Stack {
     /// What the Layer showing `path` holds there, a link it holds
     /// reported as one even where it points at nothing.
     pub(super) fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        reserved(path)?;
+        refuse_reserved(path)?;
         self.locate_by(path, <dyn Filesystem>::symlink_metadata)?
             .map(|(_, metadata)| metadata)
             .ok_or(FilesystemError::NotFound)
@@ -509,7 +509,7 @@ impl Stack {
     /// A directory made where a whiteout hid one is marked opaque before
     /// the whiteout goes, so the lower Layers' entries never show in it.
     pub(super) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        reserved(path)?;
+        refuse_reserved(path)?;
         if self
             .locate_by(path, <dyn Filesystem>::symlink_metadata)?
             .is_some()
@@ -566,12 +566,12 @@ impl Stack {
         to: &str,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
-        reserved(to)?;
+        refuse_reserved(to)?;
         let moving = self.symlink_metadata(from)?;
         if from == to {
             return Ok(());
         }
-        rename.allows(moving.kind)?;
+        rename.check(moving.kind)?;
         if is_beneath(to, from) {
             return Err(beneath_itself(moving.kind));
         }

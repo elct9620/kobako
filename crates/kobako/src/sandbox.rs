@@ -420,7 +420,7 @@ fn open_catalog(registry: &mut Mutex<Registry>) -> Result<&mut Catalog, Error> {
 /// held to the budget; only the bundled schema can count values.
 #[cfg(feature = "msgpack")]
 fn within_value_budget<T>(budget: Option<usize>, run: impl FnOnce() -> T) -> T {
-    crate::msgpack::budget::scope(budget, run)
+    crate::msgpack::budget::within(budget, run)
 }
 
 #[cfg(not(feature = "msgpack"))]

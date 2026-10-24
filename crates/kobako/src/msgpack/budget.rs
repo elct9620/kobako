@@ -16,7 +16,7 @@ thread_local! {
 
 /// Run `run` with every guest payload decoded on this thread held to
 /// `budget` values, putting the outer budget back however `run` returns.
-pub(crate) fn scope<T>(budget: Option<usize>, run: impl FnOnce() -> T) -> T {
+pub(crate) fn within<T>(budget: Option<usize>, run: impl FnOnce() -> T) -> T {
     struct Restore(Option<usize>);
     impl Drop for Restore {
         fn drop(&mut self) {

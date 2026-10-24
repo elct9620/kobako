@@ -6,7 +6,7 @@ use kobako_runtime::mount::Mount;
 
 use crate::error::Error;
 
-fn nested(path: &str, other: &str) -> bool {
+fn nests(path: &str, other: &str) -> bool {
     path == "/"
         || other == "/"
         || path.starts_with(&format!("{other}/"))
@@ -33,7 +33,7 @@ impl Grants {
         if self.is_mounted(at) {
             return Err(Error::Argument(format!("path {at:?} is already mounted")));
         }
-        if let Some(other) = self.mounts().find(|other| nested(at, other)) {
+        if let Some(other) = self.mounts().find(|other| nests(at, other)) {
             return Err(Error::Argument(format!(
                 "path {at:?} nests with the mounted path {other:?}"
             )));

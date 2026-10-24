@@ -117,7 +117,7 @@ fn forward_to_dispatch(
     let answer = dispatch(target, &method_name, block, &payload);
     // Asked on every arm: a failure the Service rescued is spent, and one
     // it did not is this answer's, whichever Call's block raised it.
-    let raised = super::block_exit::RAISED_BLOCK.take(kobako.mrb());
+    let raised = super::block_exit::BLOCK_RAISE.take(kobako.mrb());
     match answer {
         // A dispatch return value the guest's codec cannot read raises in
         // the calling guest code.
@@ -145,7 +145,7 @@ fn forward_to_dispatch(
         // continues from this call as it would through a plain method. A
         // break with nothing held is a peer reporting an exit this guest
         // did not take.
-        Err(DispatchError::Break) => match super::block_exit::BROKEN_BLOCK.take(kobako.mrb()) {
+        Err(DispatchError::Break) => match super::block_exit::BLOCK_EXIT.take(kobako.mrb()) {
             Some(exit) => Err(beni::Error::Exception(exit)),
             None => Err(kobako.transport_error(envelope_err_msg)),
         },

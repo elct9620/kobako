@@ -111,7 +111,7 @@ mod tests {
         let mut raw = scripted(vec![YieldReply::Ok(vec![0x93, 0x01, 0x02, 0x03])]);
 
         let answer =
-            crate::msgpack::budget::scope(Some(3), || Yielder::new(&mut raw).call_values(&[]));
+            crate::msgpack::budget::within(Some(3), || Yielder::new(&mut raw).call_values(&[]));
 
         assert_eq!(
             answer,

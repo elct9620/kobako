@@ -179,7 +179,7 @@ mod tests {
         let table = DetachedHandles::new();
         let wide = [0x92, 0x94, 0xc0, 0xc0, 0xc0, 0xc0, 0x80];
 
-        let refusal = crate::msgpack::budget::scope(Some(6), || {
+        let refusal = crate::msgpack::budget::within(Some(6), || {
             Echo.into_receiver()
                 .call("echo", &wide, None, &table.as_handles())
         });

@@ -193,7 +193,7 @@ impl Filesystem for Directory {
     /// moves one.
     fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
         if from != to {
-            rename.allows(self.symlink_metadata(from)?.kind)?;
+            rename.check(self.symlink_metadata(from)?.kind)?;
         }
         self.dir
             .rename(to_host_path(from)?, &self.dir, to_host_path(to)?)

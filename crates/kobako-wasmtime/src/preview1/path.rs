@@ -280,7 +280,7 @@ fn refuse_dot_end(dir: &OpenDirectory, path: &str, refusal: Errno) -> Answer {
 
 /// A Mount's root is where the guest stands, not a directory it may
 /// remove or move; each call refuses it as Linux refuses its own root.
-fn not_root(path: &str, refusal: Errno) -> Answer {
+fn refuse_root(path: &str, refusal: Errno) -> Answer {
     if path.is_empty() {
         return Err(refusal.into());
     }
@@ -299,7 +299,7 @@ pub(crate) fn remove_directory(
         Errno::Inval,
     )?;
     let (dir, path) = beneath(table, mem, fd, path)?;
-    not_root(&path, Errno::Inval)?;
+    refuse_root(&path, Errno::Inval)?;
     judge(&dir.mount, &path, Access::ReadWrite, false)?;
     Ok(dir.mount.filesystem().remove_dir(&path)?)
 }
@@ -320,8 +320,8 @@ pub(crate) fn rename(
     refuse_dot_end(to_dir, &to, Errno::Busy)?;
     let from = resolve(from_dir, &from)?;
     let to = resolve(to_dir, &to)?;
-    not_root(&from.path, Errno::Busy)?;
-    not_root(&to.path, Errno::Busy)?;
+    refuse_root(&from.path, Errno::Busy)?;
+    refuse_root(&to.path, Errno::Busy)?;
     // A trailing `/` on either side asks that the source be a directory,
     // which `rename(2)` checks before it finds a rename onto its own path
     // leaves everything as it was.
@@ -369,7 +369,7 @@ pub(crate) fn unlink_file(
     path: (u32, u32),
 ) -> Answer {
     let (dir, path) = beneath(table, mem, fd, path)?;
-    not_root(&path, Errno::Isdir)?;
+    refuse_root(&path, Errno::Isdir)?;
     judge(&dir.mount, &path, Access::ReadWrite, false)?;
     Ok(dir.mount.filesystem().remove_file(&path)?)
 }

@@ -239,7 +239,7 @@ fn to_filesystem(value: Value) -> Result<Arc<dyn Filesystem>, MagnusError> {
     if let Ok(fs) = <&OverlayFs>::try_convert(value) {
         return Ok(Arc::new(fs.overlay.clone()));
     }
-    if let Some(fs) = RubyFilesystem::of(value) {
+    if let Some(fs) = RubyFilesystem::from_value(value) {
         return Ok(Arc::new(fs));
     }
     let ruby = Ruby::get().expect("Ruby thread");

@@ -125,7 +125,7 @@ fn write_filestat(mem: &mut GuestMemory, out: u32, filetype: u8, size: u64) -> A
     Ok(())
 }
 
-fn filetype(kind: Kind) -> u8 {
+fn to_filetype(kind: Kind) -> u8 {
     match kind {
         Kind::Directory => FILETYPE_DIRECTORY,
         Kind::Symlink => FILETYPE_SYMBOLIC_LINK,
@@ -135,7 +135,7 @@ fn filetype(kind: Kind) -> u8 {
 
 /// A `filestat` for what a Filesystem reports a path names.
 pub(crate) fn write_metadata(mem: &mut GuestMemory, out: u32, metadata: Metadata) -> Answer {
-    write_filestat(mem, out, filetype(metadata.kind), metadata.len)
+    write_filestat(mem, out, to_filetype(metadata.kind), metadata.len)
 }
 
 /// The hints preview1 offers about a file. A Filesystem that ignores them
@@ -389,7 +389,7 @@ pub(crate) fn readdir(
         .chain(
             listing
                 .iter()
-                .map(|entry| (entry.name.as_str(), filetype(entry.kind))),
+                .map(|entry| (entry.name.as_str(), to_filetype(entry.kind))),
         );
     let (start, capacity) = buf;
     let mut used: u32 = 0;

@@ -141,8 +141,8 @@ pub enum Rename {
 }
 
 impl Rename {
-    /// Whether `kind` may move, or the refusal of it.
-    pub fn allows(self, kind: Kind) -> Result<(), FilesystemError> {
+    /// Refuse moving an entry of `kind` this rename may not move.
+    pub fn check(self, kind: Kind) -> Result<(), FilesystemError> {
         match (self, kind) {
             (Self::File, Kind::Directory) => Err(FilesystemError::CrossesDevices),
             (Self::Directory, kind) if kind != Kind::Directory => {

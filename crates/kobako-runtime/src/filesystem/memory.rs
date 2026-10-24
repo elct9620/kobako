@@ -421,7 +421,7 @@ impl Filesystem for Memory {
         if from == to {
             return Ok(());
         }
-        rename.allows(moving.kind())?;
+        rename.check(moving.kind())?;
         if is_beneath(to, from) {
             return Err(beneath_itself(moving.kind()));
         }

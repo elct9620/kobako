@@ -2,8 +2,9 @@
 
 module Kobako
   module Codec
-    # Whether a Capability Handle crossed the decode in flight, kept per
-    # thread so plain instance variables stay sound.
+    # Whether a Capability Handle crossed the decode in flight, and the
+    # value budget a decode is held to, kept per thread so plain instance
+    # variables stay sound.
     class State # :nodoc:
       # Thread-local slot holding the calling thread's State.
       STATE_KEY = :__kobako_codec_state__
