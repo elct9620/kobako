@@ -37,8 +37,8 @@ class TestE2ERubyFilesystemErrno < Minitest::Test
     def stat(path) = Stat.new(path.empty?, 0)
   end
 
-  # A stat with no identity would let a directory descriptor take another
-  # directory for its own, so the call fails instead.
+  # A stat must answer +ino+, zero being how it names no identity, so one
+  # lacking the method fails the call.
   # @behavior RF-017
   def test_a_ruby_filesystems_stat_names_an_identity
     assert_equal "Errno::EIO", read_class(NamelessFilesystem.new),

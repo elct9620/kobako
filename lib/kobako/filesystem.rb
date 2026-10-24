@@ -28,6 +28,9 @@ module Kobako
   #
   # Any object answering +open+ and +stat+ mounts too, as a Filesystem
   # written in Ruby; its methods take the names of +File+, +Dir+, and +IO+.
+  # Its +stat+ answers +directory?+, +size+, and +ino+, an +ino+ naming one
+  # directory for as long as the guest holds it open. Its names match
+  # exactly, as a mount's block judges them as given.
   module Filesystem
   end
 end

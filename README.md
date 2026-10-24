@@ -243,7 +243,7 @@ Any object answering `open` and `stat` mounts as a Filesystem, directly or as a 
 | `children(path)` | entry names, as `Dir.children` gives them |
 | `mkdir` · `rmdir` · `unlink` · `rename(from, to, directory:)` | optional; without one, that change raises `Errno::EROFS` |
 
-A `stat` may also answer `dev`; without one, the Filesystem stands for a single device. A path is relative to the mount, the empty path being its root, and `flags` are `File::Constants`. A `rename` told `directory: false` moves only a file and `true` only a directory; `nil` moves either. A `pread` at the end answers `nil` or raises `EOFError`, as `IO#pread` does. An `Errno` the guest has a class for reaches the script as itself, and any other `StandardError` as `Errno::EIO`. Every call re-enters Ruby, and its time counts toward `timeout:` without being interrupted.
+A `stat` may also answer `dev`; without one, the Filesystem stands for a single device. An `ino` names one directory while the guest holds it open, and names match exactly, as a block judges them. A path is relative to the mount, the empty path being its root, and `flags` are `File::Constants`. A `rename` told `directory: false` moves only a file and `true` only a directory; `nil` moves either. A `pread` at the end answers `nil` or raises `EOFError`, as `IO#pread` does. An `Errno` the guest has a class for reaches the script as itself, and any other `StandardError` as `Errno::EIO`. Every call re-enters Ruby, and its time counts toward `timeout:` without being interrupted.
 
 ### Output Capture
 
