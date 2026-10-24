@@ -55,20 +55,36 @@ module Kobako
         # +Delegator+) binds and calls the private method the guest passes as
         # its first argument (+Kernel#system+). A dynamic +method_missing+
         # Service is untouched — the guest reaches it by the virtual name,
-        # which resolves through the +NameError+ branch below, never by
-        # naming +method_missing+.
+        # which resolves through the +respond_to?+ opt-in, never by naming
+        # +method_missing+.
+        #
+        # A name with no method never reaches +public_method+, which would
+        # keep a guest-chosen name as a Symbol for the life of the process.
         def ambient_refusal(target, name)
           return "method #{name.inspect} is not a Service method" if name == :method_missing
 
-          owner = target.public_method(name).owner
+          klass = lookup_class(target)
+          return owner_refusal(target, name, target.public_method(name).owner) if klass.public_method_defined?(name)
+          return "no public method #{name.inspect} on target" unless target.respond_to?(name)
+          return nil if klass.method_defined?(name) || klass.private_method_defined?(name)
+
+          owner_refusal(target, name, klass)
+        end
+
+        def owner_refusal(target, name, owner)
           return nil unless ambient_owner?(owner, target)
           return nil if GADGET_OWNERS.include?(owner) && CALLABLE_ALLOW.include?(name)
 
           "method #{name.inspect} is not a Service method"
-        rescue NameError
-          return nil if target.respond_to?(name)
+        end
 
-          "no public method #{name.inspect} on target"
+        # The class a method lookup on +target+ starts at. A plain object's
+        # singleton class is taken only when it already holds a public
+        # method, since asking for it otherwise would create one.
+        def lookup_class(target)
+          return target.singleton_class if target.is_a?(Module) || target.singleton_methods.any?
+
+          target.class
         end
 
         # A plain object's own singleton method (+def obj.x+) stays reachable,

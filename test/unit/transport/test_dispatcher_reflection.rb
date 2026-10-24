@@ -20,11 +20,17 @@ class TestDispatchReflectionRefusal < Minitest::Test
     def tap = "tapped"
   end
 
+  # Answers every name, the dynamic method_missing shape the floor admits.
+  class Dynamic
+    def respond_to_missing?(_name, _include_private = false) = true
+    def method_missing(name, *) = name.to_s
+  end
+
   def setup
     @handles = Kobako::Catalog::Handles.new
     @services = Kobako::Catalog::Services.new
     { Theme: Service.new, Fn: ->(x) { x * 2 }, Meth: "abc".method(:upcase), Own: Tappable.new,
-      Klass: File, Mod: Kernel, Wrap: SimpleDelegator.new(Object.new) }
+      Klass: File, Mod: Kernel, Wrap: SimpleDelegator.new(Object.new), Any: Dynamic.new }
       .each { |name, service| @services.bind("Cfg::#{name}", service) }
     @yield = ->(_bytes) { raise "no block" }
   end
@@ -152,5 +158,18 @@ class TestDispatchReflectionRefusal < Minitest::Test
                  "an absent method must surface as the opaque undefined fault, not argument or runtime"
     assert_match(/no public method/, resp.payload.message,
                  "the refusal must come from the absent-method arm, not the reflection-owner arm")
+  end
+
+  # @behavior T-296
+  def test_guest_chosen_names_leave_no_symbol_behind
+    # A Method built for a name respond_to_missing? answers interns that
+    # name for good, so the floor must decide such names without building
+    # one. Collectable Symbols go at GC; only interned ones stay counted.
+    GC.start
+    before = Symbol.all_symbols.size
+    500.times { |i| dispatch("Cfg::Any", "kobako_probe_#{i}", []) }
+    GC.start
+    assert_operator Symbol.all_symbols.size - before, :<, 50,
+                    "500 guest-chosen names dispatched through a catch-all Service must leave no host Symbol behind"
   end
 end
