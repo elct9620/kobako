@@ -46,12 +46,12 @@ impl Runtime for Canned {
             .lock()
             .unwrap()
             .push(preamble.bindings.paths.clone());
-        Ok(Snapshot {
-            completion: Completion::Outcome(Outcome::Ok(self.payload.clone())),
-            stdout: Capture::default(),
-            stderr: Capture::default(),
-            usage: Usage::default(),
-        })
+        Ok(Snapshot::new(
+            Completion::Outcome(Outcome::Ok(self.payload.clone())),
+            Capture::default(),
+            Capture::default(),
+            Usage::default(),
+        ))
     }
 
     fn profile(&self) -> Profile {

@@ -228,16 +228,15 @@ pub(crate) fn open(
         Some(_) if oflag(OFLAGS_DIRECTORY) => return Err(Errno::Notdir.into()),
         None if oflag(OFLAGS_DIRECTORY) || !oflag(OFLAGS_CREAT) => return Err(Errno::Noent.into()),
         Some(_) | None => {
-            let options = OpenOptions {
-                read,
-                write,
-                // A file already there is opened as it is, so a host that
-                // opens only to create never asks for more than the guest.
-                create: oflag(OFLAGS_CREAT) && existing.is_none(),
-                create_new: oflag(OFLAGS_CREAT) && oflag(OFLAGS_EXCL),
-                truncate: oflag(OFLAGS_TRUNC),
-                nofollow: !follow,
-            };
+            let mut options = OpenOptions::default();
+            options.read = read;
+            options.write = write;
+            // A file already there is opened as it is, so a host that opens
+            // only to create never asks for more than the guest.
+            options.create = oflag(OFLAGS_CREAT) && existing.is_none();
+            options.create_new = oflag(OFLAGS_CREAT) && oflag(OFLAGS_EXCL);
+            options.truncate = oflag(OFLAGS_TRUNC);
+            options.nofollow = !follow;
             Descriptor::File(OpenFile {
                 file: mount.filesystem().open(&path, &options)?,
                 position: 0,

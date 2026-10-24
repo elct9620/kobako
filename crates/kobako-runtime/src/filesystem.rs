@@ -110,6 +110,7 @@ pub trait File: Send {
 
 /// How `Filesystem::open` opens a file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct OpenOptions {
     pub read: bool,
     pub write: bool,
@@ -164,16 +165,33 @@ pub enum FileType {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Metadata {
     pub file_type: FileType,
     /// The length in bytes; zero for a directory or a link.
     pub len: u64,
 }
 
+impl Metadata {
+    pub fn new(file_type: FileType, len: u64) -> Self {
+        Self { file_type, len }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DirEntry {
     pub name: String,
     pub file_type: FileType,
+}
+
+impl DirEntry {
+    pub fn new(name: impl Into<String>, file_type: FileType) -> Self {
+        Self {
+            name: name.into(),
+            file_type,
+        }
+    }
 }
 
 /// Why a Filesystem call failed. The runtime hands the guest the matching

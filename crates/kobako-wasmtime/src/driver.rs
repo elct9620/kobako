@@ -116,26 +116,20 @@ impl Driver {
     /// survive a trap just as they do an outcome.
     fn build_snapshot(&self, store: &WtStore<Invocation>, completion: Completion) -> Snapshot {
         let data = store.data();
-        let usage = Usage {
-            wall_time: data.wall_time().as_secs_f64(),
-            memory_peak: data.memory_peak(),
+        let mut usage = Usage::default();
+        usage.wall_time = data.wall_time().as_secs_f64();
+        usage.memory_peak = data.memory_peak();
+        let clip = |bytes, limit| {
+            let mut capture = Capture::default();
+            (capture.bytes, capture.truncated) = capture::clip_capture(bytes, limit);
+            capture
         };
-        let (stdout_bytes, stdout_truncated) =
-            capture::clip_capture(data.wasi().stdout_bytes(), self.config.stdout_limit);
-        let (stderr_bytes, stderr_truncated) =
-            capture::clip_capture(data.wasi().stderr_bytes(), self.config.stderr_limit);
-        Snapshot {
+        Snapshot::new(
             completion,
-            stdout: Capture {
-                bytes: stdout_bytes,
-                truncated: stdout_truncated,
-            },
-            stderr: Capture {
-                bytes: stderr_bytes,
-                truncated: stderr_truncated,
-            },
+            clip(data.wasi().stdout_bytes(), self.config.stdout_limit),
+            clip(data.wasi().stderr_bytes(), self.config.stderr_limit),
             usage,
-        }
+        )
     }
 }
 

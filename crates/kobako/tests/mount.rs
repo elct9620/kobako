@@ -225,10 +225,7 @@ impl File for NoteFile {
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        Ok(Metadata {
-            file_type: FileType::File,
-            len: self.0.len() as u64,
-        })
+        Ok(Metadata::new(FileType::File, self.0.len() as u64))
     }
 
     fn set_len(&mut self, _len: u64) -> Result<(), FilesystemError> {
@@ -246,20 +243,14 @@ impl Filesystem for OneNote {
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         match path {
-            "" => Ok(Metadata {
-                file_type: FileType::Directory,
-                len: 0,
-            }),
+            "" => Ok(Metadata::new(FileType::Directory, 0)),
             "note.txt" => NoteFile(self.0).metadata(),
             _ => Err(FilesystemError::NotFound),
         }
     }
 
     fn read_dir(&self, _path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-        Ok(vec![DirEntry {
-            name: "note.txt".into(),
-            file_type: FileType::File,
-        }])
+        Ok(vec![DirEntry::new("note.txt", FileType::File)])
     }
 
     fn create_dir(&self, _path: &str) -> Result<(), FilesystemError> {

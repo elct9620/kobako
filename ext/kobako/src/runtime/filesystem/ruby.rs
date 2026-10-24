@@ -144,15 +144,9 @@ impl Filesystem for RubyFilesystem {
             |_, fs| {
                 let stat: Value = fs.funcall("stat", (path,))?;
                 if stat.funcall::<_, _, bool>("directory?", ())? {
-                    return Ok(Metadata {
-                        file_type: FileType::Directory,
-                        len: 0,
-                    });
+                    return Ok(Metadata::new(FileType::Directory, 0));
                 }
-                Ok(Metadata {
-                    file_type: FileType::File,
-                    len: stat.funcall("size", ())?,
-                })
+                Ok(Metadata::new(FileType::File, stat.funcall("size", ())?))
             },
         )
     }
@@ -168,7 +162,7 @@ impl Filesystem for RubyFilesystem {
             .into_iter()
             .map(|name| {
                 let file_type = self.metadata(&join(path, &name))?.file_type;
-                Ok(DirEntry { name, file_type })
+                Ok(DirEntry::new(name, file_type))
             })
             .collect()
     }
@@ -287,12 +281,7 @@ impl File for RubyFile {
             self.file.get(),
             "size",
             FilesystemError::Unsupported,
-            |_, file| {
-                Ok(Metadata {
-                    file_type: FileType::File,
-                    len: file.funcall("size", ())?,
-                })
-            },
+            |_, file| Ok(Metadata::new(FileType::File, file.funcall("size", ())?)),
         )
     }
 

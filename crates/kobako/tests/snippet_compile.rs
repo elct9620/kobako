@@ -46,12 +46,12 @@ impl Runtime for Compiling {
             .lock()
             .unwrap()
             .push(preamble.snippets.entries.clone());
-        Ok(Snapshot {
-            completion: Completion::Outcome(Outcome::Ok(vec![0xc0])),
-            stdout: Capture::default(),
-            stderr: Capture::default(),
-            usage: Usage::default(),
-        })
+        Ok(Snapshot::new(
+            Completion::Outcome(Outcome::Ok(vec![0xc0])),
+            Capture::default(),
+            Capture::default(),
+            Usage::default(),
+        ))
     }
 
     fn profile(&self) -> Profile {
@@ -210,10 +210,8 @@ fn compiling_counts_against_no_invocation() {
 /// the Preamble's 16 MiB; `None` when a local checkout has no Guest Binary.
 #[cfg(feature = "wasmtime")]
 fn big_module_answers(free: usize, bound: Option<&str>) -> Option<Vec<String>> {
-    let options = kobako::Options {
-        memory_limit: None,
-        ..kobako::Options::default()
-    };
+    let mut options = kobako::Options::default();
+    options.memory_limit = None;
     let mut sandbox = common::real_sandbox_with(options)?;
     let methods: Vec<String> = (1..=200).map(|i| format!("def self.m{i} = {i}")).collect();
     sandbox
@@ -281,11 +279,9 @@ fn first_eval_after_a_runaway_compile() -> (std::time::Duration, kobako::Executi
         env!("CARGO_MANIFEST_DIR"),
         "/../../test/fixtures/minimal_runaway_compile.wat"
     );
-    let options = kobako::Options {
-        timeout: Some(DEADLINE),
-        memory_limit: None,
-        ..kobako::Options::default()
-    };
+    let mut options = kobako::Options::default();
+    options.timeout = Some(DEADLINE);
+    options.memory_limit = None;
     let mut sandbox = Sandbox::new(FIXTURE, options).expect("the fixture must load");
     sandbox.preload("A", "A = 1").unwrap();
 

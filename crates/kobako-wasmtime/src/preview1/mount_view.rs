@@ -218,6 +218,13 @@ const ERRNO_OVERFLOW: i32 = 61;
 const ERRNO_EXIST: i32 = 20;
 const OFLAGS_EXCL: i32 = 1 << 2;
 
+/// The default `OpenOptions` with `set` applied.
+fn opening(set: impl FnOnce(&mut OpenOptions)) -> OpenOptions {
+    let mut options = OpenOptions::default();
+    set(&mut options);
+    options
+}
+
 fn grant(
     filesystem: Arc<dyn Filesystem>,
     access: Access,
@@ -346,13 +353,7 @@ impl Guest {
 
 fn contents(filesystem: &dyn Filesystem, path: &str) -> Option<Vec<u8>> {
     let mut file = filesystem
-        .open(
-            path,
-            &OpenOptions {
-                read: true,
-                ..OpenOptions::default()
-            },
-        )
+        .open(path, &opening(|options| options.read = true))
         .ok()?;
     let mut buf = vec![0; 64];
     let read = file.read_at(&mut buf, 0).ok()?;
@@ -411,11 +412,7 @@ fn a_listing_goes_on_over_the_entries_it_began_with() {
     memory
         .open(
             "b.txt",
-            &OpenOptions {
-                write: true,
-                create: true,
-                ..OpenOptions::default()
-            },
+            &opening(|options| (options.write, options.create) = (true, true)),
         )
         .expect("the file must be made");
     assert_eq!(
@@ -653,11 +650,7 @@ impl Filesystem for SwappedForADirectory {
         self.0.create_dir(from)?;
         drop(self.0.open(
             &format!("{from}/secret"),
-            &OpenOptions {
-                write: true,
-                create: true,
-                ..OpenOptions::default()
-            },
+            &opening(|options| (options.write, options.create) = (true, true)),
         )?);
         self.0.rename(from, to, rename)
     }
@@ -732,10 +725,7 @@ impl File for AppendedMeanwhileFile {
 
 impl Filesystem for AppendedMeanwhile {
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        let writes = OpenOptions {
-            write: true,
-            ..OpenOptions::default()
-        };
+        let writes = opening(|options| options.write = true);
         Ok(Box::new(AppendedMeanwhileFile {
             file: self.0.open(path, options)?,
             other: std::sync::Mutex::new(self.0.open(path, &writes)?),

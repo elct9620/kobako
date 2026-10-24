@@ -138,6 +138,17 @@ What one invocation left behind, whether it ended in an Outcome or a Trap.
 pub struct Snapshot {}
 ```
 
+## `Snapshot::new`
+
+What an engine hands back from one invocation: how it ended, both captures, and
+its usage.
+
+```rust
+impl Snapshot {
+    pub fn new(completion: Completion, stdout: Capture, stderr: Capture, usage: Usage) -> Self {}
+}
+```
+
 ## `Completion`
 
 How an invocation ended: the Guest's final message, or the engine stopping it.
@@ -566,12 +577,32 @@ What a path names, and its length.
 pub struct Metadata {}
 ```
 
+## `Metadata::new`
+
+What a path names and its length, as a Filesystem reports it.
+
+```rust
+impl Metadata {
+    pub fn new(file_type: FileType, len: u64) -> Self {}
+}
+```
+
 ## `DirEntry`
 
 One entry of a directory: its name and what it names.
 
 ```rust
 pub struct DirEntry {}
+```
+
+## `DirEntry::new`
+
+One entry of a directory, as a Filesystem lists it.
+
+```rust
+impl DirEntry {
+    pub fn new(name: impl Into<String>, file_type: FileType) -> Self {}
+}
 ```
 
 ## `FilesystemError`

@@ -52,13 +52,11 @@ fn note_memory() -> Arc<Memory> {
 
 fn contents(filesystem: &dyn Filesystem, path: &str) -> Vec<u8> {
     let mut file = filesystem
-        .open(
-            path,
-            &OpenOptions {
-                read: true,
-                ..OpenOptions::default()
-            },
-        )
+        .open(path, &{
+            let mut options = OpenOptions::default();
+            options.read = true;
+            options
+        })
         .expect("the file must exist");
     let mut buf = vec![0; 64];
     let read = file.read_at(&mut buf, 0).expect("the file must read");
@@ -666,10 +664,9 @@ impl File for ReportsLen {
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        Ok(Metadata {
-            len: self.1,
-            ..self.0.metadata()?
-        })
+        let mut metadata = self.0.metadata()?;
+        metadata.len = self.1;
+        Ok(metadata)
     }
 
     fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {

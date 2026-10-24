@@ -18,6 +18,7 @@ use kobako_transport::envelope::Outcome;
 /// pre-invocation sentinel — no bytes, cap not reached — shared by every
 /// frontend's before-first-invocation readout.
 #[derive(Default)]
+#[non_exhaustive]
 pub struct Capture {
     pub bytes: Vec<u8>,
     pub truncated: bool,
@@ -45,6 +46,7 @@ pub enum Completion {
 /// is the high-water `memory.grow` delta in bytes past the entry-time
 /// baseline. `Default` (all zeros) is the pre-invocation sentinel.
 #[derive(Clone, Copy, Default)]
+#[non_exhaustive]
 pub struct Usage {
     pub wall_time: f64,
     pub memory_peak: usize,
@@ -54,9 +56,21 @@ pub struct Usage {
 /// kinds: captures and usage are collected on trap and outcome alike.
 /// What a frontend exposes from the trap path is its own contract
 /// decision.
+#[non_exhaustive]
 pub struct Snapshot {
     pub completion: Completion,
     pub stdout: Capture,
     pub stderr: Capture,
     pub usage: Usage,
+}
+
+impl Snapshot {
+    pub fn new(completion: Completion, stdout: Capture, stderr: Capture, usage: Usage) -> Self {
+        Self {
+            completion,
+            stdout,
+            stderr,
+            usage,
+        }
+    }
 }
