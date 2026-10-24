@@ -37,11 +37,11 @@ module DispatcherHelpers
     )
   end
 
-  # Reify the Dispatcher's +[ok, body, kind]+ answer into the arm plus
+  # Reify the Dispatcher's +[arm, body, kind]+ answer into the arm plus
   # what it carries: a decoded value on the ok arm, a Fault on the other.
   def self.reify(answer)
-    ok, body, kind = answer
-    return Answer.new(true, Kobako::Codec::Decoder.decode(body)) if ok
+    arm, body, kind = answer
+    return Answer.new(true, Kobako::Codec::Decoder.decode(body)) if arm == :ok
 
     Answer.new(false, Fault.new(kind, body))
   end

@@ -17,11 +17,12 @@ use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::yielder::Yielder;
 use kobako_transport::envelope::{Call, Fault, FaultKind, Reply, Target, YieldReply};
 
-/// The names the host `Transport::Yielder` branches on — one per Yield
-/// Reply arm. Neutral Symbols rather than the envelope's tag bytes, the
-/// same way `Snapshot#outcome` names its arms: the core envelope is this
-/// side's to read, so no byte value of it reaches Ruby.
+/// The names each side of this seam branches on — one per Reply and
+/// Yield Reply arm. Neutral Symbols rather than the envelope's tag bytes,
+/// the same way `Snapshot#outcome` names its arms: the core envelope is
+/// this side's to read, so no byte value of it reaches Ruby.
 const ARM_OK: &str = "ok";
+const ARM_FAULT: &str = "fault";
 const ARM_BREAK: &str = "break";
 const ARM_ERROR: &str = "error";
 const ARM_UNSUPPORTED: &str = "unsupported";
@@ -224,7 +225,7 @@ impl DispatchHandler for RubyDispatchHandler {
             // escapes the dispatch frame never re-enters the guest.
             let guest_yielder =
                 ruby.obj_wrap(GuestYielder::new(&ruby, yielder.frame(), self.open.clone()));
-            let answer: Result<(bool, RString, Option<RString>), magnus::Error> =
+            let answer: Result<(Symbol, RString, Option<RString>), magnus::Error> =
                 self.open.lend(yielder, || {
                     proc_value.funcall(
                         "call",
@@ -241,7 +242,7 @@ impl DispatchHandler for RubyDispatchHandler {
             // The Proc rescues only StandardError, so what else escapes it
             // is the host's own and is held for the host; a StandardError
             // escaping breaks the Proc's contract.
-            let (ok, body, kind) = match answer {
+            let (arm, body, kind) = match answer {
                 Ok(answer) => answer,
                 Err(error) => {
                     let _ = super::escape::hold(&ruby, error);
@@ -251,21 +252,19 @@ impl DispatchHandler for RubyDispatchHandler {
             // The ok arm carries payload bytes the codec owns; the fault
             // arm carries the Fault's own two fields, which the envelope
             // types — so Ruby names a category rather than encoding one.
-            // A block exit names the break arm in that slot, since nothing
-            // of it crosses. A category outside the closed set cannot come
-            // from the public API, so it fails the dispatch rather than
+            // A block exit carries nothing, since nothing of it crosses.
+            // An arm or category outside the closed set cannot come from
+            // the public API, so it fails the dispatch rather than
             // degrading.
-            if ok {
-                return Some(Reply::Ok(super::rstring_to_vec(body)));
+            match arm.name().ok()?.as_ref() {
+                ARM_OK => Some(Reply::Ok(super::rstring_to_vec(body))),
+                ARM_BREAK => Some(Reply::Break),
+                ARM_FAULT => Some(Reply::Fault(Fault::new(
+                    FaultKind::from_name(&kind?.to_string().ok()?)?,
+                    body.to_string().ok()?,
+                ))),
+                _ => None,
             }
-            let kind = kind?.to_string().ok()?;
-            if kind == ARM_BREAK {
-                return Some(Reply::Break);
-            }
-            Some(Reply::Fault(Fault::new(
-                FaultKind::from_name(&kind)?,
-                body.to_string().ok()?,
-            )))
         })
     }
 

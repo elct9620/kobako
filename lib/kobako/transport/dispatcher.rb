@@ -10,8 +10,8 @@ require_relative "yielder"
 
 module Kobako
   module Transport
-    # Answers a routed Call with +[true, body, nil]+,
-    # +[false, message, fault_type]+, or +[false, "", "break"]+ — a block
+    # Answers a routed Call with one arm per Reply variant: +[:ok, body, nil]+,
+    # +[:fault, message, fault_type]+, or +[:break, "", nil]+ — a block
     # exit the guest kept carries nothing. It never raises, so every
     # failure reaches the guest as a fault.
     module Dispatcher # :nodoc:
@@ -49,15 +49,15 @@ module Kobako
       # accessors for it.
       def self.dispatch(call, resolver, handles, failure, guest_yielder)
         yielder = Yielder.new(guest_yielder, BREAK_THROW, handles, failure) if call.block_given
-        catch(BREAK_THROW) { return [true, encode_ok(run(call, resolver, handles, yielder), handles), nil] }
-        [false, "", "break"] # : [bool, String, String?]
+        catch(BREAK_THROW) { return [:ok, encode_ok(run(call, resolver, handles, yielder), handles), nil] }
+        [:break, "", nil] # : [Symbol, String, String?]
       # StandardError is the boundary by intent: a Service method's
       # application fault folds into a guest-rescuable fault, while a
       # host-process failure (NoMemoryError, SignalException, a bare Exception)
       # stays uncaught and traps the invocation rather than being masked as a
       # rescuable fault.
       rescue StandardError => e
-        [false, *caught_fault(e, failure)] # : [bool, String, String?]
+        [:fault, *caught_fault(e, failure)] # : [Symbol, String, String?]
       ensure
         yielder&.invalidate
       end

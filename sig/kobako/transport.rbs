@@ -14,7 +14,7 @@ module Kobako
     # side already decoded off the core envelope and answering the arm and
     # body it puts on the Reply. Named here so the producer (Context) and the
     # consumer (Runtime) cannot declare it differently.
-    type dispatch_proc = ^(String | Integer, String, bool, String, _GuestYielder) -> [bool, String, String?]
+    type dispatch_proc = ^(String | Integer, String, bool, String, _GuestYielder) -> [Symbol, String, String?]
 
     # What a dispatch resolves constant-path targets against. The
     # invocation's Kobako::Context is the production conformer, so its
