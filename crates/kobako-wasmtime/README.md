@@ -13,7 +13,7 @@ contract surface.
 | Compilation | process-wide Engine and compiled-Module caches |
 | Disk cache | AOT `.cwasm` artifacts on Unix, keyed by Guest Binary content and engine |
 | Instantiation | a pre-linked `InstancePre` per guest path; every invocation runs on a fresh instance and discards its Store afterwards |
-| Bounds | the epoch-based wall-clock timeout and the per-invocation linear-memory cap |
+| Bounds | epoch-based wall-clock deadlines on setup and on each invocation, and the per-invocation linear-memory cap |
 | Ambient denial | under the default hermetic profile, frozen clocks and a constant RNG |
 | Filesystems | a preopen per Mount, and its own capped descriptor table |
 

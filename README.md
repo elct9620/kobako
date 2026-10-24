@@ -310,6 +310,7 @@ Each invocation enforces a wall-clock `timeout` and a per-invocation linear-memo
 ```ruby
 sandbox = Kobako::Sandbox.new(
   timeout:      5.0,              # seconds, default 60.0
+  setup_timeout: 2.0,             # seconds, default 10.0
   memory_limit: 10 * 1024 * 1024, # bytes,   default 4 MiB
   stdout_limit: 64 * 1024,        # bytes,   default 1 MiB
   stderr_limit: 64 * 1024,
@@ -320,12 +321,13 @@ sandbox = Kobako::Sandbox.new(
 | Cap               | Raises                         | Default |
 |-------------------|--------------------------------|---------|
 | `timeout`         | `Kobako::TimeoutError`         | 60.0 s  |
+| `setup_timeout`   | `Kobako::SetupError` at `new`  | 10.0 s  |
 | `memory_limit`    | `Kobako::MemoryLimitError`     | 4 MiB   |
 | `stdout_limit`    | output clipped (no raise)      | 1 MiB   |
 | `stderr_limit`    | output clipped (no raise)      | 1 MiB   |
 | `open_file_limit` | `Errno::EMFILE` in the guest   | 1024    |
 
-`memory_limit` covers the per-invocation `memory.grow` delta from the entry baseline, so a Sandbox reused across invocations does not silently accumulate against a global budget. `open_file_limit` counts every descriptor one invocation holds, the three standard ones and each Mount's included, so a guest cannot exhaust the host process's own.
+`setup_timeout` bounds setting a Guest Binary up the first time its path is loaded; later Sandboxes on that path skip the check. `memory_limit` covers the per-invocation `memory.grow` delta from the entry baseline, so a Sandbox reused across invocations does not silently accumulate against a global budget. `open_file_limit` counts every descriptor one invocation holds, the three standard ones and each Mount's included, so a guest cannot exhaust the host process's own.
 
 #### Isolation Profile
 

@@ -66,6 +66,7 @@ leaves the host exposed in its own way.
 | `nil` cap | What the guest can then cost the host |
 |---|---|
 | `timeout` | a thread held for as long as the guest runs |
+| `setup_timeout` | `Sandbox.new` held for as long as the Guest Binary takes to start |
 | `memory_limit` | up to 4 GiB of guest memory, and no value budget |
 | `stdout_limit`, `stderr_limit` | host memory without bound, read back after the run ends |
 
