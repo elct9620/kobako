@@ -1207,3 +1207,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a directory it opened beneath a Mount |
 | When | the directory moves away and back to its path |
 | Then | a call through the descriptor reaches the directory |
+
+## `RT-119` A step out of a link answers ELOOP
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-087` |
+| relates | `RT-101`, `RT-109` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Directory Mount holding a link to a directory |
+| When | the guest names a path taking `..` or a final `.` right after the link |
+| Then | the call answers ELOOP |
