@@ -840,7 +840,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | a Memory is tried with it |
 | Then | the trial answers the error naming what the list holds wrong |
 
-## `FS-068` A Directory answers a write past the largest host file as too large
+## `FS-068` A Directory answers a host file too large as too large
 
 | Attribute | Value |
 | --- | --- |
@@ -849,5 +849,5 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Step | Statement |
 | --- | --- |
 | Given | a Directory over a host directory |
-| When | a file is written at an offset past the largest file the host keeps |
+| When | the host refuses a write because the file would grow too large |
 | Then | the write fails as a file too large, not as an unnamed failure |
