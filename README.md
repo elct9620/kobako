@@ -440,7 +440,7 @@ A Sandbox holds no state from any run, so Threads sharing one are equally safe. 
 
 ### Service Blocks
 
-A Service method can accept a guest-supplied block via `&blk` and `yield` into it. The block body runs inside the Wasm guest; `break` / `next` / exceptions follow normal Ruby semantics, scoped to the single dispatch.
+A Service method can accept a guest-supplied block via `&blk` and `yield` into it. The block body runs inside the Wasm guest. Its `break` / `next` / `return` / exceptions follow normal Ruby semantics: an exit lands where it would through a plain method.
 
 ```ruby
 sandbox.bind("Seq::Map", ->(items, &blk) { items.map(&blk) })
@@ -488,7 +488,7 @@ sandbox.eval('Factory::Make.call("Bob").greet').value  # => "hi, Bob"  (Handle r
 sandbox.eval('Factory::Make.call("Bob")').value        # => #<Greeter @name="Bob">  (Handle restoration)
 ```
 
-A `break` value from a guest block is the one exception. It unwinds back to the guest Service call rather than to host code, so a Handle in it stays a Handle. Restoring would just re-wrap the same object into a new id on the return trip.
+A `break` value from a guest block never reaches host code. It stays in the guest while the Service unwinds, so a Handle in it stays a Handle.
 
 #### Per-dispatch Handles
 

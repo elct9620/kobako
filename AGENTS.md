@@ -183,7 +183,7 @@ Each row names an entry point and only what reading it will not tell you.
 | vocabulary | `docs/spec/glossary.md` | one section per context; a later term replaces an earlier one |
 | naming | `docs/convention.md` | the baseline a rename is judged against |
 | sandbox lifecycle | `lib/kobako/sandbox.rb` | each run settles into an `Execution` |
-| dispatch | `lib/kobako/transport/dispatcher.rb` | answers an ok or fault triple, never raises |
+| dispatch | `lib/kobako/transport/dispatcher.rb` | answers an ok, fault, or break arm, never raises |
 | Handles | `lib/kobako/catalog/handles.rb` | minted per invocation by `Context` |
 | Extensions | `docs/guides/extensions.md` | a backend's kind is a keyword |
 | Mounts | `crates/kobako-runtime/src/mount.rs` | the Mount decides access; the driver in `crates/kobako-wasmtime/src/preview1/` maps its `Denial` |

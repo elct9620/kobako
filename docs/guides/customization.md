@@ -103,7 +103,7 @@ reads apart from a broken guest.
 
 | Position | What serving it obliges | Why |
 |---|---|---|
-| Yield Reply ok / break body, Outcome ok body | one value — **the floor** | every invocation answers an Outcome |
+| Yield Reply ok body, Outcome ok body | one value — **the floor** | every invocation answers an Outcome |
 | Call payload | positional and keyword arguments, distinguishably | `public_send` does not interchange them |
 | Run payload, Yield Call | the arguments alone; neither carries keywords | neither position has keywords |
 
