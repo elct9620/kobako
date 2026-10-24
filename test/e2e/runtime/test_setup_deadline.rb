@@ -9,10 +9,25 @@ class TestE2ESetupDeadline < Minitest::Test
   include GuestGuard
 
   FIXTURE_PATH = TestPaths.fixture("minimal_spinning_alloc.wat")
+  STALLED_START_PATH = TestPaths.fixture("minimal_spinning_start.wat")
   DEADLINE = 0.3
 
   def setup
     require_fixture!(FIXTURE_PATH)
+    require_fixture!(STALLED_START_PATH)
+  end
+
+  # The construction-time ABI check instantiates the artifact once, so a
+  # start function that never returns stalls there, before any invocation.
+  # @behavior RT-112
+  def test_a_guest_binary_that_never_finishes_instantiating_fails_construction
+    error = assert_raises(Kobako::SetupError,
+                          "a Guest Binary whose start never returns through Sandbox.new must fail " \
+                          "construction once the setup deadline passes") do
+      Kobako::Sandbox.new(wasm_path: STALLED_START_PATH, setup_timeout: DEADLINE)
+    end
+    assert_match(/within/, error.message,
+                 "the construction failure must say the setup deadline passed, not that the artifact is broken")
   end
 
   # @behavior RT-111

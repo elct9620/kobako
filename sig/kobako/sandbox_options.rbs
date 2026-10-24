@@ -1,6 +1,7 @@
 module Kobako
   class SandboxOptions < Data
     DEFAULT_TIMEOUT_SECONDS: Float
+    DEFAULT_SETUP_TIMEOUT_SECONDS: Float
     DEFAULT_MEMORY_LIMIT: Integer
     DEFAULT_OUTPUT_LIMIT: Integer
     DEFAULT_OPEN_FILE_LIMIT: Integer
@@ -11,6 +12,7 @@ module Kobako
     VALUE_BYTES: Integer
 
     attr_reader timeout: Float?
+    attr_reader setup_timeout: Float?
     attr_reader memory_limit: Integer?
     attr_reader stdout_limit: Integer?
     attr_reader stderr_limit: Integer?
@@ -20,6 +22,7 @@ module Kobako
 
     def self.new: (
       ?timeout: (Float | Integer)?,
+      ?setup_timeout: (Float | Integer)?,
       ?memory_limit: Integer?,
       ?stdout_limit: Integer?,
       ?stderr_limit: Integer?,
@@ -30,6 +33,7 @@ module Kobako
 
     def initialize: (
       ?timeout: (Float | Integer)?,
+      ?setup_timeout: (Float | Integer)?,
       ?memory_limit: Integer?,
       ?stdout_limit: Integer?,
       ?stderr_limit: Integer?,
@@ -40,6 +44,7 @@ module Kobako
 
     def to_h: () -> {
       timeout: Float?,
+      setup_timeout: Float?,
       memory_limit: Integer?,
       stdout_limit: Integer?,
       stderr_limit: Integer?,
@@ -54,7 +59,7 @@ module Kobako
 
     private
 
-    def normalize_timeout: ((Float | Integer)? timeout) -> Float?
+    def normalize_timeout: ((Float | Integer)? timeout, String name) -> Float?
 
     def normalize_limit: (Integer? limit, String name) -> Integer?
 

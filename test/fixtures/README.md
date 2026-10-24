@@ -47,6 +47,16 @@ Hand-written text-format module that passes the ABI version check but whose `__k
 
 The runtime stays intact, which is why the failure is not a trap.
 
+## `minimal_spinning_start.wat`
+
+Hand-written text-format module whose start function never returns. It is the frozen stand-in for a Guest Binary that cannot finish being set up.
+
+| Step | What happens |
+|---|---|
+| construction instantiates it | the start function spins |
+| the setup deadline | fails construction as a `Kobako::SetupError` |
+| any invocation | is never reached |
+
 ## `minimal_spinning_alloc.wat`
 
 Hand-written text-format module that passes the ABI version check but whose `__kobako_alloc` never returns. It is the frozen stand-in for a guest that stalls while being set up.

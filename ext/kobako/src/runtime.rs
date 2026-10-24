@@ -169,6 +169,7 @@ impl Runtime {
         let ruby = Ruby::get().expect("Ruby thread");
         type Options = (
             Option<f64>,
+            Option<f64>,
             Option<usize>,
             Option<usize>,
             Option<usize>,
@@ -180,6 +181,7 @@ impl Runtime {
             options,
             &[
                 "timeout",
+                "setup_timeout",
                 "memory_limit",
                 "stdout_limit",
                 "stderr_limit",
@@ -191,6 +193,7 @@ impl Runtime {
         )?;
         let (
             timeout_seconds,
+            setup_timeout_seconds,
             memory_limit,
             stdout_limit,
             stderr_limit,
@@ -198,21 +201,21 @@ impl Runtime {
             profile,
             gvl,
         ) = options.required;
-        let timeout = match timeout_seconds {
-            None => None,
-            Some(secs) if secs.is_finite() && secs > 0.0 => Some(Duration::from_secs_f64(secs)),
-            Some(secs) => {
-                // An invalid cap argument is a Host App
-                // programming error and raises `ArgumentError`, outside the
-                // construction-failure `SetupError` branch. `SandboxOptions`
-                // is the primary guard (it never lets a bad timeout reach
-                // here); this is defence-in-depth for direct `from_path` calls.
-                return Err(MagnusError::new(
-                    ruby.exception_arg_error(),
-                    format!("timeout must be > 0 and finite, got {secs} seconds"),
-                ));
-            }
+        // An invalid cap argument is a Host App programming error and
+        // raises `ArgumentError`, outside the construction-failure
+        // `SetupError` branch. `SandboxOptions` is the primary guard (it
+        // never lets a bad timeout reach here); this is defence-in-depth
+        // for direct `from_path` calls.
+        let to_duration = |seconds: Option<f64>, name: &str| match seconds {
+            None => Ok(None),
+            Some(secs) if secs.is_finite() && secs > 0.0 => Ok(Some(Duration::from_secs_f64(secs))),
+            Some(secs) => Err(MagnusError::new(
+                ruby.exception_arg_error(),
+                format!("{name} must be > 0 and finite, got {secs} seconds"),
+            )),
         };
+        let timeout = to_duration(timeout_seconds, "timeout")?;
+        let setup_timeout = to_duration(setup_timeout_seconds, "setup_timeout")?;
         // Fail closed on an off-ladder rung: an unrecognized posture must
         // never fall back to a weaker posture. Same defence in depth as the
         // timeout guard above — `SandboxOptions` is the primary validator.
@@ -244,6 +247,7 @@ impl Runtime {
             Path::new(&path),
             Config {
                 timeout,
+                setup_timeout,
                 memory_limit,
                 stdout_limit,
                 stderr_limit,

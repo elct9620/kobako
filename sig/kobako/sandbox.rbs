@@ -7,6 +7,7 @@ module Kobako
 
     # Forwarded to @options via Forwardable#def_delegators.
     def timeout: () -> Float?
+    def setup_timeout: () -> Float?
     def memory_limit: () -> Integer?
     def stdout_limit: () -> Integer?
     def stderr_limit: () -> Integer?
