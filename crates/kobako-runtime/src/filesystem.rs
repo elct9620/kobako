@@ -192,6 +192,8 @@ pub enum FilesystemError {
     Unsupported,
     /// A change past what the Filesystem can hold.
     StorageFull,
+    /// A file grown past the largest the Filesystem keeps.
+    FileTooLarge,
     /// A move that cannot happen in one step, as between two devices.
     CrossesDevices,
     /// A call that would wait on a lock its own thread holds.
@@ -221,7 +223,7 @@ pub enum FilesystemError {
 /// Each failure under the POSIX error name it stands for. `ENOTSUP` comes
 /// before `EOPNOTSUPP`, a name some hosts give the same error, so
 /// `Unsupported` answers to the first.
-const POSIX_NAMES: [(&str, FilesystemError); 25] = [
+const POSIX_NAMES: [(&str, FilesystemError); 26] = [
     ("ENOENT", FilesystemError::NotFound),
     ("EEXIST", FilesystemError::AlreadyExists),
     ("ENOTDIR", FilesystemError::NotADirectory),
@@ -233,6 +235,7 @@ const POSIX_NAMES: [(&str, FilesystemError); 25] = [
     ("ENOTSUP", FilesystemError::Unsupported),
     ("EOPNOTSUPP", FilesystemError::Unsupported),
     ("ENOSPC", FilesystemError::StorageFull),
+    ("EFBIG", FilesystemError::FileTooLarge),
     ("EXDEV", FilesystemError::CrossesDevices),
     ("EDEADLK", FilesystemError::Deadlock),
     ("ELOOP", FilesystemError::FilesystemLoop),

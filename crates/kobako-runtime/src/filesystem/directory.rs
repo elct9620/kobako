@@ -53,6 +53,7 @@ fn to_error(err: io::Error) -> FilesystemError {
         io::ErrorKind::InvalidInput => FilesystemError::InvalidInput,
         io::ErrorKind::Unsupported => FilesystemError::Unsupported,
         io::ErrorKind::StorageFull => FilesystemError::StorageFull,
+        io::ErrorKind::FileTooLarge => FilesystemError::FileTooLarge,
         io::ErrorKind::CrossesDevices => FilesystemError::CrossesDevices,
         io::ErrorKind::Deadlock => FilesystemError::Deadlock,
         io::ErrorKind::ResourceBusy => FilesystemError::ResourceBusy,
@@ -358,6 +359,30 @@ mod tests {
             Err(FilesystemError::InvalidFilename),
             "a name past the host's limit created through Directory::open must fail as \
              InvalidFilename, not as an unnamed failure"
+        );
+    }
+
+    // A write ending past `i64::MAX` is past every host's largest file.
+    // @behavior FS-068
+    #[test]
+    fn a_directory_answers_a_write_past_the_largest_host_file_as_too_large() {
+        let host = HostDir::new("too-large");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        let mut file = directory
+            .open(
+                "big",
+                &OpenOptions {
+                    write: true,
+                    create: true,
+                    ..OpenOptions::default()
+                },
+            )
+            .expect("the host file must be created");
+        assert_eq!(
+            file.write_at(b"xx", i64::MAX as u64 - 1),
+            Err(FilesystemError::FileTooLarge),
+            "a write past the largest host file through Directory's write_at must fail as \
+             FileTooLarge, not as an unnamed failure"
         );
     }
 

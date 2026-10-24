@@ -228,6 +228,7 @@ mod tests {
             (FilesystemError::InvalidInput, 28),
             (FilesystemError::Unsupported, 58),
             (FilesystemError::StorageFull, 51),
+            (FilesystemError::FileTooLarge, 22),
             (FilesystemError::CrossesDevices, 75),
             (FilesystemError::Deadlock, 16),
             (FilesystemError::FilesystemLoop, 32),
