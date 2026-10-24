@@ -23,6 +23,7 @@ pub fn bundled_driver() -> Option<Driver> {
             Path::new(WASM),
             Config {
                 timeout: Some(Duration::from_secs(10)),
+                setup_timeout: Some(Duration::from_secs(10)),
                 memory_limit: None,
                 stdout_limit: None,
                 stderr_limit: None,

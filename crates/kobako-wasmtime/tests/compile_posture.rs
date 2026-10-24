@@ -21,6 +21,7 @@ fn a_compile_reads_no_host_time_or_entropy_under_a_permissive_request() {
         Path::new(FIXTURE),
         Config {
             timeout: None,
+            setup_timeout: None,
             memory_limit: None,
             stdout_limit: None,
             stderr_limit: None,

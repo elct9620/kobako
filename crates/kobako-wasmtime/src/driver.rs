@@ -9,7 +9,6 @@
 
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
 
 use wasmtime::{
     AsContextMut, InstancePre as WtInstancePre, ResourceLimiter, Store as WtStore, TypedFunc,
@@ -47,7 +46,7 @@ impl Driver {
     /// neither leaves the driver.
     pub fn new(path: &Path, config: Config) -> Result<Self, SetupError> {
         Ok(Self {
-            instance_pre: instance_pre::cached_instance_pre(path)?,
+            instance_pre: instance_pre::cached_instance_pre(path, config.setup_timeout)?,
             config,
         })
     }
@@ -61,19 +60,7 @@ impl Driver {
             Invocation::new(self.config.memory_limit, wasi),
         );
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
-        store.epoch_deadline_callback(trap::epoch_deadline_callback);
-        match self.config.timeout {
-            Some(timeout) => {
-                store
-                    .data_mut()
-                    .set_deadline(Some(Instant::now() + timeout));
-                store.set_epoch_deadline(1);
-            }
-            None => {
-                store.data_mut().set_deadline(None);
-                store.set_epoch_deadline(trap::NO_TIMEOUT_EPOCH_DELTA);
-            }
-        }
+        trap::arm_deadline(&mut store, self.config.timeout);
         store.data_mut().start_wall_clock();
         Ok(store)
     }

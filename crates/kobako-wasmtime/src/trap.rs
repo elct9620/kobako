@@ -7,9 +7,9 @@
 //! pure function over the error's downcast chain so it can be exercised
 //! from `cargo test` without any frontend.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use wasmtime::{StoreContextMut, UpdateDeadline};
+use wasmtime::{Store, StoreContextMut, UpdateDeadline};
 
 use crate::invocation::Invocation;
 use crate::limiter::MemoryLimitTrap;
@@ -57,6 +57,21 @@ pub(crate) fn to_trap(err: wasmtime::Error) -> Trap {
     cap_trap(&err).unwrap_or_else(|| Trap::Other(other_trap_message(&err)))
 }
 
+/// Arm a Store's wall-clock deadline `limit` from now, or none. Epoch
+/// interruption is on engine-wide and a fresh Store's deadline has already
+/// elapsed, so an unbounded Store names one it cannot reach.
+pub(crate) fn arm_deadline(store: &mut Store<Invocation>, limit: Option<Duration>) {
+    store.epoch_deadline_callback(epoch_deadline_callback);
+    store
+        .data_mut()
+        .set_deadline(limit.map(|limit| Instant::now() + limit));
+    store.set_epoch_deadline(if limit.is_some() {
+        1
+    } else {
+        NO_TIMEOUT_EPOCH_DELTA
+    });
+}
+
 /// The cap trap `err` carries, if a cap fired: a setup step that fails
 /// for any other reason words its own message instead.
 pub(crate) fn cap_trap(err: &wasmtime::Error) -> Option<Trap> {
@@ -81,9 +96,10 @@ fn other_trap_message(err: &wasmtime::Error) -> String {
     }
 }
 
-/// The template is built before any invocation, so neither cap can fire:
-/// the memory cap is not yet armed and the probe Store's epoch deadline is
-/// out of reach. Every failure here is a setup fault, not a trap.
+/// The template is built before any invocation, so no invocation cap can
+/// fire: the memory cap is not yet armed, and the probe's own setup
+/// deadline is told apart where it fires. Every failure here is a setup
+/// fault, not a trap.
 pub(crate) fn instantiate_err(err: wasmtime::Error) -> SetupError {
     SetupError::Dead(format!("instantiate: {err}"))
 }

@@ -241,6 +241,7 @@ fn through_kobako(call: &str, fd: i32, limit: Option<usize>) -> Observation {
     let engine = shared_engine().expect("shared engine must be constructible");
     let config = Config {
         timeout: None,
+        setup_timeout: None,
         memory_limit: None,
         stdout_limit: limit,
         stderr_limit: limit,

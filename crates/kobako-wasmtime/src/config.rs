@@ -21,6 +21,9 @@ pub struct Config {
     /// Wall-clock cap for one guest `#eval` / `#run`; the invocation traps
     /// once it passes.
     pub timeout: Option<Duration>,
+    /// Wall-clock cap for setting the Guest Binary up the first time its
+    /// path is loaded; past it, construction fails.
+    pub setup_timeout: Option<Duration>,
     /// Guest linear-memory cap, in bytes, charged to what one invocation
     /// grows beyond the image it starts from.
     pub memory_limit: Option<usize>,

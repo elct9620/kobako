@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use wasmtime::InstancePre;
 
@@ -23,7 +24,12 @@ use kobako_runtime::error::SetupError;
 static INSTANCE_PRE_CACHE: OnceLock<Mutex<HashMap<PathBuf, InstancePre<Invocation>>>> =
     OnceLock::new();
 
-pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>, SetupError> {
+/// The probe runs only on the first load of a path, so only that load's
+/// `setup_timeout` bounds it; a path already verified is not set up again.
+pub(crate) fn cached_instance_pre(
+    path: &Path,
+    setup_timeout: Option<Duration>,
+) -> Result<InstancePre<Invocation>, SetupError> {
     let cache = INSTANCE_PRE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
     if let Some(pre) = cache
@@ -42,7 +48,7 @@ pub(crate) fn cached_instance_pre(path: &Path) -> Result<InstancePre<Invocation>
         .map_err(trap::instantiate_err)?;
     // Verify before the insert, so a rejected artifact is never
     // remembered as a usable template.
-    abi::verify(&pre)?;
+    abi::verify(&pre, setup_timeout)?;
     cache
         .lock()
         .expect("instance_pre cache mutex poisoned")

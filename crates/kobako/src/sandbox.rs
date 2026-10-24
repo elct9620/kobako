@@ -47,6 +47,9 @@ use kobako_runtime::mount::{Mount, Policy};
 pub struct Options {
     /// Wall-clock cap for one invocation.
     pub timeout: Option<Duration>,
+    /// Wall-clock cap for setting the Guest Binary up the first time its
+    /// path is loaded; past it, construction fails.
+    pub setup_timeout: Option<Duration>,
     /// Guest linear-memory cap, in bytes.
     pub memory_limit: Option<usize>,
     /// Captured-stdout cap, in bytes.
@@ -62,12 +65,14 @@ pub struct Options {
 }
 
 impl Default for Options {
-    /// Secure by default: a 60-second deadline, 4 MiB for memory, 1 MiB
-    /// for each output channel, 1024 open files, and the hermetic floor —
-    /// the same defaults the Ruby frontend applies.
+    /// Secure by default: a 60-second deadline, 10 seconds to set the
+    /// Guest Binary up, 4 MiB for memory, 1 MiB for each output channel,
+    /// 1024 open files, and the hermetic floor — the same defaults the
+    /// Ruby frontend applies.
     fn default() -> Self {
         Options {
             timeout: Some(Duration::from_secs(60)),
+            setup_timeout: Some(Duration::from_secs(10)),
             memory_limit: Some(4 << 20),
             stdout_limit: Some(1 << 20),
             stderr_limit: Some(1 << 20),
@@ -154,6 +159,7 @@ impl Sandbox {
     pub fn new(wasm_path: impl AsRef<Path>, options: Options) -> Result<Self, Error> {
         let config = Config {
             timeout: options.timeout,
+            setup_timeout: options.setup_timeout,
             memory_limit: options.memory_limit,
             stdout_limit: options.stdout_limit,
             stderr_limit: options.stderr_limit,
@@ -588,11 +594,12 @@ mod tests {
 
     // Pins the literal values rather than a shared constant, so a drift
     // from the Ruby frontend's defaults in either direction fails here.
-    // @behavior S-004 S-203
+    // @behavior S-004 S-203 S-205
     #[test]
     fn absent_caps_take_their_spec_defaults() {
         let options = Options::default();
         assert_eq!(options.timeout, Some(Duration::from_secs(60)));
+        assert_eq!(options.setup_timeout, Some(Duration::from_secs(10)));
         assert_eq!(options.memory_limit, Some(4 * 1024 * 1024));
         assert_eq!(options.stdout_limit, Some(1 << 20));
         assert_eq!(options.stderr_limit, Some(1 << 20));

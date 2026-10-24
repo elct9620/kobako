@@ -350,6 +350,7 @@ fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
     let engine = shared_engine().expect("shared engine must be constructible");
     let config = Config {
         timeout: None,
+        setup_timeout: None,
         memory_limit: None,
         stdout_limit: None,
         stderr_limit: None,

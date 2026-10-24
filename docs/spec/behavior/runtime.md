@@ -46,6 +46,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `test/parity/test_hermetic.rb`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/cache.rs`
+- `crates/kobako-wasmtime/src/abi.rs`
 - `crates/kobako-wasmtime/src/wasi.rs`
 - `crates/kobako-wasmtime/src/preview1/poll.rs`
 - `crates/kobako-wasmtime/src/preview1/mount_view.rs`
