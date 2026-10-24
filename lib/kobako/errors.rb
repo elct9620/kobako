@@ -73,7 +73,8 @@ module Kobako
   # same on purpose, so a target discloses nothing about what it defines.
   class NoServiceError < ServiceError; end
 
-  # The call reached the Service method with arguments that did not fit.
+  # The Service method refused its arguments: the call would not bind, or
+  # the method raised +ArgumentError+ over what it was given.
   class ServiceArgumentError < ServiceError; end
 
   # Raised at a Service's +yield+ when the guest block raised; rescue it as

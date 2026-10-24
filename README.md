@@ -286,7 +286,7 @@ Each of these carries the failed run's Execution on `#execution`. A rescue reads
 | `Kobako::TimeoutError`          | `TrapError`    | Per-invocation `timeout` exhausted                   |
 | `Kobako::MemoryLimitError`      | `TrapError`    | Per-invocation `memory_limit` exhausted              |
 | `Kobako::NoServiceError`        | `ServiceError` | Nothing bound there, a dead Handle, or a method the guest may not call |
-| `Kobako::ServiceArgumentError`  | `ServiceError` | The arguments did not fit the Service method         |
+| `Kobako::ServiceArgumentError`  | `ServiceError` | The call would not bind, or the Service raised `ArgumentError` |
 | `Kobako::HandleExhaustedError` | `SandboxError` | Handle counter reached its 2³¹ − 1 cap               |
 | `Kobako::BytecodeError`         | `SandboxError` | `#preload(binary:)` failed RITE validation at replay |
 | `Kobako::UnsupportedFlagError`  | `SandboxError` | The Guest Binary does not recognise a critical `#flag`; no script ran |
