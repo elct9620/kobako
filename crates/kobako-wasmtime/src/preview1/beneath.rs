@@ -1,7 +1,7 @@
 //! Resolving a guest path beneath a directory descriptor.
 //!
-//! The runtime is the boundary: a path never climbs above its Mount's
-//! root, and the Mount is asked what the guest may do there before the
+//! The runtime is the boundary: a path never climbs above the directory
+//! descriptor it is resolved beneath, as a capability never widens, and the Mount is asked what the guest may do there before the
 //! Filesystem is, so a Filesystem of a third party's need check neither.
 //! A `..` steps out of what the Filesystem holds rather than out of the
 //! path's text, as a host resolves it, so `missing/..` names nothing.
@@ -42,7 +42,7 @@ impl ResolvedPath {
 }
 
 /// `path`, beneath `dir`. An empty path names nothing; an absolute path or
-/// a `..` above the root is not the guest's to reach; a `..` or a final `.`
+/// a `..` above `dir` itself is not the guest's to reach; a `..` or a final `.`
 /// after a component that is missing or no directory is `NOENT` or
 /// `NOTDIR`. A
 /// name past `NAME_MAX`, or a resolved path the Filesystem could not be
@@ -62,10 +62,11 @@ pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
         match component {
             "" | "." => {}
             ".." => {
-                if components.len() > opened {
-                    step_out_of(dir.mount.filesystem().as_ref(), &components.join("/"))?;
+                if components.len() <= opened {
+                    return Err(Errno::Notcapable.into());
                 }
-                components.pop().ok_or(Errno::Notcapable)?;
+                step_out_of(dir.mount.filesystem().as_ref(), &components.join("/"))?;
+                components.pop();
             }
             component if component.len() > NAME_MAX => return Err(Errno::Nametoolong.into()),
             component => components.push(component),

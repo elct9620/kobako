@@ -164,7 +164,15 @@ const PROBE_WAT: &str = r#"
   ;; Open `path` for reading, following a link standing at its end.
   (func (export "open_following") (param $path i32) (param $len i32) (result i32)
     (call $open (i32.const 3) (i32.const 1) (local.get $path) (local.get $len)
-      (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 128))))
+      (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 128)))
+  ;; Open `dir` as a directory, then the path beneath that descriptor.
+  (func (export "open_beneath_dir") (param $path i32) (param $len i32) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open (i32.const 3) (i32.const 0) (i32.const 930) (i32.const 3)
+      (i32.const 2) (i64.const 0) (i64.const 2) (i32.const 0) (i32.const 128)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $open (i32.load (i32.const 128)) (i32.const 0) (local.get $path) (local.get $len)
+      (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 132))))
 "#;
 
 const FILE: (i32, i32) = (700, 8);
@@ -453,6 +461,23 @@ fn a_path_above_a_mounts_root_is_refused() {
         guest.call("read_file", ABOVE_ROOT),
         ERRNO_NOTCAPABLE,
         "a path climbing above a Mount's root through preview1 must answer ENOTCAPABLE"
+    );
+}
+
+// A descriptor confines the guest to what lies beneath it, as cap-std
+// confines wasmtime-wasi's, even where its Mount reaches further.
+// @behavior RT-115
+#[test]
+fn a_path_above_the_directory_it_is_opened_beneath_is_refused() {
+    let memory: Memory = [("file.txt", "granted"), ("dir/inner.txt", "beneath")]
+        .into_iter()
+        .collect();
+    let mut guest = Guest::new(&[grant(Arc::new(memory), Access::Read, None)]);
+    assert_eq!(
+        guest.call("open_beneath_dir", ABOVE_ROOT),
+        ERRNO_NOTCAPABLE,
+        "a path climbing above a non-preopened directory descriptor through preview1 must answer \
+         ENOTCAPABLE, as wasmtime-wasi does"
     );
 }
 
