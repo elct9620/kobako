@@ -10,6 +10,7 @@ use kobako_runtime::profile::Profile;
 /// engine unremovable, and the SDK holds itself to an engine a host can
 /// take out.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Options {
     /// Wall-clock cap for one invocation.
     pub timeout: Option<Duration>,

@@ -14,10 +14,8 @@ const FIXTURE: &str = concat!(
 );
 
 fn answer_under(memory_limit: usize) -> Result<Value, Error> {
-    let options = Options {
-        memory_limit: Some(memory_limit),
-        ..Options::default()
-    };
+    let mut options = Options::default();
+    options.memory_limit = Some(memory_limit);
     let sandbox = Sandbox::new(FIXTURE, options).expect("the fixture must load");
     sandbox.eval("")?.value()
 }

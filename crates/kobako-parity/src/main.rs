@@ -266,14 +266,12 @@ fn build_backend_stub(methods: &Json) -> Result<StubReceiver, String> {
 }
 
 fn parse_options(options: &Json) -> Result<Options, String> {
-    let mut parsed = Options {
-        timeout: options["timeout_ms"].as_u64().map(Duration::from_millis),
-        memory_limit: options["memory_limit"].as_u64().map(|n| n as usize),
-        stdout_limit: options["stdout_limit"].as_u64().map(|n| n as usize),
-        stderr_limit: options["stderr_limit"].as_u64().map(|n| n as usize),
-        open_file_limit: options["open_file_limit"].as_u64().map(|n| n as usize),
-        ..Options::default()
-    };
+    let mut parsed = Options::default();
+    parsed.timeout = options["timeout_ms"].as_u64().map(Duration::from_millis);
+    parsed.memory_limit = options["memory_limit"].as_u64().map(|n| n as usize);
+    parsed.stdout_limit = options["stdout_limit"].as_u64().map(|n| n as usize);
+    parsed.stderr_limit = options["stderr_limit"].as_u64().map(|n| n as usize);
+    parsed.open_file_limit = options["open_file_limit"].as_u64().map(|n| n as usize);
     if let Some(profile) = options["profile"].as_str() {
         parsed.profile = match profile {
             "hermetic" => Profile::Hermetic,
