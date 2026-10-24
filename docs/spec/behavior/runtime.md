@@ -1183,3 +1183,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a Mount holding a file |
 | When | the guest reads, writes, or sizes the file past the largest signed 64-bit offset |
 | Then | the call answers EINVAL, whichever Filesystem holds the file |
+
+## `RT-117` A directory made in an opened directory's place is not reached through it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-115` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount |
+| When | another directory comes to stand at that directory's path |
+| Then | each call through the descriptor answers ENOENT |
+
+## `RT-118` A directory moved back to its path is reached through its descriptor again
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-117` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount |
+| When | the directory moves away and back to its path |
+| Then | a call through the descriptor reaches the directory |

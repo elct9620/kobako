@@ -863,3 +863,39 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Directory file open through two handles |
 | When | both handles append at the same time |
 | Then | every append keeps its bytes, and none lands over another |
+
+## `FS-070` A Memory gives each directory it makes an identity of its own
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-117` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory holding a directory |
+| When | the directory moves, and another is made at its old path |
+| Then | the moved directory keeps its identity, and the new one has another |
+
+## `FS-071` A Directory reports the identity its host gives a path
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-117` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory over a host directory |
+| When | a path beneath it is asked for its metadata |
+| Then | the metadata carries the device and inode numbers the host reports |
+
+## `FS-072` An Overlay keeps a directory's identity when a write copies it up
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-117` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose directory stands only in a read-only Layer |
+| When | a file is made inside it, copying the directory up |
+| Then | the directory keeps the identity it had before |

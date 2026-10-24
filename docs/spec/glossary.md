@@ -343,3 +343,13 @@ One Filesystem stacked in an Overlay, read-only or writable on its own. An upper
 ```
 Overlay -> Layer (writable) -> Layer (read-only) -> ...
 ```
+
+### Identity
+
+The device and inode numbers a Filesystem reports for what a path holds, as `st_dev` and `st_ino` do. A directory keeps its identity when it moves, and a directory made in its place has another. An inode number of zero reports none.
+
+```
+open a directory -> remember its identity
+later call       -> same identity at its path ─┬─ yes -> proceeds
+                                                └─ no  -> ENOENT
+```

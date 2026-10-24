@@ -222,3 +222,16 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem whose `open` raises `Errno::EAGAIN` |
 | When | the script opens a file |
 | Then | the open raises `Errno::EIO` |
+
+## `RF-017` A Ruby Filesystem's stat names an identity
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-005` |
+| relates | `RT-117` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `stat` answers `directory?` and `size` but no `ino` |
+| When | the script reads a file |
+| Then | the read raises `Errno::EIO` |
