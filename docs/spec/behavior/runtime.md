@@ -1134,3 +1134,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Guest Binary whose start function never returns |
 | When | a Sandbox is built over it under a setup deadline |
 | Then | it fails as a construction failure once that deadline passes |
+
+## `RT-113` Two stores of one artifact never write the same file
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-035`, `RT-039` |
+
+| Step | Statement |
+| --- | --- |
+| Given | two writers in one process storing the same compiled artifact |
+| When | each takes a temporary file to write into |
+| Then | each holds a file of its own |
