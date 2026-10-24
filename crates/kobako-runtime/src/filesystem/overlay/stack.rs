@@ -279,6 +279,19 @@ impl Stack {
             .ok_or(FilesystemError::ReadOnlyFilesystem)
     }
 
+    /// Refuse as read-only a change landing at `path` in Layer `into` that
+    /// a read-only Layer above it would cover, holding or hiding `path`, so
+    /// no change succeeds out of sight.
+    fn refuse_covered(&self, path: &str, into: usize) -> Result<(), FilesystemError> {
+        if self.layers[..into]
+            .iter()
+            .any(|layer| layer.holds(path) || layer.hides(path))
+        {
+            return Err(FilesystemError::ReadOnlyFilesystem);
+        }
+        Ok(())
+    }
+
     /// Create in Layer `into` each directory above `path` that so far shows
     /// only from another Layer. A Layer holds no link it was not handed, so
     /// a change reaching through a link another Layer holds is refused as
@@ -448,6 +461,7 @@ impl Stack {
             Some(_) => Err(FilesystemError::CrossesDevices),
             None => {
                 let upper = self.upper()?;
+                self.refuse_covered(path, upper)?;
                 self.copy_up_directories(path, upper)?;
                 let file = self.layers[upper].filesystem.open(path, options)?;
                 self.unhide(path, upper)?;
@@ -551,6 +565,7 @@ impl Stack {
             return Err(FilesystemError::AlreadyExists);
         }
         let upper = self.upper()?;
+        self.refuse_covered(path, upper)?;
         self.copy_up_directories(path, upper)?;
         let layer = &self.layers[upper];
         let hid = layer.holds(&whiteout(path));
@@ -639,6 +654,7 @@ impl Stack {
             _ => {}
         }
         let upper = self.upper()?;
+        self.refuse_covered(to, upper)?;
         let replaces_below = moving.file_type == FileType::Directory
             && self
                 .layers

@@ -1002,6 +1002,63 @@ mod tests {
         );
     }
 
+    // The writable Layer sits between two read-only ones, so a rename
+    // landing in it beneath the top Layer's `to` would vanish from view.
+    // @behavior FS-076
+    #[test]
+    fn a_rename_a_read_only_layer_above_would_cover_is_refused() {
+        let overlay = Overlay::new()
+            .layer(memory_with("to", "top"), Access::Read)
+            .layer(Arc::new(Memory::new()), Access::ReadWrite)
+            .layer(memory_with("from", "moved"), Access::Read);
+        assert_eq!(
+            (
+                overlay.rename("from", "to", Rename::Any),
+                read(&overlay, "from"),
+                read(&overlay, "to")
+            ),
+            (
+                Err(FilesystemError::ReadOnlyFilesystem),
+                b"moved".to_vec(),
+                b"top".to_vec()
+            ),
+            "a file renamed through Overlay::rename onto a name a read-only Layer above the \
+             writable one holds must be refused as read-only and move nothing"
+        );
+    }
+
+    // @behavior FS-077
+    #[test]
+    fn a_name_a_read_only_layer_above_hides_is_not_made() {
+        let upper = Arc::new(Memory::new());
+        let overlay = Overlay::new()
+            .layer(
+                Arc::new(
+                    [(".wh.file", ""), (".wh.dir", "")]
+                        .into_iter()
+                        .collect::<Memory>(),
+                ),
+                Access::Read,
+            )
+            .layer(upper.clone(), Access::ReadWrite);
+        assert_eq!(
+            (
+                write(&overlay, "file", b"new"),
+                overlay.create_dir("dir"),
+                upper.metadata("file").err(),
+                upper.metadata("dir").err()
+            ),
+            (
+                Err(FilesystemError::ReadOnlyFilesystem),
+                Err(FilesystemError::ReadOnlyFilesystem),
+                Some(FilesystemError::NotFound),
+                Some(FilesystemError::NotFound)
+            ),
+            "a file and a directory made through an Overlay where a read-only Layer above the \
+             writable one holds their whiteouts must be refused as read-only and not made"
+        );
+    }
+
     // @behavior FS-043
     #[test]
     fn a_directory_a_lower_layer_holds_does_not_move_through_an_overlay() {
