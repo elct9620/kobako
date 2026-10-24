@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "delegate"
+require "forwardable"
 
 # The default Exposure is drawn around authorship: an object without a
 # narrowing predicate of its own exposes what its own class and the object
@@ -122,5 +123,20 @@ class TestExposure < Minitest::Test
     assert exposure.exposes?(:tag), "a singleton method through a cached class surface must still be exposed"
     refute Kobako::Transport::Exposure.of(Store.new, surfaces).exposes?(:tag),
            "a singleton method through a cached class surface must not leak to a sibling object"
+  end
+
+  # Forwardable writes its delegators in Ruby inside Ruby's own library, so
+  # where a definition lives must not count against it.
+  # @behavior T-129
+  def test_a_method_forwardable_defines_for_the_class_is_exposed
+    shelf = Class.new do
+      extend Forwardable
+
+      def_delegators :@items, :size
+      def initialize = @items = [1, 2]
+    end
+
+    assert exposes?(shelf.new, :size),
+           "a delegator Forwardable defines on the class through Exposure.of must be exposed"
   end
 end
