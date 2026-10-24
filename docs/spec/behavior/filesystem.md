@@ -851,3 +851,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Directory over a host directory |
 | When | the host refuses a write because the file would grow too large |
 | Then | the write fails as a file too large, not as an unnamed failure |
+
+## `FS-069` A Directory appends at its host file's end in one step
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-036`, `RT-095` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory file open through two handles |
+| When | both handles append at the same time |
+| Then | every append keeps its bytes, and none lands over another |
