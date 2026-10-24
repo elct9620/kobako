@@ -221,7 +221,7 @@ impl File for NoteFile {
     }
 
     fn write_at(&mut self, _buf: &[u8], _offset: u64) -> Result<usize, FilesystemError> {
-        Err(FilesystemError::ReadOnly)
+        Err(FilesystemError::ReadOnlyFilesystem)
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
@@ -232,7 +232,7 @@ impl File for NoteFile {
     }
 
     fn set_len(&mut self, _len: u64) -> Result<(), FilesystemError> {
-        Err(FilesystemError::ReadOnly)
+        Err(FilesystemError::ReadOnlyFilesystem)
     }
 }
 
@@ -263,19 +263,19 @@ impl Filesystem for OneNote {
     }
 
     fn create_dir(&self, _path: &str) -> Result<(), FilesystemError> {
-        Err(FilesystemError::ReadOnly)
+        Err(FilesystemError::ReadOnlyFilesystem)
     }
 
     fn remove_dir(&self, _path: &str) -> Result<(), FilesystemError> {
-        Err(FilesystemError::ReadOnly)
+        Err(FilesystemError::ReadOnlyFilesystem)
     }
 
     fn remove_file(&self, _path: &str) -> Result<(), FilesystemError> {
-        Err(FilesystemError::ReadOnly)
+        Err(FilesystemError::ReadOnlyFilesystem)
     }
 
     fn rename(&self, _from: &str, _to: &str, _rename: Rename) -> Result<(), FilesystemError> {
-        Err(FilesystemError::ReadOnly)
+        Err(FilesystemError::ReadOnlyFilesystem)
     }
 }
 

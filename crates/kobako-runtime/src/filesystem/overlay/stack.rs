@@ -275,7 +275,7 @@ impl Stack {
         self.layers
             .iter()
             .position(Layer::writable)
-            .ok_or(FilesystemError::ReadOnly)
+            .ok_or(FilesystemError::ReadOnlyFilesystem)
     }
 
     /// Create in Layer `into` each directory above `path` that so far shows
@@ -364,7 +364,7 @@ impl Stack {
         match read_only.into_iter().chain(shadowed).min() {
             Some(shown) => match self.upper()? {
                 upper if upper < shown => Ok(Some(upper)),
-                _ => Err(FilesystemError::ReadOnly),
+                _ => Err(FilesystemError::ReadOnlyFilesystem),
             },
             None => Ok(None),
         }
@@ -414,7 +414,7 @@ impl Stack {
                 let into = self.layers[..index]
                     .iter()
                     .rposition(Layer::writable)
-                    .ok_or(FilesystemError::ReadOnly)?;
+                    .ok_or(FilesystemError::ReadOnlyFilesystem)?;
                 self.copy_up_file(path, index, into)?;
                 self.layers[into].filesystem.open(path, options)
             }

@@ -72,7 +72,7 @@ impl Budget {
                 used.checked_add(amount).filter(|&total| total <= limit)
             })
             .map(drop)
-            .map_err(|_| FilesystemError::NoSpace)
+            .map_err(|_| FilesystemError::StorageFull)
     }
 
     /// Count `amount` more without refusing, for what the Host App seeds.
@@ -121,7 +121,7 @@ impl Content {
         self.space.bytes.take(growth)?;
         if self.bytes.try_reserve_exact(growth).is_err() {
             self.space.bytes.give(growth);
-            return Err(FilesystemError::NoSpace);
+            return Err(FilesystemError::StorageFull);
         }
         self.space.bytes.give(self.bytes.len().saturating_sub(len));
         self.bytes.resize(len, 0);
@@ -666,9 +666,9 @@ mod tests {
                 writable(&memory, "file").write_at(b"four", 1),
                 read_all(&memory, "file")
             ),
-            (Err(FilesystemError::NoSpace), b"x".to_vec()),
+            (Err(FilesystemError::StorageFull), b"x".to_vec()),
             "a write growing a Memory's files past its limit through MemoryFile::write_at must \
-             answer NoSpace and leave the file as it was"
+             answer StorageFull and leave the file as it was"
         );
     }
 
@@ -680,7 +680,7 @@ mod tests {
         let mib_64 = 64 * 1024 * 1024;
         assert_eq!(
             (file.set_len(mib_64), file.set_len(mib_64 + 1)),
-            (Ok(()), Err(FilesystemError::NoSpace)),
+            (Ok(()), Err(FilesystemError::StorageFull)),
             "a Memory given no limit through Memory::new must hold 64 MiB and refuse a byte more"
         );
     }
@@ -727,12 +727,12 @@ mod tests {
                 read_all(&memory, "file")
             ),
             (
-                Err(FilesystemError::NoSpace),
-                Err(FilesystemError::NoSpace),
+                Err(FilesystemError::StorageFull),
+                Err(FilesystemError::StorageFull),
                 b"x".to_vec()
             ),
             "a length no allocator can hand out through MemoryFile::set_len and write_at must \
-             answer NoSpace rather than abort"
+             answer StorageFull rather than abort"
         );
     }
 
@@ -773,8 +773,8 @@ mod tests {
             (
                 Ok(()),
                 Ok(()),
-                Err(FilesystemError::NoSpace),
-                Err(FilesystemError::NoSpace)
+                Err(FilesystemError::StorageFull),
+                Err(FilesystemError::StorageFull)
             ),
             "a Memory given inodes through Memory::with_inodes must refuse a file or directory \
              past them, the root counted, as out of space"
@@ -791,7 +791,7 @@ mod tests {
                 create(&memory, "b"),
                 create(&memory, "c")
             ),
-            (Ok(()), Ok(()), Err(FilesystemError::NoSpace)),
+            (Ok(()), Ok(()), Err(FilesystemError::StorageFull)),
             "a Memory given only a limit through Memory::with_limit must hold one entry for each \
              4 KiB of it and the root"
         );
@@ -876,7 +876,7 @@ mod tests {
         drop(handle);
         assert_eq!(
             (while_open, create(&memory, "second")),
-            (Err(FilesystemError::NoSpace), Ok(())),
+            (Err(FilesystemError::StorageFull), Ok(())),
             "the inode of a file removed through Memory::remove_file must stay taken while a \
              handle holds it, and be free once it closes"
         );

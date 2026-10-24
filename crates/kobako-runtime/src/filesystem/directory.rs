@@ -49,10 +49,10 @@ fn to_error(err: io::Error) -> FilesystemError {
         io::ErrorKind::IsADirectory => FilesystemError::IsADirectory,
         io::ErrorKind::DirectoryNotEmpty => FilesystemError::DirectoryNotEmpty,
         io::ErrorKind::PermissionDenied => FilesystemError::PermissionDenied,
-        io::ErrorKind::ReadOnlyFilesystem => FilesystemError::ReadOnly,
+        io::ErrorKind::ReadOnlyFilesystem => FilesystemError::ReadOnlyFilesystem,
         io::ErrorKind::InvalidInput => FilesystemError::InvalidInput,
         io::ErrorKind::Unsupported => FilesystemError::Unsupported,
-        io::ErrorKind::StorageFull => FilesystemError::NoSpace,
+        io::ErrorKind::StorageFull => FilesystemError::StorageFull,
         io::ErrorKind::CrossesDevices => FilesystemError::CrossesDevices,
         io::ErrorKind::Deadlock => FilesystemError::Deadlock,
         io::ErrorKind::ResourceBusy => FilesystemError::ResourceBusy,
@@ -120,7 +120,7 @@ impl Filesystem for Directory {
                 .symlink_metadata(to_host_path(path)?)
                 .is_ok_and(|metadata| metadata.is_symlink())
         {
-            return Err(FilesystemError::SymbolicLink);
+            return Err(FilesystemError::FilesystemLoop);
         }
         let file = self
             .dir
@@ -433,7 +433,7 @@ mod tests {
         };
         assert_eq!(
             (open(true), open(false)),
-            (Err(FilesystemError::SymbolicLink), Ok(())),
+            (Err(FilesystemError::FilesystemLoop), Ok(())),
             "a host link opened through a Directory must be refused when the open asks to follow \
              none, and reached when it does not"
         );

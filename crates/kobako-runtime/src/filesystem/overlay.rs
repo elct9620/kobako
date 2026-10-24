@@ -686,7 +686,7 @@ mod tests {
         let overlay = Overlay::new().layer(memory_with("dir/file", "lower"), Access::Read);
         assert_eq!(
             write(&overlay, "dir/file", b"x"),
-            Err(FilesystemError::ReadOnly),
+            Err(FilesystemError::ReadOnlyFilesystem),
             "a file written through an Overlay of read-only Layers must be refused as read-only"
         );
     }
@@ -895,7 +895,7 @@ mod tests {
         let (overlay, _) = full_over_lower(&[("dir/file", "upper")], 3);
         assert_eq!(
             (overlay.remove_file("dir/file"), read(&overlay, "dir/file")),
-            (Err(FilesystemError::NoSpace), b"upper".to_vec()),
+            (Err(FilesystemError::StorageFull), b"upper".to_vec()),
             "a file removed through Overlay::remove_file whose whiteout finds no room must stay as \
              it was"
         );
@@ -912,7 +912,7 @@ mod tests {
                 upper.metadata("dir")
             ),
             (
-                Err(FilesystemError::NoSpace),
+                Err(FilesystemError::StorageFull),
                 Err(FilesystemError::NotFound),
                 Err(FilesystemError::NotFound)
             ),
@@ -934,7 +934,7 @@ mod tests {
                 read(&overlay, "dir/file")
             ),
             (
-                Err(FilesystemError::NoSpace),
+                Err(FilesystemError::StorageFull),
                 Err(FilesystemError::NotFound),
                 b"lower".to_vec()
             ),
@@ -1029,7 +1029,7 @@ mod tests {
                 read(&overlay, "dir/file")
             ),
             (
-                Err(FilesystemError::NoSpace),
+                Err(FilesystemError::StorageFull),
                 Err(FilesystemError::NotFound),
                 b"lower".to_vec()
             ),

@@ -113,9 +113,9 @@ mod tests {
             .expect("a Temporary must hand the next Invocation a Filesystem of its own");
         assert_eq!(
             next.create_dir("dir"),
-            Err(FilesystemError::NoSpace),
+            Err(FilesystemError::StorageFull),
             "a directory past a Temporary's inodes in the Filesystem Temporary::for_invocation \
-             hands the next Invocation must answer NoSpace"
+             hands the next Invocation must answer StorageFull"
         );
     }
 
@@ -139,9 +139,9 @@ mod tests {
             .write_at(b"five!", 0);
         assert_eq!(
             written,
-            Err(FilesystemError::NoSpace),
+            Err(FilesystemError::StorageFull),
             "a write past a Temporary's limit in the Filesystem Temporary::for_invocation hands \
-             the next Invocation must answer NoSpace"
+             the next Invocation must answer StorageFull"
         );
     }
 }

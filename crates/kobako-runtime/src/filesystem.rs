@@ -187,17 +187,17 @@ pub enum FilesystemError {
     IsADirectory,
     DirectoryNotEmpty,
     PermissionDenied,
-    ReadOnly,
+    ReadOnlyFilesystem,
     InvalidInput,
     Unsupported,
     /// A change past what the Filesystem can hold.
-    NoSpace,
+    StorageFull,
     /// A move that cannot happen in one step, as between two devices.
     CrossesDevices,
     /// A call that would wait on a lock its own thread holds.
     Deadlock,
     /// A symbolic link where the call asked to follow none.
-    SymbolicLink,
+    FilesystemLoop,
     /// A call only a privileged caller may make, as apart from one the
     /// file's permissions deny.
     NotPermitted,

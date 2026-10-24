@@ -81,14 +81,14 @@ fn to_error(ruby: &Ruby, err: MagnusError) -> FilesystemError {
         ("ENOTEMPTY", FilesystemError::DirectoryNotEmpty),
         ("EACCES", FilesystemError::PermissionDenied),
         ("EPERM", FilesystemError::NotPermitted),
-        ("EROFS", FilesystemError::ReadOnly),
+        ("EROFS", FilesystemError::ReadOnlyFilesystem),
         ("EINVAL", FilesystemError::InvalidInput),
         ("ENOTSUP", FilesystemError::Unsupported),
         ("EOPNOTSUPP", FilesystemError::Unsupported),
-        ("ENOSPC", FilesystemError::NoSpace),
+        ("ENOSPC", FilesystemError::StorageFull),
         ("EXDEV", FilesystemError::CrossesDevices),
         ("EDEADLK", FilesystemError::Deadlock),
-        ("ELOOP", FilesystemError::SymbolicLink),
+        ("ELOOP", FilesystemError::FilesystemLoop),
         ("EBADF", FilesystemError::BadDescriptor),
         ("EBUSY", FilesystemError::ResourceBusy),
         ("EILSEQ", FilesystemError::IllegalSequence),
@@ -197,15 +197,30 @@ impl Filesystem for RubyFilesystem {
     }
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        change(self.object, "mkdir", (path,), FilesystemError::ReadOnly)
+        change(
+            self.object,
+            "mkdir",
+            (path,),
+            FilesystemError::ReadOnlyFilesystem,
+        )
     }
 
     fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        change(self.object, "rmdir", (path,), FilesystemError::ReadOnly)
+        change(
+            self.object,
+            "rmdir",
+            (path,),
+            FilesystemError::ReadOnlyFilesystem,
+        )
     }
 
     fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        change(self.object, "unlink", (path,), FilesystemError::ReadOnly)
+        change(
+            self.object,
+            "unlink",
+            (path,),
+            FilesystemError::ReadOnlyFilesystem,
+        )
     }
 
     /// `rename(from, to, directory:)`: `true` moves only a directory,
@@ -221,7 +236,7 @@ impl Filesystem for RubyFilesystem {
             self.object,
             "rename",
             (from, to, kwargs!("directory" => directory)),
-            FilesystemError::ReadOnly,
+            FilesystemError::ReadOnlyFilesystem,
         )
     }
 }
@@ -278,7 +293,7 @@ impl File for RubyFile {
         ask(
             self.file.get(),
             "pwrite",
-            FilesystemError::ReadOnly,
+            FilesystemError::ReadOnlyFilesystem,
             |ruby, file| file.funcall("pwrite", (ruby.str_from_slice(buf), offset)),
         )
         .and_then(|written: usize| match written {
@@ -309,7 +324,7 @@ impl File for RubyFile {
             self.file.get(),
             "truncate",
             (len,),
-            FilesystemError::ReadOnly,
+            FilesystemError::ReadOnlyFilesystem,
         )
     }
 
