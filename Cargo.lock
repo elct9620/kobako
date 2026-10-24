@@ -874,7 +874,7 @@ dependencies = [
  "bytes",
  "kobako-runtime",
  "kobako-transport",
- "libc",
+ "rustix",
  "sha2 0.11.1",
  "wasmtime",
  "wasmtime-wasi",

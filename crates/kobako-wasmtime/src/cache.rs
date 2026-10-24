@@ -25,7 +25,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 use wasmtime::{Config as WtConfig, Engine as WtEngine, Module as WtModule};
@@ -125,6 +125,7 @@ pub(crate) fn cached_module(path: &Path) -> Result<WtModule, SetupError> {
 /// Retention window for unused cache entries. A hit refreshes the
 /// artifact's mtime, so only entries no process has loaded for the
 /// whole window are removed by `prune_stale`.
+#[cfg(unix)]
 const ARTIFACT_TTL: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 /// Content addressing makes a rebuilt Guest Binary a new entry rather than
@@ -157,48 +158,68 @@ fn engine_key(engine: &WtEngine) -> u64 {
 
 /// A hit refreshes the file's mtime, so the retention window measures time
 /// since last use rather than since creation.
+#[cfg(unix)]
 fn load_artifact(engine: &WtEngine, artifact: &Path) -> Option<WtModule> {
-    if !artifact.exists() || !artifact.parent().is_some_and(dir_is_private) {
-        return None;
-    }
-    // SAFETY: `Module::deserialize_file` trusts the artifact bytes.
-    // `dir_is_private` just verified the cache directory is owned by
-    // the current user and writable by no one else, so only files this
-    // module wrote are loaded, addressed by the content hash of the
-    // Guest Binary being constructed — the artifact carries exactly
-    // the trust of `data/kobako.wasm`.
-    let module = unsafe { WtModule::deserialize_file(engine, artifact) }.ok()?;
-    let _ = fs::File::options()
-        .append(true)
-        .open(artifact)
-        .and_then(|f| f.set_modified(SystemTime::now()));
-    Some(module)
+    use rustix::fs::{openat, Mode, OFlags};
+    let dir = open_private_dir(artifact.parent()?)?;
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let file = fs::File::from(openat(&dir, artifact.file_name()?, flags, Mode::empty()).ok()?);
+    let _ = file.set_modified(std::time::SystemTime::now());
+    // SAFETY: `Module::deserialize_open_file` trusts the artifact bytes
+    // and needs them unchanged while the Module lives. The file was
+    // opened through the directory `open_private_dir` checked, which only
+    // the current user can write, so it is an artifact this module
+    // stored, addressed by the content hash of the Guest Binary being
+    // constructed — it carries exactly that binary's trust.
+    unsafe { WtModule::deserialize_open_file(engine, file) }.ok()
 }
 
 /// The temp-file and rename pair keeps concurrent processes from observing
 /// a partial write. Failures are swallowed because the cache is only an
 /// optimisation, and pruning on write keeps the directory bounded across
 /// rebuilds.
+#[cfg(unix)]
 fn store_artifact(module: &WtModule, artifact: &Path) {
+    use rustix::fs::{openat, renameat, Mode, OFlags};
+    use std::io::Write as _;
+    let (Some(dir), Some(name)) = (artifact.parent(), artifact.file_name()) else {
+        return;
+    };
     let Ok(bytes) = module.serialize() else {
         return;
     };
-    let Some(dir) = artifact.parent() else { return };
-    if create_cache_dir(dir).is_err() || !dir_is_private(dir) {
+    if create_cache_dir(dir).is_err() {
         return;
     }
-    let tmp = artifact.with_extension(format!("tmp{}", std::process::id()));
-    if fs::write(&tmp, bytes).is_err() {
+    let Some(dir) = open_private_dir(dir) else {
+        return;
+    };
+    let tmp = Path::new(name).with_extension(format!("tmp{}", std::process::id()));
+    let flags =
+        OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let Ok(fd) = openat(&dir, &tmp, flags, Mode::RUSR | Mode::WUSR) else {
+        return;
+    };
+    if fs::File::from(fd).write_all(&bytes).is_err() {
         return;
     }
-    if fs::rename(&tmp, artifact).is_ok() {
-        prune_stale(dir, artifact);
+    if renameat(&dir, &tmp, &dir, name).is_ok() {
+        prune_stale(&dir, name);
     }
 }
 
-/// Create the cache directory owner-only (`0700`) on Unix so no other
-/// local user can plant an artifact the unsafe deserialize would
-/// trust; elsewhere fall back to default permissions.
+/// The disk cache trusts its directory's owner, which only Unix reports,
+/// so elsewhere every process compiles the Guest Binary itself.
+#[cfg(not(unix))]
+fn load_artifact(_engine: &WtEngine, _artifact: &Path) -> Option<WtModule> {
+    None
+}
+
+#[cfg(not(unix))]
+fn store_artifact(_module: &WtModule, _artifact: &Path) {}
+
+/// Create the cache directory owner-only (`0700`) so no other local user
+/// can plant an artifact the unsafe deserialize would trust.
 #[cfg(unix)]
 fn create_cache_dir(dir: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
@@ -208,60 +229,54 @@ fn create_cache_dir(dir: &Path) -> std::io::Result<()> {
         .create(dir)
 }
 
-#[cfg(not(unix))]
-fn create_cache_dir(dir: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(dir)
-}
-
-/// Returns whether the cache directory upholds the trust the unsafe
-/// deserialize relies on: owned by the current effective user and
-/// writable by no one else. A pre-existing directory another user owns
-/// or can write to — e.g. under a shared `XDG_CACHE_HOME` — fails here
-/// and both disk-cache tiers are skipped, and so does a link standing in
-/// its place, which would point the deserialize and the pruning wherever
-/// whoever placed it chose.
+/// The cache directory as one descriptor, once it upholds the trust the
+/// unsafe deserialize relies on: a directory rather than a link in its
+/// place, owned by the current effective user and writable by no one
+/// else. Every later step goes through the descriptor, so a path swapped
+/// after the check reaches nothing. One that fails — another user's,
+/// under a shared `XDG_CACHE_HOME`, say — skips both disk-cache tiers.
 #[cfg(unix)]
-fn dir_is_private(dir: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    let Ok(meta) = fs::symlink_metadata(dir) else {
-        return false;
-    };
-    // SAFETY: `geteuid` reads process state and has no preconditions.
-    meta.is_dir() && meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o022 == 0
-}
-
-#[cfg(not(unix))]
-fn dir_is_private(_dir: &Path) -> bool {
-    true
+fn open_private_dir(dir: &Path) -> Option<rustix::fd::OwnedFd> {
+    use rustix::fs::{fstat, open, Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let fd = open(dir, flags, Mode::empty()).ok()?;
+    let stat = fstat(&fd).ok()?;
+    let owned = stat.st_uid == rustix::process::geteuid().as_raw();
+    (owned && stat.st_mode & 0o022 == 0).then_some(fd)
 }
 
 /// Live temp files are seconds old and never qualify; foreign file names
 /// are left untouched.
-fn prune_stale(dir: &Path, keep: &Path) {
-    let Ok(entries) = fs::read_dir(dir) else {
+#[cfg(unix)]
+fn prune_stale(dir: &rustix::fd::OwnedFd, keep: &std::ffi::OsStr) {
+    use rustix::fs::{statat, unlinkat, AtFlags, Dir};
+    use std::os::unix::ffi::OsStrExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let Ok(mut entries) = Dir::read_from(dir) else {
         return;
     };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path == keep || !cache_entry_name(&path) {
+    while let Some(Ok(entry)) = entries.read() {
+        let name = entry.file_name();
+        if name.to_bytes() == keep.as_bytes() || !name.to_str().is_ok_and(cache_entry_name) {
             continue;
         }
-        let stale = entry
-            .metadata()
-            .and_then(|meta| meta.modified())
+        let stale = statat(dir, name, AtFlags::SYMLINK_NOFOLLOW)
             .ok()
-            .and_then(|mtime| mtime.elapsed().ok())
+            .and_then(|stat| u64::try_from(stat.st_mtime).ok())
+            .and_then(|secs| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH + Duration::from_secs(secs))
+                    .ok()
+            })
             .is_some_and(|age| age > ARTIFACT_TTL);
         if stale {
-            let _ = fs::remove_file(&path);
+            let _ = unlinkat(dir, name, AtFlags::empty());
         }
     }
 }
 
-fn cache_entry_name(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-        return false;
-    };
+#[cfg(unix)]
+fn cache_entry_name(name: &str) -> bool {
     name.ends_with(".cwasm") || name.contains(".tmp")
 }
 

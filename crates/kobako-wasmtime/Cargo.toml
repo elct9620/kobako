@@ -64,8 +64,8 @@ bytes = "1.11"
 # hash must be cryptographic.
 sha2 = "0.11"
 
-# libc supplies geteuid for the cache-directory ownership check gating
-# the unsafe artifact deserialize (see cache.rs); std exposes a file's
-# owner but not the process's effective uid.
+# rustix reaches the cache directory through one descriptor, checked by
+# owner, so the unsafe artifact deserialize reads only what that
+# directory holds (see cache.rs); std has no `*at` calls.
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+rustix = { version = "1.1.4", features = ["fs", "process"] }
