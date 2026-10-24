@@ -416,8 +416,9 @@ pub(crate) fn readdir(
     mem.write_u32(bufused, used)
 }
 
-/// preview1 renumbering closes `to` and moves `from` onto its number;
-/// both must already be open.
+/// preview1 renumbering closes `to` as `fd_close` does, answering a close
+/// its Filesystem refuses, and moves `from` onto its number; both must
+/// already be open.
 pub(crate) fn renumber(table: &mut Descriptors, from: u32, to: u32) -> Answer {
     if table.get(from).is_none() || table.get(to).is_none() {
         return Err(Errno::Badf.into());
@@ -425,7 +426,7 @@ pub(crate) fn renumber(table: &mut Descriptors, from: u32, to: u32) -> Answer {
     if from == to {
         return Ok(());
     }
-    table.remove(to);
+    close(table, to)?;
     let moved = table.remove(from).ok_or(Errno::Badf)?;
     table.place(to, moved);
     Ok(())
@@ -515,4 +516,76 @@ fn write_channel(pipe: &mut MemoryOutputPipe, bytes: &[u8]) -> Answer<usize> {
         }
     }
     Ok(bytes.len())
+}
+
+#[cfg(test)]
+mod tests {
+    //! Witness that renumbering onto an open file closes it as `fd_close`
+    //! does, so its Filesystem learns of the close and may refuse it.
+    use kobako_runtime::filesystem::{File, FilesystemError, Metadata};
+    use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
+
+    use super::renumber;
+    use crate::descriptors::{Descriptor, Descriptors, OpenFile};
+    use crate::preview1::errno::{Errno, Failure};
+
+    /// A file whose Filesystem refuses to release it.
+    struct RefusesClose;
+
+    impl File for RefusesClose {
+        fn read_at(&mut self, _buf: &mut [u8], _offset: u64) -> Result<usize, FilesystemError> {
+            Ok(0)
+        }
+
+        fn write_at(&mut self, buf: &[u8], _offset: u64) -> Result<usize, FilesystemError> {
+            Ok(buf.len())
+        }
+
+        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+            Err(FilesystemError::Unsupported)
+        }
+
+        fn set_len(&mut self, _len: u64) -> Result<(), FilesystemError> {
+            Ok(())
+        }
+
+        fn close(self: Box<Self>) -> Result<(), FilesystemError> {
+            Err(FilesystemError::PermissionDenied)
+        }
+    }
+
+    fn open_file() -> Descriptor {
+        Descriptor::File(OpenFile {
+            file: Box::new(RefusesClose),
+            position: 0,
+            append: false,
+            readable: true,
+            writable: false,
+        })
+    }
+
+    // @behavior RT-114
+    #[test]
+    fn renumbering_onto_an_open_file_closes_it_first() {
+        let mut table = Descriptors::new(
+            MemoryInputPipe::new(Vec::new()),
+            MemoryOutputPipe::new(1),
+            MemoryOutputPipe::new(1),
+            Vec::new(),
+            None,
+        );
+        let from = table.push(open_file()).expect("a descriptor to move");
+        let to = table.push(open_file()).expect("a descriptor to move onto");
+        assert!(
+            matches!(
+                renumber(&mut table, from, to),
+                Err(Failure::Errno(Errno::Acces))
+            ),
+            "fd_renumber onto a file whose Filesystem refuses the close must answer that refusal"
+        );
+        assert!(
+            table.get(to).is_none() && table.get(from).is_some(),
+            "a refused close through fd_renumber must leave the target closed and the source in place"
+        );
+    }
 }
