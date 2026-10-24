@@ -29,7 +29,7 @@ read     the topmost layer holding the path answers, unless a whiteout hides it
 change   a file in a writable layer changes in place
          a file in a read-only layer is copied up to the nearest writable layer
 create   lands in the topmost writable layer
-remove   leaves every writable layer; a whiteout hides what a read-only layer shows
+remove   leaves every writable layer it empties; a whiteout hides what any layer keeps
 nothing writable  every change is refused as read-only
 
 whiteout          .wh.<name>      beside the hidden entry
@@ -911,3 +911,29 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay whose directory stands in two Layers |
 | When | the directory is looked up following a link at its end, and without |
 | Then | both lookups report the same identity |
+
+## `FS-074` An Overlay removes a directory a lower writable Layer still fills behind a whiteout
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-016` |
+| relates | `FS-063` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose upper Layer hides a file a lower writable Layer holds in `dir` |
+| When | `dir` is removed through the Overlay |
+| Then | the view no longer holds `dir`, and the lower Layer still holds the file |
+
+## `FS-075` A rename through an Overlay that cannot mark its directory opaque moves nothing
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-042` |
+| relates | `FS-041` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose full writable Layer holds a directory, over an empty lower one |
+| When | the first directory is renamed onto the second |
+| Then | the rename is refused as out of space, and nothing moves |
