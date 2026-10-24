@@ -803,6 +803,7 @@ version = "0.18.0"
 dependencies = [
  "cap-std",
  "kobako-transport",
+ "rustix",
 ]
 
 [[package]]

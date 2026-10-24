@@ -35,3 +35,8 @@ kobako-transport = { version = "0.18.0", path = "../kobako-transport" }
 # 4.0.3 is the first release whose trailing-slash lookup keeps that
 # refusal (GHSA-hp8f-xmx4-4qrg).
 cap-std = "4.0.3"
+
+# rustix switches a Directory file to append mode for one write, so the
+# host places it at the file's end in one step; std cannot set file flags.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["fs"] }

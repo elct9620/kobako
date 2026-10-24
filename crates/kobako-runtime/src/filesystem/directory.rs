@@ -219,6 +219,27 @@ impl File for DirectoryFile {
         self.file.write(buf).map_err(to_error)
     }
 
+    /// The host places the write at the file's end as `O_APPEND` does, so
+    /// another writer's append lands before or after it, never over it.
+    #[cfg(unix)]
+    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+        use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
+
+        let flags = fcntl_getfl(&self.file)
+            .map_err(io::Error::from)
+            .map_err(to_error)?;
+        fcntl_setfl(&self.file, flags | OFlags::APPEND)
+            .map_err(io::Error::from)
+            .map_err(to_error)?;
+        let written = self.file.write(buf);
+        let end = self.file.stream_position();
+        fcntl_setfl(&self.file, flags)
+            .map_err(io::Error::from)
+            .map_err(to_error)?;
+        let written = written.map_err(to_error)?;
+        Ok((end.map_err(to_error)? - written as u64, written))
+    }
+
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
         let metadata = self.file.metadata().map_err(to_error)?;
         Ok(Metadata {
@@ -544,6 +565,53 @@ mod tests {
                 )
                 .is_err(),
             "a link out of the host directory opened through a Directory's open must be refused"
+        );
+    }
+
+    // Two handles racing one-byte appends: a two-step append (read the
+    // length, then write there) loses about half the bytes to the other
+    // handle's writes, so only an append the host places keeps them all.
+    // @behavior FS-069
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_appends_at_its_host_files_end_in_one_step() {
+        use std::sync::Arc;
+
+        let host = HostDir::new("append");
+        fs::write(host.0.join("log.txt"), "").expect("the host file must be written");
+        let directory = Arc::new(Directory::new(&host.0).expect("the host directory must open"));
+
+        let writers: Vec<_> = [b"a", b"b"]
+            .into_iter()
+            .map(|byte| {
+                let directory = Arc::clone(&directory);
+                std::thread::spawn(move || {
+                    let options = OpenOptions {
+                        write: true,
+                        ..OpenOptions::default()
+                    };
+                    let mut file = directory
+                        .open("log.txt", &options)
+                        .expect("the host file must open to write");
+                    for _ in 0..10_000 {
+                        file.append(byte).expect("the append must succeed");
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().expect("the writer must finish");
+        }
+
+        let written = fs::read(host.0.join("log.txt")).expect("the host file must be read");
+        assert_eq!(
+            (
+                written.iter().filter(|&&b| b == b'a').count(),
+                written.iter().filter(|&&b| b == b'b').count()
+            ),
+            (10_000, 10_000),
+            "two handles appending to one host file through a Directory's File::append must each \
+             keep every byte"
         );
     }
 }
