@@ -239,7 +239,7 @@ Any object answering `open` and `stat` mounts as a Filesystem, directly or as a 
 | Method | Answers |
 |---|---|
 | `open(path, flags)` | a file answering `pread` and `size`; `pwrite`, `truncate`, `fsync`, and `close` are optional |
-| `stat(path)` | an object answering `directory?` and `size` |
+| `stat(path)` | an object answering `directory?`, `size`, and `ino`, as `File::Stat` does; `dev` is optional, the Filesystem standing for one device |
 | `children(path)` | entry names, as `Dir.children` gives them |
 | `mkdir` · `rmdir` · `unlink` · `rename(from, to, directory:)` | optional; without one, that change raises `Errno::EROFS` |
 

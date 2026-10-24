@@ -29,11 +29,30 @@ class TestE2ERubyFilesystemErrno < Minitest::Test
                  "in the script"
   end
 
+  # A Ruby Filesystem whose stat names no identity.
+  class NamelessFilesystem
+    Stat = Data.define(:directory?, :size)
+
+    def open(path, _flags) = raise(Errno::ENOENT, path)
+    def stat(path) = Stat.new(path.empty?, 0)
+  end
+
+  # A stat with no identity would let a directory descriptor take another
+  # directory for its own, so the call fails instead.
+  # @behavior RF-017
+  def test_a_ruby_filesystems_stat_names_an_identity
+    assert_equal "Errno::EIO", read_class(NamelessFilesystem.new),
+                 "a read through Sandbox#eval of a Ruby Filesystem whose stat answers no ino must raise " \
+                 "Errno::EIO in the script"
+  end
+
   private
 
-  def rescued_class(error)
+  def rescued_class(error) = read_class(RaisingFilesystem.new(error))
+
+  def read_class(filesystem)
     Kobako::Sandbox.new(wasm_path: REAL_WASM)
-                   .mount("/data", RaisingFilesystem.new(error))
+                   .mount("/data", filesystem)
                    .eval('begin; File.read("/data/note.txt"); rescue SystemCallError => e; e.class.to_s; end')
                    .value
   end

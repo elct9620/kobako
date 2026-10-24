@@ -143,10 +143,20 @@ impl Filesystem for RubyFilesystem {
             FilesystemError::Unsupported,
             |_, fs| {
                 let stat: Value = fs.funcall("stat", (path,))?;
-                if stat.funcall::<_, _, bool>("directory?", ())? {
-                    return Ok(Metadata::new(FileType::Directory, 0));
-                }
-                Ok(Metadata::new(FileType::File, stat.funcall("size", ())?))
+                let metadata = if stat.funcall::<_, _, bool>("directory?", ())? {
+                    Metadata::new(FileType::Directory, 0)
+                } else {
+                    Metadata::new(FileType::File, stat.funcall("size", ())?)
+                };
+                // A stat names its identity as `File::Stat` does; without a
+                // `dev` the Filesystem object stands for its one device, so
+                // two Layers of one Overlay never share an identity.
+                let dev = if stat.respond_to("dev", false)? {
+                    stat.funcall("dev", ())?
+                } else {
+                    fs.funcall("object_id", ())?
+                };
+                Ok(metadata.with_identity(dev, stat.funcall("ino", ())?))
             },
         )
     }

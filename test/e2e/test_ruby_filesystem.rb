@@ -7,7 +7,7 @@ require "test_helper"
 class TestE2ERubyFilesystem < Minitest::Test
   include E2eGuestHelper
 
-  Stat = Data.define(:directory, :size) do
+  Stat = Data.define(:directory, :size, :ino) do
     def directory? = directory
   end
 
@@ -28,9 +28,10 @@ class TestE2ERubyFilesystem < Minitest::Test
     end
 
     def stat(path)
-      return Stat.new(directory: true, size: 0) if path.empty?
+      return Stat.new(directory: true, size: 0, ino: 1) if path.empty?
 
-      Stat.new(directory: false, size: @files.fetch(path) { raise Errno::ENOENT, path }.bytesize)
+      size = @files.fetch(path) { raise Errno::ENOENT, path }.bytesize
+      Stat.new(directory: false, size: size, ino: @files.keys.index(path) + 2)
     end
   end
 

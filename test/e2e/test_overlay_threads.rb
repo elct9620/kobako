@@ -20,12 +20,12 @@ class TestE2EOverlayThreads < Minitest::Test
   # the other Thread, while it answers.
   CHILD = <<~RUBY
     require "kobako"
-    Stat = Data.define(:directory, :size) { def directory? = directory }
+    Stat = Data.define(:directory, :size, :ino) { def directory? = directory }
     layer = Object.new
     def layer.open(path, _flags) = raise(Errno::ENOENT, path)
     def layer.stat(path)
       sleep 0.001
-      path == "note" || path.empty? ? Stat.new(path.empty?, 0) : raise(Errno::ENOENT, path)
+      path == "note" || path.empty? ? Stat.new(path.empty?, 0, path.empty? ? 1 : 2) : raise(Errno::ENOENT, path)
     end
     overlay = Kobako::Filesystem::Overlay.new.layer(layer)
     threads = ARGV.map do |gvl|
@@ -73,7 +73,7 @@ class TestE2EOverlayThreads < Minitest::Test
     layer.define_singleton_method(:open) { |path, _flags| raise Errno::ENOENT, path }
     layer.define_singleton_method(:stat) do |path|
       answers << nested.call if answers.empty?
-      Data.define(:directory?, :size).new(path.empty?, 0)
+      Data.define(:directory?, :size, :ino).new(path.empty?, 0, 1)
     end
     layer
   end
