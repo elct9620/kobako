@@ -48,13 +48,9 @@ module Kobako
 
       private
 
-      # The native side frames a source body only as UTF-8 text, so source
-      # read as bytes is re-tagged, and bytes that are not UTF-8 are refused
-      # here rather than failing every invocation.
       def register_source!(code, name)
         code, name = ensure_source_args!(code, name)
-        body = code.dup.force_encoding(Encoding::UTF_8)
-        raise ArgumentError, "code must be UTF-8 text" unless body.valid_encoding?
+        body = Catalog.to_utf8!(code, "code")
 
         name_sym = normalize_name(name)
         if @entries.any? { |e| e.is_a?(Snippet::Source) && e.name == name_sym }

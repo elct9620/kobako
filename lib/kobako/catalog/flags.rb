@@ -18,23 +18,11 @@ module Kobako
         end
         raise ArgumentError, "flag value must be a String, got #{value.class}" unless value.is_a?(String)
 
-        key = utf8!(name.to_s, "flag name")
+        key = Catalog.to_utf8!(name.to_s, "flag name")
         raise ArgumentError, "flag #{key.inspect} already set" if @entries.key?(key)
 
-        @entries[key] = [utf8!(value, "flag value"), !advisory]
+        @entries[key] = [Catalog.to_utf8!(value, "flag value"), !advisory]
         nil
-      end
-
-      private
-
-      # The native side carries a flag only as UTF-8 text, so text read as
-      # bytes is re-tagged, and bytes that are not UTF-8 are refused here
-      # rather than failing every invocation.
-      def utf8!(text, what)
-        utf8 = text.dup.force_encoding(Encoding::UTF_8)
-        raise ArgumentError, "#{what} must be UTF-8 text" unless utf8.valid_encoding?
-
-        utf8
       end
     end
   end
