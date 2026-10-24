@@ -1171,3 +1171,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a directory it opened beneath a Mount's root |
 | When | it opens a path through that directory that climbs above it |
 | Then | the open answers ENOTCAPABLE |
+
+## `RT-116` An offset past the largest signed offset is invalid
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-104` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file |
+| When | the guest reads, writes, or sizes the file past the largest signed 64-bit offset |
+| Then | the call answers EINVAL, whichever Filesystem holds the file |
