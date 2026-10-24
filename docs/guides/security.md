@@ -69,6 +69,7 @@ leaves the host exposed in its own way.
 | `setup_timeout` | `Sandbox.new` held for as long as the Guest Binary takes to start |
 | `memory_limit` | up to 4 GiB of guest memory, and no value budget |
 | `stdout_limit`, `stderr_limit` | host memory without bound, read back after the run ends |
+| `open_file_limit` | a host descriptor for each file it holds open beneath a Directory |
 
 An uncapped output is the sharpest: a guest writing one buffer in a loop grows the
 capture on the host, not in its own memory. Reading that capture back also runs
@@ -319,7 +320,9 @@ Some risks stay with the host, because kobako cannot see them.
 | a link below an Overlay's writable Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
 | a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
 | one Overlay's writable Layer shared by another | the two are not serialized against each other |
+| one Overlay mounted in invocations that run at once | each waits for the other's call, and the wait runs past `timeout:` |
 
 A directory the guest opened is held by its path, as kobako holds every guest
-path, rather than by the host's inode. On Windows a Directory refuses a path holding
+path, rather than by the host's inode. A path resolved through it stays beneath
+it, as a descriptor only ever narrows what the guest may reach. On Windows a Directory refuses a path holding
 a backslash, so a block never judges one name while the host walks two.

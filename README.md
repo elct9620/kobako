@@ -327,7 +327,7 @@ sandbox = Kobako::Sandbox.new(
 | `stderr_limit`    | output clipped (no raise)      | 1 MiB   |
 | `open_file_limit` | `Errno::EMFILE` in the guest   | 1024    |
 
-`setup_timeout` bounds setting a Guest Binary up the first time its path is loaded; later Sandboxes on that path skip the check. `memory_limit` covers the per-invocation `memory.grow` delta from the entry baseline, so a Sandbox reused across invocations does not silently accumulate against a global budget. `open_file_limit` counts every descriptor one invocation holds, the three standard ones and each Mount's included, so a guest cannot exhaust the host process's own.
+`setup_timeout` bounds instantiating a Guest Binary and reading its ABI version, not compiling it. It applies the first time a path is loaded; later Sandboxes on that path skip the check. A Pool builds each Sandbox at its first checkout, so its `SetupError` raises from `with`. `memory_limit` covers the per-invocation `memory.grow` delta from the entry baseline, so a Sandbox reused across invocations does not silently accumulate against a global budget. `open_file_limit` counts every descriptor one invocation holds, the three standard ones and each Mount's included, so a guest cannot exhaust the host process's own.
 
 #### Isolation Profile
 
