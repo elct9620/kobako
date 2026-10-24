@@ -964,3 +964,39 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay whose writable Layer sits beneath a read-only Layer holding whiteouts |
 | When | a file and a directory are made under the whited-out names |
 | Then | both are refused as read-only, and the writable Layer holds neither |
+
+## `FS-078` An Overlay shows a directory over a lower Layer's file on its path
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-057` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose upper Layer holds `dir/sub`, over a Layer holding a file `dir` |
+| When | `dir/sub` is looked up through the Overlay |
+| Then | it reads as a directory, as its files open |
+
+## `FS-079` An Overlay fails a lookup when a Layer cannot read its markers
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-063` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose upper Layer whites out a lower file, yet reads no marker |
+| When | the file is looked up through the Overlay |
+| Then | the lookup fails, and the file never shows |
+
+## `FS-080` An Overlay rename answers not found for a file its Layer loses
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay over a Layer whose file is gone after its first lookup |
+| When | the file is renamed through the Overlay |
+| Then | the rename answers not found |
