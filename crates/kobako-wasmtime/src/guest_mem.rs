@@ -92,7 +92,7 @@ fn callback_exports(caller: &Caller<'_, Invocation>) -> Result<Exports, &'static
 
 /// Keep a trap the guest raised during a callback into it for the dispatch
 /// import to end the invocation with, and answer the callback's own reason.
-fn trapped(
+fn keep_trap(
     caller: &mut Caller<'_, Invocation>,
     trap: wasmtime::Error,
     reason: &'static str,
@@ -136,7 +136,7 @@ pub(crate) fn write_from_callback(
     alloc_and_write(&mut *caller, &exports, bytes).map_err(|err| match err {
         WriteError::TooLarge => "payload exceeds the 16 MiB limit",
         WriteError::Incompatible(message) => message,
-        WriteError::Trapped(trap) => trapped(
+        WriteError::Trapped(trap) => keep_trap(
             caller,
             trap,
             "the Sandbox trapped while allocating memory for the request",
@@ -193,7 +193,7 @@ pub(crate) fn drive_yield(
     let memory = exports.memory.ok_or(SANDBOX_RUNTIME_NOT_KOBAKO)?;
     let packed = yield_fn
         .call(&mut *caller, (req_ptr, len_i32))
-        .map_err(|trap| trapped(caller, trap, "the Sandbox trapped while invoking a block"))?;
+        .map_err(|trap| keep_trap(caller, trap, "the Sandbox trapped while invoking a block"))?;
     let (reply_ptr, reply_len) = unpack_guest_buffer(packed);
     if reply_len == 0 {
         return Err("the Sandbox returned an empty block result");
