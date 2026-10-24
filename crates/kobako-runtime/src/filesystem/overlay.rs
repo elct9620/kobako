@@ -949,6 +949,59 @@ mod tests {
         );
     }
 
+    // The lower writable copy still holds the file the upper whiteout
+    // hides, so it cannot be removed; removing the upper copy first would
+    // show the file again.
+    // @behavior FS-074
+    #[test]
+    fn a_directory_a_lower_writable_layer_still_fills_is_removed_behind_a_whiteout() {
+        let lower = memory_with("dir/file", "lower");
+        let overlay = Overlay::new()
+            .layer(memory_with("dir/.wh.file", ""), Access::ReadWrite)
+            .layer(lower.clone(), Access::ReadWrite);
+        assert_eq!(
+            (
+                overlay.remove_dir("dir"),
+                overlay.metadata("dir").err(),
+                read(lower.as_ref(), "dir/file")
+            ),
+            (Ok(()), Some(FilesystemError::NotFound), b"lower".to_vec()),
+            "a directory the view shows empty, removed through Overlay::remove_dir while a lower \
+             writable Layer still holds a whited-out file in it, must leave the view and stay \
+             below unseen"
+        );
+    }
+
+    // The marker is the one entry past the room the upper Layer has, so
+    // marking after the move would leave the directory moved.
+    // @behavior FS-075
+    #[test]
+    fn a_rename_that_cannot_mark_its_directory_opaque_moves_nothing() {
+        let upper = Arc::new(Memory::new().with_inodes(Some(2)));
+        upper
+            .create_dir("moving")
+            .expect("the directory must be made");
+        let lower = Arc::new(Memory::new());
+        lower.create_dir("dir").expect("the directory must be made");
+        let overlay = Overlay::new()
+            .layer(upper.clone(), Access::ReadWrite)
+            .layer(lower, Access::Read);
+        assert_eq!(
+            (
+                overlay.rename("moving", "dir", Rename::Directory),
+                upper.metadata("moving").map(|metadata| metadata.file_type),
+                upper.metadata("dir").err()
+            ),
+            (
+                Err(FilesystemError::StorageFull),
+                Ok(FileType::Directory),
+                Some(FilesystemError::NotFound)
+            ),
+            "a directory renamed through Overlay::rename over one a lower Layer holds, with no \
+             room for its opaque marker, must stay where it was"
+        );
+    }
+
     // @behavior FS-043
     #[test]
     fn a_directory_a_lower_layer_holds_does_not_move_through_an_overlay() {

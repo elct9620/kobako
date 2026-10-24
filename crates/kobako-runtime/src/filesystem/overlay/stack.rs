@@ -354,20 +354,11 @@ impl Stack {
         put_marker(self.layers[into].filesystem.as_ref(), path)
     }
 
-    /// The Layer a whiteout over `holders` lands in, or `None` when every
-    /// one is writable and nothing below is `shadowed`; refused as
-    /// read-only when no writable Layer sits above the topmost Layer the
-    /// whiteout must cover.
-    fn whiteout_layer(
-        &self,
-        holders: &[usize],
-        shadowed: Option<usize>,
-    ) -> Result<Option<usize>, FilesystemError> {
-        let read_only = holders
-            .iter()
-            .copied()
-            .find(|&index| !self.layers[index].writable());
-        match read_only.into_iter().chain(shadowed).min() {
+    /// The Layer a whiteout over the Layer at `shown` lands in, or `None`
+    /// when nothing below needs one; refused as read-only when no writable
+    /// Layer sits above it.
+    fn whiteout_layer(&self, shown: Option<usize>) -> Result<Option<usize>, FilesystemError> {
+        match shown {
             Some(shown) => match self.upper()? {
                 upper if upper < shown => Ok(Some(upper)),
                 _ => Err(FilesystemError::ReadOnlyFilesystem),
@@ -376,22 +367,32 @@ impl Stack {
         }
     }
 
-    /// Take `path` out of the view: a whiteout over any read-only Layer
-    /// holding it first, then out of every writable Layer holding it.
-    /// `remove` takes it out of one Layer.
+    /// Take `path` out of the view: a whiteout over any Layer that keeps it
+    /// first, then out of every other Layer holding it. A read-only Layer
+    /// keeps it, and so does a writable one `keeps` answers for, so no
+    /// Layer changes before each is known to go; `remove` takes it out of
+    /// one Layer.
     fn withdraw(
         &self,
         path: &str,
+        keeps: impl Fn(&dyn Filesystem) -> Result<bool, FilesystemError>,
         remove: impl Fn(&dyn Filesystem, &str) -> Result<(), FilesystemError>,
     ) -> Result<(), FilesystemError> {
         let (holders, shadowed) = self.holders(path);
-        if let Some(upper) = self.whiteout_layer(&holders, shadowed)? {
+        let mut kept = Vec::new();
+        for &index in &holders {
+            let layer = &self.layers[index];
+            if !layer.writable() || keeps(layer.filesystem.as_ref())? {
+                kept.push(index);
+            }
+        }
+        let shown = kept.first().copied().into_iter().chain(shadowed).min();
+        if let Some(upper) = self.whiteout_layer(shown)? {
             self.mark(&whiteout(path), upper)?;
         }
         for &index in &holders {
-            let layer = &self.layers[index];
-            if layer.writable() {
-                remove(layer.filesystem.as_ref(), path)?;
+            if !kept.contains(&index) {
+                remove(self.layers[index].filesystem.as_ref(), path)?;
             }
         }
         Ok(())
@@ -565,7 +566,9 @@ impl Stack {
     }
 
     /// A writable Layer's copy of the directory may hold only markers; any
-    /// other entry there means the view is not what was found empty.
+    /// other entry there means the view is not what was found empty. A
+    /// copy still holding what a Layer above hides stays, beneath the
+    /// whiteout.
     pub(super) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         if self.symlink_metadata(path)?.file_type != FileType::Directory {
             return Err(FilesystemError::NotADirectory);
@@ -573,9 +576,16 @@ impl Stack {
         if !self.read_dir(path)?.is_empty() {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
-        self.withdraw(path, |filesystem, path| {
-            without_markers(filesystem, path, || filesystem.remove_dir(path))
-        })
+        self.withdraw(
+            path,
+            |filesystem| {
+                Ok(filesystem
+                    .read_dir(path)?
+                    .iter()
+                    .any(|entry| !entry.name.starts_with(WHITEOUT)))
+            },
+            |filesystem, path| without_markers(filesystem, path, || filesystem.remove_dir(path)),
+        )
     }
 
     /// A link is removed as itself, wherever it points.
@@ -583,7 +593,11 @@ impl Stack {
         if self.symlink_metadata(path)?.file_type == FileType::Directory {
             return Err(FilesystemError::IsADirectory);
         }
-        self.withdraw(path, |filesystem, path| filesystem.remove_file(path))
+        self.withdraw(
+            path,
+            |_| Ok(false),
+            |filesystem, path| filesystem.remove_file(path),
+        )
     }
 
     /// A directory moves only when the topmost writable Layer alone holds
@@ -591,8 +605,9 @@ impl Stack {
     /// beneath it, so it is refused as crossing devices, as overlayfs
     /// refuses it without `redirect_dir`. What the view holds at `to` is
     /// checked as rename(2) checks it, and a directory moved over one a
-    /// lower Layer holds is marked opaque. The source is whited out before
-    /// it moves, so it never shows from a read-only Layer once moved.
+    /// lower Layer holds is marked opaque before it moves, so it never
+    /// lands without the marker. The source is whited out before it moves,
+    /// so it never shows from a read-only Layer once moved.
     pub(super) fn rename(
         &self,
         from: &str,
@@ -631,7 +646,11 @@ impl Stack {
                 .enumerate()
                 .any(|(index, layer)| index != upper && layer.holds(to));
         let (holders, shadowed) = self.holders(from);
-        let shown_below = self.whiteout_layer(&holders, shadowed)?;
+        let read_only = holders
+            .iter()
+            .copied()
+            .find(|&index| !self.layers[index].writable());
+        let shown_below = self.whiteout_layer(read_only.into_iter().chain(shadowed).min())?;
         match moving.file_type {
             FileType::Directory if holders != [upper] => {
                 return Err(FilesystemError::CrossesDevices)
@@ -649,14 +668,22 @@ impl Stack {
             self.mark(&whiteout(from), upper)?;
         }
         let filesystem = self.layers[upper].filesystem.as_ref();
-        let moved = || filesystem.rename(from, to, rename);
-        if replaced == Some(FileType::Directory) && self.layers[upper].holds(to) {
-            without_markers(filesystem, to, moved)?;
-        } else {
-            moved()?;
+        let opaque = join(from, OPAQUE);
+        let marks = replaces_below && !self.layers[upper].holds(&opaque);
+        if marks {
+            put_marker(filesystem, &opaque)?;
         }
-        if replaces_below {
-            self.mark(&join(to, OPAQUE), upper)?;
+        let moved = || filesystem.rename(from, to, rename);
+        let moved = if replaced == Some(FileType::Directory) && self.layers[upper].holds(to) {
+            without_markers(filesystem, to, moved)
+        } else {
+            moved()
+        };
+        if let Err(err) = moved {
+            if marks {
+                let _ = filesystem.remove_file(&opaque);
+            }
+            return Err(err);
         }
         self.unhide(to, upper)?;
         for &index in &holders {
