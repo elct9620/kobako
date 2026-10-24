@@ -318,7 +318,7 @@ Mount -> at a guest path, read or read-write, or a Policy -> a Filesystem
 
 ### Policy
 
-The Host App's decision on each path a guest opens or changes beneath a Mount. It decides in the Mount's access's place. It judges the path the guest names, so a directory beneath it does not move. In Ruby it is the block a mount is given.
+The Host App's decision on each path a guest opens or changes beneath a Mount. It decides in the Mount's access's place. It judges the guest's path as the Filesystem spells it, so a directory beneath it does not move. In Ruby it is the block a mount is given.
 
 ```
 open or change at a path ─> Policy ─┬─ allows -> the call proceeds
