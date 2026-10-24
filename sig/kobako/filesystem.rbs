@@ -1,6 +1,6 @@
 module Kobako
   module Filesystem
-    type kind = Memory | Temporary | Directory | Overlay | _Readable
+    type mountable = Memory | Temporary | Directory | Overlay | _Readable
 
     type access = :read | :read_write
 
@@ -63,7 +63,7 @@ module Kobako
 
     class Overlay
       def initialize: () -> void
-      def layer: (kind filesystem, ?access: access) -> Overlay
+      def layer: (mountable filesystem, ?access: access) -> Overlay
     end
 
   end

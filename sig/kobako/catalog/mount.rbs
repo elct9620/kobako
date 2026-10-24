@@ -5,11 +5,11 @@ module Kobako
 
       type policy = ^(String path, access access) -> boolish
 
-      type tuple = [String, access, Kobako::Filesystem::kind, policy?]
+      type tuple = [String, access, Kobako::Filesystem::mountable, policy?]
 
       attr_reader at: String
       attr_reader access: access
-      attr_reader filesystem: Kobako::Filesystem::kind
+      attr_reader filesystem: Kobako::Filesystem::mountable
       attr_reader policy: policy?
 
       def self.new: (at: untyped, access: untyped, filesystem: untyped, policy: policy?) -> Mount

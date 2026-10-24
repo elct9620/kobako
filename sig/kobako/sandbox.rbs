@@ -26,7 +26,7 @@ module Kobako
 
     def install: (*untyped extensions) -> Kobako::Sandbox
 
-    def mount: (String at, Kobako::Filesystem::kind filesystem, ?access: Kobako::Filesystem::access) ?{ (String path, Kobako::Filesystem::access access) -> boolish } -> Kobako::Sandbox
+    def mount: (String at, Kobako::Filesystem::mountable filesystem, ?access: Kobako::Filesystem::access) ?{ (String path, Kobako::Filesystem::access access) -> boolish } -> Kobako::Sandbox
 
     def preload: (code: String, name: Symbol | String) -> Kobako::Sandbox
                | (binary: String) -> Kobako::Sandbox
