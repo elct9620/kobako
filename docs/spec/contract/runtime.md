@@ -410,6 +410,18 @@ pub trait Filesystem {
 }
 ```
 
+## `Filesystem::stored_path`
+
+A path with each name the Filesystem holds spelled as it stores it. Names past
+the last it holds stay as given. A Filesystem matching names exactly answers
+the path itself.
+
+```rust
+pub trait Filesystem {
+    fn stored_path(&self, path: &str) -> Result<String, FilesystemError>;
+}
+```
+
 ## `Filesystem::read_dir`
 
 The entries of a directory.

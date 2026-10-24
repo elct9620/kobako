@@ -1000,3 +1000,48 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay over a Layer whose file is gone after its first lookup |
 | When | the file is renamed through the Overlay |
 | Then | the rename answers not found |
+
+## `FS-081` A Directory spells a path it matches exactly as given
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory over a host directory holding `dir/file` |
+| When | `dir/file`, and a path whose tail is missing, are asked for their stored spelling |
+| Then | each comes back as given |
+
+## `FS-082` A Directory spells a path as a folding host stores it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-081` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory over a macOS host directory folding case and Unicode form |
+| When | a path is asked for its stored spelling in another case and form |
+| Then | each name it holds comes back as the host stores it |
+
+## `FS-083` An Overlay spells a path as the Layer showing it stores it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-081` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lower Layer folds case and stores names in lower case |
+| When | a path it shows, and a new name beneath it, are asked in upper case |
+| Then | the names it holds come back in lower case, and the new name as given |
+
+## `FS-084` A Directory spells a path as a folding Linux filesystem lists it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-081` |
+| unverifiable | a Linux filesystem that folds names, such as vfat, needs root to mount |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory over a Linux host directory whose filesystem folds names |
+| When | a path is asked for its stored spelling in another case |
+| Then | each name it holds comes back as the directory's listing names it |

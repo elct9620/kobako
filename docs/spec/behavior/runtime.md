@@ -1220,3 +1220,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a Directory Mount holding a link to a directory |
 | When | the guest names a path taking `..` or a final `.` right after the link |
 | Then | the call answers ELOOP |
+
+## `RT-120` A Policy judges a path as its Filesystem stores the names
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-081` |
+| relates | `FS-081` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount whose Policy refuses one spelling, over a Filesystem storing that spelling |
+| When | the guest opens the path in another spelling the Filesystem reaches |
+| Then | the open answers EACCES |
