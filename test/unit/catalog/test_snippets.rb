@@ -129,10 +129,10 @@ module Kobako
   # The projection every invocation's Preamble carries
   # (docs/wire/envelope.md § Preamble): one +[kind, name, body]+
   # triple per entry in insertion order. Source entries name themselves;
-  # Binary entries carry no name, because a bytecode snippet's canonical
+  # Bytecode entries carry no name, because a bytecode snippet's canonical
   # name lives in its RITE debug_info and is read by the guest at load
   # time. The projection lives on the collection so the leaf
-  # Snippet::Source / Snippet::Binary entries stay pure carriers.
+  # Snippet::Source / Snippet::Bytecode entries stay pure carriers.
   class CatalogSnippetsEntriesTest < Minitest::Test
     def setup
       @table = Catalog::Snippets.new

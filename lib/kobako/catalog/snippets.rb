@@ -7,7 +7,7 @@ module Kobako
   module Catalog
     class Snippets # :nodoc:
       def initialize
-        @entries = [] # : Array[Kobako::Snippet::Source | Kobako::Snippet::Binary]
+        @entries = [] # : Array[Kobako::Snippet::Source | Kobako::Snippet::Bytecode]
         @compiled = {} # : Hash[Kobako::Snippet::Source, String]
         @compile_tried = false
       end
@@ -76,7 +76,7 @@ module Kobako
       def register_binary!(bytes)
         raise ArgumentError, "binary must be a String, got #{bytes.class}" unless bytes.is_a?(String)
 
-        @entries << Snippet::Binary.new(body: bytes.dup.force_encoding(Encoding::ASCII_8BIT))
+        @entries << Snippet::Bytecode.new(body: bytes.dup.force_encoding(Encoding::ASCII_8BIT))
         nil
       end
 
@@ -86,9 +86,9 @@ module Kobako
         case entry
         when Snippet::Source
           compiled = @compiled[entry]
-          compiled ? [Snippet::Binary::KIND, nil, compiled] : [Snippet::Source::KIND, entry.name.to_s, entry.body]
+          compiled ? [Snippet::Bytecode::KIND, nil, compiled] : [Snippet::Source::KIND, entry.name.to_s, entry.body]
         else
-          [Snippet::Binary::KIND, nil, entry.body]
+          [Snippet::Bytecode::KIND, nil, entry.body]
         end
       end
 

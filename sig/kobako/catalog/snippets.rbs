@@ -1,7 +1,7 @@
 module Kobako
   module Catalog
     class Snippets
-      type entry = Kobako::Snippet::Source | Kobako::Snippet::Binary
+      type entry = Kobako::Snippet::Source | Kobako::Snippet::Bytecode
 
       type tuple = [Symbol, String?, String]
 

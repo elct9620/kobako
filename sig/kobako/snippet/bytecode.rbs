@@ -1,0 +1,12 @@
+module Kobako
+  module Snippet
+    class Bytecode < Data
+      KIND: Symbol
+
+      attr_reader body: String
+
+      def self.new: (body: String) -> Bytecode
+                  | (String body) -> Bytecode
+    end
+  end
+end
