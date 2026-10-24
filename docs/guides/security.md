@@ -245,8 +245,9 @@ A returned collection holding host objects crosses as one Handle too, and the
 guest cannot index into it. Map it to terminal values on the host side.
 
 The same applies to failures. An exception a Service raises reaches the guest as
-`<class>: <message>` fault text. Rescue internal errors and re-raise a clean,
-guest-safe one, so secrets and internal detail stay out of the message.
+`<class>: <message>` fault text, and an `ArgumentError` as its message alone. Rescue
+internal errors and re-raise a clean, guest-safe one, so secrets and internal detail
+stay out of the message.
 
 ### Work Volume
 
