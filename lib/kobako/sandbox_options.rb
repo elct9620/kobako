@@ -78,8 +78,6 @@ module Kobako
     # (docs/wire/payload-msgpack.md § Value Budget).
     VALUE_BYTES = 16
 
-    # The most values a guest payload may make the host build, or nil
-    # without a memory cap.
     def value_budget # :nodoc:
       memory_limit&./(VALUE_BYTES)
     end

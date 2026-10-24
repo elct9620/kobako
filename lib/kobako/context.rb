@@ -17,8 +17,6 @@ module Kobako
   #
   #   sandbox.eval("Req::Current.user_id") { |ctx| ctx.bind("Req::Current", request) }
   class Context
-    # +preamble+ is the Sandbox's paths, snippets and flags, as the Runtime
-    # reads them.
     def initialize(runtime:, services:, extensions:, grants:, preamble:) # :nodoc:
       @runtime = runtime
       @services = services
