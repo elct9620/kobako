@@ -630,6 +630,17 @@ impl Metadata {
 }
 ```
 
+## `Metadata::unique_device`
+
+A device number for a Filesystem with none of its own. No earlier call
+returned it, and no host reports it.
+
+```rust
+impl Metadata {
+    pub fn unique_device() -> u64 {}
+}
+```
+
 ## `DirEntry`
 
 One entry of a directory: its name and what it names.

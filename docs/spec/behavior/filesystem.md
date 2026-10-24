@@ -1045,3 +1045,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Directory over a Linux host directory whose filesystem folds names |
 | When | a path is asked for its stored spelling in another case |
 | Then | each name it holds comes back as the directory's listing names it |
+
+## `FS-085` A Filesystem without a device of its own takes one no other names
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-070`, `FS-071` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory, and two device numbers taken for Filesystems without one |
+| When | their device numbers are compared, with each other and with a host's |
+| Then | each differs from the others, and none is one a host reports |
