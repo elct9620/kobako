@@ -845,7 +845,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a Service that swallows the break its block raised |
 | When | the guest is answered |
-| Then | it receives the break value |
+| Then | the call still answers the break's value |
 
 ## `T-167` A run carries the Host App's own bytes and hands them back
 

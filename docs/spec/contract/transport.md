@@ -235,7 +235,7 @@ impl Unsupported {
 
 ## `Reply`
 
-The host's answer to a Call: a value, a Fault, or that it does not serve it.
+The host's answer to a Call: a value, a Fault, a break, or that it does not serve it.
 
 ```rust
 pub enum Reply {}

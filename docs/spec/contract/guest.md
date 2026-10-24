@@ -78,8 +78,8 @@ pub trait Guest {
 
 ## `DispatchError`
 
-Why a Call came back without a value. It names the Service's own Fault, a host
-that does not serve it, or an unfinished exchange.
+Why a Call came back without a value. It names the Service's own Fault, a break,
+a host that does not serve it, or an unfinished exchange.
 
 ```rust
 pub enum DispatchError {}
