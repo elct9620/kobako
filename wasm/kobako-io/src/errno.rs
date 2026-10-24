@@ -37,6 +37,7 @@ const CODES: &[Code] = &[
     code(c"EBUSY", 10, 16, "Device or resource busy"),
     code(c"EDEADLK", 16, 35, "Resource deadlock avoided"),
     code(c"EEXIST", 20, 17, "File exists"),
+    code(c"EFBIG", 22, 27, "File too large"),
     code(
         c"EILSEQ",
         25,
