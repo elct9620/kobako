@@ -163,12 +163,12 @@ The reserved kinds keep their meaning across releases.
 | `kind` | Name | Failure |
 |---|---|---|
 | `0` | `runtime` | the Service method raised |
-| `1` | `argument` | argument binding failed |
+| `1` | `argument` | the Service method refused its arguments |
 | `2` | `undefined` | no reachable target or method |
 | `3` | `internal` | the exchange failed, no Service outcome |
 | `4` | `block` | the caller's block failed, unrescued |
 
-`undefined` covers every unresolved cause, so an opaque target discloses nothing about its methods. `internal` stays apart from `runtime` because a retry against a working host could succeed.
+`undefined` covers every unresolved cause, so an opaque target discloses nothing about its methods. `argument` covers a call that will not bind and an `ArgumentError` the Service raised, which a Ruby caller cannot tell apart either. `internal` stays apart from `runtime` because a retry against a working host could succeed.
 
 ---
 
