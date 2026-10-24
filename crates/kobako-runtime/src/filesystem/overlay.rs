@@ -1294,4 +1294,29 @@ mod tests {
              keep the identity Overlay::metadata reported before"
         );
     }
+
+    // @behavior FS-073
+    #[test]
+    fn an_overlay_names_a_directory_alike_whether_a_link_at_its_end_is_followed() {
+        let layer = |name: &str| -> Arc<dyn Filesystem> {
+            Arc::new(
+                [(format!("dir/{name}"), "x")]
+                    .into_iter()
+                    .collect::<Memory>(),
+            )
+        };
+        let overlay = Overlay::new()
+            .layer(layer("upper"), Access::ReadWrite)
+            .layer(layer("lower"), Access::Read);
+        let identity = |metadata: Result<Metadata, FilesystemError>| {
+            let metadata = metadata.expect("the directory must stand");
+            (metadata.dev, metadata.ino)
+        };
+        assert_eq!(
+            identity(overlay.symlink_metadata("dir")),
+            identity(overlay.metadata("dir")),
+            "a directory two Layers hold, looked up through Overlay::symlink_metadata, must \
+             report the identity Overlay::metadata does"
+        );
+    }
 }

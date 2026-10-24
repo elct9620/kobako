@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    DirEntry, Directory, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Rename,
-    Temporary,
+    DirEntry, Directory, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Overlay,
+    Rename, Temporary,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
@@ -567,6 +567,25 @@ fn a_directory_made_in_an_opened_directorys_place_is_not_reached_through_it() {
         (ERRNO_NOENT, ERRNO_NOENT),
         "path_filestat_get through a directory descriptor beneath a Mount through preview1 must \
          answer ENOENT once another directory stands at its path, moved in or made anew"
+    );
+}
+
+// The open looks the directory up without following a link at its end, so
+// the identity it remembers comes from the Overlay's lstat, and every later
+// call compares it with the Overlay's stat.
+#[test]
+fn a_directory_two_layers_hold_is_reached_through_its_descriptor() {
+    let upper: Arc<dyn Filesystem> = Arc::new([("dir/upper", "u")].into_iter().collect::<Memory>());
+    let lower: Arc<dyn Filesystem> = file_and_directory();
+    let overlay = Overlay::new()
+        .layer(upper, Access::ReadWrite)
+        .layer(lower, Access::Read);
+    let mut guest = Guest::new(&[grant(Arc::new(overlay), Access::ReadWrite, None)]);
+    assert_eq!(
+        (guest.call_bare("open_dir"), guest.call_bare("stat_inner")),
+        (0, 0),
+        "path_filestat_get through a directory descriptor of an Overlay whose two Layers hold the \
+         directory, beneath a Mount through preview1, must reach it"
     );
 }
 

@@ -455,12 +455,32 @@ impl Stack {
         }
     }
 
-    /// A merged directory reports the identity of the lowest Layer the view
-    /// still shows it from, so copying it up into a writable Layer leaves
-    /// the identity as it was.
     pub(super) fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         refuse_reserved(path)?;
         let (index, metadata) = self.locate(path)?.ok_or(FilesystemError::NotFound)?;
+        self.merged(path, index, metadata)
+    }
+
+    /// What the Layer showing `path` holds there, a link it holds
+    /// reported as one even where it points at nothing.
+    pub(super) fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        refuse_reserved(path)?;
+        let (index, metadata) = self
+            .locate_by(path, <dyn Filesystem>::symlink_metadata)?
+            .ok_or(FilesystemError::NotFound)?;
+        self.merged(path, index, metadata)
+    }
+
+    /// `metadata`, found at `path` in the Layer at `index`, as the merged
+    /// view reports it: a directory takes the identity of the lowest Layer
+    /// still showing it, so copying it up into a writable Layer leaves the
+    /// identity as it was.
+    fn merged(
+        &self,
+        path: &str,
+        index: usize,
+        metadata: Metadata,
+    ) -> Result<Metadata, FilesystemError> {
         if metadata.file_type != FileType::Directory {
             return Ok(metadata);
         }
@@ -476,15 +496,6 @@ impl Stack {
             }
         }
         Ok(metadata.with_identity(lowest.dev, lowest.ino))
-    }
-
-    /// What the Layer showing `path` holds there, a link it holds
-    /// reported as one even where it points at nothing.
-    pub(super) fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        refuse_reserved(path)?;
-        self.locate_by(path, <dyn Filesystem>::symlink_metadata)?
-            .map(|(_, metadata)| metadata)
-            .ok_or(FilesystemError::NotFound)
     }
 
     pub(super) fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
