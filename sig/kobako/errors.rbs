@@ -2,14 +2,14 @@ module Kobako
   class Error < StandardError
   end
 
-  module CarriesExecution
+  module Recorded
     attr_reader execution: Kobako::Execution?
 
     def with_execution: (Kobako::Execution execution) -> self
   end
 
   class TrapError < Error
-    include CarriesExecution
+    include Recorded
   end
 
   class TimeoutError < TrapError
@@ -39,12 +39,12 @@ module Kobako
 
   class SandboxError < Error
     include Diagnosable
-    include CarriesExecution
+    include Recorded
   end
 
   class ServiceError < Error
     include Diagnosable
-    include CarriesExecution
+    include Recorded
   end
 
   class NoServiceError < ServiceError

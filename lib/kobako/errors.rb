@@ -8,11 +8,7 @@ module Kobako
   # The base of every error kobako raises.
   class Error < StandardError; end
 
-  # Gives an invocation failure the Execution of the run that failed, so a
-  # rescue reads its captures and usage as a successful caller would.
-  # +execution+ is +nil+ when the failure came before the guest ran.
-  module CarriesExecution
-    # The Execution of the run that failed.
+  module Recorded # :nodoc:
     attr_reader :execution
 
     def with_execution(execution) # :nodoc:
@@ -23,8 +19,11 @@ module Kobako
 
   # The engine stopped the guest: a trap, a cap reached, or an outcome that
   # could not be read. The next invocation on the same Sandbox runs as usual.
+  # +execution+ is the failed run's Execution, so a rescue reads its captures
+  # and usage as a successful caller would; it is +nil+ when the failure came
+  # before the guest ran.
   class TrapError < Error
-    include CarriesExecution
+    include Recorded
   end
 
   # The invocation ran past its +timeout+.
@@ -41,10 +40,7 @@ module Kobako
   # The Guest Binary is missing at +wasm_path+.
   class ModuleNotBuiltError < SetupError; end
 
-  # What the guest reported about a failure.
-  module Diagnosable
-    # Where the failure came from (<tt>"sandbox"</tt> or <tt>"service"</tt>),
-    # the name of the class that raised it, and its backtrace.
+  module Diagnosable # :nodoc:
     attr_reader :origin, :klass, :backtrace_lines
 
     def initialize(message, origin: nil, klass: nil, backtrace_lines: nil) # :nodoc:
@@ -57,15 +53,19 @@ module Kobako
 
   # The guest failed: the script raised or did not compile, the Guest Binary
   # could not start the run, or what it produced could not be read.
+  # +origin+ (<tt>"sandbox"</tt> or <tt>"service"</tt>), +klass+ and
+  # +backtrace_lines+ say where it came from, which class raised it, and its
+  # backtrace. +execution+ is the failed run's Execution, as on TrapError.
   class SandboxError < Error
     include Diagnosable
-    include CarriesExecution
+    include Recorded
   end
 
-  # A Service call failed and the guest left it unrescued.
+  # A Service call failed and the guest left it unrescued. It carries
+  # +origin+, +klass+, +backtrace_lines+ and +execution+ as SandboxError does.
   class ServiceError < Error
     include Diagnosable
-    include CarriesExecution
+    include Recorded
   end
 
   # The call reached no Service method: nothing is bound there, the Handle
