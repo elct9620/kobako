@@ -295,7 +295,7 @@ Each body's shape is fixed by its kind.
 |------|-------|------|---------|
 | bindings | `paths` | `list<bytes>` | each bound constant's path |
 | snippets | `count` | `u32` | entries that follow |
-| snippets, per entry | `kind` | `u8` | `0` mruby source · `1` RITE bytecode |
+| snippets, per entry | `kind` | `u8` | `0` source · `1` bytecode, RITE for mruby |
 | snippets, per entry | `name` | `bytes` | only when `kind=0` |
 | snippets, per entry | `body` | `bytes` | the source or the bytecode |
 | flag | `name` | `bytes` | the switch, UTF-8 |
