@@ -13,7 +13,7 @@ use super::beneath::{resolve, ResolvedPath};
 use super::errno::{Answer, Errno};
 use super::fd::write_metadata;
 use super::memory::GuestMemory;
-use crate::descriptors::{Descriptor, Descriptors, OpenDirectory, OpenFile};
+use crate::descriptors::{Descriptor, Descriptors, Identity, OpenDirectory, OpenFile};
 
 const LOOKUPFLAGS_SYMLINK_FOLLOW: u32 = 1 << 0;
 const OFLAGS_CREAT: u32 = 1 << 0;
@@ -207,8 +207,8 @@ pub(crate) fn open(
         mount.filesystem().symlink_metadata(&path)
     };
     let (existing, identity) = match looked_up {
-        Ok(metadata) => (Some(metadata.file_type), (metadata.dev, metadata.ino)),
-        Err(kobako_runtime::filesystem::FilesystemError::NotFound) => (None, (0, 0)),
+        Ok(metadata) => (Some(metadata.file_type), Identity::of(&metadata)),
+        Err(kobako_runtime::filesystem::FilesystemError::NotFound) => (None, None),
         Err(err) => return Err(err.into()),
     };
     if existing.is_none() && oflag(OFLAGS_CREAT) && !changes {

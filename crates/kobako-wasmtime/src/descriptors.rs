@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::{DirEntry, File};
+use kobako_runtime::filesystem::{DirEntry, File, Metadata};
 use kobako_runtime::mount::Mount;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
@@ -24,13 +24,32 @@ pub(crate) enum Descriptor {
     File(OpenFile),
 }
 
+/// What a directory is, apart from where it stands: the device and inode
+/// numbers its Filesystem names it by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Identity {
+    dev: u64,
+    ino: u64,
+}
+
+impl Identity {
+    /// The identity `metadata` names, or `None` where its inode of zero
+    /// reports none.
+    pub(crate) fn of(metadata: &Metadata) -> Option<Self> {
+        (metadata.ino != 0).then_some(Self {
+            dev: metadata.dev,
+            ino: metadata.ino,
+        })
+    }
+}
+
 pub(crate) struct OpenDirectory {
     pub(crate) mount: Arc<Mount>,
     /// The directory's path relative to the mount's root.
     pub(crate) path: String,
     /// The identity the directory had when it was opened, so one made in
-    /// its place is not taken for it.
-    pub(crate) identity: (u64, u64),
+    /// its place is not taken for it; without one it follows its path.
+    pub(crate) identity: Option<Identity>,
     pub(crate) preopen: bool,
     /// The entries a listing began with, held until it reaches its end, so
     /// each later call reads on without listing the directory again.
@@ -74,8 +93,8 @@ impl Descriptors {
             let identity = mount
                 .filesystem()
                 .metadata("")
-                .map(|root| (root.dev, root.ino))
-                .unwrap_or_default();
+                .ok()
+                .and_then(|root| Identity::of(&root));
             used.insert(
                 fd,
                 Descriptor::Directory(OpenDirectory {

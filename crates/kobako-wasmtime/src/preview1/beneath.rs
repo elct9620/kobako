@@ -11,7 +11,7 @@
 use kobako_runtime::filesystem::{FileType, Filesystem, FilesystemError};
 
 use super::errno::{Answer, Errno};
-use crate::descriptors::OpenDirectory;
+use crate::descriptors::{Identity, OpenDirectory};
 
 /// Linux's limits on a path, its terminating NUL counted, and on one name
 /// within it.
@@ -93,11 +93,11 @@ pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
 /// nothing does, as a POSIX descriptor never reaches a directory made in
 /// its place. A directory opened with no identity follows its path alone.
 pub(crate) fn confirm(dir: &OpenDirectory) -> Answer {
-    if dir.identity.1 == 0 {
+    let Some(identity) = dir.identity else {
         return Ok(());
-    }
+    };
     match dir.mount.filesystem().metadata(&dir.path) {
-        Ok(found) if (found.dev, found.ino) == dir.identity => Ok(()),
+        Ok(found) if Identity::of(&found) == Some(identity) => Ok(()),
         Ok(_) | Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {
             Err(Errno::Noent.into())
         }
