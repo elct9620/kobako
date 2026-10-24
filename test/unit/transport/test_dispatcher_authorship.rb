@@ -3,9 +3,9 @@
 require "test_helper"
 require "delegate"
 
-# A narrowing predicate decides among the methods the Host App wrote. Each
-# Service below permits every name yet holds a method Ruby defines, reached
-# by a path other than Kernel's own, so an owner list alone would miss it.
+# A narrowing predicate decides among methods written in Ruby. Each Service
+# below permits every name yet holds a method built into Ruby, reached by a
+# path other than Kernel's own, so an owner list alone would miss it.
 class TestDispatchAuthorship < Minitest::Test
   class Inner
     def hello = "inner"
