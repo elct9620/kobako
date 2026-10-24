@@ -1159,3 +1159,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding two open files, the second on a Filesystem that refuses to close it |
 | When | the guest renumbers the first onto the second |
 | Then | the call answers that refusal and the second descriptor is closed |
+
+## `RT-115` A path climbing above the directory it is opened beneath is refused
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-079` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount's root |
+| When | it opens a path through that directory that climbs above it |
+| Then | the open answers ENOTCAPABLE |
