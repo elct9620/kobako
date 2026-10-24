@@ -54,6 +54,9 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "fd_seek" (func $seek (param i32 i64 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_readdir" (func $readdir (param i32 i32 i32 i64 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_create_directory" (func $mkdir (param i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_pread" (func $pread (param i32 i32 i32 i64 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_pwrite" (func $pwrite (param i32 i32 i32 i64 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_filestat_set_size" (func $set_size (param i32 i64) (result i32)))
   (memory (export "memory") 1)
   (data (i32.const 740) ".")
   (data (i32.const 760) "missing/../file.txt")
@@ -158,6 +161,28 @@ const PROBE_WAT: &str = r#"
     (local.set $errno (call $seek (i32.load (i32.const 128)) (i64.const 0x7fffffffffffffff) (i32.const 0) (i32.const 136)))
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $seek (i32.load (i32.const 128)) (i64.const 0x7fffffffffffffff) (i32.const 1) (i32.const 136)))
+  ;; Open `file.txt` to read and write into 128.
+  (func $open_read_write (result i32)
+    (call $open (i32.const 3) (i32.const 0) (i32.const 700) (i32.const 8)
+      (i32.const 0) (i64.const 66) (i64.const 0) (i32.const 0) (i32.const 128)))
+  ;; Read `file.txt` into 512 at `offset`.
+  (func (export "read_at") (param $offset i64) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_read_write))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $pread (i32.load (i32.const 128)) (i32.const 64) (i32.const 1) (local.get $offset) (i32.const 132)))
+  ;; Write "hello" into `file.txt` at `offset`.
+  (func (export "write_at") (param $offset i64) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_read_write))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $pwrite (i32.load (i32.const 128)) (i32.const 80) (i32.const 1) (local.get $offset) (i32.const 132)))
+  ;; Size `file.txt` to `offset` bytes.
+  (func (export "size_at") (param $offset i64) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_read_write))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $set_size (i32.load (i32.const 128)) (local.get $offset)))
   ;; List the root from `cookie` into the `len` bytes at 2048.
   (func (export "list") (param $cookie i64) (param $len i32) (result i32)
     (call $readdir (i32.const 3) (i32.const 2048) (local.get $len) (local.get $cookie) (i32.const 136)))
@@ -257,6 +282,15 @@ impl Guest {
             .get_typed_func::<(i32, i32, i32, i32), i32>(&mut self.store, name)
             .expect("probe export must resolve")
             .call(&mut self.store, (first.0, first.1, second.0, second.1))
+            .expect("probe call must not trap")
+    }
+
+    /// Call an export that takes an offset.
+    fn call_at(&mut self, name: &str, offset: u64) -> i32 {
+        self.instance
+            .get_typed_func::<i64, i32>(&mut self.store, name)
+            .expect("probe export must resolve")
+            .call(&mut self.store, offset as i64)
             .expect("probe call must not trap")
     }
 
@@ -1049,6 +1083,24 @@ fn a_seek_past_the_largest_offset_overflows() {
         answer, ERRNO_OVERFLOW,
         "fd_seek past the largest signed 64-bit offset of a file beneath a Mount through \
          preview1 must answer EOVERFLOW, as Linux does"
+    );
+}
+
+// A Memory clamps a read past its end and tries to grow for a write or a
+// size, so only the check before the Filesystem answers each as Linux does.
+// @behavior RT-116
+#[test]
+fn an_offset_past_the_largest_signed_offset_is_invalid() {
+    let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
+    assert_eq!(
+        (
+            guest.call_at("read_at", 1 << 63),
+            guest.call_at("write_at", 1 << 63),
+            guest.call_at("size_at", 1 << 63)
+        ),
+        (ERRNO_INVAL, ERRNO_INVAL, ERRNO_INVAL),
+        "fd_pread, fd_pwrite, and fd_filestat_set_size past the largest signed 64-bit offset of a \
+         Memory file beneath a Mount through preview1 must answer EINVAL, as Linux does"
     );
 }
 
