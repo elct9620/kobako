@@ -10,7 +10,7 @@
 //!
 //! `dispatch` builds a `Call` around a payload it never reads, sends it
 //! as a `call` upcall, and hands back the arm the Reply's tag named — the
-//! ok body to the caller, the fault body as an error. What either body means is the
+//! ok body to the caller, the fault body or a break as an error. What either body means is the
 //! payload codec's business, which is what lets a guest with its own
 //! schema drive this layer with no MessagePack in its dependency graph.
 //! On the host target a thread-local loopback hook stands in for
@@ -28,8 +28,8 @@ use kobako_transport::envelope::{self, Call, Reply, Target, Upcall};
 /// Non-exhaustive: a guest matches on this, and a later way for the
 /// exchange to fail should not break the ones already written. Keep a
 /// wildcard arm and treat it the way `Envelope` is treated: the exchange
-/// did not complete. `Unsupported` is the exception, an answer the caller
-/// may fall back from.
+/// did not complete. `Unsupported` and `Break` are the exceptions: an
+/// answer the caller may fall back from, and an exit the guest continues.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum DispatchError {
