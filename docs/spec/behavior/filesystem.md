@@ -899,3 +899,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay whose directory stands only in a read-only Layer |
 | When | a file is made inside it, copying the directory up |
 | Then | the directory keeps the identity it had before |
+
+## `FS-073` An Overlay names a directory alike whether a link at its end is followed
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-072` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose directory stands in two Layers |
+| When | the directory is looked up following a link at its end, and without |
+| Then | both lookups report the same identity |
