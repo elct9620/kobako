@@ -839,3 +839,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a list naming the root, a file twice, or a file where another path needs a directory |
 | When | a Memory is tried with it |
 | Then | the trial answers the error naming what the list holds wrong |
+
+## `FS-068` A Directory answers a write past the largest host file as too large
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-065` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory over a host directory |
+| When | a file is written at an offset past the largest file the host keeps |
+| Then | the write fails as a file too large, not as an unnamed failure |
