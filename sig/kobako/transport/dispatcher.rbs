@@ -9,7 +9,7 @@ module Kobako
 
       BREAK_THROW: Symbol
 
-      OWN_FAULTS: Hash[singleton(StandardError), String]
+      BARE_FAULTS: Hash[singleton(StandardError), String]
 
       def self.dispatch: (Kobako::Transport::Call call, Kobako::Transport::_ServiceResolver resolver, Kobako::Transport::_HandleTable handles, Kobako::Transport::BlockFailure failure, Kobako::Transport::_GuestYielder guest_yielder) -> [Symbol, String, String?]
 

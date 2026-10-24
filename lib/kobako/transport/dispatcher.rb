@@ -25,15 +25,18 @@ module Kobako
 
       class UnreadableRequestError < Kobako::Codec::Error; end # :nodoc:
 
-      # The category kobako's own refusals answer under, keyed by the class
-      # each is raised as and ordered most specific first. A class absent
-      # here is the Service's own exception, which answers under +runtime+
-      # wearing the +<class>: <message>+ shape that says so.
+      # The category each failure answering with its message alone takes,
+      # keyed by the class raised and ordered most specific first. kobako's
+      # own refusals are worded so none reads as a Service's exception, and
+      # +ArgumentError+, raised by a Service and by a call that will not
+      # bind alike, is named by +argument+ already. A class absent here is
+      # the Service's own exception, which answers under +runtime+ wearing
+      # the +<class>: <message>+ shape that names it.
       #
       # +Kobako::Codec::Error+ is the floor rather than a path of its own:
       # a codec fault reaching the boundary unnamed is the exchange failing,
       # and must not be dressed as something a Service raised.
-      OWN_FAULTS = {
+      BARE_FAULTS = {
         HandleExhaustedError => "internal",
         UndefinedTargetError => "undefined",
         ArgumentError => "argument",
@@ -42,7 +45,7 @@ module Kobako
         Kobako::Codec::Error => "internal",
         Kobako::SandboxError => "runtime"
       }.freeze
-      private_constant :OWN_FAULTS
+      private_constant :BARE_FAULTS
 
       # The per-invocation state arrives as arguments so the Dispatcher
       # stays stateless and neither the resolver nor the Context publishes
@@ -87,11 +90,9 @@ module Kobako
            arguments.kwargs.transform_values { |v| resolve_arg(v, handles) }]
         end
 
-        # The class prefix marks a Service's own exception and nothing else:
-        # it is the +<class>: <message>+ shape a Host App is told to keep
-        # secrets out of, so wearing it says the Service raised. kobako's own
-        # refusals answer under their own wording instead of borrowing that
-        # shape.
+        # The class prefix marks a Service's own exception that its category
+        # does not name: it is the +<class>: <message>+ shape a Host App is
+        # told to keep secrets out of, so wearing it says the Service raised.
         #
         # The guest's own block failing is not the Service's to report at
         # all, so the Yielder that raised it is asked first — it recognises
@@ -100,8 +101,8 @@ module Kobako
           block_failure = failure.fault_text(error)
           return fault("block", block_failure) if block_failure
 
-          own = OWN_FAULTS.find { |klass, _| error.is_a?(klass) }
-          return fault(own.last, error.message) if own
+          bare = BARE_FAULTS.find { |klass, _| error.is_a?(klass) }
+          return fault(bare.last, error.message) if bare
 
           fault("runtime", "#{error.class}: #{error.message}")
         end
