@@ -49,6 +49,7 @@ impl ResolvedPath {
 /// name past `NAME_MAX`, or a resolved path the Filesystem could not be
 /// handed within `PATH_MAX`, is `NAMETOOLONG`.
 pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
+    confirm(dir)?;
     if path.is_empty() {
         return Err(Errno::Noent.into());
     }
@@ -85,6 +86,22 @@ pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
         path,
         names_directory: matches!(last, "" | "."),
     })
+}
+
+/// `dir` still stands at its path, `NOENT` once another directory or
+/// nothing does, as a POSIX descriptor never reaches a directory made in
+/// its place. A directory opened with no identity follows its path alone.
+pub(crate) fn confirm(dir: &OpenDirectory) -> Answer {
+    if dir.identity.1 == 0 {
+        return Ok(());
+    }
+    match dir.mount.filesystem().metadata(&dir.path) {
+        Ok(found) if (found.dev, found.ino) == dir.identity => Ok(()),
+        Ok(_) | Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {
+            Err(Errno::Noent.into())
+        }
+        Err(err) => Err(err.into()),
+    }
 }
 
 /// A `..` leaves `path` only when it is a directory the Filesystem holds.

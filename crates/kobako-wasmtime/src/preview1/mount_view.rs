@@ -71,6 +71,7 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 920) "moved")
   (data (i32.const 930) "dir")
   (data (i32.const 940) "missing/.")
+  (data (i32.const 960) "inner")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
   (data (i32.const 600) "hello")
@@ -197,7 +198,14 @@ const PROBE_WAT: &str = r#"
       (i32.const 2) (i64.const 0) (i64.const 2) (i32.const 0) (i32.const 128)))
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $open (i32.load (i32.const 128)) (i32.const 0) (local.get $path) (local.get $len)
-      (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 132))))
+      (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 132)))
+  ;; Open `dir` as a directory into 128.
+  (func (export "open_dir") (result i32)
+    (call $open (i32.const 3) (i32.const 0) (i32.const 930) (i32.const 3)
+      (i32.const 2) (i64.const 0) (i64.const 2) (i32.const 0) (i32.const 128)))
+  ;; Stat `inner` beneath the directory opened into 128.
+  (func (export "stat_inner") (result i32)
+    (call $stat (i32.load (i32.const 128)) (i32.const 0) (i32.const 960) (i32.const 5) (i32.const 384))))
 "#;
 
 const FILE: (i32, i32) = (700, 8);
@@ -361,6 +369,16 @@ fn contents(filesystem: &dyn Filesystem, path: &str) -> Option<Vec<u8>> {
     Some(buf)
 }
 
+/// Make an empty file at `path`.
+fn overwrite(filesystem: &dyn Filesystem, path: &str) {
+    filesystem
+        .open(
+            path,
+            &opening(|options| (options.write, options.create) = (true, true)),
+        )
+        .expect("the file must be made");
+}
+
 struct Refuses(&'static str);
 
 impl Policy for Refuses {
@@ -509,6 +527,60 @@ fn a_path_above_the_directory_it_is_opened_beneath_is_refused() {
         ERRNO_NOTCAPABLE,
         "a path climbing above a non-preopened directory descriptor through preview1 must answer \
          ENOTCAPABLE, as wasmtime-wasi does"
+    );
+}
+
+/// What `stat_inner` answers through `dir` opened before `change` runs on
+/// the Memory holding it.
+fn stat_after(change: impl FnOnce(&Memory)) -> i32 {
+    let memory = file_and_directory();
+    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
+    assert_eq!(
+        guest.call_bare("open_dir"),
+        0,
+        "dir must open as a directory"
+    );
+    change(&memory);
+    guest.call_bare("stat_inner")
+}
+
+// A directory made at the path holds an `inner` of its own, so only the
+// identity check keeps the descriptor from reaching it.
+// @behavior RT-117
+#[test]
+fn a_directory_made_in_an_opened_directorys_place_is_not_reached_through_it() {
+    let answers = (
+        stat_after(|memory| {
+            memory.rename("dir", "moved", Rename::Any).unwrap();
+            memory.create_dir("dir").unwrap();
+            overwrite(memory, "dir/inner");
+        }),
+        stat_after(|memory| {
+            memory.remove_file("dir/inner").unwrap();
+            memory.remove_dir("dir").unwrap();
+            memory.create_dir("dir").unwrap();
+            overwrite(memory, "dir/inner");
+        }),
+    );
+    assert_eq!(
+        answers,
+        (ERRNO_NOENT, ERRNO_NOENT),
+        "path_filestat_get through a directory descriptor beneath a Mount through preview1 must \
+         answer ENOENT once another directory stands at its path, moved in or made anew"
+    );
+}
+
+// @behavior RT-118
+#[test]
+fn a_directory_moved_back_to_its_path_is_reached_through_its_descriptor_again() {
+    let answer = stat_after(|memory| {
+        memory.rename("dir", "moved", Rename::Any).unwrap();
+        memory.rename("moved", "dir", Rename::Any).unwrap();
+    });
+    assert_eq!(
+        answer, 0,
+        "path_filestat_get through a directory descriptor beneath a Mount through preview1 must \
+         reach the directory once it moves away and back"
     );
 }
 

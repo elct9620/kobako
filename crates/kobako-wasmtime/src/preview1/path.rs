@@ -206,9 +206,9 @@ pub(crate) fn open(
     } else {
         mount.filesystem().symlink_metadata(&path)
     };
-    let existing = match looked_up {
-        Ok(metadata) => Some(metadata.file_type),
-        Err(kobako_runtime::filesystem::FilesystemError::NotFound) => None,
+    let (existing, identity) = match looked_up {
+        Ok(metadata) => (Some(metadata.file_type), (metadata.dev, metadata.ino)),
+        Err(kobako_runtime::filesystem::FilesystemError::NotFound) => (None, (0, 0)),
         Err(err) => return Err(err.into()),
     };
     if existing.is_none() && oflag(OFLAGS_CREAT) && !changes {
@@ -222,6 +222,7 @@ pub(crate) fn open(
         Some(FileType::Directory) => Descriptor::Directory(OpenDirectory {
             mount,
             path,
+            identity,
             preopen: false,
             listing: None,
         }),

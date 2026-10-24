@@ -324,7 +324,11 @@ Some risks stay with the host, because kobako cannot see them.
 | one Overlay's writable Layer shared by another | the two are not serialized against each other |
 | one Overlay mounted in invocations that run at once | each waits for the other's call, and the wait runs past `timeout:` |
 
-A directory the guest opened is held by its path, as kobako holds every guest
-path, rather than by the host's inode. A path resolved through it stays beneath
-it, as a descriptor only ever narrows what the guest may reach. On Windows a Directory refuses a path holding
-a backslash, so a block never judges one name while the host walks two.
+A directory the guest opened is reached by its path, as kobako holds every guest
+path, and remembers its identity. Once another directory stands at that path, a
+call through it raises `Errno::ENOENT`, as a POSIX descriptor never reaches one.
+The check and the call are two steps, so a swap between them is the host's race.
+A path resolved through it stays beneath it, as a descriptor only ever narrows
+what the guest may reach. On Windows a Directory reports no identity. It refuses a
+path holding a backslash there, so a block never judges one name while the host
+walks two.

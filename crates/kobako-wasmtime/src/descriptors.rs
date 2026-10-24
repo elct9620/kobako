@@ -28,6 +28,9 @@ pub(crate) struct OpenDirectory {
     pub(crate) mount: Arc<Mount>,
     /// The directory's path relative to the mount's root.
     pub(crate) path: String,
+    /// The identity the directory had when it was opened, so one made in
+    /// its place is not taken for it.
+    pub(crate) identity: (u64, u64),
     pub(crate) preopen: bool,
     /// The entries a listing began with, held until it reaches its end, so
     /// each later call reads on without listing the directory again.
@@ -66,11 +69,19 @@ impl Descriptors {
             (2, Descriptor::Channel(stderr)),
         ]);
         for (fd, mount) in (3..).zip(mounts) {
+            // A root the Filesystem cannot stat reports no identity, and
+            // the descriptor follows its path alone.
+            let identity = mount
+                .filesystem()
+                .metadata("")
+                .map(|root| (root.dev, root.ino))
+                .unwrap_or_default();
             used.insert(
                 fd,
                 Descriptor::Directory(OpenDirectory {
                     mount: Arc::new(mount),
                     path: String::new(),
+                    identity,
                     preopen: true,
                     listing: None,
                 }),
