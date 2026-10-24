@@ -37,6 +37,16 @@ impl Layer {
         self.find_by(path, <dyn Filesystem>::metadata)
     }
 
+    /// What this Layer holds at `path` as one of the Layers merged beneath
+    /// a directory shown: a file standing above `path` here ends the merge
+    /// as a file at `path` does, rather than failing it.
+    fn find_below(&self, path: &str) -> Result<Option<Metadata>, FilesystemError> {
+        match self.find(path) {
+            Err(FilesystemError::NotADirectory) => Ok(Some(Metadata::new(FileType::File, 0))),
+            found => found,
+        }
+    }
+
     fn find_by(&self, path: &str, lookup: Lookup) -> Result<Option<Metadata>, FilesystemError> {
         match lookup(self.filesystem.as_ref(), path) {
             Ok(metadata) => Ok(Some(metadata)),
@@ -46,9 +56,14 @@ impl Layer {
     }
 
     /// Whether this Layer has an entry at `path`, a link pointing at
-    /// nothing among them.
-    fn holds(&self, path: &str) -> bool {
-        self.filesystem.symlink_metadata(path).is_ok()
+    /// nothing among them. A Layer that cannot answer fails the call, so a
+    /// marker it could not read never lets a lower entry show.
+    fn holds(&self, path: &str) -> Result<bool, FilesystemError> {
+        match self.filesystem.symlink_metadata(path) {
+            Ok(_) => Ok(true),
+            Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => Ok(false),
+            Err(err) => Err(err),
+        }
     }
 
     /// Whether this Layer hides `path` in every Layer below it: a whiteout
@@ -57,22 +72,25 @@ impl Layer {
     /// or above it, as overlayfs merges only directories. A marker lives
     /// in a directory, so the walk ends at the first directory above
     /// `path` this Layer lacks.
-    fn hides(&self, path: &str) -> bool {
-        if self.holds(&join(path, OPAQUE)) {
-            return true;
+    fn hides(&self, path: &str) -> Result<bool, FilesystemError> {
+        if self.holds(&join(path, OPAQUE))? {
+            return Ok(true);
         }
         for name in ancestors(path).chain(std::iter::once(path)) {
-            if self.holds(&whiteout(name)) || self.holds(&join(parent(name), OPAQUE)) {
-                return true;
+            if self.holds(&whiteout(name))? || self.holds(&join(parent(name), OPAQUE))? {
+                return Ok(true);
             }
             match self.filesystem.symlink_metadata(name) {
-                Ok(metadata) if metadata.file_type != FileType::Directory => return true,
+                Ok(metadata) if metadata.file_type != FileType::Directory => return Ok(true),
                 Ok(_) => {}
-                Err(_) if name != path => return false,
-                Err(_) => {}
+                Err(FilesystemError::NotFound | FilesystemError::NotADirectory) if name != path => {
+                    return Ok(false)
+                }
+                Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {}
+                Err(err) => return Err(err),
             }
         }
-        false
+        Ok(false)
     }
 }
 
@@ -231,7 +249,7 @@ impl Stack {
             if let Some(metadata) = layer.find_by(path, lookup)? {
                 return Ok(Some((index, metadata)));
             }
-            if layer.hides(path) {
+            if layer.hides(path)? {
                 break;
             }
         }
@@ -240,34 +258,36 @@ impl Stack {
 
     /// Every Layer still showing `path`, topmost first, and the topmost
     /// Layer below them whose entry there a file or link above shadows.
-    fn holders(&self, path: &str) -> (Vec<usize>, Option<usize>) {
+    fn holders(&self, path: &str) -> Result<(Vec<usize>, Option<usize>), FilesystemError> {
         let mut holders = Vec::new();
         for (index, layer) in self.layers.iter().enumerate() {
-            if layer.holds(path) {
+            let holds = layer.holds(path)?;
+            if holds {
                 holders.push(index);
             }
-            if layer.hides(path) {
-                let shadowed = layer
-                    .holds(path)
-                    .then(|| self.beneath(index, path))
-                    .flatten();
-                return (holders, shadowed);
+            if layer.hides(path)? {
+                let shadowed = if holds {
+                    self.beneath(index, path)?
+                } else {
+                    None
+                };
+                return Ok((holders, shadowed));
             }
         }
-        (holders, None)
+        Ok((holders, None))
     }
 
     /// The topmost Layer below `above` holding `path` in sight.
-    fn beneath(&self, above: usize, path: &str) -> Option<usize> {
+    fn beneath(&self, above: usize, path: &str) -> Result<Option<usize>, FilesystemError> {
         for (index, layer) in self.layers.iter().enumerate().skip(above + 1) {
-            if layer.holds(path) {
-                return Some(index);
+            if layer.holds(path)? {
+                return Ok(Some(index));
             }
-            if layer.hides(path) {
-                return None;
+            if layer.hides(path)? {
+                return Ok(None);
             }
         }
-        None
+        Ok(None)
     }
 
     /// The topmost writable Layer, where every change that is not in place
@@ -283,11 +303,10 @@ impl Stack {
     /// a read-only Layer above it would cover, holding or hiding `path`, so
     /// no change succeeds out of sight.
     fn refuse_covered(&self, path: &str, into: usize) -> Result<(), FilesystemError> {
-        if self.layers[..into]
-            .iter()
-            .any(|layer| layer.holds(path) || layer.hides(path))
-        {
-            return Err(FilesystemError::ReadOnlyFilesystem);
+        for layer in &self.layers[..into] {
+            if layer.holds(path)? || layer.hides(path)? {
+                return Err(FilesystemError::ReadOnlyFilesystem);
+            }
         }
         Ok(())
     }
@@ -299,7 +318,7 @@ impl Stack {
     fn copy_up_directories(&self, path: &str, into: usize) -> Result<(), FilesystemError> {
         let target = &self.layers[into];
         for dir in ancestors(path) {
-            if target.holds(dir) {
+            if target.holds(dir)? {
                 continue;
             }
             match self.locate_by(dir, <dyn Filesystem>::symlink_metadata)? {
@@ -356,7 +375,7 @@ impl Stack {
     fn unhide(&self, path: &str, into: usize) -> Result<(), FilesystemError> {
         let marker = whiteout(path);
         let layer = &self.layers[into];
-        if layer.holds(&marker) {
+        if layer.holds(&marker)? {
             layer.filesystem.remove_file(&marker)?;
         }
         Ok(())
@@ -391,7 +410,7 @@ impl Stack {
         keeps: impl Fn(&dyn Filesystem) -> Result<bool, FilesystemError>,
         remove: impl Fn(&dyn Filesystem, &str) -> Result<(), FilesystemError>,
     ) -> Result<(), FilesystemError> {
-        let (holders, shadowed) = self.holders(path);
+        let (holders, shadowed) = self.holders(path)?;
         let mut kept = Vec::new();
         for &index in &holders {
             let layer = &self.layers[index];
@@ -501,12 +520,12 @@ impl Stack {
         }
         let mut lowest = metadata;
         for layer in &self.layers[index..] {
-            match layer.find(path)? {
+            match layer.find_below(path)? {
                 Some(found) if found.file_type == FileType::Directory => lowest = found,
                 Some(_) => break,
                 None => {}
             }
-            if layer.hides(path) {
+            if layer.hides(path)? {
                 break;
             }
         }
@@ -520,7 +539,7 @@ impl Stack {
         let mut entries: Vec<DirEntry> = Vec::new();
         let mut hidden: Vec<String> = Vec::new();
         for layer in &self.layers {
-            match layer.find(path)? {
+            match layer.find_below(path)? {
                 Some(Metadata {
                     file_type: FileType::Directory,
                     ..
@@ -547,7 +566,7 @@ impl Stack {
                 Some(_) => break,
                 None => {}
             }
-            if layer.hides(path) {
+            if layer.hides(path)? {
                 break;
             }
         }
@@ -568,7 +587,7 @@ impl Stack {
         self.refuse_covered(path, upper)?;
         self.copy_up_directories(path, upper)?;
         let layer = &self.layers[upper];
-        let hid = layer.holds(&whiteout(path));
+        let hid = layer.holds(&whiteout(path))?;
         layer.filesystem.create_dir(path)?;
         if hid {
             if let Err(err) = self.mark(&join(path, OPAQUE), upper) {
@@ -655,13 +674,13 @@ impl Stack {
         }
         let upper = self.upper()?;
         self.refuse_covered(to, upper)?;
-        let replaces_below = moving.file_type == FileType::Directory
-            && self
-                .layers
-                .iter()
-                .enumerate()
-                .any(|(index, layer)| index != upper && layer.holds(to));
-        let (holders, shadowed) = self.holders(from);
+        let mut replaces_below = false;
+        if moving.file_type == FileType::Directory {
+            for (index, layer) in self.layers.iter().enumerate() {
+                replaces_below |= index != upper && layer.holds(to)?;
+            }
+        }
+        let (holders, shadowed) = self.holders(from)?;
         let read_only = holders
             .iter()
             .copied()
@@ -672,7 +691,8 @@ impl Stack {
                 return Err(FilesystemError::CrossesDevices)
             }
             FileType::File if holders.first() != Some(&upper) => {
-                self.copy_up_file(from, holders[0], upper)?
+                let shown = holders.first().ok_or(FilesystemError::NotFound)?;
+                self.copy_up_file(from, *shown, upper)?
             }
             FileType::Symlink if holders.first() != Some(&upper) => {
                 return Err(FilesystemError::CrossesDevices)
@@ -685,12 +705,12 @@ impl Stack {
         }
         let filesystem = self.layers[upper].filesystem.as_ref();
         let opaque = join(from, OPAQUE);
-        let marks = replaces_below && !self.layers[upper].holds(&opaque);
+        let marks = replaces_below && !self.layers[upper].holds(&opaque)?;
         if marks {
             put_marker(filesystem, &opaque)?;
         }
         let moved = || filesystem.rename(from, to, rename);
-        let moved = if replaced == Some(FileType::Directory) && self.layers[upper].holds(to) {
+        let moved = if replaced == Some(FileType::Directory) && self.layers[upper].holds(to)? {
             without_markers(filesystem, to, moved)
         } else {
             moved()

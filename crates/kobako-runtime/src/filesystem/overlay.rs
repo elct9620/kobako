@@ -119,7 +119,7 @@ impl Filesystem for Overlay {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Mutex;
     use std::thread;
     use std::time::{Duration, Instant};
@@ -1263,6 +1263,149 @@ mod tests {
         fn rename(&self, _from: &str, _to: &str, _rename: Rename) -> Result<(), FilesystemError> {
             Err(FilesystemError::PermissionDenied)
         }
+    }
+
+    /// A Memory answering a lookup of any marker name with an I/O failure.
+    struct ReadsNoMarker(Memory);
+
+    impl Filesystem for ReadsNoMarker {
+        fn open(
+            &self,
+            path: &str,
+            options: &OpenOptions,
+        ) -> Result<Box<dyn File>, FilesystemError> {
+            self.0.open(path, options)
+        }
+
+        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            if path
+                .rsplit('/')
+                .next()
+                .is_some_and(|name| name.starts_with(".wh."))
+            {
+                return Err(FilesystemError::Other(
+                    "the marker cannot be read".to_string(),
+                ));
+            }
+            self.0.metadata(path)
+        }
+
+        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.0.read_dir(path)
+        }
+
+        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+            self.0.create_dir(path)
+        }
+
+        fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+            self.0.remove_dir(path)
+        }
+
+        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+            self.0.remove_file(path)
+        }
+
+        fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+            self.0.rename(from, to, rename)
+        }
+    }
+
+    /// A Memory whose `file` is gone after its first lookup, as a host
+    /// directory another process changes mid-call.
+    struct Vanishes {
+        memory: Memory,
+        seen: AtomicBool,
+    }
+
+    impl Filesystem for Vanishes {
+        fn open(
+            &self,
+            path: &str,
+            options: &OpenOptions,
+        ) -> Result<Box<dyn File>, FilesystemError> {
+            self.memory.open(path, options)
+        }
+
+        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            if path == "file" && self.seen.swap(true, Ordering::SeqCst) {
+                return Err(FilesystemError::NotFound);
+            }
+            self.memory.metadata(path)
+        }
+
+        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.memory.read_dir(path)
+        }
+
+        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+            self.memory.create_dir(path)
+        }
+
+        fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+            self.memory.remove_dir(path)
+        }
+
+        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+            self.memory.remove_file(path)
+        }
+
+        fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+            self.memory.rename(from, to, rename)
+        }
+    }
+
+    // A whiteout the Layer cannot read would otherwise count as absent and
+    // let the lower file show.
+    // @behavior FS-079
+    #[test]
+    fn a_layer_that_cannot_read_its_markers_fails_the_lookup() {
+        let top: Memory = [(".wh.file", "")].into_iter().collect();
+        let overlay = Overlay::new()
+            .layer(Arc::new(ReadsNoMarker(top)), Access::Read)
+            .layer(memory_with("file", "hidden"), Access::Read);
+        assert!(
+            matches!(overlay.metadata("file"), Err(FilesystemError::Other(_))),
+            "a file looked up through Overlay::metadata, beneath a Layer that cannot read the \
+             whiteout over it, must fail the lookup rather than show the file"
+        );
+    }
+
+    // @behavior FS-080
+    #[test]
+    fn a_file_gone_during_a_rename_answers_not_found() {
+        let lower = Vanishes {
+            memory: [("file", "lower")].into_iter().collect(),
+            seen: AtomicBool::new(false),
+        };
+        let overlay = Overlay::new()
+            .layer(Arc::new(Memory::new()), Access::ReadWrite)
+            .layer(Arc::new(lower), Access::Read);
+        assert_eq!(
+            overlay.rename("file", "moved", Rename::Any),
+            Err(FilesystemError::NotFound),
+            "a file renamed through Overlay::rename that its Layer loses during the call must \
+             answer not found"
+        );
+    }
+
+    // The upper Layer's `dir/sub` stands where the lower Layer holds a
+    // file `dir`, so the merge below it meets a file on the way.
+    // @behavior FS-078
+    #[test]
+    fn a_directory_over_a_lower_file_on_its_way_reads_as_a_directory() {
+        let overlay = Overlay::new()
+            .layer(memory_with("dir/sub/file", "upper"), Access::ReadWrite)
+            .layer(memory_with("dir", "lower"), Access::Read);
+        assert_eq!(
+            (
+                overlay.metadata("dir/sub").map(|metadata| metadata.file_type),
+                read(&overlay, "dir/sub/file")
+            ),
+            (Ok(FileType::Directory), b"upper".to_vec()),
+            "a directory looked up through Overlay::metadata above a lower Layer holding a file on \
+             its path must read as a directory, as its files open"
+        );
     }
 
     // The writable Layer refuses each change only after the Overlay has
