@@ -74,6 +74,7 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 960) "inner")
   (data (i32.const 970) "file.txt/.")
   (data (i32.const 990) "file.txt/../file.txt")
+  (data (i32.const 1010) "file.txt\00")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
   (data (i32.const 600) "hello")
@@ -226,6 +227,7 @@ const DIR: (i32, i32) = (930, 3);
 const MISSING_DOT: (i32, i32) = (940, 9);
 const LINK_DOT: (i32, i32) = (970, 10);
 const OUT_OF_LINK: (i32, i32) = (990, 20);
+const HOLDING_NUL: (i32, i32) = (1010, 9);
 const ERRNO_OVERFLOW: i32 = 61;
 const ERRNO_EXIST: i32 = 20;
 const OFLAGS_EXCL: i32 = 1 << 2;
@@ -1468,6 +1470,18 @@ fn a_dot_dot_after_a_missing_name_names_nothing() {
         read_beneath(THROUGH_MISSING),
         ERRNO_NOENT,
         "path_open of `missing/../file.txt` beneath a Mount through preview1 must answer ENOENT"
+    );
+}
+
+// The Memory would hold `file.txt` and any other name, so only the NUL
+// refuses the open.
+// @behavior RT-122
+#[test]
+fn a_path_holding_a_nul_is_invalid() {
+    assert_eq!(
+        read_beneath(HOLDING_NUL),
+        ERRNO_INVAL,
+        "path_open of `file.txt\\0` beneath a Mount through preview1 must answer EINVAL"
     );
 }
 

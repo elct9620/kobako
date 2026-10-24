@@ -134,11 +134,15 @@ impl<'a> GuestMemory<'a> {
 
     /// A guest path, which preview1 requires to be UTF-8. One that would
     /// not fit Linux's `PATH_MAX` with its terminating NUL is refused
-    /// before it is copied, as Linux's `getname` refuses it.
+    /// before it is copied, as Linux's `getname` refuses it, and one
+    /// holding a NUL names nothing a host can hold, as cap-std refuses it.
     pub(crate) fn path(&self, ptr: u32, len: u32) -> Answer<String> {
         let bytes = self.bytes(ptr, len)?;
         if bytes.len() >= PATH_MAX {
             return Err(Errno::Nametoolong.into());
+        }
+        if bytes.contains(&0) {
+            return Err(Errno::Inval.into());
         }
         self.consume(len, 1)?;
         String::from_utf8(bytes.to_vec()).map_err(|_| Errno::Ilseq.into())
