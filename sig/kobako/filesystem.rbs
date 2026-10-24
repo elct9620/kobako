@@ -41,9 +41,17 @@ module Kobako
       def close: () -> void
     end
 
+    # What a Filesystem written in Ruby's +stat+ answers, as +File::Stat+
+    # does; an +ino+ of zero names no identity. One that also answers
+    # _StatDevice names the device its +ino+ belongs to.
     interface _Stat
       def directory?: () -> boolish
       def size: () -> Integer
+      def ino: () -> Integer
+    end
+
+    interface _StatDevice
+      def dev: () -> Integer
     end
 
     class Memory
