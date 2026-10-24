@@ -288,7 +288,7 @@ that path and holds its access; what the Filesystem holds is yours to choose.
 | `access: :read` unless the guest must write | a read-only Mount refuses every change |
 | a Memory or Temporary over a Directory | a Directory is a real host path the guest changes |
 | `limit:` and `inodes:` sized to the task | the defaults hold 64 MiB and 16385 entries |
-| `open_file_limit:` below the host's own | each guest file a Directory opens is a host descriptor |
+| `open_file_limit:` below the host's own | each file or directory the guest opens in a Directory holds a host descriptor |
 
 ### Mount Blocks
 
@@ -330,7 +330,9 @@ Some risks stay with the host, because kobako cannot see them.
 A directory the guest opened is reached by its path, as kobako holds every guest
 path, and remembers its identity. Once another directory stands at that path, a
 call through it raises `Errno::ENOENT`, as a POSIX descriptor never reaches one.
-The check and the call are two steps, so a swap between them is the host's race.
+A Directory holds the host directory open meanwhile, so the host never hands its
+inode number to the next one made. The check and the call are two steps, so a
+swap between them is the host's race.
 A path resolved through it stays beneath it, as a descriptor only ever narrows
 what the guest may reach. On Windows a Directory reports no identity. It refuses a
 path holding a backslash there, so a block never judges one name while the host

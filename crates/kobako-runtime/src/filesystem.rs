@@ -57,6 +57,15 @@ pub trait Filesystem: Send + Sync {
         Ok(path.to_string())
     }
 
+    /// Keep the directory at `path` from handing its identity to another
+    /// while the Hold lives, as an open descriptor keeps a host's inode
+    /// from being reused. The default, for a Filesystem whose identities
+    /// never repeat, holds nothing.
+    fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
+        let _ = path;
+        Ok(None)
+    }
+
     /// The entries of the directory at `path`, without `.` or `..`.
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError>;
 
@@ -208,6 +217,22 @@ impl Metadata {
     pub fn unique_device() -> u64 {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         (1 << 63) | NEXT.fetch_add(1, Ordering::Relaxed)
+    }
+}
+
+/// What keeps a directory's identity its own while a descriptor has the
+/// directory open, released when it drops.
+pub struct Hold {
+    _kept: Box<dyn Send + Sync>,
+}
+
+impl Hold {
+    /// A Hold keeping `kept`, such as a host directory's descriptor, until
+    /// it drops.
+    pub fn new(kept: impl Send + Sync + 'static) -> Self {
+        Self {
+            _kept: Box::new(kept),
+        }
     }
 }
 

@@ -13,7 +13,9 @@ use std::path::Path;
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
-use super::{DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
+use super::{
+    DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions, Rename,
+};
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
@@ -154,6 +156,16 @@ impl Filesystem for Directory {
                 .symlink_metadata(to_host_path(path)?)
                 .map_err(to_error)?,
         ))
+    }
+
+    /// The host directory's own descriptor, so its inode stays taken.
+    /// Elsewhere a Directory reports no identity, so it holds nothing.
+    fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
+        if cfg!(not(unix)) {
+            return Ok(None);
+        }
+        let dir = self.dir.open_dir(to_host_path(path)?).map_err(to_error)?;
+        Ok(Some(Hold::new(dir)))
     }
 
     fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
@@ -651,6 +663,44 @@ mod tests {
             (10_000, 10_000),
             "two handles appending to one host file through a Directory's File::append must each \
              keep every byte"
+        );
+    }
+
+    // ext4 hands a removed directory's inode number to the next one made,
+    // so the number staying unused while held is what the Hold keeps; a
+    // host that never reuses numbers has nothing to witness.
+    // @behavior FS-086
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_directory_held_keeps_its_inode_number_from_the_next_one_made() {
+        use std::os::unix::fs::MetadataExt;
+
+        let host = HostDir::new("held");
+        let ino = |path: &str| {
+            fs::metadata(host.0.join(path))
+                .expect("it must stand")
+                .ino()
+        };
+        fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
+        let first = ino("dir");
+        fs::remove_dir(host.0.join("dir")).expect("the host directory must go");
+        fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
+        if ino("dir") != first {
+            eprintln!("the host does not reuse inode numbers; nothing to witness");
+            return;
+        }
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        let hold = directory
+            .hold_directory("dir")
+            .expect("the directory must be held");
+        fs::remove_dir(host.0.join("dir")).expect("the host directory must go");
+        fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
+        let made = ino("dir");
+        drop(hold);
+        assert_ne!(
+            made, first,
+            "a directory made where Directory::hold_directory holds a removed one must take \
+             another inode number on a host reusing them"
         );
     }
 

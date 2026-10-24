@@ -16,7 +16,9 @@ use std::sync::Arc;
 
 pub use exclusive::Blocking;
 
-use super::{Access, DirEntry, File, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
+use super::{
+    Access, DirEntry, File, Filesystem, FilesystemError, Hold, Metadata, OpenOptions, Rename,
+};
 use exclusive::{Exclusive, Inline};
 use stack::Stack;
 
@@ -83,6 +85,11 @@ impl Filesystem for Overlay {
     fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
         let _held = self.lock.hold()?;
         self.stack.stored_path(path)
+    }
+
+    fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
+        let _held = self.lock.hold()?;
+        self.stack.hold_directory(path)
     }
 
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {

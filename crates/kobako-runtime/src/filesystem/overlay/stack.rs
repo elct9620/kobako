@@ -11,7 +11,8 @@ use std::sync::Arc;
 
 use super::super::path::{ancestors, beneath_itself, is_beneath, parent};
 use super::super::{
-    Access, DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
+    Access, DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions,
+    Rename,
 };
 
 /// The prefix of a whiteout, and of every name reserved for a marker.
@@ -534,10 +535,22 @@ impl Stack {
         if metadata.file_type != FileType::Directory {
             return Ok(metadata);
         }
-        let mut lowest = metadata;
-        for layer in &self.layers[index..] {
+        let (_, lowest) = self.lowest_directory(path, index, metadata)?;
+        Ok(metadata.with_identity(lowest.dev, lowest.ino))
+    }
+
+    /// The lowest Layer at or below `index` still showing the directory
+    /// `path`, found there as `metadata`, and what it holds there.
+    fn lowest_directory(
+        &self,
+        path: &str,
+        index: usize,
+        metadata: Metadata,
+    ) -> Result<(usize, Metadata), FilesystemError> {
+        let mut lowest = (index, metadata);
+        for (at, layer) in self.layers.iter().enumerate().skip(index) {
             match layer.find_below(path)? {
-                Some(found) if found.file_type == FileType::Directory => lowest = found,
+                Some(found) if found.file_type == FileType::Directory => lowest = (at, found),
                 Some(_) => break,
                 None => {}
             }
@@ -545,7 +558,17 @@ impl Stack {
                 break;
             }
         }
-        Ok(metadata.with_identity(lowest.dev, lowest.ino))
+        Ok(lowest)
+    }
+
+    /// The Hold of the Layer whose directory gives `path` its identity.
+    pub(super) fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
+        let (index, metadata) = self.locate(path)?.ok_or(FilesystemError::NotFound)?;
+        if metadata.file_type != FileType::Directory {
+            return Err(FilesystemError::NotADirectory);
+        }
+        let (lowest, _) = self.lowest_directory(path, index, metadata)?;
+        self.layers[lowest].filesystem.hold_directory(path)
     }
 
     pub(super) fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {

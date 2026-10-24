@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::{DirEntry, File, Metadata};
+use kobako_runtime::filesystem::{DirEntry, File, Hold, Metadata};
 use kobako_runtime::mount::Mount;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
@@ -50,6 +50,9 @@ pub(crate) struct OpenDirectory {
     /// The identity the directory had when it was opened, so one made in
     /// its place is not taken for it; without one it follows its path.
     pub(crate) identity: Option<Identity>,
+    /// What keeps that identity from passing to a directory made in this
+    /// one's place while the descriptor is open.
+    pub(crate) _hold: Option<Hold>,
     pub(crate) preopen: bool,
     /// The entries a listing began with, held until it reaches its end, so
     /// each later call reads on without listing the directory again.
@@ -88,19 +91,21 @@ impl Descriptors {
             (2, Descriptor::Channel(stderr)),
         ]);
         for (fd, mount) in (3..).zip(mounts) {
-            // A root the Filesystem cannot stat reports no identity, and
-            // the descriptor follows its path alone.
-            let identity = mount
-                .filesystem()
+            // A root the Filesystem cannot stat or hold reports no
+            // identity, and the descriptor follows its path alone.
+            let filesystem = mount.filesystem();
+            let identity = filesystem
                 .metadata("")
                 .ok()
                 .and_then(|root| Identity::of(&root));
+            let hold = filesystem.hold_directory("").ok().flatten();
             used.insert(
                 fd,
                 Descriptor::Directory(OpenDirectory {
                     mount: Arc::new(mount),
                     path: String::new(),
                     identity,
+                    _hold: hold,
                     preopen: true,
                     listing: None,
                 }),

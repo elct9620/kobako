@@ -220,6 +220,7 @@ pub(crate) fn open(
             return Err(Errno::Isdir.into())
         }
         Some(FileType::Directory) => Descriptor::Directory(OpenDirectory {
+            _hold: mount.filesystem().hold_directory(&path)?,
             mount,
             path,
             identity,

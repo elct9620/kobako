@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    DirEntry, Directory, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Overlay,
-    Rename, Temporary,
+    DirEntry, Directory, File, Filesystem, FilesystemError, Hold, Memory, Metadata, OpenOptions,
+    Overlay, Rename, Temporary,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
@@ -629,6 +629,101 @@ fn a_directory_made_in_an_opened_directorys_place_is_not_reached_through_it() {
         (ERRNO_NOENT, ERRNO_NOENT),
         "path_filestat_get through a directory descriptor beneath a Mount through preview1 must \
          answer ENOENT once another directory stands at its path, moved in or made anew"
+    );
+}
+
+/// A Memory naming `dir` by one inode number for as long as nothing holds
+/// it, as a host hands a removed directory's number to the next one made,
+/// and by a fresh number once a held `dir` was removed.
+struct ReusesInodes {
+    memory: Arc<Memory>,
+    holds: Arc<AtomicUsize>,
+    removed_while_held: AtomicUsize,
+}
+
+/// Counts as holding a directory until it drops.
+struct Holding(Arc<AtomicUsize>);
+
+impl Drop for Holding {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+impl Filesystem for ReusesInodes {
+    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+        self.memory.open(path, options)
+    }
+
+    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        let found = self.memory.metadata(path)?;
+        if path != "dir" {
+            return Ok(found);
+        }
+        let ino = 100 + self.removed_while_held.load(Ordering::SeqCst) as u64;
+        Ok(found.with_identity(1, ino))
+    }
+
+    fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
+        if path != "dir" {
+            return Ok(None);
+        }
+        self.holds.fetch_add(1, Ordering::SeqCst);
+        Ok(Some(Hold::new(Holding(self.holds.clone()))))
+    }
+
+    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.memory.read_dir(path)
+    }
+
+    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.memory.create_dir(path)
+    }
+
+    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.memory.remove_dir(path)?;
+        if self.holds.load(Ordering::SeqCst) > 0 {
+            self.removed_while_held.fetch_add(1, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+
+    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+        self.memory.remove_file(path)
+    }
+
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+        self.memory.rename(from, to, rename)
+    }
+}
+
+// The Filesystem gives the new `dir` the old one's number unless a Hold
+// on it lives, so only the descriptor keeping its Hold refuses the call.
+// @behavior RT-121
+#[test]
+fn a_directory_descriptor_holds_its_directory_while_open() {
+    let memory = file_and_directory();
+    let reuses = Arc::new(ReusesInodes {
+        memory: memory.clone(),
+        holds: Arc::new(AtomicUsize::new(0)),
+        removed_while_held: AtomicUsize::new(0),
+    });
+    let mut guest = Guest::new(&[grant(reuses.clone(), Access::ReadWrite, None)]);
+    assert_eq!(
+        guest.call_bare("open_dir"),
+        0,
+        "dir must open as a directory"
+    );
+    reuses.remove_file("dir/inner").unwrap();
+    reuses.remove_dir("dir").unwrap();
+    reuses.create_dir("dir").unwrap();
+    overwrite(memory.as_ref(), "dir/inner");
+    assert_eq!(
+        guest.call_bare("stat_inner"),
+        ERRNO_NOENT,
+        "path_filestat_get through a directory descriptor beneath a Mount through preview1, once \
+         its directory is removed and made again on a Filesystem reusing inode numbers, must \
+         answer ENOENT"
     );
 }
 
