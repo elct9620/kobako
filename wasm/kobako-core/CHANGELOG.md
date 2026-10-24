@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.18.0...kobako-core-v0.19.0) (2026-10-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* in kobako-transport, YieldReply::Break carries no payload and Reply gains a Break arm, so a Guest Binary built against the earlier version 5 wire must be rebuilt.
+* the Guest ABI is version 5, so a Guest Binary built against version 4 is refused at Sandbox construction until rebuilt. The Yielder trait of kobako-runtime gains frame and takes the frame in yield_to_block; the Guest trait of kobako-core and the MrbGuest trait of kobako-mruby take the frame in yield_to_block; Downcall::Yield carries frame and args.
+
+### Features
+
+* let a block's break or return unwind a Service as a plain method ([4e9eca0](https://github.com/elct9620/kobako/commit/4e9eca05f1647c8b6409fc00d08317b431c0c648))
+
+
+### Bug Fixes
+
+* run a stored block as the block of the Call that carried it ([bf33dc1](https://github.com/elct9620/kobako/commit/bf33dc1fd40c83498c6c12b0be52b3a835a144cf))
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.17.0...kobako-core-v0.18.0) (2026-10-13)
 
 

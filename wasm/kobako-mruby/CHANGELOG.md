@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.18.0...kobako-mruby-v0.19.0) (2026-10-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* in kobako-transport, YieldReply::Break carries no payload and Reply gains a Break arm, so a Guest Binary built against the earlier version 5 wire must be rebuilt.
+* kobako-codec renames `Decoder::at_end` to `is_at_end`, `Decoder::read_only_value` to `read_sole_value`, and `Decoder::with_value_limit` to `with_value_budget`; the kobako crate renames `handles::Detached` to `handles::DetachedHandles`.
+* the Guest ABI is version 5, so a Guest Binary built against version 4 is refused at Sandbox construction until rebuilt. The Yielder trait of kobako-runtime gains frame and takes the frame in yield_to_block; the Guest trait of kobako-core and the MrbGuest trait of kobako-mruby take the frame in yield_to_block; Downcall::Yield carries frame and args.
+* **guest:** kobako-mruby drops the narrow_int method on Kobako, the IntegerOutOfRange type and the Interpreter variant of CodecError; a codec builds a guest Integer from a wire integer through beni's IntoValue.
+* **guest:** the kobako guest crates name beni 0.25's types, so a shell or codec built on them moves to beni 0.25 with them.
+* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer for every integer within 64 bits, where it used to answer a Float past 32 bits. An integer past 64 bits now raises
+* **guest:** the kobako guest crates name beni 0.24's types, so a shell or codec built on them moves to beni 0.24 with them.
+
+### Features
+
+* **guest:** carry every integer msgpack encodes in both directions ([ec349f9](https://github.com/elct9620/kobako/commit/ec349f98fcb38443d9f9dfc45701e2ce87ff7710))
+* **guest:** carry mruby-bigint so an Integer has no width of its own ([a74266d](https://github.com/elct9620/kobako/commit/a74266d3e7b1295b75770b62894b232195f9b3bb))
+* **guest:** widen the guest Integer to 64 bits ([7236a26](https://github.com/elct9620/kobako/commit/7236a26285dfdef175048f659c1094dd3bbb5b4d))
+* let a block's break or return unwind a Service as a plain method ([4e9eca0](https://github.com/elct9620/kobako/commit/4e9eca05f1647c8b6409fc00d08317b431c0c648))
+
+
+### Bug Fixes
+
+* **guest:** name the segment a bind path meets when the Guest Binary already defines it ([0dc1766](https://github.com/elct9620/kobako/commit/0dc1766ff60a1ef03a5b0c337dfd02041fb3fb8f))
+* run a stored block as the block of the Call that carried it ([bf33dc1](https://github.com/elct9620/kobako/commit/bf33dc1fd40c83498c6c12b0be52b3a835a144cf))
+
+
+### Code Refactoring
+
+* name the value budget and decoder queries by the conventions ([918f748](https://github.com/elct9620/kobako/commit/918f7488dea13d27def92dca9e31128d90856f1c))
+
+
+### Build System
+
+* **guest:** rebuild the guest crates on beni 0.24 ([4599337](https://github.com/elct9620/kobako/commit/4599337261d1d28ff8c36435062d34cbccf09abb))
+* **guest:** rebuild the guest crates on beni 0.25 ([a06dfd2](https://github.com/elct9620/kobako/commit/a06dfd25958ded9c82072149d73e56372343ba31))
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.17.0...kobako-mruby-v0.18.0) (2026-10-13)
 
 
