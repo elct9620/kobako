@@ -30,14 +30,14 @@ module Kobako
 
     def dispatch_handler: () -> Kobako::Transport::dispatch_proc
 
-    def populate_observability:(Kobako::Runtime::Snapshot snapshot) -> void
+    def populate_observability:(Kobako::Snapshot snapshot) -> void
 
     def with_verb: (Kobako::TrapError err, Symbol verb) -> Kobako::TrapError
 
     def build_execution: (untyped value, failed: bool) -> Kobako::Execution
 
-    def settle_outcome: (Kobako::Runtime::Snapshot snapshot, Symbol verb, Symbol? entrypoint) -> Kobako::Execution
+    def settle_outcome: (Kobako::Snapshot snapshot, Symbol verb, Symbol? entrypoint) -> Kobako::Execution
 
-    def invoke!: (Symbol verb, ?entrypoint: Symbol?) { () -> Kobako::Runtime::Snapshot } -> Kobako::Execution
+    def invoke!: (Symbol verb, ?entrypoint: Symbol?) { () -> Kobako::Snapshot } -> Kobako::Execution
   end
 end

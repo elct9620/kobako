@@ -1,0 +1,20 @@
+module Kobako
+  # One invocation's result — the whole Snapshot the driver produced.
+  class Snapshot
+    def outcome: () -> [String, Kobako::Outcome::panic_fields?]
+
+    def trap_error: () -> Kobako::TrapError?
+
+    def wall_time: () -> Float
+
+    def memory_peak: () -> Integer
+
+    def stdout: () -> String
+
+    def stdout_truncated?: () -> bool
+
+    def stderr: () -> String
+
+    def stderr_truncated?: () -> bool
+  end
+end

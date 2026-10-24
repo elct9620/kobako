@@ -3,7 +3,7 @@ module Kobako
     # The guest re-entry callable a dispatch hands to a Yielder: invoked
     # with the encoded yield args, it returns the decoded Yield Reply as an
     # +[arm, body, klass]+ triple.
-    # The ext's Kobako::Runtime::GuestYielder is the production conformer;
+    # The ext's Kobako::GuestYielder is the production conformer;
     # modelled structurally so the Transport layer needs no upward
     # dependency on Runtime.
     interface _GuestYielder

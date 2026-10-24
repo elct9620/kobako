@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use magnus::rb_sys::AsRawValue;
 use magnus::value::{Opaque, ReprValue};
-use magnus::{method, prelude::*, Error as MagnusError, RClass, RString, Ruby, Symbol, Value};
+use magnus::{method, prelude::*, Error as MagnusError, RModule, RString, Ruby, Symbol, Value};
 
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::yielder::Yielder;
@@ -27,11 +27,11 @@ const ARM_BREAK: &str = "break";
 const ARM_ERROR: &str = "error";
 const ARM_UNSUPPORTED: &str = "unsupported";
 
-/// Runs after `Kobako::Runtime` is defined, so the `#[magnus::wrap]` class
-/// name resolves before any object is wrapped.
-pub(super) fn register(runtime_class: RClass) -> Result<(), MagnusError> {
+/// Defines the class the `#[magnus::wrap]` name resolves to, before any
+/// object is wrapped.
+pub(super) fn register(kobako: RModule) -> Result<(), MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
-    let class = runtime_class.define_class("GuestYielder", ruby.class_object())?;
+    let class = kobako.define_class("GuestYielder", ruby.class_object())?;
     class.define_method("call", method!(GuestYielder::call, 1))?;
     Ok(())
 }
@@ -99,7 +99,7 @@ impl OpenFrames {
 /// It holds **no Ruby `Value`**, so GC has nothing to trace through it —
 /// it needs no `mark`. The driving fiber is kept as its raw identity,
 /// compared only while the frame is live and so while that fiber is.
-#[magnus::wrap(class = "Kobako::Runtime::GuestYielder", free_immediately, size)]
+#[magnus::wrap(class = "Kobako::GuestYielder", free_immediately, size)]
 struct GuestYielder {
     frame: u32,
     open: Arc<OpenFrames>,

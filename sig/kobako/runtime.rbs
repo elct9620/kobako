@@ -23,44 +23,17 @@ module Kobako
       Array[Kobako::Catalog::Mount::tuple]
     ]
 
-    def eval: (Kobako::Transport::dispatch_proc dispatch, setup setup, String source) -> Kobako::Runtime::Snapshot
+    def eval: (Kobako::Transport::dispatch_proc dispatch, setup setup, String source) -> Kobako::Snapshot
 
     def run: (
       Kobako::Transport::dispatch_proc dispatch,
       setup setup,
       String entrypoint,
       String payload
-    ) -> Kobako::Runtime::Snapshot
+    ) -> Kobako::Snapshot
 
     def profile: () -> Symbol
 
     def compile: (Kobako::Context::preamble preamble) -> Array[String]?
-
-    # Frame-scoped guest re-entry handle the ext hands the dispatch Proc as
-    # its last argument — the production conformer of
-    # +Kobako::Transport::_GuestYielder+, answering the Yield Reply already
-    # split off the core envelope.
-    class GuestYielder
-      def call: (String args_bytes) -> [Symbol, String, String?]
-    end
-
-    # One invocation's result — the whole Snapshot the driver produced.
-    class Snapshot
-      def outcome: () -> [String, Kobako::Outcome::panic_fields?]
-
-      def trap_error: () -> Kobako::TrapError?
-
-      def wall_time: () -> Float
-
-      def memory_peak: () -> Integer
-
-      def stdout: () -> String
-
-      def stdout_truncated?: () -> bool
-
-      def stderr: () -> String
-
-      def stderr_truncated?: () -> bool
-    end
   end
 end

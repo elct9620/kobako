@@ -2,8 +2,8 @@
 //!
 //! The Ruby-visible classes are
 //!
-//!   Kobako::Runtime           — wraps a `kobako_wasmtime::Driver`
-//!   Kobako::Runtime::Snapshot — one invocation's completion + captures + usage
+//!   Kobako::Runtime  — wraps a `kobako_wasmtime::Driver`
+//!   Kobako::Snapshot — one invocation's completion + captures + usage
 //!
 //! `Kobako::Runtime` is constructed via `Kobako::Runtime.from_path(path,
 //! **options)`, the options keyed by the `Kobako::SandboxOptions` members. Every
@@ -123,13 +123,13 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     runtime.define_method("compile", method!(Runtime::compile, 1))?;
     runtime.define_singleton_method("validate_mount!", function!(filesystem::validate_mount, 3))?;
     // The guest re-enters for a block yield through a frame-scoped
-    // `Kobako::Runtime::GuestYielder` the dispatcher hands the Proc, not a
-    // method on Runtime.
-    bridge::register(runtime)?;
+    // `Kobako::GuestYielder` the dispatcher hands the Proc, not a method on
+    // Runtime.
+    bridge::register(kobako)?;
     filesystem::register(ruby, kobako)?;
 
     // Snapshot — the per-invocation result object each entry point returns.
-    let snapshot = runtime.define_class("Snapshot", ruby.class_object())?;
+    let snapshot = kobako.define_class("Snapshot", ruby.class_object())?;
     snapshot.define_method("outcome", method!(Snapshot::outcome, 0))?;
     snapshot.define_method("trap_error", method!(Snapshot::trap_error, 0))?;
     snapshot.define_method("wall_time", method!(Snapshot::wall_time, 0))?;
@@ -373,13 +373,13 @@ fn build_handler(dispatch: Value) -> Option<Arc<dyn DispatchHandler>> {
 }
 
 /// One invocation's result at the Ruby boundary — the whole `Snapshot` the
-/// driver produced, exposed as `Kobako::Runtime::Snapshot`. Usage and the
+/// driver produced, exposed as `Kobako::Snapshot`. Usage and the
 /// two output captures are present on every outcome, so the trap path
 /// carries them just like the value path; the completion is read as either
 /// the Outcome (`#outcome`) or a trap (`#trap_error`). The verb names the
 /// invocation, so an unsupported one says which operation is lacking.
 #[derive(TypedData)]
-#[magnus(class = "Kobako::Runtime::Snapshot", free_immediately, size)]
+#[magnus(class = "Kobako::Snapshot", free_immediately, size)]
 struct Snapshot(RuntimeSnapshot, &'static str);
 
 impl DataTypeFunctions for Snapshot {}

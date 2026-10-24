@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Unit-level coverage of the +Kobako::Runtime::Snapshot+ each invocation
+# Unit-level coverage of the +Kobako::Snapshot+ each invocation
 # entry point hands back — its decoded outcome, the two output captures, and
 # the usage readout. Drives +Runtime+ directly (bypassing +Sandbox+)
 # against the real +data/kobako.wasm+ so the contract being pinned is "what
@@ -86,7 +86,7 @@ class TestRuntimeSnapshot < Minitest::Test
   # Sandbox wrapper. Builds an empty Catalog::Services / Snippet table so the
   # Preamble carries nothing, hands the per-call dispatch
   # handler a guard Proc (no Service callbacks expected from the simple eval
-  # sources used here), and returns the +Kobako::Runtime::Snapshot+.
+  # sources used here), and returns the +Kobako::Snapshot+.
   def drive_eval(code)
     services = Kobako::Catalog::Services.new
     snippets = Kobako::Catalog::Snippets.new

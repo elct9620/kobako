@@ -1,0 +1,9 @@
+module Kobako
+  # Frame-scoped guest re-entry handle the ext hands the dispatch Proc as
+  # its last argument — the production conformer of
+  # +Kobako::Transport::_GuestYielder+, answering the Yield Reply already
+  # split off the core envelope.
+  class GuestYielder
+    def call: (String args_bytes) -> [Symbol, String, String?]
+  end
+end
