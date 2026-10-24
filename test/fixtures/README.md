@@ -47,6 +47,16 @@ Hand-written text-format module that passes the ABI version check but whose `__k
 
 The runtime stays intact, which is why the failure is not a trap.
 
+## `minimal_spinning_alloc.wat`
+
+Hand-written text-format module that passes the ABI version check but whose `__kobako_alloc` never returns. It is the frozen stand-in for a guest that stalls while being set up.
+
+| Step | What happens |
+|---|---|
+| host reserves the downcall | the guest spins |
+| the deadline | stops it as the deadline's own trap |
+| the downcall | is never reached |
+
 ## `minimal_unlinkable.wat` / `minimal_uninstantiable.wat`
 
 Hand-written text-format modules that pass the ABI version check yet cannot become a runtime. Each refuses at one step, so construction failing there is what a test observes.

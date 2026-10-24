@@ -54,12 +54,17 @@ pub(crate) fn epoch_deadline_callback(
 /// attach the caller's verb instead. A cap trap carries its own message,
 /// since wasmtime's backtrace framing is noise there.
 pub(crate) fn to_trap(err: wasmtime::Error) -> Trap {
+    cap_trap(&err).unwrap_or_else(|| Trap::Other(other_trap_message(&err)))
+}
+
+/// The cap trap `err` carries, if a cap fired: a setup step that fails
+/// for any other reason words its own message instead.
+pub(crate) fn cap_trap(err: &wasmtime::Error) -> Option<Trap> {
     if let Some(t) = err.downcast_ref::<TimeoutTrap>() {
-        Trap::Timeout(t.to_string())
-    } else if let Some(t) = err.downcast_ref::<MemoryLimitTrap>() {
-        Trap::MemoryLimit(t.to_string())
+        Some(Trap::Timeout(t.to_string()))
     } else {
-        Trap::Other(other_trap_message(&err))
+        err.downcast_ref::<MemoryLimitTrap>()
+            .map(|t| Trap::MemoryLimit(t.to_string()))
     }
 }
 

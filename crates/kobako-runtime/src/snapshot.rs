@@ -39,11 +39,11 @@ pub enum Completion {
     Trap(Trap),
 }
 
-/// Resource usage of one guest invocation, measured across the same
-/// bracket as the wall-clock / memory caps: `wall_time` is the seconds
-/// spent inside the guest export call; `memory_peak` is the high-water
-/// `memory.grow` delta in bytes past the entry-time baseline. `Default`
-/// (all zeros) is the pre-invocation sentinel.
+/// Resource usage of one guest invocation, each measured across the span
+/// its cap governs: `wall_time` is the seconds from setting the guest up to
+/// its export call returning, the span the deadline covers; `memory_peak`
+/// is the high-water `memory.grow` delta in bytes past the entry-time
+/// baseline. `Default` (all zeros) is the pre-invocation sentinel.
 #[derive(Clone, Copy, Default)]
 pub struct Usage {
     pub wall_time: f64,

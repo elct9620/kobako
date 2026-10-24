@@ -26,7 +26,9 @@ pub(crate) fn write_request(
             }
             WriteError::TooLarge => trap("payload exceeds the 16 MiB limit".to_string()),
             WriteError::Incompatible(message) => trap(message.to_string()),
-            WriteError::Trapped(e) => trap(format!("failed to allocate input buffer: {e}")),
+            WriteError::Trapped(e) => crate::trap::cap_trap(&e)
+                .unwrap_or_else(|| Trap::Other(format!("failed to allocate input buffer: {e}")))
+                .into(),
             WriteError::OutOfBounds => {
                 trap("the input buffer lies outside the Sandbox's memory".to_string())
             }

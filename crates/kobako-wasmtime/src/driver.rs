@@ -52,6 +52,9 @@ impl Driver {
         })
     }
 
+    /// The deadline and the `wall_time` bracket open with the Store, so
+    /// instantiating the guest and writing its request count against the
+    /// `timeout` as the export call does.
     fn new_store(&self, wasi: Wasi) -> Result<WtStore<Invocation>, SetupError> {
         let mut store = WtStore::new(
             shared_engine()?,
@@ -59,6 +62,19 @@ impl Driver {
         );
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
         store.epoch_deadline_callback(trap::epoch_deadline_callback);
+        match self.config.timeout {
+            Some(timeout) => {
+                store
+                    .data_mut()
+                    .set_deadline(Some(Instant::now() + timeout));
+                store.set_epoch_deadline(1);
+            }
+            None => {
+                store.data_mut().set_deadline(None);
+                store.set_epoch_deadline(trap::NO_TIMEOUT_EPOCH_DELTA);
+            }
+        }
+        store.data_mut().start_wall_clock();
         Ok(store)
     }
 
@@ -68,7 +84,11 @@ impl Driver {
         let instance = self
             .instance_pre
             .instantiate(store.as_context_mut())
-            .map_err(|e| Trap::Other(format!("failed to instantiate the Sandbox runtime: {e}")))?;
+            .map_err(|e| {
+                trap::cap_trap(&e).unwrap_or_else(|| {
+                    Trap::Other(format!("failed to instantiate the Sandbox runtime: {e}"))
+                })
+            })?;
         let exports = Exports::resolve(&instance, store.as_context_mut());
         store.data_mut().set_exports(exports.clone());
         Ok(exports)
@@ -88,32 +108,21 @@ impl Driver {
         Params: wasmtime::WasmParams,
         Results: wasmtime::WasmResults,
     {
-        self.prime_caps(store, exports);
+        self.arm_memory_cap(store, exports);
         let result = export.call(store.as_context_mut(), params);
         disarm_caps(store);
         result
     }
 
     /// The pre-initialized image's allocation is folded into the memory
-    /// baseline rather than the budget.
-    fn prime_caps(&self, store: &mut WtStore<Invocation>, exports: &Exports) {
-        match self.config.timeout {
-            Some(timeout) => {
-                let deadline = Instant::now() + timeout;
-                store.data_mut().set_deadline(Some(deadline));
-                store.set_epoch_deadline(1);
-            }
-            None => {
-                store.data_mut().set_deadline(None);
-                store.set_epoch_deadline(trap::NO_TIMEOUT_EPOCH_DELTA);
-            }
-        }
+    /// baseline rather than the budget, so the cap arms only once the
+    /// image is in place.
+    fn arm_memory_cap(&self, store: &mut WtStore<Invocation>, exports: &Exports) {
         let baseline = match exports.memory {
             Some(m) => m.data_size(store.as_context_mut()),
             None => 0,
         };
         store.data_mut().arm_memory_cap(baseline);
-        store.data_mut().start_wall_clock();
     }
 
     /// Built the same for every `completion`: captures and usage must
