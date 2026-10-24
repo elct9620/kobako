@@ -1780,3 +1780,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox whose memory cap allows fewer values than the script answers |
 | When | the script is evaluated |
 | Then | it fails as a Sandbox failure |
+
+## `S-205` A Guest Binary has 10 seconds to be set up by default
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-004` |
+| relates | `RT-112` |
+
+| Step | Statement |
+| --- | --- |
+| Given | Sandbox options carrying no setup deadline |
+| When | the setup deadline is read |
+| Then | it answers 10 seconds |

@@ -1121,3 +1121,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Guest Binary whose allocator never returns |
 | When | it runs an invocation under a deadline |
 | Then | the invocation ends as the deadline's own trap |
+
+## `RT-112` A Guest Binary that never finishes instantiating fails construction
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-063` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Guest Binary whose start function never returns |
+| When | a Sandbox is built over it under a setup deadline |
+| Then | it fails as a construction failure once that deadline passes |
