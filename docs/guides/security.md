@@ -300,6 +300,8 @@ foresee. The block judges paths, so nothing may reach a path it never judged:
 |---|---|
 | a rename of a directory | `Errno::EXDEV`, and it copies entry by entry |
 | a path through a host link | `Errno::ELOOP` |
+| another case or Unicode form of a name | the block judges the spelling the host stores |
+| on Windows, a spelling the host lists under no name | `Errno::EACCES` |
 
 The block does not judge `stat` or a listing, so the guest still sees that a
 refused path exists.

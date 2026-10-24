@@ -48,6 +48,14 @@ pub trait Filesystem: Send + Sync {
         self.metadata(path)
     }
 
+    /// `path` with each name this Filesystem holds spelled as it stores
+    /// it, so a name a host reaches by more than one spelling is judged by
+    /// one; names past the last it holds stay as given. The default, for
+    /// a Filesystem matching names exactly, is `path`.
+    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
+        Ok(path.to_string())
+    }
+
     /// The entries of the directory at `path`, without `.` or `..`.
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError>;
 

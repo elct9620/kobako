@@ -505,6 +505,22 @@ impl Stack {
         self.merged(path, index, metadata)
     }
 
+    /// `path` spelled as the topmost Layer showing it stores it; a name
+    /// no Layer shows keeps its spelling, beneath its directory's.
+    pub(super) fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
+        if path.is_empty() {
+            return Ok(String::new());
+        }
+        match self.locate_by(path, <dyn Filesystem>::symlink_metadata) {
+            Ok(Some((index, _))) => self.layers[index].filesystem.stored_path(path),
+            Ok(None) | Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {
+                let name = path.rsplit('/').next().unwrap_or(path);
+                Ok(join(&self.stored_path(parent(path))?, name))
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     /// `metadata`, found at `path` in the Layer at `index`, as the merged
     /// view reports it: a directory takes the identity of the lowest Layer
     /// still showing it, so copying it up into a writable Layer leaves the

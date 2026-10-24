@@ -80,6 +80,11 @@ impl Filesystem for Overlay {
         self.stack.symlink_metadata(path)
     }
 
+    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
+        let _held = self.lock.hold()?;
+        self.stack.stored_path(path)
+    }
+
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.lock.hold()?;
         self.stack.read_dir(path)
@@ -1353,6 +1358,72 @@ mod tests {
         fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
             self.memory.rename(from, to, rename)
         }
+    }
+
+    /// A Memory storing names in lower case and reaching each by any
+    /// case, as a host that folds case does.
+    struct FoldsCase(Memory);
+
+    impl Filesystem for FoldsCase {
+        fn open(
+            &self,
+            path: &str,
+            options: &OpenOptions,
+        ) -> Result<Box<dyn File>, FilesystemError> {
+            self.0.open(&path.to_lowercase(), options)
+        }
+
+        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            self.0.metadata(&path.to_lowercase())
+        }
+
+        fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
+            Ok(path.to_lowercase())
+        }
+
+        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.0.read_dir(&path.to_lowercase())
+        }
+
+        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+            self.0.create_dir(&path.to_lowercase())
+        }
+
+        fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+            self.0.remove_dir(&path.to_lowercase())
+        }
+
+        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+            self.0.remove_file(&path.to_lowercase())
+        }
+
+        fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+            self.0
+                .rename(&from.to_lowercase(), &to.to_lowercase(), rename)
+        }
+    }
+
+    // @behavior FS-083
+    #[test]
+    fn an_overlay_spells_a_path_as_the_layer_showing_it_stores_it() {
+        let overlay = Overlay::new()
+            .layer(Arc::new(Memory::new()), Access::ReadWrite)
+            .layer(
+                Arc::new(FoldsCase([("private/secret", "x")].into_iter().collect())),
+                Access::Read,
+            );
+        assert_eq!(
+            (
+                overlay.stored_path("PRIVATE/SECRET"),
+                overlay.stored_path("PRIVATE/New")
+            ),
+            (
+                Ok("private/secret".to_string()),
+                Ok("private/New".to_string())
+            ),
+            "a path asked of Overlay::stored_path in another case, shown by a Layer folding case, \
+             must come back as that Layer stores each name, a new name kept as given"
+        );
     }
 
     // A whiteout the Layer cannot read would otherwise count as absent and

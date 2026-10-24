@@ -40,3 +40,9 @@ cap-std = "4.0.3"
 # host places it at the file's end in one step; std cannot set file flags.
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", features = ["fs"] }
+
+# libc asks macOS for the name a directory stores, which a Mount's Policy
+# judges in place of a spelling the host folds; rustix has no
+# getattrlist.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2.191"

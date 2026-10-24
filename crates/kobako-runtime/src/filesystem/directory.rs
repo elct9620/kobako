@@ -5,6 +5,8 @@
 //! or a symbolic link that would lead out of the directory, so the
 //! confinement holds whatever path a caller hands over.
 
+mod spelling;
+
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
@@ -152,6 +154,27 @@ impl Filesystem for Directory {
                 .symlink_metadata(to_host_path(path)?)
                 .map_err(to_error)?,
         ))
+    }
+
+    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
+        let mut parent = Some(self.dir.try_clone().map_err(to_error)?);
+        let mut stored = Vec::new();
+        for name in path.split('/').filter(|name| !name.is_empty()) {
+            let found = match &parent {
+                Some(dir) => spelling::stored_name(dir, to_host_path(name)?).map_err(to_error)?,
+                None => None,
+            };
+            parent = match (&parent, &found) {
+                (Some(dir), Some(found)) => match dir.open_dir(found).map_err(to_error) {
+                    Ok(next) => Some(next),
+                    Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => None,
+                    Err(err) => return Err(err),
+                },
+                _ => None,
+            };
+            stored.push(found.unwrap_or_else(|| name.to_string()));
+        }
+        Ok(stored.join("/"))
     }
 
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -628,6 +651,52 @@ mod tests {
             (10_000, 10_000),
             "two handles appending to one host file through a Directory's File::append must each \
              keep every byte"
+        );
+    }
+
+    // @behavior FS-081
+    #[test]
+    fn a_directory_spells_names_it_matches_exactly_as_given() {
+        let host = HostDir::new("spelled");
+        fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
+        fs::write(host.0.join("dir/file"), "x").expect("the host file must be written");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        assert_eq!(
+            (
+                directory.stored_path("dir/file"),
+                directory.stored_path("dir/new/name")
+            ),
+            (Ok("dir/file".to_string()), Ok("dir/new/name".to_string())),
+            "a path asked of Directory::stored_path in the spelling its host stores, and one \
+             whose tail is missing, must come back as given"
+        );
+    }
+
+    // macOS volumes fold case and Unicode form unless formatted
+    // case-sensitive, where every spelling is already the stored one.
+    // @behavior FS-082
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_directory_spells_a_path_as_a_folding_host_stores_it() {
+        let host = HostDir::new("folded");
+        fs::create_dir(host.0.join("private")).expect("the host directory must be made");
+        fs::write(host.0.join("private/caf\u{e9}"), "x").expect("the host file must be written");
+        if !host.0.join("PRIVATE").exists() {
+            eprintln!("the host volume matches names exactly; nothing folds to witness");
+            return;
+        }
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        assert_eq!(
+            (
+                directory.stored_path("PRIVATE/CAFE\u{301}"),
+                directory.stored_path("Private/missing")
+            ),
+            (
+                Ok("private/caf\u{e9}".to_string()),
+                Ok("private/missing".to_string())
+            ),
+            "a path asked of Directory::stored_path in another case and Unicode form on a host \
+             folding both must come back as the host stores each name it holds"
         );
     }
 }

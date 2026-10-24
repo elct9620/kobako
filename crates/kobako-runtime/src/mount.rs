@@ -111,11 +111,23 @@ impl Mount {
     }
 
     /// Whether the guest may reach `path`, relative to this Mount's root,
-    /// with `access`.
+    /// with `access`. A Policy judges the path as the Filesystem stores
+    /// its names, so a host folding case or Unicode form cannot hand it
+    /// one spelling of an entry it refuses by another; a Filesystem that
+    /// cannot spell it refuses.
     pub fn check(&self, path: &str, access: Access) -> Result<(), Denial> {
         match &self.policy {
-            Some(policy) if policy.allows(&self.guest_path(path), access) => Ok(()),
-            Some(_) => Err(Denial::Refused),
+            Some(policy) => {
+                let stored = self
+                    .filesystem
+                    .stored_path(path)
+                    .map_err(|_| Denial::Refused)?;
+                if policy.allows(&self.guest_path(&stored), access) {
+                    Ok(())
+                } else {
+                    Err(Denial::Refused)
+                }
+            }
             None if access == Access::ReadWrite && self.access == Access::Read => {
                 Err(Denial::ReadOnly)
             }

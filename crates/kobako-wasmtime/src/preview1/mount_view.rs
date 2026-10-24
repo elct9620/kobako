@@ -399,6 +399,64 @@ impl Policy for AllowsAll {
     }
 }
 
+/// A Memory storing every name in upper case while it reaches each by
+/// any case, as a host that folds case does.
+struct StoresUpperCase(Memory);
+
+impl Filesystem for StoresUpperCase {
+    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+        self.0.open(path, options)
+    }
+
+    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.0.metadata(path)
+    }
+
+    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
+        Ok(path.to_uppercase())
+    }
+
+    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.0.read_dir(path)
+    }
+
+    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.create_dir(path)
+    }
+
+    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.remove_dir(path)
+    }
+
+    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.remove_file(path)
+    }
+
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+        self.0.rename(from, to, rename)
+    }
+}
+
+// The Policy refuses only the stored spelling, so a Policy handed the
+// spelling the guest asked for would let the read through.
+// @behavior RT-120
+#[test]
+fn a_policy_judges_a_path_as_its_filesystem_stores_it() {
+    let memory: Memory = [("file.txt", "granted")].into_iter().collect();
+    let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/FILE.TXT"));
+    let mut guest = Guest::new(&[grant(
+        Arc::new(StoresUpperCase(memory)),
+        Access::Read,
+        Some(policy),
+    )]);
+    assert_eq!(
+        guest.call("read_file", FILE),
+        ERRNO_ACCES,
+        "path_open of `file.txt` beneath a Mount whose Policy refuses `/data/FILE.TXT`, over a \
+         Filesystem storing that name as `FILE.TXT`, through preview1 must answer EACCES"
+    );
+}
+
 // @behavior RT-075
 #[test]
 fn a_mount_appears_as_a_directory_at_its_path() {
