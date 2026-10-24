@@ -583,6 +583,27 @@ code.
 pub enum FilesystemError {}
 ```
 
+## `FilesystemError::posix_name`
+
+The POSIX error name a failure stands for. Each host frontend reads its own
+error code from this one name.
+
+```rust
+impl FilesystemError {
+    pub fn posix_name(&self) -> Option<&'static str> {}
+}
+```
+
+## `FilesystemError::from_posix_name`
+
+The failure a POSIX error name stands for, so a host error maps back by name.
+
+```rust
+impl FilesystemError {
+    pub fn from_posix_name(name: &str) -> Option<Self> {}
+}
+```
+
 ## `Memory`
 
 The Filesystem kobako ships that holds its files in memory for as long as the
