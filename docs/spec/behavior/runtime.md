@@ -1109,3 +1109,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a cache entry in a private directory the cache directory only links to |
 | When | a runtime is built over the artifact that entry names |
 | Then | it is built by compiling and the entry still holds what it held |
+
+## `RT-111` A guest that never finishes being set up ends at the deadline
+
+| Attribute | Value |
+| --- | --- |
+| relates | `OC-032`, `S-128` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Guest Binary whose allocator never returns |
+| When | it runs an invocation under a deadline |
+| Then | the invocation ends as the deadline's own trap |
