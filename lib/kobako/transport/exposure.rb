@@ -81,12 +81,10 @@ module Kobako
           names.union(authored_names(SINGLETON_CLASS_OF.bind_call(object))).freeze
         end
 
-        # The public methods +owner+ itself defines in source. A method with
-        # no source, or whose source is the platform's own, is built in.
+        # The public methods +owner+ itself defines in Ruby source.
         def authored_names(owner)
           owner.public_instance_methods(false).select do |name|
-            file, = owner.instance_method(name).source_location
-            file && !file.start_with?("<internal:")
+            Reflection.authored?(owner.instance_method(name))
           end
         end
       end

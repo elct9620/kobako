@@ -37,6 +37,15 @@ module Kobako
           (exposure.exposes?(name) ? nil : "method #{name.inspect} is not exposed to the guest")
       end
 
+      # Whether +method+ is written in Ruby rather than built into the
+      # platform. A native method has no source, and a built-in one names an
+      # +<internal:>+ file, so a copy, alias or rebinding of either keeps
+      # that mark wherever it is reached from.
+      def self.authored?(method)
+        file, = method.source_location
+        !file.nil? && !file.start_with?("<internal:")
+      end
+
       class << self
         private
 
@@ -58,24 +67,48 @@ module Kobako
         # which resolves through the +respond_to?+ opt-in, never by naming
         # +method_missing+.
         #
-        # A name with no method never reaches +public_method+, which would
+        # A public method must also be written in Ruby, so a Service narrowing
+        # itself never reaches a built-in method by a copy, alias or rebinding
+        # an owner list cannot see; a non-public one is never reached through
+        # a dynamic opt-in either.
+        #
+        # A name with no method never reaches +instance_method+, which would
         # keep a guest-chosen name as a Symbol for the life of the process.
         def ambient_refusal(target, name)
-          return "method #{name.inspect} is not a Service method" if name == :method_missing
+          return refused(name) if name == :method_missing
 
           klass = lookup_class(target)
-          return owner_refusal(target, name, target.public_method(name).owner) if klass.public_method_defined?(name)
+          return defined_refusal(target, name, klass) if klass.public_method_defined?(name)
           return "no public method #{name.inspect} on target" unless target.respond_to?(name)
-          return nil if klass.method_defined?(name) || klass.private_method_defined?(name)
+          return refused(name) if klass.method_defined?(name) || klass.private_method_defined?(name)
 
           owner_refusal(target, name, klass)
+        end
+
+        def defined_refusal(target, name, klass)
+          method = klass.instance_method(name)
+          owner_refusal(target, name, method.owner) ||
+            (written_in_ruby?(target, name, method, klass) ? nil : refused(name))
+        end
+
+        # A bound callable keeps its callable names and a record its member
+        # readers, though the platform defines both.
+        def written_in_ruby?(target, name, method, klass)
+          return true if Reflection.authored?(method)
+          return true if GADGET_OWNERS.include?(method.owner) && CALLABLE_ALLOW.include?(name)
+
+          (klass <= Struct || klass <= Data) && target.members.include?(name)
+        end
+
+        def refused(name)
+          "method #{name.inspect} is not a Service method"
         end
 
         def owner_refusal(target, name, owner)
           return nil unless ambient_owner?(owner, target)
           return nil if GADGET_OWNERS.include?(owner) && CALLABLE_ALLOW.include?(name)
 
-          "method #{name.inspect} is not a Service method"
+          refused(name)
         end
 
         # The class a method lookup on +target+ starts at. A plain object's
