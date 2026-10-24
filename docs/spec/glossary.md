@@ -43,6 +43,14 @@ The unit a Host App configures once and invokes many times. It owns a Catalog an
 
 Guest source or bytecode preloaded on a Sandbox and replayed at the start of every Invocation.
 
+### Bytecode
+
+The compiled form of guest source, in a format the Guest defines. The host carries it as opaque bytes and never reads it. mruby's Guest uses RITE.
+
+```
+source ──Guest compiles──> Bytecode ──host replays unchanged──> Guest loads
+```
+
 ### Service
 
 A host object the guest reaches by name. Guest code reaches a host resource only through a Service or a Grant.
