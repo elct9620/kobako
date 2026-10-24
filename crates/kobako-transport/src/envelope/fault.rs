@@ -32,7 +32,8 @@ const KIND_BLOCK: u8 = 4;
 pub enum FaultKind {
     /// A Ruby exception raised inside the Service method.
     Runtime,
-    /// The call shape did not fit the method.
+    /// The Service method refused its arguments, whether the call would
+    /// not bind or the method rejected what it was given.
     Argument,
     /// No such member or method.
     Undefined,
