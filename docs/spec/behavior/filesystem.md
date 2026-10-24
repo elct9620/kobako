@@ -28,7 +28,7 @@ the first layer added sits on top
 read     the topmost layer holding the path answers, unless a whiteout hides it
 change   a file in a writable layer changes in place
          a file in a read-only layer is copied up to the nearest writable layer
-create   lands in the topmost writable layer
+create   lands in the topmost writable layer, as a rename's target does
 remove   leaves every writable layer it empties; a whiteout hides what any layer keeps
 nothing writable  every change is refused as read-only
 covered           a change a read-only layer above would hide is refused as read-only
