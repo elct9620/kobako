@@ -155,8 +155,9 @@ A bound object, or anything crossing back as a `Kobako::Handle`, may define a pr
 Service but reads nothing. That is the bearer-token shape a credential wants.
 
 Answer `true` for a subset, such as `name == :public_id`, to expose exactly those.
-The predicate replaces the default rather than trimming it, so answer narrowly.
-The reflection floor still holds beneath it; keep it private all the same. The rules
+The predicate chooses among the methods written in Ruby and the names the object
+answers dynamically. A method built into Ruby stays refused, however it was reached.
+Keep the predicate private all the same. The rules
 live in [transport-boundary](../spec/behavior/transport-boundary.md).
 
 ```ruby
