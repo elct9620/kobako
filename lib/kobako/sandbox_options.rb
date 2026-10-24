@@ -77,6 +77,7 @@ module Kobako
     # one value for each of these bytes of +memory_limit+
     # (docs/wire/payload-msgpack.md § Value Budget).
     VALUE_BYTES = 16
+    private_constant :VALUE_BYTES
 
     def value_budget # :nodoc:
       memory_limit&./(VALUE_BYTES)
