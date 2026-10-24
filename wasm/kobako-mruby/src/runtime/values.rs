@@ -28,7 +28,7 @@ const HANDLE_ID_IVAR: &core::ffi::CStr = c"@__kobako_id__";
 /// Handle). Named here because `Kobako::mint_handle` enforces it for
 /// itself: every layer that can admit an id states the bound rather than
 /// inheriting it from the one before.
-const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
+const MAX_HANDLE_ID: u32 = 0x7fff_ffff;
 
 impl Kobako {
     /// Empty when the call raises or answers anything else, so the Panic
@@ -122,7 +122,7 @@ impl Kobako {
     pub fn mint_handle(&self, id: u32) -> Value {
         use beni::{Class, IntoValue, Object, RObject, TryConvert};
         let nil = beni::value::qnil().as_value();
-        if id > HANDLE_ID_MAX {
+        if id > MAX_HANDLE_ID {
             return nil;
         }
         let mrb = self.mrb();

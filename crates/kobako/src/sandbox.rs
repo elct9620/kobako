@@ -345,7 +345,7 @@ impl Sandbox {
     where
         F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
     {
-        if !snippet::constant_name(target) {
+        if !snippet::is_constant_name(target) {
             return Err(Error::Argument(format!(
                 "entrypoint must be a Ruby constant name (got {target:?})"
             )));

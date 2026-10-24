@@ -14,7 +14,7 @@ use crate::receiver::{Fault, FaultKind, Receiver};
 
 /// Maximum legal Capability Handle ID — the wire pins ids to the
 /// positive i32 range (docs/wire/payload-msgpack.md § Ext Types → ext 0x01).
-const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
+const MAX_HANDLE_ID: u32 = 0x7fff_ffff;
 
 /// The Sandbox-owned table: live entries plus the per-invocation
 /// monotonic counter. Ids are `1..=entries.len()`, so the entry vector
@@ -28,10 +28,10 @@ impl HandleTable {
     /// Bind `object` and return its fresh id, or refuse at the id cap
     /// with the message the Ruby allocator raises.
     pub(crate) fn alloc(&mut self, object: Arc<dyn Receiver>) -> Result<u32, String> {
-        if self.entries.len() as u32 >= HANDLE_ID_MAX {
+        if self.entries.len() as u32 >= MAX_HANDLE_ID {
             return Err(format!(
                 "Out of handle allocations: too many host objects were \
-                 referenced in a single invocation (limit {HANDLE_ID_MAX})"
+                 referenced in a single invocation (limit {MAX_HANDLE_ID})"
             ));
         }
         self.entries.push(object);

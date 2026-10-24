@@ -40,7 +40,7 @@ const EXT_HANDLE: i8 = 0x01;
 
 /// Maximum legal Capability Handle ID (docs/wire/payload-msgpack.md § Ext Types
 /// → ext 0x01). Module-private.
-const HANDLE_ID_MAX: u32 = 0x7fff_ffff;
+const MAX_HANDLE_ID: u32 = 0x7fff_ffff;
 
 /// Maximum structural nesting depth the guest codec walks on both the
 /// encode and decode paths (docs/wire/payload-msgpack.md § Structural Nesting

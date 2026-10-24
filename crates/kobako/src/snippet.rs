@@ -24,7 +24,7 @@ impl Snippets {
     /// A duplicate name is refused, so backtrace attribution stays
     /// unambiguous.
     pub(crate) fn register_source(&mut self, name: &str, body: &str) -> Result<(), Error> {
-        if !constant_name(name) {
+        if !is_constant_name(name) {
             return Err(Error::Argument(format!(
                 "snippet name must be a Ruby constant name (got {name:?})"
             )));
@@ -84,11 +84,11 @@ impl Snippets {
 
 /// The guest interns every constant name, and mruby holds a symbol of at
 /// most this many bytes.
-const SYMBOL_MAX_LEN: usize = 65_534;
+const MAX_SYMBOL_LEN: usize = 65_534;
 
-pub(crate) fn constant_name(name: &str) -> bool {
+pub(crate) fn is_constant_name(name: &str) -> bool {
     let mut chars = name.chars();
-    name.len() <= SYMBOL_MAX_LEN
+    name.len() <= MAX_SYMBOL_LEN
         && chars.next().is_some_and(|c| c.is_ascii_uppercase())
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
@@ -122,7 +122,7 @@ mod tests {
 
     // @behavior S-085
     #[test]
-    fn register_source_rejects_a_non_constant_name() {
+    fn register_source_rejects_a_non_is_constant_name() {
         for name in ["lower", "1X", "X::Y", "", "Na-me"] {
             let mut snippets = Snippets::default();
             assert!(
@@ -139,13 +139,13 @@ mod tests {
     // holds passes and one byte more does not.
     #[test]
     fn constant_name_stops_at_the_longest_symbol() {
-        let longest = format!("A{}", "b".repeat(SYMBOL_MAX_LEN - 1));
+        let longest = format!("A{}", "b".repeat(MAX_SYMBOL_LEN - 1));
         assert!(
-            constant_name(&longest),
-            "a {SYMBOL_MAX_LEN}-byte name must pass"
+            is_constant_name(&longest),
+            "a {MAX_SYMBOL_LEN}-byte name must pass"
         );
         assert!(
-            !constant_name(&format!("{longest}b")),
+            !is_constant_name(&format!("{longest}b")),
             "a name one byte past the symbol limit must be refused"
         );
     }
@@ -153,7 +153,7 @@ mod tests {
     // @behavior S-194
     #[test]
     fn register_source_refuses_a_name_past_the_symbol_limit() {
-        let name = format!("A{}", "b".repeat(SYMBOL_MAX_LEN));
+        let name = format!("A{}", "b".repeat(MAX_SYMBOL_LEN));
         let refused = Snippets::default().register_source(&name, "X = 1");
         assert!(
             matches!(&refused, Err(Error::Argument(message)) if message.contains("constant name")),

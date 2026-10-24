@@ -6,7 +6,7 @@ use rmp::encode::{
     write_sint, write_str, write_uint,
 };
 
-use super::{Error, Value, EXT_HANDLE, EXT_SYMBOL, HANDLE_ID_MAX, MAX_NESTING_DEPTH};
+use super::{Error, Value, EXT_HANDLE, EXT_SYMBOL, MAX_HANDLE_ID, MAX_NESTING_DEPTH};
 
 #[derive(Debug, Default)]
 pub struct Encoder {
@@ -78,7 +78,7 @@ impl Encoder {
                 self.buf.extend_from_slice(bytes);
             }
             Value::Handle(id) => {
-                if *id == 0 || *id > HANDLE_ID_MAX {
+                if *id == 0 || *id > MAX_HANDLE_ID {
                     return Err(Error::InvalidHandle);
                 }
                 write_ext_meta(&mut self.buf, 4, EXT_HANDLE).map_err(|_| Error::Truncated)?;
@@ -130,7 +130,7 @@ mod tests {
     // @behavior WP-086
     #[test]
     fn handle_id_cap_matches_spec() {
-        assert_eq!(HANDLE_ID_MAX, (1u32 << 31) - 1);
+        assert_eq!(MAX_HANDLE_ID, (1u32 << 31) - 1);
     }
 
     // @behavior WP-037
@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn golden_handle_max() {
         assert_eq!(
-            encode(&Value::Handle(HANDLE_ID_MAX)),
+            encode(&Value::Handle(MAX_HANDLE_ID)),
             vec![0xd6, 0x01, 0x7f, 0xff, 0xff, 0xff]
         );
     }
@@ -325,7 +325,7 @@ mod tests {
             Err(Error::InvalidHandle)
         );
         assert_eq!(
-            Encoder::encode(&Value::Handle(HANDLE_ID_MAX + 1)),
+            Encoder::encode(&Value::Handle(MAX_HANDLE_ID + 1)),
             Err(Error::InvalidHandle)
         );
     }

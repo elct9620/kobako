@@ -4,7 +4,7 @@
 use rmp::decode::{read_marker, RmpRead};
 use rmp::Marker;
 
-use super::{Error, Value, EXT_HANDLE, EXT_SYMBOL, HANDLE_ID_MAX, MAX_NESTING_DEPTH};
+use super::{Error, Value, EXT_HANDLE, EXT_SYMBOL, MAX_HANDLE_ID, MAX_NESTING_DEPTH};
 
 #[derive(Debug)]
 pub struct Decoder<'a> {
@@ -246,7 +246,7 @@ fn read_ext(cursor: &mut &[u8], len: usize) -> Result<Value, Error> {
             }
             let payload = take(cursor, 4)?;
             let id = u32::from_be_bytes(payload.try_into().unwrap());
-            if id == 0 || id > HANDLE_ID_MAX {
+            if id == 0 || id > MAX_HANDLE_ID {
                 return Err(Error::InvalidHandle);
             }
             Ok(Value::Handle(id))
@@ -573,8 +573,8 @@ mod tests {
         // an invalid Value); narrow round-trip to legal ids only.
         assert_eq!(roundtrip(Value::Handle(1)), Value::Handle(1));
         assert_eq!(
-            roundtrip(Value::Handle(HANDLE_ID_MAX)),
-            Value::Handle(HANDLE_ID_MAX)
+            roundtrip(Value::Handle(MAX_HANDLE_ID)),
+            Value::Handle(MAX_HANDLE_ID)
         );
     }
 
