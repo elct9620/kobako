@@ -70,6 +70,8 @@ leaves the host exposed in its own way.
 | `memory_limit` | up to 4 GiB of guest memory, and no value budget |
 | `stdout_limit`, `stderr_limit` | host memory without bound, read back after the run ends |
 | `open_file_limit` | a host descriptor for each file it holds open beneath a Directory |
+| a Memory's or Temporary's `limit:` | host memory without bound; one write far past a file's end fills the gap |
+| a Memory's or Temporary's `inodes:` | an entry for every file and directory it makes |
 
 An uncapped output is the sharpest: a guest writing one buffer in a loop grows the
 capture on the host, not in its own memory. Reading that capture back also runs
@@ -317,6 +319,9 @@ Some risks stay with the host, because kobako cannot see them.
 | Risk | Where it lies |
 |---|---|
 | another process changing a Directory's host files | the host directory |
+| a link swapped in between kobako's check and its open | the host's race, as with any host path |
+| a hard link or mount point inside a Directory | the guest reaches what it leads to |
+| a Directory's host disk | kobako caps no space there; the host directory's own quota does |
 | a FIFO or device file placed in a Directory | an open of it may block |
 | a link in a Directory without a block | the guest reaches its target, never beyond the Directory, and never reads where it points |
 | a link loop in a Directory without a block | the guest sees `Errno::EIO`, not `Errno::ELOOP` |
