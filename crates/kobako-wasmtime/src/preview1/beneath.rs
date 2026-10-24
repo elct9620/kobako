@@ -1,8 +1,9 @@
 //! Resolving a guest path beneath a directory descriptor.
 //!
 //! The runtime is the boundary: a path never climbs above the directory
-//! descriptor it is resolved beneath, as a capability never widens, and the Mount is asked what the guest may do there before the
-//! Filesystem is, so a Filesystem of a third party's need check neither.
+//! descriptor it is resolved beneath, as a capability never widens, and
+//! the Mount is asked what the guest may do there before the Filesystem
+//! is, so a Filesystem of a third party's need check neither.
 //! A `..` steps out of what the Filesystem holds rather than out of the
 //! path's text, as a host resolves it, so `missing/..` names nothing.
 
