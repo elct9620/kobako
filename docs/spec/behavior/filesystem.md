@@ -1107,3 +1107,40 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay whose writable Layer refuses to remove its whiteouts |
 | When | a file removed through it is made again |
 | Then | the call succeeds, and the view shows the new file |
+
+## `FS-090` A Directory opens only a file or a directory
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-028` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory holding a FIFO, and one over a host directory holding a device |
+| When | the FIFO and the device are opened |
+| Then | each open is refused as permission denied, without waiting |
+
+## `FS-091` A Directory reports a FIFO as of an unknown type
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-090` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory holding a FIFO |
+| When | the FIFO is looked up and listed |
+| Then | each answers an unknown type |
+
+## `FS-092` An Overlay neither copies up nor moves a FIFO below it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-090` |
+| relates | `FS-051` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a writable Layer over a read-only Directory holding a FIFO |
+| When | the FIFO is written or renamed through the Overlay |
+| Then | the write is refused as permission denied, the rename as crossing devices |

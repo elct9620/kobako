@@ -1308,3 +1308,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Mount with a Policy whose Filesystem fails to look up a directory |
 | When | the guest opens a file beneath that directory |
 | Then | the open answers that failure, and no file opens |
+
+## `RT-127` A guest sees a FIFO as of an unknown type and cannot open it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-090` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Directory Mount holding a FIFO |
+| When | the guest stats the FIFO and opens it |
+| Then | the stat answers an unknown filetype, and the open answers EACCES |

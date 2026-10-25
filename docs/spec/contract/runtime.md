@@ -625,7 +625,7 @@ impl Rename {
 
 ## `FileType`
 
-What a path names: a file, a directory, or a link.
+What a path names: a file, a directory, a link, or another kind a host holds, such as a FIFO.
 
 ```rust
 pub enum FileType {}
