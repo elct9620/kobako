@@ -117,6 +117,15 @@ fn refuse_negative(offset: u64) -> Answer<u64> {
     Ok(offset)
 }
 
+/// A read of `len` bytes from `offset`, refused as Linux refuses one whose
+/// end would pass the largest signed offset.
+fn refuse_reading_past_largest_offset(offset: u64, len: u32) -> Answer<u64> {
+    if offset.saturating_add(u64::from(len)) > i64::MAX as u64 {
+        return Err(Errno::Inval.into());
+    }
+    Ok(offset)
+}
+
 /// The part of `buf` a write at `offset` lands, as Linux cuts a write
 /// short at the largest signed offset and refuses one starting there as
 /// too large.
@@ -137,15 +146,13 @@ fn file_or_directory(table: &Descriptors, fd: u32) -> Answer {
     }
 }
 
-fn write_filestat(mem: &mut GuestMemory, out: u32, filetype: u8, size: u64) -> Answer {
+/// A `filestat` of `filetype`, named `nlink` times and `size` bytes long.
+fn write_filestat(mem: &mut GuestMemory, out: u32, filetype: u8, nlink: u64, size: u64) -> Answer {
     GuestMemory::check_aligned(out, 8)?;
     mem.write(out, &[0; 64])?;
     mem.write_u8(GuestMemory::field(out, 16)?, filetype)?;
-    if filetype != FILETYPE_UNKNOWN {
-        mem.write_u64(GuestMemory::field(out, 24)?, 1)?;
-        mem.write_u64(GuestMemory::field(out, 32)?, size)?;
-    }
-    Ok(())
+    mem.write_u64(GuestMemory::field(out, 24)?, nlink)?;
+    mem.write_u64(GuestMemory::field(out, 32)?, size)
 }
 
 fn to_filetype(file_type: FileType) -> u8 {
@@ -157,9 +164,10 @@ fn to_filetype(file_type: FileType) -> u8 {
     }
 }
 
-/// A `filestat` for what a Filesystem reports a path names.
+/// A `filestat` for what a Filesystem reports a path names, named once
+/// since `Metadata` carries no count of names.
 pub(crate) fn write_metadata(mem: &mut GuestMemory, out: u32, metadata: Metadata) -> Answer {
-    write_filestat(mem, out, to_filetype(metadata.file_type), metadata.len)
+    write_filestat(mem, out, to_filetype(metadata.file_type), 1, metadata.len)
 }
 
 /// The hints preview1 offers about a file. A Filesystem that ignores them
@@ -270,7 +278,7 @@ pub(crate) fn filestat_get(
 ) -> Answer {
     match descriptor(table, fd)? {
         Descriptor::Stdin(_) | Descriptor::Channel(_) => {
-            write_filestat(mem, out, FILETYPE_UNKNOWN, 0)
+            write_filestat(mem, out, FILETYPE_UNKNOWN, 0, 0)
         }
         Descriptor::Directory(dir) => {
             confirm(dir)?;
@@ -313,9 +321,8 @@ pub(crate) fn pread(
     if !file.readable {
         return Err(Errno::Badf.into());
     }
-    let read = file
-        .file
-        .read_at(mem.bytes_mut(ptr, len)?, refuse_negative(offset)?)?;
+    let offset = refuse_reading_past_largest_offset(refuse_negative(offset)?, len)?;
+    let read = file.file.read_at(mem.bytes_mut(ptr, len)?, offset)?;
     mem.write_u32(nread, read as u32)
 }
 
@@ -393,7 +400,8 @@ pub(crate) fn read(
             bytes.len()
         }
         Descriptor::File(file) if file.readable => {
-            let read = file.file.read_at(mem.bytes_mut(ptr, len)?, file.position)?;
+            let at = refuse_reading_past_largest_offset(file.position, len)?;
+            let read = file.file.read_at(mem.bytes_mut(ptr, len)?, at)?;
             file.position += read as u64;
             read
         }

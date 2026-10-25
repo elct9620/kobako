@@ -98,6 +98,7 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "fd_advise" (func $advise (param i32 i64 i64 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_fdstat_get" (func $fdstat (param i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_fdstat_set_flags" (func $set_flags (param i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "poll_oneoff" (func $poll (param i32 i32 i32 i32) (result i32)))
   (memory (export "memory") 1)
   (data (i32.const 740) ".")
   (data (i32.const 760) "missing/../file.txt")
@@ -225,6 +226,25 @@ const PROBE_WAT: &str = r#"
     (local.set $errno (call $open_read_write))
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $pwrite (i32.load (i32.const 128)) (i32.const 80) (i32.const 1) (local.get $offset) (i32.const 132)))
+  ;; Open `file.txt`, seek it to ten before the largest offset, and read
+  ;; the 64 bytes the iovec at 64 holds.
+  (func (export "read_near_the_largest_offset") (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_read_write))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (local.set $errno (call $seek (i32.load (i32.const 128)) (i64.const 0x7ffffffffffffff5) (i32.const 0) (i32.const 136)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $read (i32.load (i32.const 128)) (i32.const 64) (i32.const 1) (i32.const 132)))
+  ;; Open `file.txt` with `rights`, then wait to write to it with the one
+  ;; subscription at 1200, its event landing at 1264.
+  (func (export "poll_write_with") (param $rights i64) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open (i32.const 3) (i32.const 0) (i32.const 700) (i32.const 8)
+      (i32.const 0) (local.get $rights) (i64.const 0) (i32.const 0) (i32.const 128)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (i32.store8 (i32.const 1208) (i32.const 2))
+    (i32.store (i32.const 1216) (i32.load (i32.const 128)))
+    (call $poll (i32.const 1200) (i32.const 1264) (i32.const 1) (i32.const 1296)))
   ;; Open `file.txt`, seek it to the largest offset, and write "hello".
   (func (export "write_at_the_largest_offset") (result i32)
     (local $errno i32)
@@ -1211,18 +1231,20 @@ fn a_guest_sees_a_fifo_as_of_an_unknown_type_and_cannot_open_it() {
         .expect("probe export must resolve")
         .call(&mut guest.store, (FILE.0, FILE.1, 0))
         .expect("probe call must not trap");
-    let filetype = guest
+    let filestat = guest
         .instance
         .get_memory(&mut guest.store, "memory")
         .expect("probe exports its memory")
-        .data(&guest.store)[384 + 16];
+        .data(&guest.store)[384..384 + 32]
+        .to_vec();
+    let nlink = u64::from_le_bytes(filestat[24..32].try_into().expect("nlink is 8 bytes"));
     let opened = guest.call("read_file", FILE);
     let _ = std::fs::remove_dir_all(&host);
     assert_eq!(
-        (stat, filetype, opened),
-        (0, FILETYPE_UNKNOWN, ERRNO_ACCES),
+        (stat, filestat[16], nlink, opened),
+        (0, FILETYPE_UNKNOWN, 1, ERRNO_ACCES),
         "path_filestat_get of a FIFO beneath a Directory Mount through preview1 must report an \
-         unknown filetype, and path_open of it must answer EACCES"
+         unknown filetype named once, and path_open of it must answer EACCES"
     );
 }
 
@@ -1690,6 +1712,45 @@ fn an_offset_past_the_largest_signed_offset_is_invalid() {
          Memory file beneath a Mount through preview1 must answer EINVAL, as Linux does"
     );
 }
+
+// The file is far shorter than either offset, so a read reaching the
+// Filesystem answers its end; only the refusal before it answers EINVAL.
+// @behavior RT-136
+#[test]
+fn a_read_whose_end_passes_the_largest_signed_offset_is_invalid() {
+    let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
+    assert_eq!(
+        (
+            guest.call_at("read_at", i64::MAX as u64 - 10),
+            guest.call_bare("read_near_the_largest_offset"),
+            guest.call_at("read_at", i64::MAX as u64 - 64),
+        ),
+        (ERRNO_INVAL, ERRNO_INVAL, 0),
+        "fd_pread and fd_read of 64 bytes from ten before the largest signed 64-bit offset of a \
+         file beneath a Mount through preview1 must answer EINVAL as Linux does, while a read \
+         ending at it answers the file's end"
+    );
+}
+
+// Each subscription names the same file, so only the rights it was opened
+// with can tell the two answers apart.
+// @behavior RT-135
+#[test]
+fn a_wait_to_write_a_file_opened_only_to_read_is_not_permitted() {
+    let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
+    assert_eq!(
+        (
+            guest.call_at("poll_write_with", RIGHTS_FD_READ),
+            guest.call_at("poll_write_with", RIGHTS_FD_WRITE),
+        ),
+        (ERRNO_PERM, 0),
+        "poll_oneoff waiting to write a file opened only to read beneath a Mount through \
+         preview1 must answer EPERM as wasmtime-wasi does, and one opened to write must wait"
+    );
+}
+
+const RIGHTS_FD_READ: u64 = 1 << 1;
+const ERRNO_PERM: i32 = 63;
 
 // A Memory would refuse the bytes for want of space, so only the refusal
 // before the Filesystem is asked answers EFBIG.

@@ -107,7 +107,11 @@ fn read_subscription(invocation: &Invocation, mem: &GuestMemory, sub: u32) -> An
             Descriptor::Channel(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },
         TAG_FD_WRITE => match descriptor(invocation, mem, sub)? {
-            Descriptor::Channel(_) | Descriptor::File(_) => Kind::FdWrite,
+            Descriptor::Channel(_) => Kind::FdWrite,
+            Descriptor::File(file) if file.writable => Kind::FdWrite,
+            // As wasmtime-wasi opens no stream to write a file opened only
+            // to read.
+            Descriptor::File(_) => return Err(Errno::Perm.into()),
             Descriptor::Stdin(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },
         _ => return Err(Errno::Inval.into()),
