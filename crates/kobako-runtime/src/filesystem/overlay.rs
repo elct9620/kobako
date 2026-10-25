@@ -360,6 +360,42 @@ mod tests {
         );
     }
 
+    // A FIFO is no directory, so each rename meets a kind it cannot
+    // replace; were it taken for neither, the directory made above would
+    // hide the FIFO, and the FIFO's rename would answer for its Layer.
+    // @behavior FS-095
+    #[cfg(unix)]
+    #[test]
+    fn an_overlay_replaces_neither_a_fifo_nor_a_directory_with_the_other() {
+        let host = LinkTree::new("fifo-kinds");
+        let made = std::process::Command::new("mkfifo")
+            .arg(host.0.join("pipe"))
+            .status()
+            .expect("mkfifo must run");
+        assert!(made.success(), "the FIFO must be made");
+        let overlay = host.overlay();
+        overlay
+            .create_dir("made")
+            .expect("a directory must be made in the writable Layer");
+        let file_type = |path| overlay.metadata(path).map(|metadata| metadata.file_type);
+        assert_eq!(
+            (
+                overlay.rename("pipe", "dir", Rename::Any),
+                overlay.rename("made", "pipe", Rename::Any),
+                file_type("pipe"),
+                file_type("made"),
+            ),
+            (
+                Err(FilesystemError::IsADirectory),
+                Err(FilesystemError::NotADirectory),
+                Ok(FileType::Unknown),
+                Ok(FileType::Directory)
+            ),
+            "a FIFO renamed onto a directory through an Overlay must be refused as a directory, \
+             and a directory renamed onto a FIFO as no directory, leaving both in place"
+        );
+    }
+
     // Each change would land in the writable Memory, which holds no link,
     // so only refusing it keeps the write from parting with its target.
     // @behavior FS-051

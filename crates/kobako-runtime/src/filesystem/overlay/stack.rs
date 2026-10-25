@@ -701,15 +701,14 @@ impl Stack {
         let replaced = self
             .locate_by(to, <dyn Filesystem>::symlink_metadata)?
             .map(|(_, metadata)| metadata.file_type);
-        match (moving.file_type, replaced) {
-            (FileType::File | FileType::Symlink, Some(FileType::Directory)) => {
-                return Err(FilesystemError::IsADirectory)
-            }
-            (FileType::Directory, Some(FileType::File | FileType::Symlink)) => {
-                return Err(FilesystemError::NotADirectory)
-            }
-            (FileType::Directory, Some(FileType::Directory)) if !self.read_dir(to)?.is_empty() => {
+        // Only a directory replaces a directory, and only an empty one.
+        match (moving.file_type == FileType::Directory, replaced) {
+            (false, Some(FileType::Directory)) => return Err(FilesystemError::IsADirectory),
+            (true, Some(FileType::Directory)) if !self.read_dir(to)?.is_empty() => {
                 return Err(FilesystemError::DirectoryNotEmpty)
+            }
+            (true, Some(found)) if found != FileType::Directory => {
+                return Err(FilesystemError::NotADirectory)
             }
             _ => {}
         }
