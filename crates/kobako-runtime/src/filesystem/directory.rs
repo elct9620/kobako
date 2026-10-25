@@ -295,6 +295,13 @@ impl File for DirectoryFile {
         self.file.write(buf).map_err(to_error)
     }
 
+    /// Windows has no append to switch one handle to for a single write,
+    /// so an append that could land over another writer's is refused.
+    #[cfg(not(unix))]
+    fn append(&mut self, _buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+        Err(FilesystemError::Unsupported)
+    }
+
     /// The host places the write at the file's end as `O_APPEND` does, so
     /// another writer's append lands before or after it, never over it.
     #[cfg(unix)]
@@ -486,6 +493,35 @@ mod tests {
             fs::read(host.0.join("out.txt")).expect("the host file must exist"),
             b"written",
             "a file created through a Directory's open must land in the host directory"
+        );
+    }
+
+    // The file is opened to write, so only the refusal keeps the append
+    // from taking the two steps another writer could land between.
+    // @behavior FS-093
+    #[cfg(windows)]
+    #[test]
+    fn a_directory_on_windows_refuses_to_append() {
+        let host = HostDir::new("append");
+        fs::write(host.0.join("f"), "x").expect("the host file must be written");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        let mut file = directory
+            .open(
+                "f",
+                &OpenOptions {
+                    write: true,
+                    ..OpenOptions::default()
+                },
+            )
+            .expect("the host file must open");
+        assert_eq!(
+            (
+                file.append(b"y").err(),
+                fs::read(host.0.join("f")).expect("the host file must read")
+            ),
+            (Some(FilesystemError::Unsupported), b"x".to_vec()),
+            "an append through a Directory file on Windows must be refused as unsupported and \
+             leave the file as it was"
         );
     }
 
