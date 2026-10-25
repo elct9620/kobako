@@ -1306,7 +1306,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | an invocation handed a Directory Mount holding a FIFO |
 | When | the guest stats the FIFO and opens it |
-| Then | the stat answers an unknown filetype, and the open answers EACCES |
+| Then | the stat answers an unknown filetype named once, and the open answers EACCES |
 
 ## `RT-128` A directory a guest opens carries no right to write
 
@@ -1393,3 +1393,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a read-write Directory Mount holding a directory, a file, and a link to nothing |
 | When | the guest unlinks each, and a missing name, named with a trailing slash |
 | Then | the directory answers EISDIR, the missing name ENOENT, the rest ENOTDIR, and all stay |
+
+## `RT-135` A wait to write a file opened only to read is not permitted
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-073` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding a file open only to read beneath a Mount |
+| When | the guest waits to write to it |
+| Then | the wait answers EPERM, as wasmtime-wasi answers it |
+
+## `RT-136` A read whose end passes the largest signed offset is invalid
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-116` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding a file open beneath a Mount |
+| When | the guest reads past the largest signed 64-bit offset, by offset and by its position |
+| Then | each read answers EINVAL as Linux does, and a read ending at it answers the end |
