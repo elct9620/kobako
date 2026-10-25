@@ -60,6 +60,7 @@ macro_rules! is_shared {
 
 const ERRNO_ACCES: i32 = 2;
 const ERRNO_BUSY: i32 = 10;
+const ERRNO_FBIG: i32 = 22;
 const ERRNO_INVAL: i32 = 28;
 const ERRNO_IO: i32 = 29;
 const ERRNO_ISDIR: i32 = 31;
@@ -222,6 +223,14 @@ const PROBE_WAT: &str = r#"
     (local.set $errno (call $open_read_write))
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $pwrite (i32.load (i32.const 128)) (i32.const 80) (i32.const 1) (local.get $offset) (i32.const 132)))
+  ;; Open `file.txt`, seek it to the largest offset, and write "hello".
+  (func (export "write_at_the_largest_offset") (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_read_write))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (local.set $errno (call $seek (i32.load (i32.const 128)) (i64.const 0x7fffffffffffffff) (i32.const 0) (i32.const 136)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $write (i32.load (i32.const 128)) (i32.const 80) (i32.const 1) (i32.const 132)))
   ;; Advise on `file.txt` from `offset`, and for `offset` bytes from 0.
   (func (export "advise_from") (param $offset i64) (result i32)
     (local $errno i32)
@@ -1651,6 +1660,22 @@ fn an_offset_past_the_largest_signed_offset_is_invalid() {
         (ERRNO_INVAL, ERRNO_INVAL, ERRNO_INVAL),
         "fd_pread, fd_pwrite, and fd_filestat_set_size past the largest signed 64-bit offset of a \
          Memory file beneath a Mount through preview1 must answer EINVAL, as Linux does"
+    );
+}
+
+// A Memory would refuse the bytes for want of space, so only the refusal
+// before the Filesystem is asked answers EFBIG.
+// @behavior RT-133
+#[test]
+fn a_write_at_the_largest_signed_offset_is_too_large() {
+    let memory = file_and_directory();
+    let answer = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)])
+        .call_bare("write_at_the_largest_offset");
+    assert_eq!(
+        (answer, contents(memory.as_ref(), "file.txt")),
+        (ERRNO_FBIG, Some(b"granted".to_vec())),
+        "fd_write at the largest signed 64-bit offset of a Memory file beneath a Mount through \
+         preview1 must answer EFBIG, as Linux does, and leave the file as it was"
     );
 }
 

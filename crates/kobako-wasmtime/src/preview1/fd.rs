@@ -117,6 +117,17 @@ fn refuse_negative(offset: u64) -> Answer<u64> {
     Ok(offset)
 }
 
+/// The part of `buf` a write at `offset` lands, as Linux cuts a write
+/// short at the largest signed offset and refuses one starting there as
+/// too large.
+fn within_largest_offset(buf: &[u8], offset: u64) -> Answer<&[u8]> {
+    let room = (i64::MAX as u64).saturating_sub(offset);
+    if room == 0 && !buf.is_empty() {
+        return Err(Errno::Fbig.into());
+    }
+    Ok(&buf[..buf.len().min(usize::try_from(room).unwrap_or(usize::MAX))])
+}
+
 /// A call any file or directory answers, which preview1 refuses for
 /// stdio.
 fn file_or_directory(table: &Descriptors, fd: u32) -> Answer {
@@ -361,7 +372,8 @@ pub(crate) fn pwrite(
     let written = if file.append {
         file.file.append(buf)?.1
     } else {
-        file.file.write_at(buf, offset)?
+        file.file
+            .write_at(within_largest_offset(buf, offset)?, offset)?
     };
     mem.write_u32(nwritten, written as u32)
 }
@@ -508,9 +520,10 @@ pub(crate) fn write(
             let (at, written) = if file.append {
                 file.file.append(buf)?
             } else {
+                let buf = within_largest_offset(buf, file.position)?;
                 (file.position, file.file.write_at(buf, file.position)?)
             };
-            file.position = at + written as u64;
+            file.position = at.checked_add(written as u64).ok_or(Errno::Fbig)?;
             written
         }
         Descriptor::Stdin(_) | Descriptor::Directory(_) | Descriptor::File(_) => {
