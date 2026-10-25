@@ -104,6 +104,8 @@ const PATHS: &[&str] = &[
     "a/",
     "l/",
     "n/",
+    "g/",
+    "missing/",
     "d",
     "d/f",
     "d/..",
@@ -233,7 +235,7 @@ impl HostDir {
         fs::write(path.join("a"), "hello").expect("the host file must be written");
         fs::write(path.join("d/f"), "inner").expect("the host file must be written");
         #[cfg(unix)]
-        for (target, link) in [("a", "l"), ("d/e", "n")] {
+        for (target, link) in [("a", "l"), ("d/e", "n"), ("nowhere", "g")] {
             std::os::unix::fs::symlink(target, path.join(link))
                 .expect("the host link must be made");
         }
@@ -415,8 +417,10 @@ fn wasmtime_wasi_preopen(host: &HostDir) -> (Store<WasiP1Ctx>, Linker<WasiP1Ctx>
 
 const ERRNO_BUSY: i32 = 10;
 const ERRNO_INVAL: i32 = 28;
+const ERRNO_ISDIR: i32 = 31;
 const ERRNO_LOOP: i32 = 32;
 const ERRNO_NAMETOOLONG: i32 = 37;
+const ERRNO_NOENT: i32 = 44;
 const ERRNO_NOTDIR: i32 = 54;
 const ERRNO_NOTSUP: i32 = 58;
 const ERRNO_PERM: i32 = 63;
@@ -492,21 +496,41 @@ fn expected(call: Call, path: &str, mut oracle: Observation) -> Observation {
     if escapes(path) && oracle.errno == Some(ERRNO_PERM) {
         oracle.errno = Some(ERRNO_NOTCAPABLE);
     }
-    if matches!(call, Call::StatNoFollow) && path.ends_with('/') && oracle.errno == Some(0) {
+    // A trailing `/` makes Linux's `lstat` follow the link at the end,
+    // where cap-std leaves it, so the host's own `lstat` answers.
+    if matches!(call, Call::StatNoFollow) && path.ends_with('/') {
         let host = HostDir::new();
         match fs::symlink_metadata(host.0.join(path)) {
-            Ok(metadata) if metadata.is_dir() => oracle.filetype = FILETYPE_DIRECTORY,
-            _ => {
-                oracle.errno = Some(ERRNO_NOTDIR);
+            Ok(metadata) if metadata.is_dir() => {
+                if oracle.errno == Some(0) {
+                    oracle.filetype = FILETYPE_DIRECTORY;
+                }
+            }
+            found => {
+                oracle.errno = Some(match found {
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => ERRNO_NOENT,
+                    _ => ERRNO_NOTDIR,
+                });
                 oracle.filetype = 0;
             }
         }
     }
-    if matches!(call, Call::Rmdir)
-        && matches!(path, "l/" | "n/")
-        && oracle.errno == Some(ERRNO_INVAL)
+    // Linux's `unlink` and `rmdir` follow no link at the end, so the name
+    // itself answers a trailing `/`, where cap-std follows the link first.
+    if matches!(call, Call::Unlink | Call::Rmdir)
+        && path.ends_with('/')
+        && oracle.errno.is_some_and(|errno| errno != 0)
     {
-        oracle.errno = Some(ERRNO_NOTDIR);
+        let host = HostDir::new();
+        match (
+            call,
+            fs::symlink_metadata(host.0.join(path.trim_end_matches('/'))),
+        ) {
+            (_, Ok(metadata)) if !metadata.is_dir() => oracle.errno = Some(ERRNO_NOTDIR),
+            (Call::Unlink, Ok(_)) => oracle.errno = Some(ERRNO_ISDIR),
+            (Call::Unlink, Err(_)) => oracle.errno = Some(ERRNO_NOENT),
+            _ => {}
+        }
     }
     if path.len() >= PATH_MAX {
         oracle.errno = Some(ERRNO_NAMETOOLONG);

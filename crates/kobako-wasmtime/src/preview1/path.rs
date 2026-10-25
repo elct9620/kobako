@@ -393,17 +393,10 @@ pub(crate) fn unlink_file(
     fd: u32,
     path: (u32, u32),
 ) -> Answer {
-    let dir = directory(table, fd)?;
-    let resolved = resolve(dir, &mem.path(path.0, path.1)?)?;
-    // A trailing `/` resolves a link standing there, as Linux's `unlink`
-    // does, and what it finds is a directory no unlink removes.
-    let names_directory = resolved.names_directory;
-    let path =
-        resolved.check_directory(dir.mount.filesystem().as_ref(), <dyn Filesystem>::metadata)?;
+    // Linux's `unlink` follows no link at the end, so a trailing `/` is
+    // answered by the name itself: no file removes as a directory.
+    let (dir, path) = beneath(table, mem, fd, path)?;
     refuse_root(&path, Errno::Isdir)?;
-    judge(&dir.mount, &path, Access::ReadWrite, names_directory)?;
-    if names_directory {
-        return Err(Errno::Isdir.into());
-    }
+    judge(&dir.mount, &path, Access::ReadWrite, false)?;
     Ok(dir.mount.filesystem().remove_file(&path)?)
 }

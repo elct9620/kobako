@@ -117,6 +117,8 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 990) "file.txt/../file.txt")
   (data (i32.const 1010) "file.txt\00")
   (data (i32.const 1030) "dir/file.txt")
+  (data (i32.const 1050) "dir/")
+  (data (i32.const 1060) "gone/")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
   (data (i32.const 600) "hello")
@@ -303,6 +305,8 @@ const LINK_DOT: (i32, i32) = (970, 10);
 const OUT_OF_LINK: (i32, i32) = (990, 20);
 const HOLDING_NUL: (i32, i32) = (1010, 9);
 const DIR_FILE: (i32, i32) = (1030, 12);
+const DIR_AS_DIRECTORY: (i32, i32) = (1050, 4);
+const GONE_AS_DIRECTORY: (i32, i32) = (1060, 5);
 const ERRNO_OVERFLOW: i32 = 61;
 const ERRNO_EXIST: i32 = 20;
 const OFLAGS_EXCL: i32 = 1 << 2;
@@ -1277,35 +1281,59 @@ fn change_link_named_as_directory(name: &str, policy: Option<Arc<dyn Policy>>) -
     (answers, kept)
 }
 
-// Linux's `unlink` follows a link named with a trailing `/` and finds a
-// directory there, while `rename` moves the link itself, which is no
-// directory.
+// Linux's `unlink` and `rename` both act on the link itself, which is no
+// directory, so a Policy, refusing only a link a call follows, changes
+// neither answer.
 // @behavior RT-123
 #[cfg(unix)]
 #[test]
 fn a_link_named_with_a_trailing_slash_is_neither_removed_nor_moved() {
     assert_eq!(
-        change_link_named_as_directory("link-slash", None),
-        ([ERRNO_ISDIR, ERRNO_NOTDIR], true),
+        [
+            change_link_named_as_directory("link-slash", None),
+            change_link_named_as_directory("policy-link-slash", Some(Arc::new(AllowsAll))),
+        ],
+        [([ERRNO_NOTDIR, ERRNO_NOTDIR], true); 2],
         "path_unlink_file and path_rename of a host link to a directory named with a trailing \
-         slash, beneath a read-write Directory Mount through preview1, must answer EISDIR and \
-         ENOTDIR as Linux does and leave the link"
+         slash, beneath a read-write Directory Mount with or without a Policy through preview1, \
+         must answer ENOTDIR as Linux does and leave the link"
     );
 }
 
-// The unlink would follow the link, which a Mount with a Policy never
-// does; the rename acts on the link itself, which only beneath a Policy
-// the Filesystem would move as a file.
-// @behavior RT-124
+// The link points at nothing, so only an unlink that follows no link
+// finds it there to answer ENOTDIR rather than ENOENT.
+// @behavior RT-134
 #[cfg(unix)]
 #[test]
-fn beneath_a_policy_a_link_named_with_a_trailing_slash_is_neither_removed_nor_moved() {
+fn an_unlink_with_a_trailing_slash_answers_for_the_name_itself() {
+    let host = std::env::temp_dir().join(format!(
+        "kobako-granted-unlink-slash-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&host);
+    std::fs::create_dir_all(host.join("dir")).expect("the host directory must be created");
+    std::fs::write(host.join("file.txt"), "granted").expect("the host file must be written");
+    std::os::unix::fs::symlink("nowhere", host.join("gone")).expect("the link must be made");
+    let directory = Directory::new(&host).expect("the host directory must open");
+    let mut guest = Guest::new(&[grant(Arc::new(directory), Access::ReadWrite, None)]);
+    let answers = [
+        DIR_AS_DIRECTORY,
+        FILE_AS_DIRECTORY,
+        GONE_AS_DIRECTORY,
+        NEW_AS_DIRECTORY,
+    ]
+    .map(|path| guest.call("unlink_path", path));
+    let kept = ["dir", "file.txt", "gone"].map(|name| host.join(name).symlink_metadata().is_ok());
+    let _ = std::fs::remove_dir_all(&host);
     assert_eq!(
-        change_link_named_as_directory("policy-link-slash", Some(Arc::new(AllowsAll))),
-        ([ERRNO_LOOP, ERRNO_NOTDIR], true),
-        "path_unlink_file and path_rename of a host link to a directory named with a trailing \
-         slash, beneath a read-write Directory Mount with a Policy through preview1, must answer \
-         ELOOP and ENOTDIR and leave the link"
+        (answers, kept),
+        (
+            [ERRNO_ISDIR, ERRNO_NOTDIR, ERRNO_NOTDIR, ERRNO_NOENT],
+            [true; 3]
+        ),
+        "path_unlink_file of a directory, a file, a link to nothing, and a missing name, each \
+         named with a trailing slash beneath a read-write Directory Mount through preview1, must \
+         answer EISDIR, ENOTDIR, ENOTDIR, and ENOENT as Linux does and remove nothing"
     );
 }
 
