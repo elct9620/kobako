@@ -815,8 +815,10 @@ mod tests {
     }
 
     // ext4 hands a removed directory's inode number to the next one made,
-    // so the number staying unused while held is what the Hold keeps; a
-    // host that never reuses numbers has nothing to witness.
+    // so the number staying unused while held is what the Hold keeps. A
+    // host that never reuses numbers cannot show that, but every Linux
+    // host lists the removed directory among the process's descriptors
+    // while it is held.
     // @behavior FS-086
     #[cfg(target_os = "linux")]
     #[test]
@@ -833,18 +835,29 @@ mod tests {
         let first = ino("dir");
         fs::remove_dir(host.0.join("dir")).expect("the host directory must go");
         fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
-        if ino("dir") != first {
-            eprintln!("the host does not reuse inode numbers; nothing to witness");
-            return;
-        }
+        let reuses = ino("dir") == first;
+        let first = ino("dir");
         let directory = Directory::new(&host.0).expect("the host directory must open");
         let hold = directory
             .hold_directory("dir")
             .expect("the directory must be held");
         fs::remove_dir(host.0.join("dir")).expect("the host directory must go");
+        let removed = format!("{} (deleted)", host.0.join("dir").display());
+        let held_open = fs::read_dir("/proc/self/fd")
+            .expect("the process's descriptors must list")
+            .filter_map(|entry| fs::read_link(entry.ok()?.path()).ok())
+            .any(|target| target.to_string_lossy() == removed);
         fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
         let made = ino("dir");
         drop(hold);
+        assert!(
+            held_open,
+            "a directory Directory::hold_directory holds must stay open once removed"
+        );
+        if !reuses {
+            eprintln!("the host does not reuse inode numbers; nothing more to witness");
+            return;
+        }
         assert_ne!(
             made, first,
             "a directory made where Directory::hold_directory holds a removed one must take \
