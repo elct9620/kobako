@@ -283,7 +283,9 @@ captured once at `bind` would span the Sandbox's lifetime instead.
 ## Mount Design
 
 A Mount hands the guest a Filesystem at one path. kobako keeps the guest beneath
-that path and holds its access; what the Filesystem holds is yours to choose.
+that path and holds its access; what the Filesystem holds is yours to choose. A
+Directory opens only files and directories: a FIFO, socket, or device raises
+`Errno::EACCES`.
 
 | Choose | Because |
 |---|---|
@@ -322,7 +324,7 @@ Some risks stay with the host, because kobako cannot see them.
 | a link swapped in between kobako's check and its open | the host's race, as with any host path |
 | a hard link or mount point inside a Directory | the guest reaches what it leads to |
 | a Directory's host disk | kobako caps no space there; the host directory's own quota does |
-| a FIFO or device file placed in a Directory | an open of it may block |
+| a device swapped into a Directory as the guest opens a file | opened once before its refusal |
 | a link in a Directory without a block | the guest reaches its target, never beyond the Directory, and never reads where it points |
 | a link loop in a Directory without a block | the guest sees `Errno::EIO`, not `Errno::ELOOP` |
 | a `..` right after a link in a Directory | `Errno::ELOOP`, as the guest never learns where it points |
