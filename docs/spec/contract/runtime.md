@@ -373,7 +373,8 @@ pub trait Policy {
 ## `Filesystem`
 
 The files and directories behind a Mount. One may wrap another and
-answer by delegating.
+answer by delegating. The methods keeping a guarantee have no default, so a
+wrapper forwards them.
 
 ```rust
 pub trait Filesystem {}
@@ -505,7 +506,7 @@ pub trait Filesystem {
 
 ## `Filesystem::for_invocation`
 
-The Filesystem a new invocation starts from in this one's place. The default
+The Filesystem a new invocation starts from in this one's place. `None`
 shares this one with every invocation.
 
 ```rust
@@ -660,14 +661,14 @@ impl Metadata {
 }
 ```
 
-## `Metadata::unique_device`
+## `Metadata::new_device`
 
 A device number for a Filesystem with none of its own. No earlier call
 returned it, and no host reports it.
 
 ```rust
 impl Metadata {
-    pub fn unique_device() -> u64 {}
+    pub fn new_device() -> u64 {}
 }
 ```
 
