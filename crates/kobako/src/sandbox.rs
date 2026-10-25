@@ -118,20 +118,31 @@ impl Sandbox {
     /// engine turns it off and reaches `with_runtime` instead.
     #[cfg(feature = "wasmtime")]
     pub fn new(wasm_path: impl AsRef<Path>, options: Options) -> Result<Self, Error> {
+        // Taken apart whole, so an option added later fails to build here
+        // until it reaches the engine.
+        let Options {
+            timeout,
+            setup_timeout,
+            memory_limit,
+            stdout_limit,
+            stderr_limit,
+            open_file_limit,
+            profile,
+        } = options;
         let mut config = Config::default();
-        config.timeout = options.timeout;
-        config.setup_timeout = options.setup_timeout;
-        config.memory_limit = options.memory_limit;
-        config.stdout_limit = options.stdout_limit;
-        config.stderr_limit = options.stderr_limit;
-        config.open_file_limit = options.open_file_limit;
-        config.profile = options.profile;
+        config.timeout = timeout;
+        config.setup_timeout = setup_timeout;
+        config.memory_limit = memory_limit;
+        config.stdout_limit = stdout_limit;
+        config.stderr_limit = stderr_limit;
+        config.open_file_limit = open_file_limit;
+        config.profile = profile;
         let driver = Driver::new(wasm_path.as_ref(), config).map_err(Error::Setup)?;
         // The least guest memory one value occupies, so a guest payload may
         // hold one value for each of these bytes of the memory cap.
         const VALUE_BYTES: usize = 16;
-        let mut sandbox = Sandbox::with_runtime(driver, options.profile)?;
-        sandbox.value_budget = options.memory_limit.map(|limit| limit / VALUE_BYTES);
+        let mut sandbox = Sandbox::with_runtime(driver, profile)?;
+        sandbox.value_budget = memory_limit.map(|limit| limit / VALUE_BYTES);
         Ok(sandbox)
     }
 
