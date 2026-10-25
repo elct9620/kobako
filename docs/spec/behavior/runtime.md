@@ -1320,3 +1320,51 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a Directory Mount holding a FIFO |
 | When | the guest stats the FIFO and opens it |
 | Then | the stat answers an unknown filetype, and the open answers EACCES |
+
+## `RT-128` A directory a guest opens carries no right to write
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-092` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount holding a directory |
+| When | the guest opens the directory and reads its descriptor's rights |
+| Then | the rights hold no `fd_write`, as wasmtime-wasi answers |
+
+## `RT-129` A descriptor that would not block is unsupported
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-091` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding `file.txt` |
+| When | the guest opens `file.txt` not to block, or sets an open one not to |
+| Then | each call answers ENOTSUP |
+
+## `RT-130` An advice past the largest signed offset is invalid
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-116` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding a file open beneath a Mount |
+| When | the guest advises on an offset or a length past the largest signed 64-bit one |
+| Then | each advice answers EINVAL |
+
+## `RT-131` A lone wait on a CPU-time clock is invalid
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-073` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation |
+| When | the guest waits on the process or thread CPU-time clock alone |
+| Then | each wait answers EINVAL, as wasmtime-wasi answers it |
