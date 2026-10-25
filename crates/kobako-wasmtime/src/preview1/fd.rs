@@ -129,7 +129,7 @@ fn refuse_reading_past_largest_offset(offset: u64, len: u32) -> Answer<u64> {
 /// The part of `buf` a write at `offset` lands, as Linux cuts a write
 /// short at the largest signed offset and refuses one starting there as
 /// too large.
-fn within_largest_offset(buf: &[u8], offset: u64) -> Answer<&[u8]> {
+fn trim_to_largest_offset(buf: &[u8], offset: u64) -> Answer<&[u8]> {
     let room = (i64::MAX as u64).saturating_sub(offset);
     if room == 0 && !buf.is_empty() {
         return Err(Errno::Fbig.into());
@@ -380,7 +380,7 @@ pub(crate) fn pwrite(
         file.file.append(buf)?.1
     } else {
         file.file
-            .write_at(within_largest_offset(buf, offset)?, offset)?
+            .write_at(trim_to_largest_offset(buf, offset)?, offset)?
     };
     mem.write_u32(nwritten, written as u32)
 }
@@ -528,7 +528,7 @@ pub(crate) fn write(
             let (at, written) = if file.append {
                 file.file.append(buf)?
             } else {
-                let buf = within_largest_offset(buf, file.position)?;
+                let buf = trim_to_largest_offset(buf, file.position)?;
                 (file.position, file.file.write_at(buf, file.position)?)
             };
             file.position = at.checked_add(written as u64).ok_or(Errno::Fbig)?;

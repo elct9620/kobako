@@ -49,7 +49,7 @@ pub(crate) fn handle(
 ) -> wasmtime::Result<i64> {
     let reply = reply_to(caller, req_ptr, req_len)
         .unwrap_or_else(|reason| Reply::Fault(Fault::new(FaultKind::Internal, reason)));
-    let written = write_reply(caller, &within_message(reply).encode());
+    let written = write_reply(caller, &fit_in_message(reply).encode());
     if let Some(trap) = caller.data_mut().take_reentry_trap() {
         return Err(trap);
     }
@@ -61,7 +61,7 @@ pub(crate) fn handle(
 
 /// An answer past the message cap is the Service's to change, as any other
 /// answer the host cannot write is.
-fn within_message(reply: Reply) -> Reply {
+fn fit_in_message(reply: Reply) -> Reply {
     let bytes = reply.encode().len();
     match guest_mem::checked_payload_len(bytes) {
         Ok(_) => reply,

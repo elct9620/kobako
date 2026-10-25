@@ -365,7 +365,7 @@ mod tests {
 
     /// A host directory of the test's own holding the FIFO `pipe`.
     #[cfg(unix)]
-    fn holding_a_fifo(name: &str) -> HostDir {
+    fn make_fifo_host(name: &str) -> HostDir {
         let host = HostDir::new(name);
         let made = std::process::Command::new("mkfifo")
             .arg(host.0.join("pipe"))
@@ -382,7 +382,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_directory_opens_only_a_file_or_a_directory() {
-        let host = holding_a_fifo("fifo-open");
+        let host = make_fifo_host("fifo-open");
         let fifo = Directory::new(&host.0).expect("the host directory must open");
         let devices = Directory::new("/dev").expect("the device directory must open");
         let (sender, answered) = std::sync::mpsc::channel();
@@ -411,7 +411,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_directory_reports_a_fifo_as_of_an_unknown_type() {
-        let host = holding_a_fifo("fifo-type");
+        let host = make_fifo_host("fifo-type");
         let directory = Directory::new(&host.0).expect("the host directory must open");
         let listed: Vec<_> = directory
             .read_dir("")
