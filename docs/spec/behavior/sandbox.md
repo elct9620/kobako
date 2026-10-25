@@ -48,6 +48,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/test_io_streams.rb`
 - `test/e2e/test_io_dispatch.rb`
 - `test/e2e/sandbox/test_deadline_host_time.rb`
+- `test/e2e/sandbox/test_first_run_interrupt.rb`
 - `test/e2e/test_execution.rb`
 - `test/e2e/test_outcome_values.rb`
 - `test/e2e/test_canonical_boot.rb`
@@ -1793,3 +1794,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | Sandbox options carrying no setup deadline |
 | When | the setup deadline is read |
 | Then | it answers 10 seconds |
+
+## `S-206` An interrupt during a process's first run reaches the Host App as itself
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-023` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process whose first Sandbox runs a guest loop for a while |
+| When | the process receives SIGINT during that run |
+| Then | the run raises `Interrupt` in the Host App |
