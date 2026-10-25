@@ -1588,9 +1588,9 @@ dependencies = [
 
 [[package]]
 name = "wasmtime-wizer"
-version = "49.0.3"
+version = "49.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95db87d780ea0a328ee5c3ccf8f70d765fa0c7e2f836ec4cb3aee5fa41f6d553"
+checksum = "7316c507aa514e0cbce7e4ee4d651b790f491d72d0cb33f896fd8bb051963c77"
 dependencies = [
  "log",
  "rayon",
