@@ -674,14 +674,15 @@ impl Stack {
     /// A directory moves only when the topmost writable Layer alone holds
     /// it; moving one out of another would mean copying up everything
     /// beneath it, so it is refused as crossing devices, as overlayfs
-    /// refuses it without `redirect_dir`. What the view holds at `to` is
-    /// checked as rename(2) checks it, and a directory moved over one a
-    /// lower Layer holds is marked opaque before it moves, so it never
-    /// lands without the marker. The source is whited out before it moves,
-    /// so it never shows from a read-only Layer once moved. What a lower
-    /// writable Layer holds is refused as crossing devices, as unionfs-fuse
-    /// refuses a rename across writable branches, since moving it would
-    /// change two Layers that could fail apart.
+    /// refuses it without `redirect_dir`; so is a link or another kind a
+    /// lower Layer holds, which no copy up can make. What the view holds
+    /// at `to` is checked as rename(2) checks it, and a directory moved
+    /// over one a lower Layer holds is marked opaque before it moves, so
+    /// it never lands without the marker. The source is whited out before
+    /// it moves, so it never shows from a read-only Layer once moved. What
+    /// a lower writable Layer holds is refused as crossing devices, as
+    /// unionfs-fuse refuses a rename across writable branches, since moving
+    /// it would change two Layers that could fail apart.
     pub(super) fn rename(
         &self,
         from: &str,
@@ -740,7 +741,7 @@ impl Stack {
                 let shown = holders.first().ok_or(FilesystemError::NotFound)?;
                 self.copy_up_file(from, *shown, upper)?
             }
-            FileType::Symlink if holders.first() != Some(&upper) => {
+            FileType::Symlink | FileType::Unknown if holders.first() != Some(&upper) => {
                 return Err(FilesystemError::CrossesDevices)
             }
             _ => {}

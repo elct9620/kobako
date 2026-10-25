@@ -180,6 +180,9 @@ pub enum FileType {
     Directory,
     /// A link, as only `symlink_metadata` and a listing report one.
     Symlink,
+    /// Anything else a host holds, such as a FIFO, a socket, or a device,
+    /// which no Filesystem opens.
+    Unknown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

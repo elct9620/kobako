@@ -296,6 +296,34 @@ mod tests {
         );
     }
 
+    // A write would copy the FIFO up, which opens it, and a rename would
+    // move what no Layer above can hold, so only refusals keep either
+    // from waiting on a peer or landing nothing.
+    // @behavior FS-092
+    #[cfg(unix)]
+    #[test]
+    fn an_overlay_neither_copies_up_nor_moves_a_fifo_below_it() {
+        let host = LinkTree::new("fifo");
+        let made = std::process::Command::new("mkfifo")
+            .arg(host.0.join("pipe"))
+            .status()
+            .expect("mkfifo must run");
+        assert!(made.success(), "the FIFO must be made");
+        let overlay = host.overlay();
+        assert_eq!(
+            (
+                write(&overlay, "pipe", b"upper"),
+                overlay.rename("pipe", "moved", Rename::File)
+            ),
+            (
+                Err(FilesystemError::PermissionDenied),
+                Err(FilesystemError::CrossesDevices)
+            ),
+            "a FIFO a read-only Directory Layer holds, written or renamed through an Overlay, must \
+             be refused as permission denied and as crossing devices"
+        );
+    }
+
     // Each change would land in the writable Memory, which holds no link,
     // so only refusing it keeps the write from parting with its target.
     // @behavior FS-051

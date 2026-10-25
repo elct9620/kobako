@@ -74,8 +74,10 @@ fn to_file_type(host: cap_std::fs::FileType) -> FileType {
         FileType::Symlink
     } else if host.is_dir() {
         FileType::Directory
-    } else {
+    } else if host.is_file() {
         FileType::File
+    } else {
+        FileType::Unknown
     }
 }
 
@@ -123,21 +125,44 @@ impl Filesystem for Directory {
             .create(options.create)
             .create_new(options.create_new)
             .truncate(options.truncate);
-        // The host could swap a link in between; the host's to rule out.
-        if options.nofollow
-            && self
-                .dir
-                .symlink_metadata(to_host_path(path)?)
-                .is_ok_and(|metadata| metadata.is_symlink())
+        // Only a file or a directory opens: a FIFO would wait for a peer
+        // and a device would act on being opened. The host could swap an
+        // entry in between, so what opened is checked again before its
+        // first use, the open itself never waiting for a peer.
+        let found = if options.nofollow {
+            self.dir.symlink_metadata(to_host_path(path)?)
+        } else {
+            self.dir.metadata(to_host_path(path)?)
+        };
+        match found.map(|metadata| to_file_type(metadata.file_type())) {
+            Ok(FileType::Symlink) => return Err(FilesystemError::FilesystemLoop),
+            Ok(FileType::Unknown) => return Err(FilesystemError::PermissionDenied),
+            _ => {}
+        }
+        #[cfg(unix)]
         {
-            return Err(FilesystemError::FilesystemLoop);
+            use cap_std::fs::OpenOptionsExt;
+            use rustix::fs::OFlags;
+            open.custom_flags((OFlags::NONBLOCK | OFlags::NOCTTY).bits() as i32);
         }
         let file = self
             .dir
             .open_with(to_host_path(path)?, &open)
             .map_err(to_error)?;
-        if file.metadata().map_err(to_error)?.is_dir() {
-            return Err(FilesystemError::IsADirectory);
+        match to_file_type(file.metadata().map_err(to_error)?.file_type()) {
+            FileType::File => {}
+            FileType::Directory => return Err(FilesystemError::IsADirectory),
+            _ => return Err(FilesystemError::PermissionDenied),
+        }
+        #[cfg(unix)]
+        {
+            use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
+            let flags = fcntl_getfl(&file)
+                .map_err(io::Error::from)
+                .map_err(to_error)?;
+            fcntl_setfl(&file, flags - OFlags::NONBLOCK)
+                .map_err(io::Error::from)
+                .map_err(to_error)?;
         }
         Ok(Box::new(DirectoryFile {
             file: file.into_std(),
@@ -323,6 +348,82 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// A host directory of the test's own holding the FIFO `pipe`.
+    #[cfg(unix)]
+    fn holding_a_fifo(name: &str) -> HostDir {
+        let host = HostDir::new(name);
+        let made = std::process::Command::new("mkfifo")
+            .arg(host.0.join("pipe"))
+            .status()
+            .expect("mkfifo must run");
+        assert!(made.success(), "the FIFO must be made");
+        host
+    }
+
+    // Opening the FIFO with no writer would wait for one, so only an open
+    // refused before it waits answers within the deadline; `/dev/null`
+    // is a device every unix host holds.
+    // @behavior FS-090
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_opens_only_a_file_or_a_directory() {
+        let host = holding_a_fifo("fifo-open");
+        let fifo = Directory::new(&host.0).expect("the host directory must open");
+        let devices = Directory::new("/dev").expect("the device directory must open");
+        let (sender, answered) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let read = OpenOptions {
+                read: true,
+                ..OpenOptions::default()
+            };
+            let _ = sender.send([
+                fifo.open("pipe", &read).err(),
+                devices.open("null", &read).err(),
+            ]);
+        });
+        assert_eq!(
+            answered.recv_timeout(std::time::Duration::from_secs(5)),
+            Ok([
+                Some(FilesystemError::PermissionDenied),
+                Some(FilesystemError::PermissionDenied)
+            ]),
+            "a FIFO and a device opened through Directory::open must be refused as permission \
+             denied without waiting"
+        );
+    }
+
+    // @behavior FS-091
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_reports_a_fifo_as_of_an_unknown_type() {
+        let host = holding_a_fifo("fifo-type");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        let listed: Vec<_> = directory
+            .read_dir("")
+            .expect("the directory must list")
+            .into_iter()
+            .map(|entry| entry.file_type)
+            .collect();
+        assert_eq!(
+            (
+                directory
+                    .metadata("pipe")
+                    .map(|metadata| metadata.file_type),
+                directory
+                    .symlink_metadata("pipe")
+                    .map(|metadata| metadata.file_type),
+                listed
+            ),
+            (
+                Ok(FileType::Unknown),
+                Ok(FileType::Unknown),
+                vec![FileType::Unknown]
+            ),
+            "a FIFO looked up through Directory::metadata and symlink_metadata, and listed \
+             through read_dir, must answer an unknown type"
+        );
     }
 
     // @behavior FS-005
