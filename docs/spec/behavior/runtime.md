@@ -1368,3 +1368,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation |
 | When | the guest waits on the process or thread CPU-time clock alone |
 | Then | each wait answers EINVAL, as wasmtime-wasi answers it |
+
+## `RT-132` A cached artifact is on disk before it takes its name
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-035`, `RT-039` |
+| unverifiable | only a host losing power between the rename and its writeback shows it |
+
+| Step | Statement |
+| --- | --- |
+| Given | a runtime built over an artifact the cache does not hold |
+| When | the host stops before the cache directory is written back |
+| Then | the cache holds the whole artifact under its name, or none |
