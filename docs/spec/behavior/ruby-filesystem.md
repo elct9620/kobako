@@ -4,7 +4,7 @@ What a Host App reaches when it writes a Filesystem in Ruby and mounts it like t
 
 ```
 guest File ─> runtime ─> Mount ─> Ruby object: open / stat / children / mkdir / rmdir / unlink / rename
-                                     └─ open answers a file: pread / pwrite / size / truncate / fsync / close
+                                     └─ open answers a file: pread / pwrite / append / size / truncate / fsync / close
 ```
 
 ### Why these scenarios
@@ -13,6 +13,7 @@ A Filesystem in Ruby is any object answering `open` and `stat`. Its methods take
 
 ```
 a change method missing   -> Errno::EROFS in the script
+a file's append missing   -> Errno::ENOTSUP in the script
 EOFError raised by pread  -> the end of the file
 an Errno the guest names  -> that Errno in the script
 another StandardError     -> Errno::EIO in the script, which goes on
@@ -27,6 +28,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 - `test/e2e/test_ruby_filesystem_host_file.rb`
 - `test/e2e/test_host_exception.rb`
 - `test/e2e/test_ruby_filesystem_errno.rb`
+- `test/e2e/test_ruby_filesystem_append.rb`
 
 ## `RF-001` A Ruby object answering open and stat mounts as a Filesystem
 
@@ -235,3 +237,29 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem whose `stat` answers `directory?` and `size` but no `ino` |
 | When | the script reads a file |
 | Then | the read raises `Errno::EIO` |
+
+## `RF-018` A script appends through a Ruby Filesystem's file
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-002` |
+| relates | `RT-095` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose file answers `append` with where the file then ends |
+| When | the script writes to that file opened to append |
+| Then | the bytes land at the file's end through `append` |
+
+## `RF-019` A Ruby Filesystem's file without append refuses an append
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-018` |
+| relates | `FS-093` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose file answers `pwrite` and `size` but no `append` |
+| When | the script writes to that file opened to append |
+| Then | the write raises `Errno::ENOTSUP`, and the file stays as it was |

@@ -547,12 +547,12 @@ pub trait File {
 ## `File::append`
 
 Write the buffer at the file's end as it stands when the write lands. It
-answers the offset it landed at and how much was written. The default reads
-the length and writes there.
+answers the offset it landed at and how much was written. A file that cannot
+take both steps as one answers `Unsupported`.
 
 ```rust
 pub trait File {
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {}
+    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError>;
 }
 ```
 
