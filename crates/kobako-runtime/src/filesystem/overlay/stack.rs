@@ -372,14 +372,12 @@ impl Stack {
         copied
     }
 
-    /// Clear the whiteout hiding `path` in Layer `into`.
-    fn unhide(&self, path: &str, into: usize) -> Result<(), FilesystemError> {
-        let marker = whiteout(path);
-        let layer = &self.layers[into];
-        if layer.holds(&marker)? {
-            layer.filesystem.remove_file(&marker)?;
-        }
-        Ok(())
+    /// Clear the whiteout of `path` in Layer `into` once an entry has
+    /// landed there. A whiteout left beside the entry hides only what lies
+    /// below, which the entry replaced, so failing to clear it fails
+    /// nothing.
+    fn unhide(&self, path: &str, into: usize) {
+        let _ = self.layers[into].filesystem.remove_file(&whiteout(path));
     }
 
     fn mark(&self, path: &str, into: usize) -> Result<(), FilesystemError> {
@@ -484,7 +482,7 @@ impl Stack {
                 self.refuse_covered(path, upper)?;
                 self.copy_up_directories(path, upper)?;
                 let file = self.layers[upper].filesystem.open(path, options)?;
-                self.unhide(path, upper)?;
+                self.unhide(path, upper);
                 Ok(file)
             }
         }
@@ -633,7 +631,7 @@ impl Stack {
                 let _ = layer.filesystem.remove_dir(path);
                 return Err(err);
             }
-            self.unhide(path, upper)?;
+            self.unhide(path, upper);
         }
         Ok(())
     }
@@ -680,7 +678,10 @@ impl Stack {
     /// checked as rename(2) checks it, and a directory moved over one a
     /// lower Layer holds is marked opaque before it moves, so it never
     /// lands without the marker. The source is whited out before it moves,
-    /// so it never shows from a read-only Layer once moved.
+    /// so it never shows from a read-only Layer once moved. What a lower
+    /// writable Layer holds is refused as crossing devices, as unionfs-fuse
+    /// refuses a rename across writable branches, since moving it would
+    /// change two Layers that could fail apart.
     pub(super) fn rename(
         &self,
         from: &str,
@@ -720,6 +721,12 @@ impl Stack {
             }
         }
         let (holders, shadowed) = self.holders(from)?;
+        if holders
+            .iter()
+            .any(|&index| index != upper && self.layers[index].writable())
+        {
+            return Err(FilesystemError::CrossesDevices);
+        }
         let read_only = holders
             .iter()
             .copied()
@@ -760,13 +767,7 @@ impl Stack {
             }
             return Err(err);
         }
-        self.unhide(to, upper)?;
-        for &index in &holders {
-            let layer = &self.layers[index];
-            if index != upper && layer.writable() {
-                layer.filesystem.remove_file(from)?;
-            }
-        }
+        self.unhide(to, upper);
         Ok(())
     }
 }

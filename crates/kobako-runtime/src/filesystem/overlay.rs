@@ -590,6 +590,46 @@ mod tests {
         );
     }
 
+    // The lower Layer is writable, so only the refusal itself keeps the
+    // move from landing in two Layers.
+    // @behavior FS-088
+    #[test]
+    fn an_overlay_refuses_to_move_a_file_a_lower_writable_layer_holds() {
+        let upper = Arc::new(Memory::new());
+        let lower = memory_with("note", "lower");
+        let overlay = Overlay::new()
+            .layer(upper.clone(), Access::ReadWrite)
+            .layer(lower.clone(), Access::ReadWrite);
+        assert_eq!(
+            (
+                overlay.rename("note", "moved", Rename::File),
+                read(lower.as_ref(), "note"),
+                upper.read_dir("").map(|entries| entries.len())
+            ),
+            (Err(FilesystemError::CrossesDevices), b"lower".to_vec(), Ok(0)),
+            "a file a lower writable Layer holds, renamed through Overlay::rename, must be refused \
+             as crossing devices with nothing moved or copied"
+        );
+    }
+
+    // The writable Layer keeps the whiteout the removal left, so only a
+    // call that answers by what landed rather than by the clean-up after
+    // it succeeds.
+    // @behavior FS-089
+    #[test]
+    fn an_overlay_change_that_lands_succeeds_though_its_whiteout_stays() {
+        let (overlay, _) = overlay_on(Arc::new(KeepsWhiteouts(Memory::new())));
+        overlay
+            .remove_file("dir/file")
+            .expect("the file must be removed");
+        assert_eq!(
+            write(&overlay, "dir/file", b"again").map(|()| read(&overlay, "dir/file")),
+            Ok(b"again".to_vec()),
+            "a file made again through Overlay::open where it was removed, while the writable \
+             Layer refuses to remove the whiteout, must succeed and show the new file"
+        );
+    }
+
     // @behavior FS-015
     #[test]
     fn a_new_file_lands_in_the_topmost_writable_layer() {
@@ -1274,6 +1314,46 @@ mod tests {
 
         fn rename(&self, _from: &str, _to: &str, _rename: Rename) -> Result<(), FilesystemError> {
             Err(FilesystemError::PermissionDenied)
+        }
+    }
+
+    /// A Memory refusing to remove a whiteout.
+    struct KeepsWhiteouts(Memory);
+
+    impl Filesystem for KeepsWhiteouts {
+        fn open(
+            &self,
+            path: &str,
+            options: &OpenOptions,
+        ) -> Result<Box<dyn File>, FilesystemError> {
+            self.0.open(path, options)
+        }
+
+        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            self.0.metadata(path)
+        }
+
+        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.0.read_dir(path)
+        }
+
+        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+            self.0.create_dir(path)
+        }
+
+        fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+            self.0.remove_dir(path)
+        }
+
+        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+            match path.rsplit('/').next() {
+                Some(name) if name.starts_with(".wh.") => Err(FilesystemError::PermissionDenied),
+                _ => self.0.remove_file(path),
+            }
+        }
+
+        fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+            self.0.rename(from, to, rename)
         }
     }
 
