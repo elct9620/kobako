@@ -171,17 +171,22 @@ impl Filesystem for Directory {
     fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
         let mut parent = Some(self.dir.try_clone().map_err(to_error)?);
         let mut stored = Vec::new();
-        for name in path.split('/').filter(|name| !name.is_empty()) {
+        let mut names = path.split('/').filter(|name| !name.is_empty()).peekable();
+        while let Some(name) = names.next() {
             let found = match &parent {
                 Some(dir) => spelling::stored_name(dir, to_host_path(name)?).map_err(to_error)?,
                 None => None,
             };
+            // The last name is spelled from its parent alone, so a link
+            // standing there is never followed to spell it.
             parent = match (&parent, &found) {
-                (Some(dir), Some(found)) => match dir.open_dir(found).map_err(to_error) {
-                    Ok(next) => Some(next),
-                    Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => None,
-                    Err(err) => return Err(err),
-                },
+                (Some(dir), Some(found)) if names.peek().is_some() => {
+                    match dir.open_dir(found).map_err(to_error) {
+                        Ok(next) => Some(next),
+                        Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => None,
+                        Err(err) => return Err(err),
+                    }
+                }
                 _ => None,
             };
             stored.push(found.unwrap_or_else(|| name.to_string()));
