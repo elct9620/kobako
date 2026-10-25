@@ -1337,6 +1337,10 @@ mod tests {
             self.file.write_at(&buf[..buf.len().min(3)], offset)
         }
 
+        fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+            self.file.append(&buf[..buf.len().min(3)])
+        }
+
         fn metadata(&self) -> Result<Metadata, FilesystemError> {
             self.file.metadata()
         }

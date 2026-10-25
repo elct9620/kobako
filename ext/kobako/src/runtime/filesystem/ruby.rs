@@ -313,6 +313,26 @@ impl File for RubyFile {
         })
     }
 
+    /// The file's `append` writes all of `buf` at its end in one step and
+    /// answers where the file then ends, as `IO#pos` does after a write to
+    /// a file opened to append. A file lacking it cannot append, since its
+    /// `size` and `pwrite` are two steps another writer can land between.
+    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+        ask(
+            self.file.get(),
+            "append",
+            FilesystemError::Unsupported,
+            |ruby, file| file.funcall("append", (ruby.str_from_slice(buf),)),
+        )
+        .and_then(|end: u64| match end.checked_sub(buf.len() as u64) {
+            Some(at) => Ok((at, buf.len())),
+            None => Err(FilesystemError::Other(format!(
+                "append answered the file ending at {end}, before the {} bytes it wrote",
+                buf.len()
+            ))),
+        })
+    }
+
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
         ask(
             self.file.get(),

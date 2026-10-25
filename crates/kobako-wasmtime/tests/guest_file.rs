@@ -373,6 +373,10 @@ impl File for CountedFile {
         self.file.write_at(buf, offset)
     }
 
+    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+        self.file.append(buf)
+    }
+
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
         self.file.metadata()
     }
@@ -421,6 +425,10 @@ impl File for RefusesClose {
         self.0.write_at(buf, offset)
     }
 
+    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+        self.0.append(buf)
+    }
+
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
         self.0.metadata()
     }
@@ -444,6 +452,10 @@ impl File for FailsReads {
 
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
         self.0.write_at(buf, offset)
+    }
+
+    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+        self.0.append(buf)
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
@@ -502,6 +514,10 @@ impl File for WritesInParts {
 
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
         self.0.write_at(&buf[..buf.len().min(3)], offset)
+    }
+
+    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+        self.0.append(&buf[..buf.len().min(3)])
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
@@ -678,6 +694,10 @@ impl File for ReportsLen {
 
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
         self.0.write_at(buf, offset)
+    }
+
+    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+        self.0.append(buf)
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {

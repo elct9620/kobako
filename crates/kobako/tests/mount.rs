@@ -225,6 +225,10 @@ impl File for NoteFile {
         Err(FilesystemError::ReadOnlyFilesystem)
     }
 
+    fn append(&mut self, _buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+        Err(FilesystemError::ReadOnlyFilesystem)
+    }
+
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
         Ok(Metadata::new(FileType::File, self.0.len() as u64))
     }

@@ -585,6 +585,10 @@ mod tests {
             Ok(buf.len())
         }
 
+        fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+            Ok((0, buf.len()))
+        }
+
         fn metadata(&self) -> Result<Metadata, FilesystemError> {
             Err(FilesystemError::Unsupported)
         }
