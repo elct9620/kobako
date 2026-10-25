@@ -1284,3 +1284,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a read-write Directory Mount with a Policy, holding a link to a directory |
 | When | the guest unlinks or renames the link, named with a trailing slash |
 | Then | the removal answers ELOOP, the rename answers ENOTDIR, and the link stays |
+
+## `RT-125` A link out of a Directory or into a loop answers ELOOP beneath a Policy
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-101` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory Mount with a Policy, holding links out of it and into a loop |
+| When | the guest opens a path through each link, then unlinks each link |
+| Then | each open answers ELOOP, and each unlink removes the link |
+
+## `RT-126` A link check that fails fails the call beneath a Policy
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-101` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount with a Policy whose Filesystem fails to look up a directory |
+| When | the guest opens a file beneath that directory |
+| Then | the open answers that failure, and no file opens |
