@@ -1258,3 +1258,29 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a Mount holding `file.txt` |
 | When | the guest opens `file.txt` followed by a NUL beneath it |
 | Then | the open answers EINVAL |
+
+## `RT-123` A link named with a trailing slash is neither removed nor moved
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-089` |
+| relates | `RT-098` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-write Directory Mount holding a link to a directory |
+| When | the guest unlinks or renames the link, named with a trailing slash |
+| Then | the removal answers EISDIR, the rename answers ENOTDIR, and the link stays |
+
+## `RT-124` Beneath a Policy, a link named with a trailing slash is neither removed nor moved
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-101` |
+| relates | `RT-123` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-write Directory Mount with a Policy, holding a link to a directory |
+| When | the guest unlinks or renames the link, named with a trailing slash |
+| Then | the removal answers ELOOP, the rename answers ENOTDIR, and the link stays |
