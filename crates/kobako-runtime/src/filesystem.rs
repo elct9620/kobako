@@ -34,6 +34,13 @@ pub enum Access {
 /// The files and directories behind a Mount. One may wrap
 /// another and answer by delegating, so it sees every call on the way
 /// through.
+///
+/// Four methods keep a guarantee the runtime gives the guest, so each
+/// Filesystem answers them itself and a wrapper forwards them:
+/// `symlink_metadata` keeps a link from being followed where a Mount
+/// refuses links, `stored_path` keeps a Policy judging the spelling the
+/// host stores, `hold_directory` keeps an open directory's identity its
+/// own, and `for_invocation` keeps one Invocation's changes from the next.
 pub trait Filesystem: Send + Sync {
     /// Open the file at `path` as `options` asks, creating or truncating it
     /// where they say to.
@@ -43,28 +50,21 @@ pub trait Filesystem: Send + Sync {
 
     /// What `path` names without following a link standing there, as
     /// `lstat` answers. A link is reported as one and nothing of where it
-    /// points: no size, and no way to read it. The default, for a
-    /// Filesystem holding no links, is `metadata`.
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.metadata(path)
-    }
+    /// points: no size, and no way to read it. A Filesystem holding no
+    /// links answers `metadata`.
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError>;
 
     /// `path` with each name this Filesystem holds spelled as it stores
     /// it, so a name a host reaches by more than one spelling is judged by
-    /// one; names past the last it holds stay as given. The default, for
-    /// a Filesystem matching names exactly, is `path`.
-    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
-        Ok(path.to_string())
-    }
+    /// one; names past the last it holds stay as given. A Filesystem
+    /// matching names exactly answers `path`.
+    fn stored_path(&self, path: &str) -> Result<String, FilesystemError>;
 
     /// Keep the directory at `path` from handing its identity to another
     /// while the Hold lives, as an open descriptor keeps a host's inode
-    /// from being reused. The default, for a Filesystem whose identities
-    /// never repeat, holds nothing.
-    fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
-        let _ = path;
-        Ok(None)
-    }
+    /// from being reused. A Filesystem whose identities never repeat
+    /// holds nothing.
+    fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError>;
 
     /// The entries of the directory at `path`, without `.` or `..`.
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError>;
@@ -83,10 +83,8 @@ pub trait Filesystem: Send + Sync {
     fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError>;
 
     /// The Filesystem a new Invocation starts from in this one's place, or
-    /// `None` when every Invocation shares this one. The default shares.
-    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
-        None
-    }
+    /// `None` when every Invocation shares this one.
+    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>>;
 }
 
 /// One open file. The runtime keeps its position, so every read and write
@@ -217,7 +215,7 @@ impl Metadata {
     /// A device number for a Filesystem with none of its own, as each
     /// tmpfs mount takes one: no earlier call returned it, and its top bit,
     /// which no host's `st_dev` sets, keeps it apart from a host's.
-    pub fn unique_device() -> u64 {
+    pub fn new_device() -> u64 {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         (1 << 63) | NEXT.fetch_add(1, Ordering::Relaxed)
     }

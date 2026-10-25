@@ -13,6 +13,7 @@ use kobako_runtime::filesystem::{
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
+use kobako_runtime::Hold;
 use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Outcome, Preamble};
 
@@ -320,6 +321,18 @@ where
         self.memory.metadata(path)
     }
 
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.memory.symlink_metadata(path)
+    }
+
+    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
+        self.memory.stored_path(path)
+    }
+
+    fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
+        self.memory.hold_directory(path)
+    }
+
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
         self.memory.read_dir(path)
     }
@@ -338,6 +351,10 @@ where
 
     fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
         self.memory.rename(from, to, rename)
+    }
+
+    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
+        self.memory.for_invocation()
     }
 }
 

@@ -9,6 +9,7 @@ mod spelling;
 
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::sync::Arc;
 
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
@@ -269,6 +270,11 @@ impl Filesystem for Directory {
         self.dir
             .rename(to_host_path(from)?, &self.dir, to_host_path(to)?)
             .map_err(to_error)
+    }
+
+    /// Every Invocation shares the host directory.
+    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
+        None
     }
 }
 

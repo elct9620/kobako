@@ -138,8 +138,44 @@ mod tests {
 
     use super::super::memory::Memory;
     use super::super::temporary::Temporary;
-    use super::super::FileType;
+    use super::super::{FileType, Hold};
     use super::*;
+
+    /// The answer of a test Filesystem holding no links.
+    macro_rules! holds_no_links {
+        () => {
+            fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+                self.metadata(path)
+            }
+        };
+    }
+
+    /// The answer of a test Filesystem matching names byte for byte.
+    macro_rules! matches_names_exactly {
+        () => {
+            fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
+                Ok(path.to_string())
+            }
+        };
+    }
+
+    /// The answer of a test Filesystem whose identities never repeat.
+    macro_rules! never_repeats_identities {
+        () => {
+            fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
+                Ok(None)
+            }
+        };
+    }
+
+    /// The answer of a test Filesystem every Invocation shares.
+    macro_rules! is_shared {
+        () => {
+            fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
+                None
+            }
+        };
+    }
 
     fn read(fs: &dyn Filesystem, path: &str) -> Vec<u8> {
         let mut file = fs
@@ -816,6 +852,11 @@ mod tests {
     }
 
     impl Filesystem for Interleaves {
+        holds_no_links!();
+        never_repeats_identities!();
+        is_shared!();
+        matches_names_exactly!();
+
         fn open(
             &self,
             path: &str,
@@ -908,6 +949,11 @@ mod tests {
         }
 
         impl Filesystem for Reenters {
+            holds_no_links!();
+            never_repeats_identities!();
+            is_shared!();
+            matches_names_exactly!();
+
             fn open(
                 &self,
                 path: &str,
@@ -1272,6 +1318,11 @@ mod tests {
     }
 
     impl Filesystem for Trickles {
+        holds_no_links!();
+        never_repeats_identities!();
+        is_shared!();
+        matches_names_exactly!();
+
         fn open(
             &self,
             path: &str,
@@ -1312,6 +1363,11 @@ mod tests {
     struct HoldsDirectories(Memory);
 
     impl Filesystem for HoldsDirectories {
+        holds_no_links!();
+        never_repeats_identities!();
+        is_shared!();
+        matches_names_exactly!();
+
         fn open(
             &self,
             path: &str,
@@ -1349,6 +1405,11 @@ mod tests {
     struct KeepsWhiteouts(Memory);
 
     impl Filesystem for KeepsWhiteouts {
+        holds_no_links!();
+        never_repeats_identities!();
+        is_shared!();
+        matches_names_exactly!();
+
         fn open(
             &self,
             path: &str,
@@ -1389,6 +1450,11 @@ mod tests {
     struct ReadsNoMarker(Memory);
 
     impl Filesystem for ReadsNoMarker {
+        holds_no_links!();
+        never_repeats_identities!();
+        is_shared!();
+        matches_names_exactly!();
+
         fn open(
             &self,
             path: &str,
@@ -1439,6 +1505,11 @@ mod tests {
     }
 
     impl Filesystem for Vanishes {
+        holds_no_links!();
+        never_repeats_identities!();
+        is_shared!();
+        matches_names_exactly!();
+
         fn open(
             &self,
             path: &str,
@@ -1480,6 +1551,10 @@ mod tests {
     struct FoldsCase(Memory);
 
     impl Filesystem for FoldsCase {
+        holds_no_links!();
+        never_repeats_identities!();
+        is_shared!();
+
         fn open(
             &self,
             path: &str,

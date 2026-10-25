@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::path::{beneath_itself, is_beneath, normalize_seed, parent};
-use super::{DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
+use super::{
+    DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions, Rename,
+};
 
 /// Files and directories held in memory. Every Invocation it is handed to
 /// shares it, so what one writes the next reads. What its files hold
@@ -167,7 +169,7 @@ impl Memory {
             nodes: Mutex::new(BTreeMap::from([(String::new(), Node::Directory(1))])),
             space: Arc::new(space),
             inodes_follow_limit: true,
-            dev: Metadata::unique_device(),
+            dev: Metadata::new_device(),
             next_ino: AtomicU64::new(2),
         }
     }
@@ -375,6 +377,21 @@ impl Filesystem for Memory {
         }
     }
 
+    /// A Memory holds no links.
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.metadata(path)
+    }
+
+    /// A Memory matches names byte for byte.
+    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
+        Ok(path.to_string())
+    }
+
+    /// A Memory never hands out a directory's identity twice.
+    fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
+        Ok(None)
+    }
+
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
         let nodes = self.nodes();
         match nodes.get(path) {
@@ -469,6 +486,11 @@ impl Filesystem for Memory {
             }
         }
         Ok(())
+    }
+
+    /// Every Invocation shares a Memory.
+    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
+        None
     }
 }
 
@@ -920,14 +942,14 @@ mod tests {
     // @behavior FS-085
     #[test]
     fn a_device_of_its_own_stands_apart_from_every_other_device() {
-        let (first, second) = (Metadata::unique_device(), Metadata::unique_device());
+        let (first, second) = (Metadata::new_device(), Metadata::new_device());
         let memory = Memory::new().metadata("").expect("the root must stand").dev;
         assert!(
             [first, second, memory].iter().all(|dev| dev >> 63 == 1)
                 && first != second
                 && memory != first
                 && memory != second,
-            "devices from Metadata::unique_device and a Memory's root must each set the top bit \
+            "devices from Metadata::new_device and a Memory's root must each set the top bit \
              and differ from one another"
         );
     }

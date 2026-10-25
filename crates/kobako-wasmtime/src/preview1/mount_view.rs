@@ -22,6 +22,42 @@ use crate::invocation::Invocation;
 use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
 use crate::wasi::Wasi;
 
+/// The answer of a test Filesystem holding no links.
+macro_rules! holds_no_links {
+    () => {
+        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            self.metadata(path)
+        }
+    };
+}
+
+/// The answer of a test Filesystem matching names byte for byte.
+macro_rules! matches_names_exactly {
+    () => {
+        fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
+            Ok(path.to_string())
+        }
+    };
+}
+
+/// The answer of a test Filesystem whose identities never repeat.
+macro_rules! never_repeats_identities {
+    () => {
+        fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
+            Ok(None)
+        }
+    };
+}
+
+/// The answer of a test Filesystem every Invocation shares.
+macro_rules! is_shared {
+    () => {
+        fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
+            None
+        }
+    };
+}
+
 const ERRNO_ACCES: i32 = 2;
 const ERRNO_BUSY: i32 = 10;
 const ERRNO_INVAL: i32 = 28;
@@ -436,6 +472,10 @@ impl Policy for AllowsAll {
 struct StoresUpperCase(Memory);
 
 impl Filesystem for StoresUpperCase {
+    holds_no_links!();
+    never_repeats_identities!();
+    is_shared!();
+
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.0.open(path, options)
     }
@@ -683,6 +723,10 @@ impl Drop for Holding {
 }
 
 impl Filesystem for ReusesInodes {
+    holds_no_links!();
+    matches_names_exactly!();
+    is_shared!();
+
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.memory.open(path, options)
     }
@@ -856,6 +900,11 @@ impl ChangeCounter {
 }
 
 impl Filesystem for ChangeCounter {
+    holds_no_links!();
+    matches_names_exactly!();
+    never_repeats_identities!();
+    is_shared!();
+
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.memory.open(path, options)
     }
@@ -901,6 +950,11 @@ impl SwappedForADirectory {
 }
 
 impl Filesystem for SwappedForADirectory {
+    holds_no_links!();
+    matches_names_exactly!();
+    never_repeats_identities!();
+    is_shared!();
+
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.0.open(path, options)
     }
@@ -1004,6 +1058,11 @@ impl File for AppendedMeanwhileFile {
 }
 
 impl Filesystem for AppendedMeanwhile {
+    holds_no_links!();
+    matches_names_exactly!();
+    never_repeats_identities!();
+    is_shared!();
+
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         let writes = opening(|options| options.write = true);
         Ok(Box::new(AppendedMeanwhileFile {
@@ -1393,6 +1452,10 @@ fn a_link_check_that_fails_fails_the_call_beneath_a_policy() {
 struct FailsLookingUpDir(Memory);
 
 impl Filesystem for FailsLookingUpDir {
+    matches_names_exactly!();
+    never_repeats_identities!();
+    is_shared!();
+
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.0.open(path, options)
     }

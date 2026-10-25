@@ -11,8 +11,10 @@
 use magnus::value::{Opaque, ReprValue};
 use magnus::{kwargs, prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, Value};
 
+use std::sync::Arc;
+
 use kobako_runtime::filesystem::{
-    DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
+    DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions, Rename,
 };
 
 use crate::runtime::pinned_value::PinnedValue;
@@ -33,7 +35,7 @@ impl RubyFilesystem {
         let answers = |name| value.respond_to(name, false).unwrap_or(false);
         (answers("open") && answers("stat")).then(|| Self {
             object: Opaque::from(value),
-            dev: Metadata::unique_device(),
+            dev: Metadata::new_device(),
         })
     }
 }
@@ -165,6 +167,22 @@ impl Filesystem for RubyFilesystem {
         )
     }
 
+    /// A Ruby object answers `stat` alone, so it holds no links.
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.metadata(path)
+    }
+
+    /// A Ruby object matches names exactly, as its contract asks.
+    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
+        Ok(path.to_string())
+    }
+
+    /// A Ruby object keeps an `ino` its own while open, as its contract
+    /// asks, so nothing is held.
+    fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
+        Ok(None)
+    }
+
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
         let names: Vec<String> = ask(
             self.object,
@@ -223,6 +241,11 @@ impl Filesystem for RubyFilesystem {
             (from, to, kwargs!("directory" => directory)),
             FilesystemError::ReadOnlyFilesystem,
         )
+    }
+
+    /// Every Invocation shares the Ruby object.
+    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
+        None
     }
 }
 

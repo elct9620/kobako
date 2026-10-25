@@ -10,7 +10,8 @@ use std::sync::Arc;
 
 use common::real_sandbox;
 use kobako::filesystem::{
-    DirEntry, File, FileType, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Rename,
+    DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Memory, Metadata, OpenOptions,
+    Rename,
 };
 use kobako::msgpack::Value;
 use kobako::{Access, Error, Policy, Profile, Sandbox};
@@ -249,6 +250,18 @@ impl Filesystem for OneNote {
         }
     }
 
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.metadata(path)
+    }
+
+    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
+        Ok(path.to_string())
+    }
+
+    fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
+        Ok(None)
+    }
+
     fn read_dir(&self, _path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
         Ok(vec![DirEntry::new("note.txt", FileType::File)])
     }
@@ -267,6 +280,10 @@ impl Filesystem for OneNote {
 
     fn rename(&self, _from: &str, _to: &str, _rename: Rename) -> Result<(), FilesystemError> {
         Err(FilesystemError::ReadOnlyFilesystem)
+    }
+
+    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
+        None
     }
 }
 
