@@ -22,6 +22,7 @@ disable_file flag -> no File constant
 ## Includes
 
 - `crates/kobako-wasmtime/tests/guest_file.rs`
+- `test/parity/test_mount.rb`
 
 ## `FL-001` A script reads a file beneath a mounted path
 

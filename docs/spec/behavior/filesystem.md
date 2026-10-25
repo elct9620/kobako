@@ -41,6 +41,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 ## Includes
 
 - `crates/kobako-runtime/src/filesystem/*.rs`
+- `crates/kobako-runtime/src/filesystem/directory/spelling.rs`
 
 ## `FS-001` A Memory serves the files it was seeded with
 
