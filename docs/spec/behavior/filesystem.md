@@ -1157,3 +1157,16 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Directory file on a Windows host |
 | When | it is appended to |
 | Then | the append is refused as unsupported, and the file stays as it was |
+
+## `FS-094` A Memory holds each entry under its own name
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-030` |
+| relates | `FS-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory holding a file in a directory |
+| When | the directory is moved into a new directory of its name, many times over |
+| Then | each entry still holds only its own name, however deep it lies |
