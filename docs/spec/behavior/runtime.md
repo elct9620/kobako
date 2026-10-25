@@ -1381,3 +1381,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a runtime built over an artifact the cache does not hold |
 | When | the host stops before the cache directory is written back |
 | Then | the cache holds the whole artifact under its name, or none |
+
+## `RT-133` A write at the largest signed offset is too large
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-116` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding a file open beneath a Mount at the largest signed 64-bit offset |
+| When | the guest writes to it |
+| Then | the write answers EFBIG as Linux does, and the file stays as it was |
