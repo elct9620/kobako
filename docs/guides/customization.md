@@ -27,7 +27,7 @@ kobako owes you, and it is set by what you do with the name.
 | **replaceable** | write your own in kobako's place | the obligations below are all you owe |
 
 An append-only enum carries `#[non_exhaustive]`, and a new trait method carries a
-default. An exhaustive set has neither, so there is no wildcard to fall into. kobako
+default unless it keeps a guarantee, as the Filesystem Obligations below do. An exhaustive set has neither, so there is no wildcard to fall into. kobako
 swapping its own replaceable implementation is not a break.
 
 A struct with public fields is graded by whether its fields can grow:
@@ -328,15 +328,17 @@ guest path ─▶ runtime: resolve, refuse links, judge the Policy ─▶ Filesy
 
 ### Filesystem Obligations
 
-Four methods carry a guarantee the runtime gives the guest. None has a default, so
-each Filesystem answers them, and one wrapping another forwards them:
+Five methods carry a guarantee the runtime gives the guest. None has a default, so
+each Filesystem and its `File` answer them, and one wrapping another forwards them.
+A method like these joins without a default, a break marked `!`.
 
-| Method | Keeps | A Filesystem without it answers |
+| Method | Keeps | An implementor without it answers |
 |---|---|---|
 | `symlink_metadata` | a link from being followed where a Mount refuses links | `metadata` |
 | `stored_path` | a Policy judging the spelling the host stores | the path as given |
 | `hold_directory` | an open directory's identity its own | `Ok(None)` |
 | `for_invocation` | one Invocation's changes from the next | `None` |
+| `File::append` | another writer's append from landing over this one | `Unsupported` |
 
 An Overlay waits for its lock through `Blocking`. A frontend whose threads share a
 lock of their own, as Ruby's share the GVL, gives that lock up inside `wait`, or the
