@@ -145,16 +145,10 @@ mod linux {
     use rustix::fs::{fstatfs, ioctl_getflags};
 
     /// The 32-bit magic numbers of filesystems matching names byte for
-    /// byte unless a directory is marked to fold case: ext4, XFS, Btrfs,
-    /// tmpfs, overlayfs, and F2FS.
-    const EXACT: [u32; 6] = [
-        0xEF53,
-        0x5846_5342,
-        0x9123_683E,
-        0x0102_1994,
-        0x794C_7630,
-        0xF2F5_2010,
-    ];
+    /// byte unless a directory is marked to fold case: ext4, Btrfs, tmpfs,
+    /// overlayfs, and F2FS. XFS is left to the listing, as a volume made
+    /// ASCII case-insensitive marks no directory.
+    const EXACT: [u32; 5] = [0xEF53, 0x9123_683E, 0x0102_1994, 0x794C_7630, 0xF2F5_2010];
 
     /// The inode flag marking a directory whose names fold case, from
     /// Linux's `FS_CASEFOLD_FL`.
@@ -163,5 +157,35 @@ mod linux {
     pub(super) fn matches_exactly(parent: &Dir) -> bool {
         let exact = fstatfs(parent).is_ok_and(|stats| EXACT.contains(&(stats.f_type as u32)));
         exact && ioctl_getflags(parent).is_ok_and(|flags| flags.bits() & CASEFOLD == 0)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use cap_std::ambient_authority;
+
+        use super::super::listed;
+        use super::Dir;
+
+        // A Linux host whose filesystem is not known to match exactly,
+        // XFS among them, spells by listing; the host here matches
+        // exactly, so the listing must answer as the lookup would.
+        // @behavior FS-081
+        #[test]
+        fn a_listing_spells_names_it_matches_exactly_as_given() {
+            let path = std::env::temp_dir().join(format!("kobako-listed-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("the host directory must be created");
+            std::fs::write(path.join("file"), "x").expect("the host file must be written");
+            let dir = Dir::open_ambient_dir(&path, ambient_authority())
+                .expect("the host directory must open");
+            let answers = (listed(&dir, "file").ok(), listed(&dir, "missing").ok());
+            let _ = std::fs::remove_dir_all(&path);
+            assert_eq!(
+                answers,
+                (Some(Some("file".to_string())), Some(None)),
+                "a name the host holds, spelled by listing its directory, must come back as \
+                 given, and a name it lacks as none"
+            );
+        }
     }
 }
