@@ -1170,3 +1170,16 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Memory holding a file in a directory |
 | When | the directory is moved into a new directory of its name, many times over |
 | Then | each entry still holds only its own name, however deep it lies |
+
+## `FS-095` An Overlay replaces neither a FIFO nor a directory with the other
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-092` |
+| relates | `FS-035` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose read-only Layer holds a FIFO and a directory, its writable Layer a directory |
+| When | the FIFO is renamed onto the lower directory, and the upper directory onto the FIFO |
+| Then | the first is refused as a directory, the second as no directory, and both stay |
