@@ -5,7 +5,9 @@
 
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::{Access, FileType, Filesystem, OpenOptions, Rename};
+use kobako_runtime::filesystem::{
+    Access, FileType, Filesystem, FilesystemError, OpenOptions, Rename,
+};
 use kobako_runtime::mount::Mount;
 
 use super::args::{self, FDFLAGS_APPEND, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE};
@@ -41,13 +43,18 @@ fn directory(table: &Descriptors, fd: u32) -> Answer<&OpenDirectory> {
 }
 
 /// Whether the guest may reach `path` with `access`, as its Mount
-/// decides. A Mount that follows no link refuses one standing on the way,
-/// and at the end too when the call would follow it.
+/// decides. A Mount that follows no link refuses one first.
 fn judge(mount: &Mount, path: &str, access: Access, follows_last: bool) -> Answer {
-    mount.check(path, access)?;
-    if mount.follows_links() {
-        return Ok(());
+    if !mount.follows_links() {
+        refuse_links(mount, path, follows_last)?;
     }
+    Ok(mount.check(path, access)?)
+}
+
+/// Refuse a link standing on the way to `path`, and at its end when the
+/// call would follow it, before the Mount judges a path the link would
+/// lead elsewhere.
+fn refuse_links(mount: &Mount, path: &str, follows_last: bool) -> Answer {
     let ends = path.match_indices('/').map(|(end, _)| end);
     for end in ends.chain(follows_last.then_some(path.len())) {
         match mount.filesystem().symlink_metadata(&path[..end]) {
@@ -56,7 +63,8 @@ fn judge(mount: &Mount, path: &str, access: Access, follows_last: bool) -> Answe
             }
             Ok(_) => {}
             // What is missing holds no link; the call answers for it.
-            Err(_) => break,
+            Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => break,
+            Err(err) => return Err(err.into()),
         }
     }
     Ok(())
@@ -212,7 +220,7 @@ pub(crate) fn open(
     };
     let (existing, identity) = match looked_up {
         Ok(metadata) => (Some(metadata.file_type), Identity::of(&metadata)),
-        Err(kobako_runtime::filesystem::FilesystemError::NotFound) => (None, None),
+        Err(FilesystemError::NotFound) => (None, None),
         Err(err) => return Err(err.into()),
     };
     if existing.is_none() && oflag(OFLAGS_CREAT) && !changes {

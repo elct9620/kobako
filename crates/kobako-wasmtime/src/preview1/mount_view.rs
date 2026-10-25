@@ -25,6 +25,7 @@ use crate::wasi::Wasi;
 const ERRNO_ACCES: i32 = 2;
 const ERRNO_BUSY: i32 = 10;
 const ERRNO_INVAL: i32 = 28;
+const ERRNO_IO: i32 = 29;
 const ERRNO_ISDIR: i32 = 31;
 const ERRNO_LOOP: i32 = 32;
 const ERRNO_NOENT: i32 = 44;
@@ -75,6 +76,7 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 970) "file.txt/.")
   (data (i32.const 990) "file.txt/../file.txt")
   (data (i32.const 1010) "file.txt\00")
+  (data (i32.const 1030) "dir/file.txt")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
   (data (i32.const 600) "hello")
@@ -228,6 +230,7 @@ const MISSING_DOT: (i32, i32) = (940, 9);
 const LINK_DOT: (i32, i32) = (970, 10);
 const OUT_OF_LINK: (i32, i32) = (990, 20);
 const HOLDING_NUL: (i32, i32) = (1010, 9);
+const DIR_FILE: (i32, i32) = (1030, 12);
 const ERRNO_OVERFLOW: i32 = 61;
 const ERRNO_EXIST: i32 = 20;
 const OFLAGS_EXCL: i32 = 1 << 2;
@@ -1249,6 +1252,116 @@ fn a_path_through_a_link_beneath_a_mount_with_a_policy_answers_eloop() {
          end, beneath a Mount with a Policy through preview1 must answer ELOOP and change \
          nothing, while a Mount without a Policy follows the link"
     );
+}
+
+// cap-std refuses to follow a link out of the host directory, and the
+// host refuses a loop, so each open is refused whichever answers first;
+// only ELOOP says the link is why. An unlink acts on the link itself,
+// which no Policy-free walk past it is needed for.
+// @behavior RT-125
+#[cfg(unix)]
+#[test]
+fn a_link_out_of_a_directory_or_into_a_loop_answers_eloop_beneath_a_policy() {
+    let outside = std::env::temp_dir().join(format!("kobako-outside-{}", std::process::id()));
+    directory_with_key(&outside);
+    let targets = [
+        outside.to_string_lossy().into_owned(),
+        format!("../{}", outside.file_name().unwrap().to_string_lossy()),
+        "file.txt".to_string(),
+    ];
+    let answers: Vec<_> = targets
+        .iter()
+        .enumerate()
+        .map(|(index, target)| {
+            let host = std::env::temp_dir().join(format!(
+                "kobako-granted-escaping-{index}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&host);
+            std::fs::create_dir_all(&host).expect("the host directory must be created");
+            std::os::unix::fs::symlink(target, host.join("file.txt"))
+                .expect("the link must be made");
+            let directory = Directory::new(&host).expect("the host directory must open");
+            let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
+            let mut guest =
+                Guest::new(&[grant(Arc::new(directory), Access::ReadWrite, Some(policy))]);
+            let answers = [
+                guest.call("read_file", THROUGH_FILE),
+                guest.call("unlink_path", FILE),
+            ];
+            let removed = host.join("file.txt").symlink_metadata().is_err();
+            let _ = std::fs::remove_dir_all(&host);
+            (answers, removed)
+        })
+        .collect();
+    let kept = outside.join("key").exists();
+    let _ = std::fs::remove_dir_all(&outside);
+    assert_eq!(
+        (answers, kept),
+        (vec![([ERRNO_LOOP, 0], true); 3], true),
+        "path_open through a host link out of a Directory, by an absolute or a relative target, \
+         or into a loop, beneath a Mount with a Policy through preview1 must answer ELOOP, and \
+         path_unlink_file of each link must remove it"
+    );
+}
+
+// The Filesystem fails only the lookup of `dir`, which the open needs
+// no answer from but the walk for links on its way does.
+// @behavior RT-126
+#[test]
+fn a_link_check_that_fails_fails_the_call_beneath_a_policy() {
+    let failing = Arc::new(FailsLookingUpDir(
+        [("dir/file.txt", "granted")].into_iter().collect(),
+    ));
+    let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
+    let mut guest = Guest::new(&[grant(failing, Access::Read, Some(policy))]);
+    assert_eq!(
+        guest.call("read_file", DIR_FILE),
+        ERRNO_IO,
+        "path_open of a file beneath a directory the Filesystem fails to look up, beneath a \
+         Mount with a Policy through preview1, must answer that failure"
+    );
+}
+
+/// A Memory failing every lookup of `dir` itself, as a host directory
+/// that cannot be read could.
+struct FailsLookingUpDir(Memory);
+
+impl Filesystem for FailsLookingUpDir {
+    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+        self.0.open(path, options)
+    }
+
+    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.0.metadata(path)
+    }
+
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        match path {
+            "dir" => Err(FilesystemError::Other("unreadable".into())),
+            path => self.0.symlink_metadata(path),
+        }
+    }
+
+    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.0.read_dir(path)
+    }
+
+    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.create_dir(path)
+    }
+
+    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.remove_dir(path)
+    }
+
+    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.remove_file(path)
+    }
+
+    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+        self.0.rename(from, to, rename)
+    }
 }
 
 // The Mount has no Policy and follows links, so only the step out of
