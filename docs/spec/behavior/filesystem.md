@@ -1081,3 +1081,29 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a list naming a path through `..` |
 | When | a Memory is tried with it |
 | Then | the trial answers the error naming that path |
+
+## `FS-088` An Overlay refuses to move a file a lower writable Layer holds
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-014` |
+| relates | `FS-043` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay of two writable Layers, the lower one holding a file |
+| When | the file is renamed through the Overlay |
+| Then | the rename is refused as crossing devices, and nothing moves |
+
+## `FS-089` An Overlay change that lands succeeds though its whiteout stays
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-016` |
+| relates | `FS-063` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose writable Layer refuses to remove its whiteouts |
+| When | a file removed through it is made again |
+| Then | the call succeeds, and the view shows the new file |
