@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::{Access, FileType, OpenOptions, Rename};
+use kobako_runtime::filesystem::{Access, FileType, Filesystem, OpenOptions, Rename};
 use kobako_runtime::mount::Mount;
 
 use super::args::{self, FDFLAGS_APPEND, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE};
@@ -62,8 +62,9 @@ fn judge(mount: &Mount, path: &str, access: Access, follows_last: bool) -> Answe
     Ok(())
 }
 
-/// A path beneath `fd`, relative to its mount's root, refused when it
-/// ends in `/` and names a file.
+/// A path beneath `fd`, relative to its mount's root, for a call acting
+/// on what stands there rather than where a link leads: refused when it
+/// ends in `/` and names a file or a link.
 fn beneath<'a>(
     table: &'a Descriptors,
     mem: &GuestMemory,
@@ -71,8 +72,10 @@ fn beneath<'a>(
     path: (u32, u32),
 ) -> Answer<(&'a OpenDirectory, String)> {
     let dir = directory(table, fd)?;
-    let path = resolve(dir, &mem.path(path.0, path.1)?)?
-        .check_directory(dir.mount.filesystem().as_ref())?;
+    let path = resolve(dir, &mem.path(path.0, path.1)?)?.check_directory(
+        dir.mount.filesystem().as_ref(),
+        <dyn Filesystem>::symlink_metadata,
+    )?;
     Ok((dir, path))
 }
 
@@ -104,7 +107,7 @@ pub(crate) fn filestat_get(
     // A trailing `/` resolves a link standing there, as Linux's `lstat` does.
     let follow = flags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 || resolved.names_directory;
     let filesystem = dir.mount.filesystem();
-    let path = resolved.check_directory(filesystem.as_ref())?;
+    let path = resolved.check_directory(filesystem.as_ref(), <dyn Filesystem>::metadata)?;
     let metadata = if follow {
         filesystem.metadata(&path)?
     } else {
@@ -183,7 +186,8 @@ pub(crate) fn open(
     }
     // A trailing `/` resolves a link standing there, as Linux's `open` does.
     let follow = flags.dirflags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 || resolved.names_directory;
-    let path = resolved.check_directory(dir.mount.filesystem().as_ref())?;
+    let path =
+        resolved.check_directory(dir.mount.filesystem().as_ref(), <dyn Filesystem>::metadata)?;
     let mount = Arc::clone(&dir.mount);
     if table.is_full() {
         return Err(Errno::Mfile.into());
@@ -327,16 +331,23 @@ pub(crate) fn rename(
     refuse_root(&to.path, Errno::Busy)?;
     // A trailing `/` on either side asks that the source be a directory,
     // which `rename(2)` checks before it finds a rename onto its own path
-    // leaves everything as it was.
+    // leaves everything as it was. A rename moves a link rather than what
+    // it points at, so each side is checked as it stands.
     let names_directory = from.names_directory || to.names_directory;
     let from = ResolvedPath {
         names_directory,
         ..from
     }
-    .check_directory(from_dir.mount.filesystem().as_ref())?;
+    .check_directory(
+        from_dir.mount.filesystem().as_ref(),
+        <dyn Filesystem>::symlink_metadata,
+    )?;
     let to = match to {
         to if to.path == from => to.path,
-        to => to.check_directory(to_dir.mount.filesystem().as_ref())?,
+        to => to.check_directory(
+            to_dir.mount.filesystem().as_ref(),
+            <dyn Filesystem>::symlink_metadata,
+        )?,
     };
     if !Arc::ptr_eq(&from_dir.mount, &to_dir.mount) {
         return Err(Errno::Xdev.into());
@@ -371,8 +382,17 @@ pub(crate) fn unlink_file(
     fd: u32,
     path: (u32, u32),
 ) -> Answer {
-    let (dir, path) = beneath(table, mem, fd, path)?;
+    let dir = directory(table, fd)?;
+    let resolved = resolve(dir, &mem.path(path.0, path.1)?)?;
+    // A trailing `/` resolves a link standing there, as Linux's `unlink`
+    // does, and what it finds is a directory no unlink removes.
+    let names_directory = resolved.names_directory;
+    let path =
+        resolved.check_directory(dir.mount.filesystem().as_ref(), <dyn Filesystem>::metadata)?;
     refuse_root(&path, Errno::Isdir)?;
-    judge(&dir.mount, &path, Access::ReadWrite, false)?;
+    judge(&dir.mount, &path, Access::ReadWrite, names_directory)?;
+    if names_directory {
+        return Err(Errno::Isdir.into());
+    }
     Ok(dir.mount.filesystem().remove_file(&path)?)
 }

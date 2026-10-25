@@ -1125,6 +1125,54 @@ fn a_stat_of_a_link_named_with_a_trailing_slash_reports_its_directory() {
     );
 }
 
+/// What `path_unlink_file` and `path_rename` answer for the link
+/// `file.txt/` to a directory beneath a read-write Directory Mount taking
+/// `policy`, and whether the link stays; `name` keeps its host directory
+/// its own.
+#[cfg(unix)]
+fn change_link_named_as_directory(name: &str, policy: Option<Arc<dyn Policy>>) -> ([i32; 2], bool) {
+    let (host, mut guest) = linked_under(name, directory_with_key, Access::ReadWrite, policy);
+    let answers = [
+        guest.call("unlink_path", FILE_AS_DIRECTORY),
+        guest.call_pair("rename_paths", FILE_AS_DIRECTORY, MOVED),
+    ];
+    let kept = host.join("file.txt").symlink_metadata().is_ok();
+    let _ = std::fs::remove_dir_all(&host);
+    (answers, kept)
+}
+
+// Linux's `unlink` follows a link named with a trailing `/` and finds a
+// directory there, while `rename` moves the link itself, which is no
+// directory.
+// @behavior RT-123
+#[cfg(unix)]
+#[test]
+fn a_link_named_with_a_trailing_slash_is_neither_removed_nor_moved() {
+    assert_eq!(
+        change_link_named_as_directory("link-slash", None),
+        ([ERRNO_ISDIR, ERRNO_NOTDIR], true),
+        "path_unlink_file and path_rename of a host link to a directory named with a trailing \
+         slash, beneath a read-write Directory Mount through preview1, must answer EISDIR and \
+         ENOTDIR as Linux does and leave the link"
+    );
+}
+
+// The unlink would follow the link, which a Mount with a Policy never
+// does; the rename acts on the link itself, which only beneath a Policy
+// the Filesystem would move as a file.
+// @behavior RT-124
+#[cfg(unix)]
+#[test]
+fn beneath_a_policy_a_link_named_with_a_trailing_slash_is_neither_removed_nor_moved() {
+    assert_eq!(
+        change_link_named_as_directory("policy-link-slash", Some(Arc::new(AllowsAll))),
+        ([ERRNO_LOOP, ERRNO_NOTDIR], true),
+        "path_unlink_file and path_rename of a host link to a directory named with a trailing \
+         slash, beneath a read-write Directory Mount with a Policy through preview1, must answer \
+         ELOOP and ENOTDIR and leave the link"
+    );
+}
+
 // @behavior RT-099
 #[test]
 fn an_allocation_for_a_file_beneath_a_mount_is_unsupported() {

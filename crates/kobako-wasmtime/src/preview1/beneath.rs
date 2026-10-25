@@ -8,7 +8,7 @@
 //! path's text, as a host resolves it, so `missing/..` names nothing and
 //! a `..` out of a link is refused rather than taken from its text.
 
-use kobako_runtime::filesystem::{FileType, Filesystem, FilesystemError};
+use kobako_runtime::filesystem::{FileType, Filesystem, FilesystemError, Metadata};
 
 use super::errno::{Answer, Errno};
 use crate::descriptors::{Identity, OpenDirectory};
@@ -28,10 +28,16 @@ pub(crate) struct ResolvedPath {
 
 impl ResolvedPath {
     /// The path, refused as `NOTDIR` when it must name a directory and
-    /// names a file instead.
-    pub(crate) fn check_directory(self, filesystem: &dyn Filesystem) -> Answer<String> {
+    /// `lookup` finds anything else there: `metadata` for a call that
+    /// follows a link at the end, `symlink_metadata` for one that acts on
+    /// the link itself.
+    pub(crate) fn check_directory(
+        self,
+        filesystem: &(dyn Filesystem + 'static),
+        lookup: fn(&(dyn Filesystem + 'static), &str) -> Result<Metadata, FilesystemError>,
+    ) -> Answer<String> {
         if self.names_directory {
-            match filesystem.metadata(&self.path) {
+            match lookup(filesystem, &self.path) {
                 Ok(metadata) if metadata.file_type != FileType::Directory => {
                     return Err(Errno::Notdir.into())
                 }

@@ -94,6 +94,8 @@ const PATHS: &[&str] = &[
     "",
     ".",
     "a/",
+    "l/",
+    "n/",
     "d",
     "d/f",
     "d/..",
@@ -436,11 +438,14 @@ fn escapes(path: &str) -> bool {
 /// cap-std's refusal as `PERM`. A path past `PATH_MAX` is `NAMETOOLONG`
 /// as Linux answers the whole path, where cap-std resolves it one name
 /// at a time and never hands Linux the whole of it. A stat following no
-/// link of a file named with a trailing `/` is `NOTDIR` as Linux answers
-/// it, where cap-std's shortcut for one name drops the `/` and finds the
-/// file. A `..` or a final `.` after a link is `LOOP` and changes
-/// nothing, where cap-std steps out of where the link points; a call
-/// refused before its path resolves answers alike.
+/// link of a path named with a trailing `/` answers as Linux's `lstat`,
+/// which follows a link there, where cap-std's shortcut for one name
+/// drops the `/` and finds the file or the link. A `rmdir` of a link
+/// named with a trailing `/` is `NOTDIR` as Linux answers it, where
+/// cap-std's split turns the `/` into `.` and answers `INVAL`. A `..` or
+/// a final `.` after a link is `LOOP` and changes nothing, where cap-std
+/// steps out of where the link points; a call refused before its path
+/// resolves answers alike.
 fn expected(call: Call, path: &str, mut oracle: Observation) -> Observation {
     let refused_first = matches!(oracle.errno, Some(ERRNO_BUSY | ERRNO_INVAL | ERRNO_NOTSUP));
     if steps_out_of_a_link(path) && !refused_first {
@@ -454,13 +459,21 @@ fn expected(call: Call, path: &str, mut oracle: Observation) -> Observation {
     if escapes(path) && oracle.errno == Some(ERRNO_PERM) {
         oracle.errno = Some(ERRNO_NOTCAPABLE);
     }
-    if matches!(call, Call::StatNoFollow)
-        && path.ends_with('/')
-        && oracle.errno == Some(0)
-        && oracle.filetype != FILETYPE_DIRECTORY
+    if matches!(call, Call::StatNoFollow) && path.ends_with('/') && oracle.errno == Some(0) {
+        let host = HostDir::new();
+        match fs::symlink_metadata(host.0.join(path)) {
+            Ok(metadata) if metadata.is_dir() => oracle.filetype = FILETYPE_DIRECTORY,
+            _ => {
+                oracle.errno = Some(ERRNO_NOTDIR);
+                oracle.filetype = 0;
+            }
+        }
+    }
+    if matches!(call, Call::Rmdir)
+        && matches!(path, "l/" | "n/")
+        && oracle.errno == Some(ERRNO_INVAL)
     {
         oracle.errno = Some(ERRNO_NOTDIR);
-        oracle.filetype = 0;
     }
     if path.len() >= PATH_MAX {
         oracle.errno = Some(ERRNO_NAMETOOLONG);
