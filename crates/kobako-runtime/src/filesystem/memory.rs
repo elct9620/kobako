@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use super::path::{beneath_itself, is_beneath, normalize_seed, parent};
+use super::path::{ancestors, beneath_itself, is_beneath, normalize_seed, parent};
 use super::{
     DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions, Rename,
 };
@@ -16,7 +16,10 @@ use super::{
 /// bounds its size and its inodes, so a guest cannot grow it past what
 /// the Host App allowed.
 pub struct Memory {
-    nodes: Mutex<BTreeMap<String, Node>>,
+    /// Each entry is held under its own name in its directory, as a tmpfs
+    /// holds one name to each entry, so the names it holds stay bounded
+    /// by its inodes however its directories move.
+    root: Mutex<Directory>,
     space: Arc<Space>,
     inodes_follow_limit: bool,
     /// The device number this Memory reports, its own as each tmpfs mount
@@ -27,11 +30,9 @@ pub struct Memory {
     next_ino: AtomicU64,
 }
 
-#[derive(Clone)]
 enum Node {
     File(Arc<Mutex<Content>>),
-    /// A directory and its inode number.
-    Directory(u64),
+    Directory(Directory),
 }
 
 impl Node {
@@ -41,6 +42,76 @@ impl Node {
             Self::Directory(_) => FileType::Directory,
         }
     }
+}
+
+/// A directory, its inode number, and its entries by name.
+struct Directory {
+    ino: u64,
+    entries: BTreeMap<String, Node>,
+}
+
+/// What a path names beneath a directory, the directory itself for the
+/// empty path.
+enum Found<'a> {
+    File(&'a Arc<Mutex<Content>>),
+    Directory(&'a Directory),
+}
+
+impl Found<'_> {
+    fn file_type(&self) -> FileType {
+        match self {
+            Self::File(_) => FileType::File,
+            Self::Directory(_) => FileType::Directory,
+        }
+    }
+}
+
+impl Directory {
+    /// What `path` names beneath this directory, or why it names nothing:
+    /// a file standing where a directory above it should be, or simply no
+    /// entry.
+    fn find(&self, path: &str) -> Result<Found<'_>, FilesystemError> {
+        let mut found = Found::Directory(self);
+        for name in components(path) {
+            found = match found {
+                Found::Directory(dir) => match dir.entries.get(name) {
+                    Some(Node::File(data)) => Found::File(data),
+                    Some(Node::Directory(dir)) => Found::Directory(dir),
+                    None => return Err(FilesystemError::NotFound),
+                },
+                Found::File(_) => return Err(FilesystemError::NotADirectory),
+            };
+        }
+        Ok(found)
+    }
+
+    /// The directory `path` names beneath this one.
+    fn directory_mut(&mut self, path: &str) -> Result<&mut Directory, FilesystemError> {
+        let mut dir = self;
+        for name in components(path) {
+            dir = match dir.entries.get_mut(name) {
+                Some(Node::Directory(inner)) => inner,
+                Some(Node::File(_)) => return Err(FilesystemError::NotADirectory),
+                None => return Err(FilesystemError::NotFound),
+            };
+        }
+        Ok(dir)
+    }
+
+    /// The entries of the directory a new entry at `path` goes into, which
+    /// must already be one, and the entry's name there.
+    fn parent_mut<'a>(
+        &mut self,
+        path: &'a str,
+    ) -> Result<(&mut BTreeMap<String, Node>, &'a str), FilesystemError> {
+        let name = path.rsplit('/').next().unwrap_or(path);
+        Ok((&mut self.directory_mut(parent(path))?.entries, name))
+    }
+}
+
+/// The names of `path`, outermost first; the root has none.
+fn components(path: &str) -> impl Iterator<Item = &str> {
+    path.split('/').filter(|name| !name.is_empty())
 }
 
 /// What a Memory holds: the bytes of its files, and its entries, each
@@ -166,7 +237,10 @@ impl Memory {
         };
         space.inodes.add(1);
         Self {
-            nodes: Mutex::new(BTreeMap::from([(String::new(), Node::Directory(1))])),
+            root: Mutex::new(Directory {
+                ino: 1,
+                entries: BTreeMap::new(),
+            }),
             space: Arc::new(space),
             inodes_follow_limit: true,
             dev: Metadata::new_device(),
@@ -176,7 +250,10 @@ impl Memory {
 
     /// A directory with an inode number no directory of this Memory had.
     fn new_directory(&self) -> Node {
-        Node::Directory(self.next_ino.fetch_add(1, Ordering::Relaxed))
+        Node::Directory(Directory {
+            ino: self.next_ino.fetch_add(1, Ordering::Relaxed),
+            entries: BTreeMap::new(),
+        })
     }
 
     /// This Memory with its files holding at most `limit` bytes together,
@@ -209,8 +286,8 @@ impl Memory {
         }
     }
 
-    fn nodes(&self) -> MutexGuard<'_, BTreeMap<String, Node>> {
-        self.nodes
+    fn root(&self) -> MutexGuard<'_, Directory> {
+        self.root
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
@@ -264,7 +341,7 @@ impl Memory {
     {
         let memory = Self::new();
         {
-            let mut nodes = memory.nodes();
+            let mut root = memory.root();
             for (path, contents) in files {
                 let path = normalize_seed(path.as_ref());
                 if path.is_empty() {
@@ -273,24 +350,28 @@ impl Memory {
                 if path.split('/').any(|name| name == "..") {
                     return Err(SeedError::DotDot(path));
                 }
-                for (end, _) in path.match_indices('/') {
-                    let dir = &path[..end];
-                    match nodes.get(dir) {
-                        Some(Node::Directory(_)) => {}
-                        Some(_) => return Err(SeedError::FileAndDirectory(dir.to_string())),
-                        None => {
-                            nodes.insert(dir.to_string(), memory.new_directory());
-                            memory.space.inodes.add(1);
+                let mut dir = &mut *root;
+                for above in ancestors(&path) {
+                    let name = above.rsplit('/').next().unwrap_or(above);
+                    let node = dir.entries.entry(name.to_string()).or_insert_with(|| {
+                        memory.space.inodes.add(1);
+                        memory.new_directory()
+                    });
+                    dir = match node {
+                        Node::Directory(inner) => inner,
+                        Node::File(_) => {
+                            return Err(SeedError::FileAndDirectory(above.to_string()))
                         }
-                    }
+                    };
                 }
-                match nodes.get(&path) {
+                let name = path.rsplit('/').next().unwrap_or(&path).to_string();
+                match dir.entries.get(&name) {
                     Some(Node::Directory(_)) => return Err(SeedError::FileAndDirectory(path)),
-                    Some(_) => return Err(SeedError::Twice(path)),
+                    Some(Node::File(_)) => return Err(SeedError::Twice(path)),
                     None => {}
                 }
-                nodes.insert(
-                    path,
+                dir.entries.insert(
+                    name,
                     Node::File(Content::seed(contents.into(), &memory.space)),
                 );
             }
@@ -312,68 +393,35 @@ impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
     }
 }
 
-/// Why `path` names nothing: a file standing where a directory above it
-/// should be, or simply no entry.
-fn missing(nodes: &BTreeMap<String, Node>, path: &str) -> FilesystemError {
-    let mut dir = parent(path);
-    loop {
-        match nodes.get(dir) {
-            Some(Node::File(_)) => return FilesystemError::NotADirectory,
-            Some(Node::Directory(_)) => return FilesystemError::NotFound,
-            None if dir.is_empty() => return FilesystemError::NotFound,
-            None => dir = parent(dir),
-        }
-    }
-}
-
-/// The directory a new entry at `path` goes into must already be one.
-fn check_parent(nodes: &BTreeMap<String, Node>, path: &str) -> Result<(), FilesystemError> {
-    match nodes.get(parent(path)) {
-        Some(Node::Directory(_)) => Ok(()),
-        Some(Node::File(_)) => Err(FilesystemError::NotADirectory),
-        None => Err(missing(nodes, parent(path))),
-    }
-}
-
-fn has_children(nodes: &BTreeMap<String, Node>, dir: &str) -> bool {
-    nodes.keys().any(|key| is_beneath(key, dir))
-}
-
 impl Filesystem for Memory {
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        let mut nodes = self.nodes();
-        let data = match nodes.get(path) {
-            Some(Node::Directory(_)) => return Err(FilesystemError::IsADirectory),
-            Some(Node::File(_)) if options.create_new => {
-                return Err(FilesystemError::AlreadyExists)
-            }
-            Some(Node::File(data)) => {
+        let mut root = self.root();
+        let data = match root.find(path) {
+            Ok(Found::Directory(_)) => return Err(FilesystemError::IsADirectory),
+            Ok(Found::File(_)) if options.create_new => return Err(FilesystemError::AlreadyExists),
+            Ok(Found::File(data)) => {
                 if options.truncate {
                     lock(data).resize(0)?;
                 }
                 data.clone()
             }
-            None if options.create || options.create_new => {
-                check_parent(&nodes, path)?;
+            Err(FilesystemError::NotFound) if options.create || options.create_new => {
+                let (entries, name) = root.parent_mut(path)?;
                 let data = Content::create(&self.space)?;
-                nodes.insert(path.to_string(), Node::File(data.clone()));
+                entries.insert(name.to_string(), Node::File(data.clone()));
                 data
             }
-            None => return Err(missing(&nodes, path)),
+            Err(error) => return Err(error),
         };
         Ok(Box::new(MemoryFile { data }))
     }
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        let nodes = self.nodes();
-        match nodes.get(path) {
-            Some(Node::File(data)) => {
-                Ok(Metadata::new(FileType::File, lock(data).bytes.len() as u64))
+        match self.root().find(path)? {
+            Found::File(data) => Ok(Metadata::new(FileType::File, lock(data).bytes.len() as u64)),
+            Found::Directory(dir) => {
+                Ok(Metadata::new(FileType::Directory, 0).with_identity(self.dev, dir.ino))
             }
-            Some(&Node::Directory(ino)) => {
-                Ok(Metadata::new(FileType::Directory, 0).with_identity(self.dev, ino))
-            }
-            None => Err(missing(&nodes, path)),
         }
     }
 
@@ -393,97 +441,96 @@ impl Filesystem for Memory {
     }
 
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-        let nodes = self.nodes();
-        match nodes.get(path) {
-            Some(Node::Directory(_)) => {}
-            Some(Node::File(_)) => return Err(FilesystemError::NotADirectory),
-            None => return Err(missing(&nodes, path)),
+        match self.root().find(path)? {
+            Found::Directory(dir) => Ok(dir
+                .entries
+                .iter()
+                .map(|(name, node)| DirEntry::new(name.as_str(), node.file_type()))
+                .collect()),
+            Found::File(_) => Err(FilesystemError::NotADirectory),
         }
-        Ok(nodes
-            .iter()
-            .filter(|(key, _)| !key.is_empty() && parent(key) == path)
-            .map(|(key, node)| {
-                DirEntry::new(key.rsplit('/').next().unwrap_or(key), node.file_type())
-            })
-            .collect())
     }
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        let mut nodes = self.nodes();
-        if nodes.contains_key(path) {
+        let mut root = self.root();
+        if root.find(path).is_ok() {
             return Err(FilesystemError::AlreadyExists);
         }
-        check_parent(&nodes, path)?;
+        let (entries, name) = root.parent_mut(path)?;
         self.space.inodes.take(1)?;
-        nodes.insert(path.to_string(), self.new_directory());
+        entries.insert(name.to_string(), self.new_directory());
         Ok(())
     }
 
+    /// The root stays, as a mount point does.
     fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        let mut nodes = self.nodes();
-        match nodes.get(path) {
+        let mut root = self.root();
+        if path.is_empty() {
+            return Err(if root.entries.is_empty() {
+                FilesystemError::ResourceBusy
+            } else {
+                FilesystemError::DirectoryNotEmpty
+            });
+        }
+        let (entries, name) = root.parent_mut(path)?;
+        match entries.get(name) {
             Some(Node::File(_)) => Err(FilesystemError::NotADirectory),
-            Some(Node::Directory(_)) if has_children(&nodes, path) => {
+            Some(Node::Directory(dir)) if !dir.entries.is_empty() => {
                 Err(FilesystemError::DirectoryNotEmpty)
             }
             Some(Node::Directory(_)) => {
-                nodes.remove(path);
+                entries.remove(name);
                 self.space.inodes.give(1);
                 Ok(())
             }
-            None => Err(missing(&nodes, path)),
+            None => Err(FilesystemError::NotFound),
         }
     }
 
     fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        let mut nodes = self.nodes();
-        match nodes.get(path) {
+        let mut root = self.root();
+        if path.is_empty() {
+            return Err(FilesystemError::IsADirectory);
+        }
+        let (entries, name) = root.parent_mut(path)?;
+        match entries.get(name) {
             Some(Node::File(_)) => {
-                nodes.remove(path);
+                entries.remove(name);
                 Ok(())
             }
             Some(Node::Directory(_)) => Err(FilesystemError::IsADirectory),
-            None => Err(missing(&nodes, path)),
+            None => Err(FilesystemError::NotFound),
         }
     }
 
+    /// The entry moves under its new name with all it holds, so no name
+    /// beneath it changes.
     fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-        let mut nodes = self.nodes();
-        let moving = match nodes.get(from) {
-            Some(node) => node.clone(),
-            None => return Err(missing(&nodes, from)),
-        };
+        let mut root = self.root();
+        let moving = root.find(from)?.file_type();
         if from == to {
             return Ok(());
         }
-        rename.check(moving.file_type())?;
+        rename.check(moving)?;
         if is_beneath(to, from) {
-            return Err(beneath_itself(moving.file_type()));
+            return Err(beneath_itself(moving));
         }
-        check_parent(&nodes, to)?;
-        match (&moving, nodes.get(to)) {
-            (Node::File(_), Some(Node::Directory(_))) => return Err(FilesystemError::IsADirectory),
-            (Node::Directory(_), Some(Node::File(_))) => {
+        root.parent_mut(to)?;
+        match (moving, root.find(to)) {
+            (FileType::File, Ok(Found::Directory(_))) => return Err(FilesystemError::IsADirectory),
+            (FileType::Directory, Ok(Found::File(_))) => {
                 return Err(FilesystemError::NotADirectory)
             }
-            (Node::Directory(_), Some(Node::Directory(_))) if has_children(&nodes, to) => {
+            (FileType::Directory, Ok(Found::Directory(dir))) if !dir.entries.is_empty() => {
                 return Err(FilesystemError::DirectoryNotEmpty)
             }
             _ => {}
         }
-        let beneath: Vec<String> = nodes
-            .keys()
-            .filter(|key| is_beneath(key, from))
-            .cloned()
-            .collect();
-        nodes.remove(from);
-        if let Some(Node::Directory(_)) = nodes.insert(to.to_string(), moving) {
+        let (entries, name) = root.parent_mut(from)?;
+        let node = entries.remove(name).ok_or(FilesystemError::NotFound)?;
+        let (entries, name) = root.parent_mut(to)?;
+        if let Some(Node::Directory(_)) = entries.insert(name.to_string(), node) {
             self.space.inodes.give(1);
-        }
-        for key in beneath {
-            if let Some(node) = nodes.remove(&key) {
-                nodes.insert(format!("{to}{}", &key[from.len()..]), node);
-            }
         }
         Ok(())
     }
@@ -951,6 +998,51 @@ mod tests {
                 && memory != second,
             "devices from Metadata::new_device and a Memory's root must each set the top bit \
              and differ from one another"
+        );
+    }
+
+    fn names(dir: &Directory) -> Vec<String> {
+        dir.entries
+            .iter()
+            .flat_map(|(name, node)| {
+                let beneath = match node {
+                    Node::Directory(inner) => names(inner),
+                    Node::File(_) => Vec::new(),
+                };
+                std::iter::once(name.clone()).chain(beneath)
+            })
+            .collect()
+    }
+
+    // Each round nests the file one level deeper, so a Memory holding
+    // whole paths would hold names growing with the depth; held under its
+    // own name, every entry stays the one letter it was given.
+    // @behavior FS-094
+    #[test]
+    fn a_memory_holds_each_entry_under_its_own_name() {
+        let memory: Memory = [("d/f", "x")].into_iter().collect();
+        for _ in 0..64 {
+            memory
+                .create_dir("n")
+                .expect("the new directory must be made");
+            memory
+                .rename("d", "n/d", Rename::Any)
+                .expect("the directory must move into the new one");
+            memory
+                .rename("n", "d", Rename::Any)
+                .expect("the new directory must take the old name");
+        }
+        let held = names(&memory.root());
+        assert_eq!(
+            (held, read_all(&memory, &format!("{}f", "d/".repeat(65)))),
+            (
+                std::iter::repeat_n("d".to_string(), 65)
+                    .chain(["f".to_string()])
+                    .collect::<Vec<_>>(),
+                b"x".to_vec()
+            ),
+            "a directory moved deeper 64 times through Memory::rename must leave every entry \
+             holding only its own name, and the file reading where it now lies"
         );
     }
 
