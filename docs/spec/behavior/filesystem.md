@@ -861,7 +861,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory file open through two handles |
+| Given | a Directory file on a unix host, open through two handles |
 | When | both handles append at the same time |
 | Then | every append keeps its bytes, and none lands over another |
 
@@ -1144,3 +1144,16 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a writable Layer over a read-only Directory holding a FIFO |
 | When | the FIFO is written or renamed through the Overlay |
 | Then | the write is refused as permission denied, the rename as crossing devices |
+
+## `FS-093` A Directory on Windows refuses to append
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-069` |
+| relates | `FS-029` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory file on a Windows host |
+| When | it is appended to |
+| Then | the append is refused as unsupported, and the file stays as it was |
