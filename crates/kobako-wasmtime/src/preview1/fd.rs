@@ -139,7 +139,8 @@ fn to_filetype(file_type: FileType) -> u8 {
     match file_type {
         FileType::Directory => FILETYPE_DIRECTORY,
         FileType::Symlink => FILETYPE_SYMBOLIC_LINK,
-        _ => FILETYPE_REGULAR_FILE,
+        FileType::File => FILETYPE_REGULAR_FILE,
+        _ => FILETYPE_UNKNOWN,
     }
 }
 

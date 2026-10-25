@@ -1029,6 +1029,7 @@ fn an_append_lands_after_another_writers_append() {
     );
 }
 
+const FILETYPE_UNKNOWN: u8 = 0;
 const FILETYPE_DIRECTORY: u8 = 3;
 const FILETYPE_REGULAR_FILE: u8 = 4;
 const FILETYPE_SYMBOLIC_LINK: u8 = 7;
@@ -1087,6 +1088,43 @@ fn stat_link(
         .collect();
     let _ = std::fs::remove_dir_all(&host);
     answers
+}
+
+// A FIFO with no writer would hold an open that waits for one, so only
+// an open refused before it waits returns at all.
+// @behavior RT-127
+#[cfg(unix)]
+#[test]
+fn a_guest_sees_a_fifo_as_of_an_unknown_type_and_cannot_open_it() {
+    let host = std::env::temp_dir().join(format!("kobako-granted-fifo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&host);
+    std::fs::create_dir_all(&host).expect("the host directory must be created");
+    let made = std::process::Command::new("mkfifo")
+        .arg(host.join("file.txt"))
+        .status()
+        .expect("mkfifo must run");
+    assert!(made.success(), "the FIFO must be made");
+    let directory = Directory::new(&host).expect("the host directory must open");
+    let mut guest = Guest::new(&[grant(Arc::new(directory), Access::Read, None)]);
+    let stat = guest
+        .instance
+        .get_typed_func::<(i32, i32, i32), i32>(&mut guest.store, "stat_flagged")
+        .expect("probe export must resolve")
+        .call(&mut guest.store, (FILE.0, FILE.1, 0))
+        .expect("probe call must not trap");
+    let filetype = guest
+        .instance
+        .get_memory(&mut guest.store, "memory")
+        .expect("probe exports its memory")
+        .data(&guest.store)[384 + 16];
+    let opened = guest.call("read_file", FILE);
+    let _ = std::fs::remove_dir_all(&host);
+    assert_eq!(
+        (stat, filetype, opened),
+        (0, FILETYPE_UNKNOWN, ERRNO_ACCES),
+        "path_filestat_get of a FIFO beneath a Directory Mount through preview1 must report an \
+         unknown filetype, and path_open of it must answer EACCES"
+    );
 }
 
 // The link points at a regular file, so only a stat that follows none
