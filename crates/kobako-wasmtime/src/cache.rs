@@ -175,12 +175,14 @@ fn load_artifact(engine: &WtEngine, artifact: &Path) -> Option<WtModule> {
 }
 
 /// The temp-file and rename pair keeps concurrent processes from observing
-/// a partial write. Failures are swallowed because the cache is only an
-/// optimisation, and pruning on write keeps the directory bounded across
-/// rebuilds.
+/// a partial write, and syncing the bytes before the rename keeps a crash
+/// from leaving the artifact's name over blocks never written, which the
+/// unsafe deserialize would trust. Failures are swallowed because the
+/// cache is only an optimisation, and pruning on write keeps the
+/// directory bounded across rebuilds.
 #[cfg(unix)]
 fn store_artifact(module: &WtModule, artifact: &Path) {
-    use rustix::fs::renameat;
+    use rustix::fs::{fsync, renameat};
     use std::io::Write as _;
     let (Some(dir), Some(name)) = (artifact.parent(), artifact.file_name()) else {
         return;
@@ -197,10 +199,15 @@ fn store_artifact(module: &WtModule, artifact: &Path) {
     let Some((tmp, mut file)) = create_temp(&dir, name) else {
         return;
     };
-    if file.write_all(&bytes).is_err() {
+    if file
+        .write_all(&bytes)
+        .and_then(|()| file.sync_all())
+        .is_err()
+    {
         return;
     }
     if renameat(&dir, &tmp, &dir, name).is_ok() {
+        let _ = fsync(&dir);
         prune_stale(&dir, name);
     }
 }
