@@ -40,7 +40,8 @@ const AT: &str = "/data";
 
 /// Each export calls one path import on descriptor 3 with the path the
 /// host placed at 1024, and the second path at 8192 where a call takes
-/// two. An opened descriptor lands at 128, and a stat at 256.
+/// two. An opened descriptor lands at 128, its fdstat at 320, and a stat
+/// at 256.
 const PROBE_WAT: &str = r#"
 (module
   (import "wasi_snapshot_preview1" "path_open" (func $open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
@@ -49,10 +50,15 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "path_remove_directory" (func $rmdir (param i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_unlink_file" (func $unlink (param i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_rename" (func $rename (param i32 i32 i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_fdstat_get" (func $fdstat (param i32 i32) (result i32)))
   (memory (export "memory") 1)
   (func (export "open") (param $len i32) (param $oflags i32) (param $rights i64) (param $fdflags i32) (result i32)
-    (call $open (i32.const 3) (i32.const 1) (i32.const 1024) (local.get $len) (local.get $oflags)
+    (local $errno i32)
+    (local.set $errno (call $open (i32.const 3) (i32.const 1) (i32.const 1024) (local.get $len) (local.get $oflags)
       (local.get $rights) (i64.const 0) (local.get $fdflags) (i32.const 128)))
+    (if (i32.eqz (local.get $errno))
+      (then (drop (call $fdstat (i32.load (i32.const 128)) (i32.const 320)))))
+    (local.get $errno))
   (func (export "open_nofollow") (param $len i32) (result i32)
     (call $open (i32.const 3) (i32.const 0) (i32.const 1024) (local.get $len) (i32.const 0)
       (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 128)))
@@ -73,6 +79,7 @@ const PROBE_WAT: &str = r#"
 const PATH_AT: usize = 1024;
 const SECOND_PATH_AT: usize = 8192;
 const OPENED_AT: usize = 128;
+const FDSTAT_AT: usize = 320;
 /// Where a stat's filetype lands, past its device and inode.
 const FILETYPE_AT: usize = 256 + 16;
 const FILETYPE_DIRECTORY: u8 = 3;
@@ -81,6 +88,7 @@ const OFLAGS_CREAT: i32 = 1 << 0;
 const OFLAGS_DIRECTORY: i32 = 1 << 1;
 const OFLAGS_EXCL: i32 = 1 << 2;
 const OFLAGS_TRUNC: i32 = 1 << 3;
+const FDFLAGS_NONBLOCK: i32 = 1 << 2;
 const FDFLAGS_SYNC: i32 = 1 << 4;
 const RIGHTS_FD_READ: i64 = 1 << 1;
 const RIGHTS_FD_WRITE: i64 = 1 << 6;
@@ -193,6 +201,11 @@ const CALLS: &[Call] = &[
         rights: RIGHTS_FD_READ,
         fdflags: FDFLAGS_SYNC,
     },
+    Call::Open {
+        oflags: 0,
+        rights: RIGHTS_FD_READ,
+        fdflags: FDFLAGS_NONBLOCK,
+    },
     Call::OpenNoFollow,
     Call::Stat,
     Call::StatNoFollow,
@@ -272,6 +285,10 @@ impl Drop for HostDir {
 struct Observation {
     errno: Option<i32>,
     opened: [u8; 4],
+    /// An opened descriptor's filetype and flags.
+    fdstat: [u8; 4],
+    /// Whether an opened descriptor's rights read and write it.
+    rights: u8,
     filetype: u8,
     tree: Vec<(String, Option<Vec<u8>>)>,
 }
@@ -334,10 +351,15 @@ fn observe<T>(
     .ok();
     let mut opened = [0; 4];
     opened.copy_from_slice(&memory.data(&store)[OPENED_AT..OPENED_AT + 4]);
+    let data = memory.data(&store);
+    let mut fdstat = [0; 4];
+    fdstat.copy_from_slice(&data[FDSTAT_AT..FDSTAT_AT + 4]);
     Observation {
         errno,
         opened,
-        filetype: memory.data(&store)[FILETYPE_AT],
+        fdstat,
+        rights: data[FDSTAT_AT + 8] & (RIGHTS_FD_READ | RIGHTS_FD_WRITE) as u8,
+        filetype: data[FILETYPE_AT],
         tree: host.tree(),
     }
 }
@@ -432,8 +454,9 @@ fn escapes(path: &str) -> bool {
         })
 }
 
-/// What kobako answers where it differs from wasmtime-wasi on purpose. A
-/// path above the root is `NOTCAPABLE`, the code preview1 names for a
+/// What kobako answers where it differs from wasmtime-wasi on purpose. An
+/// open asking not to block is `NOTSUP`, where wasmtime-wasi records the
+/// flag and blocks anyway. A path above the root is `NOTCAPABLE`, the code preview1 names for a
 /// capability the guest was never handed, where wasmtime-wasi passes on
 /// cap-std's refusal as `PERM`. A path past `PATH_MAX` is `NAMETOOLONG`
 /// as Linux answers the whole path, where cap-std resolves it one name
@@ -447,14 +470,24 @@ fn escapes(path: &str) -> bool {
 /// steps out of where the link points; a call refused before its path
 /// resolves answers alike.
 fn expected(call: Call, path: &str, mut oracle: Observation) -> Observation {
+    let refused = |errno| Observation {
+        errno: Some(errno),
+        opened: [0; 4],
+        fdstat: [0; 4],
+        rights: 0,
+        filetype: 0,
+        tree: HostDir::new().tree(),
+    };
+    if matches!(call, Call::Open { fdflags, .. } if fdflags & FDFLAGS_NONBLOCK != 0) {
+        return refused(if path.len() >= PATH_MAX {
+            ERRNO_NAMETOOLONG
+        } else {
+            ERRNO_NOTSUP
+        });
+    }
     let refused_first = matches!(oracle.errno, Some(ERRNO_BUSY | ERRNO_INVAL | ERRNO_NOTSUP));
     if steps_out_of_a_link(path) && !refused_first {
-        return Observation {
-            errno: Some(ERRNO_LOOP),
-            opened: [0; 4],
-            filetype: 0,
-            tree: HostDir::new().tree(),
-        };
+        return refused(ERRNO_LOOP);
     }
     if escapes(path) && oracle.errno == Some(ERRNO_PERM) {
         oracle.errno = Some(ERRNO_NOTCAPABLE);

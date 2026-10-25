@@ -58,6 +58,9 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "fd_pread" (func $pread (param i32 i32 i32 i64 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_pwrite" (func $pwrite (param i32 i32 i32 i64 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_filestat_set_size" (func $set_size (param i32 i64) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_advise" (func $advise (param i32 i64 i64 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_fdstat_get" (func $fdstat (param i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_fdstat_set_flags" (func $set_flags (param i32 i32) (result i32)))
   (memory (export "memory") 1)
   (data (i32.const 740) ".")
   (data (i32.const 760) "missing/../file.txt")
@@ -183,6 +186,30 @@ const PROBE_WAT: &str = r#"
     (local.set $errno (call $open_read_write))
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $pwrite (i32.load (i32.const 128)) (i32.const 80) (i32.const 1) (local.get $offset) (i32.const 132)))
+  ;; Advise on `file.txt` from `offset`, and for `offset` bytes from 0.
+  (func (export "advise_from") (param $offset i64) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_read_write))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $advise (i32.load (i32.const 128)) (local.get $offset) (i64.const 0) (i32.const 0)))
+  (func (export "advise_for") (param $len i64) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_read_write))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $advise (i32.load (i32.const 128)) (i64.const 0) (local.get $len) (i32.const 0)))
+  ;; Open `file.txt`, then set it not to block.
+  (func (export "set_nonblocking") (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_read_write))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $set_flags (i32.load (i32.const 128)) (i32.const 4)))
+  ;; Open `dir` as a directory and read its fdstat into 384.
+  (func (export "dir_fdstat") (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open (i32.const 3) (i32.const 0) (i32.const 930) (i32.const 3)
+      (i32.const 2) (i64.const 0) (i64.const 2) (i32.const 0) (i32.const 128)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $fdstat (i32.load (i32.const 128)) (i32.const 384)))
   ;; Size `file.txt` to `offset` bytes.
   (func (export "size_at") (param $offset i64) (result i32)
     (local $errno i32)
@@ -1564,6 +1591,62 @@ fn an_offset_past_the_largest_signed_offset_is_invalid() {
     );
 }
 
+// @behavior RT-130
+#[test]
+fn an_advice_past_the_largest_signed_offset_is_invalid() {
+    let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
+    assert_eq!(
+        (
+            guest.call_at("advise_from", 1 << 63),
+            guest.call_at("advise_for", 1 << 63),
+            guest.call_at("advise_for", 0)
+        ),
+        (ERRNO_INVAL, ERRNO_INVAL, 0),
+        "fd_advise from or for past the largest signed 64-bit offset of a Memory file beneath a \
+         Mount through preview1 must answer EINVAL, as an advice within it succeeds"
+    );
+}
+
+// The open asks to read only, so nothing else the open could refuse
+// stands in for the refusal of not blocking.
+// @behavior RT-129
+#[test]
+fn a_descriptor_that_would_not_block_is_unsupported() {
+    let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
+    assert_eq!(
+        (
+            guest.call_flagged(FILE, 0, FDFLAGS_NONBLOCK),
+            guest.call_bare("set_nonblocking"),
+            guest.call_flagged(FILE, 0, 0)
+        ),
+        (ERRNO_NOTSUP, ERRNO_NOTSUP, 0),
+        "path_open asking not to block and fd_fdstat_set_flags setting an open file not to \
+         block, beneath a Mount through preview1, must answer ENOTSUP"
+    );
+}
+
+// @behavior RT-128
+#[test]
+fn a_directory_a_guest_opens_carries_no_right_to_write() {
+    let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
+    let errno = guest.call_bare("dir_fdstat");
+    let memory = guest
+        .instance
+        .get_memory(&mut guest.store, "memory")
+        .expect("probe exports its memory");
+    let rights = u64::from_le_bytes(
+        memory.data(&guest.store)[392..400]
+            .try_into()
+            .expect("the rights are eight bytes"),
+    );
+    assert_eq!(
+        (errno, rights & RIGHTS_FD_WRITE, rights & RIGHTS_FD_READDIR),
+        (0, 0, RIGHTS_FD_READDIR),
+        "fd_fdstat_get of a directory opened through path_open beneath a read-write Mount \
+         through preview1 must report its rights without fd_write, as wasmtime-wasi does"
+    );
+}
+
 // @behavior RT-105
 #[test]
 fn a_file_moved_beneath_itself_is_no_directory() {
@@ -1741,6 +1824,9 @@ const OFLAGS_CREAT: i32 = 1 << 0;
 const OFLAGS_DIRECTORY: i32 = 1 << 1;
 const OFLAGS_TRUNC: i32 = 1 << 3;
 const FDFLAGS_SYNC: i32 = 1 << 4;
+const FDFLAGS_NONBLOCK: i32 = 1 << 2;
+const RIGHTS_FD_WRITE: u64 = 1 << 6;
+const RIGHTS_FD_READDIR: u64 = 1 << 14;
 
 /// What opening `path` with `oflags` and `fdflags` answers beneath a
 /// read-write Memory holding `file.txt`, and the paths it holds after.

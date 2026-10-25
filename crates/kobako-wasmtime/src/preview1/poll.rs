@@ -36,10 +36,7 @@ struct Subscription {
 }
 
 enum Kind {
-    /// A lone relative clock: a sleep of this many nanoseconds, which
-    /// wasmtime-wasi reports as one byte ready.
-    Sleep(u64),
-    /// A clock among others, as the nanoseconds left before it fires.
+    /// A clock, as the nanoseconds left before it fires.
     Clock(u64),
     /// A descriptor to read; `hangup` when a file has nothing left past
     /// its position.
@@ -62,18 +59,17 @@ pub(crate) fn poll_oneoff(
     if count == 0 {
         return Err(Errno::Inval.into());
     }
-    let lone = count == 1;
     mem.consume(count, SUBSCRIPTION_SIZE)?;
     mem.consume(count, EVENT_SIZE)?;
     let subscriptions = (0..count)
         .map(|index| {
             let sub = GuestMemory::element(subs, index, SUBSCRIPTION_SIZE)?;
-            read_subscription(invocation, mem, sub, lone)
+            read_subscription(invocation, mem, sub)
         })
         .collect::<Answer<Vec<_>>>()?;
 
     let clocks = subscriptions.iter().filter_map(|sub| match sub.kind {
-        Kind::Sleep(left) | Kind::Clock(left) => Some(left),
+        Kind::Clock(left) => Some(left),
         Kind::FdRead { .. } | Kind::FdWrite => None,
     });
     let waited = if clocks.clone().count() == subscriptions.len() {
@@ -87,7 +83,6 @@ pub(crate) fn poll_oneoff(
     let mut written = 0;
     for sub in &subscriptions {
         let (ready, nbytes) = match sub.kind {
-            Kind::Sleep(_) => (true, 1),
             Kind::Clock(left) => (left <= waited, 0),
             Kind::FdRead { .. } | Kind::FdWrite => (true, 1),
         };
@@ -100,15 +95,10 @@ pub(crate) fn poll_oneoff(
     mem.write_u32(nevents, written)
 }
 
-fn read_subscription(
-    invocation: &Invocation,
-    mem: &GuestMemory,
-    sub: u32,
-    lone: bool,
-) -> Answer<Subscription> {
+fn read_subscription(invocation: &Invocation, mem: &GuestMemory, sub: u32) -> Answer<Subscription> {
     let userdata = mem.read_u64(sub)?;
     let kind = match mem.read_u8(GuestMemory::field(sub, 8)?)? {
-        TAG_CLOCK => read_clock(invocation, mem, sub, lone)?,
+        TAG_CLOCK => read_clock(invocation, mem, sub)?,
         TAG_FD_READ => match descriptor(invocation, mem, sub)? {
             Descriptor::Stdin(_) => Kind::FdRead { hangup: false },
             Descriptor::File(file) => Kind::FdRead {
@@ -139,9 +129,9 @@ fn descriptor<'a>(
 }
 
 /// A clock, read against the guest's own clocks. Only the realtime and
-/// monotonic clocks can be waited on among other subscriptions; a lone
-/// relative clock is a sleep whichever it names, as in wasmtime-wasi.
-fn read_clock(invocation: &Invocation, mem: &GuestMemory, sub: u32, lone: bool) -> Answer<Kind> {
+/// monotonic clocks can be waited on, alone or among other
+/// subscriptions, as in wasmtime-wasi.
+fn read_clock(invocation: &Invocation, mem: &GuestMemory, sub: u32) -> Answer<Kind> {
     let id = mem.read_u32(GuestMemory::field(sub, 16)?)?;
     let timeout = mem.read_u64(GuestMemory::field(sub, 24)?)?;
     let flags = mem.read_u16(GuestMemory::field(sub, 40)?)?;
@@ -149,9 +139,6 @@ fn read_clock(invocation: &Invocation, mem: &GuestMemory, sub: u32, lone: bool) 
         return Err(Errno::Inval.into());
     }
     let absolute = flags & SUBCLOCKFLAGS_ABSTIME != 0;
-    if lone && !absolute {
-        return Ok(Kind::Sleep(timeout));
-    }
     let clocks = invocation.wasi().clocks();
     let now = match (id, absolute) {
         (CLOCK_REALTIME | CLOCK_MONOTONIC, false) => 0,
@@ -183,7 +170,7 @@ fn wait(invocation: &Invocation, nanos: u64) -> Answer {
 
 fn write_event(mem: &mut GuestMemory, event: u32, sub: &Subscription, nbytes: u64) -> Answer {
     let (kind, flags) = match sub.kind {
-        Kind::Sleep(_) | Kind::Clock(_) => (TAG_CLOCK, 0),
+        Kind::Clock(_) => (TAG_CLOCK, 0),
         Kind::FdRead { hangup } => (TAG_FD_READ, if hangup { EVENTRWFLAGS_HANGUP } else { 0 }),
         Kind::FdWrite => (TAG_FD_WRITE, 0),
     };
@@ -276,6 +263,54 @@ mod tests {
              not after {spent:?}"
         );
     }
+
+    /// What a lone relative wait of no time on clock `id` answers.
+    fn wait_alone_on(id: i32) -> i32 {
+        const WAIT_ON_WAT: &str = r#"
+            (module
+              (import "wasi_snapshot_preview1" "poll_oneoff"
+                (func $poll (param i32 i32 i32 i32) (result i32)))
+              (memory (export "memory") 1)
+              (func (export "wait_on") (param $id i32) (result i32)
+                (i32.store (i32.const 16) (local.get $id))
+                (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96))))
+        "#;
+        let engine = shared_engine().expect("shared engine must be constructible");
+        let config = Config {
+            timeout: None,
+            setup_timeout: None,
+            memory_limit: None,
+            stdout_limit: None,
+            stderr_limit: None,
+            open_file_limit: None,
+            profile: Profile::Hermetic,
+        };
+        let wasi = Wasi::for_invocation(&config, &[], &[]).expect("WASI context must build");
+        let mut store = Store::new(engine, Invocation::new(None, wasi));
+        store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
+        let linker = imports::linker().expect("host imports must link");
+        let module = Module::new(engine, WAIT_ON_WAT).expect("wait module must compile");
+        linker
+            .instantiate(&mut store, &module)
+            .expect("wait module must instantiate")
+            .get_typed_func::<i32, i32>(&mut store, "wait_on")
+            .expect("wait export must resolve")
+            .call(&mut store, id)
+            .expect("the wait must not trap")
+    }
+
+    // @behavior RT-131
+    #[test]
+    fn a_lone_wait_on_a_cpu_time_clock_is_invalid() {
+        assert_eq!(
+            [0, 1, 2, 3].map(wait_alone_on),
+            [0, 0, ERRNO_INVAL, ERRNO_INVAL],
+            "a lone relative wait through poll_oneoff on the process or thread CPU-time clock \
+             must answer EINVAL as wasmtime-wasi does, while the realtime and monotonic clocks wait"
+        );
+    }
+
+    const ERRNO_INVAL: i32 = 28;
 
     // @behavior RT-074
     #[test]

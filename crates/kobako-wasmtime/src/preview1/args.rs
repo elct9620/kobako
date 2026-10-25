@@ -18,6 +18,7 @@ pub(crate) const RIFLAGS: u64 = 0x3;
 pub(crate) const SDFLAGS: u64 = 0x3;
 
 pub(crate) const FDFLAGS_APPEND: u32 = 1 << 0;
+pub(crate) const FDFLAGS_NONBLOCK: u32 = 1 << 2;
 /// The `fdflags` asking each write to be synchronized: `dsync`, `rsync`,
 /// and `sync`.
 pub(crate) const FDFLAGS_SYNCHRONIZED: u32 = (1 << 1) | (1 << 3) | (1 << 4);

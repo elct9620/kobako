@@ -10,7 +10,9 @@ use kobako_runtime::filesystem::{FileType, Metadata};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::p2::{InputStream, OutputStream, StreamError};
 
-use super::args::{self, FDFLAGS_APPEND, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE};
+use super::args::{
+    self, FDFLAGS_APPEND, FDFLAGS_NONBLOCK, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
+};
 use super::beneath::confirm;
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
@@ -150,10 +152,18 @@ pub(crate) fn write_metadata(mem: &mut GuestMemory, out: u32, metadata: Metadata
 }
 
 /// The hints preview1 offers about a file. A Filesystem that ignores them
-/// is still correct, so they succeed.
-pub(crate) fn advise(table: &mut Descriptors, fd: u32, advice: u32) -> Answer {
+/// is still correct, so they succeed over a range Linux takes.
+pub(crate) fn advise(
+    table: &mut Descriptors,
+    fd: u32,
+    offset: u64,
+    len: u64,
+    advice: u32,
+) -> Answer {
     args::variant(advice, args::ADVICE_MAX)?;
-    file(table, fd).map(drop)
+    file(table, fd)?;
+    refuse_negative(offset)?;
+    refuse_negative(len).map(drop)
 }
 
 /// A Filesystem has no room to reserve ahead of a write, so allocating it
@@ -183,6 +193,7 @@ pub(crate) fn fdstat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, ou
         }
         Descriptor::Directory(_) => {
             let rights = args::RIGHTS
+                & !RIGHTS_FD_WRITE
                 & !RIGHTS_FD_SEEK
                 & !RIGHTS_FD_FILESTAT_SET_SIZE
                 & !RIGHTS_PATH_FILESTAT_SET_SIZE;
@@ -212,12 +223,16 @@ pub(crate) fn fdstat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, ou
 }
 
 /// Only appending can change once a file is open; the sync flags are
-/// `INVAL`, as in wasmtime-wasi.
+/// `INVAL`, as in wasmtime-wasi, and a file never stops blocking, so
+/// asking it to is unsupported.
 pub(crate) fn fdstat_set_flags(table: &mut Descriptors, fd: u32, flags: u32) -> Answer {
     args::flags(flags, args::FDFLAGS)?;
     let file = file(table, fd)?;
     if flags & FDFLAGS_SYNCHRONIZED != 0 {
         return Err(Errno::Inval.into());
+    }
+    if flags & FDFLAGS_NONBLOCK != 0 {
+        return Err(Errno::Notsup.into());
     }
     file.append = flags & FDFLAGS_APPEND != 0;
     Ok(())

@@ -10,7 +10,9 @@ use kobako_runtime::filesystem::{
 };
 use kobako_runtime::mount::Mount;
 
-use super::args::{self, FDFLAGS_APPEND, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE};
+use super::args::{
+    self, FDFLAGS_APPEND, FDFLAGS_NONBLOCK, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
+};
 use super::beneath::{resolve, ResolvedPath};
 use super::errno::{Answer, Errno};
 use super::fd::write_metadata;
@@ -178,9 +180,10 @@ pub(crate) fn open(
         Descriptor::Stdin(_) | Descriptor::Channel(_) => return Err(Errno::Badf.into()),
     };
     let oflag = |bit| flags.oflags & bit != 0;
-    // A Filesystem makes no write durable on its own schedule, so an open
-    // asking it to is unsupported rather than quietly granted.
-    if flags.fdflags & FDFLAGS_SYNCHRONIZED != 0 {
+    // A Filesystem makes no write durable on its own schedule, and every
+    // call waits for its answer, so an open asking otherwise is
+    // unsupported rather than quietly granted.
+    if flags.fdflags & (FDFLAGS_SYNCHRONIZED | FDFLAGS_NONBLOCK) != 0 {
         return Err(Errno::Notsup.into());
     }
     if oflag(OFLAGS_DIRECTORY) && oflag(OFLAGS_CREAT | OFLAGS_EXCL | OFLAGS_TRUNC) {

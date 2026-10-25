@@ -118,6 +118,10 @@ const PROBE_WAT: &str = r#"
   (func (export "poll_oneoff_write") (param i32) (result i32)
     (call $subscribe (i32.const 2) (local.get 0))
     (call $poll_oneoff (i32.const 800) (i32.const 896) (i32.const 1) (i32.const 128)))
+  ;; A lone relative wait of no time on the clock the descriptor numbers.
+  (func (export "poll_oneoff_clock") (param i32) (result i32)
+    (call $subscribe (i32.const 0) (local.get 0))
+    (call $poll_oneoff (i32.const 800) (i32.const 896) (i32.const 1) (i32.const 128)))
   (func (export "poll_oneoff_none") (param i32) (result i32)
     (call $poll_oneoff (i32.const 800) (i32.const 896) (i32.const 0) (i32.const 128)))
   (func (export "sock_accept") (param i32) (result i32) (call $sock_accept (local.get 0) (i32.const 0) (i32.const 128)))
@@ -175,6 +179,7 @@ const CALLS: &[&str] = &[
     "path_unlink_file",
     "poll_oneoff_read",
     "poll_oneoff_write",
+    "poll_oneoff_clock",
     "poll_oneoff_none",
     "sock_accept",
     "sock_recv",

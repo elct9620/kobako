@@ -73,9 +73,15 @@ fn shadow_fd(linker: &mut Linker<Invocation>) -> wasmtime::Result<()> {
     linker.func_wrap(
         MODULE,
         "fd_advise",
-        |mut c: C, fd: i32, _: i64, _: i64, advice: i32| {
+        |mut c: C, fd: i32, offset: i64, len: i64, advice: i32| {
             answer(&mut c, |_, inv| {
-                fd::advise(table(inv), fd as u32, advice as u32)
+                fd::advise(
+                    table(inv),
+                    fd as u32,
+                    offset as u64,
+                    len as u64,
+                    advice as u32,
+                )
             })
         },
     )?;
