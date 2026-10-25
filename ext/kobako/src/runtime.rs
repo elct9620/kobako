@@ -139,6 +139,13 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     snapshot.define_method("stderr", method!(Snapshot::stderr, 0))?;
     snapshot.define_method("stderr_truncated?", method!(Snapshot::stderr_truncated, 0))?;
 
+    // A wrapped class is otherwise looked up the first time an object is
+    // wrapped, through a Ruby call that a pending interrupt would turn into
+    // a panic; a signal arriving during a process's first run waits for
+    // exactly that moment.
+    Runtime::class(ruby);
+    Snapshot::class(ruby);
+
     Ok(())
 }
 

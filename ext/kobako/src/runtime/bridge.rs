@@ -11,7 +11,9 @@ use std::sync::Arc;
 
 use magnus::rb_sys::AsRawValue;
 use magnus::value::{Opaque, ReprValue};
-use magnus::{method, prelude::*, Error as MagnusError, RModule, RString, Ruby, Symbol, Value};
+use magnus::{
+    method, prelude::*, Error as MagnusError, RModule, RString, Ruby, Symbol, TypedData, Value,
+};
 
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::yielder::Yielder;
@@ -27,12 +29,13 @@ const ARM_BREAK: &str = "break";
 const ARM_ERROR: &str = "error";
 const ARM_UNSUPPORTED: &str = "unsupported";
 
-/// Defines the class the `#[magnus::wrap]` name resolves to, before any
-/// object is wrapped.
+/// Defines the class the `#[magnus::wrap]` name resolves to, and looks it
+/// up once, before any object is wrapped.
 pub(super) fn register(kobako: RModule) -> Result<(), MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
     let class = kobako.define_class("GuestYielder", ruby.class_object())?;
     class.define_method("call", method!(GuestYielder::call, 1))?;
+    GuestYielder::class(&ruby);
     Ok(())
 }
 

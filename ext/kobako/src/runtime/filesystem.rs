@@ -15,7 +15,8 @@ use std::sync::Arc;
 use magnus::value::{Opaque, ReprValue};
 use magnus::{
     function, gc, method, prelude::*, scan_args::get_kwargs, scan_args::scan_args,
-    DataTypeFunctions, Error as MagnusError, RArray, RHash, RModule, RString, Ruby, Symbol, Value,
+    DataTypeFunctions, Error as MagnusError, RArray, RHash, RModule, RString, Ruby, Symbol,
+    TypedData, Value,
 };
 
 use ruby::RubyFilesystem;
@@ -67,6 +68,10 @@ pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     let overlay = module.define_class("Overlay", ruby.class_object())?;
     overlay.define_singleton_method("new", function!(overlay_new, 0))?;
     overlay.define_method("layer", method!(overlay_layer, -1))?;
+    MemoryFs::class(ruby);
+    TemporaryFs::class(ruby);
+    DirectoryFs::class(ruby);
+    OverlayFs::class(ruby);
     Ok(())
 }
 
