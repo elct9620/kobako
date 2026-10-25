@@ -1264,26 +1264,13 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Attribute | Value |
 | --- | --- |
 | refines | `RT-089` |
-| relates | `RT-098` |
+| relates | `RT-098`, `RT-101` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a read-write Directory Mount holding a link to a directory |
+| Given | a read-write Directory Mount, with or without a Policy, holding a link to a directory |
 | When | the guest unlinks or renames the link, named with a trailing slash |
-| Then | the removal answers EISDIR, the rename answers ENOTDIR, and the link stays |
-
-## `RT-124` Beneath a Policy, a link named with a trailing slash is neither removed nor moved
-
-| Attribute | Value |
-| --- | --- |
-| refines | `RT-101` |
-| relates | `RT-123` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a read-write Directory Mount with a Policy, holding a link to a directory |
-| When | the guest unlinks or renames the link, named with a trailing slash |
-| Then | the removal answers ELOOP, the rename answers ENOTDIR, and the link stays |
+| Then | each answers ENOTDIR, and the link stays |
 
 ## `RT-125` A link out of a Directory or into a loop answers ELOOP beneath a Policy
 
@@ -1393,3 +1380,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation holding a file open beneath a Mount at the largest signed 64-bit offset |
 | When | the guest writes to it |
 | Then | the write answers EFBIG as Linux does, and the file stays as it was |
+
+## `RT-134` An unlink with a trailing slash answers for the name itself
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-089` |
+| relates | `RT-123` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-write Directory Mount holding a directory, a file, and a link to nothing |
+| When | the guest unlinks each, and a missing name, named with a trailing slash |
+| Then | the directory answers EISDIR, the missing name ENOENT, the rest ENOTDIR, and all stay |
