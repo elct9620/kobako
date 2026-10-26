@@ -37,6 +37,7 @@ The methods a Host App cannot foresee handing over are the ones it never wrote. 
 - `test/unit/transport/test_dispatcher_permissive_return.rb`
 - `test/unit/transport/test_dispatcher_narrowing.rb`
 - `test/unit/transport/test_dispatcher_authorship.rb`
+- `test/unit/transport/test_dispatcher_ambient_mixins.rb`
 - `test/unit/transport/test_dispatcher_callables.rb`
 - `test/unit/transport/test_dispatcher_singletons.rb`
 - `test/unit/transport/test_exposure.rb`
@@ -729,5 +730,18 @@ The methods a Host App cannot foresee handing over are the ones it never wrote. 
 | Step | Statement |
 | --- | --- |
 | Given | a bound object whose narrowing predicate permits a name resolving to a method built into Ruby |
+| When | the guest calls that name |
+| Then | it is still refused |
+
+## `T-298` Narrowing reaches no method a library mixes into every object
+
+| Attribute | Value |
+| --- | --- |
+| refines | `T-127` |
+| relates | `T-297` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object whose predicate permits a Ruby method mixed into `Object` or `Module` |
 | When | the guest calls that name |
 | Then | it is still refused |
