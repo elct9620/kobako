@@ -317,3 +317,15 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | files naming the root, or a file where another path needs a directory |
 | When | a Memory is created with them |
 | Then | the creation raises `ArgumentError` naming the path |
+
+## `MT-025` A mount's block is asked once for a read, as a read
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-007` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose mount's block records each access it is asked |
+| When | the script reads a file beneath the mount |
+| Then | the block was asked once, for `:read` |

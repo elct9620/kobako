@@ -284,6 +284,17 @@ impl Mount {
 }
 ```
 
+## `Mount::allows_writes`
+
+Whether a change beneath the Mount may be allowed at all, without asking
+its Policy.
+
+```rust
+impl Mount {
+    pub fn allows_writes(&self) -> bool {}
+}
+```
+
 ## `Mount::guest_path`
 
 The absolute guest path a path relative to the Mount's root stands for.

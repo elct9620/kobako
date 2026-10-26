@@ -1443,3 +1443,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation calling preview1 on a descriptor it does not hold |
 | When | it passes an undefined flag, a buffer outside its memory, or a path past the call's fuel |
 | Then | the flag traps, the buffer answers EBADF, and the path ENOMEM, as wasmtime-wasi answers each |
+
+## `RT-139` A Mount whose Policy decides may be written
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-135` |
+| relates | `RT-137`, `MT-025` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-only Mount whose Policy allows every change |
+| When | the guest waits to write a file opened to read, and sizes one opened to write |
+| Then | the wait is ready and the file is sized, the Policy unasked by either |
