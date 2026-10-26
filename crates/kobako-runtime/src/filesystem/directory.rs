@@ -14,6 +14,7 @@ use std::sync::Arc;
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
+use super::path::components;
 use super::{
     DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions, Rename,
 };
@@ -202,7 +203,7 @@ impl Filesystem for Directory {
     fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
         let mut parent = Some(self.dir.try_clone().map_err(to_error)?);
         let mut stored = Vec::new();
-        let mut names = path.split('/').filter(|name| !name.is_empty()).peekable();
+        let mut names = components(path).peekable();
         while let Some(name) = names.next() {
             let found = match &parent {
                 Some(dir) => spelling::stored_name(dir, to_host_path(name)?).map_err(to_error)?,

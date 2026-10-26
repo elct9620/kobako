@@ -10,7 +10,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use super::super::path::{ancestors, beneath_itself, is_beneath, parent};
+use super::super::path::{ancestors, beneath_itself, is_beneath, join, name, parent};
 use super::super::{
     Access, DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions,
     Rename,
@@ -98,16 +98,7 @@ impl Layer {
 
 /// The whiteout hiding `path`, beside it in its directory.
 fn whiteout(path: &str) -> String {
-    let name = path.rsplit('/').next().unwrap_or(path);
-    join(parent(path), &format!("{WHITEOUT}{name}"))
-}
-
-fn join(dir: &str, name: &str) -> String {
-    if dir.is_empty() {
-        name.to_string()
-    } else {
-        format!("{dir}/{name}")
-    }
+    join(parent(path), &format!("{WHITEOUT}{}", name(path)))
 }
 
 fn copy_whole(source: &mut dyn File, target: &mut dyn File) -> Result<(), FilesystemError> {
@@ -514,8 +505,7 @@ impl Stack {
         match self.locate_by(path, <dyn Filesystem>::symlink_metadata) {
             Ok(Some((index, _))) => self.layers[index].filesystem.stored_path(path),
             Ok(None) | Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {
-                let name = path.rsplit('/').next().unwrap_or(path);
-                Ok(join(&self.stored_path(parent(path))?, name))
+                Ok(join(&self.stored_path(parent(path))?, name(path)))
             }
             Err(err) => Err(err),
         }

@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use super::path::{ancestors, beneath_itself, is_beneath, normalize_seed, parent};
+use super::path::{
+    ancestors, beneath_itself, components, is_beneath, name, normalize_seed, parent,
+};
 use super::{
     DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions, Rename,
 };
@@ -104,14 +106,8 @@ impl Directory {
         &mut self,
         path: &'a str,
     ) -> Result<(&mut BTreeMap<String, Node>, &'a str), FilesystemError> {
-        let name = path.rsplit('/').next().unwrap_or(path);
-        Ok((&mut self.directory_mut(parent(path))?.entries, name))
+        Ok((&mut self.directory_mut(parent(path))?.entries, name(path)))
     }
-}
-
-/// The names of `path`, outermost first; the root has none.
-fn components(path: &str) -> impl Iterator<Item = &str> {
-    path.split('/').filter(|name| !name.is_empty())
 }
 
 /// What a Memory holds: the bytes of its files, and its entries, each
@@ -352,11 +348,13 @@ impl Memory {
                 }
                 let mut dir = &mut *root;
                 for above in ancestors(&path) {
-                    let name = above.rsplit('/').next().unwrap_or(above);
-                    let node = dir.entries.entry(name.to_string()).or_insert_with(|| {
-                        memory.space.inodes.add(1);
-                        memory.new_directory()
-                    });
+                    let node = dir
+                        .entries
+                        .entry(name(above).to_string())
+                        .or_insert_with(|| {
+                            memory.space.inodes.add(1);
+                            memory.new_directory()
+                        });
                     dir = match node {
                         Node::Directory(inner) => inner,
                         Node::File(_) => {
@@ -364,14 +362,14 @@ impl Memory {
                         }
                     };
                 }
-                let name = path.rsplit('/').next().unwrap_or(&path).to_string();
-                match dir.entries.get(&name) {
+                let file_name = name(&path).to_string();
+                match dir.entries.get(&file_name) {
                     Some(Node::Directory(_)) => return Err(SeedError::FileAndDirectory(path)),
                     Some(Node::File(_)) => return Err(SeedError::Twice(path)),
                     None => {}
                 }
                 dir.entries.insert(
-                    name,
+                    file_name,
                     Node::File(Content::seed(contents.into(), &memory.space)),
                 );
             }

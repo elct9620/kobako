@@ -8,6 +8,25 @@ pub(crate) fn parent(path: &str) -> &str {
     path.rsplit_once('/').map_or("", |(parent, _)| parent)
 }
 
+/// The last name of `path`, within its parent.
+pub(crate) fn name(path: &str) -> &str {
+    path.rsplit_once('/').map_or(path, |(_, name)| name)
+}
+
+/// The path of `name` within the directory `dir`.
+pub(crate) fn join(dir: &str, name: &str) -> String {
+    if dir.is_empty() {
+        name.to_string()
+    } else {
+        format!("{dir}/{name}")
+    }
+}
+
+/// The names of `path`, outermost first; the root has none.
+pub(crate) fn components(path: &str) -> impl Iterator<Item = &str> {
+    path.split('/').filter(|name| !name.is_empty())
+}
+
 /// Every directory above `path`, outermost first, the root left out.
 pub(crate) fn ancestors(path: &str) -> impl Iterator<Item = &str> {
     path.match_indices('/').map(move |(end, _)| &path[..end])
