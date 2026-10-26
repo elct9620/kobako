@@ -72,6 +72,7 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 64) "\00\02\00\00\10\00\00\00")
   (data (i32.const 72) "\00\02\00\00\00\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
+  (data (i32.const 88) "\00\00\02\00\10\00\00\00")
   (data (i32.const 600) "hello")
   (data (i32.const 700) "a\00b")
 
@@ -129,6 +130,27 @@ const PROBE_WAT: &str = r#"
   (func (export "sock_send") (param i32) (result i32) (call $sock_send (local.get 0) (i32.const 80) (i32.const 1) (i32.const 0) (i32.const 128)))
   (func (export "sock_shutdown") (param i32) (result i32) (call $sock_shutdown (local.get 0) (i32.const 0)))
 
+  ;; A buffer past the one page of memory, through the iovec at 88.
+  (func (export "fd_read_far") (param i32) (result i32) (call $fd_read (local.get 0) (i32.const 88) (i32.const 1) (i32.const 128)))
+  (func (export "fd_pread_far") (param i32) (result i32) (call $fd_pread (local.get 0) (i32.const 88) (i32.const 1) (i64.const 0) (i32.const 128)))
+  (func (export "fd_write_far") (param i32) (result i32) (call $fd_write (local.get 0) (i32.const 88) (i32.const 1) (i32.const 128)))
+  (func (export "fd_pwrite_far") (param i32) (result i32) (call $fd_pwrite (local.get 0) (i32.const 88) (i32.const 1) (i64.const 0) (i32.const 128)))
+  (func (export "fd_readdir_far") (param i32) (result i32) (call $fd_readdir (local.get 0) (i32.const 0x20000) (i32.const 0) (i64.const 0) (i32.const 128)))
+  (func (export "path_open_far") (param i32) (result i32) (call $path_open (local.get 0) (i32.const 0) (i32.const 0x20000) (i32.const 1) (i32.const 0) (i64.const 0) (i64.const 0) (i32.const 0) (i32.const 128)))
+  ;; A path longer than one call's hostcall fuel.
+  (func (export "path_open_huge") (param i32) (result i32) (call $path_open (local.get 0) (i32.const 0) (i32.const 700) (i32.const 0x0c800000) (i32.const 0) (i64.const 0) (i64.const 0) (i32.const 0) (i32.const 128)))
+  ;; Each argument one past what the witx defines.
+  (func (export "fd_advise_undefined") (param i32) (result i32) (call $fd_advise (local.get 0) (i64.const 0) (i64.const 0) (i32.const 6)))
+  (func (export "fd_seek_undefined") (param i32) (result i32) (call $fd_seek (local.get 0) (i64.const 0) (i32.const 3) (i32.const 128)))
+  (func (export "fd_fdstat_set_flags_undefined") (param i32) (result i32) (call $fd_fdstat_set_flags (local.get 0) (i32.const 0x20)))
+  (func (export "fd_fdstat_set_rights_undefined") (param i32) (result i32) (call $fd_fdstat_set_rights (local.get 0) (i64.const 0x40000000) (i64.const 0)))
+  (func (export "fd_filestat_set_times_undefined") (param i32) (result i32) (call $fd_filestat_set_times (local.get 0) (i64.const 0) (i64.const 0) (i32.const 0x10)))
+  (func (export "path_filestat_get_undefined") (param i32) (result i32) (call $path_filestat_get (local.get 0) (i32.const 2) (i32.const 700) (i32.const 1) (i32.const 256)))
+  (func (export "path_open_undefined") (param i32) (result i32) (call $path_open (local.get 0) (i32.const 0) (i32.const 700) (i32.const 1) (i32.const 0x10) (i64.const 0) (i64.const 0) (i32.const 0) (i32.const 128)))
+  (func (export "path_link_undefined") (param i32) (result i32) (call $path_link (local.get 0) (i32.const 2) (i32.const 700) (i32.const 1) (local.get 0) (i32.const 702) (i32.const 1)))
+  (func (export "sock_recv_undefined") (param i32) (result i32) (call $sock_recv (local.get 0) (i32.const 64) (i32.const 1) (i32.const 4) (i32.const 128) (i32.const 132)))
+  (func (export "sock_shutdown_undefined") (param i32) (result i32) (call $sock_shutdown (local.get 0) (i32.const 4)))
+
   (func (export "fd_read_empty") (param i32) (result i32) (call $fd_read (local.get 0) (i32.const 72) (i32.const 1) (i32.const 128)))
   (func (export "fd_write_empty") (param i32) (result i32) (call $fd_write (local.get 0) (i32.const 72) (i32.const 1) (i32.const 128)))
   (func (export "close_twice") (param i32) (result i32)
@@ -185,6 +207,23 @@ const CALLS: &[&str] = &[
     "sock_recv",
     "sock_send",
     "sock_shutdown",
+    "fd_read_far",
+    "fd_pread_far",
+    "fd_write_far",
+    "fd_pwrite_far",
+    "fd_readdir_far",
+    "path_open_far",
+    "path_open_huge",
+    "fd_advise_undefined",
+    "fd_seek_undefined",
+    "fd_fdstat_set_flags_undefined",
+    "fd_fdstat_set_rights_undefined",
+    "fd_filestat_set_times_undefined",
+    "path_filestat_get_undefined",
+    "path_open_undefined",
+    "path_link_undefined",
+    "sock_recv_undefined",
+    "sock_shutdown_undefined",
     "fd_read_empty",
     "fd_write_empty",
     "close_twice",
@@ -295,6 +334,25 @@ fn through_wasmtime_wasi(call: &str, fd: i32, limit: Option<usize>) -> Observati
     observation.stdout = store.data().stdout.contents().to_vec();
     observation.stderr = store.data().stderr.contents().to_vec();
     observation
+}
+
+// Descriptor 3 is not open, so each call can only answer by the order its
+// checks run in.
+// @behavior RT-138
+#[test]
+fn an_argument_preview1_cannot_hold_answers_in_wasmtime_wasis_order() {
+    let errno = |call| through_kobako(call, 3, None).errno;
+    assert_eq!(
+        (
+            errno("fd_seek_undefined"),
+            errno("fd_read_far"),
+            errno("path_open_huge"),
+        ),
+        (None, Some(8), Some(48)),
+        "through kobako's preview1 imports on a descriptor not open, an undefined whence must \
+         trap, a buffer past memory must answer EBADF before it is bounded, and a path past the \
+         call's fuel must answer ENOMEM before it is read, as wasmtime-wasi answers each"
+    );
 }
 
 #[test]

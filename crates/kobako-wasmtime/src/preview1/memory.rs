@@ -132,11 +132,14 @@ impl<'a> GuestMemory<'a> {
         self.write_aligned(ptr, value.to_le_bytes())
     }
 
-    /// A guest path, which preview1 requires to be UTF-8. One that would
-    /// not fit Linux's `PATH_MAX` with its terminating NUL is refused
-    /// before it is copied, as Linux's `getname` refuses it, and one
-    /// holding a NUL names nothing a host can hold, as cap-std refuses it.
+    /// A guest path, which preview1 requires to be UTF-8, charged to the
+    /// call's fuel before it is read, as wasmtime-wasi charges it. One
+    /// that would not fit Linux's `PATH_MAX` with its terminating NUL is
+    /// refused before it is copied, as Linux's `getname` refuses it, and
+    /// one holding a NUL names nothing a host can hold, as cap-std refuses
+    /// it.
     pub(crate) fn path(&self, ptr: u32, len: u32) -> Answer<String> {
+        self.consume(len, 1)?;
         let bytes = self.bytes(ptr, len)?;
         if bytes.len() >= PATH_MAX {
             return Err(Errno::Nametoolong.into());
@@ -144,13 +147,13 @@ impl<'a> GuestMemory<'a> {
         if bytes.contains(&0) {
             return Err(Errno::Inval.into());
         }
-        self.consume(len, 1)?;
         String::from_utf8(bytes.to_vec()).map_err(|_| Errno::Ilseq.into())
     }
 
     /// The first non-empty buffer of an `iovec` / `ciovec` array, as
     /// `(ptr, len)`, or an empty one when every buffer is empty. Like
-    /// wasmtime-wasi, kobako moves one buffer per call.
+    /// wasmtime-wasi, kobako moves one buffer per call, and the buffer
+    /// itself is bounded only once the call has found its descriptor.
     pub(crate) fn first_non_empty_buffer(&self, array: u32, count: u32) -> Answer<(u32, u32)> {
         self.consume(count, 8)?;
         for index in 0..count {
@@ -159,7 +162,6 @@ impl<'a> GuestMemory<'a> {
             let len = self.read_u32(Self::field(entry, 4)?)?;
             if len != 0 {
                 self.consume(len, 1)?;
-                self.range(ptr, len)?;
                 return Ok((ptr, len));
             }
         }

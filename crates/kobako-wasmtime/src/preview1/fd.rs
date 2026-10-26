@@ -401,6 +401,8 @@ pub(crate) fn read(
     let (ptr, len) = mem.first_non_empty_buffer(iovs.0, iovs.1)?;
     let read = match descriptor_mut(table, fd)? {
         Descriptor::Stdin(pipe) => {
+            // Bounded before stdin is drained, so a trap takes no bytes.
+            mem.bytes(ptr, len)?;
             let bytes = read_stdin(pipe, len as usize)?;
             mem.write(ptr, &bytes)?;
             bytes.len()
@@ -459,7 +461,9 @@ pub(crate) fn readdir(
         for part in [&dirent[..], name.as_bytes()] {
             let room = (capacity - used) as usize;
             let take = part.len().min(room);
-            mem.write(GuestMemory::field(start, used)?, &part[..take])?;
+            if take > 0 {
+                mem.write(GuestMemory::field(start, used)?, &part[..take])?;
+            }
             used += take as u32;
             if used == capacity {
                 full = true;

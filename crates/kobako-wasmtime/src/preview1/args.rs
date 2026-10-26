@@ -1,8 +1,12 @@
 //! The checks preview1 makes on an enum or flags argument before a call
-//! looks at its descriptor: a value outside what the witx defines is
-//! `INVAL`, as wasmtime-wasi's generated bindings answer it.
+//! looks at its descriptor: a value outside what the witx defines traps,
+//! as wasmtime-wasi's generated bindings refuse to convert it.
 
-use super::errno::{Answer, Errno};
+use super::errno::{Answer, Errno, Failure};
+
+fn undefined(what: &'static str) -> Failure {
+    Failure::Trap(wasmtime::Error::msg(what))
+}
 
 /// The bits of `fdflags`.
 pub(crate) const FDFLAGS: u64 = 0x1f;
@@ -32,27 +36,28 @@ pub(crate) const WHENCE_MAX: u32 = 2;
 
 pub(crate) fn flags(value: impl Into<u64>, defined: u64) -> Answer {
     if value.into() & !defined != 0 {
-        return Err(Errno::Inval.into());
+        return Err(undefined("flags value outside what the witx defines"));
     }
     Ok(())
 }
 
 pub(crate) fn variant(value: u32, max: u32) -> Answer {
     if value > max {
-        return Err(Errno::Inval.into());
+        return Err(undefined("enum value outside what the witx defines"));
     }
     Ok(())
 }
 
 /// `fstflags`, where setting a timestamp and setting it to now are
-/// exclusive.
+/// exclusive: a defined value asking both is `INVAL`.
 pub(crate) fn fstflags(value: u32) -> Answer {
     const ATIM: u32 = 1 << 0;
     const ATIM_NOW: u32 = 1 << 1;
     const MTIM: u32 = 1 << 2;
     const MTIM_NOW: u32 = 1 << 3;
+    flags(value, 0xf)?;
     let both = |set, now| value & set != 0 && value & now != 0;
-    if value > 0xf || both(ATIM, ATIM_NOW) || both(MTIM, MTIM_NOW) {
+    if both(ATIM, ATIM_NOW) || both(MTIM, MTIM_NOW) {
         return Err(Errno::Inval.into());
     }
     Ok(())
