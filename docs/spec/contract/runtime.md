@@ -242,16 +242,16 @@ impl Mount {
         at: impl Into<String>,
         filesystem: Arc<dyn Filesystem>,
         access: Access,
-    ) -> Result<Self, InvalidMountPath> {}
+    ) -> Result<Self, MountPathError> {}
 }
 ```
 
-## `InvalidMountPath`
+## `MountPathError`
 
 A path no Mount can stand at, being no absolute guest path.
 
 ```rust
-pub struct InvalidMountPath {}
+pub struct MountPathError {}
 ```
 
 ## `Mount::with_policy`
@@ -661,14 +661,14 @@ impl Metadata {
 }
 ```
 
-## `Metadata::new_device`
+## `Metadata::unique_device`
 
 A device number for a Filesystem with none of its own. No earlier call
 returned it, and no host reports it.
 
 ```rust
 impl Metadata {
-    pub fn new_device() -> u64 {}
+    pub fn unique_device() -> u64 {}
 }
 ```
 
