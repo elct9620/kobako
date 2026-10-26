@@ -293,6 +293,81 @@ fn an_io_may_stand_for_a_file_the_guest_opened() {
     );
 }
 
+// The file keeping its content shows `wx` refused before truncating,
+// which a plain `w` would have done.
+// @behavior FL-024
+#[test]
+fn an_exclusive_create_refuses_a_file_already_there() {
+    let memory = note_memory();
+    let Some(answer) = run(
+        r#"File.open("/data/note.txt", "wx") { |f| f.write("lost") }"#,
+        &[mount(memory.clone(), Access::ReadWrite)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        (answer, contents(memory.as_ref(), "note.txt")),
+        (Err("Errno::EEXIST".to_string()), b"hello\nworld\n".to_vec()),
+        "File.open with wx of a file already there through the bundled guest must raise \
+         Errno::EEXIST and leave the file as it was"
+    );
+}
+
+// @behavior FL-025
+#[test]
+fn an_exclusive_create_makes_a_file_nothing_is_at() {
+    let memory = Arc::new(Memory::new());
+    let Some(answer) = run(
+        r#"File.open("/data/lock", "w+x") { |f| f.write("mine") }; nil"#,
+        &[mount(memory.clone(), Access::ReadWrite)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        (answer, contents(memory.as_ref(), "lock")),
+        (Ok(String::new()), b"mine".to_vec()),
+        "File.open with w+x of a path nothing is at through the bundled guest must create the \
+         file with what was written"
+    );
+}
+
+// `bw` and `wbt` once opened, as `b` and `t` were dropped wherever they
+// stood; CRuby refuses both.
+// @behavior FL-026
+#[test]
+fn an_access_mode_cruby_refuses_raises_argument_error() {
+    let script = r#"
+        answers = %w[xw rx r+x ax bw wbt].map do |mode|
+          begin
+            File.open("/data/note.txt", mode) { }
+            "opened"
+          rescue ArgumentError => e
+            e.message
+          end
+        end
+        print answers.join(",")
+    "#;
+    let Some(answer) = run(
+        script,
+        &[mount(note_memory(), Access::ReadWrite)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(
+            "invalid access mode xw,invalid access mode rx,invalid access mode r+x,\
+            invalid access mode ax,invalid access mode bw,invalid access mode wbt"
+                .to_string()
+        ),
+        "File.open with an access mode CRuby refuses through the bundled guest must raise \
+         ArgumentError naming the mode"
+    );
+}
+
 /// A Memory whose every open file is handed through `wrap` first.
 struct WrapsFiles<W> {
     memory: Memory,

@@ -16,9 +16,11 @@ use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{Error, IntoValue, Mrb, Object, Proc, RArray, RClass, Value};
 
-use crate::io::{argument_error, Stream};
+use crate::io::Stream;
 use crate::stream::with_file;
 use crate::{descriptors, errno};
+
+mod mode;
 
 pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     use beni::Module;
@@ -98,23 +100,6 @@ fn path_arg(mrb: &Mrb, value: Value) -> Result<String, Error> {
     })
 }
 
-/// A CRuby access mode: `r`, `w`, or `a`, each with an optional `+`, and
-/// `b` / `t` accepted and ignored.
-fn options(mrb: &Mrb, mode: &str) -> Result<fs::OpenOptions, Error> {
-    let plain: String = mode.chars().filter(|c| *c != 'b' && *c != 't').collect();
-    let mut options = fs::OpenOptions::new();
-    match plain.as_str() {
-        "r" => options.read(true),
-        "r+" => options.read(true).write(true),
-        "w" => options.write(true).create(true).truncate(true),
-        "w+" => options.read(true).write(true).create(true).truncate(true),
-        "a" => options.append(true).create(true),
-        "a+" => options.read(true).append(true).create(true),
-        _ => return Err(argument_error(mrb, &format!("invalid access mode {mode}"))),
-    };
-    Ok(options)
-}
-
 fn file_initialize(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<(), Error> {
     require_mount(mrb, "File.open")?;
     let args = scan_args::<(Value,), (Option<Value>, Option<Value>), (), (), (), ()>(mrb)?;
@@ -125,7 +110,7 @@ fn file_initialize(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<(), Error
         Some(mode) => path_arg(mrb, mode)?,
         None => "r".to_string(),
     };
-    let file = options(mrb, &mode)?
+    let file = mode::from_string(mrb, &mode)?
         .open(&path)
         .map_err(|err| errno::from_io(mrb, &err, &path))?;
     let fd = file.into_raw_fd();
