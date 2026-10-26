@@ -376,12 +376,14 @@ pub(crate) fn pwrite(
         Descriptor::Stdin(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         Descriptor::File(file) => file,
     };
+    // The buffer is bounded before the access is checked, as wasmtime-wasi
+    // bounds it before the host refuses the write.
+    let buf = mem.bytes(ptr, len)?;
     if !file.writable {
         return Err(Errno::Badf.into());
     }
     let offset = refuse_negative(offset)?;
     // Linux's `pwrite` ignores the offset of a file opened to append.
-    let buf = mem.bytes(ptr, len)?;
     let written = if file.append {
         file.file.append(buf)?.1
     } else {
@@ -407,15 +409,19 @@ pub(crate) fn read(
             mem.write(ptr, &bytes)?;
             bytes.len()
         }
-        Descriptor::File(file) if file.readable => {
+        Descriptor::File(file) => {
+            // Bounded before the access is checked, as wasmtime-wasi bounds
+            // it before the host refuses the read.
+            let buf = mem.bytes_mut(ptr, len)?;
+            if !file.readable {
+                return Err(Errno::Badf.into());
+            }
             let at = refuse_reading_past_largest_offset(file.position, len)?;
-            let read = file.file.read_at(mem.bytes_mut(ptr, len)?, at)?;
+            let read = file.file.read_at(buf, at)?;
             file.position += read as u64;
             read
         }
-        Descriptor::Channel(_) | Descriptor::Directory(_) | Descriptor::File(_) => {
-            return Err(Errno::Badf.into())
-        }
+        Descriptor::Channel(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
     };
     mem.write_u32(nread, read as u32)
 }
@@ -533,8 +539,12 @@ pub(crate) fn write(
     let (ptr, len) = mem.first_non_empty_buffer(ciovs.0, ciovs.1)?;
     let written = match descriptor_mut(table, fd)? {
         Descriptor::Channel(pipe) => write_channel(pipe, mem.bytes(ptr, len)?)?,
-        Descriptor::File(file) if file.writable => {
+        Descriptor::File(file) => {
+            // Bounded before the access is checked, as in `pwrite`.
             let buf = mem.bytes(ptr, len)?;
+            if !file.writable {
+                return Err(Errno::Badf.into());
+            }
             let (at, written) = if file.append {
                 file.file.append(buf)?
             } else {
@@ -544,9 +554,7 @@ pub(crate) fn write(
             file.position = at.checked_add(written as u64).ok_or(Errno::Fbig)?;
             written
         }
-        Descriptor::Stdin(_) | Descriptor::Directory(_) | Descriptor::File(_) => {
-            return Err(Errno::Badf.into())
-        }
+        Descriptor::Stdin(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
     };
     mem.write_u32(nwritten, written as u32)
 }

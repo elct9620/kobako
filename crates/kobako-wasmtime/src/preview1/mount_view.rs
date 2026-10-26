@@ -63,6 +63,7 @@ macro_rules! is_shared {
 }
 
 const ERRNO_ACCES: i32 = 2;
+const ERRNO_BADF: i32 = 8;
 const ERRNO_BUSY: i32 = 10;
 const ERRNO_FBIG: i32 = 22;
 const ERRNO_INVAL: i32 = 28;
@@ -131,6 +132,8 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 1110) "dangle")
   (data (i32.const 1120) "dir/up")
   (data (i32.const 1130) "nowhere")
+  ;; An iovec naming 16 bytes past the one page of memory.
+  (data (i32.const 1140) "\00\00\02\00\10\00\00\00")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
   (data (i32.const 600) "hello")
@@ -294,6 +297,31 @@ const PROBE_WAT: &str = r#"
     (local.set $errno (call $open_read_write))
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $set_size (i32.load (i32.const 128)) (local.get $offset)))
+  ;; Open `file.txt` with `rights`, then read or write it through the
+  ;; iovec past memory at 1140.
+  (func $open_with (param $rights i64) (result i32)
+    (call $open (i32.const 3) (i32.const 0) (i32.const 700) (i32.const 8)
+      (i32.const 0) (local.get $rights) (i64.const 0) (i32.const 0) (i32.const 128)))
+  (func (export "read_far_with") (param $rights i64) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_with (local.get $rights)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $read (i32.load (i32.const 128)) (i32.const 1140) (i32.const 1) (i32.const 132)))
+  (func (export "pread_far_with") (param $rights i64) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_with (local.get $rights)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $pread (i32.load (i32.const 128)) (i32.const 1140) (i32.const 1) (i64.const 0) (i32.const 132)))
+  (func (export "write_far_with") (param $rights i64) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_with (local.get $rights)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $write (i32.load (i32.const 128)) (i32.const 1140) (i32.const 1) (i32.const 132)))
+  (func (export "pwrite_far_with") (param $rights i64) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_with (local.get $rights)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $pwrite (i32.load (i32.const 128)) (i32.const 1140) (i32.const 1) (i64.const 0) (i32.const 132)))
   ;; Open `file.txt` with `rights`, then size it to one byte.
   (func (export "size_with") (param $rights i64) (result i32)
     (local $errno i32)
@@ -441,6 +469,15 @@ impl Guest {
             .expect("probe export must resolve")
             .call(&mut self.store, (first.0, first.1, second.0, second.1))
             .expect("probe call must not trap")
+    }
+
+    /// Call an export that takes an offset, `None` when it traps.
+    fn try_call_at(&mut self, name: &str, offset: u64) -> Option<i32> {
+        self.instance
+            .get_typed_func::<i64, i32>(&mut self.store, name)
+            .expect("probe export must resolve")
+            .call(&mut self.store, offset as i64)
+            .ok()
     }
 
     /// Call an export that takes an offset.
@@ -2307,5 +2344,28 @@ fn a_link_leading_out_of_a_mount_is_not_permitted() {
         errno, ERRNO_PERM,
         "an open through preview1 from a Directory Mount's root of a link to a file outside its \
          host directory must answer EPERM, as wasmtime-wasi does"
+    );
+}
+
+// Each file is open but lacks the access its call needs, so only the order
+// of the bound and the access check decides between a trap and EBADF.
+// @behavior RT-144
+#[test]
+fn a_buffer_outside_memory_is_bounded_before_a_files_access_is_checked() {
+    let call = |name, rights| {
+        Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)])
+            .try_call_at(name, rights)
+    };
+    assert_eq!(
+        [
+            call("read_far_with", RIGHTS_FD_WRITE),
+            call("write_far_with", RIGHTS_FD_READ),
+            call("pwrite_far_with", RIGHTS_FD_READ),
+            call("pread_far_with", RIGHTS_FD_WRITE),
+        ],
+        [None, None, None, Some(ERRNO_BADF)],
+        "through preview1 on a file opened without the access each call needs, with a buffer \
+         past memory, fd_read, fd_write, and fd_pwrite must trap, and fd_pread must answer \
+         EBADF, as wasmtime-wasi does"
     );
 }
