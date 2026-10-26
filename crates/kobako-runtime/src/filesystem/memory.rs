@@ -546,6 +546,9 @@ fn lock(data: &Mutex<Content>) -> MutexGuard<'_, Content> {
 }
 
 fn write(data: &mut Content, buf: &[u8], start: usize) -> Result<usize, FilesystemError> {
+    if buf.is_empty() {
+        return Ok(0);
+    }
     let end = start
         .checked_add(buf.len())
         .ok_or(FilesystemError::InvalidInput)?;
@@ -771,6 +774,21 @@ mod tests {
             (Err(FilesystemError::StorageFull), b"x".to_vec()),
             "a write growing a Memory's files past its limit through MemoryFile::write_at must \
              answer StorageFull and leave the file as it was"
+        );
+    }
+
+    // @behavior FS-096
+    #[test]
+    fn a_write_of_no_bytes_leaves_a_memory_file_as_it_was() {
+        let memory: Memory = [("file", "")].into_iter().collect();
+        assert_eq!(
+            (
+                writable(&memory, "file").write_at(b"", 1000),
+                read_all(&memory, "file")
+            ),
+            (Ok(0), Vec::new()),
+            "an empty write past the end through MemoryFile::write_at must answer 0 and leave \
+             the file empty"
         );
     }
 
