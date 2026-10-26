@@ -72,8 +72,16 @@ fn readable(mrb: &Mrb, self_: Value) -> Result<i32, Error> {
     Ok(fd)
 }
 
+/// A directory opened as a `File` has nothing to read, which CRuby's
+/// `read(2)` names `EISDIR` rather than a stream not opened for reading.
 fn fail(mrb: &Mrb, self_: Value, err: &io::Error) -> Error {
-    errno::from_transfer(mrb, err, &label(mrb, self_), "reading")
+    let path = label(mrb, self_);
+    let directory = checked_fd(mrb, self_, READ_REFUSAL)
+        .is_ok_and(|fd| with_file(fd, |file| file.metadata()).is_ok_and(|meta| meta.is_dir()));
+    if directory {
+        return errno::error_by_name(mrb, c"EISDIR", &path);
+    }
+    errno::from_transfer(mrb, err, &path, "reading")
 }
 
 /// `read` with no length reads to the end, "" at the end; with one, up

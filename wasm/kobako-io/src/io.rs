@@ -164,7 +164,13 @@ fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode: Value) -> Result<(), Er
             return Err(argument_error(mrb, "kobako IO only supports mode \"w\""));
         }
     } else {
-        crate::file::mode::open_flags(mrb, Some(mode), &format!("fd {fd}"))?;
+        let label = format!("fd {fd}");
+        let flags = crate::file::mode::open_flags(mrb, Some(mode), &label)?;
+        // SAFETY: `fd` is a file this guest opened; F_GETFL only reads it.
+        let held = unsafe { fcntl(fd, F_GETFL) };
+        if held < 0 || crate::file::mode::exceeds(flags, held) {
+            return Err(errno::error_by_name(mrb, c"EINVAL", &label));
+        }
     }
 
     point_at(mrb, self_, fd, None);
@@ -241,7 +247,14 @@ unsafe extern "C" {
     /// production target (wasm32-wasip1) auto-links wasi-libc; host
     /// targets resolve the same POSIX symbol from their libc.
     fn write(fd: core::ffi::c_int, buf: *const core::ffi::c_void, n: usize) -> isize;
+
+    /// wasi-libc `fcntl(2)`, whose `F_GETFL` names the access a
+    /// descriptor holds.
+    fn fcntl(fd: core::ffi::c_int, cmd: core::ffi::c_int, ...) -> core::ffi::c_int;
 }
+
+/// wasi-libc's `F_GETFL`.
+const F_GETFL: core::ffi::c_int = 3;
 
 fn io_fileno(mrb: &Mrb, self_: Value) -> Value {
     read_fd(mrb, self_).into_value(mrb)

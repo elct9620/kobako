@@ -18,12 +18,17 @@ const EXCL: i64 = 0o200;
 const TRUNC: i64 = 0o1000;
 const APPEND: i64 = 0o2000;
 
+// wasi-libc's access bits, which its `O_RDWR` holds both of.
+const O_RDONLY: c_int = 0x0400_0000;
+const O_WRONLY: c_int = 0x1000_0000;
+const O_RDWR: c_int = O_RDONLY | O_WRONLY;
+
 /// The flags an open honors, each named as `File::Constants` names it,
 /// beside the wasi-libc `O_*` it asks for.
 const FLAGS: [(&CStr, i64, c_int); 7] = [
-    (c"RDONLY", RDONLY, 0x0400_0000),
-    (c"WRONLY", WRONLY, 0x1000_0000),
-    (c"RDWR", RDWR, 0x0400_0000 | 0x1000_0000),
+    (c"RDONLY", RDONLY, O_RDONLY),
+    (c"WRONLY", WRONLY, O_WRONLY),
+    (c"RDWR", RDWR, O_RDWR),
     (c"CREAT", CREAT, 1 << 12),
     (c"EXCL", EXCL, 4 << 12),
     (c"TRUNC", TRUNC, 8 << 12),
@@ -53,6 +58,12 @@ pub(crate) fn open_flags(mrb: &Mrb, mode: Option<Value>, path: &str) -> Result<c
         },
     };
     to_libc(flags).ok_or_else(|| errno::error_by_name(mrb, c"EINVAL", path))
+}
+
+/// Whether wasi-libc `flags` ask an access a descriptor whose `F_GETFL`
+/// is `held` lacks, a mode CRuby refuses to wrap such a descriptor in.
+pub(crate) fn exceeds(flags: c_int, held: c_int) -> bool {
+    flags & O_RDWR & !held != 0
 }
 
 /// The wasi-libc flags for CRuby's `flags`, or `None` for a bit no flag
