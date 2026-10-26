@@ -26,7 +26,7 @@ From a clone of the kobako repository:
 bundle exec ruby examples/codemode/main.rb
 ```
 
-First launch downloads `ruby_llm` (~2.1), `reline`, and `kobako` (~0.27). Subsequent launches reuse the resolved set.
+First launch downloads `ruby_llm` (~2.1), `reline`, and `kobako` (~0.29). Subsequent launches reuse the resolved set.
 
 ## Configuration
 
