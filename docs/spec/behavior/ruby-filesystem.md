@@ -263,3 +263,15 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem whose file answers `pwrite` and `size` but no `append` |
 | When | the script writes to that file opened to append |
 | Then | the write raises `Errno::ENOTSUP`, and the file stays as it was |
+
+## `RF-020` A close a Ruby file refuses as unsupported still fails the script's close
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-006` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file whose Ruby `close` raises `Errno::ENOTSUP` |
+| When | the script closes that file |
+| Then | the close raises `Errno::ENOTSUP`, as a file lacking `close` never does |
