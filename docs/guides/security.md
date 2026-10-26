@@ -306,6 +306,7 @@ foresee. The block judges paths, so nothing may reach a path it never judged:
 |---|---|
 | a rename of a directory | `Errno::EXDEV`, and it copies entry by entry |
 | a path through a host link | `Errno::ELOOP` |
+| a link another writer swaps in after the block judges | `Errno::ELOOP` |
 | another case or Unicode form of a name | the block judges the spelling the host stores |
 | on Windows, a spelling the host lists under no name | `Errno::EACCES` |
 
@@ -323,7 +324,7 @@ Some risks stay with the host, because kobako cannot see them.
 | Risk | Where it lies |
 |---|---|
 | another process changing a Directory's host files | the host directory |
-| a link swapped in between kobako's check and its open | the host's race, never leading beyond the Directory |
+| a link swapped in between kobako's check and its open, without a block | the host's race, never leading beyond the Directory |
 | a hard link or mount point inside a Directory | the guest reaches what it leads to |
 | a Directory's host disk | kobako caps no space there; the host directory's own quota does |
 | a device swapped into a Directory as the guest opens a file | opened once before its refusal |
