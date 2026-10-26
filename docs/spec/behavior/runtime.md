@@ -1456,3 +1456,53 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a read-only Mount whose Policy allows every change |
 | When | the guest waits to write a file opened to read, and sizes one opened to write |
 | Then | the wait is ready and the file is sized, the Policy unasked by either |
+
+## `RT-140` A link leading out of an opened directory is not permitted
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-115` |
+| relates | `FS-097` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount without a Policy |
+| When | it opens or stats a path through that directory whose link leads out of it |
+| Then | the call answers EPERM, as wasmtime-wasi does |
+
+## `RT-141` A link staying within an opened directory is followed
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-115`, `RT-140` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount without a Policy |
+| When | it opens a path through that directory whose links stay within it |
+| Then | it reaches the file the links lead to |
+
+## `RT-142` A create through a dangling link beneath an opened directory is refused
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-140` |
+| relates | `RT-106` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened, which holds a link pointing at nothing |
+| When | it opens the link's path to create a file, following the link |
+| Then | the open answers ELOOP and creates nothing |
+
+## `RT-143` A link leading out of a Mount is not permitted
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-007`, `RT-140` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory Mount holding a link to a file outside its host directory |
+| When | the guest opens the link's path from the Mount's root |
+| Then | the open answers EPERM, as wasmtime-wasi does |

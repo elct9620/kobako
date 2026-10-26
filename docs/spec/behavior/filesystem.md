@@ -1196,3 +1196,27 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Memory holding an empty file |
 | When | no bytes are written at an offset past its end |
 | Then | the write answers zero, and the file stays empty, as Linux pwrite does |
+
+## `FS-097` A Directory follows a link only within the directory it resolves beneath
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-007` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory holding a directory with a link inside it and one leading out |
+| When | each link's path is resolved beneath that directory |
+| Then | the inner link resolves to where it leads, and the outer one is not permitted |
+
+## `FS-098` An Overlay follows a link beneath a directory within the Layer holding it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-097` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay Layer holding a directory with a link inside it and one leading out |
+| When | each link's path is resolved beneath that directory |
+| Then | the inner link resolves to where it leads, and the outer one is not permitted |

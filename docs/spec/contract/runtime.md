@@ -434,6 +434,18 @@ pub trait Filesystem {
 }
 ```
 
+## `Filesystem::canonicalize_beneath`
+
+A path beneath a directory with every link on it followed, refused where a
+link leads out of that directory. A Filesystem holding no links answers the
+path itself.
+
+```rust
+pub trait Filesystem {
+    fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError>;
+}
+```
+
 ## `Filesystem::hold_directory`
 
 Keep a directory's identity its own while a descriptor has it open. A
