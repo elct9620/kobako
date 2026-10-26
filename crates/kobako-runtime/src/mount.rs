@@ -37,9 +37,9 @@ pub struct Mount {
 
 /// A path no Mount can stand at: one that is not an absolute guest path.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InvalidMountPath(String);
+pub struct MountPathError(String);
 
-impl fmt::Display for InvalidMountPath {
+impl fmt::Display for MountPathError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -49,7 +49,7 @@ impl fmt::Display for InvalidMountPath {
     }
 }
 
-impl std::error::Error for InvalidMountPath {}
+impl std::error::Error for MountPathError {}
 
 /// An absolute guest path has no empty, `.`, or `..` component; the root
 /// is `/` alone.
@@ -68,10 +68,10 @@ impl Mount {
         at: impl Into<String>,
         filesystem: Arc<dyn Filesystem>,
         access: Access,
-    ) -> Result<Self, InvalidMountPath> {
+    ) -> Result<Self, MountPathError> {
         let at = at.into();
         if !is_guest_path(&at) {
-            return Err(InvalidMountPath(at));
+            return Err(MountPathError(at));
         }
         Ok(Self {
             at,

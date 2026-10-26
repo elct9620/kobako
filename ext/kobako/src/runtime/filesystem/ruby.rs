@@ -35,7 +35,7 @@ impl RubyFilesystem {
         let answers = |name| value.respond_to(name, false).unwrap_or(false);
         (answers("open") && answers("stat")).then(|| Self {
             object: Opaque::from(value),
-            dev: Metadata::new_device(),
+            dev: Metadata::unique_device(),
         })
     }
 }

@@ -132,8 +132,8 @@ impl From<kobako_runtime::error::InvokeError> for Error {
     }
 }
 
-impl From<kobako_runtime::mount::InvalidMountPath> for Error {
-    fn from(err: kobako_runtime::mount::InvalidMountPath) -> Self {
+impl From<kobako_runtime::mount::MountPathError> for Error {
+    fn from(err: kobako_runtime::mount::MountPathError) -> Self {
         Error::Argument(err.to_string())
     }
 }

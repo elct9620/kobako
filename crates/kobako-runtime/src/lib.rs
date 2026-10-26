@@ -32,7 +32,7 @@ pub use filesystem::{
     Memory, Metadata, OpenOptions, Overlay, Rename, SeedError, Temporary,
 };
 pub use grant::{Grant, GrantKind};
-pub use mount::{Denial, InvalidMountPath, Mount, Policy};
+pub use mount::{Denial, Mount, MountPathError, Policy};
 pub use profile::Profile;
 pub use runtime::{Entry, Runtime};
 pub use snapshot::{Capture, Completion, Snapshot, Usage};

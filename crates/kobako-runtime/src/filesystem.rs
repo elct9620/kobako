@@ -212,7 +212,7 @@ impl Metadata {
     /// A device number for a Filesystem with none of its own, as each
     /// tmpfs mount takes one: no earlier call returned it, and its top bit,
     /// which no host's `st_dev` sets, keeps it apart from a host's.
-    pub fn new_device() -> u64 {
+    pub fn unique_device() -> u64 {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         (1 << 63) | NEXT.fetch_add(1, Ordering::Relaxed)
     }

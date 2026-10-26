@@ -243,7 +243,7 @@ impl Memory {
             }),
             space: Arc::new(space),
             inodes_follow_limit: true,
-            dev: Metadata::new_device(),
+            dev: Metadata::unique_device(),
             next_ino: AtomicU64::new(2),
         }
     }
@@ -1007,14 +1007,14 @@ mod tests {
     // @behavior FS-085
     #[test]
     fn a_device_of_its_own_stands_apart_from_every_other_device() {
-        let (first, second) = (Metadata::new_device(), Metadata::new_device());
+        let (first, second) = (Metadata::unique_device(), Metadata::unique_device());
         let memory = Memory::new().metadata("").expect("the root must stand").dev;
         assert!(
             [first, second, memory].iter().all(|dev| dev >> 63 == 1)
                 && first != second
                 && memory != first
                 && memory != second,
-            "devices from Metadata::new_device and a Memory's root must each set the top bit \
+            "devices from Metadata::unique_device and a Memory's root must each set the top bit \
              and differ from one another"
         );
     }
