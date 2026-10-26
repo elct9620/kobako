@@ -14,11 +14,11 @@ What `eval` hands back is an **`Execution`** — the record of one run. Whether 
 
 ## Guest Binary
 
-The 0.17 crates release together with kobako 0.27.0, so the host runs the default Guest Binary from that [GitHub Release](https://github.com/elct9620/kobako/releases/tag/v0.27.0).
+The 0.19 crates release together with kobako 0.29.0, so the host runs the default Guest Binary from that [GitHub Release](https://github.com/elct9620/kobako/releases/tag/v0.29.0).
 
 ```bash
 cd examples/plugin-rs
-curl -LO https://github.com/elct9620/kobako/releases/download/v0.27.0/kobako-0.27.0.wasm
+curl -LO https://github.com/elct9620/kobako/releases/download/v0.29.0/kobako-0.29.0.wasm
 ```
 
 ## Running
@@ -27,16 +27,16 @@ The host takes the Guest Binary first and an optional plugin source second.
 
 ```bash
 # Default plugin: opens the seeded "welcome" note, edits it, iterates its tags
-cargo run -- kobako-0.27.0.wasm
+cargo run -- kobako-0.29.0.wasm
 
 # Your own plugin as the second argument
-cargo run -- kobako-0.27.0.wasm 'Notes::Store.open("draft").tag("idea")'
+cargo run -- kobako-0.29.0.wasm 'Notes::Store.open("draft").tag("idea")'
 
 # A Service misuse surfaces in the plugin as a rescuable Kobako::ServiceError
-cargo run -- kobako-0.27.0.wasm 'begin; Notes::Store.frobnicate; rescue => e; e.class.to_s; end'
+cargo run -- kobako-0.29.0.wasm 'begin; Notes::Store.frobnicate; rescue => e; e.class.to_s; end'
 
 # An uncaught guest exception comes back as a decoded failure, exit code 1
-cargo run -- kobako-0.27.0.wasm 'raise ArgumentError, "boom"'
+cargo run -- kobako-0.29.0.wasm 'raise ArgumentError, "boom"'
 ```
 
 ## What the plugin can reach
