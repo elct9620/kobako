@@ -102,15 +102,19 @@ class TestE2ERubyFilesystem < Minitest::Test
                  "an open whose Ruby Filesystem raises a RuntimeError must raise Errno::EIO in the script"
   end
 
-  # @behavior RF-006
+  # ENOTSUP is also what a file lacking +close+ answers inside the host, so
+  # only its reaching the script tells a refusal from a file with no close.
+  # @behavior RF-006 RF-020
   def test_a_close_a_ruby_filesystems_file_refuses_fails_the_scripts_close
-    refusing = Class.new(HashFile) { define_method(:close) { raise Errno::EACCES } }
-    filesystem = HashFilesystem.new("note.txt" => "hello")
-    filesystem.define_singleton_method(:open) { |path, _flags| refusing.new(files, path) }
-    script = 'f = File.open("/data/note.txt"); begin; f.close; rescue Errno::EACCES; "refused"; end'
+    %w[EACCES ENOTSUP].each do |errno|
+      refusing = Class.new(HashFile) { define_method(:close) { raise Errno.const_get(errno) } }
+      filesystem = HashFilesystem.new("note.txt" => "hello")
+      filesystem.define_singleton_method(:open) { |path, _flags| refusing.new(files, path) }
+      script = %(f = File.open("/data/note.txt"); begin; f.close; "closed"; rescue Errno::#{errno}; "refused"; end)
 
-    assert_equal "refused", read_note(filesystem, script),
-                 "File#close whose Ruby file raises Errno::EACCES must raise Errno::EACCES in the script"
+      assert_equal "refused", read_note(filesystem, script),
+                   "File#close whose Ruby file raises Errno::#{errno} must raise Errno::#{errno} in the script"
+    end
   end
 
   # The file object is referred to from the guest's descriptor alone, so

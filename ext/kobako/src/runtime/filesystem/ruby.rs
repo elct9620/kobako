@@ -75,6 +75,22 @@ fn change(
     })
 }
 
+/// Ask `object` a change it may lack, an object lacking `name` having
+/// nothing of its own to change, while one that answers and refuses still
+/// fails, whatever `Errno` it raises.
+fn change_if_answered(object: Opaque<Value>, name: &str) -> Result<(), FilesystemError> {
+    let answers = gvl::reenter(|| {
+        let ruby = Ruby::get().expect("Ruby handle unavailable in a Filesystem call");
+        ruby.get_inner(object)
+            .respond_to(name, false)
+            .unwrap_or(false)
+    });
+    if !answers {
+        return Ok(());
+    }
+    change(object, name, (), FilesystemError::Unsupported)
+}
+
 /// The FilesystemError the nearest `Errno` class of `err` stands for, by
 /// its POSIX name; anything else is `Other`, which reaches the guest as
 /// `EIO`.
@@ -230,10 +246,13 @@ impl Filesystem for RubyFilesystem {
     /// `false` only a file, `nil` either. What stands at `from` meanwhile
     /// is the object's to keep still.
     fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+        // A move the keyword cannot tell the object is refused rather than
+        // widened into one of either kind.
         let directory = match rename {
+            Rename::Any => None,
             Rename::File => Some(false),
             Rename::Directory => Some(true),
-            _ => None,
+            _ => return Err(FilesystemError::Unsupported),
         };
         change(
             self.object,
@@ -268,10 +287,7 @@ impl RubyFile {
     /// release.
     fn release(&mut self) -> Result<(), FilesystemError> {
         self.closed = true;
-        match change(self.file.get(), "close", (), FilesystemError::Unsupported) {
-            Err(FilesystemError::Unsupported) => Ok(()),
-            answer => answer,
-        }
+        change_if_answered(self.file.get(), "close")
     }
 }
 
@@ -353,10 +369,7 @@ impl File for RubyFile {
 
     /// A file lacking `fsync` has nothing of its own to flush.
     fn sync(&mut self) -> Result<(), FilesystemError> {
-        match change(self.file.get(), "fsync", (), FilesystemError::Unsupported) {
-            Err(FilesystemError::Unsupported) => Ok(()),
-            answer => answer,
-        }
+        change_if_answered(self.file.get(), "fsync")
     }
 
     fn close(mut self: Box<Self>) -> Result<(), FilesystemError> {
