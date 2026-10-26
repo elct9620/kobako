@@ -292,7 +292,7 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | When | guest code writes several values to the output stream in one call |
 | Then | the capture holds each value's string form in the order given |
 
-## `IO-035` A mode is a String or an Integer of flags
+## `IO-035` A mode neither a String nor an Integer raises TypeError
 
 | Step | Statement |
 | --- | --- |
