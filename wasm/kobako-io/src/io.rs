@@ -30,6 +30,7 @@
 use std::cell::RefCell;
 
 use beni::prelude::*;
+use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
     Error, Integer, IntoValue, Mrb, RArray, RClass, RTypedData, TryConvert, TypedData, Value,
@@ -108,7 +109,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
     // A body with a fixed argument list takes them as typed parameters;
     // the variadic ones take the call's arguments as a slice.
     io.define_singleton_method(mrb, c"new", beni::method!(new, -1))?;
-    io.define_method(mrb, c"initialize", beni::method!(io_initialize, 2))?;
+    io.define_method(mrb, c"initialize", beni::method!(io_initialize, -1))?;
     io.define_method(
         mrb,
         c"initialize_copy",
@@ -145,12 +146,16 @@ pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
     Ok(io)
 }
 
-/// `IO.new(fd, mode)` refuses any `fd` but 1, 2, or a file this guest
-/// opened: stdin carries the Preamble and a preopened directory is the
-/// host's, so neither is the guest's to wrap. A captured descriptor only
-/// writes, so its `mode` must be `"w"`; a file's mode is read as
-/// `File.open` reads it.
-fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode: Value) -> Result<(), Error> {
+/// `IO.new(fd, mode = nil)` refuses any `fd` but 1, 2, or a file this
+/// guest opened: stdin carries the Preamble and a preopened directory is
+/// the host's, so neither is the guest's to wrap. A captured descriptor
+/// only writes, so its `mode` must be `"w"`; a file's mode is read as
+/// `File.open` reads it. Without a mode, the IO takes the access its
+/// descriptor holds, as CRuby's does.
+fn io_initialize(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<(), Error> {
+    let args = scan_args::<(i32,), (Option<Value>,), (), (), (), ()>(mrb)?;
+    let (fd,) = args.required;
+    let (mode,) = args.optional;
     if !descriptors::is_reachable(fd) {
         return Err(argument_error(
             mrb,
@@ -158,6 +163,10 @@ fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode: Value) -> Result<(), Er
         ));
     }
 
+    let Some(mode) = mode.filter(|mode| !mode.is_nil()) else {
+        point_at(mrb, self_, fd, None);
+        return Ok(());
+    };
     if descriptors::is_channel(fd) {
         let mode = Vec::<u8>::from_value(mode).ok_or_else(|| errno::type_error(mrb, mode))?;
         if mode != b"w" {
