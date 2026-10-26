@@ -216,16 +216,9 @@ pub(crate) fn open(
 
     let read = flags.rights_base & RIGHTS_FD_READ != 0;
     let write = flags.rights_base & RIGHTS_FD_WRITE != 0;
-    // Creating changes the Mount only where nothing stands yet, so an open
-    // that may create is judged as a read until that is known.
-    let changes = write || oflag(OFLAGS_TRUNC);
-    let access = if changes {
-        Access::ReadWrite
-    } else {
-        Access::Read
-    };
-    judge(&mount, &path, access, follow)?;
-
+    if !mount.follows_links() {
+        refuse_links(&mount, &path, follow)?;
+    }
     let looked_up = if follow {
         mount.filesystem().metadata(&path)
     } else {
@@ -236,9 +229,15 @@ pub(crate) fn open(
         Err(FilesystemError::NotFound) => (None, None),
         Err(err) => return Err(err.into()),
     };
-    if existing.is_none() && oflag(OFLAGS_CREAT) && !changes {
-        judge(&mount, &path, Access::ReadWrite, follow)?;
-    }
+    // Creating changes the Mount only where nothing stands yet, so the
+    // Mount judges the open once, knowing what it does.
+    let changes = write || oflag(OFLAGS_TRUNC) || (oflag(OFLAGS_CREAT) && existing.is_none());
+    let access = if changes {
+        Access::ReadWrite
+    } else {
+        Access::Read
+    };
+    mount.check(&path, access)?;
     let descriptor = match existing {
         Some(_) if oflag(OFLAGS_CREAT) && oflag(OFLAGS_EXCL) => return Err(Errno::Exist.into()),
         Some(FileType::Directory) if write || oflag(OFLAGS_TRUNC | OFLAGS_CREAT) => {

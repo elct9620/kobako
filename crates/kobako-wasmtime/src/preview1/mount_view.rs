@@ -1904,6 +1904,35 @@ fn a_mount_whose_policy_decides_may_be_written() {
     );
 }
 
+// Each open asks without the right to write, so only its CREAT, where
+// nothing stands yet, makes it a change.
+// @behavior RT-146
+#[test]
+fn a_policy_is_asked_once_for_an_open_that_may_create_as_what_it_does() {
+    let open = |path| {
+        let policy = Arc::new(RecordsAsks::default());
+        let errno = Guest::new(&[grant(
+            file_and_directory(),
+            Access::Read,
+            Some(policy.clone() as Arc<dyn Policy>),
+        )])
+        .call_flagged(path, OFLAGS_CREAT, 0);
+        let asked = policy.0.lock().unwrap().clone();
+        (errno, asked)
+    };
+    assert_eq!(
+        (open(NEW), open(FILE)),
+        (
+            (0, vec![("/data/new.txt".to_owned(), Access::ReadWrite)]),
+            (0, vec![("/data/file.txt".to_owned(), Access::Read)]),
+        ),
+        "path_open with O_CREAT and no write of a missing path and of an existing file beneath \
+         a Mount whose Policy allows every change through preview1 must ask the Policy once for \
+         each, as a change where it creates and as a read where the file stands"
+    );
+}
+
+const NEW: (i32, i32) = (840, 7);
 const RIGHTS_FD_READ: u64 = 1 << 1;
 const ERRNO_PERM: i32 = 63;
 
