@@ -1,4 +1,4 @@
-//! Releasing Ruby's GVL for the guest-execution span so distinct Sandboxes on
+//! Releasing Ruby's GVL for an invocation's guest span so distinct Sandboxes on
 //! distinct Threads run their guest code in parallel.
 //!
 //! `region` brackets one invocation's guest span, releasing the GVL when the
