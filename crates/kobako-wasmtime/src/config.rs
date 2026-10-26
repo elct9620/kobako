@@ -1,4 +1,4 @@
-//! Per-`Driver` execution configuration.
+//! The caps a `Driver` applies to every invocation.
 //!
 //! Every cap a frontend forwards into `Driver::new`. A plain value carrier
 //! owned by the `Driver` — distinct from the process-wide engine/module
