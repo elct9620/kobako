@@ -229,10 +229,20 @@ pub(crate) fn open(
         Err(FilesystemError::NotFound) => (None, None),
         Err(err) => return Err(err.into()),
     };
-    // What is missing and not to be made answers as missing before any
-    // access is judged, as Linux's `open` does on a read-only mount.
-    if existing.is_none() && !oflag(OFLAGS_CREAT) {
-        return Err(Errno::Noent.into());
+    // What stands at the path answers before any access is judged, as
+    // Linux's `open` does on a read-only mount.
+    let refusal = match existing {
+        None if !oflag(OFLAGS_CREAT) => Some(Errno::Noent),
+        Some(_) if oflag(OFLAGS_CREAT) && oflag(OFLAGS_EXCL) => Some(Errno::Exist),
+        Some(FileType::Directory) if write || oflag(OFLAGS_TRUNC | OFLAGS_CREAT) => {
+            Some(Errno::Isdir)
+        }
+        Some(FileType::Directory) | None => None,
+        Some(_) if oflag(OFLAGS_DIRECTORY) => Some(Errno::Notdir),
+        Some(_) => None,
+    };
+    if let Some(errno) = refusal {
+        return Err(errno.into());
     }
     // Creating changes the Mount only where nothing stands yet, so the
     // Mount judges the open once, knowing what it does.
@@ -244,10 +254,6 @@ pub(crate) fn open(
     };
     mount.check(&path, access)?;
     let descriptor = match existing {
-        Some(_) if oflag(OFLAGS_CREAT) && oflag(OFLAGS_EXCL) => return Err(Errno::Exist.into()),
-        Some(FileType::Directory) if write || oflag(OFLAGS_TRUNC | OFLAGS_CREAT) => {
-            return Err(Errno::Isdir.into())
-        }
         Some(FileType::Directory) => Descriptor::Directory(OpenDirectory {
             _hold: mount.filesystem().hold_directory(&path)?,
             mount,
@@ -256,7 +262,6 @@ pub(crate) fn open(
             preopen: false,
             listing: None,
         }),
-        Some(_) if oflag(OFLAGS_DIRECTORY) => return Err(Errno::Notdir.into()),
         Some(_) | None => {
             let mut options = OpenOptions::default();
             options.read = read;

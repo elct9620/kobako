@@ -1956,6 +1956,23 @@ fn an_open_of_a_missing_path_that_makes_nothing_answers_enoent() {
     );
 }
 
+// The Mount is read-only, so an open judged before what stands at its
+// path is looked up would answer EROFS for both.
+// @behavior RT-148
+#[test]
+fn what_stands_at_a_path_answers_before_a_read_only_mount_refuses() {
+    let mut guest = Guest::new(&[grant(file_and_directory(), Access::Read, None)]);
+    assert_eq!(
+        (
+            guest.call_flagged(FILE, OFLAGS_CREAT | OFLAGS_EXCL, 0),
+            guest.call("append_file", DIR),
+        ),
+        (ERRNO_EXIST, ERRNO_ISDIR),
+        "path_open with O_CREAT | O_EXCL of a file, and to write a directory, beneath a read-only \
+         Mount through preview1 must answer EEXIST and EISDIR, as Linux does"
+    );
+}
+
 const NEW: (i32, i32) = (840, 7);
 const RIGHTS_FD_READ: u64 = 1 << 1;
 const ERRNO_PERM: i32 = 63;
