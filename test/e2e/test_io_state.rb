@@ -29,6 +29,17 @@ class TestE2EIoState < Minitest::Test
     end
   RUBY
 
+  # A guest that wraps a file it opened only to read in a mode that writes.
+  WRAP_READ_ONLY_SCRIPT = <<~RUBY
+    fd = File.open("/data/note.txt").fileno
+    begin
+      IO.new(fd, "w")
+      "built"
+    rescue SystemCallError => e
+      e.class.to_s
+    end
+  RUBY
+
   def sandbox
     Kobako::Sandbox.new(wasm_path: REAL_WASM)
                    .mount("/data", Kobako::Filesystem::Memory.new("note.txt" => ""), access: :read_write)
@@ -68,5 +79,14 @@ class TestE2EIoState < Minitest::Test
     assert_equal ["IO", "invalid access mode zz"], sandbox.eval(WRAP_FILE_SCRIPT).value,
                  "IO.new over a file the guest opened through Sandbox#eval must build with File::RDWR " \
                  "and raise ArgumentError for zz"
+  end
+
+  # @behavior IO-041
+  # The file was opened only to read, so a writing mode asks an access the
+  # descriptor lacks; a mode left unchecked would build the IO.
+  def test_an_io_asking_an_access_its_file_lacks_raises_einval
+    assert_equal "Errno::EINVAL", sandbox.eval(WRAP_READ_ONLY_SCRIPT).value,
+                 'IO.new with "w" over a file the guest opened only to read through Sandbox#eval must raise ' \
+                 "Errno::EINVAL"
   end
 end

@@ -1,0 +1,84 @@
+r file: read="hello" write=IOError after="hello"
+r dir: read=Errno::EISDIR write=IOError after=dir
+r missing: open=Errno::ENOENT after=none
+r IO.new: built
+r+ file: read="hello" write=ok after="helloZ"
+r+ dir: open=Errno::EISDIR after=dir
+r+ missing: open=Errno::ENOENT after=none
+r+ IO.new: Errno::EINVAL
+w file: read=IOError write=ok after="Z"
+w dir: open=Errno::EISDIR after=dir
+w missing: read=IOError write=ok after="Z"
+w IO.new: Errno::EINVAL
+w+ file: read="" write=ok after="Z"
+w+ dir: open=Errno::EISDIR after=dir
+w+ missing: read="" write=ok after="Z"
+w+ IO.new: Errno::EINVAL
+a file: read=IOError write=ok after="helloZ"
+a dir: open=Errno::EISDIR after=dir
+a missing: read=IOError write=ok after="Z"
+a IO.new: Errno::EINVAL
+a+ file: read="hello" write=ok after="helloZ"
+a+ dir: open=Errno::EISDIR after=dir
+a+ missing: read="" write=ok after="Z"
+a+ IO.new: Errno::EINVAL
+wx file: open=Errno::EEXIST after="hello"
+wx dir: open=Errno::EEXIST after=dir
+wx missing: read=IOError write=ok after="Z"
+wx IO.new: Errno::EINVAL
+w+x file: open=Errno::EEXIST after="hello"
+w+x dir: open=Errno::EEXIST after=dir
+w+x missing: read="" write=ok after="Z"
+w+x IO.new: Errno::EINVAL
+RDONLY file: read="hello" write=IOError after="hello"
+RDONLY dir: read=Errno::EISDIR write=IOError after=dir
+RDONLY missing: open=Errno::ENOENT after=none
+RDONLY IO.new: built
+WRONLY file: read=IOError write=ok after="Zello"
+WRONLY dir: open=Errno::EISDIR after=dir
+WRONLY missing: open=Errno::ENOENT after=none
+WRONLY IO.new: Errno::EINVAL
+RDWR file: read="hello" write=ok after="helloZ"
+RDWR dir: open=Errno::EISDIR after=dir
+RDWR missing: open=Errno::ENOENT after=none
+RDWR IO.new: Errno::EINVAL
+CREAT file: read="hello" write=IOError after="hello"
+CREAT dir: open=Errno::EISDIR after=dir
+CREAT missing: read="" write=IOError after=""
+CREAT IO.new: built
+CREAT|EXCL file: open=Errno::EEXIST after="hello"
+CREAT|EXCL dir: open=Errno::EEXIST after=dir
+CREAT|EXCL missing: read="" write=IOError after=""
+CREAT|EXCL IO.new: built
+RDONLY|TRUNC file: read="" write=IOError after=""
+RDONLY|TRUNC dir: open=Errno::EISDIR after=dir
+RDONLY|TRUNC missing: open=Errno::ENOENT after=none
+RDONLY|TRUNC IO.new: built
+RDONLY|EXCL file: read="hello" write=IOError after="hello"
+RDONLY|EXCL dir: read=Errno::EISDIR write=IOError after=dir
+RDONLY|EXCL missing: open=Errno::ENOENT after=none
+RDONLY|EXCL IO.new: built
+WRONLY|TRUNC file: read=IOError write=ok after="Z"
+WRONLY|TRUNC dir: open=Errno::EISDIR after=dir
+WRONLY|TRUNC missing: open=Errno::ENOENT after=none
+WRONLY|TRUNC IO.new: Errno::EINVAL
+WRONLY|APPEND file: read=IOError write=ok after="helloZ"
+WRONLY|APPEND dir: open=Errno::EISDIR after=dir
+WRONLY|APPEND missing: open=Errno::ENOENT after=none
+WRONLY|APPEND IO.new: Errno::EINVAL
+WRONLY|APPEND|TRUNC file: read=IOError write=ok after="Z"
+WRONLY|APPEND|TRUNC dir: open=Errno::EISDIR after=dir
+WRONLY|APPEND|TRUNC missing: open=Errno::ENOENT after=none
+WRONLY|APPEND|TRUNC IO.new: Errno::EINVAL
+WRONLY|CREAT|EXCL file: open=Errno::EEXIST after="hello"
+WRONLY|CREAT|EXCL dir: open=Errno::EEXIST after=dir
+WRONLY|CREAT|EXCL missing: read=IOError write=ok after="Z"
+WRONLY|CREAT|EXCL IO.new: Errno::EINVAL
+RDWR|CREAT|TRUNC file: read="" write=ok after="Z"
+RDWR|CREAT|TRUNC dir: open=Errno::EISDIR after=dir
+RDWR|CREAT|TRUNC missing: read="" write=ok after="Z"
+RDWR|CREAT|TRUNC IO.new: Errno::EINVAL
+RDWR|APPEND|CREAT file: read="hello" write=ok after="helloZ"
+RDWR|APPEND|CREAT dir: open=Errno::EISDIR after=dir
+RDWR|APPEND|CREAT missing: read="" write=ok after="Z"
+RDWR|APPEND|CREAT IO.new: Errno::EINVAL

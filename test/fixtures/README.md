@@ -233,3 +233,21 @@ Header-prefix truncation of `snippet_answers.mrb` that keeps the first 30 bytes,
 ```sh
 dd if=test/fixtures/snippet_answers.mrb of=test/fixtures/snippet_corrupt.mrb bs=1 count=30
 ```
+
+## `file_open_matrix.rb`
+
+`file_open_matrix.rb` opens seeded entries with each mode, then reads, writes, and wraps them with `IO.new`. It runs as is on CRuby and in the guest. The two text files hold CRuby's answers on Linux, which the guest's must match or refuse by a rule.
+
+| Fixture | CRuby ran over |
+|---|---|
+| `file_open_matrix_linux_rw.txt` | a read-write directory |
+| `file_open_matrix_linux_ro.txt` | the same entries, mounted read-only |
+
+Regenerate them after a change to the script, by seeding a directory as the script's header describes and running CRuby in a container:
+
+```sh
+docker run --rm -v "$PWD/test/fixtures/file_open_matrix.rb:/m.rb:ro" -v "$SEEDED:/data" \
+  ruby:3.4-slim ruby -e 'ROOT = "/data"; puts eval(File.read("/m.rb"))' > test/fixtures/file_open_matrix_linux_rw.txt
+```
+
+Mount `$SEEDED` with `:ro` for the read-only answers.
