@@ -439,3 +439,27 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount holding a directory |
 | When | the script opens the directory to read, then reads it |
 | Then | the read raises `Errno::EISDIR` |
+
+## `FL-036` Setting a file's position moves where the next read starts
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-021` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file of `hello` |
+| When | the script sets the file's position to 2, then reads the rest |
+| Then | the read answers `llo` |
+
+## `FL-037` A seek before the start or by an unknown whence raises EINVAL
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-036` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file |
+| When | the script sets the position to -1, seeks to -1, and seeks by whence 9 |
+| Then | each raises `Errno::EINVAL` |
