@@ -18,6 +18,17 @@ class TestE2EIoState < Minitest::Test
     copy.write("escape")
   RUBY
 
+  # A guest that wraps a file it opened, first in a mode File.open honors,
+  # then in one it refuses.
+  WRAP_FILE_SCRIPT = <<~RUBY
+    fd = File.open("/data/note.txt", "r+").fileno
+    [File::RDWR, "zz"].map do |mode|
+      IO.new(fd, mode).class.to_s
+    rescue ArgumentError => e
+      e.message
+    end
+  RUBY
+
   def sandbox
     Kobako::Sandbox.new(wasm_path: REAL_WASM)
                    .mount("/data", Kobako::Filesystem::Memory.new("note.txt" => ""), access: :read_write)
@@ -48,5 +59,14 @@ class TestE2EIoState < Minitest::Test
 
     assert_equal [[], []], lists,
                  "instance_variables on $stdout and an opened File through Sandbox#eval must be empty"
+  end
+
+  # @behavior IO-040
+  # zz names no access mode, so only a mode read as File.open reads it
+  # refuses the second IO; a mode left unread would build both.
+  def test_an_io_over_a_guest_file_reads_its_mode_as_file_open_does
+    assert_equal ["IO", "invalid access mode zz"], sandbox.eval(WRAP_FILE_SCRIPT).value,
+                 "IO.new over a file the guest opened through Sandbox#eval must build with File::RDWR " \
+                 "and raise ArgumentError for zz"
   end
 end
