@@ -53,6 +53,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-wasmtime/src/preview1/fd.rs`
 - `crates/kobako-wasmtime/src/preview1/mount_view.rs`
 - `crates/kobako-wasmtime/src/preview1/memory.rs`
+- `crates/kobako-wasmtime/src/preview1/differential.rs`
 - `crates/kobako-wasmtime/tests/compile_posture.rs`
 - `crates/kobako-wasmtime/src/exports.rs`
 - `crates/kobako/tests/concurrency.rs`
@@ -1430,3 +1431,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation holding files open only to read beneath a read-only and a read-write Mount |
 | When | the guest sets the size of each |
 | Then | the first answers EPERM as wasmtime-wasi does, the second EINVAL as Linux ftruncate does |
+
+## `RT-138` An argument preview1 cannot hold is refused in wasmtime-wasi's order
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-096` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation calling preview1 on a descriptor it does not hold |
+| When | it passes an undefined flag, a buffer outside its memory, or a path past the call's fuel |
+| Then | the flag traps, the buffer answers EBADF, and the path ENOMEM, as wasmtime-wasi answers each |
