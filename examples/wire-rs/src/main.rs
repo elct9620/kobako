@@ -10,12 +10,12 @@
 //!     Binary on a fresh instance per invocation;
 //!   * `kobako-runtime` is the engine-neutral contract the driver
 //!     implements — `Runtime`, `Snapshot`, the dispatch traits;
-//!   * `kobako-transport` owns the core envelope — the frames, the Call
-//!     and its Reply, the Outcome — every kobako assembly shares;
+//!   * `kobako-transport` owns the core envelope — the Preamble, the
+//!     Call and its Reply, the Outcome — every kobako assembly shares;
 //!   * `kobako-codec` owns only what rides *inside* an envelope, the
 //!     payload, under the schema this host happens to speak.
 //!
-//! The host drives one `#eval`-equivalent invocation. Frame 1 registers
+//! The host drives one `#eval`-equivalent invocation. Its Preamble binds
 //! a `MyService::KV` constant the guest reaches like any other, and a
 //! hand-written `DispatchHandler` answers every Call the guest makes
 //! against it: read the routing fields the runtime already decoded,
@@ -37,11 +37,11 @@ use std::time::Duration;
 
 use kobako_codec::msgpack::{Arguments, Decode, Decoder, Encoder, Value};
 use kobako_runtime::{
-    Capture, Completion, DispatchHandler, Entry, Frames, InvokeError, Profile, Runtime, SetupError,
+    Capture, Completion, DispatchHandler, Entry, InvokeError, Profile, Runtime, SetupError,
     Snapshot, Trap, Yielder,
 };
 use kobako_transport::envelope::{
-    Bindings, Call, Fault, FaultKind, Outcome, Panic, Reply, Snippets, Target,
+    Bindings, Call, Fault, FaultKind, Outcome, Panic, Preamble, Reply, Target,
 };
 use kobako_wasmtime::{Config, Driver};
 
@@ -73,13 +73,12 @@ fn main() -> ExitCode {
 
     // The caps a Ruby host passes as Sandbox options; `Hermetic` is the
     // full ambient-denial posture — frozen clocks and entropy.
-    let config = Config {
-        timeout: Some(Duration::from_secs(5)),
-        memory_limit: Some(64 * 1024 * 1024),
-        stdout_limit: Some(64 * 1024),
-        stderr_limit: Some(64 * 1024),
-        profile: Profile::Hermetic,
-    };
+    let mut config = Config::default();
+    config.timeout = Some(Duration::from_secs(5));
+    config.memory_limit = Some(64 * 1024 * 1024);
+    config.stdout_limit = Some(64 * 1024);
+    config.stderr_limit = Some(64 * 1024);
+    config.profile = Profile::Hermetic;
     let driver = match Driver::new(&wasm_path, config) {
         Ok(driver) => driver,
         Err(setup) => {
@@ -88,29 +87,26 @@ fn main() -> ExitCode {
         }
     };
 
-    // Frame 1 carries the registration preamble: the bound constant
-    // paths. The guest installs a proxy constant for each, so guest code
-    // reaches the store as plain `MyService::KV` calls. Frame 3
-    // (preloaded snippets) is mandatory-presence too: this host preloads
-    // nothing, an empty list rather than an absent frame.
+    // The Preamble carries the bound constant paths. The guest installs a
+    // proxy constant for each, so guest code reaches the store as plain
+    // `MyService::KV` calls. This host preloads no snippet and sets no
+    // flag, so the rest of the Preamble stays at its default.
     //
-    // Both frames are envelope types, so neither reaches a payload
-    // codec — a host on another schema writes these two lines unchanged.
-    let preamble = Bindings {
+    // The Preamble is an envelope type, so it reaches no payload codec —
+    // a host on another schema writes these lines unchanged.
+    let mut preamble = Preamble::default();
+    preamble.bindings = Bindings {
         paths: vec!["MyService::KV".to_string()],
-    }
-    .encode();
-    let snippets = Snippets::default().encode();
+    };
     let handler = Arc::new(KvHandler::default());
+    // No Grant: this host mounts no filesystem for the guest.
     let snapshot = driver.invoke(
         Entry::Eval {
             source: source.as_bytes(),
         },
-        Frames {
-            preamble: &preamble,
-            snippets: &snippets,
-        },
+        &preamble,
         Some(handler.clone()),
+        &[],
     );
 
     let exit = match snapshot {
@@ -260,10 +256,10 @@ fn report_snapshot(snapshot: &Snapshot) -> ExitCode {
     );
 
     match &snapshot.completion {
-        // The envelope frames the arm; only the ok arm's body is this
-        // host's schema to read.
-        Completion::Outcome(bytes) => match Outcome::decode(bytes) {
-            Ok(Outcome::Ok(body)) => match Decoder::new(&body).read_only_value() {
+        // The runtime already read the envelope's arm; only the ok arm's
+        // body is this host's schema to read.
+        Completion::Outcome(outcome) => match outcome {
+            Outcome::Ok(body) => match Decoder::new(body).read_sole_value() {
                 Ok(value) => {
                     println!("=> {}", render(&value));
                     ExitCode::SUCCESS
@@ -273,12 +269,15 @@ fn report_snapshot(snapshot: &Snapshot) -> ExitCode {
                     ExitCode::FAILURE
                 }
             },
-            Ok(Outcome::Panic(panic)) => {
-                report_panic(&panic);
+            Outcome::Panic(panic) => {
+                report_panic(panic);
                 ExitCode::FAILURE
             }
-            Err(err) => {
-                eprintln!("malformed outcome bytes: {err}");
+            Outcome::Unsupported(unsupported) => {
+                eprintln!(
+                    "the Guest Binary does not serve eval: {}",
+                    unsupported.message
+                );
                 ExitCode::FAILURE
             }
         },

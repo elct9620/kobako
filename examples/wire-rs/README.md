@@ -1,24 +1,44 @@
-# Wire Host (low-level, no SDK)
+# Wire Host
 
-A kobako host assembled by hand from the published wire crates, **without** the [`kobako`](https://crates.io/crates/kobako) SDK. Where the [`plugin-rs`](../plugin-rs) example reaches for the SDK's `Sandbox`, this one exposes the seam underneath it: the wire the host side owns, driven directly. It is the reference to follow when you are porting a kobako frontend to another host language and need to see the frames and envelopes driven concretely — the crates happen to be Rust, but the lesson is the wire.
+A kobako host assembled by hand from the published wire crates, **without** the [`kobako`](https://crates.io/crates/kobako) SDK. Where the [`plugin-rs`](../plugin-rs) example reaches for the SDK's `Sandbox`, this one drives the wire underneath it directly. Follow it when you port a kobako frontend to another host language: the crates happen to be Rust, but the lesson is the wire.
 
-Four crates are the whole toolkit, and the split between the last two is the lesson. `kobako-wasmtime` provides the `Driver` that runs a prebuilt Guest Binary on a fresh instance per invocation. `kobako-runtime` is the engine-neutral contract the driver implements (`Runtime`, `Snapshot`, the dispatch traits). `kobako-transport` owns the **core envelope** every kobako assembly shares — the frames, the `Call` and its `Reply`, the `Outcome`. `kobako-codec` owns only what rides *inside* an envelope, the payload, under the schema this host happens to speak.
+```
+Preamble ─> Driver ─> guest ─ Call ─> DispatchHandler ─> Reply
+                        └─────────── Outcome ─> host decodes the ok body
+```
 
-That boundary is what a port to another host language should copy first: everything above stays the same whatever schema you carry, and only the payload half is yours to replace.
+## Crate Split
 
-The host drives one `#eval`-equivalent invocation. Frame 1 registers a `MyService::KV` constant path — an empty registration is an empty list, never an absent frame — and a `DispatchHandler` answers each Call the guest makes against it: read the routing fields the runtime already decoded, route to an in-process store, answer with a `Reply`. It honours the one hard rule of the dispatch contract that the Ruby gem's `Transport::Dispatcher` also pins: the handler never fails, folding every failure into the Reply's fault arm, which surfaces in the guest as a rescuable exception rather than a wasm trap.
+Four crates are the whole toolkit, and the split between the last two is the lesson.
 
-A Fault is typed on the envelope rather than encoded in the payload, so refusing a call reaches no codec at all — and a Call whose envelope the runtime could not read never arrives here, which is why the handler has no malformed-request arm of its own.
+| Crate | Owns |
+|---|---|
+| `kobako-wasmtime` | the `Driver`, running a prebuilt Guest Binary on a fresh instance per invocation |
+| `kobako-runtime` | the engine-neutral contract: `Runtime`, `Snapshot`, the dispatch traits |
+| `kobako-transport` | the **core envelope**: the `Preamble`, the `Call` and its `Reply`, the `Outcome` |
+| `kobako-codec` | only the payload riding *inside* an envelope, under this host's schema |
 
-What the SDK layers on top of this seam — the Handle table for non-wire values, block yields, snippet replay, seal-once registration — is exactly the glue `plugin-rs` shows from the other side. Reach for the SDK unless you need this level of control.
+A port to another host language should copy that boundary first. Everything above the codec stays the same whatever schema you carry, and only the payload half is yours to replace.
+
+## Dispatch
+
+The host drives one `#eval`-equivalent invocation. Its `Preamble` binds a `MyService::KV` constant path, the rest left at its default. A `DispatchHandler` reads the routing fields the runtime already decoded, routes each Call to an in-process store, and answers with a `Reply`.
+
+| Rule | Why |
+|---|---|
+| the handler never fails | a failure rides the Reply's fault arm, rescuable in the guest, never a trap |
+| a Fault is typed on the envelope | refusing a call reaches no codec at all |
+| no malformed-request arm | a Call whose envelope the runtime could not read never arrives |
+
+The Ruby gem's `Transport::Dispatcher` pins the same first rule. The SDK layers its glue on top of this seam, and `plugin-rs` shows it from the other side. That glue is the Handle table for non-wire values, block yields, snippet replay, and seal-once registration. Reach for the SDK unless you need this level of control.
 
 ## Guest Binary
 
-The 0.17 crates release together with kobako 0.27.0, so the host runs the default Guest Binary from that [GitHub Release](https://github.com/elct9620/kobako/releases/tag/v0.27.0).
+The 0.19 crates release together with kobako 0.29.0, so the host runs the default Guest Binary from that [GitHub Release](https://github.com/elct9620/kobako/releases/tag/v0.29.0).
 
 ```bash
 cd examples/wire-rs
-curl -LO https://github.com/elct9620/kobako/releases/download/v0.27.0/kobako-0.27.0.wasm
+curl -LO https://github.com/elct9620/kobako/releases/download/v0.29.0/kobako-0.29.0.wasm
 ```
 
 ## Running
@@ -27,14 +47,14 @@ The host takes the Guest Binary first and an optional mruby source second.
 
 ```bash
 # Default demo: a store round-trip, a rescued Service fault, and a miss
-cargo run -- kobako-0.27.0.wasm
+cargo run -- kobako-0.29.0.wasm
 
 # Your own mruby source as the second argument
-cargo run -- kobako-0.27.0.wasm 'MyService::KV.set("n", 41); MyService::KV.get("n") + 1'
+cargo run -- kobako-0.29.0.wasm 'MyService::KV.set("n", 41); MyService::KV.get("n") + 1'
 
 # A guest failure comes back as a decoded Panic; an engine fault as a trap
-cargo run -- kobako-0.27.0.wasm 'raise ArgumentError, "boom"'
-cargo run -- kobako-0.27.0.wasm 'loop { }'   # trips the 5s wall-clock cap
+cargo run -- kobako-0.29.0.wasm 'raise ArgumentError, "boom"'
+cargo run -- kobako-0.29.0.wasm 'loop { }'   # trips the 5s wall-clock cap
 ```
 
 ## Options

@@ -3,8 +3,8 @@
 # and the reference for a non-Rust frontend author who must drive the
 # same wire in another language: `kobako-wasmtime` runs a prebuilt
 # Guest Binary behind the engine-neutral `kobako-runtime` contract, and
-# `kobako-codec` encodes and decodes the stdin frames going in and the
-# Outcome bytes coming back.
+# `kobako-codec` encodes and decodes the payloads each Call, Reply, and
+# Outcome carries.
 #
 # Standalone workspace (the empty `[workspace]` table) consuming the
 # crates.io releases, the exact path a third-party embedder takes, so it
@@ -20,14 +20,14 @@ publish = false
 [workspace]
 
 [dependencies]
-# The core envelope both sides share — the frames, the Call and its
+# The core envelope both sides share — the Preamble, the Call and its
 # Reply, the Outcome. Named directly because a host assembled by hand
 # speaks it directly; the SDK is what hides this tier behind a Sandbox.
-kobako-transport = "0.17"
+kobako-transport = "0.19"
 
 # The payload schema, and only that. Separate from the envelope above so
 # a host on another schema replaces this line alone.
-kobako-codec = "0.17"
+kobako-codec = "0.19"
 
-kobako-runtime = "0.17"
-kobako-wasmtime = "0.17"
+kobako-runtime = "0.19"
+kobako-wasmtime = "0.19"
