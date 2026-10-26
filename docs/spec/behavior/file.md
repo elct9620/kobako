@@ -363,7 +363,7 @@ disable_file flag -> no File constant
 | Step | Statement |
 | --- | --- |
 | Given | an invocation handed a read-write Mount |
-| When | the script opens a file with a mode holding a bit no `File::Constants` flag names |
+| When | the script opens a file with a mode holding a bit no flag names, or `WRONLY` beside `RDWR` |
 | Then | the open raises `Errno::EINVAL` |
 
 ## `FL-030` File::Constants names the flags an open honors
@@ -376,4 +376,16 @@ disable_file flag -> no File constant
 | --- | --- |
 | Given | the default Guest Binary |
 | When | the script lists `File::Constants` and asks whether `IO` includes it |
-| Then | it lists `RDONLY`, `WRONLY`, `RDWR`, `CREAT`, `EXCL`, `TRUNC`, and `APPEND`, and `IO` includes it |
+| Then | it lists `RDONLY`, `WRONLY`, `RDWR`, `CREAT`, `EXCL`, `TRUNC`, and `APPEND` at CRuby's Linux values, and `IO` includes it |
+
+## `FL-031` RDONLY beside WRONLY opens to write only
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-027` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount holding a file |
+| When | the script opens that file with `File::RDONLY \| File::WRONLY`, writes, then reads |
+| Then | the write lands, and the read raises `IOError` |
