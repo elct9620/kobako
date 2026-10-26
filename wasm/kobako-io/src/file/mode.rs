@@ -1,9 +1,10 @@
-//! How `File.open` reads its mode into what the open asks of the host.
+//! How `File.open` reads its mode into the flags its open hands wasi-libc.
 
+use core::ffi::c_int;
 use std::ffi::CStr;
-use std::fs::OpenOptions;
 
-use beni::{Error, Module, Mrb, RClass};
+use beni::prelude::*;
+use beni::{Error, Integer, Module, Mrb, RClass, Value};
 
 use crate::errno;
 use crate::io::argument_error;
@@ -17,56 +18,65 @@ const EXCL: i64 = 0o200;
 const TRUNC: i64 = 0o1000;
 const APPEND: i64 = 0o2000;
 
-/// The flags an open honors, each named as `File::Constants` names it.
-const FLAGS: [(&CStr, i64); 7] = [
-    (c"RDONLY", RDONLY),
-    (c"WRONLY", WRONLY),
-    (c"RDWR", RDWR),
-    (c"CREAT", CREAT),
-    (c"EXCL", EXCL),
-    (c"TRUNC", TRUNC),
-    (c"APPEND", APPEND),
+/// The flags an open honors, each named as `File::Constants` names it,
+/// beside the wasi-libc `O_*` it asks for.
+const FLAGS: [(&CStr, i64, c_int); 7] = [
+    (c"RDONLY", RDONLY, 0x0400_0000),
+    (c"WRONLY", WRONLY, 0x1000_0000),
+    (c"RDWR", RDWR, 0x0400_0000 | 0x1000_0000),
+    (c"CREAT", CREAT, 1 << 12),
+    (c"EXCL", EXCL, 4 << 12),
+    (c"TRUNC", TRUNC, 8 << 12),
+    (c"APPEND", APPEND, 1),
 ];
 
 /// `File::Constants`, which `IO` includes as CRuby's does.
 pub(super) fn define_constants(mrb: &Mrb, file: RClass, io: RClass) -> Result<(), Error> {
     let constants = file.define_module(mrb, c"Constants")?;
-    for (name, value) in FLAGS {
+    for (name, value, _) in FLAGS {
         constants.const_set(mrb, name, value)?;
     }
     io.include_module(mrb, constants)
 }
 
-/// An Integer mode of `File::Constants` flags. A bit no flag names, or
-/// `WRONLY` beside `RDWR`, raises `EINVAL` rather than opening differently
-/// than CRuby would.
-pub(super) fn from_flags(mrb: &Mrb, flags: i64, path: &str) -> Result<OpenOptions, Error> {
-    let named = FLAGS.iter().fold(0, |named, (_, flag)| named | flag);
-    let (read, write) = match flags & (WRONLY | RDWR) {
-        RDONLY => (true, false),
-        WRONLY => (false, true),
-        RDWR => (true, true),
-        _ => return Err(errno::error_by_name(mrb, c"EINVAL", path)),
+/// The wasi-libc flags opening `path` with `mode` asks for: an Integer of
+/// `File::Constants` flags, an access-mode String, or `nil` to read.
+pub(super) fn open_flags(mrb: &Mrb, mode: Option<Value>, path: &str) -> Result<c_int, Error> {
+    let flags = match mode.filter(|mode| !mode.is_nil()) {
+        None => RDONLY,
+        Some(mode) => match Integer::from_value(mode) {
+            Some(flags) => flags.to_i64(mrb)?,
+            None => match Vec::<u8>::from_value(mode) {
+                Some(mode) => from_string(mrb, &String::from_utf8_lossy(&mode))?,
+                None => return Err(errno::type_error(mrb, mode)),
+            },
+        },
     };
-    if flags & !named != 0 {
-        return Err(errno::error_by_name(mrb, c"EINVAL", path));
-    }
-    let has = |flag| flags & flag == flag;
-    let mut options = OpenOptions::new();
-    options
-        .read(read)
-        .write(write)
-        .append(write && has(APPEND))
-        .create(has(CREAT))
-        .create_new(has(CREAT | EXCL))
-        .truncate(has(TRUNC));
-    Ok(options)
+    to_libc(flags).ok_or_else(|| errno::error_by_name(mrb, c"EINVAL", path))
 }
 
-/// CRuby's access mode: `r`, `w`, or `a`, then any of `+`, `b`, and `t`,
-/// with `x` after `w` alone for an exclusive create. `b` and `t` exclude
-/// each other.
-pub(super) fn from_string(mrb: &Mrb, mode: &str) -> Result<OpenOptions, Error> {
+/// The wasi-libc flags for CRuby's `flags`, or `None` for a bit no flag
+/// names or `WRONLY` beside `RDWR`, either of which would open differently
+/// than CRuby does.
+fn to_libc(flags: i64) -> Option<c_int> {
+    let (access, others) = FLAGS.split_at(3);
+    let (_, _, mut libc) = *access
+        .iter()
+        .find(|(_, flag, _)| *flag == flags & (WRONLY | RDWR))?;
+    let mut rest = flags & !(WRONLY | RDWR);
+    for (_, flag, o_flag) in others {
+        if rest & flag != 0 {
+            libc |= o_flag;
+            rest &= !flag;
+        }
+    }
+    (rest == 0).then_some(libc)
+}
+
+/// CRuby's access mode as `File::Constants` flags: `r`, `w`, or `a`, then
+/// any of `+`, `b`, and `t`, with `x` after `w` alone for an exclusive
+/// create. `b` and `t` exclude each other.
+fn from_string(mrb: &Mrb, mode: &str) -> Result<i64, Error> {
     let invalid = || argument_error(mrb, &format!("invalid access mode {mode}"));
     let mut chars = mode.chars();
     let access = chars
@@ -86,16 +96,12 @@ pub(super) fn from_string(mrb: &Mrb, mode: &str) -> Result<OpenOptions, Error> {
     if binary && text {
         return Err(invalid());
     }
-    let mut options = OpenOptions::new();
-    match access {
-        'r' => options.read(true).write(plus),
-        'w' => options
-            .read(plus)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .create_new(exclusive),
-        _ => options.read(plus).append(true).create(true),
-    };
-    Ok(options)
+    let write = if plus { RDWR } else { WRONLY };
+    Ok(match access {
+        'r' if plus => RDWR,
+        'r' => RDONLY,
+        'w' if exclusive => write | CREAT | TRUNC | EXCL,
+        'w' => write | CREAT | TRUNC,
+        _ => write | CREAT | APPEND,
+    })
 }

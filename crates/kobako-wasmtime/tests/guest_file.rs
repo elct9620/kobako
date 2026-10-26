@@ -470,6 +470,53 @@ fn rdonly_beside_wronly_opens_to_write_only() {
     );
 }
 
+// Neither open asks to write, so only a mode that reaches the host as it
+// stands, rather than one refused before it leaves the guest, changes
+// the Memory.
+// @behavior FL-032
+#[test]
+fn an_integer_mode_may_create_or_truncate_without_asking_to_write() {
+    let memory = note_memory();
+    let script = r#"
+        File.open("/data/lock", File::CREAT | File::EXCL) { }
+        File.open("/data/note.txt", File::RDONLY | File::TRUNC) { }
+    "#;
+    let Some(answer) = run(
+        script,
+        &[mount(memory.clone(), Access::ReadWrite)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        (
+            answer,
+            contents(memory.as_ref(), "lock"),
+            contents(memory.as_ref(), "note.txt")
+        ),
+        (Ok(String::new()), Vec::new(), Vec::new()),
+        "File.open with CREAT | EXCL of a new path and with RDONLY | TRUNC of a file through the \
+         bundled guest must make the new file empty and empty the file"
+    );
+}
+
+// @behavior FL-033
+#[test]
+fn a_path_holding_a_nul_byte_raises_argument_error() {
+    let Some(answer) = run(
+        r#"File.open("/data/note.txt\0x") { }"#,
+        &[mount(note_memory(), Access::ReadWrite)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Err("ArgumentError".to_string()),
+        "File.open of a path holding a NUL byte through the bundled guest must raise ArgumentError"
+    );
+}
+
 // The values are CRuby's on Linux, so a script built from numbers it saw
 // there opens the same way.
 // @behavior FL-030

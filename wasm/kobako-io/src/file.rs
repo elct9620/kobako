@@ -7,16 +7,17 @@
 //! does for a call its platform lacks. The path helpers (`join`,
 //! `basename`, `dirname`, `extname`) touch nothing and always answer.
 
+use core::ffi::{c_char, c_int};
+use std::ffi::CString;
 use std::fs;
-use std::io::Write;
-use std::os::fd::IntoRawFd;
+use std::io::{self, Write};
 
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, Integer, IntoValue, Mrb, Object, Proc, RArray, RClass, Value};
+use beni::{Error, IntoValue, Mrb, Object, Proc, RArray, RClass, Value};
 
-use crate::io::Stream;
+use crate::io::{argument_error, Stream};
 use crate::stream::with_file;
 use crate::{descriptors, errno};
 
@@ -88,17 +89,13 @@ fn path_arg(mrb: &Mrb, value: Value) -> Result<String, Error> {
             errno::error_by_name(mrb, c"EILSEQ", &path)
         });
     }
-    Err(match mrb.exception_type_error() {
-        Ok(cls) => Error::new(
-            mrb,
-            cls,
-            &format!(
-                "no implicit conversion of {} into String",
-                value.classname(mrb)
-            ),
-        ),
-        Err(err) => err,
-    })
+    Err(errno::type_error(mrb, value))
+}
+
+unsafe extern "C" {
+    /// wasi-libc `open(2)`, which hands the host every flag a mode asks
+    /// for, as `std::fs::OpenOptions` refuses a create without a write.
+    fn open(path: *const c_char, flags: c_int, ...) -> c_int;
 }
 
 fn file_initialize(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<(), Error> {
@@ -107,17 +104,14 @@ fn file_initialize(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<(), Error
     let (path,) = args.required;
     let (mode, _perm) = args.optional;
     let path = path_arg(mrb, path)?;
-    let options = match mode.filter(|v| !v.is_nil()) {
-        Some(mode) => match Integer::from_value(mode) {
-            Some(flags) => mode::from_flags(mrb, flags.to_i64(mrb)?, &path)?,
-            None => mode::from_string(mrb, &path_arg(mrb, mode)?)?,
-        },
-        None => mode::from_string(mrb, "r")?,
-    };
-    let file = options
-        .open(&path)
-        .map_err(|err| errno::from_io(mrb, &err, &path))?;
-    let fd = file.into_raw_fd();
+    let flags = mode::open_flags(mrb, mode, &path)?;
+    let c_path = CString::new(path.as_str())
+        .map_err(|_| argument_error(mrb, "string contains null byte"))?;
+    // SAFETY: `c_path` is NUL-terminated and outlives the call.
+    let fd = unsafe { open(c_path.as_ptr(), flags) };
+    if fd < 0 {
+        return Err(errno::from_io(mrb, &io::Error::last_os_error(), &path));
+    }
     descriptors::remember(fd);
     crate::io::point_at(mrb, self_, fd, Some(path));
     Ok(())

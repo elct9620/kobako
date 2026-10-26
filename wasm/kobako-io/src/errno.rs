@@ -157,7 +157,7 @@ fn sce_errno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     }
 }
 
-fn type_error(mrb: &Mrb, value: Value) -> Error {
+pub(crate) fn type_error(mrb: &Mrb, value: Value) -> Error {
     raised(
         mrb,
         mrb.exception_type_error(),
