@@ -3,9 +3,9 @@
 require "test_helper"
 
 # E2E — what a kobako-io stream carries through real mruby: the descriptor
-# a copy keeps after its original closes, and the bookkeeping a script
-# cannot see. Both need a file of the guest's own, so each runs over a
-# Mount.
+# a copy keeps after its original closes, the access a wrap takes from its
+# descriptor, and the bookkeeping a script cannot see. Most need a file of
+# the guest's own, so they run over a Mount.
 class TestE2EIoState < Minitest::Test
   include E2eGuestHelper
 
@@ -37,6 +37,16 @@ class TestE2EIoState < Minitest::Test
       "built"
     rescue SystemCallError => e
       e.class.to_s
+    end
+  RUBY
+
+  # A guest that wraps a file it opened only to write with no mode, then
+  # with nil, reading and writing through each.
+  WRAP_UNNAMED_SCRIPT = <<~RUBY
+    File.open("/data/note.txt", "w") do |file|
+      [IO.new(file.fileno), IO.new(file.fileno, nil)].map do |io|
+        [io.write("x"), begin; io.read; rescue IOError => e; e.class.to_s; end]
+      end
     end
   RUBY
 
@@ -88,5 +98,25 @@ class TestE2EIoState < Minitest::Test
     assert_equal "Errno::EINVAL", sandbox.eval(WRAP_READ_ONLY_SCRIPT).value,
                  'IO.new with "w" over a file the guest opened only to read through Sandbox#eval must raise ' \
                  "Errno::EINVAL"
+  end
+
+  # @behavior IO-043
+  # CRuby takes the access a descriptor holds when no mode is given, and
+  # stdout holds writing alone; a mode left required would refuse both.
+  def test_an_io_given_no_mode_writes_to_a_captured_descriptor
+    outcome = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval('IO.new(1).write("a"); IO.new(1, nil).write("b")')
+
+    assert_equal "ab", outcome.stdout,
+                 "IO.new(1) and IO.new(1, nil) through Sandbox#eval must write to the stdout capture"
+  end
+
+  # @behavior IO-042
+  # The file holds writing alone, so an IO that takes its descriptor's
+  # access writes and refuses to read; one defaulting to "r" would do the
+  # reverse, and a mode left required would build neither.
+  def test_an_io_given_no_mode_takes_the_access_its_file_holds
+    assert_equal [[1, "IOError"], [1, "IOError"]], sandbox.eval(WRAP_UNNAMED_SCRIPT).value,
+                 "IO.new with no mode and with nil over a file the guest opened only to write through " \
+                 "Sandbox#eval must write and raise IOError on read"
   end
 end

@@ -5,8 +5,8 @@
 # on CRuby and in the guest, so the two answer the same question.
 #
 # ROOT holds, for each mode index i, a file "fI" holding "hello", a
-# directory "dI" holding "keep", nothing at "mI", and a file "iI" for
-# IO.new to wrap.
+# directory "dI" holding "keep", nothing at "mI", a file "iI" for IO.new
+# to wrap, and a file "nI" for IO.new to wrap with no mode.
 
 MODES = [
   ["r", "r"], ["r+", "r+"], ["w", "w"], ["w+", "w+"], ["a", "a"], ["a+", "a+"],
@@ -34,9 +34,12 @@ def matrix_after(path)
   File.read(path).inspect
 end
 
+# Each IO is flushed before the File closes its descriptor, so what it
+# wrote is in the file when the cell looks.
 def matrix_cell(path, mode)
   read, write = File.open(path, mode) do |file|
-    [matrix_attempt { file.read.inspect }, matrix_attempt { file.write("Z") && "ok" }]
+    stream = block_given? ? yield(file) : file
+    [matrix_attempt { stream.read.inspect }, matrix_attempt { stream.write("Z") && stream.flush && "ok" }]
   end
   "read=#{read} write=#{write} after=#{matrix_after(path)}"
 rescue StandardError => e
@@ -45,13 +48,15 @@ end
 
 # CRuby would close the wrapped descriptor again when the IO is collected,
 # so the IO lets it go; the guest's IO never closes what it wraps.
+def matrix_io(descriptor, *mode)
+  io = IO.new(descriptor, *mode)
+  io.autoclose = false if io.respond_to?(:autoclose=)
+  io
+end
+
 def matrix_wrap(path, mode)
   File.open(path) do |wrapped|
-    matrix_attempt do
-      io = IO.new(wrapped.fileno, mode)
-      io.autoclose = false if io.respond_to?(:autoclose=)
-      "built"
-    end
+    matrix_attempt { matrix_io(wrapped.fileno, mode) && "built" }
   end
 end
 
@@ -61,5 +66,6 @@ MODES.each_with_index do |(label, mode), i|
     lines << "#{label} #{state}: #{matrix_cell("#{ROOT}/#{prefix}#{i}", mode)}"
   end
   lines << "#{label} IO.new: #{matrix_wrap("#{ROOT}/i#{i}", mode)}"
+  lines << "#{label} IO.new no mode: #{matrix_cell("#{ROOT}/n#{i}", mode) { |file| matrix_io(file.fileno) }}"
 end
 lines

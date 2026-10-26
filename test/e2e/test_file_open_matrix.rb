@@ -14,7 +14,9 @@ class TestE2EFileOpenMatrix < Minitest::Test
   SCRIPT = "ROOT = \"/data\"\n#{File.read(TestPaths.fixture("file_open_matrix.rb"))}".freeze
   READ_WRITE = File.readlines(TestPaths.fixture("file_open_matrix_linux_rw.txt"), chomp: true).freeze
   READ_ONLY = File.readlines(TestPaths.fixture("file_open_matrix_linux_ro.txt"), chomp: true).freeze
-  SEED = (0..20).flat_map { |i| [["f#{i}", "hello"], ["d#{i}/keep", "keep"], ["i#{i}", "hello"]] }.to_h.freeze
+  SEED = (0..20).flat_map do |i|
+    [["f#{i}", "hello"], ["d#{i}/keep", "keep"], ["i#{i}", "hello"], ["n#{i}", "hello"]]
+  end.to_h.freeze
 
   # Files a host directory holds, each opened as a real ::File.
   class HostFilesystem
@@ -105,7 +107,7 @@ class TestE2EFileOpenMatrix < Minitest::Test
   # raises ENOTSUP; everything before that write answers as CRuby does.
   # @behavior FL-034
   def test_a_ruby_filesystem_answers_as_cruby_does_but_refuses_an_append
-    appends = /\A(a\+?|\S*APPEND\S*) (file|missing): .* write=ok /
+    appends = /\A(a\+?|\S*APPEND\S*) (file|missing|IO\.new no mode): .* write=ok /
     expected = READ_WRITE.map { |line| line.match?(appends) ? line.sub(/ write=ok .*/, " write=Errno::ENOTSUP") : line }
     got = answers(HostFilesystem.new(seeded_root), access: :read_write)
 
