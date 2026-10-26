@@ -5,13 +5,11 @@
 
 ### ⚠ BREAKING CHANGES
 
-* in kobako-transport, YieldReply::Break carries no payload and Reply gains a Break arm, so a Guest Binary built against the earlier version 5 wire must be rebuilt.
 * kobako-codec renames `Decoder::at_end` to `is_at_end`, `Decoder::read_only_value` to `read_sole_value`, and `Decoder::with_value_limit` to `with_value_budget`; the kobako crate renames `handles::Detached` to `handles::DetachedHandles`.
-* the Guest ABI is version 5, so a Guest Binary built against version 4 is refused at Sandbox construction until rebuilt. The Yielder trait of kobako-runtime gains frame and takes the frame in yield_to_block; the Guest trait of kobako-core and the MrbGuest trait of kobako-mruby take the frame in yield_to_block; Downcall::Yield carries frame and args.
+* the Guest ABI is version 5, so a Guest Binary built against version 4 is refused at Sandbox construction until rebuilt. In kobako-transport, Reply gains a Break arm and YieldReply::Break carries no payload. The Yielder trait of kobako-runtime gains frame and takes the frame in yield_to_block; the Guest trait of kobako-core and the MrbGuest trait of kobako-mruby take the frame in yield_to_block; Downcall::Yield carries frame and args.
 * **guest:** kobako-mruby drops the narrow_int method on Kobako, the IntegerOutOfRange type and the Interpreter variant of CodecError; a codec builds a guest Integer from a wire integer through beni's IntoValue.
 * **guest:** the kobako guest crates name beni 0.25's types, so a shell or codec built on them moves to beni 0.25 with them.
-* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer for every integer within 64 bits, where it used to answer a Float past 32 bits. An integer past 64 bits now raises
-* **guest:** the kobako guest crates name beni 0.24's types, so a shell or codec built on them moves to beni 0.24 with them.
+* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer of any width exactly, where it used to answer a Float past 32 bits.
 
 ### Features
 

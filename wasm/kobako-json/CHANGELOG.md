@@ -6,8 +6,7 @@
 ### ⚠ BREAKING CHANGES
 
 * **guest:** the kobako guest crates name beni 0.25's types, so a shell or codec built on them moves to beni 0.25 with them.
-* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer for every integer within 64 bits, where it used to answer a Float past 32 bits. An integer past 64 bits now raises
-* **guest:** the kobako guest crates name beni 0.24's types, so a shell or codec built on them moves to beni 0.24 with them.
+* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer of any width exactly, where it used to answer a Float past 32 bits.
 
 ### Features
 

@@ -5,18 +5,13 @@
 
 ### ⚠ BREAKING CHANGES
 
-* **io:** File.open raises ArgumentError for a mode such as bw, where b leads, or wbt, holding both b and t, as CRuby does, instead of opening the file.
-* **wasmtime:** a call through a directory descriptor answers ENOENT when the directory at its path is not the one it opened, where it used to reach that directory.
 * **wasmtime:** a struct literal no longer builds the wasmtime driver's Config outside its crate; start from `Config::default()` and assign each field.
 * **runtime:** a struct literal no longer builds OpenOptions, Metadata, DirEntry, Snapshot, Capture, or Usage outside kobako-runtime; use their `new` or `Default` and assign each field.
-* the wasmtime Config and the SDK Options gain a setup_timeout field, so a struct literal that names every field must add it; one built from Options::default() is unaffected.
 * **wasmtime:** a Service answer past 16 MiB now raises a Service failure in the guest where it used to raise the transport error, and an answer the host cannot write into guest memory now traps the invocation.
-* the Guest ABI is version 5, so a Guest Binary built against version 4 is refused at Sandbox construction until rebuilt. The Yielder trait of kobako-runtime gains frame and takes the frame in yield_to_block; the Guest trait of kobako-core and the MrbGuest trait of kobako-mruby take the frame in yield_to_block; Downcall::Yield carries frame and args.
+* **wasmtime:** a Guest Binary stalling while an invocation sets it up ends in the deadline's trap, and a cap tripped there keeps its own kind, where it used to hang or trap as a generic failure.
+* the Guest ABI is version 5, so a Guest Binary built against version 4 is refused at Sandbox construction until rebuilt. In kobako-transport, Reply gains a Break arm and YieldReply::Break carries no payload. The Yielder trait of kobako-runtime gains frame and takes the frame in yield_to_block; the Guest trait of kobako-core and the MrbGuest trait of kobako-mruby take the frame in yield_to_block; Downcall::Yield carries frame and args.
 * **io:** putc, IO#read and SystemCallError.new raise RangeError for those numbers instead of writing, refusing or ignoring them.
-* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer for every integer within 64 bits, where it used to answer a Float past 32 bits. An integer past 64 bits now raises
-* **wasmtime:** a struct literal building the wasmtime driver's Config must set the new `open_file_limit` field.
-* **io:** a script writing to a file through `IO#write` beneath a Mount now raises on a failed write where it used to go on.
-* **io:** a script rescuing IOError for a failed read or write beneath a Mount must rescue the EIO error class, or SystemCallError, instead.
+* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer of any width exactly, where it used to answer a Float past 32 bits.
 * **guest:** a Service or Extension backend bound at the path File fails its first invocation, naming the segment the Guest Binary now defines.
 * **runtime:** the Runtime trait's invoke takes the invocation's Grants as a fourth argument, so every engine implementing it must accept them.
 

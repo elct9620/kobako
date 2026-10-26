@@ -7,26 +7,20 @@
 
 * a class's alias or define_method copy of a method mixed into Object or Module is no longer reachable from the guest; define the method on the Service's own class to expose it.
 * a narrowing predicate no longer reaches a method a library mixes into Object or Module; define the method on the Service's own class to expose it.
-* **wasmtime:** a call through a directory descriptor answers ENOENT when the directory at its path is not the one it opened, where it used to reach that directory.
 * **wasmtime:** a struct literal no longer builds the wasmtime driver's Config outside its crate; start from `Config::default()` and assign each field.
 * **runtime:** a struct literal no longer builds OpenOptions, Metadata, DirEntry, Snapshot, Capture, or Usage outside kobako-runtime; use their `new` or `Default` and assign each field.
 * a narrowing predicate no longer reaches a built-in method an object copies, aliases or rebinds, nor a private method it forwards; write the method in Ruby to expose it.
-* the wasmtime Config and the SDK Options gain a setup_timeout field, so a struct literal that names every field must add it; one built from Options::default() is unaffected.
-* in kobako-transport, YieldReply::Break carries no payload and Reply gains a Break arm, so a Guest Binary built against the earlier version 5 wire must be rebuilt.
-* Overlay#layer with an access that is not a Symbol raises ArgumentError, as Sandbox#mount does, instead of TypeError.
 * kobako-codec renames `Decoder::at_end` to `is_at_end`, `Decoder::read_only_value` to `read_sole_value`, and `Decoder::with_value_limit` to `with_value_budget`; the kobako crate renames `handles::Detached` to `handles::DetachedHandles`.
-* **spec:** `Decoder::at_end`, `Decoder::read_only_value`, `Decoder::with_value_limit`, and `kobako::handles::Detached` are registered as `is_at_end`, `read_sole_value`, `with_value_budget`, and `DetachedHandles`.
 * a guest block called from another Thread or Fiber, including through Enumerator#next, raises ThreadError instead of running.
 * a guest payload holding more than memory_limit / 16 values is refused where it used to decode.
-* the Guest ABI is version 5, so a Guest Binary built against version 4 is refused at Sandbox construction until rebuilt. The Yielder trait of kobako-runtime gains frame and takes the frame in yield_to_block; the Guest trait of kobako-core and the MrbGuest trait of kobako-mruby take the frame in yield_to_block; Downcall::Yield carries frame and args.
+* the Guest ABI is version 5, so a Guest Binary built against version 4 is refused at Sandbox construction until rebuilt. In kobako-transport, Reply gains a Break arm and YieldReply::Break carries no payload. The Yielder trait of kobako-runtime gains frame and takes the frame in yield_to_block; the Guest trait of kobako-core and the MrbGuest trait of kobako-mruby take the frame in yield_to_block; Downcall::Yield carries frame and args.
 * **io:** putc, IO#read and SystemCallError.new raise RangeError for those numbers instead of writing, refusing or ignoring them.
 * **guest:** kobako-mruby drops the narrow_int method on Kobako, the IntegerOutOfRange type and the Interpreter variant of CodecError; a codec builds a guest Integer from a wire integer through beni's IntoValue.
 * **guest:** the kobako guest crates name beni 0.25's types, so a shell or codec built on them moves to beni 0.25 with them.
-* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer for every integer within 64 bits, where it used to answer a Float past 32 bits. An integer past 64 bits now raises
-* **guest:** the kobako guest crates name beni 0.24's types, so a shell or codec built on them moves to beni 0.24 with them.
+* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer of any width exactly, where it used to answer a Float past 32 bits.
 * **io:** reading `IO#sync` after assigning a non-boolean now answers true or false. It used to answer the assigned value, and nil used to read back as true.
-* **io:** a script writing to a file through `IO#write` beneath a Mount now raises on a failed write where it used to go on.
-* **io:** a script rescuing IOError for a failed read or write beneath a Mount must rescue the EIO error class, or SystemCallError, instead.
+* **wasmtime:** a Service answer past 16 MiB now raises a Service failure in the guest where it used to raise the transport error, and an answer the host cannot write into guest memory now traps the invocation.
+* **wasmtime:** a Guest Binary stalling while an invocation sets it up ends in Kobako::TimeoutError, and a cap tripped there raises its own error, where it used to hang or trap as a generic failure.
 * **guest:** a Service or Extension backend bound at the path File fails its first invocation, naming the segment the Guest Binary now defines.
 * **runtime:** the Runtime trait's invoke takes the invocation's Grants as a fourth argument, so every engine implementing it must accept them.
 * Sandbox#bind and the Rust SDK's bind raise ArgumentError for a path whose first segment is Kobako, where a path such as Kobako::KV used to bind.
@@ -42,6 +36,7 @@
 * **guest:** carry mruby-bigint so an Integer has no width of its own ([a74266d](https://github.com/elct9620/kobako/commit/a74266d3e7b1295b75770b62894b232195f9b3bb))
 * **guest:** ship File in the default Guest Binary over the filesystem Grants ([535527b](https://github.com/elct9620/kobako/commit/535527b2c6beb82fe37758df62c3804ce5c7191a)), closes [#78](https://github.com/elct9620/kobako/issues/78)
 * **guest:** widen the guest Integer to 64 bits ([7236a26](https://github.com/elct9620/kobako/commit/7236a26285dfdef175048f659c1094dd3bbb5b4d))
+* **io:** answer File and IO beneath a Mount as CRuby does on Linux: an Integer mode of `File::Constants` at CRuby's Linux values, `wx` for an exclusive create, `IO.new` over a guest file with or without a mode, `IO#pos=`, and the Errno classes EFBIG, EDEADLK, EXDEV, ENAMETOOLONG, and EMFILE ([e1f484c](https://github.com/elct9620/kobako/commit/e1f484c713df4d894744833836cf9a29ba9677ee), [14cadd8](https://github.com/elct9620/kobako/commit/14cadd88ac5a5dcb8f73b252b68c493488b3e78a), [6d50ca4](https://github.com/elct9620/kobako/commit/6d50ca4d79b70956d113f0798255300aa8a7fe92), [56c5665](https://github.com/elct9620/kobako/commit/56c5665e4c87ac30b8035aaed207ce840efad25c), [db3402c](https://github.com/elct9620/kobako/commit/db3402cd5c9c67ae48fb0363e1153a76acc55c17), [df26095](https://github.com/elct9620/kobako/commit/df26095c681704cef0a8249c8b30797957fb8bd0), [77669cc](https://github.com/elct9620/kobako/commit/77669ccd958ea9518e69b50670f2804d66c9e1c5), [1802d5a](https://github.com/elct9620/kobako/commit/1802d5a32618f33cc189e24f0de4dbfda074e3db), [b8ea9cd](https://github.com/elct9620/kobako/commit/b8ea9cdb6ecab7adae7f5487cffdb57889bfbbb5), [8a090e6](https://github.com/elct9620/kobako/commit/8a090e6f6949ec8019743d903c712e122d7743f9), [dbed1ce](https://github.com/elct9620/kobako/commit/dbed1ce20eed6c6f1b6715f70431f0f6a7012e9e), [7679a6f](https://github.com/elct9620/kobako/commit/7679a6feb0fce0b00c89f36ed33bd5d872f86abe), [67876a7](https://github.com/elct9620/kobako/commit/67876a78764f8afe1b11167471d3d94e81c92af1))
 * **json:** read and write an Integer of any width exactly ([c839ad0](https://github.com/elct9620/kobako/commit/c839ad0401b1e2f6a6f8c0689d6cd7ed7c4885b3))
 * let a block's break or return unwind a Service as a plain method ([4e9eca0](https://github.com/elct9620/kobako/commit/4e9eca05f1647c8b6409fc00d08317b431c0c648))
 * let a Host App bound how long a Guest Binary takes to be set up ([2addab0](https://github.com/elct9620/kobako/commit/2addab002550539e3ebb24bdd599dd424c2dc3d9))
@@ -75,6 +70,7 @@
 * append through a Filesystem's file only in one step ([0509ca7](https://github.com/elct9620/kobako/commit/0509ca70d2d5a832303973ba0f7280be0731fd3d))
 * ask a mount's block once for a read ([f89bd16](https://github.com/elct9620/kobako/commit/f89bd16c1a71ed1d385ab9d3ac5974ac3f0a9103))
 * **deps:** require a msgpack without the Buffer#clear use-after-free ([46638db](https://github.com/elct9620/kobako/commit/46638db4ca5b893843558aa4430ff31f966258aa))
+* **deps:** require an lru whose pop survives a panicking key ([ab837f3](https://github.com/elct9620/kobako/commit/ab837f3cdd0fc0356d3ae7ce2b7c1f595d4cd6f3))
 * end the run when a host callback raises beyond StandardError ([bb96c87](https://github.com/elct9620/kobako/commit/bb96c87dbb1d7337d2478376e9b8366d5a298e1f))
 * follow no link swapped in after a Policy judges a path ([ed93213](https://github.com/elct9620/kobako/commit/ed9321303dd45e113fc413e99e1240118cc4bbe4))
 * **guest:** name the segment a bind path meets when the Guest Binary already defines it ([0dc1766](https://github.com/elct9620/kobako/commit/0dc1766ff60a1ef03a5b0c337dfd02041fb3fb8f))
@@ -133,7 +129,10 @@
 * **wasmtime:** answer dot paths, creates, and far seeks as Linux does ([68c234e](https://github.com/elct9620/kobako/commit/68c234e06859b93fb986bdbab92cca944ce39700))
 * **wasmtime:** answer every preview1 call that reads a descriptor from kobako's own table ([d0e39ae](https://github.com/elct9620/kobako/commit/d0e39aebd6d729d49111340af7f2af4e37aa7909)), closes [#78](https://github.com/elct9620/kobako/issues/78)
 * **wasmtime:** answer fd_allocate beneath a Mount as unsupported ([e3d2071](https://github.com/elct9620/kobako/commit/e3d20713e4474cd637dacfece99e52b80d7ad2f6))
+* **wasmtime:** answer a Call the host cannot serve with the reason ([cf60dcc](https://github.com/elct9620/kobako/commit/cf60dccc63a0d0cfc959f701b7212c78beafa528))
 * **wasmtime:** bound what one preview1 call copies to wasmtime's hostcall fuel ([097c554](https://github.com/elct9620/kobako/commit/097c55426c1e71467bb1e372abc190331dd3e601))
+* **wasmtime:** give each writer of a cached artifact its own temp file ([995a46e](https://github.com/elct9620/kobako/commit/995a46e99dc1c485a303bb7f023b4e668a2801a3))
+* **wasmtime:** grant the compile instance no ambient authority ([c3edc71](https://github.com/elct9620/kobako/commit/c3edc71ab99dac57cbabfc685a7cc60a5a5c06ac))
 * **wasmtime:** check path_open's flags as wasmtime-wasi does ([22eb494](https://github.com/elct9620/kobako/commit/22eb4944117260831e92fe616b02888078c02b0c))
 * **wasmtime:** hold the whole invocation to its deadline ([231e325](https://github.com/elct9620/kobako/commit/231e32592699008adf3105050bee8b5528ea27a8))
 * **wasmtime:** judge the cache directory itself, not where a link leads ([6baf6fd](https://github.com/elct9620/kobako/commit/6baf6fd2ad845cea83049c4b2bb51174aa205cd0))
@@ -152,7 +151,9 @@
 * **wasmtime:** require wasmtime 49.0.4 for the aarch64 br_table fix ([390e30b](https://github.com/elct9620/kobako/commit/390e30ba51ed4175820f2bb230e3ad5b0ad1e9a5))
 * **wasmtime:** resolve a `..` and a trailing slash as a host does ([d2d04c1](https://github.com/elct9620/kobako/commit/d2d04c1fff24d8829b2cf4fcbf628565f35eeadc))
 * **wasmtime:** resolve a link a stat names with a trailing slash ([6da98fa](https://github.com/elct9620/kobako/commit/6da98facbccaa9bf6d8f8280a56841e19a7c879b))
+* **wasmtime:** sync a cached artifact before renaming it into place ([097efc7](https://github.com/elct9620/kobako/commit/097efc77599545bb2a5e729c75d23082470ed8f4))
 * **wasmtime:** take wasmtime 49.0.3 for its sandbox advisories ([7672592](https://github.com/elct9620/kobako/commit/76725923cac50473c7e3a21cc5121e3cbba0cba5))
+* **wasmtime:** trap a guest field address past the address space ([de5d47e](https://github.com/elct9620/kobako/commit/de5d47e10aa5d978573e46a7cb3453ff248d006e))
 
 
 ### Documentation

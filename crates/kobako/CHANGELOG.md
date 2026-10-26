@@ -8,12 +8,9 @@
 * **sdk:** a struct literal, including one ending in `..Options::default()`, no longer builds Options; assign each field after `Options::default()` instead.
 * **wasmtime:** a struct literal no longer builds the wasmtime driver's Config outside its crate; start from `Config::default()` and assign each field.
 * **runtime:** a struct literal no longer builds OpenOptions, Metadata, DirEntry, Snapshot, Capture, or Usage outside kobako-runtime; use their `new` or `Default` and assign each field.
-* the wasmtime Config and the SDK Options gain a setup_timeout field, so a struct literal that names every field must add it; one built from Options::default() is unaffected.
-* in kobako-transport, YieldReply::Break carries no payload and Reply gains a Break arm, so a Guest Binary built against the earlier version 5 wire must be rebuilt.
 * kobako-codec renames `Decoder::at_end` to `is_at_end`, `Decoder::read_only_value` to `read_sole_value`, and `Decoder::with_value_limit` to `with_value_budget`; the kobako crate renames `handles::Detached` to `handles::DetachedHandles`.
 * a guest payload holding more than memory_limit / 16 values is refused where it used to decode.
-* the Guest ABI is version 5, so a Guest Binary built against version 4 is refused at Sandbox construction until rebuilt. The Yielder trait of kobako-runtime gains frame and takes the frame in yield_to_block; the Guest trait of kobako-core and the MrbGuest trait of kobako-mruby take the frame in yield_to_block; Downcall::Yield carries frame and args.
-* **sdk:** a struct literal building the SDK's Options must set the new `open_file_limit` field, or take the rest from
+* the Guest ABI is version 5, so a Guest Binary built against version 4 is refused at Sandbox construction until rebuilt. In kobako-transport, Reply gains a Break arm and YieldReply::Break carries no payload. The Yielder trait of kobako-runtime gains frame and takes the frame in yield_to_block; the Guest trait of kobako-core and the MrbGuest trait of kobako-mruby take the frame in yield_to_block; Downcall::Yield carries frame and args.
 * **guest:** a Service or Extension backend bound at the path File fails its first invocation, naming the segment the Guest Binary now defines.
 * **runtime:** the Runtime trait's invoke takes the invocation's Grants as a fourth argument, so every engine implementing it must accept them.
 * Sandbox#bind and the Rust SDK's bind raise ArgumentError for a path whose first segment is Kobako, where a path such as Kobako::KV used to bind.

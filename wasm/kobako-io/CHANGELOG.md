@@ -5,15 +5,10 @@
 
 ### ⚠ BREAKING CHANGES
 
-* **io:** IO#seek in the guest raises Errno::EINVAL instead of ArgumentError for a negative offset from the start or an unknown whence.
-* **io:** File.open raises ArgumentError for a mode such as bw, where b leads, or wbt, holding both b and t, as CRuby does, instead of opening the file.
 * **io:** putc, IO#read and SystemCallError.new raise RangeError for those numbers instead of writing, refusing or ignoring them.
 * **guest:** the kobako guest crates name beni 0.25's types, so a shell or codec built on them moves to beni 0.25 with them.
-* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer for every integer within 64 bits, where it used to answer a Float past 32 bits. An integer past 64 bits now raises
-* **guest:** the kobako guest crates name beni 0.24's types, so a shell or codec built on them moves to beni 0.24 with them.
+* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer of any width exactly, where it used to answer a Float past 32 bits.
 * **io:** reading `IO#sync` after assigning a non-boolean now answers true or false. It used to answer the assigned value, and nil used to read back as true.
-* **io:** a script writing to a file through `IO#write` beneath a Mount now raises on a failed write where it used to go on.
-* **io:** a script rescuing IOError for a failed read or write beneath a Mount must rescue the EIO error class, or SystemCallError, instead.
 * **guest:** a Service or Extension backend bound at the path File fails its first invocation, naming the segment the Guest Binary now defines.
 
 ### Features
