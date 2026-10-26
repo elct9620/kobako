@@ -217,7 +217,7 @@ The guest's `File.open` takes a mode String such as `"r"`, `"w+"`, or `"wx"`, or
 |---|---|
 | nothing is mounted | raises `NotImplementedError` |
 | the path is beneath a mount | reaches its Filesystem |
-| `x` or `File::EXCL` meets a file already there | raises `Errno::EEXIST` |
+| `x` or `File::CREAT \| File::EXCL` meets a file already there | raises `Errno::EEXIST` |
 | an Integer mode holds a flag kobako does not honor | raises `Errno::EINVAL` |
 | `disable_file` is set | `File` is not defined |
 
