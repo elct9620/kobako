@@ -163,7 +163,7 @@ mod linux {
     mod tests {
         use cap_std::ambient_authority;
 
-        use super::super::listed;
+        use super::super::stored_name_by_listing;
         use super::Dir;
 
         // A Linux host whose filesystem is not known to match exactly,
