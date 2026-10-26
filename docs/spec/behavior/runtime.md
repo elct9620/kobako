@@ -1518,3 +1518,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file opened without the right to read, and one without the right to write |
 | When | the guest reads or writes each with a buffer outside its memory |
 | Then | fd_read and both writes trap, while fd_pread answers EBADF, as wasmtime-wasi does |
+
+## `RT-145` A link swapped in after a Policy judges a path is not followed
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-101` |
+| relates | `FS-099` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory Mount whose Policy allows one directory and refuses another |
+| When | another writer swaps the allowed directory for a link as the Policy judges |
+| Then | the open answers ELOOP and reads nothing the Policy refused |

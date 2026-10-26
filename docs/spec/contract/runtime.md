@@ -446,6 +446,18 @@ pub trait Filesystem {
 }
 ```
 
+## `Filesystem::for_policy`
+
+The Filesystem a Mount with a Policy hands its calls in this one's place.
+It follows no link on any path, so a call reaches only the path the Policy
+judged. A Filesystem holding no links answers `None`.
+
+```rust
+pub trait Filesystem {
+    fn for_policy(&self) -> Option<Arc<dyn Filesystem>>;
+}
+```
+
 ## `Filesystem::hold_directory`
 
 Keep a directory's identity its own while a descriptor has it open. A

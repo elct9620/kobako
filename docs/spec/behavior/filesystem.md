@@ -1220,3 +1220,27 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay Layer holding a directory with a link inside it and one leading out |
 | When | each link's path is resolved beneath that directory |
 | Then | the inner link resolves to where it leads, and the outer one is not permitted |
+
+## `FS-099` A Directory for a Policy follows no link on a path
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-047` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory for a Policy, holding a link to a directory |
+| When | a path through the link is opened, and the link itself is listed |
+| Then | each is a link loop |
+
+## `FS-100` An Overlay for a Policy follows no link in any Layer
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-099` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay for a Policy whose Directory Layer holds a link to a directory |
+| When | a path through the link is opened |
+| Then | the open is a link loop |
