@@ -408,13 +408,25 @@ fn an_exclusive_open_without_create_makes_no_file() {
     );
 }
 
-// 2 is wasi-libc's O_DSYNC, a flag the libc knows but kobako does not
-// honor, so ignoring it would open differently than CRuby.
+// 0o4000 is CRuby's `NONBLOCK` on Linux, a flag kobako does not honor, so
+// ignoring it would open differently than CRuby. `WRONLY | RDWR` names
+// no access mode on Linux.
 // @behavior FL-029
 #[test]
 fn an_integer_mode_with_a_flag_file_constants_lacks_raises_einval() {
+    let script = r#"
+        answers = [File::RDONLY | 0o4000, File::WRONLY | File::RDWR].map do |mode|
+          begin
+            File.open("/data/note.txt", mode) { }
+            "opened"
+          rescue => e
+            e.class.to_s
+          end
+        end
+        print answers.join(",")
+    "#;
     let Some(answer) = run(
-        r#"File.open("/data/note.txt", File::RDONLY | 2) { }"#,
+        script,
         &[mount(note_memory(), Access::ReadWrite)],
         Vec::new(),
     ) else {
@@ -422,14 +434,44 @@ fn an_integer_mode_with_a_flag_file_constants_lacks_raises_einval() {
     };
     assert_eq!(
         answer,
-        Err("Errno::EINVAL".to_string()),
-        "File.open with a mode bit no File::Constants flag names through the bundled guest must \
-         raise Errno::EINVAL"
+        Ok("Errno::EINVAL,Errno::EINVAL".to_string()),
+        "File.open with a mode bit no File::Constants flag names, or with WRONLY beside RDWR, \
+         through the bundled guest must raise Errno::EINVAL"
     );
 }
 
-// The values are wasi-libc's `O_*`, so a flag means what the libc
-// beneath the guest takes it to mean.
+// CRuby's `RDONLY` is zero, so beside `WRONLY` it asks nothing more.
+// @behavior FL-031
+#[test]
+fn rdonly_beside_wronly_opens_to_write_only() {
+    let memory = note_memory();
+    let script = r#"
+        File.open("/data/note.txt", File::RDONLY | File::WRONLY) do |file|
+          file.write("J")
+          begin
+            file.read
+          rescue IOError => e
+            print e.class
+          end
+        end
+    "#;
+    let Some(answer) = run(
+        script,
+        &[mount(memory.clone(), Access::ReadWrite)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        (answer, contents(memory.as_ref(), "note.txt")),
+        (Ok("IOError".to_string()), b"Jello\nworld\n".to_vec()),
+        "File.open with RDONLY | WRONLY through the bundled guest must write and raise IOError \
+         on a read"
+    );
+}
+
+// The values are CRuby's on Linux, so a script built from numbers it saw
+// there opens the same way.
 // @behavior FL-030
 #[test]
 fn file_constants_names_the_flags_an_open_honors() {
@@ -443,13 +485,9 @@ fn file_constants_names_the_flags_an_open_honors() {
     };
     assert_eq!(
         answer,
-        Ok(
-            "APPEND=1,CREAT=4096,EXCL=16384,RDONLY=67108864,RDWR=335544320,TRUNC=32768,\
-            WRONLY=268435456 true"
-                .to_string()
-        ),
+        Ok("APPEND=1024,CREAT=64,EXCL=128,RDONLY=0,RDWR=2,TRUNC=512,WRONLY=1 true".to_string()),
         "File::Constants in the bundled guest must name the seven flags an open honors at \
-         wasi-libc's values, and IO must include it"
+         CRuby's Linux values, and IO must include it"
     );
 }
 

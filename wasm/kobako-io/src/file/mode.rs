@@ -8,14 +8,14 @@ use beni::{Error, Module, Mrb, RClass};
 use crate::errno;
 use crate::io::argument_error;
 
-// wasi-libc's `O_*` values, as CRuby's own differ by platform.
-const RDONLY: i64 = 0x0400_0000;
-const WRONLY: i64 = 0x1000_0000;
-const RDWR: i64 = RDONLY | WRONLY;
-const CREAT: i64 = 1 << 12;
-const EXCL: i64 = 4 << 12;
-const TRUNC: i64 = 8 << 12;
-const APPEND: i64 = 1;
+// CRuby's values on Linux, the platform a script most likely assumes.
+const RDONLY: i64 = 0;
+const WRONLY: i64 = 1;
+const RDWR: i64 = 2;
+const CREAT: i64 = 0o100;
+const EXCL: i64 = 0o200;
+const TRUNC: i64 = 0o1000;
+const APPEND: i64 = 0o2000;
 
 /// The flags an open honors, each named as `File::Constants` names it.
 const FLAGS: [(&CStr, i64); 7] = [
@@ -37,18 +37,24 @@ pub(super) fn define_constants(mrb: &Mrb, file: RClass, io: RClass) -> Result<()
     io.include_module(mrb, constants)
 }
 
-/// An Integer mode of `File::Constants` flags. A bit no flag names raises
-/// `EINVAL` rather than opening differently than CRuby would, and a mode
-/// with no access flag reads, as CRuby's zero `RDONLY` does.
+/// An Integer mode of `File::Constants` flags. A bit no flag names, or
+/// `WRONLY` beside `RDWR`, raises `EINVAL` rather than opening differently
+/// than CRuby would.
 pub(super) fn from_flags(mrb: &Mrb, flags: i64, path: &str) -> Result<OpenOptions, Error> {
-    if flags & !(RDWR | CREAT | EXCL | TRUNC | APPEND) != 0 {
+    let named = FLAGS.iter().fold(0, |named, (_, flag)| named | flag);
+    let (read, write) = match flags & (WRONLY | RDWR) {
+        RDONLY => (true, false),
+        WRONLY => (false, true),
+        RDWR => (true, true),
+        _ => return Err(errno::error_by_name(mrb, c"EINVAL", path)),
+    };
+    if flags & !named != 0 {
         return Err(errno::error_by_name(mrb, c"EINVAL", path));
     }
     let has = |flag| flags & flag == flag;
-    let write = has(WRONLY);
     let mut options = OpenOptions::new();
     options
-        .read(has(RDONLY) || !write)
+        .read(read)
         .write(write)
         .append(write && has(APPEND))
         .create(has(CREAT))
