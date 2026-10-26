@@ -65,9 +65,10 @@ pub(crate) struct OpenFile {
     pub(crate) append: bool,
     pub(crate) readable: bool,
     pub(crate) writable: bool,
-    /// Whether its Mount allows writes at all, which a wait to write answers
-    /// by, as wasmtime-wasi answers it by its preopen's permissions.
-    pub(crate) mount_writable: bool,
+    /// The Mount it was opened beneath, whose permission to write answers a
+    /// wait to write and a resize, as wasmtime-wasi answers both by its
+    /// preopen's permissions.
+    pub(crate) mount: Arc<Mount>,
 }
 
 pub(crate) struct Descriptors {

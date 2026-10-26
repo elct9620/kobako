@@ -293,7 +293,7 @@ pub(crate) fn filestat_get(
 /// `ftruncate` does.
 pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> Answer {
     let file = file(table, fd)?;
-    if !file.mount_writable {
+    if !file.mount.allows_writes() {
         return Err(Errno::Perm.into());
     }
     if !file.writable {
@@ -592,7 +592,10 @@ fn write_channel(pipe: &mut MemoryOutputPipe, bytes: &[u8]) -> Answer<usize> {
 mod tests {
     //! Witness that renumbering onto an open file closes it as `fd_close`
     //! does, so its Filesystem learns of the close and may refuse it.
-    use kobako_runtime::filesystem::{File, FilesystemError, Metadata};
+    use std::sync::Arc;
+
+    use kobako_runtime::filesystem::{Access, File, FilesystemError, Memory, Metadata};
+    use kobako_runtime::mount::Mount;
     use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
     use super::renumber;
@@ -635,7 +638,10 @@ mod tests {
             append: false,
             readable: true,
             writable: false,
-            mount_writable: false,
+            mount: Arc::new(
+                Mount::new("/data", Arc::new(Memory::new()), Access::Read)
+                    .expect("/data is a guest path"),
+            ),
         })
     }
 

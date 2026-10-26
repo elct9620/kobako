@@ -173,10 +173,18 @@ impl Errno {
 }
 
 /// A call that did not succeed. preview1 traps rather than answering
-/// for a pointer outside guest memory, as wasmtime-wasi does.
+/// for a pointer outside guest memory or an argument outside what the
+/// witx defines, as wasmtime-wasi does.
 pub(crate) enum Failure {
     Errno(Errno),
     Trap(wasmtime::Error),
+}
+
+impl Failure {
+    /// A trap saying what the guest handed over that preview1 cannot hold.
+    pub(crate) fn trap(message: &'static str) -> Self {
+        Self::Trap(wasmtime::Error::msg(message))
+    }
 }
 
 impl From<Errno> for Failure {

@@ -4,10 +4,6 @@
 
 use super::errno::{Answer, Errno, Failure};
 
-fn undefined(what: &'static str) -> Failure {
-    Failure::Trap(wasmtime::Error::msg(what))
-}
-
 /// The bits of `fdflags`.
 pub(crate) const FDFLAGS: u64 = 0x1f;
 /// The bits of `rights`.
@@ -36,14 +32,14 @@ pub(crate) const WHENCE_MAX: u32 = 2;
 
 pub(crate) fn flags(value: impl Into<u64>, defined: u64) -> Answer {
     if value.into() & !defined != 0 {
-        return Err(undefined("flags value outside what the witx defines"));
+        return Err(Failure::trap("flags value outside what the witx defines"));
     }
     Ok(())
 }
 
 pub(crate) fn variant(value: u32, max: u32) -> Answer {
     if value > max {
-        return Err(undefined("enum value outside what the witx defines"));
+        return Err(Failure::trap("enum value outside what the witx defines"));
     }
     Ok(())
 }

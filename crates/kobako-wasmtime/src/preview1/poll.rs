@@ -108,7 +108,7 @@ fn read_subscription(invocation: &Invocation, mem: &GuestMemory, sub: u32) -> An
         },
         TAG_FD_WRITE => match descriptor(invocation, mem, sub)? {
             Descriptor::Channel(_) => Kind::FdWrite,
-            Descriptor::File(file) if file.mount_writable => Kind::FdWrite,
+            Descriptor::File(file) if file.mount.allows_writes() => Kind::FdWrite,
             Descriptor::File(_) => return Err(Errno::Perm.into()),
             Descriptor::Stdin(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },

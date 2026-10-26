@@ -8,12 +8,8 @@ use std::ops::Range;
 use super::beneath::PATH_MAX;
 use super::errno::{Answer, Errno, Failure};
 
-fn trap(message: &'static str) -> Failure {
-    Failure::Trap(wasmtime::Error::msg(message))
-}
-
 fn out_of_bounds() -> Failure {
-    trap("pointer out of bounds of guest memory")
+    Failure::trap("pointer out of bounds of guest memory")
 }
 
 /// The most of the guest's memory one call may have the host copy or
@@ -54,7 +50,7 @@ impl<'a> GuestMemory<'a> {
     /// Hold `ptr` to the alignment of the struct or integer it points at.
     pub(crate) fn check_aligned(ptr: u32, align: u32) -> Answer {
         if !ptr.is_multiple_of(align) {
-            return Err(trap("pointer not aligned for what it points at"));
+            return Err(Failure::trap("pointer not aligned for what it points at"));
         }
         Ok(())
     }

@@ -270,7 +270,7 @@ pub(crate) fn open(
                 append: flags.fdflags & FDFLAGS_APPEND != 0,
                 readable: read,
                 writable: write,
-                mount_writable: mount.allows_writes(),
+                mount,
             })
         }
     };

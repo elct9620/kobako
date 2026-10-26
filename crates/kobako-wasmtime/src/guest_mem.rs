@@ -1,6 +1,7 @@
-//! Guest linear-memory I/O for every host↔guest buffer handoff, whether
-//! the invocation body drives it through its `Store` or a host import
-//! drives it through its `Caller`.
+//! Guest linear-memory I/O for the ABI's buffer handoffs, whether the
+//! invocation body drives one through its `Store` or a dispatch or yield
+//! import drives one through its `Caller`. preview1 reads and writes its
+//! arguments through its own `GuestMemory`.
 //!
 //! The two shared steps answer an error kind, and each caller words it,
 //! because depth decides what the same problem means: before the export
