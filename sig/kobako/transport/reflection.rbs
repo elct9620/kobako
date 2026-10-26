@@ -10,11 +10,13 @@ module Kobako
 
       private
 
+      def self.ambient_copy?: (UnboundMethod method) -> bool
+
       def self.ambient_refusal: (untyped target, Symbol name) -> String?
 
       def self.defined_refusal: (untyped target, Symbol name, Module klass) -> String?
 
-      def self.written_in_ruby?: (untyped target, Symbol name, UnboundMethod method, Module klass) -> bool
+      def self.authored_for?: (untyped target, Symbol name, UnboundMethod method, Module klass) -> bool
 
       def self.refused: (Symbol name) -> String
 

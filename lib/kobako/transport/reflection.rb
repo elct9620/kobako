@@ -27,16 +27,29 @@ module Kobako
       end
 
       # Whether +method+ is written in Ruby rather than built into the
-      # platform. A native method has no source, and a built-in one names an
-      # +<internal:>+ file, so a copy, alias or rebinding of either keeps
-      # that mark wherever it is reached from.
+      # platform or copied from the surface every object shares. A native
+      # method has no source, and a built-in one names an +<internal:>+ file,
+      # so a copy, alias or rebinding of either keeps that mark wherever it
+      # is reached from.
       def self.authored?(method)
         file, = method.source_location
-        !file.nil? && !file.start_with?("<internal:")
+        !file.nil? && !file.start_with?("<internal:") && !ambient_copy?(method)
       end
 
       class << self
         private
+
+        # Whether +method+ is a copy, alias or rebinding of a Ruby method
+        # +Class+ inherits, such as the +name!+ alias OpenStruct makes of a
+        # mixed-in +try+. The copy is owned by the class that made it, but
+        # keeps the original's name and source.
+        def ambient_copy?(method)
+          name = method.original_name
+          Class.ancestors.any? do |owner|
+            (owner.method_defined?(name, false) || owner.private_method_defined?(name, false)) &&
+              owner.instance_method(name).source_location == method.source_location
+          end
+        end
 
         # Guard against ambient reflection methods. A public method whose
         # owner +Class+ inherits or a GADGET_OWNERS module — or a singleton
@@ -56,10 +69,10 @@ module Kobako
         # which resolves through the +respond_to?+ opt-in, never by naming
         # +method_missing+.
         #
-        # A public method must also be written in Ruby, so a Service narrowing
-        # itself never reaches a built-in method by a copy, alias or rebinding
-        # an owner list cannot see; a non-public one is never reached through
-        # a dynamic opt-in either.
+        # A public method must also be authored, so a Service narrowing itself
+        # never reaches a built-in or ambient method by a copy, alias or
+        # rebinding an owner check cannot see; a non-public one is never
+        # reached through a dynamic opt-in either.
         #
         # A name with no method never reaches +instance_method+, which would
         # keep a guest-chosen name as a Symbol for the life of the process.
@@ -77,12 +90,12 @@ module Kobako
         def defined_refusal(target, name, klass)
           method = klass.instance_method(name)
           owner_refusal(target, name, method.owner) ||
-            (written_in_ruby?(target, name, method, klass) ? nil : refused(name))
+            (authored_for?(target, name, method, klass) ? nil : refused(name))
         end
 
         # A bound callable keeps its callable names and a record its member
         # readers, though the platform defines both.
-        def written_in_ruby?(target, name, method, klass)
+        def authored_for?(target, name, method, klass)
           return true if Reflection.authored?(method)
           return true if GADGET_OWNERS.include?(method.owner) && CALLABLE_ALLOW.include?(name)
 
