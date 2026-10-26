@@ -211,7 +211,7 @@ A block decides each open and each change in the access's place; a falsy answer 
 
 #### Guest File
 
-The guest's `File.open` takes a mode String such as `"r"`, `"w+"`, or `"wx"`, or an Integer of `File::Constants` flags. An exclusive create lets Sandboxes sharing a directory agree on a lock file. The critical flag `disable_file` removes `File` from the guest altogether.
+The guest's `File.open` takes a mode String such as `"r"`, `"w+"`, or `"wx"`, or an Integer of `File::Constants` flags, valued as CRuby's on Linux. An exclusive create lets Sandboxes sharing a directory agree on a lock file. The critical flag `disable_file` removes `File` from the guest altogether.
 
 | When | `File.open` in the guest |
 |---|---|
