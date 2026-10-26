@@ -1,7 +1,6 @@
 module Kobako
   module Transport
     module Reflection
-      META_OWNERS: Array[Module]
       GADGET_OWNERS: Array[Module]
       CALLABLE_ALLOW: Array[Symbol]
 

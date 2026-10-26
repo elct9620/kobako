@@ -27,7 +27,7 @@ feature that specifies it.
 | Guarantee | Specified in |
 |---|---|
 | a bound object exposes only what it defines itself | [transport-boundary](../spec/behavior/transport-boundary.md) |
-| reflection and eval never cross, whatever an object permits | [transport-boundary](../spec/behavior/transport-boundary.md) |
+| reflection, eval, and methods mixed into every object never cross, whatever an object permits | [transport-boundary](../spec/behavior/transport-boundary.md) |
 | the guest cannot forge or dereference a Handle | [transport-boundary](../spec/behavior/transport-boundary.md) |
 | each invocation starts from the same boot state | [sandbox](../spec/behavior/sandbox.md) |
 | a binding belongs to its own Sandbox | [services](../spec/behavior/services.md) |
@@ -159,7 +159,9 @@ Service but reads nothing. That is the bearer-token shape a credential wants.
 Answer `true` for a subset, such as `name == :public_id`, to expose exactly those.
 The predicate chooses among the methods written in Ruby and the names the object
 answers dynamically. A method built into Ruby stays refused, however it was reached.
-Keep the predicate private all the same. The rules
+So does one a library mixes into every object, such as ActiveSupport's `try` or
+`to_json`; define a Service's own `to_json` to expose one. Keep the predicate
+private all the same. The rules
 live in [transport-boundary](../spec/behavior/transport-boundary.md).
 
 ```ruby

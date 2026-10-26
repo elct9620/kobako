@@ -3,17 +3,6 @@
 module Kobako
   module Transport
     module Reflection # :nodoc:
-      # Modules whose instance methods are ambient Ruby reflection /
-      # metaprogramming surface (+send+, +public_send+, +instance_eval+,
-      # +method+, +tap+, +instance_variable_get+, ...) rather than Service
-      # behaviour. A guest-supplied method name resolving to one of these is
-      # rejected: only methods the bound object itself exposes as Service
-      # behaviour are reachable, and +public_send(:send, ...)+ would
-      # otherwise let a guest pivot through +send+ into the private
-      # +Kernel#eval+ / +#system+ surface (host RCE).
-      META_OWNERS = [BasicObject, Kernel, Object, Module, Class].freeze
-      private_constant :META_OWNERS
-
       # Callable gadget types whose own public methods are reflection surface
       # (+Proc#binding+ reaches +Binding#eval+, +Method#receiver+ / +#unbind+
       # hand back the underlying object) rather than Service behaviour. Only
@@ -50,7 +39,7 @@ module Kobako
         private
 
         # Guard against ambient reflection methods. A public method whose
-        # owner is a META_OWNERS or GADGET_OWNERS module — or a singleton
+        # owner +Class+ inherits or a GADGET_OWNERS module — or a singleton
         # class, the owner of every class-level method (+File.popen+ /
         # +Kernel.system+, unreachable via any fixed core-module list) — is
         # rejected, except CALLABLE_ALLOW on a gadget target (a bound lambda
@@ -120,10 +109,15 @@ module Kobako
           target.class
         end
 
-        # A plain object's own singleton method (+def obj.x+) stays reachable,
-        # since only a Module target counts its singleton class as ambient.
+        # Whatever +Class+ inherits is surface every object shares rather
+        # than Service behaviour: the reflection +BasicObject+ through +Class+
+        # define (+send+ pivots into +Kernel#eval+, a host RCE), and every
+        # module a library mixes into them, such as a +try+ dispatching by
+        # name or a +to_json+ dumping instance variables. A plain object's
+        # own singleton method (+def obj.x+) stays reachable, since only a
+        # Module target counts its singleton class as ambient.
         def ambient_owner?(owner, target)
-          META_OWNERS.include?(owner) ||
+          owner >= Class ||
             GADGET_OWNERS.include?(owner) ||
             (target.is_a?(Module) && owner.singleton_class?)
         end
