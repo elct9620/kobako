@@ -389,3 +389,28 @@ disable_file flag -> no File constant
 | Given | an invocation handed a read-write Mount holding a file |
 | When | the script opens that file with `File::RDONLY \| File::WRONLY`, writes, then reads |
 | Then | the write lands, and the read raises `IOError` |
+
+## `FL-032` An Integer mode may create or truncate without asking to write
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-027` |
+| relates | `RT-146` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount over a Memory holding a file |
+| When | the script opens a new path with `File::CREAT \| File::EXCL`, and the file with `File::RDONLY \| File::TRUNC` |
+| Then | the Memory holds the new empty file, and the file is empty |
+
+## `FL-033` A path holding a NUL byte raises ArgumentError
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-018` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount |
+| When | the script opens a path holding a NUL byte |
+| Then | the open raises `ArgumentError` |
