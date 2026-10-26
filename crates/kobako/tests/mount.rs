@@ -266,6 +266,10 @@ impl Filesystem for OneNote {
         Ok(path.to_string())
     }
 
+    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
+        None
+    }
+
     fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
         Ok(None)
     }

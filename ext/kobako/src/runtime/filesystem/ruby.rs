@@ -201,6 +201,11 @@ impl Filesystem for RubyFilesystem {
         Ok(path.to_string())
     }
 
+    /// A Ruby object holds no links a Policy needs kept from being followed.
+    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
+        None
+    }
+
     /// A Ruby object keeps an `ino` its own while open, as its contract
     /// asks, so nothing is held.
     fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {

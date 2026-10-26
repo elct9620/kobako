@@ -438,6 +438,11 @@ impl Filesystem for Memory {
         Ok(path.to_string())
     }
 
+    /// A Memory holds no links a Policy needs kept from being followed.
+    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
+        None
+    }
+
     /// A Memory never hands out a directory's identity twice.
     fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
         Ok(None)

@@ -132,6 +132,16 @@ impl Filesystem for Overlay {
             lock: self.lock.clone(),
         }))
     }
+
+    /// An Overlay over each Layer's own Filesystem for a Policy, keeping
+    /// this Overlay's lock, since the Layers it shares are the same.
+    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
+        let stack = self.stack.for_policy()?;
+        Some(Arc::new(Self {
+            stack,
+            lock: self.lock.clone(),
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -159,6 +169,10 @@ mod tests {
                 path: &str,
             ) -> Result<String, FilesystemError> {
                 Ok(path.to_string())
+            }
+
+            fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
+                None
             }
         };
     }
@@ -316,6 +330,32 @@ mod tests {
             "a link a Directory Layer holds within `dir`, resolved through \
              Overlay::canonicalize_beneath, must resolve to where it leads, and one leading out \
              of `dir` must not be permitted"
+        );
+    }
+
+    // The link stands in the Directory Layer beneath a Memory one, so only
+    // the Overlay handing each Layer's own Filesystem for a Policy refuses it.
+    // @behavior FS-100
+    #[cfg(unix)]
+    #[test]
+    fn an_overlay_for_a_policy_follows_no_link_in_any_layer() {
+        let host = LinkTree::new("for-policy");
+        let overlay = host.overlay();
+        let reading = OpenOptions {
+            read: true,
+            ..OpenOptions::default()
+        };
+        let for_policy = overlay
+            .for_policy()
+            .expect("an Overlay over a Directory has a Filesystem for a Policy");
+        assert_eq!(
+            (
+                overlay.open("dirlink/inner", &reading).map(drop),
+                for_policy.open("dirlink/inner", &reading).map(drop),
+            ),
+            (Ok(()), Err(FilesystemError::FilesystemLoop)),
+            "a path through a link a Directory Layer holds, opened through an Overlay's \
+             for_policy, must be a link loop, where the Overlay itself reaches it"
         );
     }
 

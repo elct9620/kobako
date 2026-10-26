@@ -32,6 +32,10 @@ macro_rules! holds_no_links {
         fn canonicalize_beneath(&self, _base: &str, path: &str) -> Result<String, FilesystemError> {
             Ok(path.to_string())
         }
+
+        fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
+            None
+        }
     };
 }
 
@@ -132,6 +136,7 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 1110) "dangle")
   (data (i32.const 1120) "dir/up")
   (data (i32.const 1130) "nowhere")
+  (data (i32.const 1150) "pub/x")
   ;; An iovec naming 16 bytes past the one page of memory.
   (data (i32.const 1140) "\00\00\02\00\10\00\00\00")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
@@ -1609,6 +1614,10 @@ impl Filesystem for FailsLookingUpDir {
         self.0.canonicalize_beneath(base, path)
     }
 
+    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
+        None
+    }
+
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
         self.0.read_dir(path)
     }
@@ -2367,5 +2376,54 @@ fn a_buffer_outside_memory_is_bounded_before_a_files_access_is_checked() {
         "through preview1 on a file opened without the access each call needs, with a buffer \
          past memory, fd_read, fd_write, and fd_pwrite must trap, and fd_pread must answer \
          EBADF, as wasmtime-wasi does"
+    );
+}
+
+const PUB_X: (i32, i32) = (1150, 5);
+
+/// A Policy allowing `/data/pub/` alone, which swaps `pub` for a link to
+/// `secret` the first time it is asked, as another writer could between
+/// its judgment and the call.
+#[cfg(unix)]
+struct SwapsWhileAsked(std::path::PathBuf, std::sync::atomic::AtomicBool);
+
+#[cfg(unix)]
+impl Policy for SwapsWhileAsked {
+    fn allows(&self, path: &str, _access: Access) -> bool {
+        if self.1.swap(false, Ordering::SeqCst) {
+            std::fs::rename(self.0.join("pub"), self.0.join("pub_old")).expect("pub must move");
+            std::os::unix::fs::symlink("secret", self.0.join("pub"))
+                .expect("the link must be made");
+        }
+        path.starts_with("/data/pub/")
+    }
+}
+
+// The swap happens inside the Policy's own judgment, so only a call that
+// reaches the path without following the link swapped in meanwhile is
+// refused; a plain Directory would read `secret/x`.
+// @behavior RT-145
+#[cfg(unix)]
+#[test]
+fn a_link_swapped_in_after_a_policy_judges_a_path_is_not_followed() {
+    let host = std::env::temp_dir().join(format!("kobako-swapped-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&host);
+    for dir in ["pub", "secret"] {
+        std::fs::create_dir_all(host.join(dir)).expect("the host directory must be created");
+        std::fs::write(host.join(dir).join("x"), dir).expect("the host file must be written");
+    }
+    let policy = SwapsWhileAsked(host.clone(), std::sync::atomic::AtomicBool::new(true));
+    let directory = Directory::new(&host).expect("the host directory must open");
+    let errno = Guest::new(&[grant(
+        Arc::new(directory),
+        Access::Read,
+        Some(Arc::new(policy)),
+    )])
+    .call("open_following", PUB_X);
+    let _ = std::fs::remove_dir_all(&host);
+    assert_eq!(
+        errno, ERRNO_LOOP,
+        "an open through preview1 beneath a Directory Mount with a Policy, of a path whose \
+         directory another writer swaps for a link as the Policy judges it, must answer ELOOP"
     );
 }

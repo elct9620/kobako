@@ -333,6 +333,10 @@ where
         self.memory.canonicalize_beneath(base, path)
     }
 
+    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
+        self.memory.for_policy()
+    }
+
     fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
         self.memory.hold_directory(path)
     }

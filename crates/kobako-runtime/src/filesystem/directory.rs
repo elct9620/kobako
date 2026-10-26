@@ -11,6 +11,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path};
 use std::sync::Arc;
 
+use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
@@ -22,7 +23,10 @@ use super::{
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
 pub struct Directory {
-    dir: Dir,
+    dir: Arc<Dir>,
+    /// Whether a path may pass through a link, which a Directory for a
+    /// Policy follows nowhere on it.
+    follows_links: bool,
 }
 
 impl Directory {
@@ -30,9 +34,52 @@ impl Directory {
     /// reaches outside itself.
     pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {
         Ok(Self {
-            dir: Dir::open_ambient_dir(path, ambient_authority())?,
+            dir: Arc::new(Dir::open_ambient_dir(path, ambient_authority())?),
+            follows_links: true,
         })
     }
+
+    /// Answer `call` with the directory holding `path`'s last name and
+    /// that name. A Directory for a Policy reaches that directory one name
+    /// at a time from the one it already holds, following no link, so a
+    /// link swapped in on the way is a loop rather than a path elsewhere.
+    fn at<T>(
+        &self,
+        path: &str,
+        call: impl FnOnce(&Dir, &str) -> Result<T, FilesystemError>,
+    ) -> Result<T, FilesystemError> {
+        if self.follows_links {
+            return call(&self.dir, to_host_path(path)?);
+        }
+        let (way, name) = path.rsplit_once('/').unwrap_or(("", path));
+        let mut held: Option<Dir> = None;
+        for component in components(way) {
+            let from = held.as_ref().unwrap_or(&self.dir);
+            held = Some(open_dir_nofollow(from, to_host_path(component)?)?);
+        }
+        call(held.as_ref().unwrap_or(&self.dir), to_host_path(name)?)
+    }
+
+    /// The directory `name` in `dir`, a link there followed only where
+    /// this Directory follows links.
+    fn open_dir_in(&self, dir: &Dir, name: &str) -> Result<Dir, FilesystemError> {
+        if self.follows_links {
+            dir.open_dir(name).map_err(to_error)
+        } else {
+            open_dir_nofollow(dir, name)
+        }
+    }
+}
+
+/// The directory `name` in `dir`, a link there refused as a loop, as
+/// Linux's `RESOLVE_NO_SYMLINKS` refuses one, where the host names it no
+/// directory.
+fn open_dir_nofollow(dir: &Dir, name: &str) -> Result<Dir, FilesystemError> {
+    dir.open_dir_nofollow(name)
+        .map_err(|err| match dir.symlink_metadata(name) {
+            Ok(metadata) if metadata.file_type().is_symlink() => FilesystemError::FilesystemLoop,
+            _ => to_error(err),
+        })
 }
 
 /// `path` as `cap_std` takes it, the root being `.`. Windows reads `\` as
@@ -107,87 +154,103 @@ fn to_metadata(metadata: cap_std::fs::Metadata) -> Metadata {
     Metadata::new(file_type, len)
 }
 
-impl Filesystem for Directory {
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        // The host creates only for a writer, so a file already there is
-        // opened as asked rather than for writing it was never given.
-        if options.create && !(options.create_new || options.write || options.truncate) {
-            let existing = OpenOptions {
-                create: false,
-                ..*options
-            };
-            match self.open(path, &existing) {
-                Err(FilesystemError::NotFound) => {}
-                opened => return opened,
-            }
-        }
-        let creates = options.create || options.create_new || options.truncate;
-        let writes = options.write || creates;
-        let mut open = CapOpenOptions::new();
-        // The host refuses an open for neither reading nor writing, and one
-        // that creates or truncates without writing; the runtime decides
-        // what is read and written, so such opens read or write here.
-        open.read(options.read || !writes)
-            .write(writes)
-            .create(options.create)
-            .create_new(options.create_new)
-            .truncate(options.truncate);
-        // Only a file or a directory opens: a FIFO would wait for a peer
-        // and a device would act on being opened. The host could swap an
-        // entry in between, so what opened is checked again before its
-        // first use, the open itself never waiting for a peer.
-        let found = if options.nofollow {
-            self.dir.symlink_metadata(to_host_path(path)?)
-        } else {
-            self.dir.metadata(to_host_path(path)?)
+/// Open `name` in `dir` as `options` asks.
+fn open_in(dir: &Dir, name: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+    // The host creates only for a writer, so a file already there is
+    // opened as asked rather than for writing it was never given.
+    if options.create && !(options.create_new || options.write || options.truncate) {
+        let existing = OpenOptions {
+            create: false,
+            ..*options
         };
-        match found.map(|metadata| to_file_type(metadata.file_type())) {
-            Ok(FileType::Symlink) => return Err(FilesystemError::FilesystemLoop),
-            Ok(FileType::Unknown) => return Err(FilesystemError::PermissionDenied),
-            _ => {}
+        match open_in(dir, name, &existing) {
+            Err(FilesystemError::NotFound) => {}
+            opened => return opened,
         }
-        #[cfg(unix)]
-        {
-            use cap_std::fs::OpenOptionsExt;
-            use rustix::fs::OFlags;
-            open.custom_flags((OFlags::NONBLOCK | OFlags::NOCTTY).bits() as i32);
-        }
-        let file = self
-            .dir
-            .open_with(to_host_path(path)?, &open)
+    }
+    let creates = options.create || options.create_new || options.truncate;
+    let writes = options.write || creates;
+    let mut open = CapOpenOptions::new();
+    // The host refuses an open for neither reading nor writing, and one
+    // that creates or truncates without writing; the runtime decides
+    // what is read and written, so such opens read or write here.
+    open.read(options.read || !writes)
+        .write(writes)
+        .create(options.create)
+        .create_new(options.create_new)
+        .truncate(options.truncate);
+    // Only a file or a directory opens: a FIFO would wait for a peer
+    // and a device would act on being opened. The host could swap an
+    // entry in between, so what opened is checked again before its
+    // first use, the open itself never waiting for a peer, nor following
+    // a link swapped in where none was asked to be followed.
+    let found = if options.nofollow {
+        open.follow(FollowSymlinks::No);
+        dir.symlink_metadata(name)
+    } else {
+        dir.metadata(name)
+    };
+    match found.map(|metadata| to_file_type(metadata.file_type())) {
+        Ok(FileType::Symlink) => return Err(FilesystemError::FilesystemLoop),
+        Ok(FileType::Unknown) => return Err(FilesystemError::PermissionDenied),
+        _ => {}
+    }
+    #[cfg(unix)]
+    {
+        use cap_std::fs::OpenOptionsExt;
+        use rustix::fs::OFlags;
+        open.custom_flags((OFlags::NONBLOCK | OFlags::NOCTTY).bits() as i32);
+    }
+    let file = dir.open_with(name, &open).map_err(to_error)?;
+    match to_file_type(file.metadata().map_err(to_error)?.file_type()) {
+        FileType::File => {}
+        FileType::Directory => return Err(FilesystemError::IsADirectory),
+        _ => return Err(FilesystemError::PermissionDenied),
+    }
+    #[cfg(unix)]
+    {
+        use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
+        let flags = fcntl_getfl(&file)
+            .map_err(io::Error::from)
             .map_err(to_error)?;
-        match to_file_type(file.metadata().map_err(to_error)?.file_type()) {
-            FileType::File => {}
-            FileType::Directory => return Err(FilesystemError::IsADirectory),
-            _ => return Err(FilesystemError::PermissionDenied),
-        }
-        #[cfg(unix)]
-        {
-            use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
-            let flags = fcntl_getfl(&file)
-                .map_err(io::Error::from)
-                .map_err(to_error)?;
-            fcntl_setfl(&file, flags - OFlags::NONBLOCK)
-                .map_err(io::Error::from)
-                .map_err(to_error)?;
-        }
-        Ok(Box::new(DirectoryFile {
-            file: file.into_std(),
-        }))
+        fcntl_setfl(&file, flags - OFlags::NONBLOCK)
+            .map_err(io::Error::from)
+            .map_err(to_error)?;
+    }
+    Ok(Box::new(DirectoryFile {
+        file: file.into_std(),
+    }))
+}
+
+impl Filesystem for Directory {
+    /// A Directory for a Policy follows no link at the end either.
+    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+        let options = OpenOptions {
+            nofollow: options.nofollow || !self.follows_links,
+            ..*options
+        };
+        self.at(path, |dir, name| open_in(dir, name, &options))
     }
 
+    /// A Directory for a Policy answers a link at the end as a loop rather
+    /// than follow it.
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        Ok(to_metadata(
-            self.dir.metadata(to_host_path(path)?).map_err(to_error)?,
-        ))
+        if !self.follows_links {
+            let metadata = self.symlink_metadata(path)?;
+            if metadata.file_type == FileType::Symlink {
+                return Err(FilesystemError::FilesystemLoop);
+            }
+            return Ok(metadata);
+        }
+        self.at(path, |dir, name| {
+            Ok(to_metadata(dir.metadata(name).map_err(to_error)?))
+        })
     }
 
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        Ok(to_metadata(
-            self.dir
-                .symlink_metadata(to_host_path(path)?)
-                .map_err(to_error)?,
-        ))
+        self.at(path, |dir, name| {
+            Ok(to_metadata(dir.symlink_metadata(name).map_err(to_error)?))
+        })
     }
 
     /// The host directory's own descriptor, so its inode stays taken.
@@ -196,7 +259,7 @@ impl Filesystem for Directory {
         if cfg!(not(unix)) {
             return Ok(None);
         }
-        let dir = self.dir.open_dir(to_host_path(path)?).map_err(to_error)?;
+        let dir = self.at(path, |dir, name| self.open_dir_in(dir, name))?;
         Ok(Some(Hold::new(dir)))
     }
 
@@ -213,7 +276,7 @@ impl Filesystem for Directory {
             // standing there is never followed to spell it.
             parent = match (&parent, &found) {
                 (Some(dir), Some(found)) if names.peek().is_some() => {
-                    match dir.open_dir(found).map_err(to_error) {
+                    match self.open_dir_in(dir, found) {
                         Ok(next) => Some(next),
                         Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => None,
                         Err(err) => return Err(err),
@@ -226,7 +289,12 @@ impl Filesystem for Directory {
         Ok(stored.join("/"))
     }
 
+    /// A Directory for a Policy follows no link, so a path resolves as
+    /// given.
     fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError> {
+        if !self.follows_links {
+            return Ok(path.to_string());
+        }
         let beneath = self.dir.open_dir(to_host_path(base)?).map_err(to_error)?;
         let found = beneath
             .canonicalize(to_host_path(path)?)
@@ -246,8 +314,8 @@ impl Filesystem for Directory {
     }
 
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.dir
-            .read_dir(to_host_path(path)?)
+        self.at(path, |dir, name| self.open_dir_in(dir, name))?
+            .entries()
             .map_err(to_error)?
             .map(|entry| {
                 let entry = entry.map_err(to_error)?;
@@ -264,24 +332,22 @@ impl Filesystem for Directory {
     }
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.dir.create_dir(to_host_path(path)?).map_err(to_error)
+        self.at(path, |dir, name| dir.create_dir(name).map_err(to_error))
     }
 
     fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.dir.remove_dir(to_host_path(path)?).map_err(to_error)
+        self.at(path, |dir, name| dir.remove_dir(name).map_err(to_error))
     }
 
     /// A directory is refused as one on every host, where the host itself
     /// answers EISDIR on Linux but EPERM on macOS.
     fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        if self
-            .dir
-            .symlink_metadata(to_host_path(path)?)
-            .is_ok_and(|m| m.is_dir())
-        {
-            return Err(FilesystemError::IsADirectory);
-        }
-        self.dir.remove_file(to_host_path(path)?).map_err(to_error)
+        self.at(path, |dir, name| {
+            if dir.symlink_metadata(name).is_ok_and(|m| m.is_dir()) {
+                return Err(FilesystemError::IsADirectory);
+            }
+            dir.remove_file(name).map_err(to_error)
+        })
     }
 
     /// A host directory takes no lock a Filesystem could check the source
@@ -292,14 +358,26 @@ impl Filesystem for Directory {
         if from != to {
             rename.check(self.symlink_metadata(from)?.file_type)?;
         }
-        self.dir
-            .rename(to_host_path(from)?, &self.dir, to_host_path(to)?)
-            .map_err(to_error)
+        self.at(from, |from_dir, from_name| {
+            self.at(to, |to_dir, to_name| {
+                from_dir
+                    .rename(from_name, to_dir, to_name)
+                    .map_err(to_error)
+            })
+        })
     }
 
     /// Every Invocation shares the host directory.
     fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
         None
+    }
+
+    /// The same host directory, reached one name at a time.
+    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
+        Some(Arc::new(Self {
+            dir: self.dir.clone(),
+            follows_links: false,
+        }))
     }
 }
 
@@ -756,6 +834,44 @@ mod tests {
             (Ok("sub/y".to_string()), Err(FilesystemError::NotPermitted)),
             "a link staying within `dir`, resolved through Directory::canonicalize_beneath, must \
              resolve to where it leads, and one leading out of `dir` must not be permitted"
+        );
+    }
+
+    // The link leads to a directory inside the host directory, so only a
+    // Directory following no link refuses what a plain one reaches.
+    // @behavior FS-099
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_for_a_policy_follows_no_link_on_a_path() {
+        let host = HostDir::new("for-policy");
+        fs::create_dir_all(host.0.join("target")).expect("the host directory must be created");
+        fs::write(host.0.join("target/x"), "inner").expect("the inner file must be written");
+        std::os::unix::fs::symlink("target", host.0.join("link")).expect("the link must be made");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        let reading = OpenOptions {
+            read: true,
+            ..OpenOptions::default()
+        };
+        let answers = |filesystem: &dyn Filesystem| {
+            (
+                filesystem.open("link/x", &reading).map(drop),
+                filesystem.read_dir("link").map(drop),
+            )
+        };
+        let for_policy = directory
+            .for_policy()
+            .expect("a Directory has a Filesystem for a Policy");
+        assert_eq!(
+            (answers(&directory), answers(for_policy.as_ref())),
+            (
+                (Ok(()), Ok(())),
+                (
+                    Err(FilesystemError::FilesystemLoop),
+                    Err(FilesystemError::FilesystemLoop)
+                ),
+            ),
+            "a path through a link opened, and the link listed, through a Directory's \
+             for_policy must each be a link loop, where the Directory itself reaches them"
         );
     }
 

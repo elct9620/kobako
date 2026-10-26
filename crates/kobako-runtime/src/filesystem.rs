@@ -35,14 +35,15 @@ pub enum Access {
 /// another and answer by delegating, so it sees every call on the way
 /// through.
 ///
-/// Five methods keep a guarantee the runtime gives the guest, so each
+/// Six methods keep a guarantee the runtime gives the guest, so each
 /// Filesystem answers them itself and a wrapper forwards them:
 /// `symlink_metadata` keeps a link from being followed where a Mount
 /// refuses links, `stored_path` keeps a Policy judging the spelling the
 /// host stores, `canonicalize_beneath` keeps a link within the directory
 /// a descriptor opened, `hold_directory` keeps an open directory's
-/// identity its own, and `for_invocation` keeps one Invocation's changes
-/// from the next.
+/// identity its own, `for_invocation` keeps one Invocation's changes
+/// from the next, and `for_policy` keeps a call to the path a Policy
+/// judged.
 pub trait Filesystem: Send + Sync {
     /// Open the file at `path` as `options` asks, creating or truncating it
     /// where they say to.
@@ -95,6 +96,13 @@ pub trait Filesystem: Send + Sync {
     /// The Filesystem a new Invocation starts from in this one's place, or
     /// `None` when every Invocation shares this one.
     fn for_invocation(&self) -> Option<Arc<dyn Filesystem>>;
+
+    /// The Filesystem a Mount with a Policy hands its calls in this one's
+    /// place, following no link anywhere on a path, each name reached
+    /// from the directory already held, so a link another writer swaps in
+    /// after the Policy judged the path is a link loop rather than
+    /// followed. A Filesystem holding no links answers `None`.
+    fn for_policy(&self) -> Option<Arc<dyn Filesystem>>;
 }
 
 /// One open file. The runtime keeps its position, so every read and write

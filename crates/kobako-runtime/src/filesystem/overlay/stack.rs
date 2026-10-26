@@ -200,10 +200,25 @@ impl Stack {
     /// The Layers a new Invocation starts from, or `None` when every Layer
     /// is shared.
     pub(super) fn for_invocation(&self) -> Option<Self> {
+        self.replaced(|filesystem| filesystem.for_invocation())
+    }
+
+    /// The Layers a Mount with a Policy reaches, or `None` when no Layer
+    /// holds a link.
+    pub(super) fn for_policy(&self) -> Option<Self> {
+        self.replaced(|filesystem| filesystem.for_policy())
+    }
+
+    /// The Layers with each Filesystem `next` answers in its place, or
+    /// `None` when it answers none.
+    fn replaced(
+        &self,
+        next: impl Fn(&Arc<dyn Filesystem>) -> Option<Arc<dyn Filesystem>>,
+    ) -> Option<Self> {
         let next: Vec<_> = self
             .layers
             .iter()
-            .map(|layer| layer.filesystem.for_invocation())
+            .map(|layer| next(&layer.filesystem))
             .collect();
         if next.iter().all(Option::is_none) {
             return None;
