@@ -1,13 +1,13 @@
-//! The Ruby face of the Mount: `Kobako::Filesystem::Memory`,
+//! The Ruby face of the Filesystem: `Kobako::Filesystem::Memory`,
 //! `Temporary`, `Directory`, and `Overlay`, each standing for the
-//! `kobako_runtime` Filesystem of that kind, and the per-invocation
-//! translation of a Sandbox's Mounts into contract Grants.
+//! `kobako_runtime` Filesystem of that kind.
 //!
 //! A kind kobako ships runs in Rust; Ruby only picks it and the access.
-//! Ruby is asked again while the guest runs through a mount's block, once
-//! per open or change, and through a Filesystem written in Ruby, once per
-//! call.
+//! Ruby is asked again while the guest runs through a mount's block, at
+//! most once per open or change, and through a Filesystem written in
+//! Ruby, once per call.
 
+mod grants;
 mod ruby;
 
 use std::sync::Arc;
@@ -15,19 +15,17 @@ use std::sync::Arc;
 use magnus::value::{Opaque, ReprValue};
 use magnus::{
     function, gc, method, prelude::*, scan_args::get_kwargs, scan_args::scan_args,
-    DataTypeFunctions, Error as MagnusError, RArray, RHash, RModule, RString, Ruby, Symbol,
-    TypedData, Value,
+    DataTypeFunctions, Error as MagnusError, RHash, RModule, RString, Ruby, Symbol, TypedData,
+    Value,
 };
 
 use ruby::RubyFilesystem;
 
-use super::pinned_value::PinnedValue;
-
 use kobako_runtime::filesystem::{
     Access, Blocking, Directory, Filesystem, Memory, Overlay, Temporary,
 };
-use kobako_runtime::grant::Grant;
-use kobako_runtime::mount::{Mount, Policy};
+
+pub(super) use grants::{to_grants, validate_mount};
 
 macro_rules! filesystem_class {
     ($name:ident, $class:literal) => {
@@ -73,26 +71,6 @@ pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     DirectoryFs::class(ruby);
     OverlayFs::class(ruby);
     Ok(())
-}
-
-/// Refuse a Mount at `mount` time by the same rules an invocation builds
-/// it with, so a mistake raises where it was made.
-pub(super) fn validate_mount(
-    at: Value,
-    access: Value,
-    filesystem: Value,
-) -> Result<(), MagnusError> {
-    to_mount(at, access, filesystem).map(drop)
-}
-
-/// The Mount a Sandbox's `[at, access, filesystem]` stands for: one owner
-/// of the path, access, and Filesystem rules.
-fn to_mount(at: Value, access: Value, filesystem: Value) -> Result<Mount, MagnusError> {
-    let ruby = Ruby::get().expect("Ruby thread");
-    let at = RString::try_convert(at)?.to_string()?;
-    let access = to_access(access)?;
-    Mount::new(at, to_filesystem(filesystem)?, access)
-        .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))
 }
 
 /// `Memory.new(files = {}, limit: 64 MiB, inodes:)`: each
@@ -177,16 +155,16 @@ fn directory_new(path: String) -> Result<DirectoryFs, MagnusError> {
 /// `Overlay.new`, with no Layer yet.
 fn overlay_new() -> OverlayFs {
     OverlayFs {
-        overlay: Overlay::new().with_blocking(Arc::new(ReleasesGvl)),
+        overlay: Overlay::new().with_blocking(Arc::new(GvlFreeWait)),
         layers: Vec::new(),
     }
 }
 
 /// An Overlay's thread waits for its lock without the GVL, so a holder
 /// asking a Layer written in Ruby can take the GVL and finish.
-struct ReleasesGvl;
+struct GvlFreeWait;
 
-impl Blocking for ReleasesGvl {
+impl Blocking for GvlFreeWait {
     fn wait(&self, wait: &mut dyn FnMut()) {
         super::gvl::region(super::gvl::holds(), wait);
     }
@@ -255,59 +233,4 @@ fn to_filesystem(value: Value) -> Result<Arc<dyn Filesystem>, MagnusError> {
             value.class()
         ),
     ))
-}
-
-/// A mount's block, asked in its access's place. A block raising a
-/// StandardError refuses, so the guest's open fails and its script goes
-/// on; anything else it raises is held for the host.
-struct RubyPolicy {
-    block: Opaque<Value>,
-}
-
-impl Policy for RubyPolicy {
-    fn allows(&self, path: &str, access: Access) -> bool {
-        super::gvl::reenter(|| {
-            let ruby = Ruby::get().expect("Ruby handle unavailable in a mount's block");
-            let block: Value = ruby.get_inner(self.block);
-            let access = ruby.to_symbol(match access {
-                Access::Read => "read",
-                Access::ReadWrite => "read_write",
-            });
-            block
-                .funcall::<_, _, Value>("call", (ruby.str_new(path), access))
-                .map(|answer| answer.to_bool())
-                .unwrap_or_else(|error| {
-                    let _ = super::escape::hold(&ruby, error);
-                    false
-                })
-        })
-    }
-}
-
-/// The Grants one invocation carries, from the Sandbox's Mounts as
-/// `[at, access, filesystem, block]` entries, beside the pins keeping
-/// each Mount's filesystem and block in place while the guest may reach
-/// them; the caller holds both until the invocation returns.
-pub(super) fn to_grants(
-    ruby: &Ruby,
-    mounts: RArray,
-) -> Result<(Vec<Grant>, Vec<PinnedValue>), MagnusError> {
-    let mut grants = Vec::with_capacity(mounts.len());
-    let mut pins = Vec::with_capacity(mounts.len() * 2);
-    for index in 0..mounts.len() as isize {
-        let entry: RArray = mounts.entry(index)?;
-        let filesystem: Value = entry.entry(2)?;
-        pins.push(PinnedValue::new(ruby, filesystem));
-        let mount = to_mount(entry.entry(0)?, entry.entry(1)?, filesystem)?;
-        let block: Value = entry.entry(3)?;
-        grants.push(Grant::Mount(if block.is_nil() {
-            mount
-        } else {
-            pins.push(PinnedValue::new(ruby, block));
-            mount.with_policy(Arc::new(RubyPolicy {
-                block: Opaque::from(block),
-            }))
-        }));
-    }
-    Ok((grants, pins))
 }
