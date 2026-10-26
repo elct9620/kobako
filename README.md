@@ -211,12 +211,14 @@ A block decides each open and each change in the access's place; a falsy answer 
 
 #### Guest File
 
-The guest's `File.open` takes a mode String such as `"r"` or `"w+"`; an Integer mode or `File::Constants` is not supported. The critical flag `disable_file` removes `File` from the guest altogether.
+The guest's `File.open` takes a mode String such as `"r"`, `"w+"`, or `"wx"`, or an Integer of `File::Constants` flags. An exclusive create lets Sandboxes sharing a directory agree on a lock file. The critical flag `disable_file` removes `File` from the guest altogether.
 
 | When | `File.open` in the guest |
 |---|---|
 | nothing is mounted | raises `NotImplementedError` |
 | the path is beneath a mount | reaches its Filesystem |
+| `x` or `File::EXCL` meets a file already there | raises `Errno::EEXIST` |
+| an Integer mode holds a flag kobako does not honor | raises `Errno::EINVAL` |
 | `disable_file` is set | `File` is not defined |
 
 #### Overlays
