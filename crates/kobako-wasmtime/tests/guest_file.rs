@@ -368,6 +368,91 @@ fn an_access_mode_cruby_refuses_raises_argument_error() {
     );
 }
 
+// @behavior FL-027
+#[test]
+fn an_integer_mode_opens_by_its_file_constants_flags() {
+    let memory = note_memory();
+    let Some(answer) = run(
+        r#"File.open("/data/note.txt", File::WRONLY | File::CREAT | File::EXCL) { }"#,
+        &[mount(memory.clone(), Access::ReadWrite)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        (answer, contents(memory.as_ref(), "note.txt")),
+        (Err("Errno::EEXIST".to_string()), b"hello\nworld\n".to_vec()),
+        "File.open with WRONLY | CREAT | EXCL of a file already there through the bundled guest \
+         must raise Errno::EEXIST and leave the file as it was"
+    );
+}
+
+// EXCL alone asks no create, so the open finds nothing rather than
+// making the file an exclusive create would.
+// @behavior FL-028
+#[test]
+fn an_exclusive_open_without_create_makes_no_file() {
+    let memory = Arc::new(Memory::new());
+    let Some(answer) = run(
+        r#"File.open("/data/lock", File::RDONLY | File::EXCL) { }"#,
+        &[mount(memory.clone(), Access::ReadWrite)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        (answer, memory.metadata("lock").is_err()),
+        (Err("Errno::ENOENT".to_string()), true),
+        "File.open with RDONLY | EXCL of a path nothing is at through the bundled guest must \
+         raise Errno::ENOENT and make no file"
+    );
+}
+
+// 2 is wasi-libc's O_DSYNC, a flag the libc knows but kobako does not
+// honor, so ignoring it would open differently than CRuby.
+// @behavior FL-029
+#[test]
+fn an_integer_mode_with_a_flag_file_constants_lacks_raises_einval() {
+    let Some(answer) = run(
+        r#"File.open("/data/note.txt", File::RDONLY | 2) { }"#,
+        &[mount(note_memory(), Access::ReadWrite)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Err("Errno::EINVAL".to_string()),
+        "File.open with a mode bit no File::Constants flag names through the bundled guest must \
+         raise Errno::EINVAL"
+    );
+}
+
+// The values are wasi-libc's `O_*`, so a flag means what the libc
+// beneath the guest takes it to mean.
+// @behavior FL-030
+#[test]
+fn file_constants_names_the_flags_an_open_honors() {
+    let script = r##"
+        names = File::Constants.constants.sort
+        print names.map { |name| "#{name}=#{File::Constants.const_get(name)}" }.join(","),
+              " ", IO.include?(File::Constants)
+    "##;
+    let Some(answer) = run(script, &[], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(
+            "APPEND=1,CREAT=4096,EXCL=16384,RDONLY=67108864,RDWR=335544320,TRUNC=32768,\
+            WRONLY=268435456 true"
+                .to_string()
+        ),
+        "File::Constants in the bundled guest must name the seven flags an open honors at \
+         wasi-libc's values, and IO must include it"
+    );
+}
+
 /// A Memory whose every open file is handed through `wrap` first.
 struct WrapsFiles<W> {
     memory: Memory,

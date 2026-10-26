@@ -14,7 +14,7 @@ use std::os::fd::IntoRawFd;
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Mrb, Object, Proc, RArray, RClass, Value};
+use beni::{Error, Integer, IntoValue, Mrb, Object, Proc, RArray, RClass, Value};
 
 use crate::io::Stream;
 use crate::stream::with_file;
@@ -27,6 +27,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
 
     let file = mrb.define_class(c"File", io)?;
     file.const_set(mrb, c"SEPARATOR", mrb.str_new(b"/").as_value())?;
+    mode::define_constants(mrb, file, io)?;
     file.define_method(mrb, c"initialize", beni::method!(file_initialize, -1))?;
     file.define_method(mrb, c"path", beni::method!(file_path, 0))?;
     file.define_method(mrb, c"size", beni::method!(file_size, 0))?;
@@ -106,11 +107,14 @@ fn file_initialize(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<(), Error
     let (path,) = args.required;
     let (mode, _perm) = args.optional;
     let path = path_arg(mrb, path)?;
-    let mode = match mode.filter(|v| !v.is_nil()) {
-        Some(mode) => path_arg(mrb, mode)?,
-        None => "r".to_string(),
+    let options = match mode.filter(|v| !v.is_nil()) {
+        Some(mode) => match Integer::from_value(mode) {
+            Some(flags) => mode::from_flags(mrb, flags.to_i64(mrb)?, &path)?,
+            None => mode::from_string(mrb, &path_arg(mrb, mode)?)?,
+        },
+        None => mode::from_string(mrb, "r")?,
     };
-    let file = mode::from_string(mrb, &mode)?
+    let file = options
         .open(&path)
         .map_err(|err| errno::from_io(mrb, &err, &path))?;
     let fd = file.into_raw_fd();
