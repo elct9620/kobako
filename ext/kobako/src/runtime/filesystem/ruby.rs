@@ -42,18 +42,28 @@ impl RubyFilesystem {
 
 /// Ask `object` its `name` method with the GVL held, `answer` making the
 /// call and reading what it returns before Ruby runs anything else. An
-/// object lacking the method answers `missing`.
+/// object lacking the method fails as `missing`.
 fn ask<T>(
     object: Opaque<Value>,
     name: &str,
     missing: FilesystemError,
     answer: impl FnOnce(&Ruby, Value) -> Result<T, MagnusError>,
 ) -> Result<T, FilesystemError> {
+    ask_or(object, name, Err(missing), answer)
+}
+
+/// As `ask`, an object lacking the method answering `missing`.
+fn ask_or<T>(
+    object: Opaque<Value>,
+    name: &str,
+    missing: Result<T, FilesystemError>,
+    answer: impl FnOnce(&Ruby, Value) -> Result<T, MagnusError>,
+) -> Result<T, FilesystemError> {
     gvl::reenter(|| {
         let ruby = Ruby::get().expect("Ruby handle unavailable in a Filesystem call");
         let object: Value = ruby.get_inner(object);
         if !object.respond_to(name, false).unwrap_or(false) {
-            return Err(missing);
+            return missing;
         }
         answer(&ruby, object).map_err(|err| match escape::hold(&ruby, err) {
             Err(err) => to_error(err),
@@ -79,16 +89,9 @@ fn change(
 /// nothing of its own to change, while one that answers and refuses still
 /// fails, whatever `Errno` it raises.
 fn change_if_answered(object: Opaque<Value>, name: &str) -> Result<(), FilesystemError> {
-    let answers = gvl::reenter(|| {
-        let ruby = Ruby::get().expect("Ruby handle unavailable in a Filesystem call");
-        ruby.get_inner(object)
-            .respond_to(name, false)
-            .unwrap_or(false)
-    });
-    if !answers {
-        return Ok(());
-    }
-    change(object, name, (), FilesystemError::Unsupported)
+    ask_or(object, name, Ok(()), |_, object| {
+        object.funcall::<_, _, Value>(name, ()).map(drop)
+    })
 }
 
 /// The FilesystemError the nearest `Errno` class of `err` stands for, by
