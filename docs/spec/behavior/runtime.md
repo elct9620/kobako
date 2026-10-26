@@ -1557,3 +1557,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a read-only Mount, and a Mount whose Policy records each access it is asked |
 | When | the guest opens a missing path to write, without asking to create it |
 | Then | each open answers ENOENT, and the Policy was asked nothing |
+
+## `RT-148` What stands at a path answers before a read-only Mount refuses
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-078` |
+| relates | `RT-147` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-only Mount holding a file and a directory |
+| When | the guest opens the file with `CREAT` and `EXCL`, and the directory to write |
+| Then | the first open answers EEXIST, and the second EISDIR |

@@ -23,6 +23,7 @@ disable_file flag -> no File constant
 
 - `crates/kobako-wasmtime/tests/guest_file.rs`
 - `test/parity/test_mount.rb`
+- `test/e2e/test_file_open_matrix.rb`
 
 ## `FL-001` A script reads a file beneath a mounted path
 
@@ -414,3 +415,27 @@ disable_file flag -> no File constant
 | Given | an invocation handed a read-write Mount |
 | When | the script opens a path holding a NUL byte |
 | Then | the open raises `ArgumentError` |
+
+## `FL-034` An open answers as CRuby does on Linux, unless a rule refuses it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-027`, `IO-040`, `RT-147` |
+
+| Step | Statement |
+| --- | --- |
+| Given | each Mount kind, and CRuby over a Linux directory holding the same entries |
+| When | the script opens each entry with each mode, then reads, writes, and wraps it with `IO.new` |
+| Then | each answer is CRuby's, or the refusal a Mount's own rule names |
+
+## `FL-035` Reading a directory opened as a file raises EISDIR
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-034` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a directory |
+| When | the script opens the directory to read, then reads it |
+| Then | the read raises `Errno::EISDIR` |
