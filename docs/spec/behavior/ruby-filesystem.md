@@ -29,6 +29,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 - `test/e2e/test_host_exception.rb`
 - `test/e2e/test_ruby_filesystem_errno.rb`
 - `test/e2e/test_ruby_filesystem_append.rb`
+- `test/e2e/test_ruby_filesystem_sync.rb`
 
 ## `RF-001` A Ruby object answering open and stat mounts as a Filesystem
 
@@ -275,3 +276,15 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a script holding a file whose Ruby `close` raises `Errno::ENOTSUP` |
 | When | the script closes that file |
 | Then | the close raises `Errno::ENOTSUP`, as a file lacking `close` never does |
+
+## `RF-021` A sync a Ruby file refuses fails, while one it lacks succeeds
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-020` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a Ruby file whose `fsync` raises `Errno::ENOTSUP`, and one lacking `fsync` |
+| When | the guest syncs each file |
+| Then | the first sync answers ENOTSUP, and the second succeeds |
