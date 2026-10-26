@@ -1506,3 +1506,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Directory Mount holding a link to a file outside its host directory |
 | When | the guest opens the link's path from the Mount's root |
 | Then | the open answers EPERM, as wasmtime-wasi does |
+
+## `RT-144` A buffer outside memory is bounded before a file's access is checked
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-138` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file opened without the right to read, and one without the right to write |
+| When | the guest reads or writes each with a buffer outside its memory |
+| Then | fd_read and both writes trap, while fd_pread answers EBADF, as wasmtime-wasi does |
