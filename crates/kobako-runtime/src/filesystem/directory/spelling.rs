@@ -28,14 +28,14 @@ pub(super) fn stored_name(parent: &Dir, name: &str) -> io::Result<Option<String>
                 Err(err) => Err(err),
             };
         }
-        listed(parent, name)
+        stored_name_by_listing(parent, name)
     }
 }
 
 /// The name a listing of `parent` holds for `name`: itself when listed,
 /// else the entry sharing its inode.
 #[cfg(not(target_os = "macos"))]
-fn listed(parent: &Dir, name: &str) -> io::Result<Option<String>> {
+fn stored_name_by_listing(parent: &Dir, name: &str) -> io::Result<Option<String>> {
     let found = match parent.symlink_metadata(name) {
         Ok(found) => found,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -178,7 +178,10 @@ mod linux {
             std::fs::write(path.join("file"), "x").expect("the host file must be written");
             let dir = Dir::open_ambient_dir(&path, ambient_authority())
                 .expect("the host directory must open");
-            let answers = (listed(&dir, "file").ok(), listed(&dir, "missing").ok());
+            let answers = (
+                stored_name_by_listing(&dir, "file").ok(),
+                stored_name_by_listing(&dir, "missing").ok(),
+            );
             let _ = std::fs::remove_dir_all(&path);
             assert_eq!(
                 answers,
