@@ -1778,24 +1778,48 @@ fn sizing_a_file_opened_only_to_read_answers_by_its_mount_then_as_linux_does() {
     );
 }
 
+/// A Policy allowing every change while keeping each one it is asked.
+#[derive(Default)]
+struct RecordsAsks(std::sync::Mutex<Vec<(String, Access)>>);
+
+impl Policy for RecordsAsks {
+    fn allows(&self, path: &str, access: Access) -> bool {
+        self.0.lock().unwrap().push((path.to_owned(), access));
+        true
+    }
+}
+
 // The Mount is made read-only, as a Ruby mount with a block is by default,
 // so only the Policy standing in its access's place lets either through.
+// Each Policy is asked only by the open before the call, so a wait or a size
+// asking it as well adds an ask the literal lists below do not hold.
 // @behavior RT-139
 #[test]
 fn a_mount_whose_policy_decides_may_be_written() {
-    let guest = || {
-        let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
-        Guest::new(&[grant(file_and_directory(), Access::Read, Some(policy))])
+    let call = |name, rights| {
+        let policy = Arc::new(RecordsAsks::default());
+        let errno = Guest::new(&[grant(
+            file_and_directory(),
+            Access::Read,
+            Some(policy.clone() as Arc<dyn Policy>),
+        )])
+        .call_at(name, rights);
+        let asked = policy.0.lock().unwrap().clone();
+        (errno, asked)
     };
     assert_eq!(
         (
-            guest().call_at("poll_write_with", RIGHTS_FD_READ),
-            guest().call_at("size_with", RIGHTS_FD_WRITE),
+            call("poll_write_with", RIGHTS_FD_READ),
+            call("size_with", RIGHTS_FD_WRITE),
         ),
-        (0, 0),
+        (
+            (0, vec![("/data/file.txt".to_owned(), Access::Read)]),
+            (0, vec![("/data/file.txt".to_owned(), Access::ReadWrite)]),
+        ),
         "through preview1 beneath a read-only Mount whose Policy allows every change, \
          poll_oneoff waiting to write a file opened only to read must be ready, and \
-         fd_filestat_set_size on a file opened to write must size it"
+         fd_filestat_set_size on a file opened to write must size it, the Policy asked \
+         only by each open"
     );
 }
 
