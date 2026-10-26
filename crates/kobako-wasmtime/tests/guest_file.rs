@@ -333,8 +333,8 @@ fn an_exclusive_create_makes_a_file_nothing_is_at() {
     );
 }
 
-// `bw` and `wbt` once opened, as `b` and `t` were dropped wherever they
-// stood; CRuby refuses both.
+// `bw` puts a modifier before the access, and `wbt` names both newline
+// modes, so only a reader keeping CRuby's order and exclusion refuses them.
 // @behavior FL-026
 #[test]
 fn an_access_mode_cruby_refuses_raises_argument_error() {
