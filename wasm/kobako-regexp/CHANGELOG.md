@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.18.0...kobako-regexp-v0.19.0) (2026-10-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **guest:** the kobako guest crates name beni 0.25's types, so a shell or codec built on them moves to beni 0.25 with them.
+* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer for every integer within 64 bits, where it used to answer a Float past 32 bits. An integer past 64 bits now raises
+* **guest:** the kobako guest crates name beni 0.24's types, so a shell or codec built on them moves to beni 0.24 with them.
+
+### Features
+
+* **guest:** widen the guest Integer to 64 bits ([7236a26](https://github.com/elct9620/kobako/commit/7236a26285dfdef175048f659c1094dd3bbb5b4d))
+
+
+### Bug Fixes
+
+* **deps:** require an lru whose pop survives a panicking key ([ab837f3](https://github.com/elct9620/kobako/commit/ab837f3cdd0fc0356d3ae7ce2b7c1f595d4cd6f3))
+
+
+### Build System
+
+* **guest:** rebuild the guest crates on beni 0.24 ([4599337](https://github.com/elct9620/kobako/commit/4599337261d1d28ff8c36435062d34cbccf09abb))
+* **guest:** rebuild the guest crates on beni 0.25 ([a06dfd2](https://github.com/elct9620/kobako/commit/a06dfd25958ded9c82072149d73e56372343ba31))
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.17.0...kobako-regexp-v0.18.0) (2026-10-13)
 
 

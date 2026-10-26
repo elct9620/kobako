@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.18.0...kobako-sdk-v0.19.0) (2026-10-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sdk:** a struct literal, including one ending in `..Options::default()`, no longer builds Options; assign each field after `Options::default()` instead.
+* **wasmtime:** a struct literal no longer builds the wasmtime driver's Config outside its crate; start from `Config::default()` and assign each field.
+* **runtime:** a struct literal no longer builds OpenOptions, Metadata, DirEntry, Snapshot, Capture, or Usage outside kobako-runtime; use their `new` or `Default` and assign each field.
+* the wasmtime Config and the SDK Options gain a setup_timeout field, so a struct literal that names every field must add it; one built from Options::default() is unaffected.
+* in kobako-transport, YieldReply::Break carries no payload and Reply gains a Break arm, so a Guest Binary built against the earlier version 5 wire must be rebuilt.
+* kobako-codec renames `Decoder::at_end` to `is_at_end`, `Decoder::read_only_value` to `read_sole_value`, and `Decoder::with_value_limit` to `with_value_budget`; the kobako crate renames `handles::Detached` to `handles::DetachedHandles`.
+* a guest payload holding more than memory_limit / 16 values is refused where it used to decode.
+* the Guest ABI is version 5, so a Guest Binary built against version 4 is refused at Sandbox construction until rebuilt. The Yielder trait of kobako-runtime gains frame and takes the frame in yield_to_block; the Guest trait of kobako-core and the MrbGuest trait of kobako-mruby take the frame in yield_to_block; Downcall::Yield carries frame and args.
+* **sdk:** a struct literal building the SDK's Options must set the new `open_file_limit` field, or take the rest from
+* **guest:** a Service or Extension backend bound at the path File fails its first invocation, naming the segment the Guest Binary now defines.
+* **runtime:** the Runtime trait's invoke takes the invocation's Grants as a fourth argument, so every engine implementing it must accept them.
+* Sandbox#bind and the Rust SDK's bind raise ArgumentError for a path whose first segment is Kobako, where a path such as Kobako::KV used to bind.
+
+### Features
+
+* **guest:** ship File in the default Guest Binary over the filesystem Grants ([535527b](https://github.com/elct9620/kobako/commit/535527b2c6beb82fe37758df62c3804ce5c7191a)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* let a block's break or return unwind a Service as a plain method ([4e9eca0](https://github.com/elct9620/kobako/commit/4e9eca05f1647c8b6409fc00d08317b431c0c648))
+* let a Host App bound how long a Guest Binary takes to be set up ([2addab0](https://github.com/elct9620/kobako/commit/2addab002550539e3ebb24bdd599dd424c2dc3d9))
+* **runtime:** hand each invocation its Grants and let an engine declare the kinds it supports ([cba90ee](https://github.com/elct9620/kobako/commit/cba90eed09c8afcb23080cef1c9cbb3650648472)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **runtime:** let the records a Filesystem or an engine builds gain fields ([c0ef88d](https://github.com/elct9620/kobako/commit/c0ef88d0b6df16d651e4c49226e41667307d772f))
+* **runtime:** refuse a Mount at a path that is no absolute guest path ([a525758](https://github.com/elct9620/kobako/commit/a5257589f9d831b9a3b6d1952df6e5c8469630e1))
+* **sdk:** carry open_file_limit through the Rust SDK's Options ([6393f50](https://github.com/elct9620/kobako/commit/6393f50cec496a316e2c181f2913f2fd36a4495b))
+* **sdk:** hand a Host App the whole filesystem vocabulary as kobako::filesystem ([3998574](https://github.com/elct9620/kobako/commit/3998574fcc3eb5c1b9a58d657c9d6ebda7aa4914))
+* **sdk:** let Options gain a cap without breaking a Host App ([1eb8fa3](https://github.com/elct9620/kobako/commit/1eb8fa312ccf89bb5ca17f39bde51ae57e2350ce))
+* **sdk:** mount a Filesystem on a Sandbox and replace it per invocation ([0067973](https://github.com/elct9620/kobako/commit/00679736cd1e4aad1c1475a021b2338c8cd2de43)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **wasmtime:** let Config gain a cap without breaking a frontend ([55d8093](https://github.com/elct9620/kobako/commit/55d80933b958bab67f1b94deb7633272dc56f972))
+
+
+### Bug Fixes
+
+* append through a Filesystem's file only in one step ([0509ca7](https://github.com/elct9620/kobako/commit/0509ca70d2d5a832303973ba0f7280be0731fd3d))
+* follow no link swapped in after a Policy judges a path ([ed93213](https://github.com/elct9620/kobako/commit/ed9321303dd45e113fc413e99e1240118cc4bbe4))
+* keep a link within the directory a descriptor opened ([952dd05](https://github.com/elct9620/kobako/commit/952dd0556969683f44798da94f9fc7a17c1f6d55))
+* refuse a guest payload holding more values than the memory cap allows ([51999f2](https://github.com/elct9620/kobako/commit/51999f2833a9c37e8fe43004f6b6568665a4fa0b))
+* refuse a Service path under the Kobako namespace when it is bound ([5a83c14](https://github.com/elct9620/kobako/commit/5a83c145118abec8065d3846e2c73e51f9491757))
+* run a stored block as the block of the Call that carried it ([bf33dc1](https://github.com/elct9620/kobako/commit/bf33dc1fd40c83498c6c12b0be52b3a835a144cf))
+* **runtime:** make every Filesystem answer the methods that keep a guarantee ([00f5af6](https://github.com/elct9620/kobako/commit/00f5af63f34ac7722249746d0b0eb566da618803))
+* **sdk:** give a Sandbox 4 MiB of guest memory by default ([85d6001](https://github.com/elct9620/kobako/commit/85d6001146436aa4acd5219129fe531ebf76e6e5))
+* **sdk:** run the block again when a receiver yields after a break ([1f2b41f](https://github.com/elct9620/kobako/commit/1f2b41f5b22fd62b043cd512e297947029d3360b))
+
+
+### Code Refactoring
+
+* name the value budget and decoder queries by the conventions ([918f748](https://github.com/elct9620/kobako/commit/918f7488dea13d27def92dca9e31128d90856f1c))
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.17.0...kobako-sdk-v0.18.0) (2026-10-13)
 
 

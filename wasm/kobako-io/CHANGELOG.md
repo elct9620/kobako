@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.18.0...kobako-io-v0.19.0) (2026-10-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **io:** IO#seek in the guest raises Errno::EINVAL instead of ArgumentError for a negative offset from the start or an unknown whence.
+* **io:** File.open raises ArgumentError for a mode such as bw, where b leads, or wbt, holding both b and t, as CRuby does, instead of opening the file.
+* **io:** putc, IO#read and SystemCallError.new raise RangeError for those numbers instead of writing, refusing or ignoring them.
+* **guest:** the kobako guest crates name beni 0.25's types, so a shell or codec built on them moves to beni 0.25 with them.
+* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer for every integer within 64 bits, where it used to answer a Float past 32 bits. An integer past 64 bits now raises
+* **guest:** the kobako guest crates name beni 0.24's types, so a shell or codec built on them moves to beni 0.24 with them.
+* **io:** reading `IO#sync` after assigning a non-boolean now answers true or false. It used to answer the assigned value, and nil used to read back as true.
+* **io:** a script writing to a file through `IO#write` beneath a Mount now raises on a failed write where it used to go on.
+* **io:** a script rescuing IOError for a failed read or write beneath a Mount must rescue the EIO error class, or SystemCallError, instead.
+* **guest:** a Service or Extension backend bound at the path File fails its first invocation, naming the segment the Guest Binary now defines.
+
+### Features
+
+* **guest:** ship File in the default Guest Binary over the filesystem Grants ([535527b](https://github.com/elct9620/kobako/commit/535527b2c6beb82fe37758df62c3804ce5c7191a)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **guest:** widen the guest Integer to 64 bits ([7236a26](https://github.com/elct9620/kobako/commit/7236a26285dfdef175048f659c1094dd3bbb5b4d))
+* **io:** create a file only where nothing is through File.open's wx ([56c5665](https://github.com/elct9620/kobako/commit/56c5665e4c87ac30b8035aaed207ce840efad25c))
+* **io:** let IO.new take its descriptor's access when no mode is given ([77669cc](https://github.com/elct9620/kobako/commit/77669ccd958ea9518e69b50670f2804d66c9e1c5))
+* **io:** name a call that would deadlock Errno::EDEADLK ([8a090e6](https://github.com/elct9620/kobako/commit/8a090e6f6949ec8019743d903c712e122d7743f9))
+* **io:** name a full descriptor table Errno::EMFILE ([67876a7](https://github.com/elct9620/kobako/commit/67876a78764f8afe1b11167471d3d94e81c92af1))
+* **io:** name a move across devices Errno::EXDEV ([dbed1ce](https://github.com/elct9620/kobako/commit/dbed1ce20eed6c6f1b6715f70431f0f6a7012e9e))
+* **io:** name a path past its limits Errno::ENAMETOOLONG ([7679a6f](https://github.com/elct9620/kobako/commit/7679a6feb0fce0b00c89f36ed33bd5d872f86abe))
+* **io:** open a file by an Integer mode of File::Constants flags ([e1f484c](https://github.com/elct9620/kobako/commit/e1f484c713df4d894744833836cf9a29ba9677ee))
+* **io:** open a file through wasi-libc so a create needs no write ([6d50ca4](https://github.com/elct9620/kobako/commit/6d50ca4d79b70956d113f0798255300aa8a7fe92))
+* **io:** raise Errno::EFBIG for a file grown too large ([b8ea9cd](https://github.com/elct9620/kobako/commit/b8ea9cdb6ecab7adae7f5487cffdb57889bfbbb5))
+* **io:** set a file's position with IO#pos= ([1802d5a](https://github.com/elct9620/kobako/commit/1802d5a32618f33cc189e24f0de4dbfda074e3db))
+* **runtime:** let a Filesystem's file refuse its close ([af16007](https://github.com/elct9620/kobako/commit/af1600797b098796dd6f329672c7d04e2e1cd2fa)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+
+
+### Bug Fixes
+
+* **io:** build Errno and IOError as CRuby does ([da77c47](https://github.com/elct9620/kobako/commit/da77c4725d3701ba982f5425b1fcf2fb0038ac89))
+* **io:** carry a stream's descriptor in its payload, not in hidden ivars ([76ca3c0](https://github.com/elct9620/kobako/commit/76ca3c03fdef537041a167bb58b1af2b176d772a))
+* **io:** give File::Constants CRuby's Linux values ([14cadd8](https://github.com/elct9620/kobako/commit/14cadd88ac5a5dcb8f73b252b68c493488b3e78a))
+* **io:** keep a stream's bookkeeping out of its instance variables ([5ecf833](https://github.com/elct9620/kobako/commit/5ecf8332c2ebff9a1d01c528fa3af31afdebdee3))
+* **io:** keep the number a SystemCallError is built with ([5fd327a](https://github.com/elct9620/kobako/commit/5fd327add59173cd5756fecb41d97aebcba7b881))
+* **io:** raise each code the engine answers as its own Errno ([eb6382e](https://github.com/elct9620/kobako/commit/eb6382e506a30e82576fa12ab9859e7d35be2b17))
+* **io:** raise Errno::EIO for a file failure no other code names ([8a0447d](https://github.com/elct9620/kobako/commit/8a0447d2d09ea83e6f7771cf0411bfd6deec3d1a)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **io:** raise RangeError for a number past what putc, read and errno take ([6f87cc0](https://github.com/elct9620/kobako/commit/6f87cc08dff7146415f80ca25cd75ddbec4391c0))
+* **io:** raise the error a failed file write names ([bcc8e00](https://github.com/elct9620/kobako/commit/bcc8e00662741fcac3b91f58c0b60f4a79d2ab9f))
+* **io:** read a directory as EISDIR and wrap only an access a file holds ([df26095](https://github.com/elct9620/kobako/commit/df26095c681704cef0a8249c8b30797957fb8bd0))
+* **io:** read IO.new's mode over a guest file as File.open does ([db3402c](https://github.com/elct9620/kobako/commit/db3402cd5c9c67ae48fb0363e1153a76acc55c17))
+* **io:** refuse a seek before the start or by an unknown whence as EINVAL ([2f4906c](https://github.com/elct9620/kobako/commit/2f4906cc0ad3a3aa9613789e7d63c66ce881883f))
+* **io:** write a file to the end when its Filesystem takes it in parts ([029b439](https://github.com/elct9620/kobako/commit/029b43939a3a48bc2925057df69bfcb85b1a0548))
+
+
+### Performance Improvements
+
+* **io:** answer IO#read with a length in one read the file holds ([e9161a2](https://github.com/elct9620/kobako/commit/e9161a2018c1617157025de275f77890e865b7d1)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+
+
+### Build System
+
+* **guest:** rebuild the guest crates on beni 0.24 ([4599337](https://github.com/elct9620/kobako/commit/4599337261d1d28ff8c36435062d34cbccf09abb))
+* **guest:** rebuild the guest crates on beni 0.25 ([a06dfd2](https://github.com/elct9620/kobako/commit/a06dfd25958ded9c82072149d73e56372343ba31))
+
 ## [0.18.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.17.0...kobako-io-v0.18.0) (2026-10-13)
 
 

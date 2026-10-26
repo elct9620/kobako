@@ -1,5 +1,175 @@
 # Changelog
 
+## [0.29.0](https://github.com/elct9620/kobako/compare/v0.28.0...v0.29.0) (2026-10-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* a class's alias or define_method copy of a method mixed into Object or Module is no longer reachable from the guest; define the method on the Service's own class to expose it.
+* a narrowing predicate no longer reaches a method a library mixes into Object or Module; define the method on the Service's own class to expose it.
+* **wasmtime:** a call through a directory descriptor answers ENOENT when the directory at its path is not the one it opened, where it used to reach that directory.
+* **wasmtime:** a struct literal no longer builds the wasmtime driver's Config outside its crate; start from `Config::default()` and assign each field.
+* **runtime:** a struct literal no longer builds OpenOptions, Metadata, DirEntry, Snapshot, Capture, or Usage outside kobako-runtime; use their `new` or `Default` and assign each field.
+* a narrowing predicate no longer reaches a built-in method an object copies, aliases or rebinds, nor a private method it forwards; write the method in Ruby to expose it.
+* the wasmtime Config and the SDK Options gain a setup_timeout field, so a struct literal that names every field must add it; one built from Options::default() is unaffected.
+* in kobako-transport, YieldReply::Break carries no payload and Reply gains a Break arm, so a Guest Binary built against the earlier version 5 wire must be rebuilt.
+* Overlay#layer with an access that is not a Symbol raises ArgumentError, as Sandbox#mount does, instead of TypeError.
+* kobako-codec renames `Decoder::at_end` to `is_at_end`, `Decoder::read_only_value` to `read_sole_value`, and `Decoder::with_value_limit` to `with_value_budget`; the kobako crate renames `handles::Detached` to `handles::DetachedHandles`.
+* **spec:** `Decoder::at_end`, `Decoder::read_only_value`, `Decoder::with_value_limit`, and `kobako::handles::Detached` are registered as `is_at_end`, `read_sole_value`, `with_value_budget`, and `DetachedHandles`.
+* a guest block called from another Thread or Fiber, including through Enumerator#next, raises ThreadError instead of running.
+* a guest payload holding more than memory_limit / 16 values is refused where it used to decode.
+* the Guest ABI is version 5, so a Guest Binary built against version 4 is refused at Sandbox construction until rebuilt. The Yielder trait of kobako-runtime gains frame and takes the frame in yield_to_block; the Guest trait of kobako-core and the MrbGuest trait of kobako-mruby take the frame in yield_to_block; Downcall::Yield carries frame and args.
+* **io:** putc, IO#read and SystemCallError.new raise RangeError for those numbers instead of writing, refusing or ignoring them.
+* **guest:** kobako-mruby drops the narrow_int method on Kobako, the IntegerOutOfRange type and the Interpreter variant of CodecError; a codec builds a guest Integer from a wire integer through beni's IntoValue.
+* **guest:** the kobako guest crates name beni 0.25's types, so a shell or codec built on them moves to beni 0.25 with them.
+* **guest:** the default memory_limit is now 4 MiB. JSON.parse in the guest answers an Integer for every integer within 64 bits, where it used to answer a Float past 32 bits. An integer past 64 bits now raises
+* **guest:** the kobako guest crates name beni 0.24's types, so a shell or codec built on them moves to beni 0.24 with them.
+* **io:** reading `IO#sync` after assigning a non-boolean now answers true or false. It used to answer the assigned value, and nil used to read back as true.
+* **io:** a script writing to a file through `IO#write` beneath a Mount now raises on a failed write where it used to go on.
+* **io:** a script rescuing IOError for a failed read or write beneath a Mount must rescue the EIO error class, or SystemCallError, instead.
+* **guest:** a Service or Extension backend bound at the path File fails its first invocation, naming the segment the Guest Binary now defines.
+* **runtime:** the Runtime trait's invoke takes the invocation's Grants as a fourth argument, so every engine implementing it must accept them.
+* Sandbox#bind and the Rust SDK's bind raise ArgumentError for a path whose first segment is Kobako, where a path such as Kobako::KV used to bind.
+
+### Features
+
+* build a Kobako::Filesystem::Overlay one Layer at a time ([f776824](https://github.com/elct9620/kobako/commit/f776824e3be77eeea0874fd94dd89d42ce92de26)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* cap the files a script holds open with open_file_limit ([e587abf](https://github.com/elct9620/kobako/commit/e587abf02dfbbc44792469dd0515780647849ac5))
+* check what a rename moves as it moves, refusing a directory beneath a Policy ([23794bf](https://github.com/elct9620/kobako/commit/23794bfcb54e148126e29873fa9b52d9e3de8d8c))
+* give a Memory or Temporary a count of inodes from Ruby ([8b390e3](https://github.com/elct9620/kobako/commit/8b390e3da88c59c7b0120c6f092a372da0c4ddee))
+* give a Memory or Temporary a limit from Ruby ([14592af](https://github.com/elct9620/kobako/commit/14592af11b49c5e9e6e87aef514ad5061283a50f))
+* **guest:** carry every integer msgpack encodes in both directions ([ec349f9](https://github.com/elct9620/kobako/commit/ec349f98fcb38443d9f9dfc45701e2ce87ff7710))
+* **guest:** carry mruby-bigint so an Integer has no width of its own ([a74266d](https://github.com/elct9620/kobako/commit/a74266d3e7b1295b75770b62894b232195f9b3bb))
+* **guest:** ship File in the default Guest Binary over the filesystem Grants ([535527b](https://github.com/elct9620/kobako/commit/535527b2c6beb82fe37758df62c3804ce5c7191a)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **guest:** widen the guest Integer to 64 bits ([7236a26](https://github.com/elct9620/kobako/commit/7236a26285dfdef175048f659c1094dd3bbb5b4d))
+* **json:** read and write an Integer of any width exactly ([c839ad0](https://github.com/elct9620/kobako/commit/c839ad0401b1e2f6a6f8c0689d6cd7ed7c4885b3))
+* let a block's break or return unwind a Service as a plain method ([4e9eca0](https://github.com/elct9620/kobako/commit/4e9eca05f1647c8b6409fc00d08317b431c0c648))
+* let a Host App bound how long a Guest Binary takes to be set up ([2addab0](https://github.com/elct9620/kobako/commit/2addab002550539e3ebb24bdd599dd424c2dc3d9))
+* mount a Filesystem written in Ruby ([891106c](https://github.com/elct9620/kobako/commit/891106c5cd91f4bd59986a75965b2f79ba97495e)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* mount a Kobako::Filesystem on a Sandbox for the guest's File ([118e1ab](https://github.com/elct9620/kobako/commit/118e1ab99ddb22b205ef1580285cda04e55ebdf4)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* name what a Ruby Filesystem's path holds by the ino its stat answers ([adb2363](https://github.com/elct9620/kobako/commit/adb2363ae56c281d2d443e9f0c8386ed7788eea6))
+* **runtime:** bound the files and directories a Memory or Temporary holds ([8d0be0a](https://github.com/elct9620/kobako/commit/8d0be0ab3dc8c11bcb96865b0bf1a0bbb8dd3b16))
+* **runtime:** bound what a Memory or Temporary holds, 64 MiB by default ([2557d1b](https://github.com/elct9620/kobako/commit/2557d1ba7530aacfddf908aeddac561c4fbc5c8a))
+* **runtime:** draw every device a host does not name from one source ([210d55b](https://github.com/elct9620/kobako/commit/210d55b1b4e0699dc5ef56b4b6930be01658a3c6))
+* **runtime:** hand each invocation its Grants and let an engine declare the kinds it supports ([cba90ee](https://github.com/elct9620/kobako/commit/cba90eed09c8afcb23080cef1c9cbb3650648472)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **runtime:** keep a directory descriptor's identity its own while open ([6267642](https://github.com/elct9620/kobako/commit/6267642ea831917be76a0101e8d206ccfa8834c1))
+* **runtime:** let a dispatch handler abandon its invocation ([179da9e](https://github.com/elct9620/kobako/commit/179da9ee1f31fed9e6d0c149faee0ad55f8db487))
+* **runtime:** let a Filesystem's file refuse its close ([af16007](https://github.com/elct9620/kobako/commit/af1600797b098796dd6f329672c7d04e2e1cd2fa)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **runtime:** let a Mount decide its own access as the one kind of Grant ([5c9189e](https://github.com/elct9620/kobako/commit/5c9189eea8ac61cf165dca1b38e459c4f14acdd0)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **runtime:** let a Mount's Policy judge the spelling the host stores ([5281057](https://github.com/elct9620/kobako/commit/52810573f22d2a3edfae9b34b7767a5f440fba15))
+* **runtime:** let the records a Filesystem or an engine builds gain fields ([c0ef88d](https://github.com/elct9620/kobako/commit/c0ef88d0b6df16d651e4c49226e41667307d772f))
+* **runtime:** refuse a Mount at a path that is no absolute guest path ([a525758](https://github.com/elct9620/kobako/commit/a5257589f9d831b9a3b6d1952df6e5c8469630e1))
+* **runtime:** report a link a lookup does not follow as a link ([8c1e0b3](https://github.com/elct9620/kobako/commit/8c1e0b3e63fbc91b10f11cd91817ce94de24c7e6))
+* **runtime:** report the identity of what a path holds ([392bc0e](https://github.com/elct9620/kobako/commit/392bc0e9f2fb935934a0031bf7d64dec0b27df6a))
+* **runtime:** say whether a path beneath a Mount may pass a link ([7706a25](https://github.com/elct9620/kobako/commit/7706a2537bf8e5975b2b227bef0c05cb48c09f4b))
+* **runtime:** seed a Memory from a list that may not hold, answering why ([8ac2dfd](https://github.com/elct9620/kobako/commit/8ac2dfdf73b84fe2e53405a653d861ddca9ea98c))
+* **runtime:** ship the Memory, Temporary, Directory, and Overlay filesystems ([c60c453](https://github.com/elct9620/kobako/commit/c60c4535e966ffd501e03d7be7fef0a44d860b0b)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **runtime:** stack an Overlay from Layers, each read-only or writable ([6c88188](https://github.com/elct9620/kobako/commit/6c88188cd7992c218f8c5a3be30981e685804078)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **sdk:** hand a Host App the whole filesystem vocabulary as kobako::filesystem ([3998574](https://github.com/elct9620/kobako/commit/3998574fcc3eb5c1b9a58d657c9d6ebda7aa4914))
+* take a setup_timeout for building a Sandbox over a Guest Binary ([22d19a3](https://github.com/elct9620/kobako/commit/22d19a3ee61a7726ba9059ad2796e83e2ca2f98e))
+* **wasmtime:** let Config gain a cap without breaking a frontend ([55d8093](https://github.com/elct9620/kobako/commit/55d80933b958bab67f1b94deb7633272dc56f972))
+
+
+### Bug Fixes
+
+* append through a Filesystem's file only in one step ([0509ca7](https://github.com/elct9620/kobako/commit/0509ca70d2d5a832303973ba0f7280be0731fd3d))
+* ask a mount's block once for a read ([f89bd16](https://github.com/elct9620/kobako/commit/f89bd16c1a71ed1d385ab9d3ac5974ac3f0a9103))
+* **deps:** require a msgpack without the Buffer#clear use-after-free ([46638db](https://github.com/elct9620/kobako/commit/46638db4ca5b893843558aa4430ff31f966258aa))
+* end the run when a host callback raises beyond StandardError ([bb96c87](https://github.com/elct9620/kobako/commit/bb96c87dbb1d7337d2478376e9b8366d5a298e1f))
+* follow no link swapped in after a Policy judges a path ([ed93213](https://github.com/elct9620/kobako/commit/ed9321303dd45e113fc413e99e1240118cc4bbe4))
+* **guest:** name the segment a bind path meets when the Guest Binary already defines it ([0dc1766](https://github.com/elct9620/kobako/commit/0dc1766ff60a1ef03a5b0c337dfd02041fb3fb8f))
+* hold an Overlay's lock across each call, waiting without the GVL ([b8e7342](https://github.com/elct9620/kobako/commit/b8e734273fdc577a40be97c43c46d9548d66c625))
+* **io:** build Errno and IOError as CRuby does ([da77c47](https://github.com/elct9620/kobako/commit/da77c4725d3701ba982f5425b1fcf2fb0038ac89))
+* **io:** carry a stream's descriptor in its payload, not in hidden ivars ([76ca3c0](https://github.com/elct9620/kobako/commit/76ca3c03fdef537041a167bb58b1af2b176d772a))
+* **io:** keep a stream's bookkeeping out of its instance variables ([5ecf833](https://github.com/elct9620/kobako/commit/5ecf8332c2ebff9a1d01c528fa3af31afdebdee3))
+* **io:** keep the number a SystemCallError is built with ([5fd327a](https://github.com/elct9620/kobako/commit/5fd327add59173cd5756fecb41d97aebcba7b881))
+* **io:** raise each code the engine answers as its own Errno ([eb6382e](https://github.com/elct9620/kobako/commit/eb6382e506a30e82576fa12ab9859e7d35be2b17))
+* **io:** raise Errno::EIO for a file failure no other code names ([8a0447d](https://github.com/elct9620/kobako/commit/8a0447d2d09ea83e6f7771cf0411bfd6deec3d1a)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **io:** raise RangeError for a number past what putc, read and errno take ([6f87cc0](https://github.com/elct9620/kobako/commit/6f87cc08dff7146415f80ca25cd75ddbec4391c0))
+* **io:** raise the error a failed file write names ([bcc8e00](https://github.com/elct9620/kobako/commit/bcc8e00662741fcac3b91f58c0b60f4a79d2ab9f))
+* **io:** write a file to the end when its Filesystem takes it in parts ([029b439](https://github.com/elct9620/kobako/commit/029b43939a3a48bc2925057df69bfcb85b1a0548))
+* keep a link within the directory a descriptor opened ([952dd05](https://github.com/elct9620/kobako/commit/952dd0556969683f44798da94f9fc7a17c1f6d55))
+* keep a mount's block and Ruby Filesystem in place under GC compaction ([4a88c05](https://github.com/elct9620/kobako/commit/4a88c054ba22ea15cdf1ca5d691053a0f81d0661))
+* pass an Errno a Ruby Filesystem raises through as itself ([b107a0f](https://github.com/elct9620/kobako/commit/b107a0f058da2a642317de4edd911fa7001e55bc))
+* raise a signal during a process's first run as itself, not fatal ([7803e19](https://github.com/elct9620/kobako/commit/7803e19cb3812d9ff5184f50cc7d3836da7e3087))
+* raise ArgumentError for files a Memory cannot be seeded with ([2b89c57](https://github.com/elct9620/kobako/commit/2b89c579519961529e3f3a618eda5d9b7d421d75))
+* read a real File a Ruby Filesystem opens to its end ([019c523](https://github.com/elct9620/kobako/commit/019c523a365c4de9cee6b38b263b1ea621b8897f))
+* refuse a copy of a method mixed into Object or Module ([4476af9](https://github.com/elct9620/kobako/commit/4476af9993da9e6dabc22ed8cc5dcd45b1ec6a3c))
+* refuse a guest block run off the fiber driving its invocation ([3a5e144](https://github.com/elct9620/kobako/commit/3a5e144431ac316290b3136a7b22be05783b0d13))
+* refuse a guest payload holding more values than the memory cap allows ([51999f2](https://github.com/elct9620/kobako/commit/51999f2833a9c37e8fe43004f6b6568665a4fa0b))
+* refuse a keyword Memory.new does not know ([ecd4660](https://github.com/elct9620/kobako/commit/ecd4660a2d9d001286adb955c4aca4356685b5f4))
+* refuse a Mount by the native rules alone, at mount time ([c371d6d](https://github.com/elct9620/kobako/commit/c371d6d9088cb6a9d924b847a30cec4f0348f8f6))
+* refuse a mount of what is no Filesystem as the wrong type ([0f53e4b](https://github.com/elct9620/kobako/commit/0f53e4b3f2e497577019c5afbb4f430409e83f3f))
+* refuse a Ruby Filesystem's write that claims more than it was handed ([3183b65](https://github.com/elct9620/kobako/commit/3183b65dad1a913c87b327a55c7c104fc2360adb))
+* refuse a Service path under the Kobako namespace when it is bound ([5a83c14](https://github.com/elct9620/kobako/commit/5a83c145118abec8065d3846e2c73e51f9491757))
+* refuse every method built into Ruby, whatever its owner ([963a316](https://github.com/elct9620/kobako/commit/963a3169a7607e83ab0bd2fa98296326efaacb02))
+* refuse every method mixed into Object or Module ([70de6c1](https://github.com/elct9620/kobako/commit/70de6c19ddbcdb8038873d6e06a096c188169f8d))
+* run a stored block as the block of the Call that carried it ([bf33dc1](https://github.com/elct9620/kobako/commit/bf33dc1fd40c83498c6c12b0be52b3a835a144cf))
+* **runtime:** answer a host failure as the error naming it ([effd43a](https://github.com/elct9620/kobako/commit/effd43a85a3ba69aaa068d2c384c3b5cb466161c))
+* **runtime:** append to a Directory file in one host write ([4a5450a](https://github.com/elct9620/kobako/commit/4a5450a67e202e45299175c4fe7528cf50489f0e))
+* **runtime:** copy a file up whole when its Layer writes in parts ([89d87f7](https://github.com/elct9620/kobako/commit/89d87f7225611786467968ec34eba5a8223b5fc5))
+* **runtime:** judge a link an Overlay's Layer holds as the link itself ([959c1f3](https://github.com/elct9620/kobako/commit/959c1f3dab6f6948baabbd914bbb86dfff090f7b))
+* **runtime:** leave an Overlay unchanged when a removal or rename is refused ([a7bee4b](https://github.com/elct9620/kobako/commit/a7bee4b2a465a0ef0ad2e376c281dca82a0df0e1))
+* **runtime:** let a file or link in a Layer hide what lies below it ([fd579f6](https://github.com/elct9620/kobako/commit/fd579f679cfa8a83ec7d139066bc1a4570af398b))
+* **runtime:** make every Filesystem answer the methods that keep a guarantee ([00f5af6](https://github.com/elct9620/kobako/commit/00f5af63f34ac7722249746d0b0eb566da618803))
+* **runtime:** move a directory made again as the writable Layer's own ([ac3e864](https://github.com/elct9620/kobako/commit/ac3e864bbb0ce5d61def45e0403239be405481d3))
+* **runtime:** move a directory onto one that holds only markers ([934f0c3](https://github.com/elct9620/kobako/commit/934f0c39e0ad1189bdb1cb0461671245dea32f93))
+* **runtime:** open a file already there without writing to create it ([7f76a1a](https://github.com/elct9620/kobako/commit/7f76a1af575739ae16c5daeb1df8268af44cea63))
+* **runtime:** panic on files a Memory cannot be seeded with ([cf5c835](https://github.com/elct9620/kobako/commit/cf5c835d7df8bf82972487280c6a6c79be955a68))
+* **runtime:** put an Overlay's markers back when the change fails ([78ddeed](https://github.com/elct9620/kobako/commit/78ddeeddda8b9f797a80ec3796b28e04cf99ffc9))
+* **runtime:** refuse a backslash in a Directory path on Windows ([88b5719](https://github.com/elct9620/kobako/commit/88b57195325b168395248a82b94a5ebf7e5f4142))
+* **runtime:** refuse a file moved beneath itself as no directory ([bfabb52](https://github.com/elct9620/kobako/commit/bfabb52b27080ee9e5000bd5524ea201a7e33d80))
+* **runtime:** refuse a host name that is not UTF-8 as an illegal sequence ([c4ff030](https://github.com/elct9620/kobako/commit/c4ff030ffa8e29fa1b10df4aaf6af65162c76353))
+* **runtime:** remove no directory as a file on any host ([c9c0820](https://github.com/elct9620/kobako/commit/c9c0820fd39c0744b9d9c367b977f6587d1f9589))
+* **runtime:** rename and copy up through an Overlay as overlayfs does ([ada5a86](https://github.com/elct9620/kobako/commit/ada5a86a8647d89666e9de808eb13ba638882e51))
+* **runtime:** reserve an Overlay's marker name in any case ([ef39923](https://github.com/elct9620/kobako/commit/ef399230eabe01ad6eed632b2753880ae1fc322c))
+* stop a guest-chosen method name from becoming a permanent Symbol ([83b19dc](https://github.com/elct9620/kobako/commit/83b19dc9231a9e62e292eb71de295ba3cd5b3523))
+* tell a Ruby Filesystem's refusal from a method it lacks ([670d0b6](https://github.com/elct9620/kobako/commit/670d0b659c8735a3b69169a7572a23d5f3623724))
+* type a Ruby Filesystem's file as answering fsync and close apart ([bb1d6ff](https://github.com/elct9620/kobako/commit/bb1d6ff05bcbb2197d42e00ee1ed7c4dad3f231c))
+* type a Ruby Filesystem's optional methods and a mount's access ([e64fdec](https://github.com/elct9620/kobako/commit/e64fdeca499d9d08fbc52d9daf31902aa77190fc))
+* type a Ruby Filesystem's stat as answering ino ([54ead22](https://github.com/elct9620/kobako/commit/54ead222fc91761c51539a7985283cf54f436612))
+* **wasmtime:** answer a path past Linux's limits as NAMETOOLONG ([af43917](https://github.com/elct9620/kobako/commit/af43917e30a634d6c1bd70813044967bd1057ba3))
+* **wasmtime:** answer a stat that follows no link with the link itself ([ad0072e](https://github.com/elct9620/kobako/commit/ad0072e03ecc363487598a507de20a8f7aec2927))
+* **wasmtime:** answer dot paths, creates, and far seeks as Linux does ([68c234e](https://github.com/elct9620/kobako/commit/68c234e06859b93fb986bdbab92cca944ce39700))
+* **wasmtime:** answer every preview1 call that reads a descriptor from kobako's own table ([d0e39ae](https://github.com/elct9620/kobako/commit/d0e39aebd6d729d49111340af7f2af4e37aa7909)), closes [#78](https://github.com/elct9620/kobako/issues/78)
+* **wasmtime:** answer fd_allocate beneath a Mount as unsupported ([e3d2071](https://github.com/elct9620/kobako/commit/e3d20713e4474cd637dacfece99e52b80d7ad2f6))
+* **wasmtime:** bound what one preview1 call copies to wasmtime's hostcall fuel ([097c554](https://github.com/elct9620/kobako/commit/097c55426c1e71467bb1e372abc190331dd3e601))
+* **wasmtime:** check path_open's flags as wasmtime-wasi does ([22eb494](https://github.com/elct9620/kobako/commit/22eb4944117260831e92fe616b02888078c02b0c))
+* **wasmtime:** hold the whole invocation to its deadline ([231e325](https://github.com/elct9620/kobako/commit/231e32592699008adf3105050bee8b5528ea27a8))
+* **wasmtime:** judge the cache directory itself, not where a link leads ([6baf6fd](https://github.com/elct9620/kobako/commit/6baf6fd2ad845cea83049c4b2bb51174aa205cd0))
+* **wasmtime:** key the compiled-artifact cache by the engine that compiles it ([b43bad2](https://github.com/elct9620/kobako/commit/b43bad2fe176c153ed82a3a8825698414df78dfa))
+* **wasmtime:** list a directory once for each listing a guest reads ([c333001](https://github.com/elct9620/kobako/commit/c3330011725c3dba01ea248ed7d1dfea31085af0))
+* **wasmtime:** look up what stands before a dot path as Linux does ([0898eaf](https://github.com/elct9620/kobako/commit/0898eafb55397c84ca9007561ddb35dd007ed2b8))
+* **wasmtime:** place an append at the end as the file stands when it lands ([d7291c4](https://github.com/elct9620/kobako/commit/d7291c4f32fb1f5f2494c69c76796476bbcf4d43))
+* **wasmtime:** reach the artifact cache through the directory it checked ([462fe91](https://github.com/elct9620/kobako/commit/462fe918d516cd639e405b06a5e280a9e58624df))
+* **wasmtime:** refuse a `..` that steps out of a host link ([4599386](https://github.com/elct9620/kobako/commit/45993868c7334376f5d1a455afbd15fe4a2146bc))
+* **wasmtime:** refuse a directory made in an opened directory's place ([5e67d4c](https://github.com/elct9620/kobako/commit/5e67d4cd2a52e3aa37bdd615fe1ae101a618db88))
+* **wasmtime:** refuse a link an open asks not to follow ([123a01b](https://github.com/elct9620/kobako/commit/123a01b01f59cc69c0e3a23f9aeb01aa89132c07))
+* **wasmtime:** refuse a link to a directory an open asks not to follow ([eec218f](https://github.com/elct9620/kobako/commit/eec218fdd5584f641070032cf1110ef1683eaae5))
+* **wasmtime:** refuse a path through a link beneath a Mount with a Policy ([3da1641](https://github.com/elct9620/kobako/commit/3da16416692ade01db2d9cf366d54d3ec5f50605))
+* **wasmtime:** refuse a rename of a file onto a path ending in a slash ([486a0ab](https://github.com/elct9620/kobako/commit/486a0ab3584772b58e181d5de57ef505e610eb78))
+* **wasmtime:** refuse to remove or move a Mount's root ([9f2e000](https://github.com/elct9620/kobako/commit/9f2e000115a4dd4aecfcc4b1cd39b23f6f20fe05))
+* **wasmtime:** require wasmtime 49.0.4 for the aarch64 br_table fix ([390e30b](https://github.com/elct9620/kobako/commit/390e30ba51ed4175820f2bb230e3ad5b0ad1e9a5))
+* **wasmtime:** resolve a `..` and a trailing slash as a host does ([d2d04c1](https://github.com/elct9620/kobako/commit/d2d04c1fff24d8829b2cf4fcbf628565f35eeadc))
+* **wasmtime:** resolve a link a stat names with a trailing slash ([6da98fa](https://github.com/elct9620/kobako/commit/6da98facbccaa9bf6d8f8280a56841e19a7c879b))
+* **wasmtime:** take wasmtime 49.0.3 for its sandbox advisories ([7672592](https://github.com/elct9620/kobako/commit/76725923cac50473c7e3a21cc5121e3cbba0cba5))
+
+
+### Documentation
+
+* **spec:** register the decoder and detached-table names the conventions give ([469636b](https://github.com/elct9620/kobako/commit/469636b25fb9bd1768e6afe6604da3614ac18e95))
+
+
+### Code Refactoring
+
+* name the value budget and decoder queries by the conventions ([918f748](https://github.com/elct9620/kobako/commit/918f7488dea13d27def92dca9e31128d90856f1c))
+
+
+### Build System
+
+* **guest:** rebuild the guest crates on beni 0.24 ([4599337](https://github.com/elct9620/kobako/commit/4599337261d1d28ff8c36435062d34cbccf09abb))
+* **guest:** rebuild the guest crates on beni 0.25 ([a06dfd2](https://github.com/elct9620/kobako/commit/a06dfd25958ded9c82072149d73e56372343ba31))
+
 ## [0.28.0](https://github.com/elct9620/kobako/compare/v0.27.0...v0.28.0) (2026-10-13)
 
 
