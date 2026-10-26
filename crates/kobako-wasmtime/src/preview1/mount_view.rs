@@ -283,6 +283,13 @@ const PROBE_WAT: &str = r#"
     (local.set $errno (call $open_read_write))
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $set_size (i32.load (i32.const 128)) (local.get $offset)))
+  ;; Open `file.txt` with `rights`, then size it to one byte.
+  (func (export "size_with") (param $rights i64) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open (i32.const 3) (i32.const 0) (i32.const 700) (i32.const 8)
+      (i32.const 0) (local.get $rights) (i64.const 0) (i32.const 0) (i32.const 128)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $set_size (i32.load (i32.const 128)) (i64.const 1)))
   ;; List the root from `cookie` into the `len` bytes at 2048.
   (func (export "list") (param $cookie i64) (param $len i32) (result i32)
     (call $readdir (i32.const 3) (i32.const 2048) (local.get $len) (local.get $cookie) (i32.const 136)))
@@ -1747,6 +1754,27 @@ fn a_wait_to_write_a_file_answers_by_what_its_mount_permits() {
         "poll_oneoff waiting to write a file opened only to read through preview1 must be ready \
          beneath a read-write Mount and answer EPERM beneath a read-only one, as wasmtime-wasi \
          answers by its preopen"
+    );
+}
+
+// The same file opened with the same rights, so only its Mount's access
+// tells the two refusals apart.
+// @behavior RT-137
+#[test]
+fn sizing_a_file_opened_only_to_read_answers_by_its_mount_then_as_linux_does() {
+    let size = |access, rights| {
+        Guest::new(&[grant(file_and_directory(), access, None)]).call_at("size_with", rights)
+    };
+    assert_eq!(
+        (
+            size(Access::Read, RIGHTS_FD_READ),
+            size(Access::ReadWrite, RIGHTS_FD_READ),
+            size(Access::ReadWrite, RIGHTS_FD_WRITE),
+        ),
+        (ERRNO_PERM, ERRNO_INVAL, 0),
+        "fd_filestat_set_size on a file opened only to read through preview1 must answer EPERM \
+         beneath a read-only Mount, as wasmtime-wasi does, and EINVAL beneath a read-write one, \
+         as Linux's ftruncate does, while a file opened to write is sized"
     );
 }
 

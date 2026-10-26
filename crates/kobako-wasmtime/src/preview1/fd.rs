@@ -288,10 +288,16 @@ pub(crate) fn filestat_get(
     }
 }
 
+/// A Mount that refuses the write answers first, as wasmtime-wasi answers
+/// by its preopen; a file opened only to read then answers as Linux's
+/// `ftruncate` does.
 pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> Answer {
     let file = file(table, fd)?;
+    if !file.mount_writable {
+        return Err(Errno::Perm.into());
+    }
     if !file.writable {
-        return Err(Errno::Badf.into());
+        return Err(Errno::Inval.into());
     }
     Ok(file.file.set_len(refuse_negative(size)?)?)
 }
