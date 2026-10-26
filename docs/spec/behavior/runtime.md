@@ -1418,3 +1418,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation holding a file open beneath a Mount |
 | When | the guest reads past the largest signed 64-bit offset, by offset and by its position |
 | Then | each read answers EINVAL as Linux does, and a read ending at it answers the end |
+
+## `RT-137` Sizing a file opened only to read answers by its Mount, then as Linux does
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-135` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding files open only to read beneath a read-only and a read-write Mount |
+| When | the guest sets the size of each |
+| Then | the first answers EPERM as wasmtime-wasi does, the second EINVAL as Linux ftruncate does |
