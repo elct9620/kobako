@@ -21,7 +21,7 @@ use crate::io::{argument_error, Stream};
 use crate::stream::with_file;
 use crate::{descriptors, errno};
 
-mod mode;
+pub(crate) mod mode;
 
 pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     use beni::Module;

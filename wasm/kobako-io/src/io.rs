@@ -22,19 +22,17 @@
 //! ## Scope restriction
 //!
 //! Only `fd == 1` (stdout), `fd == 2` (stderr), and the files this guest
-//! opened (`crate::descriptors`) are accepted at construction, and only
-//! the String `"w"` as the `mode` of a captured one. A mode that is not a
-//! String raises `TypeError`; any other fd or mode raises
-//! `ArgumentError` immediately. Reading, seeking, and closing live in
-//! `crate::stream`.
+//! opened (`crate::descriptors`) are accepted at construction. A captured
+//! one takes only the String `"w"` as its `mode`, and a file's mode is
+//! read as `File.open` reads it; anything else raises at construction.
+//! Reading, seeking, and closing live in `crate::stream`.
 
 use std::cell::RefCell;
 
 use beni::prelude::*;
 use beni::value::qnil;
 use beni::{
-    Error, Integer, IntoValue, Mrb, RArray, RClass, RString, RTypedData, TryConvert, TypedData,
-    Value,
+    Error, Integer, IntoValue, Mrb, RArray, RClass, RTypedData, TryConvert, TypedData, Value,
 };
 
 use crate::{descriptors, errno};
@@ -150,8 +148,9 @@ pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
 /// `IO.new(fd, mode)` refuses any `fd` but 1, 2, or a file this guest
 /// opened: stdin carries the Preamble and a preopened directory is the
 /// host's, so neither is the guest's to wrap. A captured descriptor only
-/// writes, so its `mode` must be `"w"`.
-fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode: RString) -> Result<(), Error> {
+/// writes, so its `mode` must be `"w"`; a file's mode is read as
+/// `File.open` reads it.
+fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode: Value) -> Result<(), Error> {
     if !descriptors::is_reachable(fd) {
         return Err(argument_error(
             mrb,
@@ -159,8 +158,13 @@ fn io_initialize(mrb: &Mrb, self_: Value, fd: i32, mode: RString) -> Result<(), 
         ));
     }
 
-    if descriptors::is_channel(fd) && String::from_value(mode.as_value()).as_deref() != Some("w") {
-        return Err(argument_error(mrb, "kobako IO only supports mode \"w\""));
+    if descriptors::is_channel(fd) {
+        let mode = Vec::<u8>::from_value(mode).ok_or_else(|| errno::type_error(mrb, mode))?;
+        if mode != b"w" {
+            return Err(argument_error(mrb, "kobako IO only supports mode \"w\""));
+        }
+    } else {
+        crate::file::mode::open_flags(mrb, Some(mode), &format!("fd {fd}"))?;
     }
 
     point_at(mrb, self_, fd, None);

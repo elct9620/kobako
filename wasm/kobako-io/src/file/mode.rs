@@ -41,7 +41,7 @@ pub(super) fn define_constants(mrb: &Mrb, file: RClass, io: RClass) -> Result<()
 
 /// The wasi-libc flags opening `path` with `mode` asks for: an Integer of
 /// `File::Constants` flags, an access-mode String, or `nil` to read.
-pub(super) fn open_flags(mrb: &Mrb, mode: Option<Value>, path: &str) -> Result<c_int, Error> {
+pub(crate) fn open_flags(mrb: &Mrb, mode: Option<Value>, path: &str) -> Result<c_int, Error> {
     let flags = match mode.filter(|mode| !mode.is_nil()) {
         None => RDONLY,
         Some(mode) => match Integer::from_value(mode) {
