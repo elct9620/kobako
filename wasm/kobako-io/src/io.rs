@@ -5,10 +5,10 @@
 //! ## Shape vs. mruby-io
 //!
 //! Drop-in subset of `mrbgems/mruby-io`'s `IO` class: same constructor
-//! signature (`IO.new(fd, mode)`), same write-path surface (`#write`,
-//! `#fileno`, `#print`, `#puts`, `#printf`, `#putc`, `#p`, `#<<`,
-//! `#tty?` / `#isatty`, `#sync` / `#sync=`, `#flush`, `#closed?`,
-//! `#to_i`). The whole surface is registered as `beni` bridge methods
+//! signature (`IO.new(fd, mode = nil)`), same write-path surface
+//! (`#write`, `#fileno`, `#print`, `#puts`, `#printf`, `#putc`, `#p`,
+//! `#<<`, `#tty?` / `#isatty`, `#sync` / `#sync=`, `#flush`, `#to_i`).
+//! The whole surface is registered as `beni` bridge methods
 //! — the predecessor's `mrblib/io.rb` half is rewritten in Rust so
 //! the gem ships no Ruby boot source and needs no mrbc pipeline.
 //! Composite methods route their output through `self.write(...)`
@@ -25,6 +25,7 @@
 //! opened (`crate::descriptors`) are accepted at construction. A captured
 //! one takes only the String `"w"` as its `mode`, and a file's mode is
 //! read as `File.open` reads it; anything else raises at construction.
+//! Without a mode, either takes the access its descriptor holds.
 //! Reading, seeking, and closing live in `crate::stream`.
 
 use std::cell::RefCell;

@@ -53,7 +53,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
 /// Whether the host presents any mounted directory: a preopen is always
 /// descriptor 3 onwards.
 #[cfg(target_os = "wasi")]
-fn mounted() -> bool {
+fn is_mounted() -> bool {
     #[link(wasm_import_module = "wasi_snapshot_preview1")]
     unsafe extern "C" {
         #[link_name = "fd_prestat_get"]
@@ -66,12 +66,12 @@ fn mounted() -> bool {
 }
 
 #[cfg(not(target_os = "wasi"))]
-fn mounted() -> bool {
+fn is_mounted() -> bool {
     true
 }
 
 fn require_mount(mrb: &Mrb, call: &str) -> Result<(), Error> {
-    if mounted() {
+    if is_mounted() {
         return Ok(());
     }
     Err(errno::not_implemented(
