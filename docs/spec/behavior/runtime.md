@@ -1395,7 +1395,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest unlinks each, and a missing name, named with a trailing slash |
 | Then | the directory answers EISDIR, the missing name ENOENT, the rest ENOTDIR, and all stay |
 
-## `RT-135` A wait to write a file opened only to read is not permitted
+## `RT-135` A wait to write a file answers by what its Mount permits
 
 | Attribute | Value |
 | --- | --- |
@@ -1403,9 +1403,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation holding a file open only to read beneath a Mount |
-| When | the guest waits to write to it |
-| Then | the wait answers EPERM, as wasmtime-wasi answers it |
+| Given | an invocation holding files open only to read beneath a read-write and a read-only Mount |
+| When | the guest waits to write to each |
+| Then | the first is ready and the second answers EPERM, as wasmtime-wasi answers by its preopen |
 
 ## `RT-136` A read whose end passes the largest signed offset is invalid
 
