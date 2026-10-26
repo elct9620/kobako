@@ -150,6 +150,14 @@ Hand-written text-format module whose compile answers the ambient bytes it read.
 | compile | answers one bytecode: the realtime clock, then 8 bytes of entropy |
 | any other | answers a nil Result at once |
 
+## `minimal_fsync.wat`
+
+Hand-written text-format module that syncs a file of a Mount and answers the errno. The real Guest Binary imports no `fd_sync`, so no script can sync a file.
+
+| Downcall | What it does |
+|---|---|
+| any | opens `note.txt` beneath the first preopen, syncs it, and answers the errno as an Integer |
+
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 
 Each fixture exercises one bytecode-preload path of [`sandbox.md`](../../docs/spec/behavior/sandbox.md) through the real `data/kobako.wasm`.
