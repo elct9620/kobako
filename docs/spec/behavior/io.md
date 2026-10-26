@@ -374,3 +374,27 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Given | a Sandbox whose script opened a file only to read |
 | When | the script wraps that file's descriptor in a mode that writes |
 | Then | the wrap raises `Errno::EINVAL` |
+
+## `IO-042` An IO given no mode takes the access its file holds
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-040` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose script opened a file only to write |
+| When | the script wraps that descriptor with no mode and with `nil`, then reads and writes |
+| Then | each IO writes, and each read raises `IOError` |
+
+## `IO-043` An IO given no mode over a captured descriptor writes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-002` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code wraps the output descriptor with no mode and with `nil`, then writes |
+| Then | the capture holds both writes |
