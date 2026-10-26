@@ -13,7 +13,7 @@ fn nests(path: &str, other: &str) -> bool {
         || other.starts_with(&format!("{path}/"))
 }
 
-fn mounted_at(grant: &Grant) -> Option<&str> {
+fn to_mount_path(grant: &Grant) -> Option<&str> {
     match grant {
         Grant::Mount(mount) => Some(mount.at()),
         _ => None,
@@ -52,7 +52,7 @@ impl Grants {
         self.entries
             .iter()
             .map(|grant| {
-                let overridden = mounted_at(grant)
+                let overridden = to_mount_path(grant)
                     .and_then(|at| overrides.iter().find(|mount| mount.at() == at));
                 match overridden {
                     Some(mount) => Grant::Mount(mount.clone()),
@@ -63,6 +63,6 @@ impl Grants {
     }
 
     fn mounts(&self) -> impl Iterator<Item = &str> {
-        self.entries.iter().filter_map(mounted_at)
+        self.entries.iter().filter_map(to_mount_path)
     }
 }
