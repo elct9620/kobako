@@ -28,6 +28,10 @@ macro_rules! holds_no_links {
         fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
             self.metadata(path)
         }
+
+        fn canonicalize_beneath(&self, _base: &str, path: &str) -> Result<String, FilesystemError> {
+            Ok(path.to_string())
+        }
     };
 }
 
@@ -120,6 +124,13 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 1030) "dir/file.txt")
   (data (i32.const 1050) "dir/")
   (data (i32.const 1060) "gone/")
+  (data (i32.const 1070) "up")
+  (data (i32.const 1080) "updir/x")
+  (data (i32.const 1090) "in/y")
+  (data (i32.const 1100) "twisty")
+  (data (i32.const 1110) "dangle")
+  (data (i32.const 1120) "dir/up")
+  (data (i32.const 1130) "nowhere")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
   (data (i32.const 80) "\58\02\00\00\05\00\00\00")
   (data (i32.const 600) "hello")
@@ -305,8 +316,28 @@ const PROBE_WAT: &str = r#"
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $open (i32.load (i32.const 128)) (i32.const 0) (local.get $path) (local.get $len)
       (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 132)))
+  ;; As `open_beneath_dir`, following a link at the path's end.
+  (func (export "open_following_beneath_dir") (param $path i32) (param $len i32) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_dir))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $open (i32.load (i32.const 128)) (i32.const 1) (local.get $path) (local.get $len)
+      (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 132)))
+  ;; As `open_following_beneath_dir`, creating a file to write.
+  (func (export "create_following_beneath_dir") (param $path i32) (param $len i32) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_dir))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $open (i32.load (i32.const 128)) (i32.const 1) (local.get $path) (local.get $len)
+      (i32.const 1) (i64.const 0x40) (i64.const 0) (i32.const 0) (i32.const 132)))
+  ;; Stat the path beneath `dir`, following a link at its end, into 384.
+  (func (export "stat_following_beneath_dir") (param $path i32) (param $len i32) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open_dir))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $stat (i32.load (i32.const 128)) (i32.const 1) (local.get $path) (local.get $len) (i32.const 384)))
   ;; Open `dir` as a directory into 128.
-  (func (export "open_dir") (result i32)
+  (func $open_dir (export "open_dir") (result i32)
     (call $open (i32.const 3) (i32.const 0) (i32.const 930) (i32.const 3)
       (i32.const 2) (i64.const 0) (i64.const 2) (i32.const 0) (i32.const 128)))
   ;; Stat `inner` beneath the directory opened into 128.
@@ -1537,6 +1568,10 @@ impl Filesystem for FailsLookingUpDir {
         }
     }
 
+    fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError> {
+        self.0.canonicalize_beneath(base, path)
+    }
+
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
         self.0.read_dir(path)
     }
@@ -2117,5 +2152,160 @@ fn an_open_of_a_directory_that_creates_or_truncates_is_invalid() {
         ((ERRNO_INVAL, held.clone()), (ERRNO_INVAL, held)),
         "path_open with OFLAGS_DIRECTORY and CREAT or TRUNC beneath a Mount through preview1 \
          must answer EINVAL and make nothing"
+    );
+}
+
+const UP: (i32, i32) = (1070, 2);
+const THROUGH_UPDIR: (i32, i32) = (1080, 7);
+const IN_LINKED: (i32, i32) = (1090, 4);
+const TWISTY: (i32, i32) = (1100, 6);
+const DANGLE: (i32, i32) = (1110, 6);
+const DIR_UP: (i32, i32) = (1120, 6);
+const NOWHERE: (i32, i32) = (1130, 7);
+
+/// A host directory whose `dir` holds links staying within it (`in`,
+/// `twisty`), links leading out of it (`up`, `updir`), and links pointing
+/// at nothing out of it (`dangle`) and within it (`nowhere`).
+#[cfg(unix)]
+struct LinkedBeneath(std::path::PathBuf);
+
+#[cfg(unix)]
+impl LinkedBeneath {
+    fn new(name: &str) -> Self {
+        let host =
+            std::env::temp_dir().join(format!("kobako-beneath-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&host);
+        std::fs::create_dir_all(host.join("dir/sub")).expect("the host directory must be created");
+        std::fs::create_dir_all(host.join("other")).expect("the host directory must be created");
+        for file in ["secret", "other/x", "dir/sub/y"] {
+            std::fs::write(host.join(file), "x").expect("the host file must be written");
+        }
+        for (target, link) in [
+            ("../secret", "dir/up"),
+            ("../other", "dir/updir"),
+            ("sub", "dir/in"),
+            ("sub/../sub/y", "dir/twisty"),
+            ("../escaped", "dir/dangle"),
+            ("missing", "dir/nowhere"),
+        ] {
+            std::os::unix::fs::symlink(target, host.join(link)).expect("the link must be made");
+        }
+        Self(host)
+    }
+
+    /// A guest over this host directory as a Directory Mount, or as an
+    /// Overlay's writable Directory Layer above an empty Memory.
+    fn guest(&self, overlay: bool) -> Guest {
+        let directory = Arc::new(Directory::new(&self.0).expect("the host directory must open"));
+        let filesystem: Arc<dyn Filesystem> = if overlay {
+            Arc::new(
+                Overlay::new()
+                    .layer(directory, Access::ReadWrite)
+                    .layer(Arc::new(Memory::new()), Access::Read),
+            )
+        } else {
+            directory
+        };
+        Guest::new(&[grant(filesystem, Access::ReadWrite, None)])
+    }
+}
+
+#[cfg(unix)]
+impl Drop for LinkedBeneath {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+// Each link names a real file outside `dir` yet inside the Mount, so only
+// a link kept within the descriptor, not the Mount's root, is refused.
+// @behavior RT-140
+#[cfg(unix)]
+#[test]
+fn a_link_leading_out_of_an_opened_directory_is_not_permitted() {
+    let host = LinkedBeneath::new("out");
+    let answers = |overlay| {
+        let mut guest = host.guest(overlay);
+        [
+            guest.call("open_following_beneath_dir", UP),
+            guest.call("stat_following_beneath_dir", UP),
+            guest.call("open_beneath_dir", THROUGH_UPDIR),
+            guest.call("stat_following_beneath_dir", THROUGH_UPDIR),
+            guest.call("create_following_beneath_dir", DANGLE),
+        ]
+    };
+    assert_eq!(
+        (
+            answers(false),
+            answers(true),
+            host.0.join("escaped").exists()
+        ),
+        ([ERRNO_PERM; 5], [ERRNO_PERM; 5], false),
+        "an open, a stat, or a create through preview1 of a path whose link leads out of a \
+         directory opened beneath a Directory Mount, or an Overlay's Directory Layer, must answer \
+         EPERM, as wasmtime-wasi does, and create nothing"
+    );
+}
+
+// @behavior RT-141
+#[cfg(unix)]
+#[test]
+fn a_link_staying_within_an_opened_directory_is_followed() {
+    let host = LinkedBeneath::new("in");
+    let answers = |overlay| {
+        let mut guest = host.guest(overlay);
+        [
+            guest.call("open_following_beneath_dir", IN_LINKED),
+            guest.call("open_following_beneath_dir", TWISTY),
+        ]
+    };
+    assert_eq!(
+        (answers(false), answers(true)),
+        ([0; 2], [0; 2]),
+        "an open through preview1 of a path whose links stay within a directory opened beneath \
+         a Directory Mount, or an Overlay's Directory Layer, must reach the file they lead to"
+    );
+}
+
+// The link's target lies within `dir`, where Linux would create it, so only
+// the refusal to create through a link it cannot resolve answers ELOOP.
+// @behavior RT-142
+#[cfg(unix)]
+#[test]
+fn a_create_through_a_dangling_link_beneath_an_opened_directory_is_refused() {
+    let host = LinkedBeneath::new("dangle");
+    let answers = |overlay| {
+        let errno = host
+            .guest(overlay)
+            .call("create_following_beneath_dir", NOWHERE);
+        (errno, host.0.join("dir/missing").exists())
+    };
+    assert_eq!(
+        (answers(false), answers(true)),
+        ((ERRNO_LOOP, false), (ERRNO_LOOP, false)),
+        "an open through preview1 creating a file through a link pointing at nothing beneath a \
+         directory opened beneath a Directory Mount, or an Overlay's Directory Layer, must answer \
+         ELOOP and create nothing"
+    );
+}
+
+// The link names a file outside the host directory, so cap-std refuses it
+// with no OS code, which wasmtime-wasi answers as EPERM.
+// @behavior RT-143
+#[cfg(unix)]
+#[test]
+fn a_link_leading_out_of_a_mount_is_not_permitted() {
+    let host = LinkedBeneath::new("mount");
+    let outside =
+        std::env::temp_dir().join(format!("kobako-beneath-outside-{}", std::process::id()));
+    std::fs::write(&outside, "host").expect("the outside file must be written");
+    std::fs::remove_file(host.0.join("dir/up")).expect("the link must be removed");
+    std::os::unix::fs::symlink(&outside, host.0.join("dir/up")).expect("the link must be made");
+    let errno = host.guest(false).call("open_following", DIR_UP);
+    let _ = std::fs::remove_file(&outside);
+    assert_eq!(
+        errno, ERRNO_PERM,
+        "an open through preview1 from a Directory Mount's root of a link to a file outside its \
+         host directory must answer EPERM, as wasmtime-wasi does"
     );
 }

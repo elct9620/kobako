@@ -193,6 +193,11 @@ impl Filesystem for RubyFilesystem {
         Ok(path.to_string())
     }
 
+    /// A Ruby object holds no links to follow.
+    fn canonicalize_beneath(&self, _base: &str, path: &str) -> Result<String, FilesystemError> {
+        Ok(path.to_string())
+    }
+
     /// A Ruby object keeps an `ino` its own while open, as its contract
     /// asks, so nothing is held.
     fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {

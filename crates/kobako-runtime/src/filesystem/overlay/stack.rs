@@ -521,6 +521,38 @@ impl Stack {
         }
     }
 
+    /// `path` beneath `base` with its links followed by the Layer showing
+    /// the first of them, as a link is followed within the Layer holding
+    /// it; a path the merged view shows no link on answers as given.
+    pub(super) fn canonicalize_beneath(
+        &self,
+        base: &str,
+        path: &str,
+    ) -> Result<String, FilesystemError> {
+        if path.is_empty() {
+            return Ok(String::new());
+        }
+        let full = join(base, path);
+        let start = full.len() - path.len();
+        let ends = full[start..]
+            .match_indices('/')
+            .map(|(end, _)| start + end)
+            .chain([full.len()]);
+        for end in ends {
+            match self.locate_by(&full[..end], <dyn Filesystem>::symlink_metadata) {
+                Ok(Some((index, metadata))) if metadata.file_type == FileType::Symlink => {
+                    return self.layers[index]
+                        .filesystem
+                        .canonicalize_beneath(base, path)
+                }
+                Ok(Some(_)) => {}
+                Ok(None) | Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => break,
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(path.to_string())
+    }
+
     /// `metadata`, found at `path` in the Layer at `index`, as the merged
     /// view reports it: a directory takes the identity of the lowest Layer
     /// still showing it, so copying it up into a writable Layer leaves the

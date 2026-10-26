@@ -35,12 +35,14 @@ pub enum Access {
 /// another and answer by delegating, so it sees every call on the way
 /// through.
 ///
-/// Four methods keep a guarantee the runtime gives the guest, so each
+/// Five methods keep a guarantee the runtime gives the guest, so each
 /// Filesystem answers them itself and a wrapper forwards them:
 /// `symlink_metadata` keeps a link from being followed where a Mount
 /// refuses links, `stored_path` keeps a Policy judging the spelling the
-/// host stores, `hold_directory` keeps an open directory's identity its
-/// own, and `for_invocation` keeps one Invocation's changes from the next.
+/// host stores, `canonicalize_beneath` keeps a link within the directory
+/// a descriptor opened, `hold_directory` keeps an open directory's
+/// identity its own, and `for_invocation` keeps one Invocation's changes
+/// from the next.
 pub trait Filesystem: Send + Sync {
     /// Open the file at `path` as `options` asks, creating or truncating it
     /// where they say to.
@@ -59,6 +61,14 @@ pub trait Filesystem: Send + Sync {
     /// one; names past the last it holds stay as given. A Filesystem
     /// matching names exactly answers `path`.
     fn stored_path(&self, path: &str) -> Result<String, FilesystemError>;
+
+    /// `path`, relative to the directory at `base`, with every link on it
+    /// followed, as cap-std's `Dir::canonicalize` answers: still relative
+    /// to `base`, `NotPermitted` where a link leads out of `base`, and
+    /// `NotFound` where nothing stands. A descriptor opened on `base`
+    /// reaches nothing above it, as a capability never widens. A
+    /// Filesystem holding no links answers `path`.
+    fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError>;
 
     /// Keep the directory at `path` from handing its identity to another
     /// while the Hold lives, as an open descriptor keeps a host's inode

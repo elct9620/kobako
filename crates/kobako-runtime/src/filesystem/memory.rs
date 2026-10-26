@@ -435,6 +435,11 @@ impl Filesystem for Memory {
         Ok(path.to_string())
     }
 
+    /// A Memory holds no links to follow.
+    fn canonicalize_beneath(&self, _base: &str, path: &str) -> Result<String, FilesystemError> {
+        Ok(path.to_string())
+    }
+
     /// A Memory never hands out a directory's identity twice.
     fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
         Ok(None)

@@ -329,6 +329,10 @@ where
         self.memory.stored_path(path)
     }
 
+    fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError> {
+        self.memory.canonicalize_beneath(base, path)
+    }
+
     fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
         self.memory.hold_directory(path)
     }

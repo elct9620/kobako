@@ -262,6 +262,10 @@ impl Filesystem for OneNote {
         Ok(path.to_string())
     }
 
+    fn canonicalize_beneath(&self, _base: &str, path: &str) -> Result<String, FilesystemError> {
+        Ok(path.to_string())
+    }
+
     fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
         Ok(None)
     }

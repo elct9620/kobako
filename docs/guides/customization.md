@@ -323,12 +323,13 @@ so a Filesystem sees only a normalized path beneath its root.
 ```
 guest path ─▶ runtime: resolve, refuse links, judge the Policy ─▶ Filesystem
                               ▲                                     │
-                              └── symlink_metadata · stored_path ───┘
+                              ├── symlink_metadata · stored_path ───┤
+                              └── canonicalize_beneath ─────────────┘
 ```
 
 ### Filesystem Obligations
 
-Five methods carry a guarantee the runtime gives the guest. None has a default, so
+Six methods carry a guarantee the runtime gives the guest. None has a default, so
 each Filesystem and its `File` answer them, and one wrapping another forwards them.
 A method like these joins without a default, a break marked `!`.
 
@@ -336,6 +337,7 @@ A method like these joins without a default, a break marked `!`.
 |---|---|---|
 | `symlink_metadata` | a link from being followed where a Mount refuses links | `metadata` |
 | `stored_path` | a Policy judging the spelling the host stores | the path as given |
+| `canonicalize_beneath` | a link within the directory a descriptor opened | the path as given |
 | `hold_directory` | an open directory's identity its own | `Ok(None)` |
 | `for_invocation` | one Invocation's changes from the next | `None` |
 | `File::append` | another writer's append from landing over this one | `Unsupported` |

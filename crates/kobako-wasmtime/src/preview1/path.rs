@@ -116,6 +116,11 @@ pub(crate) fn filestat_get(
     let resolved = resolve(dir, &mem.path(path.0, path.1)?)?;
     // A trailing `/` resolves a link standing there, as Linux's `lstat` does.
     let follow = flags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 || resolved.names_directory;
+    let resolved = if follow {
+        resolved.follow_last(dir, false)?
+    } else {
+        resolved
+    };
     let filesystem = dir.mount.filesystem();
     let path = resolved.check_directory(filesystem.as_ref(), <dyn Filesystem>::metadata)?;
     let metadata = if follow {
@@ -197,6 +202,11 @@ pub(crate) fn open(
     }
     // A trailing `/` resolves a link standing there, as Linux's `open` does.
     let follow = flags.dirflags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 || resolved.names_directory;
+    let resolved = if follow {
+        resolved.follow_last(dir, oflag(OFLAGS_CREAT))?
+    } else {
+        resolved
+    };
     let path =
         resolved.check_directory(dir.mount.filesystem().as_ref(), <dyn Filesystem>::metadata)?;
     let mount = Arc::clone(&dir.mount);

@@ -6,7 +6,9 @@
 //! is, so a Filesystem of a third party's need check neither.
 //! A `..` steps out of what the Filesystem holds rather than out of the
 //! path's text, as a host resolves it, so `missing/..` names nothing and
-//! a `..` out of a link is refused rather than taken from its text.
+//! a `..` out of a link is refused rather than taken from its text. A link
+//! is followed only within the directory the descriptor opened, as
+//! wasmtime-wasi's cap-std `Dir` follows one.
 
 use kobako_runtime::filesystem::{FileType, Filesystem, FilesystemError, Metadata};
 
@@ -46,6 +48,67 @@ impl ResolvedPath {
             }
         }
         Ok(self.path)
+    }
+
+    /// The path with a link standing at its end followed within the
+    /// directory `dir` opened, for a call following it. A link pointing
+    /// at nothing there is `LOOP` to a call that `creates`, since what it
+    /// would create could lie outside `dir`, and `NOENT` otherwise.
+    pub(crate) fn follow_last(self, dir: &OpenDirectory, creates: bool) -> Answer<Self> {
+        let Some(base) = bounded_base(dir) else {
+            return Ok(self);
+        };
+        let filesystem = dir.mount.filesystem();
+        let Some(rest) = beneath_base(base, &self.path) else {
+            return Ok(self);
+        };
+        match filesystem.symlink_metadata(&self.path) {
+            Ok(metadata) if metadata.file_type == FileType::Symlink => {}
+            _ => return Ok(self),
+        }
+        let path = match filesystem.canonicalize_beneath(base, rest) {
+            Ok(found) => join(base, &found),
+            Err(FilesystemError::NotFound) if creates => return Err(Errno::Loop.into()),
+            Err(err) => return Err(err.into()),
+        };
+        Ok(Self { path, ..self })
+    }
+}
+
+/// The directory a descriptor's links are kept within, or `None` where
+/// the Filesystem keeps them within the Mount's root already, or a Mount
+/// follows no link at all.
+fn bounded_base(dir: &OpenDirectory) -> Option<&str> {
+    (!dir.path.is_empty() && dir.mount.follows_links()).then_some(dir.path.as_str())
+}
+
+/// What `path` names beneath `base`, or `None` for `base` itself.
+fn beneath_base<'a>(base: &str, path: &'a str) -> Option<&'a str> {
+    path.strip_prefix(base)?.strip_prefix('/')
+}
+
+fn join(base: &str, path: &str) -> String {
+    if path.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base}/{path}")
+    }
+}
+
+/// `path` with the links on its way to its last name followed within the
+/// directory `dir` opened, so none leads the call out of it. A way the
+/// Filesystem finds nothing on stays as given, for the call to answer.
+fn within(dir: &OpenDirectory, path: String) -> Answer<String> {
+    let Some(base) = bounded_base(dir) else {
+        return Ok(path);
+    };
+    let Some((way, name)) = beneath_base(base, &path).and_then(|rest| rest.rsplit_once('/')) else {
+        return Ok(path);
+    };
+    match dir.mount.filesystem().canonicalize_beneath(base, way) {
+        Ok(found) => Ok(join(&join(base, &found), name)),
+        Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => Ok(path),
+        Err(err) => Err(err.into()),
     }
 }
 
@@ -90,7 +153,7 @@ pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
         step_out_of(dir.mount.filesystem().as_ref(), &path)?;
     }
     Ok(ResolvedPath {
-        path,
+        path: within(dir, path)?,
         names_directory: matches!(last, "" | "."),
     })
 }

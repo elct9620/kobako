@@ -8,7 +8,7 @@
 mod spelling;
 
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Component, Path};
 use std::sync::Arc;
 
 use cap_std::ambient_authority;
@@ -44,10 +44,15 @@ fn to_host_path(path: &str) -> Result<&str, FilesystemError> {
     Ok(if path.is_empty() { "." } else { path })
 }
 
-/// The FilesystemError a host failure names. A link loop stays unnamed
+/// The FilesystemError a host failure names. cap-std's own refusal of a
+/// path leading out of the directory carries no OS code, and answers as
+/// not permitted, as wasmtime-wasi reads it. A link loop stays unnamed
 /// until std's `FilesystemLoop` is stable.
 fn to_error(err: io::Error) -> FilesystemError {
     match err.kind() {
+        io::ErrorKind::PermissionDenied if err.raw_os_error().is_none() => {
+            FilesystemError::NotPermitted
+        }
         io::ErrorKind::NotFound => FilesystemError::NotFound,
         io::ErrorKind::AlreadyExists => FilesystemError::AlreadyExists,
         io::ErrorKind::NotADirectory => FilesystemError::NotADirectory,
@@ -218,6 +223,25 @@ impl Filesystem for Directory {
             stored.push(found.unwrap_or_else(|| name.to_string()));
         }
         Ok(stored.join("/"))
+    }
+
+    fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError> {
+        let beneath = self.dir.open_dir(to_host_path(base)?).map_err(to_error)?;
+        let found = beneath
+            .canonicalize(to_host_path(path)?)
+            .map_err(to_error)?;
+        found
+            .components()
+            .filter_map(|component| match component {
+                Component::Normal(name) => Some(
+                    name.to_str()
+                        .map(str::to_string)
+                        .ok_or(FilesystemError::IllegalSequence),
+                ),
+                _ => None,
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|names| names.join("/"))
     }
 
     fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -705,6 +729,32 @@ mod tests {
             directory.remove_file("sub"),
             Err(FilesystemError::IsADirectory),
             "a host directory removed through Directory::remove_file must answer IsADirectory"
+        );
+    }
+
+    // Both links stay inside the host directory, so only resolving beneath
+    // `dir` rather than beneath the root can refuse the outer one.
+    // @behavior FS-097
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_follows_a_link_only_within_the_directory_it_resolves_beneath() {
+        let host = HostDir::new("beneath");
+        fs::create_dir_all(host.0.join("dir/sub")).expect("the host directory must be created");
+        fs::write(host.0.join("dir/sub/y"), "inner").expect("the inner file must be written");
+        fs::write(host.0.join("secret"), "outer").expect("the outer file must be written");
+        std::os::unix::fs::symlink("sub", host.0.join("dir/in")).expect("the link must be made");
+        std::os::unix::fs::symlink("../secret", host.0.join("dir/up"))
+            .expect("the link must be made");
+
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        assert_eq!(
+            (
+                directory.canonicalize_beneath("dir", "in/y"),
+                directory.canonicalize_beneath("dir", "up"),
+            ),
+            (Ok("sub/y".to_string()), Err(FilesystemError::NotPermitted)),
+            "a link staying within `dir`, resolved through Directory::canonicalize_beneath, must \
+             resolve to where it leads, and one leading out of `dir` must not be permitted"
         );
     }
 

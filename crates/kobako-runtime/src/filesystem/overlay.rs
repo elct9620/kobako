@@ -87,6 +87,11 @@ impl Filesystem for Overlay {
         self.stack.stored_path(path)
     }
 
+    fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError> {
+        let _held = self.lock.hold()?;
+        self.stack.canonicalize_beneath(base, path)
+    }
+
     fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
         let _held = self.lock.hold()?;
         self.stack.hold_directory(path)
@@ -146,6 +151,14 @@ mod tests {
         () => {
             fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
                 self.metadata(path)
+            }
+
+            fn canonicalize_beneath(
+                &self,
+                _base: &str,
+                path: &str,
+            ) -> Result<String, FilesystemError> {
+                Ok(path.to_string())
             }
         };
     }
@@ -280,6 +293,32 @@ mod tests {
 
     // The link points at a file in the same Layer, so only a lookup that
     // reaches the Layer's own `symlink_metadata` can answer a link.
+    // The links stand in the Directory Layer beneath a Memory one, so only
+    // the merged view handing them to the Layer holding them resolves them.
+    // @behavior FS-098
+    #[cfg(unix)]
+    #[test]
+    fn an_overlay_follows_a_link_beneath_a_directory_within_the_layer_holding_it() {
+        let host = LinkTree::new("beneath");
+        std::fs::create_dir_all(host.0.join("dir/sub"))
+            .expect("the host directory must be created");
+        std::fs::write(host.0.join("dir/sub/y"), "inner").expect("the inner file must be written");
+        std::os::unix::fs::symlink("sub", host.0.join("dir/in")).expect("the link must be made");
+        std::os::unix::fs::symlink("../target", host.0.join("dir/up"))
+            .expect("the link must be made");
+        let overlay = host.overlay();
+        assert_eq!(
+            (
+                overlay.canonicalize_beneath("dir", "in/y"),
+                overlay.canonicalize_beneath("dir", "up"),
+            ),
+            (Ok("sub/y".to_string()), Err(FilesystemError::NotPermitted)),
+            "a link a Directory Layer holds within `dir`, resolved through \
+             Overlay::canonicalize_beneath, must resolve to where it leads, and one leading out \
+             of `dir` must not be permitted"
+        );
+    }
+
     // @behavior FS-049
     #[cfg(unix)]
     #[test]
