@@ -292,3 +292,88 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount |
 | When | the script builds `SystemCallError` with a message and 2⁴⁰, then with a message and 2⁷⁰ |
 | Then | each raises `RangeError` |
+
+## `FL-024` An exclusive create refuses a file already there
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-002` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount holding a file |
+| When | the script opens that file with `wx` |
+| Then | the open raises `Errno::EEXIST`, and the file keeps its content |
+
+## `FL-025` An exclusive create makes a file nothing is at
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-002` |
+| relates | `FL-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount over a Memory |
+| When | the script opens a new file with `w+x` and writes to it |
+| Then | the Memory holds that file with what was written |
+
+## `FL-026` An access mode CRuby refuses raises ArgumentError
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount |
+| When | the script opens a file with `xw`, `rx`, `r+x`, `ax`, `bw`, or `wbt` |
+| Then | each open raises `ArgumentError` |
+
+## `FL-027` An Integer mode opens by its File::Constants flags
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount holding a file |
+| When | the script opens that file with `File::WRONLY \| File::CREAT \| File::EXCL` |
+| Then | the open raises `Errno::EEXIST` |
+
+## `FL-028` An exclusive open without create makes no file
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-027` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount |
+| When | the script opens a path nothing is at with `File::RDONLY \| File::EXCL` |
+| Then | the open raises `Errno::ENOENT` |
+
+## `FL-029` An Integer mode with a flag File::Constants lacks raises EINVAL
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-027` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount |
+| When | the script opens a file with a mode holding a bit no `File::Constants` flag names |
+| Then | the open raises `Errno::EINVAL` |
+
+## `FL-030` File::Constants names the flags an open honors
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-027`, `FL-007` |
+
+| Step | Statement |
+| --- | --- |
+| Given | the default Guest Binary |
+| When | the script lists `File::Constants` and asks whether `IO` includes it |
+| Then | it lists `RDONLY`, `WRONLY`, `RDWR`, `CREAT`, `EXCL`, `TRUNC`, and `APPEND`, and `IO` includes it |
