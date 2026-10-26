@@ -207,7 +207,7 @@ sandbox.eval('File.read("/config/app.yml")')
 
 A Memory or Temporary is bounded as a tmpfs mount is. Its files hold 64 MiB unless `limit:` gives another size in bytes. It holds one file or directory for each 4 KiB of that limit, and its root, unless `inodes:` gives another count. `nil` lifts either bound, and the guest raises `Errno::ENOSPC` past one.
 
-A block decides each open and each change in the access's place; a falsy answer or a `StandardError` fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run.
+A block decides each open and each change that reaches the Mount in the access's place, asked at most once for each. A falsy answer or a `StandardError` fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run.
 
 #### Guest File
 
@@ -219,8 +219,8 @@ Beneath a mount, `File.open` and `IO.new` answer as CRuby does over a Linux dire
 |---|---|
 | nothing is mounted | `NotImplementedError` |
 | a block refuses a change | `Errno::EACCES` where a read-only mount says `Errno::EROFS` |
-| a Ruby Filesystem is asked to append | `Errno::ENOTSUP` on the write |
-| an Integer mode holds a flag kobako does not honor | `Errno::EINVAL` |
+| a Ruby Filesystem's file without `append` is asked to append | `Errno::ENOTSUP` on the write |
+| an Integer mode holds a flag kobako does not honor, or `WRONLY` beside `RDWR` | `Errno::EINVAL` |
 | a mode names an encoding, such as `"r:utf-8"` | `ArgumentError` |
 | `IO.new` wraps stdout or stderr in a mode other than `"w"` | `ArgumentError` |
 | `disable_file` is set | no `File` constant |

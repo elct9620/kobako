@@ -298,7 +298,7 @@ Directory opens only files and directories: a FIFO, socket, or device raises
 
 ### Mount Blocks
 
-A block decides each open and each change by path. Allow what the guest needs
+A block decides each open and each change by path, at most once for each. Allow what the guest needs
 rather than refusing what it must not reach: a denylist misses a path you did not
 foresee. The block judges paths, so nothing may reach a path it never judged:
 
@@ -311,7 +311,8 @@ foresee. The block judges paths, so nothing may reach a path it never judged:
 | on Windows, a spelling the host lists under no name | `Errno::EACCES` |
 
 The block does not judge `stat` or a listing, so the guest still sees that a
-refused path exists.
+refused path exists. An open that what stands at the path refuses, such as
+`Errno::ENOENT`, fails before the block is asked.
 
 ```ruby
 sandbox.mount("/data", fs) { |path, _access| path.start_with?("/data/public/") }
@@ -335,6 +336,7 @@ Some risks stay with the host, because kobako cannot see them.
 | a directory the guest lists in steps | its entries held in host memory until the listing ends, once per descriptor |
 | a link below an Overlay's writable Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
 | a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
+| a `\` in a name a Ruby Filesystem receives | the Filesystem's to refuse, as Windows reads it as a separator |
 | one Overlay's writable Layer shared by another | the two are not serialized against each other |
 | one Overlay mounted in invocations that run at once | each waits for the other's call, and the wait runs past `timeout:` |
 

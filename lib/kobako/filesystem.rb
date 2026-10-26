@@ -30,7 +30,9 @@ module Kobako
   # written in Ruby; its methods take the names of +File+, +Dir+, and +IO+.
   # Its +stat+ answers +directory?+, +size+, and +ino+, an +ino+ naming one
   # directory for as long as the guest holds it open. Its names match
-  # exactly, as a mount's block judges them as given.
+  # exactly, as a mount's block judges them as given. A name may hold a
+  # <tt>\\</tt>, which the guest's paths never separate on, so one joined
+  # to a Windows host path is the Filesystem's to refuse.
   module Filesystem
   end
 end
