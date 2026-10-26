@@ -745,3 +745,29 @@ The methods a Host App cannot foresee handing over are the ones it never wrote. 
 | Given | a bound object whose predicate permits a Ruby method mixed into `Object` or `Module` |
 | When | the guest calls that name |
 | Then | it is still refused |
+
+## `T-299` A copy of a mixed-in method is not the class's own
+
+| Attribute | Value |
+| --- | --- |
+| refines | `T-129` |
+| relates | `T-298` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object narrowing nothing, whose class copies a Ruby method mixed into `Object` |
+| When | the guest calls the copy's name |
+| Then | it is refused |
+
+## `T-300` Narrowing reaches no copy of a mixed-in method
+
+| Attribute | Value |
+| --- | --- |
+| refines | `T-298` |
+| relates | `T-299` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a bound object whose predicate permits a copy of a Ruby method mixed into `Object` |
+| When | the guest calls that name |
+| Then | it is still refused |
