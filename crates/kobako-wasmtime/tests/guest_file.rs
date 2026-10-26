@@ -1004,3 +1004,51 @@ fn a_position_past_2_gib_is_reported_whole() {
          must answer 2147483649"
     );
 }
+
+// @behavior FL-036
+#[test]
+fn setting_a_files_position_moves_where_the_next_read_starts() {
+    let Some(answer) = run(
+        r#"File.open("/data/note.txt") { |f| f.pos = 2; print f.read }"#,
+        &[mount(note_memory(), Access::Read)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok("llo\nworld\n".to_string()),
+        "IO#pos= 2 over a file of hello and world through the bundled guest must leave the \
+         next read at llo"
+    );
+}
+
+// @behavior FL-037
+// Each seek is refused alone, so one that moved or answered another class
+// would print its own name in place of `Errno::EINVAL`.
+#[test]
+fn a_seek_before_the_start_or_by_an_unknown_whence_raises_einval() {
+    let Some(answer) = run(
+        r#"File.open("/data/note.txt") do |f|
+             [-> { f.pos = -1 }, -> { f.seek(-1) }, -> { f.seek(1, 9) }].each do |seek|
+               begin
+                 seek.call
+                 print "moved "
+               rescue => e
+                 print e.class, " "
+               end
+             end
+           end
+           nil"#,
+        &[mount(note_memory(), Access::Read)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok("Errno::EINVAL Errno::EINVAL Errno::EINVAL ".to_string()),
+        "IO#pos= -1, IO#seek(-1), and IO#seek(1, 9) through the bundled guest must each raise \
+         Errno::EINVAL"
+    );
+}
