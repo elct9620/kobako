@@ -177,20 +177,26 @@ fn io_eof_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
 }
 
 fn io_seek(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
-    let fd = readable(mrb, self_)?;
     let args = scan_args::<(i64,), (Option<i64>,), (), (), (), ()>(mrb)?;
     let (offset,) = args.required;
     let (whence,) = args.optional;
-    let to = match whence.unwrap_or(0) {
-        0 => SeekFrom::Start(
-            u64::try_from(offset).map_err(|_| argument_error(mrb, "negative offset"))?,
-        ),
+    seek(mrb, self_, offset, whence.unwrap_or(0))?;
+    Ok(0.into_value(mrb))
+}
+
+/// A position before the start, or a `whence` no constant names, is
+/// `EINVAL`, as `lseek(2)` answers it.
+fn seek(mrb: &Mrb, self_: Value, offset: i64, whence: i64) -> Result<(), Error> {
+    let fd = readable(mrb, self_)?;
+    let invalid = || errno::error_by_name(mrb, c"EINVAL", &label(mrb, self_));
+    let to = match whence {
+        0 => SeekFrom::Start(u64::try_from(offset).map_err(|_| invalid())?),
         1 => SeekFrom::Current(offset),
         2 => SeekFrom::End(offset),
-        other => return Err(argument_error(mrb, &format!("unknown whence: {other}"))),
+        _ => return Err(invalid()),
     };
     with_file(fd, |file| file.seek(to)).map_err(|err| fail(mrb, self_, &err))?;
-    Ok(0.into_value(mrb))
+    Ok(())
 }
 
 fn io_rewind(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
