@@ -1184,3 +1184,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay whose read-only Layer holds a FIFO and a directory, its writable Layer a directory |
 | When | the FIFO is renamed onto the lower directory, and the upper directory onto the FIFO |
 | Then | the first is refused as a directory, the second as no directory, and both stay |
+
+## `FS-096` A write of no bytes leaves a Memory file as it was
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory holding an empty file |
+| When | no bytes are written at an offset past its end |
+| Then | the write answers zero, and the file stays empty, as Linux pwrite does |
