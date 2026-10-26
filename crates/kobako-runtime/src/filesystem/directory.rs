@@ -15,7 +15,7 @@ use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
-use super::path::components;
+use super::path::{components, name, parent};
 use super::{
     DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions, Rename,
 };
@@ -51,13 +51,15 @@ impl Directory {
         if self.follows_links {
             return call(&self.dir, to_host_path(path)?);
         }
-        let (way, name) = path.rsplit_once('/').unwrap_or(("", path));
         let mut held: Option<Dir> = None;
-        for component in components(way) {
+        for component in components(parent(path)) {
             let from = held.as_ref().unwrap_or(&self.dir);
             held = Some(open_dir_nofollow(from, to_host_path(component)?)?);
         }
-        call(held.as_ref().unwrap_or(&self.dir), to_host_path(name)?)
+        call(
+            held.as_ref().unwrap_or(&self.dir),
+            to_host_path(name(path))?,
+        )
     }
 
     /// The directory `name` in `dir`, a link there followed only where
