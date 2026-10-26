@@ -213,13 +213,17 @@ A block decides each open and each change in the access's place; a falsy answer 
 
 The guest's `File.open` takes a mode String such as `"r"`, `"w+"`, or `"wx"`, or an Integer of `File::Constants` flags, valued as CRuby's on Linux. An exclusive create lets Sandboxes sharing a directory agree on a lock file. The critical flag `disable_file` removes `File` from the guest altogether.
 
-| When | `File.open` in the guest |
+Beneath a mount, `File.open` and `IO.new` answer as CRuby does over a Linux directory. Where they differ, they only refuse more:
+
+| When | The guest sees |
 |---|---|
-| nothing is mounted | raises `NotImplementedError` |
-| the path is beneath a mount | reaches its Filesystem |
-| `x` or `File::CREAT \| File::EXCL` meets a file already there | raises `Errno::EEXIST` |
-| an Integer mode holds a flag kobako does not honor | raises `Errno::EINVAL` |
-| `disable_file` is set | `File` is not defined |
+| nothing is mounted | `NotImplementedError` |
+| a block refuses a change | `Errno::EACCES` where a read-only mount says `Errno::EROFS` |
+| a Ruby Filesystem is asked to append | `Errno::ENOTSUP` on the write |
+| an Integer mode holds a flag kobako does not honor | `Errno::EINVAL` |
+| a mode names an encoding, such as `"r:utf-8"` | `ArgumentError` |
+| `IO.new` wraps stdout or stderr in a mode other than `"w"` | `ArgumentError` |
+| `disable_file` is set | no `File` constant |
 
 #### Overlays
 
