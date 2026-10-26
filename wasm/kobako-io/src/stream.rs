@@ -1,6 +1,7 @@
 //! The read, seek, and close half of `::IO`, which a file this guest
 //! opened answers: `#read`, `#gets`, `#each_line`, `#readlines`,
-//! `#eof?`, `#seek`, `#rewind`, `#pos` / `#tell`, `#close`, `#closed?`.
+//! `#eof?`, `#seek`, `#rewind`, `#pos` / `#tell`, `#pos=`, `#close`,
+//! `#closed?`.
 //!
 //! Each reaches the descriptor through `std::fs::File` without taking it
 //! over, so the descriptor stays the `IO`'s until `#close`. The host
@@ -40,6 +41,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     io.define_method(mrb, c"seek", beni::method!(io_seek, -1))?;
     io.define_method(mrb, c"rewind", beni::method!(io_rewind, 0))?;
     io.define_method(mrb, c"pos", beni::method!(io_pos, 0))?;
+    io.define_method(mrb, c"pos=", beni::method!(io_set_pos, 1))?;
     io.define_method(mrb, c"tell", beni::method!(io_pos, 0))?;
     io.define_method(mrb, c"close", beni::method!(io_close, 0))?;
     io.define_method(mrb, c"closed?", beni::method!(io_closed_p, 0))?;
@@ -182,6 +184,11 @@ fn io_seek(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
     let (whence,) = args.optional;
     seek(mrb, self_, offset, whence.unwrap_or(0))?;
     Ok(0.into_value(mrb))
+}
+
+fn io_set_pos(mrb: &Mrb, self_: Value, offset: i64) -> Result<Value, Error> {
+    seek(mrb, self_, offset, 0)?;
+    Ok(offset.into_value(mrb))
 }
 
 /// A position before the start, or a `whence` no constant names, is
