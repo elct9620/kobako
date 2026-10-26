@@ -7,6 +7,7 @@
 //! copy before it swaps it in, so a change that fails part way leaves the
 //! view as it was or as it was meant to become.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::super::path::{ancestors, beneath_itself, is_beneath, parent};
@@ -574,7 +575,7 @@ impl Stack {
             return Err(FilesystemError::NotADirectory);
         }
         let mut entries: Vec<DirEntry> = Vec::new();
-        let mut hidden: Vec<String> = Vec::new();
+        let mut taken: HashSet<String> = HashSet::new();
         for layer in &self.layers {
             match layer.find_below(path)? {
                 Some(Metadata {
@@ -583,14 +584,11 @@ impl Stack {
                 }) => {
                     let listed = layer.filesystem.read_dir(path)?;
                     for entry in &listed {
-                        let shown = !entry.name.starts_with(WHITEOUT)
-                            && !hidden.contains(&entry.name)
-                            && !entries.iter().any(|seen| seen.name == entry.name);
-                        if shown {
+                        if !entry.name.starts_with(WHITEOUT) && taken.insert(entry.name.clone()) {
                             entries.push(entry.clone());
                         }
                     }
-                    hidden.extend(
+                    taken.extend(
                         listed
                             .iter()
                             .filter_map(|entry| entry.name.strip_prefix(WHITEOUT))
