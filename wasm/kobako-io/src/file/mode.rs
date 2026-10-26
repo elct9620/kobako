@@ -1,4 +1,4 @@
-//! How `File.open` reads its mode into the flags its open hands wasi-libc.
+//! How the mode `File.open` and `IO.new` take becomes wasi-libc flags.
 
 use core::ffi::c_int;
 use std::ffi::CStr;
