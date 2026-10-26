@@ -81,6 +81,15 @@ class TestE2EMount < Minitest::Test
                  "an open a Sandbox#mount block refuses must reach the guest as Errno::EACCES"
   end
 
+  # @behavior MT-025
+  def test_a_block_is_asked_once_for_a_read_as_a_read
+    asked = []
+    sandbox = sandbox_with_note { |_path, access| asked << access }
+
+    assert_equal ["hello", [:read]], [sandbox.eval('File.read("/data/note.txt")').value, asked],
+                 "File.read beneath a Sandbox#mount block must ask the block once, as a read"
+  end
+
   # @behavior MT-008
   def test_a_block_that_raises_refuses_the_open
     sandbox = sandbox_with_note { |_path, _access| raise "no" }

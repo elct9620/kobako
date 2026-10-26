@@ -100,6 +100,13 @@ impl Mount {
         &self.filesystem
     }
 
+    /// Whether a change beneath this Mount may be allowed at all: it was made
+    /// to be written, or a Policy decides each change in its access's place.
+    /// The Policy itself is not asked.
+    pub fn allows_writes(&self) -> bool {
+        self.policy.is_some() || self.access == Access::ReadWrite
+    }
+
     /// The absolute guest path `path`, relative to this Mount's root,
     /// stands for.
     pub fn guest_path(&self, path: &str) -> String {

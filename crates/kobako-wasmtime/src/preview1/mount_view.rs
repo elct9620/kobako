@@ -1778,6 +1778,27 @@ fn sizing_a_file_opened_only_to_read_answers_by_its_mount_then_as_linux_does() {
     );
 }
 
+// The Mount is made read-only, as a Ruby mount with a block is by default,
+// so only the Policy standing in its access's place lets either through.
+// @behavior RT-139
+#[test]
+fn a_mount_whose_policy_decides_may_be_written() {
+    let guest = || {
+        let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
+        Guest::new(&[grant(file_and_directory(), Access::Read, Some(policy))])
+    };
+    assert_eq!(
+        (
+            guest().call_at("poll_write_with", RIGHTS_FD_READ),
+            guest().call_at("size_with", RIGHTS_FD_WRITE),
+        ),
+        (0, 0),
+        "through preview1 beneath a read-only Mount whose Policy allows every change, \
+         poll_oneoff waiting to write a file opened only to read must be ready, and \
+         fd_filestat_set_size on a file opened to write must size it"
+    );
+}
+
 const RIGHTS_FD_READ: u64 = 1 << 1;
 const ERRNO_PERM: i32 = 63;
 
