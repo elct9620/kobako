@@ -1531,3 +1531,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Directory Mount whose Policy allows one directory and refuses another |
 | When | another writer swaps the allowed directory for a link as the Policy judges |
 | Then | the open answers ELOOP and reads nothing the Policy refused |
+
+## `RT-146` A Policy is asked once for an open that may create, as what it does
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-025` |
+| relates | `MT-007` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount whose Policy records each access it is asked |
+| When | the guest opens a missing path and an existing file to create, without the right to write |
+| Then | the Policy was asked once per open: as a change for the missing path, as a read for the file |
