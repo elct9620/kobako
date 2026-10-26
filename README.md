@@ -609,7 +609,7 @@ A backend declares the bound object's lifetime by keyword, never by inference â€
 | `provider:` | A no-argument callable invoked per invocation                               |
 | neither     | A fillable, standing for `Kobako::Unresolved` until `ctx.bind` supplies the run's object |
 
-A writable backend takes `provider:`, so its state cannot leak across runs. kobako ships no concrete Extension; the idiom and backend are yours. The [overlay VFS example](examples/vfs/) is a worked virtual file that reads through to disk while protecting it from guest writes.
+A writable backend takes `provider:`, so its state cannot leak across runs. kobako ships no concrete Extension; the idiom and backend are yours. The [DSL example](examples/dsl/) is a worked builder idiom whose every dialect lives on the host.
 
 ## Security
 

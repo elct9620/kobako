@@ -1,76 +1,56 @@
 # Overlay VFS
 
-A self-contained script that gives the guest a native-style `Disk`
-constant backed by a host **overlay filesystem**. Untrusted guest code
-can freely "edit" files while the disk on the host stays untouched. It
-is the [`Kobako::Extension`](../../docs/guides/extensions.md) companion
-to the [serverless](../serverless/README.md) and
-[async-io](../async-io/README.md) demos, which bind plain Services.
+A self-contained script that mounts a host directory for the guest's own
+`File`, under a writable layer that forgets every change. Untrusted guest
+code can freely "edit" files while the directory on the host stays
+untouched.
 
 ```
-guest Disk.read ─> host OverlayFileSystem ─┬─ written before ─> in-memory overlay
-                                           └─ otherwise      ─> real disk, read only
+guest File.write("/disk/sample.txt") ─> Overlay ─┬─ Temporary  :read_write ─> takes the copy
+guest File.read("/disk/sample.txt")  ─>          └─ Directory  :read       ─> examples/vfs
 ```
 
-## Extension Shape
+## Mount Shape
 
-An Extension teaches the guest a native-style constant by pairing a guest
-idiom (`source`) with an optional host `backend`. `Sandbox#install`
-composes the two through the existing `#preload` and `#bind` verbs — it
-adds no wire, codec, or Guest Binary surface.
-
-```
-Kobako::Extension ─┬─ source  (guest idiom)  ─> #preload
-                   └─ backend (host object)  ─> #bind
-```
-
-### Idiom and backend
-
-The `Disk` idiom defines only what is pure — `basename` runs in-guest
-with no round-trip. `read` and `write` are left undefined, so they fall
-through to the bound host backend:
-
-```
-Disk.basename(path)     ->  in-guest, no dispatch
-Disk.read(path)         ->  host: overlay hit? serve it : read the real disk
-Disk.write(path, data)  ->  host: store in the in-memory overlay only
-```
-
-The idiom is named `Disk` so it never meets the Guest Binary's own
-`File`, which a Host App reaches through `Sandbox#mount` instead.
-
-### Fresh overlays
-
-The backend is supplied through a **callable** provider, so `install`
-resolves a fresh overlay at the start of every invocation. That single
-choice buys two guarantees:
+`Sandbox#mount` places a Filesystem at a guest path. An Overlay stacks
+Layers into one view, the first added on top. A change to a file in the
+read-only Directory first copies it up into the Temporary Layer.
 
 ```ruby
-Kobako::Extension::Backend.new(path: "Disk", provider: -> { OverlayFileSystem.new(root) })
+overlay = Kobako::Filesystem::Overlay.new
+  .layer(Kobako::Filesystem::Temporary.new, access: :read_write) # empty every run
+  .layer(Kobako::Filesystem::Directory.new(__dir__))              # never written
+sandbox.mount("/disk", overlay, access: :read_write) do |path, access|
+  access == :read || path == "/disk/sample.txt"
+end
 ```
 
+### Fresh Layer
 
-- **Within** one invocation, a write is visible to a later read — the
-  guest sees its own changed result.
-- **Across** invocations the overlay resets, so a write can never leak
-  into the next call, and the real file on disk is never mutated.
+A Temporary starts empty at every invocation. That one choice gives two
+guarantees:
 
-### Path containment
-
-A read-through backend also crosses a trust boundary: the guest chooses
-the path. `OverlayFileSystem` therefore contains every read within its
-root. Bind the least authority the guest needs — never the whole
-filesystem.
-
-| Guest asks for | Backend answers |
+| Scope | A write |
 |---|---|
-| `Disk.read("sample.txt")` | the file beneath the example directory |
-| `Disk.read("../../etc/passwd")` | refused, as a `Kobako::ServiceError` |
+| within one invocation | is visible to a later read; the guest sees its own result |
+| across invocations | is gone, and the host file was never changed |
+
+### Mount Block
+
+The guest chooses the path, so the block decides each open and each
+change in the access's place. A falsy answer refuses it.
+
+| Guest asks for | The guest sees |
+|---|---|
+| `File.read("/disk/sample.txt")` | the file beneath the example directory |
+| `File.write("/disk/app.rb", "x")` | `Errno::EACCES`, refused by the block |
+| `File.read("/disk/../../etc/passwd")` | `Errno::EACCES`, as it climbs out of the mount |
+| `File.read("/etc/passwd")` | `Errno::ENOENT`, as nothing is mounted there |
 
 ## Running
 
 The script uses `bundler/inline`, so it resolves its own dependencies on
-first run — no `Gemfile` is required in the working directory.
+first run; no `Gemfile` is required in the working directory.
 
 ```bash
 ruby examples/vfs/app.rb
@@ -81,44 +61,48 @@ local checkout is used instead of the released gem.
 
 ## Expected Output
 
-The run makes two invocations against the same Sandbox. `sample.txt`
+The run makes three invocations against the same Sandbox. `sample.txt`
 ships next to the script holding `hello from the host disk`.
 
 ```
 $ ruby examples/vfs/app.rb
-vfs overlay demo — a read-through overlay that protects the disk
+vfs overlay demo — the guest's File over a host directory it cannot change
 
-invocation 1 — write then read (one overlay):
-  read  before write : "hello from the host disk\n"   # read-through to disk
-  write "patched in memory\n"                       # intercepted into overlay
-  read  after  write : "patched in memory\n"  # overlay hit — the changed view
-  basename ran in-guest, no round-trip: "sample.txt"
+invocation 1 — write then read (one Temporary Layer):
+  read  before write : "hello from the host disk\n"   # the host directory
+  write "patched in memory\n"                       # copied up into the Temporary Layer
+  read  after  write : "patched in memory\n"  # the changed view
+  File.basename ran in the guest: "sample.txt"
 
-invocation 2 — fresh overlay, read only:
-  read               : "hello from the host disk\n"   # overlay reset; disk view again
+invocation 2 — a fresh Temporary Layer, read only:
+  read               : "hello from the host disk\n"   # the host directory again
 
-escape attempt — read outside the overlay root:
-  Disk.read("../../etc/passwd") : rejected   # contained by the host backend
+refusals — what the mount does not grant:
+  write app.rb    : Errno::EACCES
+  climb out       : Errno::EACCES
+  outside a mount : Errno::ENOENT
 
-sample.txt on disk (after both runs):
-  "hello from the host disk\n"   # never mutated
+sample.txt on the host (after every run):
+  "hello from the host disk\n"   # never changed
 ```
 
-Three things to read off the trace. Invocation 1's second read returns
-the guest's own write, not the disk — the overlay shadows the file.
-Invocation 2's read returns the original disk content again, proving the
-overlay was rebuilt and the earlier write never leaked. And the final
-line reads the real `sample.txt` from the host and finds it unchanged —
-the write was contained in memory the whole time.
+Invocation 1's second read returns the guest's own write, not the host
+file. Invocation 2's read returns the original again, so the earlier write
+never leaked. The last line reads the real `sample.txt` and finds it
+unchanged.
 
 ## Safety Properties
 
-Each guest operation reaches the host only as far as the table says.
-Per-invocation freshness is not a convenience here — it is the mechanism
-that stops one invocation's writes from being visible to the next.
+Each guest operation reaches the host only as far as the table says. The
+fresh Temporary Layer is the mechanism that keeps one invocation's writes
+from the next.
 
 | Operation | Reaches |
 |---|---|
-| `Disk.write` | the in-memory overlay only, never the disk |
-| `Disk.read` | the overlay, or the disk within the overlay root |
-| a path outside the root | nothing; the backend refuses it |
+| `File.write` | the Temporary Layer only, never the host |
+| `File.read` | the Temporary Layer, or the directory beneath the mount |
+| a path the block refuses or outside the mount | nothing |
+
+The [README](../../README.md) lists every Filesystem kind, and the
+[security guide](../../docs/guides/security.md) covers what a mount block
+judges.

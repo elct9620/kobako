@@ -1,13 +1,19 @@
-# Host-owned DSL — the guest writes the builder, the host owns it
+# Host-owned DSL
 
 A self-contained script that gives the guest an idiomatic, receiver-less
-builder DSL — `header "..."`, `body do ... end` — whose every dialect
-lives on the **host**. No builder logic is reimplemented in the guest:
-one small generic wrapper forwards each call onto a Capability Handle, so
-the host's `Card` / `Section` / `Image` classes stay the single source of
-truth. It is the [`Kobako::Extension`](../../docs/guides/extensions.md) companion
-to the [vfs](../vfs/README.md) demo — that installs a native `File`; this
-installs a builder idiom over host dialects.
+builder DSL whose every dialect lives on the **host**. No builder logic is
+reimplemented in the guest. One small generic wrapper forwards each call
+onto a Capability Handle, so the host's `Card` / `Section` / `Image`
+classes stay the single source of truth.
+
+```
+guest: header "..."; body do ... end  ─> wrapper ─> Handle ─> host Card / Section / Image
+```
+
+It is a [`Kobako::Extension`](../../docs/guides/extensions.md) demo that
+installs a builder idiom over host dialects. The
+[line-flex-message](../line-flex-message/README.md) demo drives the same
+mechanism against a real gem.
 
 ## The shape, and why it has to be this shape
 

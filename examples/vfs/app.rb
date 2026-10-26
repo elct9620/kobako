@@ -1,38 +1,31 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# VFS overlay demo: a native-style `Disk` for the guest, backed by a host
-# overlay that reads through to the real disk but intercepts every write
-# into memory — so untrusted guest code can freely "edit" files while the
-# disk stays pristine.
+# VFS overlay demo: the guest's own `File` over a host directory that it can
+# read, and "edit", while the files on the host stay untouched.
 #
 # The lesson this example encodes
 # -------------------------------
-# `Kobako::Extension` teaches the guest a native-style constant. Here the
-# `Disk` idiom's I/O methods are NOT defined in-guest, so they dispatch to
-# a bound host backend — an `OverlayFileSystem` — under the same isolation
-# and reflection guarantees as any Service:
+# `Sandbox#mount` places a Filesystem at a guest path, where the guest's
+# `File` reaches it. An Overlay stacks Layers into one view, the first added
+# on top:
 #
-#   Disk.read(path)         -> host: overlay hit? serve it : read real disk
-#   Disk.write(path, data)  -> host: store in the in-memory overlay only
+#   File.write("/disk/sample.txt", ...) -> copied up into the Temporary Layer
+#   File.read("/disk/sample.txt")       -> the Temporary copy, else the Directory
 #
-# The idiom is named `Disk` so it never meets the Guest Binary's own
-# `File`, which a Host App reaches through `Sandbox#mount` instead.
+# The Temporary Layer starts empty at every invocation, so two things follow,
+# and the run below shows both:
 #
-# The backend is supplied through a CALLABLE provider, so `install`
-# resolves a FRESH overlay at the start of every invocation. Two things
-# follow, and the run below shows both:
+#   * within one invocation, a write is visible to a later read — the guest
+#     sees its own changed result;
+#   * across invocations the change is gone, and the Directory Layer is
+#     read-only, so the real file on the host is never touched.
 #
-#   * within one invocation, a write is visible to a later read — the
-#     guest sees its own changed result;
-#   * across invocations the overlay resets, so a write can never leak
-#     into the next call, and the real file on disk is never touched.
-#
-# A read-through backend also crosses a trust boundary: the guest chooses
-# the path. `OverlayFileSystem` therefore contains every read within its
-# root — `..` traversal and symlinks alike — so `Disk.read("../../etc/passwd")`
-# cannot escape the example directory. Bind the least authority the guest
-# needs, never the whole filesystem.
+# The guest also chooses the path, so the mount answers each open and change
+# through a block: here it lets the guest read anything beneath /disk but
+# change only sample.txt. A path that climbs out of the mount is refused, and
+# a path nothing is mounted at does not exist. Mount the least authority the
+# guest needs, never the whole filesystem.
 #
 # Usage:
 #   ruby examples/vfs/app.rb
@@ -44,120 +37,53 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.27.0"
+  gem "kobako", "~> 0.29.0"
 end
 
 require "kobako"
 
-# Example types are nested under Vfs so the file carries a single
+# Example scripts are nested under Vfs so the file carries a single
 # top-level constant and reads top-down.
 module Vfs
-  # The guest idiom: a native-style `Disk`. Path arithmetic like
-  # `basename` runs in-guest with no round-trip; `read` / `write` are
-  # deliberately left undefined, so they fall through to the bound host
-  # backend.
-  DISK_SOURCE = <<~MRUBY
-    class Disk
-      extend Kobako::Proxy
-      def self.basename(path) = path.split("/").last || ""
-    end
-  MRUBY
-
   # First invocation: read the original, overwrite it, read it back. The
-  # second read hits the overlay, so the guest observes its own write.
-  WRITE_THEN_READ = <<~'MRUBY'
-    before = Disk.read("sample.txt")
-    Disk.write("sample.txt", "patched in memory\n")
-    after  = Disk.read("sample.txt")
-    { "name" => Disk.basename("dir/sample.txt"), "before" => before, "after" => after }
+  # second read hits the Temporary Layer, so the guest observes its own write.
+  WRITE_THEN_READ = <<~MRUBY
+    before = File.read("/disk/sample.txt")
+    File.write("/disk/sample.txt", "patched in memory\\n")
+    after = File.read("/disk/sample.txt")
+    { "name" => File.basename("/disk/sample.txt"), "before" => before, "after" => after }
   MRUBY
 
-  # Second invocation: read only. The overlay was rebuilt for this call,
-  # so the earlier write is gone and the read falls through to disk again.
+  # Second invocation: read only. The Temporary Layer is empty again, so the
+  # read falls through to the host directory.
   READ_ONLY = <<~MRUBY
-    Disk.read("sample.txt")
+    File.read("/disk/sample.txt")
   MRUBY
 
-  # A traversal attempt. The host backend contains every path within the
-  # overlay root, so this is refused before any disk read and the guest
-  # sees a capability failure — the point of the example, exercised.
-  ESCAPE_ATTEMPT = <<~MRUBY
-    Disk.read("../../etc/passwd")
+  # Each refusal the guest meets, by the Errno class it raises.
+  REFUSALS = <<~MRUBY
+    {
+      "write app.rb"     => -> { File.write("/disk/app.rb", "x") },
+      "climb out"        => -> { File.read("/disk/../../etc/passwd") },
+      "outside a mount"  => -> { File.read("/etc/passwd") }
+    }.map do |name, call|
+      begin
+        call.call
+        [name, "NOT refused"]
+      rescue SystemCallError => e
+        [name, e.class.to_s]
+      end
+    end
   MRUBY
 
-  # Host backend bound at the guest's `Disk`. Reads fall through to the
-  # real disk; writes are captured in an in-memory overlay that shadows
-  # the disk for later reads without ever mutating it.
-  class OverlayFileSystem
-    def initialize(disk_root)
-      # Canonicalise the root through the filesystem so containment holds
-      # even when the root is itself reached via a symlink (a common case:
-      # /tmp and /var are symlinks on macOS). The read guard resolves each
-      # path the same way, so both ends of the comparison are canonical.
-      @disk_root = ::File.realpath(disk_root)
-      @overlay = {}
-    end
+  # The guest reads anything beneath the mount and changes only sample.txt.
+  ALLOW = ->(path, access) { access == :read || path == "/disk/sample.txt" }
 
-    # Read-through with copy-on-write shadowing: a path that was written
-    # is served from the overlay; everything else is read from disk. The
-    # resolved absolute path is the overlay key, so path aliases like
-    # `sample.txt` and `./sample.txt` address the same shadowed entry.
-    def read(path)
-      key = resolve(path)
-      return @overlay[key] if @overlay.key?(key)
-
-      # Only a real-disk read can follow a symlink out of the root — the
-      # overlay hit above never touches disk — so resolve links here and
-      # re-check containment before reading, closing the one escape
-      # `expand_path` alone leaves open.
-      real = ::File.realpath(key)
-      raise ArgumentError, "path escapes the overlay root: #{path.inspect}" unless contained?(real)
-
-      ::File.read(real)
-    end
-
-    # Writes land in the overlay only and never reach the disk. Keyed by
-    # the same resolved path as `read`, so a write is visible to a later
-    # read of any alias of that path — and contained to the root, so a
-    # traversal cannot even shadow a file outside it. Returns the byte
-    # count, matching Ruby's `File.write`.
-    def write(path, content)
-      @overlay[resolve(path)] = content
-      content.bytesize
-    end
-
-    private
-
-    # Contain every path within the overlay root so a guest-chosen path
-    # cannot escape it (absolute paths and `..` traversal included), and
-    # normalise aliases to one absolute key shared by reads and writes.
-    # This is the overlay key, so it stays independent of what exists on
-    # disk; symlink resolution is the disk read's job, not the key's.
-    def resolve(path)
-      full = ::File.expand_path(path, @disk_root)
-      return full if contained?(full)
-
-      raise ArgumentError, "path escapes the overlay root: #{path.inspect}"
-    end
-
-    # True when an already-absolute path lies at or under the overlay root.
-    def contained?(absolute)
-      absolute == @disk_root || absolute.start_with?("#{@disk_root}/")
-    end
-  end
-
-  # Composes the guest idiom with the host backend. The provider is a
-  # callable, so a fresh OverlayFileSystem backs the `Disk` path on every
-  # invocation — writes cannot leak from one call into the next.
-  def self.build_extension(disk_root)
-    Kobako::Extension.new(
-      name: :Disk,
-      source: DISK_SOURCE,
-      backend: Kobako::Extension::Backend.new(
-        path: "Disk",
-        provider: -> { OverlayFileSystem.new(disk_root) }
-      )
-    )
+  # A writable Temporary Layer over the host directory, read-only.
+  def self.overlay(root)
+    Kobako::Filesystem::Overlay.new
+                               .layer(Kobako::Filesystem::Temporary.new, access: :read_write) # empty every run
+                               .layer(Kobako::Filesystem::Directory.new(root)) # never written
   end
 end
 
@@ -165,36 +91,27 @@ disk_root = __dir__
 sample_path = File.join(disk_root, "sample.txt")
 
 sandbox = Kobako::Sandbox.new
-sandbox.install(Vfs.build_extension(disk_root))
+sandbox.mount("/disk", Vfs.overlay(disk_root), access: :read_write, &Vfs::ALLOW)
 
 first = sandbox.eval(Vfs::WRITE_THEN_READ).value
 second = sandbox.eval(Vfs::READ_ONLY).value
-
-# Exercise the guard so running the example proves it: a traversal must be
-# refused by the host backend, surfacing as a capability failure.
-escape =
-  begin
-    sandbox.eval(Vfs::ESCAPE_ATTEMPT)
-    "NOT rejected — the overlay guard is broken!"
-  rescue Kobako::ServiceError
-    "rejected"
-  end
+refusals = sandbox.eval(Vfs::REFUSALS).value
 
 disk_after = File.read(sample_path)
 
-puts "vfs overlay demo — a read-through overlay that protects the disk"
+puts "vfs overlay demo — the guest's File over a host directory it cannot change"
 puts
-puts "invocation 1 — write then read (one overlay):"
-puts "  read  before write : #{first["before"].inspect}   # read-through to disk"
-puts "  write \"patched in memory\\n\"                       # intercepted into overlay"
-puts "  read  after  write : #{first["after"].inspect}  # overlay hit — the changed view"
-puts "  basename ran in-guest, no round-trip: #{first["name"].inspect}"
+puts "invocation 1 — write then read (one Temporary Layer):"
+puts "  read  before write : #{first["before"].inspect}   # the host directory"
+puts "  write \"patched in memory\\n\"                       # copied up into the Temporary Layer"
+puts "  read  after  write : #{first["after"].inspect}  # the changed view"
+puts "  File.basename ran in the guest: #{first["name"].inspect}"
 puts
-puts "invocation 2 — fresh overlay, read only:"
-puts "  read               : #{second.inspect}   # overlay reset; disk view again"
+puts "invocation 2 — a fresh Temporary Layer, read only:"
+puts "  read               : #{second.inspect}   # the host directory again"
 puts
-puts "escape attempt — read outside the overlay root:"
-puts "  Disk.read(\"../../etc/passwd\") : #{escape}   # contained by the host backend"
+puts "refusals — what the mount does not grant:"
+refusals.each { |name, answer| puts "  #{name.ljust(16)}: #{answer}" }
 puts
-puts "sample.txt on disk (after both runs):"
-puts "  #{disk_after.inspect}   # never mutated"
+puts "sample.txt on the host (after every run):"
+puts "  #{disk_after.inspect}   # never changed"
