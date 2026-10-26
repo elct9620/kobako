@@ -229,6 +229,11 @@ pub(crate) fn open(
         Err(FilesystemError::NotFound) => (None, None),
         Err(err) => return Err(err.into()),
     };
+    // What is missing and not to be made answers as missing before any
+    // access is judged, as Linux's `open` does on a read-only mount.
+    if existing.is_none() && !oflag(OFLAGS_CREAT) {
+        return Err(Errno::Noent.into());
+    }
     // Creating changes the Mount only where nothing stands yet, so the
     // Mount judges the open once, knowing what it does.
     let changes = write || oflag(OFLAGS_TRUNC) || (oflag(OFLAGS_CREAT) && existing.is_none());
@@ -252,7 +257,6 @@ pub(crate) fn open(
             listing: None,
         }),
         Some(_) if oflag(OFLAGS_DIRECTORY) => return Err(Errno::Notdir.into()),
-        None if oflag(OFLAGS_DIRECTORY) || !oflag(OFLAGS_CREAT) => return Err(Errno::Noent.into()),
         Some(_) | None => {
             let mut options = OpenOptions::default();
             options.read = read;

@@ -1932,6 +1932,30 @@ fn a_policy_is_asked_once_for_an_open_that_may_create_as_what_it_does() {
     );
 }
 
+// The open asks to write a path nothing stands at, so only the lookup
+// before the Mount judges it answers ENOENT, as Linux does on a read-only
+// mount, rather than the EROFS the same open of a file answers.
+// @behavior RT-147
+#[test]
+fn an_open_of_a_missing_path_that_makes_nothing_answers_enoent() {
+    let read_only =
+        Guest::new(&[grant(file_and_directory(), Access::Read, None)]).call("append_file", NEW);
+    let policy = Arc::new(RecordsAsks::default());
+    let policed = Guest::new(&[grant(
+        file_and_directory(),
+        Access::Read,
+        Some(policy.clone() as Arc<dyn Policy>),
+    )])
+    .call("append_file", NEW);
+    let asked = policy.0.lock().unwrap().clone();
+    assert_eq!(
+        (read_only, policed, asked),
+        (ERRNO_NOENT, ERRNO_NOENT, Vec::new()),
+        "path_open to write a missing path without O_CREAT beneath a read-only Mount and beneath \
+         a Mount with a Policy through preview1 must answer ENOENT and ask the Policy nothing"
+    );
+}
+
 const NEW: (i32, i32) = (840, 7);
 const RIGHTS_FD_READ: u64 = 1 << 1;
 const ERRNO_PERM: i32 = 63;
