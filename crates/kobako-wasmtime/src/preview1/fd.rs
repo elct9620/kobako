@@ -617,6 +617,7 @@ mod tests {
             append: false,
             readable: true,
             writable: false,
+            mount_writable: false,
         })
     }
 

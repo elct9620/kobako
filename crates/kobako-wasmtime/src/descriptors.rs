@@ -65,6 +65,9 @@ pub(crate) struct OpenFile {
     pub(crate) append: bool,
     pub(crate) readable: bool,
     pub(crate) writable: bool,
+    /// Whether its Mount lets the file be written, which a wait to write
+    /// answers by, as wasmtime-wasi answers it by its preopen's permissions.
+    pub(crate) mount_writable: bool,
 }
 
 pub(crate) struct Descriptors {

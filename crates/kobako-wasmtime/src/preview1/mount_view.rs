@@ -1732,20 +1732,21 @@ fn a_read_whose_end_passes_the_largest_signed_offset_is_invalid() {
     );
 }
 
-// Each subscription names the same file, so only the rights it was opened
-// with can tell the two answers apart.
+// Each file is opened only to read, so only its Mount's access can tell the
+// two answers apart.
 // @behavior RT-135
 #[test]
-fn a_wait_to_write_a_file_opened_only_to_read_is_not_permitted() {
-    let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
+fn a_wait_to_write_a_file_answers_by_what_its_mount_permits() {
+    let wait = |access| {
+        Guest::new(&[grant(file_and_directory(), access, None)])
+            .call_at("poll_write_with", RIGHTS_FD_READ)
+    };
     assert_eq!(
-        (
-            guest.call_at("poll_write_with", RIGHTS_FD_READ),
-            guest.call_at("poll_write_with", RIGHTS_FD_WRITE),
-        ),
-        (ERRNO_PERM, 0),
-        "poll_oneoff waiting to write a file opened only to read beneath a Mount through \
-         preview1 must answer EPERM as wasmtime-wasi does, and one opened to write must wait"
+        (wait(Access::ReadWrite), wait(Access::Read)),
+        (0, ERRNO_PERM),
+        "poll_oneoff waiting to write a file opened only to read through preview1 must be ready \
+         beneath a read-write Mount and answer EPERM beneath a read-only one, as wasmtime-wasi \
+         answers by its preopen"
     );
 }
 
