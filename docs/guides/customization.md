@@ -343,5 +343,5 @@ A method like these joins without a default, a break marked `!`.
 | `File::append` | another writer's append from landing over this one | `Unsupported` |
 
 An Overlay waits for its lock through `Blocking`. A frontend whose threads share a
-lock of their own, as Ruby's share the GVL, gives that lock up inside `wait`, or the
-holder it waits for never finishes.
+lock of their own gives that lock up inside `wait`, as Ruby gives up the GVL.
+Otherwise the holder it waits for never finishes.
