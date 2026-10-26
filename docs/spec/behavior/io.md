@@ -292,7 +292,7 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | When | guest code writes several values to the output stream in one call |
 | Then | the capture holds each value's string form in the order given |
 
-## `IO-035` A mode is only ever a String
+## `IO-035` A mode is a String or an Integer of flags
 
 | Step | Statement |
 | --- | --- |
@@ -349,3 +349,16 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Given | a Sandbox |
 | When | guest code puts a character by a number past 64 bits, through `Kernel` and through `$stdout` |
 | Then | each raises `RangeError` and the capture holds nothing |
+
+## `IO-040` An IO over a file this guest opened reads its mode as File.open does
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-035` |
+| relates | `FL-026`, `FL-027` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose script opened a file beneath a read-write Mount |
+| When | the script wraps that file's descriptor with `File::RDWR`, then with `zz` |
+| Then | the first IO is built, and the second raises `ArgumentError` |
