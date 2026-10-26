@@ -6,6 +6,7 @@
 //! dispatch — is the harness's, inherited by forwarding.
 
 use beni::{Error, Mrb};
+use kobako_core::{CompileReply, Outcome, Preamble, Run, YieldReply};
 
 /// The guest behind `guest.wasm`.
 pub(crate) struct KvGuest;
@@ -28,16 +29,20 @@ impl kobako_mruby::MrbGuest for KvGuest {
 // The orphan rule keeps this forwarding impl in the shell. Implementing
 // a flow here instead of forwarding it is how a shell replaces one.
 impl kobako_core::Guest for KvGuest {
-    fn eval() {
-        <KvGuest as kobako_mruby::MrbGuest>::eval();
+    fn eval(preamble: Preamble, source: Vec<u8>) -> Outcome {
+        <KvGuest as kobako_mruby::MrbGuest>::eval(preamble, source)
     }
 
-    fn run(env: &[u8]) {
-        <KvGuest as kobako_mruby::MrbGuest>::run(env);
+    fn run(preamble: Preamble, run: Run) -> Outcome {
+        <KvGuest as kobako_mruby::MrbGuest>::run(preamble, run)
     }
 
-    fn yield_to_block(req: &[u8]) -> u64 {
-        <KvGuest as kobako_mruby::MrbGuest>::yield_to_block(req)
+    fn yield_to_block(frame: u32, req: &[u8]) -> YieldReply {
+        <KvGuest as kobako_mruby::MrbGuest>::yield_to_block(frame, req)
+    }
+
+    fn compile(preamble: Preamble) -> CompileReply {
+        <KvGuest as kobako_mruby::MrbGuest>::compile(preamble)
     }
 }
 

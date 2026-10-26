@@ -154,7 +154,7 @@ fn malformed(err: impl std::fmt::Display) -> Fault {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kobako::handles::Detached;
+    use kobako::handles::DetachedHandles;
 
     /// A Receiver is the host's own code, and the guest is not what it is
     /// being tested against — the schema is. A detached Handle table is
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn get_answers_a_miss_and_a_hit_under_the_same_schema() {
         let kv = ProtoKv(Arc::new(Store::default()));
-        let table = Detached::new();
+        let table = DetachedHandles::new();
         let ask = |kv: &ProtoKv, key: &[u8]| {
             let request = GetRequest { key: key.to_vec() }.encode_to_vec();
             let answer = kv

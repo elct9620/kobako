@@ -87,14 +87,10 @@ fn run(wasm_path: &Path, mode: Option<&str>) -> Result<(), String> {
 /// Load the guest, declare the Service the gem's methods reach, and
 /// preload the entrypoint `--run` calls.
 fn open(wasm_path: &Path) -> Result<Sandbox, String> {
-    let mut sandbox = Sandbox::new(
-        wasm_path,
-        Options {
-            timeout: Some(Duration::from_secs(30)),
-            ..Options::default()
-        },
-    )
-    .map_err(|err| format!("cannot load the guest: {err}"))?;
+    let mut options = Options::default();
+    options.timeout = Some(Duration::from_secs(30));
+    let mut sandbox =
+        Sandbox::new(wasm_path, options).map_err(|err| format!("cannot load the guest: {err}"))?;
 
     // Declared without an object: the schema is fixed at build time, and
     // the receiver behind the path is not. A multi-tenant host fills it

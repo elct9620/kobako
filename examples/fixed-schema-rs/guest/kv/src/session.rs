@@ -14,7 +14,9 @@
 //! stops meaning what it says, and this is what it costs to keep it
 //! meaning that.
 
-use beni::{Error, Mrb, RClass, RModule, RString, Value};
+use beni::prelude::*;
+use beni::value::qnil;
+use beni::{Error, Mrb, RClass, RModule, RObject, RString, Value};
 use kobako_mruby::Target;
 
 use crate::dispatch::{self, runtime_error, type_error};
@@ -24,9 +26,7 @@ const HANDLE_IVAR: &core::ffi::CStr = c"@__kv_handle__";
 
 /// Define `MyService::Session` under `service`.
 pub(crate) fn init(mrb: &Mrb, service: RModule) -> Result<(), Error> {
-    use beni::{Module, Object};
-
-    let session = service.define_class(mrb, c"Session", mrb.object_class())?;
+    let session = service.define_class(mrb, c"Session", mrb.class_object())?;
     session.define_method(mrb, c"initialize", beni::method!(initialize, 1))?;
     // A `dup` would otherwise yield an unfrozen copy, and an unfrozen
     // copy is re-pointable at an id it was never given.
@@ -40,13 +40,11 @@ pub(crate) fn init(mrb: &Mrb, service: RModule) -> Result<(), Error> {
 
 /// Mint the Session naming `id`, frozen so a script cannot re-point it.
 ///
-/// `obj_new` is mruby's own constructor rather than the Ruby-level `new`
-/// this class refuses, which is what leaves the refusal in place for
-/// scripts while the wire still issues Handles.
+/// `new_instance` is mruby's own constructor rather than the Ruby-level
+/// `new` this class refuses, which is what leaves the refusal in place
+/// for scripts while the wire still issues Handles.
 pub(crate) fn mint(mrb: &Mrb, id: u32) -> Result<Value, Error> {
-    use beni::IntoValue;
-
-    let value = session_class(mrb)?.obj_new(mrb, &[(id as i32).into_value(mrb)])?;
+    let value = session_class(mrb)?.new_instance(mrb, (id as i32,))?;
     Ok(value.freeze(mrb))
 }
 
@@ -55,34 +53,30 @@ pub(crate) fn mint(mrb: &Mrb, id: u32) -> Result<Value, Error> {
 /// Exact class rather than `kind_of?`: only `mint` produces one, so a
 /// subclass is something a script built and derives no id.
 pub(crate) fn handle_id(mrb: &Mrb, value: Value) -> Result<u32, Error> {
-    use beni::FromValue;
-
-    if !value.is_instance_of(mrb, session_class(mrb)?) {
-        return Err(type_error(
-            mrb,
-            "expected a MyService::Session, which only MyService::KV.open hands out",
-        ));
-    }
-    let id = value.iv_get(mrb, HANDLE_IVAR);
-    match i32::from_value(id) {
+    let class = session_class(mrb)?;
+    let session = RObject::from_value(value)
+        .filter(|_| value.is_instance_of(mrb, class))
+        .ok_or_else(|| {
+            type_error(
+                mrb,
+                "expected a MyService::Session, which only MyService::KV.open hands out",
+            )
+        })?;
+    match session.ivar_get::<_, Option<i32>>(mrb, HANDLE_IVAR)? {
         Some(id) if id > 0 => Ok(id as u32),
         _ => Err(runtime_error(mrb, "this Session carries no Handle id")),
     }
 }
 
 fn session_class(mrb: &Mrb) -> Result<RClass, Error> {
-    use beni::Module;
-
     // `define_module` returns the module already registered, so this is
     // a lookup rather than a second registration.
     mrb.define_module(c"MyService")?.class_get(mrb, c"Session")
 }
 
-fn initialize(mrb: &Mrb, self_: Value, id: i32) -> Result<Value, Error> {
-    use beni::IntoValue;
-
-    self_.iv_set(mrb, HANDLE_IVAR, id.into_value(mrb))?;
-    Ok(Value::nil())
+fn initialize(mrb: &Mrb, self_: RObject, id: i32) -> Result<Value, Error> {
+    self_.ivar_set(mrb, HANDLE_IVAR, id)?;
+    Ok(qnil().as_value())
 }
 
 // The original goes unread: mruby copies the ivar before the hook runs,
@@ -91,7 +85,7 @@ fn initialize_copy(mrb: &Mrb, self_: Value, _original: Value) -> Result<Value, E
     Ok(self_.freeze(mrb))
 }
 
-fn not_constructible(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
+fn not_constructible(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
     let nomethod = mrb.exc_get(c"NoMethodError")?;
     Err(Error::new(
         mrb,

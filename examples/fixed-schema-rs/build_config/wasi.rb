@@ -13,10 +13,11 @@
 #   * The mrbgem allowlist and the VM dispatch mode are yours to choose —
 #     a guest that needs no Regexp simply omits the gem, and nothing on
 #     the wire notices.
-#   * `MRB_INT32` and `MRB_WORDBOX_NO_INLINE_FLOAT` are not. They pin the
-#     integer width and the `mrb_value` layout the kobako guest crates
-#     were built against; changing either makes this artifact disagree
-#     with the crates it links, whatever payload schema it speaks.
+#   * `MRB_INT64`, `MRB_NO_BOXING`, and `mruby-bigint` are not. They pin
+#     the integer width, the `mrb_value` layout, and the Integer the
+#     kobako guest crates were built against; changing any makes this
+#     artifact disagree with the crates it links, whatever payload schema
+#     it speaks.
 
 unless defined?(KvBuildConfig)
   # Config-time constants. Wrapped in `unless defined?` so re-loading
@@ -74,9 +75,10 @@ MRuby::CrossBuild.new(KvBuildConfig::MRUBY_BUILD_NAME) do |conf|
 
   KvBuildConfig::MRBGEM_ALLOWLIST.each { |gem_name| conf.gem core: gem_name }
 
-  # The two ABI-bearing pins — see this file's header.
-  conf.cc.defines  << "MRB_WORDBOX_NO_INLINE_FLOAT"
-  conf.cxx.defines << "MRB_WORDBOX_NO_INLINE_FLOAT"
-  conf.cc.defines  << "MRB_INT32"
-  conf.cxx.defines << "MRB_INT32"
+  # The ABI-bearing pins — see this file's header.
+  conf.gem core: "mruby-bigint"
+  %w[MRB_NO_BOXING MRB_INT64].each do |flag|
+    conf.cc.defines << flag
+    conf.cxx.defines << flag
+  end
 end

@@ -7,6 +7,7 @@
 //! name, and the refusal handling are the same either way, so they are
 //! written once here and the surfaces supply the target.
 
+use beni::value::qnil;
 use beni::{Error, FromValue, Mrb, Proc, RString, ReprValue, Value};
 use kobako_mruby::{dispatch, DispatchError, Target};
 use prost::Message;
@@ -57,7 +58,7 @@ pub(crate) fn get(mrb: &Mrb, target: Target<'_>, key: RString) -> Result<Value, 
     Ok(if answer.found {
         mrb.str_new(&answer.value).as_value()
     } else {
-        Value::nil()
+        qnil().as_value()
     })
 }
 

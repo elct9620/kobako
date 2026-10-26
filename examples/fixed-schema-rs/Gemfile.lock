@@ -1,7 +1,7 @@
 GEM
   remote: https://rubygems.org/
   specs:
-    beni (0.18.0)
+    beni (0.25.0)
       rake (~> 13.0)
     rake (13.4.2)
 
@@ -10,11 +10,11 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
-  beni (~> 0.18.0)
+  beni (~> 0.25.0)
   rake (~> 13.0)
 
 CHECKSUMS
-  beni (0.18.0) sha256=b837e76abf4a3f100be3223290283a49df4dc1c1025d4db2d5bf5e7f1162dcfd
+  beni (0.25.0) sha256=8e0ef2d4f52187fc556a2c61ffb534b7239fe75d2cf8fe131d5fd5c3a38d7e11
   rake (13.4.2) sha256=cb825b2bd5f1f8e91ca37bddb4b9aaf345551b4731da62949be002fa89283701
 
 BUNDLED WITH

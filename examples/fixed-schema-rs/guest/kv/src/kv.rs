@@ -24,7 +24,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     use beni::{Module, Object};
 
     let service = mrb.define_module(c"MyService")?;
-    let kv = service.define_class(mrb, c"KV", mrb.object_class())?;
+    let kv = service.define_class(mrb, c"KV", mrb.class_object())?;
     kv.define_singleton_method(mrb, c"get", beni::method!(kv_get, 1))?;
     kv.define_singleton_method(mrb, c"put", beni::method!(kv_put, 2))?;
     kv.define_singleton_method(mrb, c"open", beni::method!(kv_open, 1))?;
