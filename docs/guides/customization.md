@@ -317,8 +317,9 @@ driver, so choosing an engine there means choosing a different frontend.
 ## Filesystem
 
 A Mount hands the guest any `impl Filesystem`, and an Overlay stacks them as Layers.
-The runtime resolves each guest path and judges it before the Filesystem is asked,
-so a Filesystem sees only a normalized path beneath its root.
+The runtime resolves and judges each guest path before the Filesystem acts on it.
+A Filesystem sees only a normalized path beneath its root. A lookup may come first,
+as an open answers what stands at a path before its access is judged.
 
 ```
 guest path ─▶ runtime: resolve, refuse links, judge the Policy ─▶ Filesystem
