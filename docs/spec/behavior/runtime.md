@@ -45,6 +45,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `test/fuzz/test_dispatch_scheduling_fuzz.rb`
 - `test/parity/test_hermetic.rb`
 - `test/e2e/test_mount_spelling.rb`
+- `crates/kobako-runtime/src/vfs/seen.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/cache.rs`
 - `crates/kobako-wasmtime/src/abi.rs`
@@ -1654,3 +1655,39 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Directory Mount with a Policy, holding a directory beneath its root |
 | When | the guest renames that directory onto its own path |
 | Then | the rename succeeds and changes nothing |
+
+## `RT-156` The weaker posture sees the times a Filesystem keeps
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-049` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation on the weaker posture, with a Mount over a Memory |
+| When | the guest writes a file and reads what the path names |
+| Then | its modification time is no earlier than the write |
+
+## `RT-157` The strongest posture sees every time at the Unix epoch
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-047` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation on the strongest posture, with a Mount over a Memory |
+| When | the guest writes a file and reads what the path and the open file name |
+| Then | each time reads the Unix epoch |
+
+## `RT-158` A time another posture wrote reaches the strongest posture as the epoch
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-157` |
+
+| Step | Statement |
+| --- | --- |
+| Given | one Memory mounted for an invocation on each posture |
+| When | the weaker writes a file and the strongest reads what the path names |
+| Then | each time the strongest reads is the Unix epoch |

@@ -2,6 +2,7 @@
 
 use super::namei::{resolve, Resolved};
 use super::path::{Identity, Path};
+use super::seen::seen_file;
 use super::Error;
 use crate::filesystem::{Access, File, FileType, FilesystemError, OpenOptions};
 
@@ -75,7 +76,8 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<Opene
                 truncate: how.truncate,
                 nofollow: true,
             };
-            Ok(Opened::File(resolved.base.open(&resolved.name, &options)?))
+            let file = resolved.base.open(&resolved.name, &options)?;
+            Ok(Opened::File(seen_file(file, start.profile())))
         }
     }
 }
@@ -105,8 +107,7 @@ fn open_directory(
     identity: Option<Identity>,
 ) -> Result<Opened, Error> {
     let dir = resolved.base.open_dir_nofollow(&resolved.name)?;
-    Ok(Opened::Directory(Path::opened(
-        start.mount().clone(),
+    Ok(Opened::Directory(start.opened(
         dir,
         resolved.judged,
         identity,

@@ -13,6 +13,7 @@ use magnus::{kwargs, prelude::*, Error as MagnusError, RClass, RModule, RString,
 
 use std::any::Any;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{
     DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
@@ -152,6 +153,20 @@ fn to_flags(ruby: &Ruby, options: &OpenOptions) -> Result<i64, MagnusError> {
     Ok(flags)
 }
 
+/// The `Time` a stat answers to `name`, as `File::Stat#mtime` gives one;
+/// `None` where it answers none, or a time before the Unix epoch.
+fn time_of(stat: Value, name: &str) -> Result<Option<SystemTime>, MagnusError> {
+    if !stat.respond_to(name, false)? {
+        return Ok(None);
+    }
+    let time: Value = stat.funcall(name, ())?;
+    let seconds: i64 = time.funcall("to_i", ())?;
+    let nanoseconds: u32 = time.funcall("nsec", ())?;
+    Ok(u64::try_from(seconds)
+        .ok()
+        .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::new(seconds, nanoseconds))))
+}
+
 fn join(dir: &str, name: &str) -> String {
     if dir.is_empty() {
         name.to_string()
@@ -212,7 +227,18 @@ impl Filesystem for RubyFilesystem {
                 } else {
                     own_dev
                 };
-                Ok(metadata.with_identity(dev, stat.funcall("ino", ())?))
+                let metadata = metadata
+                    .with_identity(dev, stat.funcall("ino", ())?)
+                    .with_times(
+                        time_of(stat, "atime")?,
+                        time_of(stat, "mtime")?,
+                        time_of(stat, "ctime")?,
+                    );
+                Ok(if stat.respond_to("nlink", false)? {
+                    metadata.with_nlink(stat.funcall("nlink", ())?)
+                } else {
+                    metadata
+                })
             },
         )
     }

@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::{DirEntry, File};
 use kobako_runtime::mount::Mount;
+use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::Path;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
@@ -55,13 +56,15 @@ impl Descriptors {
     /// The table every invocation starts from: stdin, then the two
     /// Channels, then one preopen per Mount from descriptor 3. It holds at
     /// most `limit` descriptors, those included, as a process's
-    /// `RLIMIT_NOFILE` counts every one it holds.
+    /// `RLIMIT_NOFILE` counts every one it holds. Each Mount is seen as an
+    /// invocation running under `profile` sees it.
     pub(crate) fn new(
         stdin: MemoryInputPipe,
         stdout: MemoryOutputPipe,
         stderr: MemoryOutputPipe,
         mounts: Vec<Mount>,
         limit: Option<usize>,
+        profile: Profile,
     ) -> Self {
         let mut used = BTreeMap::from([
             (0, Descriptor::Stdin(stdin)),
@@ -72,7 +75,7 @@ impl Descriptors {
             used.insert(
                 fd,
                 Descriptor::Directory(OpenDirectory {
-                    path: Path::root(mount),
+                    path: Path::root(mount, profile),
                     preopen: true,
                     listing: None,
                 }),

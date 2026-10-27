@@ -1351,3 +1351,39 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Directory holding a link and a directory |
 | When | each is read as a link |
 | Then | the link answers where it points as stored, and the directory is invalid input |
+
+## `FS-115` A Memory keeps a file's times as a tmpfs mounted noatime does
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file made in a Memory |
+| When | it is read, and later written |
+| Then | its access time stays, and its other two times move to the write |
+
+## `FS-116` A Memory counts a directory's names as a tmpfs does
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-070` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory directory holding a file and two directories |
+| When | the directory and the file are read |
+| Then | the directory counts four names, and the file one |
+
+## `FS-117` An Overlay reports a merged directory as overlayfs does
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-072` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory two Layers of an Overlay hold, written last in the upper |
+| When | the Overlay reads it |
+| Then | it counts one name and reports the upper Layer's times |

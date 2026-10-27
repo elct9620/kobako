@@ -11,6 +11,7 @@ mod entry;
 mod namei;
 mod openat;
 mod path;
+mod seen;
 mod stat;
 
 use crate::filesystem::FilesystemError;

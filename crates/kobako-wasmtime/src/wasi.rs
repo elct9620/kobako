@@ -101,6 +101,7 @@ impl Wasi {
             stderr.clone(),
             mounts,
             open_file_limit,
+            profile,
         );
 
         let mut builder = WasiCtxBuilder::new();

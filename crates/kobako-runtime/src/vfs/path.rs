@@ -3,9 +3,11 @@
 
 use std::sync::Arc;
 
+use super::seen::seen;
 use super::Error;
 use crate::filesystem::{DirEntry, Filesystem, FilesystemError, Metadata};
 use crate::mount::Mount;
+use crate::profile::Profile;
 
 /// What a directory is, apart from where it stands: the device and inode
 /// numbers its Filesystem names it by.
@@ -47,33 +49,43 @@ pub struct Path {
     identity: Option<Identity>,
     /// Whether it is the Mount's root, which never moves.
     root: bool,
+    /// The isolation the invocation holding it runs under, which decides
+    /// whether the times a Filesystem reports reach the guest.
+    profile: Profile,
 }
 
 impl Path {
-    /// The root of `mount`.
-    pub fn root(mount: Mount) -> Self {
+    /// The root of `mount`, for an invocation running under `profile`.
+    pub fn root(mount: Mount, profile: Profile) -> Self {
         Self {
             dir: mount.filesystem().clone(),
             mount: Arc::new(mount),
             at: String::new(),
             identity: None,
             root: true,
+            profile,
         }
     }
 
+    /// The directory `dir`, opened beneath this one at `at`.
     pub(crate) fn opened(
-        mount: Arc<Mount>,
+        &self,
         dir: Arc<dyn Filesystem>,
         at: String,
         identity: Option<Identity>,
     ) -> Self {
         Self {
-            mount,
+            mount: self.mount.clone(),
             dir,
             at,
             identity,
             root: false,
+            profile: self.profile,
         }
+    }
+
+    pub(crate) fn profile(&self) -> Profile {
+        self.profile
     }
 
     /// The Mount the directory stands beneath.
@@ -87,7 +99,7 @@ impl Path {
 
     /// What the directory reports of itself.
     pub fn metadata(&self) -> Result<Metadata, Error> {
-        Ok(self.reach_dir()?.metadata("")?)
+        Ok(seen(self.reach_dir()?.metadata("")?, self.profile))
     }
 
     /// The entries of the directory, without `.` or `..`.

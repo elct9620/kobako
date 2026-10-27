@@ -3,6 +3,7 @@
 
 use super::namei::{names_directory, resolve};
 use super::path::Path;
+use super::seen::seen;
 use super::Error;
 use crate::filesystem::{FilesystemError, Metadata};
 
@@ -23,7 +24,7 @@ fn stat(start: &Path, path: &str, follow: bool) -> Result<Metadata, Error> {
     // A link the walk did not follow at the end is one swapped in since,
     // so it is reported as itself rather than followed.
     resolved.check_directory()?;
-    Ok(resolved.found()?)
+    Ok(seen(resolved.found()?, start.profile()))
 }
 
 /// A guest never reads where a link points, so reading one is

@@ -5,6 +5,8 @@
 //! directory or a file beneath a Mount, the Filesystem answers
 //! and the descriptor's position and rights stay here.
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use bytes::Bytes;
 use kobako_runtime::filesystem::{FileType, Metadata};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
@@ -163,10 +165,34 @@ fn to_filetype(file_type: FileType) -> u8 {
     }
 }
 
-/// A `filestat` for what a Filesystem reports a path names, named once
-/// since `Metadata` carries no count of names.
+/// A `filestat` for what a Filesystem reports a path names: named once
+/// where it keeps no count of names, and at time zero where it keeps no
+/// time.
 pub(crate) fn write_metadata(mem: &mut GuestMemory, out: u32, metadata: Metadata) -> Answer {
-    write_filestat(mem, out, to_filetype(metadata.file_type), 1, metadata.len)
+    write_filestat(
+        mem,
+        out,
+        to_filetype(metadata.file_type),
+        metadata.nlink.unwrap_or(1),
+        metadata.len,
+    )?;
+    for (offset, time) in [
+        (40, metadata.accessed),
+        (48, metadata.modified),
+        (56, metadata.changed),
+    ] {
+        mem.write_u64(GuestMemory::field(out, offset)?, timestamp(time))?;
+    }
+    Ok(())
+}
+
+/// `time` as a preview1 `timestamp`, nanoseconds since the Unix epoch;
+/// zero for none, and the largest timestamp for a time past it.
+fn timestamp(time: Option<SystemTime>) -> u64 {
+    time.and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |since| {
+            u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
+        })
 }
 
 /// The hints preview1 offers about a file. A Filesystem that ignores them
@@ -594,6 +620,7 @@ mod tests {
 
     use kobako_runtime::filesystem::{Access, File, FilesystemError, Memory, Metadata};
     use kobako_runtime::mount::Mount;
+    use kobako_runtime::profile::Profile;
     use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
     use super::renumber;
@@ -652,6 +679,7 @@ mod tests {
             MemoryOutputPipe::new(1),
             Vec::new(),
             None,
+            Profile::Hermetic,
         );
         let from = table.push(open_file()).expect("a descriptor to move");
         let to = table.push(open_file()).expect("a descriptor to move onto");

@@ -5,6 +5,7 @@ use std::any::Any;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::time::SystemTime;
 
 use super::path::{ancestors, components, name, normalize_seed, parent};
 use super::{DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
@@ -66,6 +67,48 @@ struct State {
     /// Whether the directory was removed or replaced, so nothing is made
     /// in it any more, as Linux marks such a directory dead.
     removed: bool,
+    times: Times,
+}
+
+impl State {
+    /// Hold `node` under `name`, a change to the directory's content.
+    fn insert(&mut self, name: &str, node: Node) {
+        self.entries.insert(name.to_string(), node);
+        self.times.touch();
+    }
+
+    /// Take the entry `name` away, a change to the directory's content.
+    fn remove(&mut self, name: &str) {
+        self.entries.remove(name);
+        self.times.touch();
+    }
+}
+
+/// When an entry was made, and when its content last changed, as a tmpfs
+/// mounted `noatime` keeps them: reading touches nothing, and a change
+/// moves `st_mtime` and `st_ctime` together.
+#[derive(Clone, Copy)]
+struct Times {
+    made: SystemTime,
+    changed: SystemTime,
+}
+
+impl Times {
+    fn now() -> Self {
+        let now = SystemTime::now();
+        Self {
+            made: now,
+            changed: now,
+        }
+    }
+
+    fn touch(&mut self) {
+        self.changed = SystemTime::now();
+    }
+
+    fn report(self, metadata: Metadata) -> Metadata {
+        metadata.with_times(Some(self.made), Some(self.changed), Some(self.changed))
+    }
 }
 
 impl Dir {
@@ -76,8 +119,25 @@ impl Dir {
                 entries: BTreeMap::new(),
                 parent,
                 removed: false,
+                times: Times::now(),
             }),
         })
+    }
+
+    /// What the directory reports: two names and one more for each
+    /// directory it holds, as a tmpfs counts `.` and each `..` beneath it.
+    fn metadata(&self, dev: u64) -> Metadata {
+        let state = self.state();
+        let subdirectories = state
+            .entries
+            .values()
+            .filter(|node| matches!(node, Node::Directory(_)))
+            .count() as u64;
+        state.times.report(
+            Metadata::new(FileType::Directory, 0)
+                .with_identity(dev, self.ino)
+                .with_nlink(2 + subdirectories),
+        )
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -192,6 +252,7 @@ impl Budget {
 struct Content {
     bytes: Vec<u8>,
     space: Arc<Space>,
+    times: Times,
 }
 
 impl Content {
@@ -212,7 +273,14 @@ impl Content {
         Arc::new(Mutex::new(Self {
             bytes,
             space: space.clone(),
+            times: Times::now(),
         }))
+    }
+
+    /// What the file reports, named once, as a Memory holds no hard links.
+    fn metadata(&self) -> Metadata {
+        self.times
+            .report(Metadata::new(FileType::File, self.bytes.len() as u64).with_nlink(1))
     }
 
     /// Resize to `len`, refusing a growth past the space left or past what
@@ -226,6 +294,7 @@ impl Content {
         }
         self.space.bytes.give(self.bytes.len().saturating_sub(len));
         self.bytes.resize(len, 0);
+        self.times.touch();
         Ok(())
     }
 }
@@ -431,9 +500,7 @@ impl Filesystem for Memory {
             Err(FilesystemError::NotFound) if options.create || options.create_new => {
                 let (dir, name) = self.dir.parent_of(path)?;
                 let data = Content::create(&self.tree.space)?;
-                dir.state()
-                    .entries
-                    .insert(name.to_string(), Node::File(data.clone()));
+                dir.state().insert(name, Node::File(data.clone()));
                 data
             }
             Err(error) => return Err(error),
@@ -454,13 +521,8 @@ impl Filesystem for Memory {
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.hold();
         match self.dir.find(path)? {
-            Node::File(data) => Ok(Metadata::new(
-                FileType::File,
-                lock(&data).bytes.len() as u64,
-            )),
-            Node::Directory(dir) => {
-                Ok(Metadata::new(FileType::Directory, 0).with_identity(self.tree.dev, dir.ino))
-            }
+            Node::File(data) => Ok(lock(&data).metadata()),
+            Node::Directory(dir) => Ok(dir.metadata(self.tree.dev)),
         }
     }
 
@@ -499,7 +561,7 @@ impl Filesystem for Memory {
         let (dir, name) = self.dir.parent_of(path)?;
         self.tree.space.inodes.take(1)?;
         let made = Node::Directory(self.new_directory(&dir));
-        dir.state().entries.insert(name.to_string(), made);
+        dir.state().insert(name, made);
         Ok(())
     }
 
@@ -526,7 +588,7 @@ impl Filesystem for Memory {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
         removed_state.removed = true;
-        state.entries.remove(name);
+        state.remove(name);
         self.tree.space.inodes.give(1);
         Ok(())
     }
@@ -540,7 +602,7 @@ impl Filesystem for Memory {
         let mut state = dir.state();
         match state.entries.get(name) {
             Some(Node::File(_)) => {
-                state.entries.remove(name);
+                state.remove(name);
                 Ok(())
             }
             Some(Node::Directory(_)) => Err(FilesystemError::IsADirectory),
@@ -587,11 +649,11 @@ impl Filesystem for Memory {
             }
             _ => {}
         }
-        from_dir.state().entries.remove(from_name);
+        from_dir.state().remove(from_name);
         if let Node::Directory(moved) = &moving {
             moved.state().parent = Arc::downgrade(&to_dir);
         }
-        to_dir.state().entries.insert(to_name.to_string(), moving);
+        to_dir.state().insert(to_name, moving);
         if let Some(Node::Directory(replaced)) = replaced {
             replaced.state().removed = true;
             self.tree.space.inodes.give(1);
@@ -615,6 +677,7 @@ fn write(data: &mut Content, buf: &[u8], start: usize) -> Result<usize, Filesyst
         data.resize(end)?;
     }
     data.bytes[start..end].copy_from_slice(buf);
+    data.times.touch();
     Ok(buf.len())
 }
 
@@ -649,10 +712,7 @@ impl File for MemoryFile {
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        Ok(Metadata::new(
-            FileType::File,
-            lock(&self.data).bytes.len() as u64,
-        ))
+        Ok(lock(&self.data).metadata())
     }
 
     fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
@@ -1195,6 +1255,59 @@ mod tests {
             (Err(FilesystemError::CrossesDevices), b"x".to_vec()),
             "Memory::rename into a directory of another Memory must answer CrossesDevices and \
              leave the file"
+        );
+    }
+
+    // The write waits past the clock's resolution, so a time left where
+    // the file was made cannot pass for one the write moved.
+    // @behavior FS-115
+    #[test]
+    fn a_memory_keeps_a_files_times_as_a_tmpfs_mounted_noatime_does() {
+        let memory = Memory::new();
+        let options = OpenOptions {
+            read: true,
+            write: true,
+            create: true,
+            ..OpenOptions::default()
+        };
+        let mut file = memory
+            .open("file", &options)
+            .expect("the file must be made");
+        file.write_at(b"ab", 0).expect("the file must take a write");
+        let made = file.metadata().expect("the file must report");
+        file.read_at(&mut [0; 1], 0).expect("the file must read");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        file.write_at(b"c", 0)
+            .expect("the file must take a write within its length");
+        let written = memory.metadata("file").expect("the file must stand");
+        assert_eq!(
+            (
+                written.accessed == made.accessed,
+                written.modified > made.modified,
+                written.changed == written.modified,
+            ),
+            (true, true, true),
+            "Memory::metadata of a file read and then written must keep its access time from \
+             when it was made, and move its modification and change times to the write"
+        );
+    }
+
+    // @behavior FS-116
+    #[test]
+    fn a_memory_counts_a_directorys_names_as_a_tmpfs_does() {
+        let memory: Memory = [("dir/file", "x")].into_iter().collect();
+        memory
+            .create_dir("dir/a")
+            .expect("a directory must be made");
+        memory
+            .create_dir("dir/b")
+            .expect("a directory must be made");
+        let nlink = |path| memory.metadata(path).expect("the entry must stand").nlink;
+        assert_eq!(
+            (nlink("dir"), nlink("dir/file")),
+            (Some(4), Some(1)),
+            "Memory::metadata of a directory holding a file and two directories must count four \
+             names, and of the file one"
         );
     }
 

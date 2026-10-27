@@ -357,18 +357,27 @@ impl Stack {
         Ok(merged)
     }
 
-    /// What the view reports for the directory `level`: the identity of
-    /// the lowest Layer showing it, so copying it up into a writable Layer
-    /// leaves the identity as it was.
+    /// What the view reports for the directory `level`, as overlayfs
+    /// reports a merged directory: the identity of the lowest Layer showing
+    /// it, so copying it up into a writable Layer leaves the identity as it
+    /// was, the times of the topmost, and one name where more than one
+    /// Layer shows it.
     pub(super) fn dir_metadata(&self, level: &Level) -> Result<Metadata, FilesystemError> {
-        let lowest = level
-            .iter()
-            .rev()
-            .flatten()
+        let mut shown = level.iter().flatten();
+        let topmost = shown
             .next()
-            .ok_or(FilesystemError::NotFound)?;
-        let found = lowest.metadata("")?;
-        Ok(Metadata::new(FileType::Directory, 0).with_identity(found.dev, found.ino))
+            .ok_or(FilesystemError::NotFound)?
+            .metadata("")?;
+        let lowest = match shown.last() {
+            Some(lowest) => lowest.metadata("")?.with_nlink(1),
+            None => topmost,
+        };
+        Ok(Metadata {
+            accessed: topmost.accessed,
+            modified: topmost.modified,
+            changed: topmost.changed,
+            ..lowest
+        })
     }
 
     /// `found` at `name` in the Layer at `index`, as the view reports it: a

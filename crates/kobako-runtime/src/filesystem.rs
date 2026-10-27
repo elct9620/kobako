@@ -17,6 +17,7 @@ mod path;
 use std::any::Any;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 pub use directory::Directory;
 pub use memory::{Memory, SeedError};
@@ -212,22 +213,59 @@ pub struct Metadata {
     /// descriptor of such a directory follows its path alone.
     pub dev: u64,
     pub ino: u64,
+    /// How many names the entry has, as `st_nlink` counts; `None` where
+    /// the Filesystem keeps no count.
+    pub nlink: Option<u64>,
+    /// When the entry was last read, written, or changed, as `st_atime`,
+    /// `st_mtime`, and `st_ctime` record; `None` where the Filesystem keeps
+    /// no such time.
+    pub accessed: Option<SystemTime>,
+    pub modified: Option<SystemTime>,
+    pub changed: Option<SystemTime>,
 }
 
 impl Metadata {
-    /// Metadata reporting no identity.
+    /// Metadata reporting no identity, link count, or time.
     pub fn new(file_type: FileType, len: u64) -> Self {
         Self {
             file_type,
             len,
             dev: 0,
             ino: 0,
+            nlink: None,
+            accessed: None,
+            modified: None,
+            changed: None,
         }
     }
 
     /// This metadata naming `dev` and `ino` as what the path holds.
     pub fn with_identity(self, dev: u64, ino: u64) -> Self {
         Self { dev, ino, ..self }
+    }
+
+    /// This metadata counting `nlink` names.
+    pub fn with_nlink(self, nlink: u64) -> Self {
+        Self {
+            nlink: Some(nlink),
+            ..self
+        }
+    }
+
+    /// This metadata recording when the entry was last read, written, and
+    /// changed.
+    pub fn with_times(
+        self,
+        accessed: Option<SystemTime>,
+        modified: Option<SystemTime>,
+        changed: Option<SystemTime>,
+    ) -> Self {
+        Self {
+            accessed,
+            modified,
+            changed,
+            ..self
+        }
     }
 
     /// A device number for a Filesystem with none of its own, as each

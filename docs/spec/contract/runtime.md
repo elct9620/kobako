@@ -313,11 +313,12 @@ pub struct Path {}
 
 ## `Path::root`
 
-The root of a Mount, where each of its descriptors starts.
+The root of a Mount for an invocation running under a Profile, where each
+of its descriptors starts.
 
 ```rust
 impl Path {
-    pub fn root(mount: Mount) -> Self {}
+    pub fn root(mount: Mount, profile: Profile) -> Self {}
 }
 ```
 
@@ -767,6 +768,27 @@ the path holds.
 ```rust
 impl Metadata {
     pub fn with_identity(self, dev: u64, ino: u64) -> Self {}
+}
+```
+
+## `Metadata::with_nlink`
+
+The same metadata counting the names a Filesystem gives the entry.
+
+```rust
+impl Metadata {
+    pub fn with_nlink(self, nlink: u64) -> Self {}
+}
+```
+
+## `Metadata::with_times`
+
+The same metadata recording when the entry was last read, written, and
+changed.
+
+```rust
+impl Metadata {
+    pub fn with_times(self, accessed: Option<SystemTime>, modified: Option<SystemTime>, changed: Option<SystemTime>) -> Self {}
 }
 ```
 

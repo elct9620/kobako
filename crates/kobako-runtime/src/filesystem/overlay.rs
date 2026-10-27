@@ -2323,6 +2323,33 @@ mod tests {
         );
     }
 
+    // The upper Layer's directory changes after the lower one is made, so
+    // the two report different times and only the upper's matches.
+    // @behavior FS-117
+    #[test]
+    fn an_overlay_reports_a_merged_directory_as_overlayfs_does() {
+        let lower: Arc<Memory> = Arc::new([("dir/a.txt", "a")].into_iter().collect());
+        let upper: Arc<Memory> = Arc::new(Memory::new());
+        upper.create_dir("dir").expect("the directory must be made");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        write(upper.as_ref(), "dir/b.txt", b"b").expect("the upper Layer must take a write");
+        let overlay = Overlay::new()
+            .layer(upper.clone(), Access::ReadWrite)
+            .layer(lower.clone(), Access::Read);
+        let merged = overlay.metadata("dir").expect("the directory must stand");
+        let modified = |layer: &Memory| layer.metadata("dir").expect("a Layer holds it").modified;
+        assert_eq!(
+            (
+                merged.nlink,
+                merged.modified == modified(&upper),
+                merged.modified == modified(&lower),
+            ),
+            (Some(1), true, false),
+            "Overlay::metadata of a directory two Layers hold, written last in the upper, must \
+             count one name and report the upper Layer's times"
+        );
+    }
+
     // @behavior FS-073
     #[test]
     fn an_overlay_names_a_directory_alike_whether_a_link_at_its_end_is_followed() {

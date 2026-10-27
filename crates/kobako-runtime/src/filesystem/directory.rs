@@ -115,7 +115,8 @@ fn to_file_type(host: cap_std::fs::FileType) -> FileType {
 
 /// What a host entry is, a file's size alone counted: a link reports no
 /// size, so nothing of where it points reaches the guest. The host names
-/// its identity on unix; elsewhere a Directory reports none.
+/// its identity, link count, and times on unix; elsewhere a Directory
+/// reports none.
 fn to_metadata(metadata: cap_std::fs::Metadata) -> Metadata {
     let file_type = to_file_type(metadata.file_type());
     let len = if file_type == FileType::File {
@@ -126,10 +127,26 @@ fn to_metadata(metadata: cap_std::fs::Metadata) -> Metadata {
     #[cfg(unix)]
     {
         use cap_std::fs::MetadataExt;
-        Metadata::new(file_type, len).with_identity(metadata.dev(), metadata.ino())
+        Metadata::new(file_type, len)
+            .with_identity(metadata.dev(), metadata.ino())
+            .with_nlink(metadata.nlink())
+            .with_times(
+                unix_time(metadata.atime(), metadata.atime_nsec()),
+                unix_time(metadata.mtime(), metadata.mtime_nsec()),
+                unix_time(metadata.ctime(), metadata.ctime_nsec()),
+            )
     }
     #[cfg(not(unix))]
     Metadata::new(file_type, len)
+}
+
+/// The time `seconds` and `nanoseconds` after the Unix epoch, as `stat`
+/// reports one; `None` before the epoch, which no guest's clock reads.
+#[cfg(unix)]
+fn unix_time(seconds: i64, nanoseconds: i64) -> Option<std::time::SystemTime> {
+    let seconds = u64::try_from(seconds).ok()?;
+    let nanoseconds = u32::try_from(nanoseconds).ok()?;
+    std::time::UNIX_EPOCH.checked_add(std::time::Duration::new(seconds, nanoseconds))
 }
 
 /// Open `name` in `dir` as `options` asks.
@@ -356,8 +373,9 @@ impl File for DirectoryFile {
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        let metadata = self.file.metadata().map_err(to_error)?;
-        Ok(Metadata::new(FileType::File, metadata.len()))
+        Ok(to_metadata(
+            cap_std::fs::Metadata::from_file(&self.file).map_err(to_error)?,
+        ))
     }
 
     fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
