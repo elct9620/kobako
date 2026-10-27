@@ -789,11 +789,11 @@ fn a_path_above_the_directory_it_is_opened_beneath_is_refused() {
     );
 }
 
-/// What `stat_inner` answers through `dir` opened before `change` runs on
-/// the Memory holding it.
-fn stat_after(change: impl FnOnce(&Memory)) -> i32 {
+/// What `stat_inner` answers through `dir` opened, beneath a Mount with
+/// `policy`, before `change` runs on the Memory holding it.
+fn stat_after(policy: Option<Arc<dyn Policy>>, change: impl FnOnce(&Memory)) -> i32 {
     let memory = file_and_directory();
-    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
+    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, policy)]);
     assert_eq!(
         guest.call_bare("open_dir"),
         0,
@@ -803,29 +803,54 @@ fn stat_after(change: impl FnOnce(&Memory)) -> i32 {
     guest.call_bare("stat_inner")
 }
 
+/// Move `dir` away, its `inner` with it, and make another `dir` holding
+/// an `inner` of its own, so only where the descriptor reaches decides
+/// whether the lookup finds one.
+fn move_and_replace(memory: &Memory) {
+    memory.rename("dir", memory, "moved", Rename::Any).unwrap();
+    memory.create_dir("dir").unwrap();
+    overwrite(memory, "dir/inner");
+}
+
 // A directory made at the path holds an `inner` of its own, so only the
-// identity check keeps the descriptor from reaching it.
+// descriptor still standing for the removed one keeps it from reaching it.
 // @behavior RT-117
 #[test]
-fn a_directory_made_in_an_opened_directorys_place_is_not_reached_through_it() {
-    let answers = (
-        stat_after(|memory| {
-            memory.rename("dir", memory, "moved", Rename::Any).unwrap();
-            memory.create_dir("dir").unwrap();
-            overwrite(memory, "dir/inner");
-        }),
-        stat_after(|memory| {
-            memory.remove_file("dir/inner").unwrap();
-            memory.remove_dir("dir").unwrap();
-            memory.create_dir("dir").unwrap();
-            overwrite(memory, "dir/inner");
-        }),
-    );
+fn a_directory_made_in_a_removed_directorys_place_is_not_reached_through_it() {
+    let answer = stat_after(None, |memory| {
+        memory.remove_file("dir/inner").unwrap();
+        memory.remove_dir("dir").unwrap();
+        memory.create_dir("dir").unwrap();
+        overwrite(memory, "dir/inner");
+    });
     assert_eq!(
-        answers,
-        (ERRNO_NOENT, ERRNO_NOENT),
+        answer, ERRNO_NOENT,
         "path_filestat_get through a directory descriptor beneath a Mount through preview1 must \
-         answer ENOENT once another directory stands at its path, moved in or made anew"
+         answer ENOENT once the directory was removed and another made at its path"
+    );
+}
+
+// @behavior RT-149
+#[test]
+fn a_directory_moved_while_opened_is_reached_through_its_descriptor() {
+    assert_eq!(
+        stat_after(None, move_and_replace),
+        0,
+        "path_filestat_get through a directory descriptor beneath a Mount without a Policy \
+         through preview1 must reach the directory where it moved"
+    );
+}
+
+// The Policy judges paths, so the descriptor reaches its directory from
+// the Mount's root again and finds another one standing there.
+// @behavior RT-150
+#[test]
+fn a_directory_moved_while_opened_beneath_a_policy_is_not_reached() {
+    assert_eq!(
+        stat_after(Some(Arc::new(AllowsAll)), move_and_replace),
+        ERRNO_NOENT,
+        "path_filestat_get through a directory descriptor beneath a Mount with a Policy through \
+         preview1 must answer ENOENT once the directory moved away"
     );
 }
 
@@ -953,7 +978,7 @@ fn a_directory_two_layers_hold_is_reached_through_its_descriptor() {
 // @behavior RT-118
 #[test]
 fn a_directory_moved_back_to_its_path_is_reached_through_its_descriptor_again() {
-    let answer = stat_after(|memory| {
+    let answer = stat_after(None, |memory| {
         memory.rename("dir", memory, "moved", Rename::Any).unwrap();
         memory.rename("moved", memory, "dir", Rename::Any).unwrap();
     });

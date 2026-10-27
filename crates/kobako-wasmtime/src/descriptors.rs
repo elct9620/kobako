@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::{DirEntry, File, Hold, Metadata};
+use kobako_runtime::filesystem::{DirEntry, File, Filesystem, Hold, Metadata};
 use kobako_runtime::mount::Mount;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
@@ -45,7 +45,10 @@ impl Identity {
 
 pub(crate) struct OpenDirectory {
     pub(crate) mount: Arc<Mount>,
-    /// The directory's path relative to the mount's root.
+    /// The directory itself, which a call reaches wherever it moved.
+    pub(crate) handle: Arc<dyn Filesystem>,
+    /// The directory's path relative to the mount's root when it was
+    /// opened, which a Mount with a Policy reaches it by again.
     pub(crate) path: String,
     /// The identity the directory had when it was opened, so one made in
     /// its place is not taken for it; without one it follows its path.
@@ -103,10 +106,12 @@ impl Descriptors {
                 .ok()
                 .and_then(|root| Identity::of(&root));
             let hold = filesystem.hold_directory("").ok().flatten();
+            let handle = filesystem.clone();
             used.insert(
                 fd,
                 Descriptor::Directory(OpenDirectory {
                     mount: Arc::new(mount),
+                    handle,
                     path: String::new(),
                     identity,
                     _hold: hold,

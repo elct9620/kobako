@@ -1186,7 +1186,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest reads, writes, or sizes the file past the largest signed 64-bit offset |
 | Then | the call answers EINVAL, whichever Filesystem holds the file |
 
-## `RT-117` A directory made in an opened directory's place is not reached through it
+## `RT-117` A directory made in a removed directory's place is not reached through it
 
 | Attribute | Value |
 | --- | --- |
@@ -1195,8 +1195,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a guest holding a directory it opened beneath a Mount |
-| When | another directory comes to stand at that directory's path |
-| Then | each call through the descriptor answers ENOENT |
+| When | the directory is removed and another is made at its path |
+| Then | a lookup through the descriptor answers ENOENT |
 
 ## `RT-118` A directory moved back to its path is reached through its descriptor again
 
@@ -1570,3 +1570,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a read-only Mount holding a file and a directory |
 | When | the guest opens the file with `CREAT` and `EXCL`, and the directory to write |
 | Then | the first open answers EEXIST, and the second EISDIR |
+
+## `RT-149` A directory moved while opened is reached through its descriptor
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-117`, `FS-105` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount without a Policy |
+| When | the directory moves away and another is made at its path |
+| Then | a lookup through the descriptor reaches the moved directory |
+
+## `RT-150` A directory moved while opened beneath a Policy is not reached
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-149` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount with a Policy |
+| When | the directory moves away and another is made at its path |
+| Then | a lookup through the descriptor answers ENOENT |

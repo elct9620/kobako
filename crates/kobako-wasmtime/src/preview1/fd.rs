@@ -13,7 +13,7 @@ use wasmtime_wasi::p2::{InputStream, OutputStream, StreamError};
 use super::args::{
     self, FDFLAGS_APPEND, FDFLAGS_NONBLOCK, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
 };
-use super::beneath::confirm;
+use super::beneath::directory_of;
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
 use crate::descriptors::{Descriptor, Descriptors, OpenFile};
@@ -281,8 +281,8 @@ pub(crate) fn filestat_get(
             write_filestat(mem, out, FILETYPE_UNKNOWN, 0, 0)
         }
         Descriptor::Directory(dir) => {
-            confirm(dir)?;
-            write_metadata(mem, out, dir.mount.filesystem().metadata(&dir.path)?)
+            let (base, path) = directory_of(dir)?;
+            write_metadata(mem, out, base.metadata(&path)?)
         }
         Descriptor::File(file) => write_metadata(mem, out, file.file.metadata()?),
     }
@@ -444,10 +444,11 @@ pub(crate) fn readdir(
         _ => return Err(Errno::Badf.into()),
     };
     let skip = usize::try_from(cookie).map_err(|_| Errno::Overflow)?;
-    confirm(dir)?;
+    let (base, path) = directory_of(dir)?;
     let listing = match dir.listing.take() {
         Some(listing) if cookie != 0 => listing,
-        _ => dir.mount.filesystem().open_dir(&dir.path)?.entries()?,
+        _ if path.is_empty() => base.entries()?,
+        _ => base.open_dir(&path)?.entries()?,
     };
     let entries = [(".", FILETYPE_DIRECTORY), ("..", FILETYPE_DIRECTORY)]
         .into_iter()

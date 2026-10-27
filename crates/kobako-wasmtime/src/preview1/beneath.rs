@@ -9,6 +9,12 @@
 //! a `..` out of a link is refused rather than taken from its text. A link
 //! is followed only within the directory the descriptor opened, as
 //! wasmtime-wasi's cap-std `Dir` follows one.
+//!
+//! A descriptor reaches its directory wherever it moved. Beneath a Mount
+//! with a Policy it reaches the directory again from the Mount's root
+//! instead, so the Policy judges the path the directory stands at now.
+
+use std::sync::Arc;
 
 use kobako_runtime::filesystem::{FileType, Filesystem, FilesystemError, Metadata};
 
@@ -20,10 +26,13 @@ use crate::descriptors::{Identity, OpenDirectory};
 pub(crate) const PATH_MAX: usize = 4096;
 pub(crate) const NAME_MAX: usize = 255;
 
-/// A guest path resolved beneath a directory: relative to the mount's
-/// root, and whether it ended in `/` or `/.`, which only a directory
-/// satisfies.
+/// A guest path resolved beneath a directory: the directory it starts
+/// from, the path relative to it, and whether it ended in `/` or `/.`,
+/// which only a directory satisfies. Beneath a Mount with a Policy the
+/// directory is the Mount's root, so the path is the one the Policy
+/// judges.
 pub(crate) struct ResolvedPath {
+    pub(crate) base: Arc<dyn Filesystem>,
     pub(crate) path: String,
     pub(crate) names_directory: bool,
 }
@@ -35,11 +44,10 @@ impl ResolvedPath {
     /// the link itself.
     pub(crate) fn check_directory(
         self,
-        filesystem: &(dyn Filesystem + 'static),
         lookup: fn(&(dyn Filesystem + 'static), &str) -> Result<Metadata, FilesystemError>,
-    ) -> Answer<String> {
+    ) -> Answer<(Arc<dyn Filesystem>, String)> {
         if self.names_directory {
-            match lookup(filesystem, &self.path) {
+            match lookup(self.base.as_ref(), &self.path) {
                 Ok(metadata) if metadata.file_type != FileType::Directory => {
                     return Err(Errno::Notdir.into())
                 }
@@ -47,7 +55,7 @@ impl ResolvedPath {
                 Err(err) => return Err(err.into()),
             }
         }
-        Ok(self.path)
+        Ok((self.base, self.path))
     }
 
     /// The path with a link standing at its end followed within the
@@ -55,19 +63,15 @@ impl ResolvedPath {
     /// at nothing there is `LOOP` to a call that `creates`, since what it
     /// would create could lie outside `dir`, and `NOENT` otherwise.
     pub(crate) fn follow_last(self, dir: &OpenDirectory, creates: bool) -> Answer<Self> {
-        let Some(base) = bounded_base(dir) else {
+        if !bounded(dir) || self.path.is_empty() {
             return Ok(self);
-        };
-        let filesystem = dir.mount.filesystem();
-        let Some(rest) = beneath_base(base, &self.path) else {
-            return Ok(self);
-        };
-        match filesystem.symlink_metadata(&self.path) {
+        }
+        match self.base.symlink_metadata(&self.path) {
             Ok(metadata) if metadata.file_type == FileType::Symlink => {}
             _ => return Ok(self),
         }
-        let path = match filesystem.canonicalize_beneath(base, rest) {
-            Ok(found) => join(base, &found),
+        let path = match self.base.canonicalize_beneath("", &self.path) {
+            Ok(found) => found,
             Err(FilesystemError::NotFound) if creates => return Err(Errno::Loop.into()),
             Err(err) => return Err(err.into()),
         };
@@ -75,38 +79,44 @@ impl ResolvedPath {
     }
 }
 
-/// The directory a descriptor's links are kept within, or `None` where
-/// the Filesystem keeps them within the Mount's root already, or a Mount
-/// follows no link at all.
-fn bounded_base(dir: &OpenDirectory) -> Option<&str> {
-    (!dir.path.is_empty() && dir.mount.follows_links()).then_some(dir.path.as_str())
+/// Whether a descriptor's links are kept within its own directory, rather
+/// than within the Mount's root, which the Filesystem keeps them within
+/// already, or nowhere, beneath a Mount that follows no link at all.
+fn bounded(dir: &OpenDirectory) -> bool {
+    !dir.preopen && dir.mount.follows_links()
 }
 
-/// What `path` names beneath `base`, or `None` for `base` itself.
-fn beneath_base<'a>(base: &str, path: &'a str) -> Option<&'a str> {
-    path.strip_prefix(base)?.strip_prefix('/')
-}
-
-fn join(base: &str, path: &str) -> String {
-    if path.is_empty() {
-        base.to_string()
-    } else {
-        format!("{base}/{path}")
+/// Where a call through `dir` starts, and the path of `dir` from there:
+/// the directory itself, or the Mount's root beneath a Mount following no
+/// link, which is one with a Policy.
+fn reached(dir: &OpenDirectory) -> Answer<(Arc<dyn Filesystem>, &str)> {
+    if dir.mount.follows_links() {
+        return Ok((dir.handle.clone(), ""));
     }
+    confirm(dir)?;
+    Ok((dir.mount.filesystem().clone(), &dir.path))
+}
+
+/// The directory `dir` stands for, and its path from there, for a call on
+/// the directory itself.
+pub(crate) fn directory_of(dir: &OpenDirectory) -> Answer<(Arc<dyn Filesystem>, String)> {
+    let (base, path) = reached(dir)?;
+    Ok((base, path.to_string()))
 }
 
 /// `path` with the links on its way to its last name followed within the
 /// directory `dir` opened, so none leads the call out of it. A way the
 /// Filesystem finds nothing on stays as given, for the call to answer.
-fn within(dir: &OpenDirectory, path: String) -> Answer<String> {
-    let Some(base) = bounded_base(dir) else {
+fn within(dir: &OpenDirectory, base: &dyn Filesystem, path: String) -> Answer<String> {
+    if !bounded(dir) {
+        return Ok(path);
+    }
+    let Some((way, name)) = path.rsplit_once('/') else {
         return Ok(path);
     };
-    let Some((way, name)) = beneath_base(base, &path).and_then(|rest| rest.rsplit_once('/')) else {
-        return Ok(path);
-    };
-    match dir.mount.filesystem().canonicalize_beneath(base, way) {
-        Ok(found) => Ok(join(&join(base, &found), name)),
+    match base.canonicalize_beneath("", way) {
+        Ok(found) if found.is_empty() => Ok(name.to_string()),
+        Ok(found) => Ok(format!("{found}/{name}")),
         Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => Ok(path),
         Err(err) => Err(err.into()),
     }
@@ -119,14 +129,14 @@ fn within(dir: &OpenDirectory, path: String) -> Answer<String> {
 /// name past `NAME_MAX`, or a resolved path the Filesystem could not be
 /// handed within `PATH_MAX`, is `NAMETOOLONG`.
 pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
-    confirm(dir)?;
+    let (base, start) = reached(dir)?;
     if path.is_empty() {
         return Err(Errno::Noent.into());
     }
     if path.starts_with('/') {
         return Err(Errno::Notcapable.into());
     }
-    let mut components: Vec<&str> = dir.path.split('/').filter(|c| !c.is_empty()).collect();
+    let mut components: Vec<&str> = start.split('/').filter(|c| !c.is_empty()).collect();
     let opened = components.len();
     let mut last = "";
     for component in path.split('/') {
@@ -137,7 +147,7 @@ pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
                 if components.len() <= opened {
                     return Err(Errno::Notcapable.into());
                 }
-                step_out_of(dir.mount.filesystem().as_ref(), &components.join("/"))?;
+                step_out_of(base.as_ref(), &components.join("/"))?;
                 components.pop();
             }
             component if component.len() > NAME_MAX => return Err(Errno::Nametoolong.into()),
@@ -150,10 +160,11 @@ pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
     }
     // A final `.` resolves through the name before it, as a `..` does.
     if last == "." && components.len() > opened {
-        step_out_of(dir.mount.filesystem().as_ref(), &path)?;
+        step_out_of(base.as_ref(), &path)?;
     }
     Ok(ResolvedPath {
-        path: within(dir, path)?,
+        path: within(dir, base.as_ref(), path)?,
+        base,
         names_directory: matches!(last, "" | "."),
     })
 }
@@ -161,7 +172,7 @@ pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
 /// `dir` still stands at its path, `NOENT` once another directory or
 /// nothing does, as a POSIX descriptor never reaches a directory made in
 /// its place. A directory opened with no identity follows its path alone.
-pub(crate) fn confirm(dir: &OpenDirectory) -> Answer {
+fn confirm(dir: &OpenDirectory) -> Answer {
     let Some(identity) = dir.identity else {
         return Ok(());
     };
