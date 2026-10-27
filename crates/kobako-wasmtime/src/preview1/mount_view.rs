@@ -13,6 +13,7 @@ use kobako_runtime::filesystem::{
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
 use kobako_runtime::profile::Profile;
+use kobako_runtime::vfs::SuperBlock;
 use wasmtime::{Instance, Module, Store};
 
 use crate::cache::shared_engine;
@@ -415,7 +416,8 @@ fn grant(
     access: Access,
     policy: Option<Arc<dyn Policy>>,
 ) -> Grant {
-    let mount = Mount::new("/data", filesystem, access).expect("/data is a guest path");
+    let mount =
+        Mount::new("/data", SuperBlock::new(filesystem), access).expect("/data is a guest path");
     Grant::Mount(match policy {
         Some(policy) => mount.with_policy(policy),
         None => mount,

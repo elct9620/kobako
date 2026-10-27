@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use super::dentry::Dentry;
 use super::seen::seen;
 use super::Error;
 use crate::filesystem::{DirEntry, Filesystem, FilesystemError, Metadata};
@@ -28,10 +29,12 @@ impl Identity {
     }
 }
 
-/// One directory on the way to another, and the name it was entered by.
+/// One directory on the way to another, the name it was entered by, and
+/// its dentry.
 pub(crate) struct Step {
     pub(crate) dir: Arc<dyn Filesystem>,
     pub(crate) name: String,
+    pub(crate) dentry: Arc<Dentry>,
 }
 
 /// A directory beneath a Mount, as a directory descriptor holds one: the
@@ -39,16 +42,14 @@ pub(crate) struct Step {
 #[derive(Clone)]
 pub struct Path {
     mount: Arc<Mount>,
+    /// Where the directory stands in its SuperBlock, which a Mount with a
+    /// Policy reaches it by again, and whether it was removed.
+    dentry: Arc<Dentry>,
     /// The directory itself, which a call reaches wherever it moved.
     dir: Arc<dyn Filesystem>,
-    /// Where it stood beneath the Mount's root when it was opened, which a
-    /// Mount with a Policy reaches it by again.
-    at: String,
-    /// Its identity when it was opened, so one standing at `at` later is
-    /// not taken for it.
+    /// Its identity when it was opened, so another standing where it
+    /// stands later is not taken for it.
     identity: Option<Identity>,
-    /// Whether it is the Mount's root, which never moves.
-    root: bool,
     /// The isolation the invocation holding it runs under, which decides
     /// whether the times a Filesystem reports reach the guest.
     profile: Profile,
@@ -58,28 +59,26 @@ impl Path {
     /// The root of `mount`, for an invocation running under `profile`.
     pub fn root(mount: Mount, profile: Profile) -> Self {
         Self {
-            dir: mount.filesystem().clone(),
+            dir: mount.super_block().root().clone(),
+            dentry: mount.super_block().dentries().root(),
             mount: Arc::new(mount),
-            at: String::new(),
             identity: None,
-            root: true,
             profile,
         }
     }
 
-    /// The directory `dir`, opened beneath this one at `at`.
+    /// The directory `dir`, opened beneath this one as `dentry`.
     pub(crate) fn opened(
         &self,
         dir: Arc<dyn Filesystem>,
-        at: String,
+        dentry: Arc<Dentry>,
         identity: Option<Identity>,
     ) -> Self {
         Self {
             mount: self.mount.clone(),
+            dentry,
             dir,
-            at,
             identity,
-            root: false,
             profile: self.profile,
         }
     }
@@ -93,8 +92,8 @@ impl Path {
         &self.mount
     }
 
-    pub(crate) fn at(&self) -> &str {
-        &self.at
+    pub(crate) fn dentry(&self) -> &Arc<Dentry> {
+        &self.dentry
     }
 
     /// What the directory reports of itself.
@@ -112,6 +111,10 @@ impl Path {
         Ok(chain.pop().expect("a chain reaches its directory").dir)
     }
 
+    fn is_root(&self) -> bool {
+        Arc::ptr_eq(&self.dentry, &self.mount.super_block().dentries().root())
+    }
+
     /// Where a call through the directory starts, with each directory above
     /// it: the directory alone, or, beneath a Mount following no link,
     /// which is one with a Policy, every directory from the Mount's root
@@ -122,36 +125,37 @@ impl Path {
             return Ok(vec![Step {
                 dir: self.dir.clone(),
                 name: String::new(),
+                dentry: self.dentry.clone(),
             }]);
         }
+        let super_block = self.mount.super_block();
         let mut chain = vec![Step {
-            dir: self.mount.filesystem().clone(),
+            dir: super_block.root().clone(),
             name: String::new(),
+            dentry: super_block.dentries().root(),
         }];
-        for name in self.at.split('/').filter(|name| !name.is_empty()) {
-            let above = &chain.last().expect("a chain holds the root").dir;
-            let dir = match above.open_dir_nofollow(name) {
+        for name in self.dentry.names() {
+            let above = chain.last().expect("a chain holds the root");
+            let dir = match above.dir.open_dir_nofollow(&name) {
                 Ok(dir) => dir,
                 Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {
                     return Err(FilesystemError::NotFound.into())
                 }
                 Err(err) => return Err(err.into()),
             };
-            chain.push(Step {
-                dir,
-                name: name.to_string(),
-            });
+            let dentry = super_block.dentries().child(&above.dentry, &name);
+            chain.push(Step { dir, name, dentry });
         }
         self.confirm(chain.last().expect("a chain holds the root").dir.as_ref())?;
         Ok(chain)
     }
 
-    /// `found`, the directory reached at `at`, is still the one opened, as
-    /// a POSIX descriptor never reaches another directory. A Mount's root
-    /// never moves; any other directory opened with no identity cannot be
-    /// told from another, so it is reached no more.
+    /// `found`, the directory reached where this one stands, is still the
+    /// one opened, as a POSIX descriptor never reaches another directory. A
+    /// Mount's root never moves; any other directory opened with no
+    /// identity cannot be told from another, so it is reached no more.
     fn confirm(&self, found: &dyn Filesystem) -> Result<(), Error> {
-        if self.root {
+        if self.is_root() {
             return Ok(());
         }
         let Some(identity) = self.identity else {

@@ -13,6 +13,7 @@ use kobako_runtime::filesystem::{
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
+use kobako_runtime::vfs::SuperBlock;
 use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Outcome, Preamble};
 
@@ -43,7 +44,9 @@ fn run(source: &str, grants: &[Grant], flags: Vec<Flag>) -> Option<Result<String
 }
 
 fn mount(filesystem: Arc<dyn Filesystem>, access: Access) -> Grant {
-    Grant::Mount(Mount::new("/data", filesystem, access).expect("/data is a guest path"))
+    Grant::Mount(
+        Mount::new("/data", SuperBlock::new(filesystem), access).expect("/data is a guest path"),
+    )
 }
 
 fn note_memory() -> Arc<Memory> {

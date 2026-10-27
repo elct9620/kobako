@@ -21,14 +21,18 @@ use magnus::{
 
 use ruby::RubyFilesystem;
 
-use kobako_runtime::filesystem::{Access, Blocking, Directory, Filesystem, Memory, Overlay};
+use kobako_runtime::filesystem::{Access, Blocking, Directory, Memory, Overlay};
+use kobako_runtime::vfs::SuperBlock;
 
 pub(super) use grants::{to_grants, validate_mount};
 
+/// Each kind kobako ships is one Filesystem instance, made once with its
+/// Ruby object, so every Mount of that object shares it as a bind mount
+/// shares a super block.
 macro_rules! filesystem_class {
     ($name:ident, $class:literal) => {
         #[magnus::wrap(class = $class, free_immediately, size)]
-        pub(super) struct $name(Arc<dyn Filesystem>);
+        pub(super) struct $name(Arc<SuperBlock>);
     };
 }
 
@@ -43,7 +47,18 @@ filesystem_class!(DirectoryFs, "Kobako::Filesystem::Directory");
 #[magnus(class = "Kobako::Filesystem::Overlay", free_immediately, size, mark)]
 pub(super) struct OverlayFs {
     overlay: Overlay,
+    super_block: Arc<SuperBlock>,
     layers: Vec<Opaque<Value>>,
+}
+
+impl OverlayFs {
+    fn new(overlay: Overlay, layers: Vec<Opaque<Value>>) -> Self {
+        Self {
+            super_block: SuperBlock::new(Arc::new(overlay.clone())),
+            overlay,
+            layers,
+        }
+    }
 }
 
 impl DataTypeFunctions for OverlayFs {
@@ -103,10 +118,10 @@ fn memory_new(args: &[Value]) -> Result<MemoryFs, MagnusError> {
     let memory = Memory::try_from_iter(files)
         .map_err(|error| MagnusError::new(ruby.exception_arg_error(), error.to_string()))?
         .with_limit(limit);
-    Ok(MemoryFs(Arc::new(match inodes {
+    Ok(MemoryFs(SuperBlock::new(Arc::new(match inodes {
         Some(inodes) => memory.with_inodes(inodes),
         None => memory,
-    })))
+    }))))
 }
 
 /// A `limit:` or `inodes:` count, or `nil` for none.
@@ -117,7 +132,7 @@ fn to_limit(limit: Value) -> Result<Option<usize>, MagnusError> {
 fn directory_new(path: String) -> Result<DirectoryFs, MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
     Directory::new(&path)
-        .map(|directory| DirectoryFs(Arc::new(directory)))
+        .map(|directory| DirectoryFs(SuperBlock::new(Arc::new(directory))))
         .map_err(|err| {
             MagnusError::new(
                 ruby.exception_arg_error(),
@@ -128,10 +143,10 @@ fn directory_new(path: String) -> Result<DirectoryFs, MagnusError> {
 
 /// `Overlay.new`, with no Layer yet.
 fn overlay_new() -> OverlayFs {
-    OverlayFs {
-        overlay: Overlay::new().with_blocking(Arc::new(GvlFreeWait)),
-        layers: Vec::new(),
-    }
+    OverlayFs::new(
+        Overlay::new().with_blocking(Arc::new(GvlFreeWait)),
+        Vec::new(),
+    )
 }
 
 /// An Overlay's thread waits for its lock without the GVL, so a holder
@@ -156,13 +171,11 @@ fn overlay_layer(overlay: &OverlayFs, args: &[Value]) -> Result<OverlayFs, Magnu
     };
     let mut layers = overlay.layers.clone();
     layers.push(Opaque::from(filesystem));
-    Ok(OverlayFs {
-        overlay: overlay
-            .overlay
-            .clone()
-            .layer(to_filesystem(filesystem)?, access),
+    let layer = to_super_block(filesystem)?.root().clone();
+    Ok(OverlayFs::new(
+        overlay.overlay.clone().layer(layer, access),
         layers,
-    })
+    ))
 }
 
 fn to_access(access: Value) -> Result<Access, MagnusError> {
@@ -182,8 +195,10 @@ fn to_access(access: Value) -> Result<Access, MagnusError> {
     }
 }
 
-/// The Filesystem a Ruby handle of any kobako kind stands for.
-fn to_filesystem(value: Value) -> Result<Arc<dyn Filesystem>, MagnusError> {
+/// The Filesystem instance a Ruby handle of any kobako kind stands for. A
+/// Filesystem written in Ruby has no instance of its own to share, so each
+/// call makes one.
+fn to_super_block(value: Value) -> Result<Arc<SuperBlock>, MagnusError> {
     if let Ok(fs) = <&MemoryFs>::try_convert(value) {
         return Ok(fs.0.clone());
     }
@@ -191,10 +206,10 @@ fn to_filesystem(value: Value) -> Result<Arc<dyn Filesystem>, MagnusError> {
         return Ok(fs.0.clone());
     }
     if let Ok(fs) = <&OverlayFs>::try_convert(value) {
-        return Ok(Arc::new(fs.overlay.clone()));
+        return Ok(fs.super_block.clone());
     }
     if let Some(fs) = RubyFilesystem::from_value(value) {
-        return Ok(Arc::new(fs));
+        return Ok(SuperBlock::new(Arc::new(fs)));
     }
     let ruby = Ruby::get().expect("Ruby thread");
     Err(MagnusError::new(

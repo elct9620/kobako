@@ -15,6 +15,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use super::dentry::Dentry;
 use super::path::{Path, Step};
 use super::Error;
 use crate::filesystem::{Access, FileType, Filesystem, FilesystemError, Metadata};
@@ -36,6 +37,8 @@ pub(crate) fn names_directory(path: &str) -> bool {
 pub(crate) struct Resolved {
     pub(crate) mount: Arc<Mount>,
     pub(crate) base: Arc<dyn Filesystem>,
+    /// Where `base` stands in its SuperBlock.
+    pub(crate) dentry: Arc<Dentry>,
     pub(crate) name: String,
     /// The path from the Mount's root, each name as the guest gave it.
     pub(crate) judged: String,
@@ -113,14 +116,17 @@ fn parts(path: &str, from_link: bool) -> VecDeque<Part> {
         .collect()
 }
 
-/// A directory the walk stands in, and whether a link led to it.
+/// A directory the walk stands in, its dentry, and whether a link led to
+/// it.
 struct Frame {
     dir: Arc<dyn Filesystem>,
     name: String,
+    dentry: Arc<Dentry>,
     through_link: bool,
 }
 
 struct Walk {
+    mount: Arc<Mount>,
     frames: Vec<Frame>,
     /// How many frames stand above the directory the walk started from,
     /// which no `..` climbs into.
@@ -142,9 +148,14 @@ impl Walk {
     fn descend(&mut self, part: Part, dot: bool) -> Result<(), Error> {
         match self.top().open_dir_nofollow(&part.name) {
             Ok(dir) => {
+                let dentry = self.mount.super_block().dentries().child(
+                    &self.frames.last().expect("a walk stands somewhere").dentry,
+                    &part.name,
+                );
                 self.frames.push(Frame {
                     dir,
                     name: part.name,
+                    dentry,
                     through_link: part.from_link,
                 });
                 Ok(())
@@ -276,12 +287,14 @@ pub(crate) fn resolve(
         return Err(Error::NotCapable);
     }
     let mut walk = Walk {
+        mount: start.mount().clone(),
         above: chain.len() - 1,
         frames: chain
             .into_iter()
-            .map(|Step { dir, name }| Frame {
+            .map(|Step { dir, name, dentry }| Frame {
                 dir,
                 name,
+                dentry,
                 through_link: false,
             })
             .collect(),
@@ -306,7 +319,11 @@ pub(crate) fn resolve(
         return Err(FilesystemError::FilesystemLoop.into());
     }
     let name = last.map(|part| part.name).unwrap_or_default();
-    let judged = std::iter::once(start.at())
+    let judged = start
+        .dentry()
+        .names()
+        .iter()
+        .map(String::as_str)
         .chain(
             walk.frames[walk.above + 1..]
                 .iter()
@@ -319,10 +336,17 @@ pub(crate) fn resolve(
     if judged.len() >= PATH_MAX {
         return Err(FilesystemError::InvalidFilename.into());
     }
-    let base = walk.top().clone();
+    let top = walk.frames.last().expect("a walk stands somewhere");
+    // A directory removed through the VFS holds no name any more, as
+    // Linux's lookup in a dead directory finds nothing.
+    if !name.is_empty() && top.dentry.is_dead() {
+        return Err(FilesystemError::NotFound.into());
+    }
+    let (base, dentry) = (top.dir.clone(), top.dentry.clone());
     Ok(Resolved {
         mount: start.mount().clone(),
         base,
+        dentry,
         name,
         judged,
         names_directory: names_directory(path),

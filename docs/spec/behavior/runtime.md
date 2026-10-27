@@ -46,6 +46,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `test/parity/test_hermetic.rb`
 - `test/e2e/test_mount_spelling.rb`
 - `crates/kobako-runtime/src/vfs/seen.rs`
+- `crates/kobako-runtime/src/vfs/dentry.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/cache.rs`
 - `crates/kobako-wasmtime/src/abi.rs`
@@ -1691,3 +1692,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | one Memory mounted for an invocation on each posture |
 | When | the weaker writes a file and the strongest reads what the path names |
 | Then | each time the strongest reads is the Unix epoch |
+
+## `RT-159` A directory removed through the runtime makes nothing more, whatever its Filesystem
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-117` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory opened beneath a Mount, over a Filesystem answering each call by its path |
+| When | it is removed, another made in its place, and a make goes through it |
+| Then | the make answers not found, and the new directory stays empty |
+
+## `RT-160` A directory removed beneath one Mount is removed beneath another of its instance
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-159` |
+
+| Step | Statement |
+| --- | --- |
+| Given | one Filesystem instance mounted twice, a directory opened beneath the first |
+| When | the directory is removed beneath the second, then made into through the first |
+| Then | the make answers not found |

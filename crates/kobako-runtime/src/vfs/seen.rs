@@ -74,10 +74,11 @@ mod tests {
     use super::*;
     use crate::filesystem::{Access, Filesystem, Memory};
     use crate::mount::Mount;
-    use crate::vfs::{self, OpenHow, Opened, Path};
+    use crate::vfs::{self, OpenHow, Opened, Path, SuperBlock};
 
     fn path_over(memory: Arc<dyn Filesystem>, profile: Profile) -> Path {
-        let mount = Mount::new("/data", memory, Access::ReadWrite).expect("/data is a guest path");
+        let mount = Mount::new("/data", SuperBlock::new(memory), Access::ReadWrite)
+            .expect("/data is a guest path");
         Path::root(mount, profile)
     }
 

@@ -233,14 +233,14 @@ pub struct Mount {}
 
 ## `Mount::new`
 
-Place a Filesystem at a guest path with one access, refusing a path that is
-not an absolute guest path.
+Place a Filesystem instance at a guest path with one access, refusing a path
+no Guest can name.
 
 ```rust
 impl Mount {
     pub fn new(
         at: impl Into<String>,
-        filesystem: Arc<dyn Filesystem>,
+        super_block: Arc<SuperBlock>,
         access: Access,
     ) -> Result<Self, MountPathError> {}
 }
@@ -274,13 +274,42 @@ impl Mount {
 }
 ```
 
-## `Mount::filesystem`
+## `Mount::super_block`
 
-The Filesystem an engine hands each call beneath the Mount.
+The Filesystem instance the Mount places.
 
 ```rust
 impl Mount {
-    pub fn filesystem(&self) -> &Arc<dyn Filesystem> {}
+    pub fn super_block(&self) -> &Arc<SuperBlock> {}
+}
+```
+
+## `SuperBlock`
+
+One Filesystem instance. Its Mounts share the directories a Guest reaches
+beneath it, as bind mounts share a super block.
+
+```rust
+pub struct SuperBlock {}
+```
+
+## `SuperBlock::new`
+
+The instance a Filesystem's root answers for.
+
+```rust
+impl SuperBlock {
+    pub fn new(root: Arc<dyn Filesystem>) -> Arc<Self> {}
+}
+```
+
+## `SuperBlock::root`
+
+The Filesystem's root directory.
+
+```rust
+impl SuperBlock {
+    pub fn root(&self) -> &Arc<dyn Filesystem> {}
 }
 ```
 

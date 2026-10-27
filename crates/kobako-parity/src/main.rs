@@ -24,7 +24,7 @@ use kobako::filesystem::Memory;
 use kobako::msgpack::{RunArg, Value, ValueReceiver};
 use kobako::{
     Access, Backend, Error, Execution, Extension, Fault, FaultKind, Handles, Options, Profile,
-    Provider, Receiver, RunPayload, Sandbox, Yielder,
+    Provider, Receiver, RunPayload, Sandbox, SuperBlock, Yielder,
 };
 
 /// The scenario's opaque host objects by declared label, shared by the
@@ -144,7 +144,11 @@ fn apply_mount(sandbox: &mut Sandbox, mount: &Json) -> Result<(), String> {
         }
     };
     sandbox
-        .mount(at, Arc::new(files.collect::<Memory>()), access)
+        .mount(
+            at,
+            SuperBlock::new(Arc::new(files.collect::<Memory>())),
+            access,
+        )
         .map_err(|err| format!("mount failed: {err}"))
 }
 

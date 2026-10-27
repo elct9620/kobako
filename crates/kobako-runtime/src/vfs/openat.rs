@@ -107,9 +107,13 @@ fn open_directory(
     identity: Option<Identity>,
 ) -> Result<Opened, Error> {
     let dir = resolved.base.open_dir_nofollow(&resolved.name)?;
-    Ok(Opened::Directory(start.opened(
-        dir,
-        resolved.judged,
-        identity,
-    )))
+    let dentry = match resolved.name.as_str() {
+        "" => resolved.dentry.clone(),
+        name => resolved
+            .mount
+            .super_block()
+            .dentries()
+            .child(&resolved.dentry, name),
+    };
+    Ok(Opened::Directory(start.opened(dir, dentry, identity)))
 }

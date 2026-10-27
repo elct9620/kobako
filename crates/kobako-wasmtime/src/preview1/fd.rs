@@ -621,6 +621,7 @@ mod tests {
     use kobako_runtime::filesystem::{Access, File, FilesystemError, Memory, Metadata};
     use kobako_runtime::mount::Mount;
     use kobako_runtime::profile::Profile;
+    use kobako_runtime::vfs::SuperBlock;
     use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
     use super::renumber;
@@ -664,8 +665,12 @@ mod tests {
             readable: true,
             writable: false,
             mount: Arc::new(
-                Mount::new("/data", Arc::new(Memory::new()), Access::Read)
-                    .expect("/data is a guest path"),
+                Mount::new(
+                    "/data",
+                    SuperBlock::new(Arc::new(Memory::new())),
+                    Access::Read,
+                )
+                .expect("/data is a guest path"),
             ),
         })
     }

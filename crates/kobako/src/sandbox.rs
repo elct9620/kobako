@@ -31,9 +31,9 @@ use crate::payload::RunPayload;
 use crate::receiver::Receiver;
 use crate::snippet;
 use kobako_runtime::filesystem::Access;
-use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::grant::GrantKind;
 use kobako_runtime::mount::{Mount, Policy};
+use kobako_runtime::vfs::SuperBlock;
 
 mod context;
 mod options;
@@ -187,15 +187,16 @@ impl Sandbox {
         open_catalog(&mut self.registry)?.bind(path, unresolved())
     }
 
-    /// Mount `filesystem` at the absolute guest path `at`, where the guest's
-    /// `File` reaches it with `access`; a write beneath a read-only mount
-    /// fails as `Errno::EROFS` in the guest. A malformed, duplicate, or
-    /// nested path is refused, and so is a runtime that presents no
-    /// filesystem to the guest. Refused once sealed.
+    /// Mount the Filesystem instance `filesystem` at the absolute guest path
+    /// `at`, where the guest's `File` reaches it with `access`; a write
+    /// beneath a read-only mount fails as `Errno::EROFS` in the guest. One
+    /// instance mounted twice is shared, as a bind mount is. A malformed,
+    /// duplicate, or nested path is refused, and so is a runtime that
+    /// presents no filesystem to the guest. Refused once sealed.
     pub fn mount(
         &mut self,
         at: &str,
-        filesystem: Arc<dyn Filesystem>,
+        filesystem: Arc<SuperBlock>,
         access: Access,
     ) -> Result<(), Error> {
         self.register_mount(Mount::new(at, filesystem, access)?)
@@ -207,7 +208,7 @@ impl Sandbox {
     pub fn mount_with_policy(
         &mut self,
         at: &str,
-        filesystem: Arc<dyn Filesystem>,
+        filesystem: Arc<SuperBlock>,
         policy: Arc<dyn Policy>,
     ) -> Result<(), Error> {
         self.register_mount(Mount::new(at, filesystem, Access::ReadWrite)?.with_policy(policy))

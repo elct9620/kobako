@@ -7,12 +7,14 @@
 //! before the Filesystem is asked, so a Filesystem of a third party's
 //! checks neither.
 
+mod dentry;
 mod entry;
 mod namei;
 mod openat;
 mod path;
 mod seen;
 mod stat;
+mod super_block;
 
 use crate::filesystem::FilesystemError;
 use crate::mount::Denial;
@@ -21,6 +23,7 @@ pub use entry::{create_dir, remove_dir, remove_file, rename};
 pub use openat::{open, OpenHow, Opened};
 pub use path::Path;
 pub use stat::{metadata, read_link, set_times, symlink_metadata};
+pub use super_block::SuperBlock;
 
 /// Linux's limits on a path, its terminating NUL counted, and on one name
 /// within it.

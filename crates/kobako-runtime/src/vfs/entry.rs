@@ -23,7 +23,13 @@ pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
     resolved.judge(Access::ReadWrite)?;
     resolved.check_directory()?;
     refuse_root(&resolved.name, FilesystemError::InvalidInput)?;
-    Ok(resolved.base.remove_dir(&resolved.name)?)
+    resolved.base.remove_dir(&resolved.name)?;
+    resolved
+        .mount
+        .super_block()
+        .dentries()
+        .delete(&resolved.dentry, &resolved.name);
+    Ok(())
 }
 
 /// Remove the file `path` beneath `start`. Linux's `unlink` follows no
@@ -76,9 +82,15 @@ pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<
         (true, true) => Rename::Directory,
         (true, false) => Rename::Any,
     };
-    Ok(source
+    source
         .base
-        .rename(&source.name, target.base.as_ref(), &target.name, rename)?)
+        .rename(&source.name, target.base.as_ref(), &target.name, rename)?;
+    // A directory replaced at the target is gone for whoever holds it, and
+    // one moved from the source is reached where it went.
+    let dentries = source.mount.super_block().dentries();
+    dentries.delete(&target.dentry, &target.name);
+    dentries.rename(&source.dentry, &source.name, &target.dentry, &target.name);
+    Ok(())
 }
 
 /// Refuse a guest path ending in `.` or `..` as `refusal`, since it names

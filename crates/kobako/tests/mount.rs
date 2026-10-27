@@ -13,7 +13,7 @@ use kobako::filesystem::{
     DirEntry, File, FileType, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Rename,
 };
 use kobako::msgpack::Value;
-use kobako::{Access, Error, Policy, Profile, Sandbox};
+use kobako::{Access, Error, Policy, Profile, Sandbox, SuperBlock};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::InvokeError;
 use kobako_runtime::grant::Grant;
@@ -25,8 +25,10 @@ const READ_NOTE: &str = r#"File.read("/data/note.txt")"#;
 const RESCUE_DENIED: &str =
     r#"begin; File.read("/data/note.txt"); rescue Errno::EACCES; "denied"; end"#;
 
-fn memory(contents: &str) -> Arc<dyn Filesystem> {
-    Arc::new([("note.txt", contents)].into_iter().collect::<Memory>())
+fn memory(contents: &str) -> Arc<SuperBlock> {
+    SuperBlock::new(Arc::new(
+        [("note.txt", contents)].into_iter().collect::<Memory>(),
+    ))
 }
 
 fn sandbox_with_note() -> Option<Sandbox> {
@@ -312,7 +314,11 @@ fn a_filesystem_a_rust_host_app_writes_mounts_like_the_kinds_kobako_ships() {
         return;
     };
     sandbox
-        .mount("/data", Arc::new(OneNote(b"written in rust")), Access::Read)
+        .mount(
+            "/data",
+            SuperBlock::new(Arc::new(OneNote(b"written in rust"))),
+            Access::Read,
+        )
         .unwrap();
 
     assert_eq!(
