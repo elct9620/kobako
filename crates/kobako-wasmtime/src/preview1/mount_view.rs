@@ -50,12 +50,8 @@ macro_rules! matches_names_exactly {
 /// and lists its directories as that Memory does.
 macro_rules! opens_directories {
     ($inner:tt) => {
-        fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-            self.$inner.open_dir(path)
-        }
-
         fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-            self.$inner.open_dir(name)
+            self.$inner.open_dir_nofollow(name)
         }
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -892,16 +888,12 @@ impl Filesystem for ReusesInodes {
         self.memory.open(path, options)
     }
 
-    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        let opened = self.memory.open_dir(path)?;
+    fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        let opened = self.memory.open_dir_nofollow(path)?;
         if path == "dir" {
             self.opened.lock().unwrap().push(Arc::downgrade(&opened));
         }
         Ok(opened)
-    }
-
-    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        self.open_dir(name)
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -1781,15 +1773,11 @@ impl Filesystem for FailsLookingUpDir {
         self.0.read_link(name)
     }
 
-    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
         match path {
             "dir" => Err(FilesystemError::Other("unreadable".into())),
-            path => self.0.open_dir(path),
+            path => self.0.open_dir_nofollow(path),
         }
-    }
-
-    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        self.open_dir(name)
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {

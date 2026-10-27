@@ -55,32 +55,20 @@ pub(super) struct Chain {
 struct Step {
     name: String,
     level: Level,
-    /// Whether a link a Layer holds led here, so nothing is made here in
-    /// another Layer.
-    through_link: bool,
 }
 
 impl Chain {
     /// A chain starting at the directory at `path` beneath the root, which
-    /// `level` stands for and a link led to where `through_link` says.
-    pub(super) fn at(path: String, level: Level, through_link: bool) -> Self {
+    /// `level` stands for.
+    pub(super) fn at(path: String, level: Level) -> Self {
         Self {
-            steps: vec![Step {
-                name: path,
-                level,
-                through_link,
-            }],
+            steps: vec![Step { name: path, level }],
         }
     }
 
     /// The directory the chain reaches.
     pub(super) fn level(&self) -> &Level {
         &self.last().level
-    }
-
-    /// Whether a link a Layer holds led to the directory the chain reaches.
-    pub(super) fn through_link(&self) -> bool {
-        self.last().through_link
     }
 
     /// Where the directory at `step` stands beneath the root.
@@ -285,34 +273,27 @@ impl Stack {
                         .map(|layer| Some(layer.filesystem.clone()))
                         .collect(),
                 )?,
-                through_link: false,
             }],
         })
     }
 
     /// Walk `chain` into each of `names` in turn, each a directory the view
-    /// shows. A link a Layer holds on the way is followed within that
-    /// Layer, as the directory it leads to is the Layer's alone.
+    /// shows.
     pub(super) fn descend<'a>(
         &self,
         chain: &mut Chain,
         names: impl IntoIterator<Item = &'a str>,
     ) -> Result<(), FilesystemError> {
         for name in names {
-            self.enter(chain, name, true)?;
+            self.enter(chain, name)?;
         }
         Ok(())
     }
 
-    /// Step `chain` into the directory `name`, a link standing there
-    /// followed within its Layer where `follow` asks, and refused as a
-    /// loop otherwise.
-    pub(super) fn enter(
-        &self,
-        chain: &mut Chain,
-        name: &str,
-        follow: bool,
-    ) -> Result<(), FilesystemError> {
+    /// Step `chain` into the directory `name`, refusing a link standing
+    /// there as a loop, since the runtime follows a link itself, in the
+    /// view.
+    pub(super) fn enter(&self, chain: &mut Chain, name: &str) -> Result<(), FilesystemError> {
         refuse_reserved(name)?;
         let level = chain.level();
         let (index, found) = self.lookup(level, name)?.ok_or(FilesystemError::NotFound)?;
@@ -320,21 +301,7 @@ impl Stack {
             FileType::Directory => Step {
                 name: name.to_string(),
                 level: self.merged(level, name, (index, found))?,
-                through_link: false,
             },
-            FileType::Symlink if follow => {
-                let dir = level[index]
-                    .as_ref()
-                    .ok_or(FilesystemError::NotFound)?
-                    .open_dir(name)?;
-                let mut level = vec![None; self.layers.len()];
-                level[index] = Some(dir);
-                Step {
-                    name: name.to_string(),
-                    level,
-                    through_link: true,
-                }
-            }
             FileType::Symlink => return Err(FilesystemError::FilesystemLoop),
             _ => return Err(FilesystemError::NotADirectory),
         };
@@ -591,9 +558,7 @@ impl Stack {
 
     /// The directory `chain` reaches in Layer `into`, made there along
     /// with each directory above it that so far shows only from another
-    /// Layer. A directory a link led to is the Layer's own, so a change
-    /// reaching through it is refused as crossing devices rather than
-    /// landing beside where the link points.
+    /// Layer.
     fn upper_dir(
         &self,
         chain: &mut Chain,
@@ -611,7 +576,7 @@ impl Stack {
         if let Some(dir) = &chain.steps[step].level[into] {
             return Ok(dir.clone());
         }
-        if step == 0 || chain.steps[step].through_link {
+        if step == 0 {
             return Err(FilesystemError::CrossesDevices);
         }
         let parent = self.made(chain, step - 1, into)?;

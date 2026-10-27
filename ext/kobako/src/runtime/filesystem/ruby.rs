@@ -189,20 +189,16 @@ impl Filesystem for RubyFilesystem {
         )
     }
 
-    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        if self.metadata(path)?.file_type != FileType::Directory {
+    /// A Ruby object answers `stat` alone, so it holds no links to refuse.
+    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        if self.metadata(name)?.file_type != FileType::Directory {
             return Err(FilesystemError::NotADirectory);
         }
         Ok(Arc::new(Self {
             object: self.object,
             dev: self.dev,
-            at: self.path(path),
+            at: self.path(name),
         }))
-    }
-
-    /// A Ruby object answers `stat` alone, so it holds no links.
-    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        self.open_dir(name)
     }
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {

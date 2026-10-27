@@ -21,17 +21,13 @@ pub(super) struct Inode {
     /// Where it stood beneath the Overlay's root when it was opened, by
     /// which a change through it reaches its writable Layer's directory.
     path: String,
-    /// Whether a link a Layer holds led here, so nothing is made here in
-    /// another Layer.
-    through_link: bool,
 }
 
 impl Inode {
-    pub(super) fn new(level: Level, path: String, through_link: bool) -> Arc<Self> {
+    pub(super) fn new(level: Level, path: String) -> Arc<Self> {
         Arc::new(Self {
             level: Mutex::new(level),
             path,
-            through_link,
         })
     }
 
@@ -45,10 +41,6 @@ impl Inode {
 
     pub(super) fn path(&self) -> &str {
         &self.path
-    }
-
-    pub(super) fn through_link(&self) -> bool {
-        self.through_link
     }
 }
 
@@ -88,15 +80,9 @@ impl Inodes {
     /// The directory at `path`, standing for `level` as just found: the
     /// one already shared there, brought up to date, where a writable Layer
     /// is missing from `level`, or one of its own otherwise.
-    pub(super) fn at(
-        &self,
-        path: String,
-        level: Level,
-        through_link: bool,
-        shared: bool,
-    ) -> Arc<Inode> {
+    pub(super) fn at(&self, path: String, level: Level, shared: bool) -> Arc<Inode> {
         if !shared {
-            return Inode::new(level, path, through_link);
+            return Inode::new(level, path);
         }
         let mut inodes = self.lock();
         if inodes.entries.len() >= inodes.sweep_at {
@@ -107,7 +93,7 @@ impl Inodes {
             *inode.lock() = level;
             return inode;
         }
-        let inode = Inode::new(level, path.clone(), through_link);
+        let inode = Inode::new(level, path.clone());
         inodes.insert(path, Arc::downgrade(&inode));
         inode
     }

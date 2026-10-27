@@ -508,14 +508,10 @@ impl Filesystem for Memory {
         Ok(Box::new(MemoryFile { data }))
     }
 
-    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        let _held = self.hold();
-        Ok(Arc::new(self.beneath(self.dir.directory(path)?)))
-    }
-
-    /// A Memory holds no links.
+    /// A Memory holds no links to refuse.
     fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        self.open_dir(name)
+        let _held = self.hold();
+        Ok(Arc::new(self.beneath(self.dir.directory(name)?)))
     }
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
@@ -1179,7 +1175,9 @@ mod tests {
     #[test]
     fn a_directory_opened_from_a_memory_follows_it_when_it_moves() {
         let memory: Memory = [("dir/.keep", "")].into_iter().collect();
-        let dir = memory.open_dir("dir").expect("the directory must open");
+        let dir = memory
+            .open_dir_nofollow("dir")
+            .expect("the directory must open");
         memory
             .rename("dir", &memory, "moved", Rename::Any)
             .expect("the directory must move");
@@ -1202,7 +1200,9 @@ mod tests {
         memory
             .create_dir("dir")
             .expect("the directory must be made");
-        let dir = memory.open_dir("dir").expect("the directory must open");
+        let dir = memory
+            .open_dir_nofollow("dir")
+            .expect("the directory must open");
         memory.remove_dir("dir").expect("the directory must remove");
         assert_eq!(
             (
@@ -1230,7 +1230,9 @@ mod tests {
         memory
             .create_dir("a/b")
             .expect("the inner directory must be made");
-        let inner = memory.open_dir("a/b").expect("the directory must open");
+        let inner = memory
+            .open_dir_nofollow("a/b")
+            .expect("the directory must open");
         assert_eq!(
             (
                 memory.rename("a", inner.as_ref(), "a", Rename::Any),

@@ -54,13 +54,10 @@ pub trait Filesystem: Any + Send + Sync {
     /// where they say to.
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError>;
 
-    /// The directory at `path`, as `O_DIRECTORY` opens one: `NotADirectory`
-    /// where anything else stands.
-    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError>;
-
-    /// The directory `name` in this one, refusing a link standing there as
-    /// `FilesystemLoop`, as `O_NOFOLLOW` refuses one. A Filesystem holding
-    /// no links answers `open_dir`.
+    /// The directory `name` in this one, as `O_DIRECTORY` opens one:
+    /// `NotADirectory` where anything else stands, and `FilesystemLoop`
+    /// for a link standing there, as `O_NOFOLLOW` refuses one, since the
+    /// runtime follows a link itself.
     fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError>;
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError>;

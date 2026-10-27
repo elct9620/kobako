@@ -236,11 +236,6 @@ impl Filesystem for Directory {
 
     /// The host directory's own descriptor, so its inode stays taken while
     /// it is open.
-    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        let dir = self.at(path, |dir, name| dir.open_dir(name).map_err(to_error))?;
-        Ok(Arc::new(Self::beneath(dir)))
-    }
-
     fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
         let dir = open_dir_nofollow(&self.dir, to_host_path(name)?)?;
         Ok(Arc::new(Self::beneath(dir)))
@@ -780,7 +775,9 @@ mod tests {
     fn a_directory_follows_a_link_only_within_the_directory_it_opened() {
         let host = linked_beneath("beneath");
         let directory = Directory::new(&host.0).expect("the host directory must open");
-        let dir = directory.open_dir("dir").expect("the directory must open");
+        let dir = directory
+            .open_dir_nofollow("dir")
+            .expect("the directory must open");
         assert_eq!(
             (
                 dir.metadata("in/y").map(|m| m.file_type),
@@ -800,15 +797,13 @@ mod tests {
     fn a_directory_opens_no_link_as_a_directory_where_asked_not_to_follow() {
         let host = linked_beneath("open-dir-nofollow");
         let directory = Directory::new(&host.0).expect("the host directory must open");
-        let dir = directory.open_dir("dir").expect("the directory must open");
+        let dir = directory
+            .open_dir_nofollow("dir")
+            .expect("the directory must open");
         assert_eq!(
-            (
-                dir.open_dir("in").map(drop),
-                dir.open_dir_nofollow("in").map(drop)
-            ),
-            (Ok(()), Err(FilesystemError::FilesystemLoop)),
-            "a link to a directory opened through Directory::open_dir must lead where it points, \
-             and through Directory::open_dir_nofollow must be a link loop"
+            dir.open_dir_nofollow("in").map(drop),
+            Err(FilesystemError::FilesystemLoop),
+            "a link to a directory opened through Directory::open_dir_nofollow must be a link loop"
         );
     }
 
@@ -818,7 +813,9 @@ mod tests {
     fn a_directory_reads_where_a_link_points() {
         let host = linked_beneath("read-link");
         let directory = Directory::new(&host.0).expect("the host directory must open");
-        let dir = directory.open_dir("dir").expect("the directory must open");
+        let dir = directory
+            .open_dir_nofollow("dir")
+            .expect("the directory must open");
         assert_eq!(
             (dir.read_link("up"), dir.read_link("sub")),
             (
@@ -960,7 +957,9 @@ mod tests {
         let reuses = ino("dir") == first;
         let first = ino("dir");
         let directory = Directory::new(&host.0).expect("the host directory must open");
-        let opened = directory.open_dir("dir").expect("the directory must open");
+        let opened = directory
+            .open_dir_nofollow("dir")
+            .expect("the directory must open");
         fs::remove_dir(host.0.join("dir")).expect("the host directory must go");
         let removed = format!("{} (deleted)", host.0.join("dir").display());
         let held_open = fs::read_dir("/proc/self/fd")
@@ -992,7 +991,7 @@ mod tests {
         fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
         let directory = Directory::new(&host.0).expect("the host directory must open");
         let dir = directory
-            .open_dir("dir")
+            .open_dir_nofollow("dir")
             .expect("the host directory must open");
         fs::rename(host.0.join("dir"), host.0.join("moved")).expect("the host must move it");
         dir.open(
@@ -1023,7 +1022,7 @@ mod tests {
         fs::write(host.0.join("dir/file"), "x").expect("the host file must be written");
         let directory = Directory::new(&host.0).expect("the host directory must open");
         let dir = directory
-            .open_dir("dir")
+            .open_dir_nofollow("dir")
             .expect("the host directory must open");
         assert_eq!(
             (dir.stored_name("file"), dir.stored_name("new")),
@@ -1048,7 +1047,7 @@ mod tests {
         }
         let directory = Directory::new(&host.0).expect("the host directory must open");
         let private = directory
-            .open_dir("PRIVATE")
+            .open_dir_nofollow("PRIVATE")
             .expect("the host directory must open in any case");
         assert_eq!(
             (

@@ -255,16 +255,12 @@ impl Filesystem for OneNote {
         }
     }
 
-    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        match path {
+    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        match name {
             "" => Ok(Arc::new(OneNote(self.0))),
             "note.txt" => Err(FilesystemError::NotADirectory),
             _ => Err(FilesystemError::NotFound),
         }
-    }
-
-    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        self.open_dir(name)
     }
 
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {

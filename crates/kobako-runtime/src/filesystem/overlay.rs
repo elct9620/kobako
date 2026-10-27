@@ -69,16 +69,12 @@ impl Overlay {
             return self.stack.root();
         };
         let level = inode.level();
-        if changes && !inode.through_link() && self.stack.misses_writable(&level) {
+        if changes && self.stack.misses_writable(&level) {
             let mut chain = self.stack.root()?;
             self.stack.descend(&mut chain, components(inode.path()))?;
             return Ok(chain);
         }
-        Ok(Chain::at(
-            inode.path().to_string(),
-            level,
-            inode.through_link(),
-        ))
+        Ok(Chain::at(inode.path().to_string(), level))
     }
 
     /// The chain to the directory holding the last name of `path` beneath
@@ -99,21 +95,17 @@ impl Overlay {
         }
     }
 
-    /// The directory `path` names, a link at its end followed within its
-    /// Layer only where `follow` asks, as an Overlay of its own. The
-    /// caller holds the Overlay's lock.
-    fn beneath(&self, path: &str, follow: bool) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    /// The directory `path` names, as an Overlay of its own. The caller
+    /// holds the Overlay's lock.
+    fn beneath(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
         let (mut chain, name) = self.split(path, false)?;
         if name.is_empty() {
             return Ok(Arc::new(self.clone()));
         }
-        self.stack.enter(&mut chain, &name, follow)?;
+        self.stack.enter(&mut chain, &name)?;
         let level = chain.level().clone();
         let shared = self.stack.misses_writable(&level);
-        let inode = self
-            .stack
-            .inodes()
-            .at(chain.path(), level, chain.through_link(), shared);
+        let inode = self.stack.inodes().at(chain.path(), level, shared);
         Ok(Arc::new(Self {
             inode: Some(inode),
             ..self.clone()
@@ -150,14 +142,9 @@ impl Filesystem for Overlay {
         self.stack.open(&mut chain, &name, options)
     }
 
-    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        let _held = self.lock.hold()?;
-        self.beneath(path, true)
-    }
-
     fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.beneath(name, false)
+        self.beneath(name)
     }
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
@@ -298,15 +285,11 @@ mod tests {
     /// opens and lists its directories as that Memory does.
     macro_rules! opens_directories {
         ($inner:tt) => {
-            fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-                self.$inner.open_dir(path)
-            }
-
             fn open_dir_nofollow(
                 &self,
                 name: &str,
             ) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-                self.$inner.open_dir(name)
+                self.$inner.open_dir_nofollow(name)
             }
 
             fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -357,7 +340,7 @@ mod tests {
 
     fn names(fs: &dyn Filesystem, path: &str) -> Vec<String> {
         let mut names: Vec<String> = fs
-            .open_dir(path)
+            .open_dir_nofollow(path)
             .and_then(|dir| dir.entries())
             .expect("the directory must list")
             .into_iter()
@@ -452,32 +435,6 @@ mod tests {
         }
     }
 
-    // The links stand in the Directory Layer beneath a Memory one, so only
-    // the merged view handing them to the Layer holding them resolves them,
-    // within the directory the Layer opened.
-    // @behavior FS-098
-    #[cfg(unix)]
-    #[test]
-    fn an_overlay_follows_a_link_beneath_a_directory_within_the_layer_holding_it() {
-        let host = LinkTree::new("beneath");
-        std::fs::create_dir_all(host.0.join("dir/sub"))
-            .expect("the host directory must be created");
-        std::fs::write(host.0.join("dir/sub/y"), "inner").expect("the inner file must be written");
-        std::os::unix::fs::symlink("sub", host.0.join("dir/in")).expect("the link must be made");
-        std::os::unix::fs::symlink("../target", host.0.join("dir/up"))
-            .expect("the link must be made");
-        let dir = host
-            .overlay()
-            .open_dir("dir")
-            .expect("the directory must open");
-        assert_eq!(
-            (kind(dir.as_ref(), "in/y"), kind(dir.as_ref(), "up")),
-            (Ok(FileType::File), Err(FilesystemError::NotPermitted)),
-            "a link a Directory Layer holds within a directory Overlay::open_dir opened must lead \
-             where it points, and one leading out of it must not be permitted"
-        );
-    }
-
     // The link stands in the Directory Layer beneath a Memory one, so only
     // the Overlay asking that Layer without following refuses it.
     // @behavior FS-100
@@ -488,18 +445,12 @@ mod tests {
         let overlay = host.overlay();
         assert_eq!(
             (
-                overlay.open_dir("dirlink").map(drop),
                 overlay.open_dir_nofollow("dirlink").map(drop),
                 overlay.read_link("dirlink")
             ),
-            (
-                Ok(()),
-                Err(FilesystemError::FilesystemLoop),
-                Ok("dir".to_string())
-            ),
-            "a link a Directory Layer holds, opened through Overlay::open_dir, must lead where it \
-             points, through Overlay::open_dir_nofollow must be a link loop, and through \
-             Overlay::read_link must answer where it points"
+            (Err(FilesystemError::FilesystemLoop), Ok("dir".to_string())),
+            "a link a Directory Layer holds, opened through Overlay::open_dir_nofollow, must be a \
+             link loop, and through Overlay::read_link must answer where it points"
         );
     }
 
@@ -643,15 +594,15 @@ mod tests {
             (
                 [
                     Err(FilesystemError::CrossesDevices),
-                    Err(FilesystemError::CrossesDevices),
+                    Err(FilesystemError::FilesystemLoop),
                     Err(FilesystemError::CrossesDevices),
                     Err(FilesystemError::CrossesDevices)
                 ],
                 b"lower".to_vec()
             ),
             "a write, a create, and a rename reaching through a link a read-only Directory Layer \
-             holds, through an Overlay, must be refused as crossing devices and leave the target \
-             as it was"
+             holds, through an Overlay, must be refused, as crossing devices or, beneath the \
+             directory link, as a link loop, and leave the target as it was"
         );
     }
 
@@ -693,14 +644,16 @@ mod tests {
         let overlay = Overlay::new()
             .layer(Arc::new(upper), Access::ReadWrite)
             .layer(memory_with("dirlink/x", "lower"), Access::Read);
-        let found = overlay
-            .metadata("dirlink/x")
-            .map(|metadata| metadata.file_type);
         assert_eq!(
-            (names(&overlay, "dirlink"), found),
-            (vec!["inner".to_string()], Err(FilesystemError::NotFound)),
-            "a directory a higher Directory Layer holds as a link, listed and looked into through \
-             an Overlay, must show only where the link points and none of a lower Layer's entries"
+            (
+                overlay
+                    .symlink_metadata("dirlink")
+                    .map(|metadata| metadata.file_type),
+                overlay.open_dir_nofollow("dirlink").map(drop)
+            ),
+            (Ok(FileType::Symlink), Err(FilesystemError::FilesystemLoop)),
+            "a directory a higher Directory Layer holds as a link, looked up and opened through an \
+             Overlay, must stand as the link, so none of a lower Layer's entries beneath it show"
         );
     }
 
@@ -770,7 +723,7 @@ mod tests {
                 moved,
                 overlay.metadata("dir").err(),
                 overlay
-                    .open_dir("moved")
+                    .open_dir_nofollow("moved")
                     .and_then(|dir| dir.entries())
                     .map(|entries| entries.len())
             ),
@@ -1114,7 +1067,7 @@ mod tests {
             self.memory.metadata(path)
         }
 
-        fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
             if let Some(overlay) = self.overlay.lock().unwrap().take() {
                 let finished = Arc::new(AtomicUsize::new(0));
                 let marker = finished.clone();
@@ -1129,11 +1082,7 @@ mod tests {
                 *self.finished_inside.lock().unwrap() = Some(finished.load(Ordering::SeqCst) == 1);
                 *self.other.lock().unwrap() = Some(handle);
             }
-            self.memory.open_dir(path)
-        }
-
-        fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-            self.open_dir(name)
+            self.memory.open_dir_nofollow(path)
         }
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -1628,15 +1577,11 @@ mod tests {
         }
 
         /// Each directory it opens trickles too.
-        fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
             Ok(Arc::new(Self {
-                memory: self.memory.open_dir(path)?,
+                memory: self.memory.open_dir_nofollow(path)?,
                 refuses_close: self.refuses_close,
             }))
-        }
-
-        fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-            self.open_dir(name)
         }
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -1886,12 +1831,10 @@ mod tests {
             self.0.open(&path.to_lowercase(), options)
         }
 
-        fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-            Ok(Arc::new(Self(self.0.open_dir(&path.to_lowercase())?)))
-        }
-
-        fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-            self.open_dir(name)
+        fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+            Ok(Arc::new(Self(
+                self.0.open_dir_nofollow(&path.to_lowercase())?,
+            )))
         }
 
         fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
@@ -1949,8 +1892,10 @@ mod tests {
         let overlay = Overlay::new().layer(upper.clone(), Access::ReadWrite);
         overlay.create_dir("dir").expect("dir must be made");
         overlay.create_dir("dir/inner").expect("inner must be made");
-        let dir = overlay.open_dir("dir").expect("dir must open");
-        let inner = overlay.open_dir("dir/inner").expect("inner must open");
+        let dir = overlay.open_dir_nofollow("dir").expect("dir must open");
+        let inner = overlay
+            .open_dir_nofollow("dir/inner")
+            .expect("inner must open");
         overlay
             .rename("dir", &overlay, "moved", Rename::Any)
             .expect("the directory must move");
@@ -1977,7 +1922,7 @@ mod tests {
     fn an_overlay_directory_removed_while_opened_makes_nothing_more() {
         let overlay = Overlay::new().layer(Arc::new(Memory::new()), Access::ReadWrite);
         overlay.create_dir("dir").expect("dir must be made");
-        let dir = overlay.open_dir("dir").expect("dir must open");
+        let dir = overlay.open_dir_nofollow("dir").expect("dir must open");
         overlay.remove_dir("dir").expect("dir must remove");
         overlay.create_dir("dir").expect("another dir must be made");
         assert_eq!(
@@ -2001,7 +1946,7 @@ mod tests {
     fn an_overlay_directory_keeps_its_layers_directory_through_a_change_outside_it() {
         let upper = memory_with("dir/file", "x");
         let overlay = Overlay::new().layer(upper.clone(), Access::ReadWrite);
-        let dir = overlay.open_dir("dir").expect("dir must open");
+        let dir = overlay.open_dir_nofollow("dir").expect("dir must open");
         upper
             .rename("dir", upper.as_ref(), "moved", Rename::Any)
             .expect("the Layer must move it");
@@ -2028,8 +1973,10 @@ mod tests {
         let overlay = Overlay::new()
             .layer(Arc::new(Memory::new()), Access::ReadWrite)
             .layer(lower, Access::Read);
-        let first = overlay.open_dir("dir").expect("dir must open");
-        let second = overlay.open_dir("dir").expect("dir must open again");
+        let first = overlay.open_dir_nofollow("dir").expect("dir must open");
+        let second = overlay
+            .open_dir_nofollow("dir")
+            .expect("dir must open again");
         write(first.as_ref(), "b.txt", b"b").expect("the write must copy dir up");
         assert_eq!(
             read(second.as_ref(), "b.txt"),
@@ -2048,7 +1995,7 @@ mod tests {
         let overlay = Overlay::new()
             .layer(upper.clone(), Access::ReadWrite)
             .layer(Arc::new(Memory::new()), Access::ReadWrite);
-        let dir = overlay.open_dir("dir").expect("dir must open");
+        let dir = overlay.open_dir_nofollow("dir").expect("dir must open");
         overlay
             .rename("dir", &overlay, "moved", Rename::Any)
             .expect("the directory must move");
@@ -2075,7 +2022,7 @@ mod tests {
                 Access::Read,
             );
         let private = overlay
-            .open_dir("PRIVATE")
+            .open_dir_nofollow("PRIVATE")
             .expect("the directory must open in any case");
         assert_eq!(
             (

@@ -193,7 +193,7 @@ mod tests {
             self.root.open(&self.path(path), options)
         }
 
-        fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
             let at = self.path(path);
             if self.root.metadata(&at)?.file_type != FileType::Directory {
                 return Err(FilesystemError::NotADirectory);
@@ -202,10 +202,6 @@ mod tests {
                 root: self.root.clone(),
                 at,
             }))
-        }
-
-        fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-            self.open_dir(name)
         }
 
         fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
@@ -225,7 +221,7 @@ mod tests {
         }
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.root.open_dir(&self.at)?.entries()
+            self.root.open_dir_nofollow(&self.at)?.entries()
         }
 
         fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {

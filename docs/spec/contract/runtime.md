@@ -535,21 +535,10 @@ pub trait Filesystem {
 }
 ```
 
-## `Filesystem::open_dir`
-
-The directory at a path, as a Filesystem of its own, refusing anything
-else standing there.
-
-```rust
-pub trait Filesystem {
-    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError>;
-}
-```
-
 ## `Filesystem::open_dir_nofollow`
 
-The directory of a name in this one, refusing a link standing there. A
-Filesystem holding no links answers as `open_dir` does.
+The directory of a name in this one, as a Filesystem of its own. Anything
+else standing there is refused, a link among them.
 
 ```rust
 pub trait Filesystem {

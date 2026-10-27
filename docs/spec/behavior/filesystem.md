@@ -582,7 +582,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | --- | --- |
 | Given | an Overlay whose read-only Directory Layer holds links to a file, a directory, and nothing |
 | When | the guest writes, creates, or renames through one of those links |
-| Then | each change is refused as crossing devices, and the target stays as it was |
+| Then | each change is refused, as crossing devices or as a link loop, and the target stays |
 
 ## `FS-052` An Overlay finds a dangling link where a new entry would go
 
@@ -656,8 +656,8 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Step | Statement |
 | --- | --- |
 | Given | an Overlay whose writable Directory Layer holds `dirlink` as a link to a directory, over a Layer holding `dirlink/x` |
-| When | `dirlink` is listed and `dirlink/x` is looked up through the Overlay |
-| Then | the listing shows only where the link points, and `dirlink/x` is not found |
+| When | `dirlink` is looked up and opened as a directory through the Overlay |
+| Then | it stands as the link, so nothing of the lower `dirlink` shows |
 
 ## `FS-058` Removing a file over a lower directory leaves the directory hidden
 
@@ -1148,19 +1148,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | each link is looked up through the opened directory |
 | Then | the inner link leads to where it points, and the outer one is not permitted |
 
-## `FS-098` An Overlay follows a link beneath a directory within the Layer holding it
-
-| Attribute | Value |
-| --- | --- |
-| relates | `FS-097` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay Layer holding a directory with a link inside it and one leading out |
-| When | each link's path is resolved beneath that directory |
-| Then | the inner link resolves to where it leads, and the outer one is not permitted |
-
-## `FS-099` A Directory opens no link as a directory where asked not to follow
+## `FS-099` A Directory opens no link as a directory
 
 | Attribute | Value |
 | --- | --- |
@@ -1169,10 +1157,10 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Step | Statement |
 | --- | --- |
 | Given | a Directory holding a link to a directory |
-| When | the link is opened as a directory, following it and following no link |
-| Then | the first reaches the directory, and the second is a link loop |
+| When | the link is opened as a directory |
+| Then | the open is a link loop, since the runtime follows a link itself |
 
-## `FS-100` An Overlay opens no link as a directory where asked not to follow
+## `FS-100` An Overlay opens no link as a directory
 
 | Attribute | Value |
 | --- | --- |
@@ -1181,8 +1169,8 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Step | Statement |
 | --- | --- |
 | Given | an Overlay whose Directory Layer holds a link to a directory |
-| When | the link is opened as a directory both ways, and read |
-| Then | following reaches the directory, following none is a link loop, and the read answers where it points |
+| When | the link is opened as a directory, and read |
+| Then | the open is a link loop, and the read answers where it points |
 
 ## `FS-101` A file opened to read before a copy up reads the copy
 
@@ -1332,7 +1320,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Attribute | Value |
 | --- | --- |
-| relates | `FS-098` |
+| relates | `FS-100` |
 
 | Step | Statement |
 | --- | --- |

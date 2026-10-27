@@ -564,10 +564,6 @@ where
         Ok(Box::new((self.wrap)(self.memory.open(path, options)?)))
     }
 
-    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        self.memory.open_dir(path)
-    }
-
     fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
         self.memory.open_dir_nofollow(name)
     }
