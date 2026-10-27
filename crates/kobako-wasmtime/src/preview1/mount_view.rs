@@ -69,6 +69,7 @@ macro_rules! opens_directories {
 const ERRNO_ACCES: i32 = 2;
 const ERRNO_BADF: i32 = 8;
 const ERRNO_BUSY: i32 = 10;
+const ERRNO_MFILE: i32 = 33;
 const ERRNO_FBIG: i32 = 22;
 const ERRNO_INVAL: i32 = 28;
 const ERRNO_IO: i32 = 29;
@@ -429,6 +430,11 @@ struct Guest {
 
 impl Guest {
     fn new(grants: &[Grant]) -> Self {
+        Self::holding_at_most(None, grants)
+    }
+
+    /// A guest holding at most `open_file_limit` descriptors at once.
+    fn holding_at_most(open_file_limit: Option<usize>, grants: &[Grant]) -> Self {
         let engine = shared_engine().expect("shared engine must be constructible");
         let config = Config {
             timeout: None,
@@ -436,7 +442,7 @@ impl Guest {
             memory_limit: None,
             stdout_limit: None,
             stderr_limit: None,
-            open_file_limit: None,
+            open_file_limit,
             profile: Profile::Hermetic,
         };
         let wasi = Wasi::for_invocation(&config, &[], grants).expect("WASI context must build");
@@ -1013,6 +1019,32 @@ fn a_directory_without_an_identity_is_not_reached_again_beneath_a_policy() {
         (0, ERRNO_NOENT),
         "path_filestat_get through a directory descriptor beneath a Mount with a Policy, over a \
          Filesystem reporting no identity, through preview1 must answer ENOENT"
+    );
+}
+
+// The three standard descriptors and the preopen leave room for one more,
+// so a directory spanning both Layers taking more than one leaves none
+// for the file.
+// @behavior RT-152
+#[test]
+fn an_overlay_directory_takes_one_descriptor_however_many_layers_it_spans() {
+    let upper: Arc<dyn Filesystem> = Arc::new([("dir/upper", "u")].into_iter().collect::<Memory>());
+    let overlay = Overlay::new()
+        .layer(upper, Access::ReadWrite)
+        .layer(file_and_directory(), Access::Read);
+    let mut guest = Guest::holding_at_most(
+        Some(6),
+        &[grant(Arc::new(overlay), Access::ReadWrite, None)],
+    );
+    assert_eq!(
+        (
+            guest.call_bare("open_dir"),
+            guest.call("read_file", FILE),
+            guest.call("read_file", FILE)
+        ),
+        (0, 0, ERRNO_MFILE),
+        "path_open of a directory two Layers of an Overlay hold, then of files, beneath a Mount \
+         through preview1 with room for two descriptors must take one descriptor for each"
     );
 }
 

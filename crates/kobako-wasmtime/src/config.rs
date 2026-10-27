@@ -35,6 +35,9 @@ pub struct Config {
     pub stderr_limit: Option<usize>,
     /// Descriptors one invocation may hold open, the standard ones and
     /// each Mount's preopen included; an open past it answers `MFILE`.
+    /// Only the guest's descriptors count, as `RLIMIT_NOFILE` counts a
+    /// process's: the host descriptors a Filesystem holds behind one, at
+    /// most two for a Directory or an Overlay over Directories, are its own.
     pub open_file_limit: Option<usize>,
     /// Isolation posture the frontend requested. `Hermetic` freezes
     /// ambient time and entropy, `Permissive` leaves the live WASI

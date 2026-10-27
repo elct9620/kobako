@@ -1606,3 +1606,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a directory it opened beneath a Mount with a Policy |
 | When | the Filesystem reports no identity for the directory, and a lookup goes through it |
 | Then | the lookup answers ENOENT |
+
+## `RT-152` An Overlay directory takes one descriptor however many Layers it spans
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-201` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation with room for two descriptors, handed an Overlay whose two Layers hold a directory |
+| When | the guest opens the directory, then two files |
+| Then | the directory and the first file open, and the second answers EMFILE |
