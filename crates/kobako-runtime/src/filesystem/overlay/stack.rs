@@ -10,6 +10,8 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use super::readers::Readers;
+
 use super::super::path::{ancestors, beneath_itself, is_beneath, join, name, parent};
 use super::super::{
     Access, DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions,
@@ -190,6 +192,7 @@ fn refuse_reserved(path: &str) -> Result<(), FilesystemError> {
 #[derive(Clone, Default)]
 pub(super) struct Stack {
     layers: Vec<Layer>,
+    readers: Arc<Readers>,
 }
 
 impl Stack {
@@ -232,7 +235,10 @@ impl Stack {
                 access: layer.access,
             })
             .collect();
-        Some(Self { layers })
+        Some(Self {
+            layers,
+            readers: Arc::default(),
+        })
     }
 
     /// The topmost Layer holding `path` and what it holds there, a link
@@ -375,8 +381,9 @@ impl Stack {
         let copied = copy_whole(source.as_mut(), copy.as_mut()).and(copy.close());
         if copied.is_err() {
             let _ = target.remove_file(path);
+            return copied;
         }
-        copied
+        self.readers.copied(path, target.as_ref())
     }
 
     /// Clear the whiteout of `path` in Layer `into` once an entry has
@@ -452,8 +459,12 @@ impl Stack {
                 },
             )) => Err(FilesystemError::IsADirectory),
             Some(_) if options.create_new => Err(FilesystemError::AlreadyExists),
-            Some((index, _)) if !changes || self.layers[index].writable() => {
+            Some((index, _)) if self.layers[index].writable() => {
                 self.layers[index].filesystem.open(path, options)
+            }
+            Some((index, _)) if !changes => {
+                let file = self.layers[index].filesystem.open(path, options)?;
+                Ok(self.readers.reading(path, file))
             }
             Some((index, _)) => {
                 let into = self.layers[..index]

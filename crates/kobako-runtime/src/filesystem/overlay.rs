@@ -10,6 +10,7 @@
 //! across several Layers is never seen half made.
 
 mod exclusive;
+mod readers;
 mod stack;
 
 use std::sync::Arc;
@@ -1824,6 +1825,76 @@ mod tests {
             memory: Memory::new(),
             refuses_close,
         })
+    }
+
+    fn open_to_read(fs: &dyn Filesystem, path: &str) -> Box<dyn File> {
+        fs.open(
+            path,
+            &OpenOptions {
+                read: true,
+                ..OpenOptions::default()
+            },
+        )
+        .expect("the file must open to read")
+    }
+
+    fn read_from(file: &mut dyn File) -> Vec<u8> {
+        let mut buf = vec![0; 64];
+        let read = file.read_at(&mut buf, 0).expect("the file must read");
+        buf.truncate(read);
+        buf
+    }
+
+    // @behavior FS-101
+    #[test]
+    fn a_file_opened_to_read_before_a_copy_up_reads_the_copy() {
+        let (overlay, _) = overlay_on(Arc::new(Memory::default()));
+        let mut reader = open_to_read(&overlay, "dir/file");
+        overwrite(&overlay, "dir/file", b"upper");
+        assert_eq!(
+            read_from(reader.as_mut()),
+            b"upper".to_vec(),
+            "a file Overlay::open handed out to read before another open copied it up must \
+             read what the copy holds"
+        );
+    }
+
+    // @behavior FS-102
+    #[test]
+    fn a_file_opened_to_read_before_a_rename_reads_the_moved_copy() {
+        let (overlay, _) = overlay_on(Arc::new(Memory::default()));
+        let mut reader = open_to_read(&overlay, "dir/file");
+        overlay
+            .rename("dir/file", "dir/moved", Rename::default())
+            .expect("the rename must land");
+        overwrite(&overlay, "dir/moved", b"moved");
+        assert_eq!(
+            read_from(reader.as_mut()),
+            b"moved".to_vec(),
+            "a file Overlay::open handed out to read before Overlay::rename moved it must read \
+             what the moved copy holds"
+        );
+    }
+
+    // @behavior FS-103
+    #[test]
+    fn a_file_open_to_read_keeps_what_it_held_once_removed() {
+        let (overlay, _) = overlay_on(Arc::new(Memory::default()));
+        let mut reader = open_to_read(&overlay, "dir/file");
+        overwrite(&overlay, "dir/file", b"upper");
+        overlay
+            .remove_file("dir/file")
+            .expect("the removal must land");
+        overwrite(&overlay, "dir/file", b"fresh");
+        overlay
+            .rename("dir/file", "dir/moved", Rename::default())
+            .expect("the rename must land");
+        assert_eq!(
+            read_from(reader.as_mut()),
+            b"upper".to_vec(),
+            "a file Overlay::open handed out to read must keep reading what it held once \
+             Overlay::remove_file took it away, whatever later stands at its path"
+        );
     }
 
     // @behavior FS-054

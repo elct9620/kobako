@@ -1244,3 +1244,39 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay for a Policy whose Directory Layer holds a link to a directory |
 | When | a path through the link is opened |
 | Then | the open is a link loop |
+
+## `FS-101` A file opened to read before a copy up reads the copy
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose read-only Layer's file is open to read |
+| When | another open writes the file, copying it up |
+| Then | the open file reads what the copy holds |
+
+## `FS-102` A file opened to read before a rename reads the moved copy
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-101` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose read-only Layer's file is open to read |
+| When | the file is renamed and the moved copy is written |
+| Then | the open file reads what the moved copy holds |
+
+## `FS-103` A file open to read keeps what it held once removed
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-101` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay file open to read after a write copied it up |
+| When | the file is removed, and a new file at its path is renamed away |
+| Then | the open file still reads what it held |
