@@ -14,6 +14,7 @@ mod memory;
 mod overlay;
 mod path;
 
+use std::any::Any;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -29,23 +30,35 @@ pub enum Access {
     ReadWrite,
 }
 
-/// The files and directories behind a Mount. One may wrap
-/// another and answer by delegating, so it sees every call on the way
-/// through.
+/// The files and directories beneath one directory, as the `*at` calls
+/// reach them from a directory descriptor: a Mount's root, or a directory
+/// opened beneath it, which answers as a Filesystem of its own. One may
+/// wrap another and answer by delegating, so it sees every call on the
+/// way through, and wraps each directory it opens as well.
 ///
-/// Five methods keep a guarantee the runtime gives the guest, so each
+/// Six methods keep a guarantee the runtime gives the guest, so each
 /// Filesystem answers them itself and a wrapper forwards them:
-/// `symlink_metadata` keeps a link from being followed where a Mount
-/// refuses links, `stored_path` keeps a Policy judging the spelling the
-/// host stores, `canonicalize_beneath` keeps a link within the directory
-/// a descriptor opened, `hold_directory` keeps an open directory's
-/// identity its own, and `for_policy` keeps a call to the path a Policy
-/// judged. Every Invocation reaches the same Filesystem; one that should
-/// start afresh is handed in its place for that Invocation.
-pub trait Filesystem: Send + Sync {
+/// `symlink_metadata` and `open_dir_nofollow` keep a link from being
+/// followed where a Mount refuses links, `stored_name` keeps a Policy
+/// judging the spelling the host stores, `canonicalize_beneath` keeps a
+/// link within the directory a descriptor opened, `hold_directory` keeps
+/// an open directory's identity its own, and `for_policy` keeps a call to
+/// the path a Policy judged. Every Invocation reaches the same Filesystem;
+/// one that should start afresh is handed in its place for that
+/// Invocation.
+pub trait Filesystem: Any + Send + Sync {
     /// Open the file at `path` as `options` asks, creating or truncating it
     /// where they say to.
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError>;
+
+    /// The directory at `path`, as `O_DIRECTORY` opens one: `NotADirectory`
+    /// where anything else stands.
+    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError>;
+
+    /// The directory `name` in this one, refusing a link standing there as
+    /// `FilesystemLoop`, as `O_NOFOLLOW` refuses one. A Filesystem holding
+    /// no links answers `open_dir`.
+    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError>;
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError>;
 
@@ -55,11 +68,11 @@ pub trait Filesystem: Send + Sync {
     /// links answers `metadata`.
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError>;
 
-    /// `path` with each name this Filesystem holds spelled as it stores
-    /// it, so a name a host reaches by more than one spelling is judged by
-    /// one; names past the last it holds stay as given. A Filesystem
-    /// matching names exactly answers `path`.
-    fn stored_path(&self, path: &str) -> Result<String, FilesystemError>;
+    /// The entry `name` in this directory spelled as it is stored, so a
+    /// name a host reaches by more than one spelling is judged by one; a
+    /// name it does not hold stays as given. A Filesystem matching names
+    /// exactly answers `name`.
+    fn stored_name(&self, name: &str) -> Result<String, FilesystemError>;
 
     /// `path`, relative to the directory at `base`, with every link on it
     /// followed, as cap-std's `Dir::canonicalize` answers: still relative
@@ -75,8 +88,8 @@ pub trait Filesystem: Send + Sync {
     /// holds nothing.
     fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError>;
 
-    /// The entries of the directory at `path`, without `.` or `..`.
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError>;
+    /// The entries of this directory, without `.` or `..`.
+    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError>;
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError>;
 
@@ -85,11 +98,19 @@ pub trait Filesystem: Send + Sync {
 
     fn remove_file(&self, path: &str) -> Result<(), FilesystemError>;
 
-    /// Move the entry at `from` to `to`, refusing one `rename` does not
-    /// allow; a move onto its own path changes nothing and is allowed.
-    /// The Filesystem checks what stands at `from` as it moves it, under
-    /// the same lock, so nothing replaces it in between.
-    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError>;
+    /// Move the entry at `from` to `to` beneath `to_dir`, refusing one
+    /// `rename` does not allow; a move onto its own path changes nothing
+    /// and is allowed. A runtime hands only a `to_dir` of the same Mount,
+    /// so it is of this Filesystem's own type, and one that is not answers
+    /// `CrossesDevices`. The Filesystem checks what stands at `from` as it
+    /// moves it, under the same lock, so nothing replaces it in between.
+    fn rename(
+        &self,
+        from: &str,
+        to_dir: &dyn Filesystem,
+        to: &str,
+        rename: Rename,
+    ) -> Result<(), FilesystemError>;
 
     /// The Filesystem a Mount with a Policy hands its calls in this one's
     /// place, following no link anywhere on a path, each name reached

@@ -11,6 +11,7 @@
 use magnus::value::{Opaque, ReprValue};
 use magnus::{kwargs, prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, Value};
 
+use std::any::Any;
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
@@ -22,11 +23,17 @@ use crate::runtime::{escape, gvl};
 
 /// The Ruby object behind a Mount or a Layer. Whatever holds it on the
 /// Ruby side keeps it alive and in place: the invocation pinning its
-/// Mounts, or the Overlay marking its Layers.
+/// Mounts, or the Overlay marking its Layers. The object answers by path,
+/// so a directory opened beneath it is the same object asked by the path
+/// that directory had when it was opened.
 pub(crate) struct RubyFilesystem {
     object: Opaque<Value>,
-    /// The device a stat without a `dev` names, the object's own.
+    /// The device a stat without a `dev` names, the object's own, shared by
+    /// every directory opened beneath it.
     dev: u64,
+    /// Where this directory lies beneath the object's root, the empty path
+    /// being the root itself.
+    at: String,
 }
 
 impl RubyFilesystem {
@@ -36,7 +43,13 @@ impl RubyFilesystem {
         (answers("open") && answers("stat")).then(|| Self {
             object: Opaque::from(value),
             dev: Metadata::unique_device(),
+            at: String::new(),
         })
+    }
+
+    /// `path` beneath this directory, as the object is asked it.
+    fn path(&self, path: &str) -> String {
+        join(&self.at, path)
     }
 }
 
@@ -149,6 +162,7 @@ fn join(dir: &str, name: &str) -> String {
 
 impl Filesystem for RubyFilesystem {
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+        let path = self.path(path);
         ask(
             self.object,
             "open",
@@ -160,8 +174,25 @@ impl Filesystem for RubyFilesystem {
         )
     }
 
+    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        if self.metadata(path)?.file_type != FileType::Directory {
+            return Err(FilesystemError::NotADirectory);
+        }
+        Ok(Arc::new(Self {
+            object: self.object,
+            dev: self.dev,
+            at: self.path(path),
+        }))
+    }
+
+    /// A Ruby object answers `stat` alone, so it holds no links.
+    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        self.open_dir(name)
+    }
+
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let own_dev = self.dev;
+        let path = self.path(path);
         ask(
             self.object,
             "stat",
@@ -192,8 +223,8 @@ impl Filesystem for RubyFilesystem {
     }
 
     /// A Ruby object matches names exactly, as its contract asks.
-    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
-        Ok(path.to_string())
+    fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
+        Ok(name.to_string())
     }
 
     /// A Ruby object holds no links to follow.
@@ -212,17 +243,17 @@ impl Filesystem for RubyFilesystem {
         Ok(None)
     }
 
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let names: Vec<String> = ask(
             self.object,
             "children",
             FilesystemError::Unsupported,
-            |_, fs| fs.funcall("children", (path,)),
+            |_, fs| fs.funcall("children", (self.at.as_str(),)),
         )?;
         names
             .into_iter()
             .map(|name| {
-                let file_type = self.metadata(&join(path, &name))?.file_type;
+                let file_type = self.metadata(&name)?.file_type;
                 Ok(DirEntry::new(name, file_type))
             })
             .collect()
@@ -232,7 +263,7 @@ impl Filesystem for RubyFilesystem {
         change(
             self.object,
             "mkdir",
-            (path,),
+            (self.path(path),),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
@@ -241,7 +272,7 @@ impl Filesystem for RubyFilesystem {
         change(
             self.object,
             "rmdir",
-            (path,),
+            (self.path(path),),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
@@ -250,15 +281,26 @@ impl Filesystem for RubyFilesystem {
         change(
             self.object,
             "unlink",
-            (path,),
+            (self.path(path),),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
 
     /// `rename(from, to, directory:)`: `true` moves only a directory,
     /// `false` only a file, `nil` either. What stands at `from` meanwhile
-    /// is the object's to keep still.
-    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+    /// is the object's to keep still. Both directories are of one object,
+    /// which their shared device names.
+    fn rename(
+        &self,
+        from: &str,
+        to_dir: &dyn Filesystem,
+        to: &str,
+        rename: Rename,
+    ) -> Result<(), FilesystemError> {
+        let target = (to_dir as &dyn Any)
+            .downcast_ref::<Self>()
+            .filter(|target| target.dev == self.dev)
+            .ok_or(FilesystemError::CrossesDevices)?;
         // A move the keyword cannot tell the object is refused rather than
         // widened into one of either kind.
         let directory = match rename {
@@ -270,7 +312,11 @@ impl Filesystem for RubyFilesystem {
         change(
             self.object,
             "rename",
-            (from, to, kwargs!("directory" => directory)),
+            (
+                self.path(from),
+                target.path(to),
+                kwargs!("directory" => directory),
+            ),
             FilesystemError::ReadOnlyFilesystem,
         )
     }

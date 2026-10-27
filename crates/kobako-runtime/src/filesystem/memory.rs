@@ -1,13 +1,12 @@
 //! `Memory`: a Filesystem held in memory, living as long as the Host
 //! App's object does.
 
+use std::any::Any;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
-use super::path::{
-    ancestors, beneath_itself, components, is_beneath, name, normalize_seed, parent,
-};
+use super::path::{ancestors, components, name, normalize_seed, parent};
 use super::{
     DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions, Rename,
 };
@@ -16,14 +15,22 @@ use super::{
 /// shares it, so what one writes the next reads. What its files hold
 /// together, and how many entries it holds, are bounded as a tmpfs mount
 /// bounds its size and its inodes, so a guest cannot grow it past what
-/// the Host App allowed.
+/// the Host App allowed. A directory opened beneath it is a Memory too,
+/// following that directory wherever it moves, as a tmpfs descriptor
+/// follows its inode.
 pub struct Memory {
-    /// Each entry is held under its own name in its directory, as a tmpfs
-    /// holds one name to each entry, so the names it holds stay bounded
-    /// by its inodes however its directories move.
-    root: Mutex<Directory>,
+    tree: Arc<Tree>,
+    dir: Arc<Dir>,
+}
+
+/// What every directory of one Memory shares.
+struct Tree {
+    /// Held across each call, so a change is never seen half made and a
+    /// move finds the directories above its target as they stand, as
+    /// Linux serializes moves between directories under one lock.
+    lock: Mutex<()>,
     space: Arc<Space>,
-    inodes_follow_limit: bool,
+    inodes_follow_limit: AtomicBool,
     /// The device number this Memory reports, its own as each tmpfs mount
     /// has its own, so it shares an identity with no other Filesystem.
     dev: u64,
@@ -32,9 +39,10 @@ pub struct Memory {
     next_ino: AtomicU64,
 }
 
+#[derive(Clone)]
 enum Node {
     File(Arc<Mutex<Content>>),
-    Directory(Directory),
+    Directory(Arc<Dir>),
 }
 
 impl Node {
@@ -46,67 +54,90 @@ impl Node {
     }
 }
 
-/// A directory, its inode number, and its entries by name.
-struct Directory {
+/// A directory and its inode number. Each entry is held under its own
+/// name in its directory, as a tmpfs holds one name to each entry, so the
+/// names it holds stay bounded by its inodes however its directories move.
+struct Dir {
     ino: u64,
+    state: Mutex<State>,
+}
+
+struct State {
     entries: BTreeMap<String, Node>,
+    parent: Weak<Dir>,
+    /// Whether the directory was removed or replaced, so nothing is made
+    /// in it any more, as Linux marks such a directory dead.
+    removed: bool,
 }
 
-/// What a path names beneath a directory, the directory itself for the
-/// empty path.
-enum Found<'a> {
-    File(&'a Arc<Mutex<Content>>),
-    Directory(&'a Directory),
-}
-
-impl Found<'_> {
-    fn file_type(&self) -> FileType {
-        match self {
-            Self::File(_) => FileType::File,
-            Self::Directory(_) => FileType::Directory,
-        }
+impl Dir {
+    fn new(ino: u64, parent: Weak<Dir>) -> Arc<Self> {
+        Arc::new(Self {
+            ino,
+            state: Mutex::new(State {
+                entries: BTreeMap::new(),
+                parent,
+                removed: false,
+            }),
+        })
     }
-}
 
-impl Directory {
+    fn state(&self) -> MutexGuard<'_, State> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// What `path` names beneath this directory, or why it names nothing:
     /// a file standing where a directory above it should be, or simply no
     /// entry.
-    fn find(&self, path: &str) -> Result<Found<'_>, FilesystemError> {
-        let mut found = Found::Directory(self);
+    fn find(self: &Arc<Self>, path: &str) -> Result<Node, FilesystemError> {
+        let mut found = Node::Directory(self.clone());
         for name in components(path) {
             found = match found {
-                Found::Directory(dir) => match dir.entries.get(name) {
-                    Some(Node::File(data)) => Found::File(data),
-                    Some(Node::Directory(dir)) => Found::Directory(dir),
-                    None => return Err(FilesystemError::NotFound),
-                },
-                Found::File(_) => return Err(FilesystemError::NotADirectory),
+                Node::Directory(dir) => dir
+                    .state()
+                    .entries
+                    .get(name)
+                    .cloned()
+                    .ok_or(FilesystemError::NotFound)?,
+                Node::File(_) => return Err(FilesystemError::NotADirectory),
             };
         }
         Ok(found)
     }
 
     /// The directory `path` names beneath this one.
-    fn directory_mut(&mut self, path: &str) -> Result<&mut Directory, FilesystemError> {
-        let mut dir = self;
-        for name in components(path) {
-            dir = match dir.entries.get_mut(name) {
-                Some(Node::Directory(inner)) => inner,
-                Some(Node::File(_)) => return Err(FilesystemError::NotADirectory),
-                None => return Err(FilesystemError::NotFound),
-            };
+    fn directory(self: &Arc<Self>, path: &str) -> Result<Arc<Self>, FilesystemError> {
+        match self.find(path)? {
+            Node::Directory(dir) => Ok(dir),
+            Node::File(_) => Err(FilesystemError::NotADirectory),
         }
-        Ok(dir)
     }
 
-    /// The entries of the directory a new entry at `path` goes into, which
-    /// must already be one, and the entry's name there.
-    fn parent_mut<'a>(
-        &mut self,
+    /// The directory a new entry at `path` goes into, which must stand and
+    /// not have been removed, and the entry's name there.
+    fn parent_of<'a>(
+        self: &Arc<Self>,
         path: &'a str,
-    ) -> Result<(&mut BTreeMap<String, Node>, &'a str), FilesystemError> {
-        Ok((&mut self.directory_mut(parent(path))?.entries, name(path)))
+    ) -> Result<(Arc<Self>, &'a str), FilesystemError> {
+        let dir = self.directory(parent(path))?;
+        if dir.state().removed {
+            return Err(FilesystemError::NotFound);
+        }
+        Ok((dir, name(path)))
+    }
+
+    /// Whether this directory is `dir` or lies beneath it.
+    fn within(self: &Arc<Self>, dir: &Arc<Self>) -> bool {
+        let mut at = Some(self.clone());
+        while let Some(current) = at {
+            if Arc::ptr_eq(&current, dir) {
+                return true;
+            }
+            at = current.state().parent.upgrade();
+        }
+        false
     }
 }
 
@@ -229,23 +260,24 @@ impl Memory {
         };
         space.inodes.add(1);
         Self {
-            root: Mutex::new(Directory {
-                ino: 1,
-                entries: BTreeMap::new(),
+            tree: Arc::new(Tree {
+                lock: Mutex::new(()),
+                space: Arc::new(space),
+                inodes_follow_limit: AtomicBool::new(true),
+                dev: Metadata::unique_device(),
+                next_ino: AtomicU64::new(2),
             }),
-            space: Arc::new(space),
-            inodes_follow_limit: true,
-            dev: Metadata::unique_device(),
-            next_ino: AtomicU64::new(2),
+            dir: Dir::new(1, Weak::new()),
         }
     }
 
-    /// A directory with an inode number no directory of this Memory had.
-    fn new_directory(&self) -> Node {
-        Node::Directory(Directory {
-            ino: self.next_ino.fetch_add(1, Ordering::Relaxed),
-            entries: BTreeMap::new(),
-        })
+    /// A directory in `parent` with an inode number no directory of this
+    /// Memory had.
+    fn new_directory(&self, parent: &Arc<Dir>) -> Arc<Dir> {
+        Dir::new(
+            self.tree.next_ino.fetch_add(1, Ordering::Relaxed),
+            Arc::downgrade(parent),
+        )
     }
 
     /// This Memory with its files holding at most `limit` bytes together,
@@ -253,25 +285,36 @@ impl Memory {
     /// entries follow the limit: one for each 4 KiB it spans, and the
     /// root. What it was seeded with counts, but is never refused.
     pub fn with_limit(self, limit: Option<usize>) -> Self {
-        self.space.bytes.set_limit(limit);
-        if self.inodes_follow_limit {
-            self.space.inodes.set_limit(inodes_for(limit));
+        self.tree.space.bytes.set_limit(limit);
+        if self.tree.inodes_follow_limit.load(Ordering::Relaxed) {
+            self.tree.space.inodes.set_limit(inodes_for(limit));
         }
         self
     }
 
     /// This Memory holding at most `inodes` entries, the root among them,
     /// or without bound for `None`, as a tmpfs mount's `nr_inodes` does.
-    pub fn with_inodes(mut self, inodes: Option<usize>) -> Self {
-        self.space.inodes.set_limit(inodes);
-        self.inodes_follow_limit = false;
+    pub fn with_inodes(self, inodes: Option<usize>) -> Self {
+        self.tree.space.inodes.set_limit(inodes);
+        self.tree
+            .inodes_follow_limit
+            .store(false, Ordering::Relaxed);
         self
     }
 
-    fn root(&self) -> MutexGuard<'_, Directory> {
-        self.root
+    fn hold(&self) -> MutexGuard<'_, ()> {
+        self.tree
+            .lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The directory `dir` of this Memory, as a Memory of its own.
+    fn beneath(&self, dir: Arc<Dir>) -> Self {
+        Self {
+            tree: self.tree.clone(),
+            dir,
+        }
     }
 }
 
@@ -322,43 +365,41 @@ impl Memory {
         I: IntoIterator<Item = (P, C)>,
     {
         let memory = Self::new();
-        {
-            let mut root = memory.root();
-            for (path, contents) in files {
-                let path = normalize_seed(path.as_ref());
-                if path.is_empty() {
-                    return Err(SeedError::Root);
-                }
-                if path.split('/').any(|name| name == "..") {
-                    return Err(SeedError::DotDot(path));
-                }
-                let mut dir = &mut *root;
-                for above in ancestors(&path) {
-                    let node = dir
-                        .entries
-                        .entry(name(above).to_string())
-                        .or_insert_with(|| {
-                            memory.space.inodes.add(1);
-                            memory.new_directory()
-                        });
-                    dir = match node {
-                        Node::Directory(inner) => inner,
-                        Node::File(_) => {
-                            return Err(SeedError::FileAndDirectory(above.to_string()))
-                        }
-                    };
-                }
-                let file_name = name(&path).to_string();
-                match dir.entries.get(&file_name) {
-                    Some(Node::Directory(_)) => return Err(SeedError::FileAndDirectory(path)),
-                    Some(Node::File(_)) => return Err(SeedError::Twice(path)),
-                    None => {}
-                }
-                dir.entries.insert(
-                    file_name,
-                    Node::File(Content::seed(contents.into(), &memory.space)),
-                );
+        let space = &memory.tree.space;
+        for (path, contents) in files {
+            let path = normalize_seed(path.as_ref());
+            if path.is_empty() {
+                return Err(SeedError::Root);
             }
+            if path.split('/').any(|name| name == "..") {
+                return Err(SeedError::DotDot(path));
+            }
+            let mut dir = memory.dir.clone();
+            for above in ancestors(&path) {
+                let next = dir
+                    .state()
+                    .entries
+                    .entry(name(above).to_string())
+                    .or_insert_with(|| {
+                        space.inodes.add(1);
+                        Node::Directory(memory.new_directory(&dir))
+                    })
+                    .clone();
+                dir = match next {
+                    Node::Directory(inner) => inner,
+                    Node::File(_) => return Err(SeedError::FileAndDirectory(above.to_string())),
+                };
+            }
+            let mut state = dir.state();
+            match state.entries.get(name(&path)) {
+                Some(Node::Directory(_)) => return Err(SeedError::FileAndDirectory(path)),
+                Some(Node::File(_)) => return Err(SeedError::Twice(path)),
+                None => {}
+            }
+            state.entries.insert(
+                name(&path).to_string(),
+                Node::File(Content::seed(contents.into(), space)),
+            );
         }
         Ok(memory)
     }
@@ -379,20 +420,22 @@ impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
 
 impl Filesystem for Memory {
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        let mut root = self.root();
-        let data = match root.find(path) {
-            Ok(Found::Directory(_)) => return Err(FilesystemError::IsADirectory),
-            Ok(Found::File(_)) if options.create_new => return Err(FilesystemError::AlreadyExists),
-            Ok(Found::File(data)) => {
+        let _held = self.hold();
+        let data = match self.dir.find(path) {
+            Ok(Node::Directory(_)) => return Err(FilesystemError::IsADirectory),
+            Ok(Node::File(_)) if options.create_new => return Err(FilesystemError::AlreadyExists),
+            Ok(Node::File(data)) => {
                 if options.truncate {
-                    lock(data).resize(0)?;
+                    lock(&data).resize(0)?;
                 }
-                data.clone()
+                data
             }
             Err(FilesystemError::NotFound) if options.create || options.create_new => {
-                let (entries, name) = root.parent_mut(path)?;
-                let data = Content::create(&self.space)?;
-                entries.insert(name.to_string(), Node::File(data.clone()));
+                let (dir, name) = self.dir.parent_of(path)?;
+                let data = Content::create(&self.tree.space)?;
+                dir.state()
+                    .entries
+                    .insert(name.to_string(), Node::File(data.clone()));
                 data
             }
             Err(error) => return Err(error),
@@ -400,11 +443,25 @@ impl Filesystem for Memory {
         Ok(Box::new(MemoryFile { data }))
     }
 
+    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        let _held = self.hold();
+        Ok(Arc::new(self.beneath(self.dir.directory(path)?)))
+    }
+
+    /// A Memory holds no links.
+    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        self.open_dir(name)
+    }
+
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        match self.root().find(path)? {
-            Found::File(data) => Ok(Metadata::new(FileType::File, lock(data).bytes.len() as u64)),
-            Found::Directory(dir) => {
-                Ok(Metadata::new(FileType::Directory, 0).with_identity(self.dev, dir.ino))
+        let _held = self.hold();
+        match self.dir.find(path)? {
+            Node::File(data) => Ok(Metadata::new(
+                FileType::File,
+                lock(&data).bytes.len() as u64,
+            )),
+            Node::Directory(dir) => {
+                Ok(Metadata::new(FileType::Directory, 0).with_identity(self.tree.dev, dir.ino))
             }
         }
     }
@@ -415,8 +472,8 @@ impl Filesystem for Memory {
     }
 
     /// A Memory matches names byte for byte.
-    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
-        Ok(path.to_string())
+    fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
+        Ok(name.to_string())
     }
 
     /// A Memory holds no links to follow.
@@ -434,62 +491,67 @@ impl Filesystem for Memory {
         Ok(None)
     }
 
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-        match self.root().find(path)? {
-            Found::Directory(dir) => Ok(dir
-                .entries
-                .iter()
-                .map(|(name, node)| DirEntry::new(name.as_str(), node.file_type()))
-                .collect()),
-            Found::File(_) => Err(FilesystemError::NotADirectory),
-        }
+    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+        let _held = self.hold();
+        Ok(self
+            .dir
+            .state()
+            .entries
+            .iter()
+            .map(|(name, node)| DirEntry::new(name.as_str(), node.file_type()))
+            .collect())
     }
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        let mut root = self.root();
-        if root.find(path).is_ok() {
+        let _held = self.hold();
+        if self.dir.find(path).is_ok() {
             return Err(FilesystemError::AlreadyExists);
         }
-        let (entries, name) = root.parent_mut(path)?;
-        self.space.inodes.take(1)?;
-        entries.insert(name.to_string(), self.new_directory());
+        let (dir, name) = self.dir.parent_of(path)?;
+        self.tree.space.inodes.take(1)?;
+        let made = Node::Directory(self.new_directory(&dir));
+        dir.state().entries.insert(name.to_string(), made);
         Ok(())
     }
 
-    /// The root stays, as a mount point does.
+    /// The root stays, as a mount point does. A directory removed while
+    /// opened is marked so, and nothing is made in it any more.
     fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        let mut root = self.root();
+        let _held = self.hold();
         if path.is_empty() {
-            return Err(if root.entries.is_empty() {
+            return Err(if self.dir.state().entries.is_empty() {
                 FilesystemError::ResourceBusy
             } else {
                 FilesystemError::DirectoryNotEmpty
             });
         }
-        let (entries, name) = root.parent_mut(path)?;
-        match entries.get(name) {
-            Some(Node::File(_)) => Err(FilesystemError::NotADirectory),
-            Some(Node::Directory(dir)) if !dir.entries.is_empty() => {
-                Err(FilesystemError::DirectoryNotEmpty)
-            }
-            Some(Node::Directory(_)) => {
-                entries.remove(name);
-                self.space.inodes.give(1);
-                Ok(())
-            }
-            None => Err(FilesystemError::NotFound),
+        let (dir, name) = self.dir.parent_of(path)?;
+        let mut state = dir.state();
+        let removed = match state.entries.get(name) {
+            Some(Node::File(_)) => return Err(FilesystemError::NotADirectory),
+            Some(Node::Directory(removed)) => removed.clone(),
+            None => return Err(FilesystemError::NotFound),
+        };
+        let mut removed_state = removed.state();
+        if !removed_state.entries.is_empty() {
+            return Err(FilesystemError::DirectoryNotEmpty);
         }
+        removed_state.removed = true;
+        state.entries.remove(name);
+        self.tree.space.inodes.give(1);
+        Ok(())
     }
 
     fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        let mut root = self.root();
+        let _held = self.hold();
         if path.is_empty() {
             return Err(FilesystemError::IsADirectory);
         }
-        let (entries, name) = root.parent_mut(path)?;
-        match entries.get(name) {
+        let (dir, name) = self.dir.parent_of(path)?;
+        let mut state = dir.state();
+        match state.entries.get(name) {
             Some(Node::File(_)) => {
-                entries.remove(name);
+                state.entries.remove(name);
                 Ok(())
             }
             Some(Node::Directory(_)) => Err(FilesystemError::IsADirectory),
@@ -498,33 +560,52 @@ impl Filesystem for Memory {
     }
 
     /// The entry moves under its new name with all it holds, so no name
-    /// beneath it changes.
-    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-        let mut root = self.root();
-        let moving = root.find(from)?.file_type();
-        if from == to {
+    /// beneath it changes. A directory never moves into itself or beneath
+    /// itself, which would cut it off from the root for good, as Linux
+    /// refuses it once it finds the source above the target.
+    fn rename(
+        &self,
+        from: &str,
+        to_dir: &dyn Filesystem,
+        to: &str,
+        rename: Rename,
+    ) -> Result<(), FilesystemError> {
+        let target = (to_dir as &dyn Any)
+            .downcast_ref::<Self>()
+            .filter(|target| Arc::ptr_eq(&target.tree, &self.tree))
+            .ok_or(FilesystemError::CrossesDevices)?;
+        let _held = self.hold();
+        let moving = self.dir.find(from)?;
+        let (from_dir, from_name) = self.dir.parent_of(from)?;
+        let (to_dir, to_name) = target.dir.parent_of(to)?;
+        if Arc::ptr_eq(&from_dir, &to_dir) && from_name == to_name {
             return Ok(());
         }
-        rename.check(moving)?;
-        if is_beneath(to, from) {
-            return Err(beneath_itself(moving));
+        rename.check(moving.file_type())?;
+        if let Node::Directory(moving) = &moving {
+            if to_dir.within(moving) {
+                return Err(FilesystemError::InvalidInput);
+            }
         }
-        root.parent_mut(to)?;
-        match (moving, root.find(to)) {
-            (FileType::File, Ok(Found::Directory(_))) => return Err(FilesystemError::IsADirectory),
-            (FileType::Directory, Ok(Found::File(_))) => {
+        let replaced = to_dir.state().entries.get(to_name).cloned();
+        match (&moving, &replaced) {
+            (Node::File(_), Some(Node::Directory(_))) => return Err(FilesystemError::IsADirectory),
+            (Node::Directory(_), Some(Node::File(_))) => {
                 return Err(FilesystemError::NotADirectory)
             }
-            (FileType::Directory, Ok(Found::Directory(dir))) if !dir.entries.is_empty() => {
+            (Node::Directory(_), Some(Node::Directory(dir))) if !dir.state().entries.is_empty() => {
                 return Err(FilesystemError::DirectoryNotEmpty)
             }
             _ => {}
         }
-        let (entries, name) = root.parent_mut(from)?;
-        let node = entries.remove(name).ok_or(FilesystemError::NotFound)?;
-        let (entries, name) = root.parent_mut(to)?;
-        if let Some(Node::Directory(_)) = entries.insert(name.to_string(), node) {
-            self.space.inodes.give(1);
+        from_dir.state().entries.remove(from_name);
+        if let Node::Directory(moved) = &moving {
+            moved.state().parent = Arc::downgrade(&to_dir);
+        }
+        to_dir.state().entries.insert(to_name.to_string(), moving);
+        if let Some(Node::Directory(replaced)) = replaced {
+            replaced.state().removed = true;
+            self.tree.space.inodes.give(1);
         }
         Ok(())
     }
@@ -723,7 +804,7 @@ mod tests {
     fn a_renamed_directory_carries_its_entries() {
         let memory: Memory = [("old/inner/file", "x")].into_iter().collect();
         memory
-            .rename("old", "new", Rename::Any)
+            .rename("old", &memory, "new", Rename::Any)
             .expect("the rename must succeed");
         assert_eq!(read_all(&memory, "new/inner/file"), b"x");
         assert_eq!(memory.metadata("old"), Err(FilesystemError::NotFound));
@@ -923,8 +1004,8 @@ mod tests {
         let memory: Memory = [("dir/inner", "x"), ("file", "y")].into_iter().collect();
         assert_eq!(
             (
-                memory.rename("dir", "moved", Rename::File),
-                memory.rename("file", "moved", Rename::Directory),
+                memory.rename("dir", &memory, "moved", Rename::File),
+                memory.rename("file", &memory, "moved", Rename::Directory),
                 memory.metadata("dir/inner").map(|m| m.file_type),
                 memory.metadata("file").map(|m| m.file_type),
             ),
@@ -954,7 +1035,7 @@ mod tests {
         memory.remove_dir("a").expect("the directory must remove");
         let after_removal = memory.create_dir("c");
         memory
-            .rename("c", "b", Rename::Any)
+            .rename("c", &memory, "b", Rename::Any)
             .expect("a directory must replace an empty one");
         assert_eq!(
             (after_removal, memory.create_dir("d")),
@@ -999,8 +1080,9 @@ mod tests {
         );
     }
 
-    fn names(dir: &Directory) -> Vec<String> {
-        dir.entries
+    fn names(dir: &Dir) -> Vec<String> {
+        dir.state()
+            .entries
             .iter()
             .flat_map(|(name, node)| {
                 let beneath = match node {
@@ -1024,13 +1106,13 @@ mod tests {
                 .create_dir("n")
                 .expect("the new directory must be made");
             memory
-                .rename("d", "n/d", Rename::Any)
+                .rename("d", &memory, "n/d", Rename::Any)
                 .expect("the directory must move into the new one");
             memory
-                .rename("n", "d", Rename::Any)
+                .rename("n", &memory, "d", Rename::Any)
                 .expect("the new directory must take the old name");
         }
-        let held = names(&memory.root());
+        let held = names(&memory.dir);
         assert_eq!(
             (held, read_all(&memory, &format!("{}f", "d/".repeat(65)))),
             (
@@ -1041,6 +1123,89 @@ mod tests {
             ),
             "a directory moved deeper 64 times through Memory::rename must leave every entry \
              holding only its own name, and the file reading where it now lies"
+        );
+    }
+
+    // @behavior FS-105
+    #[test]
+    fn a_directory_opened_from_a_memory_follows_it_when_it_moves() {
+        let memory: Memory = [("dir/.keep", "")].into_iter().collect();
+        let dir = memory.open_dir("dir").expect("the directory must open");
+        memory
+            .rename("dir", &memory, "moved", Rename::Any)
+            .expect("the directory must move");
+        create(dir.as_ref(), "made").expect("the file must be made");
+        assert_eq!(
+            (
+                memory.metadata("moved/made").map(|m| m.file_type),
+                memory.metadata("dir/made").map(|m| m.file_type)
+            ),
+            (Ok(FileType::File), Err(FilesystemError::NotFound)),
+            "a file made through a directory Memory::open_dir opened before Memory::rename moved \
+             it must stand beneath the directory's new path"
+        );
+    }
+
+    // @behavior FS-106
+    #[test]
+    fn a_memory_directory_removed_while_opened_makes_nothing_more() {
+        let memory = Memory::new();
+        memory
+            .create_dir("dir")
+            .expect("the directory must be made");
+        let dir = memory.open_dir("dir").expect("the directory must open");
+        memory.remove_dir("dir").expect("the directory must remove");
+        assert_eq!(
+            (
+                create(dir.as_ref(), "made"),
+                dir.create_dir("inner"),
+                dir.entries().map(|entries| entries.len()),
+                dir.metadata("").map(|m| m.file_type)
+            ),
+            (
+                Err(FilesystemError::NotFound),
+                Err(FilesystemError::NotFound),
+                Ok(0),
+                Ok(FileType::Directory)
+            ),
+            "a directory Memory::open_dir opened, once Memory::remove_dir removed it, must make \
+             nothing, list nothing, and still stat as a directory"
+        );
+    }
+
+    // @behavior FS-107
+    #[test]
+    fn a_memory_directory_never_moves_beneath_itself() {
+        let memory = Memory::new();
+        memory.create_dir("a").expect("the directory must be made");
+        memory
+            .create_dir("a/b")
+            .expect("the inner directory must be made");
+        let inner = memory.open_dir("a/b").expect("the directory must open");
+        assert_eq!(
+            (
+                memory.rename("a", inner.as_ref(), "a", Rename::Any),
+                memory.metadata("a/b").map(|m| m.file_type)
+            ),
+            (Err(FilesystemError::InvalidInput), Ok(FileType::Directory)),
+            "Memory::rename of a directory into one opened beneath it must answer InvalidInput \
+             and move nothing"
+        );
+    }
+
+    // @behavior FS-109
+    #[test]
+    fn a_rename_into_a_directory_of_another_memory_crosses_devices() {
+        let memory: Memory = [("file", "x")].into_iter().collect();
+        let other = Memory::new();
+        assert_eq!(
+            (
+                memory.rename("file", &other, "file", Rename::Any),
+                read_all(&memory, "file")
+            ),
+            (Err(FilesystemError::CrossesDevices), b"x".to_vec()),
+            "Memory::rename into a directory of another Memory must answer CrossesDevices and \
+             leave the file"
         );
     }
 
@@ -1057,7 +1222,7 @@ mod tests {
         };
         let before = identity("dir");
         memory
-            .rename("dir", "moved", Rename::Any)
+            .rename("dir", &memory, "moved", Rename::Any)
             .expect("the directory must move");
         memory
             .create_dir("dir")

@@ -6,7 +6,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::filesystem::{Access, Filesystem};
+use crate::filesystem::{Access, Filesystem, FilesystemError};
 
 /// The Host App's decision for one path a guest opens or changes, made in
 /// a Mount's access's place.
@@ -59,6 +59,31 @@ fn is_guest_path(at: &str) -> bool {
             rest.split('/')
                 .all(|part| !part.is_empty() && part != "." && part != "..")
         })
+}
+
+/// `path` beneath `root` with each name spelled as the directory holding
+/// it stores it, reached one name at a time following no link; names past
+/// the last one held stay as given.
+fn stored_path(root: &Arc<dyn Filesystem>, path: &str) -> Result<String, FilesystemError> {
+    let mut dir = Some(root.clone());
+    let mut stored = Vec::new();
+    let mut names = path.split('/').filter(|name| !name.is_empty()).peekable();
+    while let Some(name) = names.next() {
+        let spelled = match &dir {
+            Some(dir) => dir.stored_name(name)?,
+            None => name.to_string(),
+        };
+        dir = match dir {
+            Some(dir) if names.peek().is_some() => match dir.open_dir_nofollow(&spelled) {
+                Ok(next) => Some(next),
+                Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => None,
+                Err(err) => return Err(err),
+            },
+            _ => None,
+        };
+        stored.push(spelled);
+    }
+    Ok(stored.join("/"))
 }
 
 impl Mount {
@@ -125,10 +150,7 @@ impl Mount {
     pub fn check(&self, path: &str, access: Access) -> Result<(), Denial> {
         match &self.policy {
             Some(policy) => {
-                let stored = self
-                    .filesystem
-                    .stored_path(path)
-                    .map_err(|_| Denial::Refused)?;
+                let stored = stored_path(&self.filesystem, path).map_err(|_| Denial::Refused)?;
                 if policy.allows(&self.guest_path(&stored), access) {
                     Ok(())
                 } else {

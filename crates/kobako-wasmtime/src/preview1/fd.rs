@@ -447,7 +447,7 @@ pub(crate) fn readdir(
     confirm(dir)?;
     let listing = match dir.listing.take() {
         Some(listing) if cookie != 0 => listing,
-        _ => dir.mount.filesystem().read_dir(&dir.path)?,
+        _ => dir.mount.filesystem().open_dir(&dir.path)?.entries()?,
     };
     let entries = [(".", FILETYPE_DIRECTORY), ("..", FILETYPE_DIRECTORY)]
         .into_iter()

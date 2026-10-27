@@ -324,20 +324,24 @@ as an open answers what stands at a path before its access is judged.
 ```
 guest path ─▶ runtime: resolve, refuse links, judge the Policy ─▶ Filesystem
                               ▲                                     │
-                              ├── symlink_metadata · stored_path ───┤
+                              ├── symlink_metadata · stored_name ───┤
                               └── canonicalize_beneath ─────────────┘
 ```
 
+A directory the guest opens is a Filesystem of its own, from `open_dir`. A wrapper
+wraps each directory it opens too, so it still sees every call beneath it.
+
 ### Filesystem Obligations
 
-Six methods carry a guarantee the runtime gives the guest. None has a default, so
+Seven methods carry a guarantee the runtime gives the guest. None has a default, so
 each Filesystem and its `File` answer them, and one wrapping another forwards them.
 A method like these joins without a default, a break marked `!`.
 
 | Method | Keeps | An implementor without it answers |
 |---|---|---|
 | `symlink_metadata` | a link from being followed where a Mount refuses links | `metadata` |
-| `stored_path` | a Policy judging the spelling the host stores | the path as given |
+| `open_dir_nofollow` | the same, for each directory on a path | `open_dir` |
+| `stored_name` | a Policy judging the spelling the host stores | the name as given |
 | `canonicalize_beneath` | a link within the directory a descriptor opened | the path as given |
 | `hold_directory` | an open directory's identity its own | `Ok(None)` |
 | `for_policy` | a call to the path a Policy judged, a link swapped in refused | `None` |

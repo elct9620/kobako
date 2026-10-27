@@ -42,8 +42,26 @@ macro_rules! holds_no_links {
 /// The answer of a test Filesystem matching names byte for byte.
 macro_rules! matches_names_exactly {
     () => {
-        fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
-            Ok(path.to_string())
+        fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
+            Ok(name.to_string())
+        }
+    };
+}
+
+/// The answers of a test Filesystem over the Memory in `$inner` that opens
+/// and lists its directories as that Memory does.
+macro_rules! opens_directories {
+    ($inner:tt) => {
+        fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+            self.$inner.open_dir(path)
+        }
+
+        fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+            self.$inner.open_dir(name)
+        }
+
+        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.$inner.entries()
         }
     };
 }
@@ -587,13 +605,11 @@ impl Filesystem for StoresUpperCase {
         self.0.metadata(path)
     }
 
-    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
-        Ok(path.to_uppercase())
+    fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
+        Ok(name.to_uppercase())
     }
 
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.0.read_dir(path)
-    }
+    opens_directories!(0);
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         self.0.create_dir(path)
@@ -607,8 +623,14 @@ impl Filesystem for StoresUpperCase {
         self.0.remove_file(path)
     }
 
-    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-        self.0.rename(from, to, rename)
+    fn rename(
+        &self,
+        from: &str,
+        _to_dir: &dyn Filesystem,
+        to: &str,
+        rename: Rename,
+    ) -> Result<(), FilesystemError> {
+        self.0.rename(from, &self.0, to, rename)
     }
 }
 
@@ -788,7 +810,7 @@ fn stat_after(change: impl FnOnce(&Memory)) -> i32 {
 fn a_directory_made_in_an_opened_directorys_place_is_not_reached_through_it() {
     let answers = (
         stat_after(|memory| {
-            memory.rename("dir", "moved", Rename::Any).unwrap();
+            memory.rename("dir", memory, "moved", Rename::Any).unwrap();
             memory.create_dir("dir").unwrap();
             overwrite(memory, "dir/inner");
         }),
@@ -850,9 +872,7 @@ impl Filesystem for ReusesInodes {
         Ok(Some(Hold::new(Holding(self.holds.clone()))))
     }
 
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.memory.read_dir(path)
-    }
+    opens_directories!(memory);
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         self.memory.create_dir(path)
@@ -870,8 +890,14 @@ impl Filesystem for ReusesInodes {
         self.memory.remove_file(path)
     }
 
-    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-        self.memory.rename(from, to, rename)
+    fn rename(
+        &self,
+        from: &str,
+        _to_dir: &dyn Filesystem,
+        to: &str,
+        rename: Rename,
+    ) -> Result<(), FilesystemError> {
+        self.memory.rename(from, self.memory.as_ref(), to, rename)
     }
 }
 
@@ -928,8 +954,8 @@ fn a_directory_two_layers_hold_is_reached_through_its_descriptor() {
 #[test]
 fn a_directory_moved_back_to_its_path_is_reached_through_its_descriptor_again() {
     let answer = stat_after(|memory| {
-        memory.rename("dir", "moved", Rename::Any).unwrap();
-        memory.rename("moved", "dir", Rename::Any).unwrap();
+        memory.rename("dir", memory, "moved", Rename::Any).unwrap();
+        memory.rename("moved", memory, "dir", Rename::Any).unwrap();
     });
     assert_eq!(
         answer, 0,
@@ -1021,9 +1047,7 @@ impl Filesystem for ChangeCounter {
         self.memory.metadata(path)
     }
 
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.memory.read_dir(path)
-    }
+    opens_directories!(memory);
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         self.change();
@@ -1040,9 +1064,15 @@ impl Filesystem for ChangeCounter {
         self.memory.remove_file(path)
     }
 
-    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+    fn rename(
+        &self,
+        from: &str,
+        _to_dir: &dyn Filesystem,
+        to: &str,
+        rename: Rename,
+    ) -> Result<(), FilesystemError> {
         self.change();
-        self.memory.rename(from, to, rename)
+        self.memory.rename(from, &self.memory, to, rename)
     }
 }
 
@@ -1070,9 +1100,7 @@ impl Filesystem for SwappedForADirectory {
         self.0.metadata(path)
     }
 
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.0.read_dir(path)
-    }
+    opens_directories!(0);
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         self.0.create_dir(path)
@@ -1086,14 +1114,20 @@ impl Filesystem for SwappedForADirectory {
         self.0.remove_file(path)
     }
 
-    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+    fn rename(
+        &self,
+        from: &str,
+        _to_dir: &dyn Filesystem,
+        to: &str,
+        rename: Rename,
+    ) -> Result<(), FilesystemError> {
         self.0.remove_file(from)?;
         self.0.create_dir(from)?;
         drop(self.0.open(
             &format!("{from}/secret"),
             &build_options(|options| (options.write, options.create) = (true, true)),
         )?);
-        self.0.rename(from, to, rename)
+        self.0.rename(from, &self.0, to, rename)
     }
 }
 
@@ -1181,9 +1215,7 @@ impl Filesystem for AppendedMeanwhile {
         self.0.metadata(path)
     }
 
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.0.read_dir(path)
-    }
+    opens_directories!(0);
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         self.0.create_dir(path)
@@ -1197,8 +1229,14 @@ impl Filesystem for AppendedMeanwhile {
         self.0.remove_file(path)
     }
 
-    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-        self.0.rename(from, to, rename)
+    fn rename(
+        &self,
+        from: &str,
+        _to_dir: &dyn Filesystem,
+        to: &str,
+        rename: Rename,
+    ) -> Result<(), FilesystemError> {
+        self.0.rename(from, &self.0, to, rename)
     }
 }
 
@@ -1610,9 +1648,7 @@ impl Filesystem for FailsLookingUpDir {
         None
     }
 
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.0.read_dir(path)
-    }
+    opens_directories!(0);
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         self.0.create_dir(path)
@@ -1626,8 +1662,14 @@ impl Filesystem for FailsLookingUpDir {
         self.0.remove_file(path)
     }
 
-    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-        self.0.rename(from, to, rename)
+    fn rename(
+        &self,
+        from: &str,
+        _to_dir: &dyn Filesystem,
+        to: &str,
+        rename: Rename,
+    ) -> Result<(), FilesystemError> {
+        self.0.rename(from, &self.0, to, rename)
     }
 }
 
@@ -2206,7 +2248,7 @@ fn a_file_created_at_a_path_ending_in_a_slash_is_refused_as_a_directory() {
     assert_eq!(
         (
             guest.call("write_file", NEW_AS_DIRECTORY),
-            memory.read_dir("").map(|entries| entries.len())
+            memory.entries().map(|entries| entries.len())
         ),
         (ERRNO_ISDIR, Ok(0)),
         "path_open creating `new.txt/` beneath a Mount through preview1 must answer EISDIR and \
@@ -2229,7 +2271,7 @@ fn open_flagged(path: (i32, i32), oflags: i32, fdflags: i32) -> (i32, Vec<String
     let errno = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)])
         .call_flagged(path, oflags, fdflags);
     let held = memory
-        .read_dir("")
+        .entries()
         .expect("the root must list")
         .into_iter()
         .map(|entry| entry.name)

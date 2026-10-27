@@ -13,12 +13,15 @@ mod exclusive;
 mod readers;
 mod stack;
 
+use std::any::Any;
 use std::sync::Arc;
 
 pub use exclusive::Blocking;
 
+use super::path::join;
 use super::{
-    Access, DirEntry, File, Filesystem, FilesystemError, Hold, Metadata, OpenOptions, Rename,
+    Access, DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions,
+    Rename,
 };
 use exclusive::{Exclusive, Inline};
 use stack::Stack;
@@ -31,6 +34,9 @@ use stack::Stack;
 pub struct Overlay {
     stack: Stack,
     lock: Arc<Exclusive>,
+    /// Where this directory lies beneath the Overlay's root, the empty
+    /// path being the root itself.
+    at: String,
 }
 
 impl Default for Overlay {
@@ -45,6 +51,28 @@ impl Overlay {
         Self {
             stack: Stack::default(),
             lock: Arc::new(Exclusive::new(Arc::new(Inline))),
+            at: String::new(),
+        }
+    }
+
+    /// `path` beneath this directory, from the Overlay's root.
+    fn path(&self, path: &str) -> String {
+        join(&self.at, path)
+    }
+
+    /// The directory at `path`, `found` there, as an Overlay of its own.
+    fn beneath(
+        &self,
+        path: String,
+        found: Metadata,
+    ) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        match found.file_type {
+            FileType::Directory => Ok(Arc::new(Self {
+                at: path,
+                ..self.clone()
+            })),
+            FileType::Symlink => Err(FilesystemError::FilesystemLoop),
+            _ => Err(FilesystemError::NotADirectory),
         }
     }
 
@@ -70,57 +98,88 @@ impl Overlay {
 impl Filesystem for Overlay {
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.open(path, options)
+        self.stack.open(&self.path(path), options)
+    }
+
+    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        let path = self.path(path);
+        let found = {
+            let _held = self.lock.hold()?;
+            self.stack.metadata(&path)?
+        };
+        self.beneath(path, found)
+    }
+
+    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        let path = self.path(name);
+        let found = {
+            let _held = self.lock.hold()?;
+            self.stack.symlink_metadata(&path)?
+        };
+        self.beneath(path, found)
     }
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.metadata(path)
+        self.stack.metadata(&self.path(path))
     }
 
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.symlink_metadata(path)
+        self.stack.symlink_metadata(&self.path(path))
     }
 
-    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
+    fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.stored_path(path)
+        self.stack.stored_name(&self.path(name))
     }
 
     fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.canonicalize_beneath(base, path)
+        self.stack.canonicalize_beneath(&self.path(base), path)
     }
 
     fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.hold_directory(path)
+        self.stack.hold_directory(&self.path(path))
     }
 
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.read_dir(path)
+        self.stack.entries(&self.at)
     }
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.create_dir(path)
+        self.stack.create_dir(&self.path(path))
     }
 
     fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.remove_dir(path)
+        self.stack.remove_dir(&self.path(path))
     }
 
     fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.remove_file(path)
+        self.stack.remove_file(&self.path(path))
     }
 
-    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
+    /// Both directories lie in one Overlay, which holds one lock however
+    /// many directories of it are open.
+    fn rename(
+        &self,
+        from: &str,
+        to_dir: &dyn Filesystem,
+        to: &str,
+        rename: Rename,
+    ) -> Result<(), FilesystemError> {
+        let target = (to_dir as &dyn Any)
+            .downcast_ref::<Self>()
+            .filter(|target| Arc::ptr_eq(&target.lock, &self.lock))
+            .ok_or(FilesystemError::CrossesDevices)?;
         let _held = self.lock.hold()?;
-        self.stack.rename(from, to, rename)
+        self.stack
+            .rename(&self.path(from), &target.path(to), rename)
     }
 
     /// An Overlay over each Layer's own Filesystem for a Policy, keeping
@@ -129,7 +188,7 @@ impl Filesystem for Overlay {
         let stack = self.stack.for_policy()?;
         Some(Arc::new(Self {
             stack,
-            lock: self.lock.clone(),
+            ..self.clone()
         }))
     }
 }
@@ -169,8 +228,29 @@ mod tests {
     /// The answer of a test Filesystem matching names byte for byte.
     macro_rules! matches_names_exactly {
         () => {
-            fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
-                Ok(path.to_string())
+            fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
+                Ok(name.to_string())
+            }
+        };
+    }
+
+    /// The answers of a test Filesystem over the Memory in `$inner` that
+    /// opens and lists its directories as that Memory does.
+    macro_rules! opens_directories {
+        ($inner:tt) => {
+            fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+                self.$inner.open_dir(path)
+            }
+
+            fn open_dir_nofollow(
+                &self,
+                name: &str,
+            ) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+                self.$inner.open_dir(name)
+            }
+
+            fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+                self.$inner.entries()
             }
         };
     }
@@ -226,7 +306,8 @@ mod tests {
 
     fn names(fs: &dyn Filesystem, path: &str) -> Vec<String> {
         let mut names: Vec<String> = fs
-            .read_dir(path)
+            .open_dir(path)
+            .and_then(|dir| dir.entries())
             .expect("the directory must list")
             .into_iter()
             .map(|entry| entry.name)
@@ -414,7 +495,7 @@ mod tests {
         assert_eq!(
             (
                 write(&overlay, "pipe", b"upper"),
-                overlay.rename("pipe", "moved", Rename::File)
+                overlay.rename("pipe", &overlay, "moved", Rename::File)
             ),
             (
                 Err(FilesystemError::PermissionDenied),
@@ -445,8 +526,8 @@ mod tests {
         let file_type = |path| overlay.metadata(path).map(|metadata| metadata.file_type);
         assert_eq!(
             (
-                overlay.rename("pipe", "dir", Rename::Any),
-                overlay.rename("made", "pipe", Rename::Any),
+                overlay.rename("pipe", &overlay, "dir", Rename::Any),
+                overlay.rename("made", &overlay, "pipe", Rename::Any),
                 file_type("pipe"),
                 file_type("made"),
             ),
@@ -478,7 +559,7 @@ mod tests {
             write(&overlay, "link", b"upper"),
             overlay.open("dirlink/new", &creates).map(drop),
             overlay.open("dangling", &creates).map(drop),
-            overlay.rename("link", "moved", Rename::Any),
+            overlay.rename("link", &overlay, "moved", Rename::Any),
         ];
         assert_eq!(
             (refused, read(&overlay, "target")),
@@ -582,7 +663,7 @@ mod tests {
             .create_dir("new")
             .expect("the directory must be made");
         overwrite(&overlay, "new/made", b"made");
-        let moved = overlay.rename("new", "dir", Rename::Directory);
+        let moved = overlay.rename("new", &overlay, "dir", Rename::Directory);
         assert_eq!(
             (moved, names(&overlay, "dir")),
             (Ok(()), vec!["made".to_string()]),
@@ -606,12 +687,15 @@ mod tests {
         overlay
             .create_dir("dir")
             .expect("the directory must be made again");
-        let moved = overlay.rename("dir", "moved", Rename::Directory);
+        let moved = overlay.rename("dir", &overlay, "moved", Rename::Directory);
         assert_eq!(
             (
                 moved,
                 overlay.metadata("dir").err(),
-                overlay.read_dir("moved").map(|entries| entries.len())
+                overlay
+                    .open_dir("moved")
+                    .and_then(|dir| dir.entries())
+                    .map(|entries| entries.len())
             ),
             (Ok(()), Some(FilesystemError::NotFound), Ok(0)),
             "a directory made again through an Overlay where a read-only Layer's one was removed, \
@@ -624,7 +708,7 @@ mod tests {
     fn an_overlay_refuses_a_file_moved_beneath_itself_as_no_directory() {
         let (overlay, _) = overlay_on(Arc::new(Memory::new()));
         assert_eq!(
-            overlay.rename("dir/file", "dir/file/x", Rename::Any),
+            overlay.rename("dir/file", &overlay, "dir/file/x", Rename::Any),
             Err(FilesystemError::NotADirectory),
             "a file renamed through Overlay::rename to a path beneath itself must be refused as \
              no directory, as rename(2) refuses it"
@@ -752,9 +836,9 @@ mod tests {
             .layer(lower.clone(), Access::ReadWrite);
         assert_eq!(
             (
-                overlay.rename("note", "moved", Rename::File),
+                overlay.rename("note", &overlay, "moved", Rename::File),
                 read(lower.as_ref(), "note"),
-                upper.read_dir("").map(|entries| entries.len())
+                upper.entries().map(|entries| entries.len())
             ),
             (Err(FilesystemError::CrossesDevices), b"lower".to_vec(), Ok(0)),
             "a file a lower writable Layer holds, renamed through Overlay::rename, must be refused \
@@ -911,7 +995,7 @@ mod tests {
         let upper = Arc::new(Memory::new());
         let (overlay, lower) = overlay_on(upper.clone());
         overlay
-            .rename("dir/file", "dir/moved", Rename::Any)
+            .rename("dir/file", &overlay, "dir/moved", Rename::Any)
             .expect("the file must move");
         assert_eq!(
             (
@@ -927,7 +1011,7 @@ mod tests {
         );
     }
 
-    /// A Memory that, the first time it lists a directory, starts another
+    /// A Memory that, the first time it opens a directory, starts another
     /// call through `overlay` on a thread of its own and gives it a while
     /// to finish, recording whether it did before this call returned.
     struct Interleaves {
@@ -954,7 +1038,7 @@ mod tests {
             self.memory.metadata(path)
         }
 
-        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+        fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
             if let Some(overlay) = self.overlay.lock().unwrap().take() {
                 let finished = Arc::new(AtomicUsize::new(0));
                 let marker = finished.clone();
@@ -969,7 +1053,15 @@ mod tests {
                 *self.finished_inside.lock().unwrap() = Some(finished.load(Ordering::SeqCst) == 1);
                 *self.other.lock().unwrap() = Some(handle);
             }
-            self.memory.read_dir(path)
+            self.memory.open_dir(path)
+        }
+
+        fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+            self.memory.open_dir(name)
+        }
+
+        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.memory.entries()
         }
 
         fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
@@ -984,8 +1076,14 @@ mod tests {
             self.memory.remove_file(path)
         }
 
-        fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-            self.memory.rename(from, to, rename)
+        fn rename(
+            &self,
+            from: &str,
+            _to_dir: &dyn Filesystem,
+            to: &str,
+            rename: Rename,
+        ) -> Result<(), FilesystemError> {
+            self.memory.rename(from, &self.memory, to, rename)
         }
     }
 
@@ -1053,9 +1151,7 @@ mod tests {
                 self.memory.metadata(path)
             }
 
-            fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-                self.memory.read_dir(path)
-            }
+            opens_directories!(memory);
 
             fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
                 self.memory.create_dir(path)
@@ -1069,8 +1165,14 @@ mod tests {
                 self.memory.remove_file(path)
             }
 
-            fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-                self.memory.rename(from, to, rename)
+            fn rename(
+                &self,
+                from: &str,
+                _to_dir: &dyn Filesystem,
+                to: &str,
+                rename: Rename,
+            ) -> Result<(), FilesystemError> {
+                self.memory.rename(from, &self.memory, to, rename)
             }
         }
 
@@ -1145,7 +1247,7 @@ mod tests {
         let (overlay, _) = full_over_lower(&[], 3);
         assert_eq!(
             (
-                overlay.rename("dir/file", "dir/moved", Rename::Any),
+                overlay.rename("dir/file", &overlay, "dir/moved", Rename::Any),
                 overlay.metadata("dir/moved"),
                 read(&overlay, "dir/file")
             ),
@@ -1198,7 +1300,7 @@ mod tests {
             .layer(lower, Access::Read);
         assert_eq!(
             (
-                overlay.rename("moving", "dir", Rename::Directory),
+                overlay.rename("moving", &overlay, "dir", Rename::Directory),
                 upper.metadata("moving").map(|metadata| metadata.file_type),
                 upper.metadata("dir").err()
             ),
@@ -1223,7 +1325,7 @@ mod tests {
             .layer(memory_with("from", "moved"), Access::Read);
         assert_eq!(
             (
-                overlay.rename("from", "to", Rename::Any),
+                overlay.rename("from", &overlay, "to", Rename::Any),
                 read(&overlay, "from"),
                 read(&overlay, "to")
             ),
@@ -1275,7 +1377,7 @@ mod tests {
         let (overlay, _) = overlay_on(Arc::new(Memory::new()));
         assert_eq!(
             (
-                overlay.rename("dir", "moved", Rename::Any),
+                overlay.rename("dir", &overlay, "moved", Rename::Any),
                 overlay.metadata("moved")
             ),
             (
@@ -1300,8 +1402,8 @@ mod tests {
             .expect("the directory must be made");
         assert_eq!(
             (
-                overlay.rename("note", "dir", Rename::Any),
-                overlay.rename("empty", "dir", Rename::Any),
+                overlay.rename("note", &overlay, "dir", Rename::Any),
+                overlay.rename("empty", &overlay, "dir", Rename::Any),
                 read(&overlay, "dir/file")
             ),
             (
@@ -1329,7 +1431,7 @@ mod tests {
             .create_dir("made")
             .expect("the directory must be made");
         overlay
-            .rename("made", "dir", Rename::Any)
+            .rename("made", &overlay, "dir", Rename::Any)
             .expect("the directory must move over the empty one");
         assert_eq!(
             upper
@@ -1425,9 +1527,7 @@ mod tests {
             self.memory.metadata(path)
         }
 
-        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.memory.read_dir(path)
-        }
+        opens_directories!(memory);
 
         fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
             self.memory.create_dir(path)
@@ -1441,8 +1541,14 @@ mod tests {
             self.memory.remove_file(path)
         }
 
-        fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-            self.memory.rename(from, to, rename)
+        fn rename(
+            &self,
+            from: &str,
+            _to_dir: &dyn Filesystem,
+            to: &str,
+            rename: Rename,
+        ) -> Result<(), FilesystemError> {
+            self.memory.rename(from, &self.memory, to, rename)
         }
     }
 
@@ -1466,9 +1572,7 @@ mod tests {
             self.0.metadata(path)
         }
 
-        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.0.read_dir(path)
-        }
+        opens_directories!(0);
 
         fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
             self.0.create_dir(path)
@@ -1482,7 +1586,13 @@ mod tests {
             self.0.remove_file(path)
         }
 
-        fn rename(&self, _from: &str, _to: &str, _rename: Rename) -> Result<(), FilesystemError> {
+        fn rename(
+            &self,
+            _from: &str,
+            _to_dir: &dyn Filesystem,
+            _to: &str,
+            _rename: Rename,
+        ) -> Result<(), FilesystemError> {
             Err(FilesystemError::PermissionDenied)
         }
     }
@@ -1507,9 +1617,7 @@ mod tests {
             self.0.metadata(path)
         }
 
-        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.0.read_dir(path)
-        }
+        opens_directories!(0);
 
         fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
             self.0.create_dir(path)
@@ -1526,8 +1634,14 @@ mod tests {
             }
         }
 
-        fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-            self.0.rename(from, to, rename)
+        fn rename(
+            &self,
+            from: &str,
+            _to_dir: &dyn Filesystem,
+            to: &str,
+            rename: Rename,
+        ) -> Result<(), FilesystemError> {
+            self.0.rename(from, &self.0, to, rename)
         }
     }
 
@@ -1560,9 +1674,7 @@ mod tests {
             self.0.metadata(path)
         }
 
-        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.0.read_dir(path)
-        }
+        opens_directories!(0);
 
         fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
             self.0.create_dir(path)
@@ -1576,8 +1688,14 @@ mod tests {
             self.0.remove_file(path)
         }
 
-        fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-            self.0.rename(from, to, rename)
+        fn rename(
+            &self,
+            from: &str,
+            _to_dir: &dyn Filesystem,
+            to: &str,
+            rename: Rename,
+        ) -> Result<(), FilesystemError> {
+            self.0.rename(from, &self.0, to, rename)
         }
     }
 
@@ -1608,9 +1726,7 @@ mod tests {
             self.memory.metadata(path)
         }
 
-        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.memory.read_dir(path)
-        }
+        opens_directories!(memory);
 
         fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
             self.memory.create_dir(path)
@@ -1624,14 +1740,27 @@ mod tests {
             self.memory.remove_file(path)
         }
 
-        fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-            self.memory.rename(from, to, rename)
+        fn rename(
+            &self,
+            from: &str,
+            _to_dir: &dyn Filesystem,
+            to: &str,
+            rename: Rename,
+        ) -> Result<(), FilesystemError> {
+            self.memory.rename(from, &self.memory, to, rename)
         }
     }
 
     /// A Memory storing names in lower case and reaching each by any
-    /// case, as a host that folds case does.
-    struct FoldsCase(Memory);
+    /// case, as a host that folds case does; each directory it opens
+    /// folds case too.
+    struct FoldsCase(Arc<dyn Filesystem>);
+
+    impl FoldsCase {
+        fn new(memory: Memory) -> Self {
+            Self(Arc::new(memory))
+        }
+    }
 
     impl Filesystem for FoldsCase {
         holds_no_links!();
@@ -1645,16 +1774,24 @@ mod tests {
             self.0.open(&path.to_lowercase(), options)
         }
 
+        fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+            Ok(Arc::new(Self(self.0.open_dir(&path.to_lowercase())?)))
+        }
+
+        fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+            self.open_dir(name)
+        }
+
         fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
             self.0.metadata(&path.to_lowercase())
         }
 
-        fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
-            Ok(path.to_lowercase())
+        fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
+            Ok(name.to_lowercase())
         }
 
-        fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.0.read_dir(&path.to_lowercase())
+        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.0.entries()
         }
 
         fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
@@ -1669,9 +1806,19 @@ mod tests {
             self.0.remove_file(&path.to_lowercase())
         }
 
-        fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-            self.0
-                .rename(&from.to_lowercase(), &to.to_lowercase(), rename)
+        fn rename(
+            &self,
+            from: &str,
+            _to_dir: &dyn Filesystem,
+            to: &str,
+            rename: Rename,
+        ) -> Result<(), FilesystemError> {
+            self.0.rename(
+                &from.to_lowercase(),
+                self.0.as_ref(),
+                &to.to_lowercase(),
+                rename,
+            )
         }
     }
 
@@ -1681,20 +1828,27 @@ mod tests {
         let overlay = Overlay::new()
             .layer(Arc::new(Memory::new()), Access::ReadWrite)
             .layer(
-                Arc::new(FoldsCase([("private/secret", "x")].into_iter().collect())),
+                Arc::new(FoldsCase::new(
+                    [("private/secret", "x")].into_iter().collect(),
+                )),
                 Access::Read,
             );
+        let private = overlay
+            .open_dir("PRIVATE")
+            .expect("the directory must open in any case");
         assert_eq!(
             (
-                overlay.stored_path("PRIVATE/SECRET"),
-                overlay.stored_path("PRIVATE/New")
+                overlay.stored_name("PRIVATE"),
+                private.stored_name("SECRET"),
+                private.stored_name("New")
             ),
             (
-                Ok("private/secret".to_string()),
-                Ok("private/New".to_string())
+                Ok("private".to_string()),
+                Ok("secret".to_string()),
+                Ok("New".to_string())
             ),
-            "a path asked of Overlay::stored_path in another case, shown by a Layer folding case, \
-             must come back as that Layer stores each name, a new name kept as given"
+            "a name asked of Overlay::stored_name in another case, shown by a Layer folding case, \
+             must come back as that Layer stores it, a new name kept as given"
         );
     }
 
@@ -1725,7 +1879,7 @@ mod tests {
             .layer(Arc::new(Memory::new()), Access::ReadWrite)
             .layer(Arc::new(lower), Access::Read);
         assert_eq!(
-            overlay.rename("file", "moved", Rename::Any),
+            overlay.rename("file", &overlay, "moved", Rename::Any),
             Err(FilesystemError::NotFound),
             "a file renamed through Overlay::rename that its Layer loses during the call must \
              answer not found"
@@ -1765,7 +1919,7 @@ mod tests {
             .create_dir("new")
             .expect("the directory must be made");
         let refused = (
-            overlay.rename("new", "dir", Rename::Directory),
+            overlay.rename("new", &overlay, "dir", Rename::Directory),
             overlay.remove_dir("dir"),
         );
         assert_eq!(
@@ -1809,7 +1963,7 @@ mod tests {
         let (overlay, _) = overlay_on(Arc::new(Memory::default()));
         let mut reader = open_to_read(&overlay, "dir/file");
         overlay
-            .rename("dir/file", "dir/moved", Rename::default())
+            .rename("dir/file", &overlay, "dir/moved", Rename::default())
             .expect("the rename must land");
         overwrite(&overlay, "dir/moved", b"moved");
         assert_eq!(
@@ -1851,7 +2005,7 @@ mod tests {
             .expect("the removal must land");
         overwrite(&overlay, "dir/file", b"fresh");
         overlay
-            .rename("dir/file", "dir/moved", Rename::default())
+            .rename("dir/file", &overlay, "dir/moved", Rename::default())
             .expect("the rename must land");
         assert_eq!(
             read_from(reader.as_mut()),

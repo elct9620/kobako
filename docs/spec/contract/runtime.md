@@ -384,9 +384,10 @@ pub trait Policy {
 
 ## `Filesystem`
 
-The files and directories behind a Mount. One may wrap another and
-answer by delegating. The methods keeping a guarantee have no default, so a
-wrapper forwards them.
+The files and directories beneath one directory, as the `*at` calls reach
+them. That directory is a Mount's root, or one opened beneath it. One may wrap another
+and answer by delegating, wrapping each directory it opens too. The methods
+keeping a guarantee have no default, so a wrapper forwards them.
 
 ```rust
 pub trait Filesystem {}
@@ -399,6 +400,28 @@ Open the file at a path, creating or truncating it where the options say to.
 ```rust
 pub trait Filesystem {
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError>;
+}
+```
+
+## `Filesystem::open_dir`
+
+The directory at a path, as a Filesystem of its own, refusing anything
+else standing there.
+
+```rust
+pub trait Filesystem {
+    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError>;
+}
+```
+
+## `Filesystem::open_dir_nofollow`
+
+The directory of a name in this one, refusing a link standing there. A
+Filesystem holding no links answers as `open_dir` does.
+
+```rust
+pub trait Filesystem {
+    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError>;
 }
 ```
 
@@ -423,15 +446,14 @@ pub trait Filesystem {
 }
 ```
 
-## `Filesystem::stored_path`
+## `Filesystem::stored_name`
 
-A path with each name the Filesystem holds spelled as it stores it. Names past
-the last it holds stay as given. A Filesystem matching names exactly answers
-the path itself.
+A name in this directory spelled as it is stored. A name it does not hold
+stays as given. A Filesystem matching names exactly answers the name itself.
 
 ```rust
 pub trait Filesystem {
-    fn stored_path(&self, path: &str) -> Result<String, FilesystemError>;
+    fn stored_name(&self, name: &str) -> Result<String, FilesystemError>;
 }
 ```
 
@@ -489,13 +511,13 @@ impl Hold {
 }
 ```
 
-## `Filesystem::read_dir`
+## `Filesystem::entries`
 
-The entries of a directory.
+The entries of this directory.
 
 ```rust
 pub trait Filesystem {
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError>;
+    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError>;
 }
 ```
 
@@ -531,12 +553,14 @@ pub trait Filesystem {
 
 ## `Filesystem::rename`
 
-Move a file or directory to another path, refusing what the given Rename does
-not allow. What stands at the source is checked as it moves.
+Move a file or directory to a path beneath a target directory, refusing what
+the given Rename does not allow. The target is a directory of the same Mount,
+so one of another type crosses devices. What stands at the source is checked
+as it moves.
 
 ```rust
 pub trait Filesystem {
-    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError>;
+    fn rename(&self, from: &str, to_dir: &dyn Filesystem, to: &str, rename: Rename) -> Result<(), FilesystemError>;
 }
 ```
 

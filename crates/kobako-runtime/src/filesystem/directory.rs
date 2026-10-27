@@ -7,6 +7,7 @@
 
 mod spelling;
 
+use std::any::Any;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path};
 use std::sync::Arc;
@@ -60,6 +61,15 @@ impl Directory {
             held.as_ref().unwrap_or(&self.dir),
             to_host_path(name(path))?,
         )
+    }
+
+    /// `dir`, opened beneath this Directory, as a Directory of its own
+    /// following links where this one does.
+    fn beneath(&self, dir: Dir) -> Self {
+        Self {
+            dir: Arc::new(dir),
+            follows_links: self.follows_links,
+        }
     }
 
     /// The directory `name` in `dir`, a link there followed only where
@@ -265,30 +275,20 @@ impl Filesystem for Directory {
         Ok(Some(Hold::new(dir)))
     }
 
-    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
-        let mut parent = Some(self.dir.try_clone().map_err(to_error)?);
-        let mut stored = Vec::new();
-        let mut names = components(path).peekable();
-        while let Some(name) = names.next() {
-            let found = match &parent {
-                Some(dir) => spelling::stored_name(dir, to_host_path(name)?).map_err(to_error)?,
-                None => None,
-            };
-            // The last name is spelled from its parent alone, so a link
-            // standing there is never followed to spell it.
-            parent = match (&parent, &found) {
-                (Some(dir), Some(found)) if names.peek().is_some() => {
-                    match self.open_dir_in(dir, found) {
-                        Ok(next) => Some(next),
-                        Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => None,
-                        Err(err) => return Err(err),
-                    }
-                }
-                _ => None,
-            };
-            stored.push(found.unwrap_or_else(|| name.to_string()));
-        }
-        Ok(stored.join("/"))
+    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        let dir = self.at(path, |dir, name| self.open_dir_in(dir, name))?;
+        Ok(Arc::new(self.beneath(dir)))
+    }
+
+    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        let dir = open_dir_nofollow(&self.dir, to_host_path(name)?)?;
+        Ok(Arc::new(self.beneath(dir)))
+    }
+
+    fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
+        Ok(spelling::stored_name(&self.dir, to_host_path(name)?)
+            .map_err(to_error)?
+            .unwrap_or_else(|| name.to_string()))
     }
 
     /// A Directory for a Policy follows no link, so a path resolves as
@@ -315,8 +315,8 @@ impl Filesystem for Directory {
             .map(|names| names.join("/"))
     }
 
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.at(path, |dir, name| self.open_dir_in(dir, name))?
+    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.dir
             .entries()
             .map_err(to_error)?
             .map(|entry| {
@@ -356,12 +356,21 @@ impl Filesystem for Directory {
     /// under, so another process of the host's changing it in between is
     /// the host's to rule out. A link moves as itself, as `rename(2)`
     /// moves one.
-    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-        if from != to {
+    fn rename(
+        &self,
+        from: &str,
+        to_dir: &dyn Filesystem,
+        to: &str,
+        rename: Rename,
+    ) -> Result<(), FilesystemError> {
+        let target = (to_dir as &dyn Any)
+            .downcast_ref::<Self>()
+            .ok_or(FilesystemError::CrossesDevices)?;
+        if !(Arc::ptr_eq(&self.dir, &target.dir) && from == to) {
             rename.check(self.symlink_metadata(from)?.file_type)?;
         }
         self.at(from, |from_dir, from_name| {
-            self.at(to, |to_dir, to_name| {
+            target.at(to, |to_dir, to_name| {
                 from_dir
                     .rename(from_name, to_dir, to_name)
                     .map_err(to_error)
@@ -514,7 +523,7 @@ mod tests {
         let host = make_fifo_host("fifo-type");
         let directory = Directory::new(&host.0).expect("the host directory must open");
         let listed: Vec<_> = directory
-            .read_dir("")
+            .entries()
             .expect("the directory must list")
             .into_iter()
             .map(|entry| entry.file_type)
@@ -772,7 +781,7 @@ mod tests {
         std::os::unix::fs::symlink("target", host.0.join("link")).expect("the link must be made");
         let directory = Directory::new(&host.0).expect("the host directory must open");
         let listed = directory
-            .read_dir("")
+            .entries()
             .expect("the host directory must list")
             .into_iter()
             .find(|entry| entry.name == "link")
@@ -852,7 +861,7 @@ mod tests {
         let answers = |filesystem: &dyn Filesystem| {
             (
                 filesystem.open("link/x", &reading).map(drop),
-                filesystem.read_dir("link").map(drop),
+                filesystem.open_dir("link").map(drop),
             )
         };
         let for_policy = directory
@@ -1029,6 +1038,36 @@ mod tests {
         );
     }
 
+    // @behavior FS-108
+    #[test]
+    fn a_directory_opened_from_a_directory_follows_it_when_the_host_moves_it() {
+        let host = HostDir::new("opened-moves");
+        fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        let dir = directory
+            .open_dir("dir")
+            .expect("the host directory must open");
+        fs::rename(host.0.join("dir"), host.0.join("moved")).expect("the host must move it");
+        dir.open(
+            "made",
+            &OpenOptions {
+                write: true,
+                create: true,
+                ..OpenOptions::default()
+            },
+        )
+        .expect("the file must be made");
+        assert_eq!(
+            (
+                host.0.join("moved/made").is_file(),
+                host.0.join("dir").exists()
+            ),
+            (true, false),
+            "a file made through a directory Directory::open_dir opened before the host moved it \
+             must stand beneath the directory's new host path"
+        );
+    }
+
     // @behavior FS-081
     #[test]
     fn a_directory_spells_names_it_matches_exactly_as_given() {
@@ -1036,14 +1075,14 @@ mod tests {
         fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
         fs::write(host.0.join("dir/file"), "x").expect("the host file must be written");
         let directory = Directory::new(&host.0).expect("the host directory must open");
+        let dir = directory
+            .open_dir("dir")
+            .expect("the host directory must open");
         assert_eq!(
-            (
-                directory.stored_path("dir/file"),
-                directory.stored_path("dir/new/name")
-            ),
-            (Ok("dir/file".to_string()), Ok("dir/new/name".to_string())),
-            "a path asked of Directory::stored_path in the spelling its host stores, and one \
-             whose tail is missing, must come back as given"
+            (dir.stored_name("file"), dir.stored_name("new")),
+            (Ok("file".to_string()), Ok("new".to_string())),
+            "a name asked of Directory::stored_name in the spelling its host stores, and one it \
+             does not hold, must come back as given"
         );
     }
 
@@ -1061,17 +1100,22 @@ mod tests {
             return;
         }
         let directory = Directory::new(&host.0).expect("the host directory must open");
+        let private = directory
+            .open_dir("PRIVATE")
+            .expect("the host directory must open in any case");
         assert_eq!(
             (
-                directory.stored_path("PRIVATE/CAFE\u{301}"),
-                directory.stored_path("Private/missing")
+                directory.stored_name("Private"),
+                private.stored_name("CAFE\u{301}"),
+                private.stored_name("missing")
             ),
             (
-                Ok("private/caf\u{e9}".to_string()),
-                Ok("private/missing".to_string())
+                Ok("private".to_string()),
+                Ok("caf\u{e9}".to_string()),
+                Ok("missing".to_string())
             ),
-            "a path asked of Directory::stored_path in another case and Unicode form on a host \
-             folding both must come back as the host stores each name it holds"
+            "a name asked of Directory::stored_name in another case and Unicode form on a host \
+             folding both must come back as the host stores it, one it does not hold as given"
         );
     }
 }

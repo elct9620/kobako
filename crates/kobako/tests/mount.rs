@@ -254,12 +254,24 @@ impl Filesystem for OneNote {
         }
     }
 
+    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        match path {
+            "" => Ok(Arc::new(OneNote(self.0))),
+            "note.txt" => Err(FilesystemError::NotADirectory),
+            _ => Err(FilesystemError::NotFound),
+        }
+    }
+
+    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        self.open_dir(name)
+    }
+
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         self.metadata(path)
     }
 
-    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
-        Ok(path.to_string())
+    fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
+        Ok(name.to_string())
     }
 
     fn canonicalize_beneath(&self, _base: &str, path: &str) -> Result<String, FilesystemError> {
@@ -274,7 +286,7 @@ impl Filesystem for OneNote {
         Ok(None)
     }
 
-    fn read_dir(&self, _path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         Ok(vec![DirEntry::new("note.txt", FileType::File)])
     }
 
@@ -290,7 +302,13 @@ impl Filesystem for OneNote {
         Err(FilesystemError::ReadOnlyFilesystem)
     }
 
-    fn rename(&self, _from: &str, _to: &str, _rename: Rename) -> Result<(), FilesystemError> {
+    fn rename(
+        &self,
+        _from: &str,
+        _to_dir: &dyn Filesystem,
+        _to: &str,
+        _rename: Rename,
+    ) -> Result<(), FilesystemError> {
         Err(FilesystemError::ReadOnlyFilesystem)
     }
 }

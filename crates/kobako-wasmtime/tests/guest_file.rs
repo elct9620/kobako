@@ -555,11 +555,19 @@ impl<W> WrapsFiles<W> {
 
 impl<W, F> Filesystem for WrapsFiles<W>
 where
-    W: Fn(Box<dyn File>) -> F + Send + Sync,
+    W: Fn(Box<dyn File>) -> F + Send + Sync + 'static,
     F: File + 'static,
 {
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         Ok(Box::new((self.wrap)(self.memory.open(path, options)?)))
+    }
+
+    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        self.memory.open_dir(path)
+    }
+
+    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        self.memory.open_dir_nofollow(name)
     }
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
@@ -570,8 +578,8 @@ where
         self.memory.symlink_metadata(path)
     }
 
-    fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
-        self.memory.stored_path(path)
+    fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
+        self.memory.stored_name(name)
     }
 
     fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError> {
@@ -586,8 +594,8 @@ where
         self.memory.hold_directory(path)
     }
 
-    fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.memory.read_dir(path)
+    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.memory.entries()
     }
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
@@ -602,8 +610,14 @@ where
         self.memory.remove_file(path)
     }
 
-    fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
-        self.memory.rename(from, to, rename)
+    fn rename(
+        &self,
+        from: &str,
+        _to_dir: &dyn Filesystem,
+        to: &str,
+        rename: Rename,
+    ) -> Result<(), FilesystemError> {
+        self.memory.rename(from, &self.memory, to, rename)
     }
 }
 

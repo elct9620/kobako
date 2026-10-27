@@ -941,15 +941,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | the file is renamed through the Overlay |
 | Then | the rename answers not found |
 
-## `FS-081` A Directory spells a path it matches exactly as given
+## `FS-081` A Directory spells a name it matches exactly as given
 
 | Step | Statement |
 | --- | --- |
 | Given | a Directory over a host directory holding `dir/file` |
-| When | `dir/file`, and a path whose tail is missing, are asked for their stored spelling |
+| When | `file`, and a name `dir` lacks, are asked of `dir` for their stored spelling |
 | Then | each comes back as given |
 
-## `FS-082` A Directory spells a path as a folding host stores it
+## `FS-082` A Directory spells a name as a folding host stores it
 
 | Attribute | Value |
 | --- | --- |
@@ -958,10 +958,10 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Step | Statement |
 | --- | --- |
 | Given | a Directory over a macOS host directory folding case and Unicode form |
-| When | a path is asked for its stored spelling in another case and form |
+| When | names are asked for their stored spelling in another case and form |
 | Then | each name it holds comes back as the host stores it |
 
-## `FS-083` An Overlay spells a path as the Layer showing it stores it
+## `FS-083` An Overlay spells a name as the Layer showing it stores it
 
 | Attribute | Value |
 | --- | --- |
@@ -970,10 +970,10 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Step | Statement |
 | --- | --- |
 | Given | an Overlay whose lower Layer folds case and stores names in lower case |
-| When | a path it shows, and a new name beneath it, are asked in upper case |
+| When | names it shows, and a new name beside them, are asked in upper case |
 | Then | the names it holds come back in lower case, and the new name as given |
 
-## `FS-084` A Directory spells a path as a folding Linux filesystem lists it
+## `FS-084` A Directory spells a name as a folding Linux filesystem lists it
 
 | Attribute | Value |
 | --- | --- |
@@ -983,8 +983,8 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Step | Statement |
 | --- | --- |
 | Given | a Directory over a Linux host directory whose filesystem folds names |
-| When | a path is asked for its stored spelling in another case |
-| Then | each name it holds comes back as the directory's listing names it |
+| When | a name is asked for its stored spelling in another case |
+| Then | the name comes back as the directory's listing names it |
 
 ## `FS-085` A Filesystem without a device of its own takes one no other names
 
@@ -1231,3 +1231,63 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay whose upper Layer holds an opaque marker at its root, over a Layer holding a file |
 | When | the root is listed and the file is looked up |
 | Then | the listing shows only the upper Layer's entries, and the file is not found |
+
+## `FS-105` A directory opened from a Memory follows it when it moves
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-070` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory directory opened as a Filesystem of its own |
+| When | the directory is renamed, and a file is made through the opened one |
+| Then | the file stands beneath the directory's new path |
+
+## `FS-106` A Memory directory removed while opened makes nothing more
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-105` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory directory opened as a Filesystem of its own |
+| When | the directory is removed, then made into, listed, and looked up through the opened one |
+| Then | the make is not found, the listing is empty, and the lookup finds a directory |
+
+## `FS-107` A Memory directory never moves beneath itself
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-094` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory directory, and a directory beneath it opened as a Filesystem of its own |
+| When | the outer directory is renamed into the opened one |
+| Then | the rename answers invalid input, and both stay where they were |
+
+## `FS-108` A directory opened from a Directory follows it when the host moves it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-105` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory's host directory opened as a Filesystem of its own |
+| When | the host renames the directory, and a file is made through the opened one |
+| Then | the file stands beneath the directory's new host path |
+
+## `FS-109` A rename into a directory of another Filesystem crosses devices
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-035` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Memory holding a file, and a directory of another Memory |
+| When | the file is renamed into that directory |
+| Then | the rename answers crossing devices, and the file stays |

@@ -389,7 +389,8 @@ pub(crate) fn rename(
         (true, true) => Rename::Directory,
         (true, false) => Rename::Any,
     };
-    Ok(from_dir.mount.filesystem().rename(&from, &to, rename)?)
+    let filesystem = from_dir.mount.filesystem();
+    Ok(filesystem.rename(&from, filesystem.as_ref(), &to, rename)?)
 }
 
 /// A Filesystem holds no links to make.

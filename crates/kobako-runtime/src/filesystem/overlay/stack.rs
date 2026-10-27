@@ -153,7 +153,8 @@ fn without_markers(
     act: impl FnOnce() -> Result<(), FilesystemError>,
 ) -> Result<(), FilesystemError> {
     let markers: Vec<String> = filesystem
-        .read_dir(path)?
+        .open_dir(path)?
+        .entries()?
         .into_iter()
         .map(|entry| entry.name)
         .collect();
@@ -525,16 +526,16 @@ impl Stack {
         self.merge_identity(path, index, metadata)
     }
 
-    /// `path` spelled as the topmost Layer showing it stores it; a name
-    /// no Layer shows keeps its spelling, beneath its directory's.
-    pub(super) fn stored_path(&self, path: &str) -> Result<String, FilesystemError> {
-        if path.is_empty() {
-            return Ok(String::new());
-        }
+    /// The last name of `path` spelled as the topmost Layer showing it
+    /// stores it; a name no Layer shows keeps its spelling.
+    pub(super) fn stored_name(&self, path: &str) -> Result<String, FilesystemError> {
         match self.locate_entry(path) {
-            Ok(Some((index, _))) => self.layers[index].filesystem.stored_path(path),
+            Ok(Some((index, _))) => self.layers[index]
+                .filesystem
+                .open_dir(parent(path))?
+                .stored_name(name(path)),
             Ok(None) | Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {
-                Ok(join(&self.stored_path(parent(path))?, name(path)))
+                Ok(name(path).to_string())
             }
             Err(err) => Err(err),
         }
@@ -621,7 +622,7 @@ impl Stack {
         self.layers[lowest].filesystem.hold_directory(path)
     }
 
-    pub(super) fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
+    pub(super) fn entries(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {
         if self.metadata(path)?.file_type != FileType::Directory {
             return Err(FilesystemError::NotADirectory);
         }
@@ -633,7 +634,7 @@ impl Stack {
                     file_type: FileType::Directory,
                     ..
                 }) => {
-                    let listed = layer.filesystem.read_dir(path)?;
+                    let listed = layer.filesystem.open_dir(path)?.entries()?;
                     for entry in &listed {
                         if !entry.name.starts_with(WHITEOUT) && taken.insert(entry.name.clone()) {
                             entries.push(entry.clone());
@@ -690,14 +691,15 @@ impl Stack {
         if self.symlink_metadata(path)?.file_type != FileType::Directory {
             return Err(FilesystemError::NotADirectory);
         }
-        if !self.read_dir(path)?.is_empty() {
+        if !self.entries(path)?.is_empty() {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
         self.withdraw(
             path,
             |filesystem| {
                 Ok(filesystem
-                    .read_dir(path)?
+                    .open_dir(path)?
+                    .entries()?
                     .iter()
                     .any(|entry| !entry.name.starts_with(WHITEOUT)))
             },
@@ -750,7 +752,7 @@ impl Stack {
         // Only a directory replaces a directory, and only an empty one.
         match (moving.file_type == FileType::Directory, replaced) {
             (false, Some(FileType::Directory)) => return Err(FilesystemError::IsADirectory),
-            (true, Some(FileType::Directory)) if !self.read_dir(to)?.is_empty() => {
+            (true, Some(FileType::Directory)) if !self.entries(to)?.is_empty() => {
                 return Err(FilesystemError::DirectoryNotEmpty)
             }
             (true, Some(found)) if found != FileType::Directory => {
@@ -801,7 +803,7 @@ impl Stack {
         if marks {
             put_marker(filesystem, &opaque)?;
         }
-        let moved = || filesystem.rename(from, to, rename);
+        let moved = || filesystem.rename(from, filesystem, to, rename);
         let moved = if replaced == Some(FileType::Directory) && self.layers[upper].holds(to)? {
             without_markers(filesystem, to, moved)
         } else {
