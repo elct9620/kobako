@@ -155,7 +155,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox mounting an Overlay of a writable Temporary over a read-only Memory holding a file |
+| Given | a Sandbox mounting an Overlay of a writable Memory over a read-only Memory holding a file |
 | When | the script overwrites that file and reads it back |
 | Then | it reads what it wrote, and the Memory still holds the file as it was |
 
@@ -182,19 +182,6 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Sandbox mounting a Memory seeded with files and given a limit |
 | When | the script writes past that limit |
 | Then | the script raises `Errno::ENOSPC`, and the seeded files still read |
-
-## `MT-014` A Temporary's limit given in Ruby bounds what the guest writes
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-027` |
-| relates | `MT-013` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox mounting a Temporary given a limit |
-| When | the script writes past that limit |
-| Then | the script raises `Errno::ENOSPC` |
 
 ## `MT-015` A Memory refuses a keyword it does not know
 
@@ -229,7 +216,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox mounting a Memory or a Temporary given a count of inodes |
+| Given | a Sandbox mounting a Memory given a count of inodes |
 | When | the script creates empty files past that count |
 | Then | the script raises `Errno::ENOSPC` |
 

@@ -1,6 +1,6 @@
 module Kobako
   module Filesystem
-    type mountable = Memory | Temporary | Directory | Overlay | _Readable
+    type mountable = Memory | Directory | Overlay | _Readable
 
     type access = :read | :read_write
 
@@ -69,10 +69,6 @@ module Kobako
       # cannot key by String; a Symbol keyword past +limit+ and +inodes+
       # raises ArgumentError.
       def initialize: (?Hash[String, String] files, ?limit: Integer?, ?inodes: Integer?, **String) -> void
-    end
-
-    class Temporary
-      def initialize: (?limit: Integer?, ?inodes: Integer?) -> void
     end
 
     class Directory

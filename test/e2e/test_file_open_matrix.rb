@@ -64,7 +64,7 @@ class TestE2EFileOpenMatrix < Minitest::Test
 
   # @behavior FL-034
   def test_an_overlay_answers_as_cruby_does
-    overlay = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Temporary.new, access: :read_write)
+    overlay = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Memory.new, access: :read_write)
                                          .layer(Kobako::Filesystem::Memory.new(SEED))
 
     assert_equal READ_WRITE, answers(overlay, access: :read_write),

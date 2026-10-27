@@ -274,11 +274,6 @@ impl Filesystem for RubyFilesystem {
             FilesystemError::ReadOnlyFilesystem,
         )
     }
-
-    /// Every Invocation shares the Ruby object.
-    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
-        None
-    }
 }
 
 /// One file the Ruby object opened, which only the guest's descriptor

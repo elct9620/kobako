@@ -13,7 +13,6 @@ mod directory;
 mod memory;
 mod overlay;
 mod path;
-mod temporary;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -21,7 +20,6 @@ use std::sync::Arc;
 pub use directory::Directory;
 pub use memory::{Memory, SeedError};
 pub use overlay::{Blocking, Overlay};
-pub use temporary::Temporary;
 
 /// What the guest may do beneath a Mount, or an Overlay in one of its
 /// Layers.
@@ -35,15 +33,15 @@ pub enum Access {
 /// another and answer by delegating, so it sees every call on the way
 /// through.
 ///
-/// Six methods keep a guarantee the runtime gives the guest, so each
+/// Five methods keep a guarantee the runtime gives the guest, so each
 /// Filesystem answers them itself and a wrapper forwards them:
 /// `symlink_metadata` keeps a link from being followed where a Mount
 /// refuses links, `stored_path` keeps a Policy judging the spelling the
 /// host stores, `canonicalize_beneath` keeps a link within the directory
 /// a descriptor opened, `hold_directory` keeps an open directory's
-/// identity its own, `for_invocation` keeps one Invocation's changes
-/// from the next, and `for_policy` keeps a call to the path a Policy
-/// judged.
+/// identity its own, and `for_policy` keeps a call to the path a Policy
+/// judged. Every Invocation reaches the same Filesystem; one that should
+/// start afresh is handed in its place for that Invocation.
 pub trait Filesystem: Send + Sync {
     /// Open the file at `path` as `options` asks, creating or truncating it
     /// where they say to.
@@ -92,10 +90,6 @@ pub trait Filesystem: Send + Sync {
     /// The Filesystem checks what stands at `from` as it moves it, under
     /// the same lock, so nothing replaces it in between.
     fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError>;
-
-    /// The Filesystem a new Invocation starts from in this one's place, or
-    /// `None` when every Invocation shares this one.
-    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>>;
 
     /// The Filesystem a Mount with a Policy hands its calls in this one's
     /// place, following no link anywhere on a path, each name reached

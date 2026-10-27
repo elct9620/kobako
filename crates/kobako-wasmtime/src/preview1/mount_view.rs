@@ -8,7 +8,7 @@ use std::sync::Arc;
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
     DirEntry, Directory, File, Filesystem, FilesystemError, Hold, Memory, Metadata, OpenOptions,
-    Overlay, Rename, Temporary,
+    Overlay, Rename,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
@@ -53,15 +53,6 @@ macro_rules! never_repeats_identities {
     () => {
         fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
             Ok(None)
-        }
-    };
-}
-
-/// The answer of a test Filesystem every Invocation shares.
-macro_rules! is_shared {
-    () => {
-        fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
-            None
         }
     };
 }
@@ -587,7 +578,6 @@ struct StoresUpperCase(Memory);
 impl Filesystem for StoresUpperCase {
     holds_no_links!();
     never_repeats_identities!();
-    is_shared!();
 
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.0.open(path, options)
@@ -838,7 +828,6 @@ impl Drop for Holding {
 impl Filesystem for ReusesInodes {
     holds_no_links!();
     matches_names_exactly!();
-    is_shared!();
 
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.memory.open(path, options)
@@ -978,8 +967,9 @@ fn a_policy_decides_in_the_place_of_a_mounts_access() {
 
 // @behavior RT-082
 #[test]
-fn each_invocation_is_handed_the_filesystem_it_starts_from() {
-    let grants = [grant(Arc::new(Temporary::new()), Access::ReadWrite, None)];
+fn every_invocation_reaches_the_filesystem_its_mount_holds() {
+    let memory = Arc::new(Memory::new());
+    let grants = [grant(memory.clone(), Access::ReadWrite, None)];
     assert_eq!(
         Guest::new(&grants).call("write_file", FILE),
         0,
@@ -987,8 +977,14 @@ fn each_invocation_is_handed_the_filesystem_it_starts_from() {
     );
     assert_eq!(
         Guest::new(&grants).call("read_file", FILE),
-        ERRNO_NOENT,
-        "a file an earlier invocation wrote to a Temporary must not be found by the next one"
+        0,
+        "a file an earlier invocation wrote beneath a Mount over a Memory must be found by the \
+         next invocation through preview1"
+    );
+    assert_eq!(
+        contents(memory.as_ref(), "file.txt").as_deref(),
+        Some(&b"hello"[..]),
+        "the file the next invocation finds must hold what the earlier invocation wrote"
     );
 }
 
@@ -1016,7 +1012,6 @@ impl Filesystem for ChangeCounter {
     holds_no_links!();
     matches_names_exactly!();
     never_repeats_identities!();
-    is_shared!();
 
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.memory.open(path, options)
@@ -1066,7 +1061,6 @@ impl Filesystem for SwappedForADirectory {
     holds_no_links!();
     matches_names_exactly!();
     never_repeats_identities!();
-    is_shared!();
 
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.0.open(path, options)
@@ -1174,7 +1168,6 @@ impl Filesystem for AppendedMeanwhile {
     holds_no_links!();
     matches_names_exactly!();
     never_repeats_identities!();
-    is_shared!();
 
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         let writes = build_options(|options| options.write = true);
@@ -1593,7 +1586,6 @@ struct FailsLookingUpDir(Memory);
 impl Filesystem for FailsLookingUpDir {
     matches_names_exactly!();
     never_repeats_identities!();
-    is_shared!();
 
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.0.open(path, options)

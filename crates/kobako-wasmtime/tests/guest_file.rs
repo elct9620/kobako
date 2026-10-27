@@ -605,10 +605,6 @@ where
     fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError> {
         self.memory.rename(from, to, rename)
     }
-
-    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
-        self.memory.for_invocation()
-    }
 }
 
 struct CountedFile {

@@ -1,6 +1,6 @@
 //! The Ruby face of the Filesystem: `Kobako::Filesystem::Memory`,
-//! `Temporary`, `Directory`, and `Overlay`, each standing for the
-//! `kobako_runtime` Filesystem of that kind.
+//! `Directory`, and `Overlay`, each standing for the `kobako_runtime`
+//! Filesystem of that kind.
 //!
 //! A kind kobako ships runs in Rust; Ruby only picks it and the access.
 //! Ruby is asked again while the guest runs through a mount's block, at
@@ -21,9 +21,7 @@ use magnus::{
 
 use ruby::RubyFilesystem;
 
-use kobako_runtime::filesystem::{
-    Access, Blocking, Directory, Filesystem, Memory, Overlay, Temporary,
-};
+use kobako_runtime::filesystem::{Access, Blocking, Directory, Filesystem, Memory, Overlay};
 
 pub(super) use grants::{to_grants, validate_mount};
 
@@ -35,7 +33,6 @@ macro_rules! filesystem_class {
 }
 
 filesystem_class!(MemoryFs, "Kobako::Filesystem::Memory");
-filesystem_class!(TemporaryFs, "Kobako::Filesystem::Temporary");
 filesystem_class!(DirectoryFs, "Kobako::Filesystem::Directory");
 
 /// The Overlay itself rather than a shared handle, so `layer` can answer a
@@ -59,15 +56,12 @@ pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     let module = kobako.define_module("Filesystem")?;
     let memory = module.define_class("Memory", ruby.class_object())?;
     memory.define_singleton_method("new", function!(memory_new, -1))?;
-    let temporary = module.define_class("Temporary", ruby.class_object())?;
-    temporary.define_singleton_method("new", function!(temporary_new, -1))?;
     let directory = module.define_class("Directory", ruby.class_object())?;
     directory.define_singleton_method("new", function!(directory_new, 1))?;
     let overlay = module.define_class("Overlay", ruby.class_object())?;
     overlay.define_singleton_method("new", function!(overlay_new, 0))?;
     overlay.define_method("layer", method!(overlay_layer, -1))?;
     MemoryFs::class(ruby);
-    TemporaryFs::class(ruby);
     DirectoryFs::class(ruby);
     OverlayFs::class(ruby);
     Ok(())
@@ -112,26 +106,6 @@ fn memory_new(args: &[Value]) -> Result<MemoryFs, MagnusError> {
     Ok(MemoryFs(Arc::new(match inodes {
         Some(inodes) => memory.with_inodes(inodes),
         None => memory,
-    })))
-}
-
-/// `Temporary.new(limit: 64 MiB, inodes:)`.
-fn temporary_new(args: &[Value]) -> Result<TemporaryFs, MagnusError> {
-    let args = scan_args::<(), (), (), (), RHash, ()>(args)?;
-    let kwargs = get_kwargs::<_, (), (Option<Value>, Option<Value>), ()>(
-        args.keywords,
-        &[],
-        &["limit", "inodes"],
-    )?;
-    let (limit, inodes) = kwargs.optional;
-    let limit = match limit {
-        Some(limit) => to_limit(limit)?,
-        None => Some(Memory::DEFAULT_LIMIT),
-    };
-    let temporary = Temporary::new().with_limit(limit);
-    Ok(TemporaryFs(Arc::new(match inodes {
-        Some(inodes) => temporary.with_inodes(to_limit(inodes)?),
-        None => temporary,
     })))
 }
 
@@ -211,9 +185,6 @@ fn to_access(access: Value) -> Result<Access, MagnusError> {
 /// The Filesystem a Ruby handle of any kobako kind stands for.
 fn to_filesystem(value: Value) -> Result<Arc<dyn Filesystem>, MagnusError> {
     if let Ok(fs) = <&MemoryFs>::try_convert(value) {
-        return Ok(fs.0.clone());
-    }
-    if let Ok(fs) = <&TemporaryFs>::try_convert(value) {
         return Ok(fs.0.clone());
     }
     if let Ok(fs) = <&DirectoryFs>::try_convert(value) {

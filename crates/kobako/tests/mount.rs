@@ -293,10 +293,6 @@ impl Filesystem for OneNote {
     fn rename(&self, _from: &str, _to: &str, _rename: Rename) -> Result<(), FilesystemError> {
         Err(FilesystemError::ReadOnlyFilesystem)
     }
-
-    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
-        None
-    }
 }
 
 // @behavior MT-021

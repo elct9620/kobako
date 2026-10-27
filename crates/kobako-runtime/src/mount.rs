@@ -158,17 +158,16 @@ impl Mount {
         self.policy.is_none()
     }
 
-    /// This Mount as a new Invocation starts from it, over the Filesystem
-    /// that Invocation receives; beneath a Policy, the one that follows no
-    /// link, so each call reaches the path the Policy judged.
+    /// This Mount as an Invocation reaches it; beneath a Policy, over the
+    /// Filesystem that follows no link, so each call reaches the path the
+    /// Policy judged.
     pub fn for_invocation(&self) -> Self {
-        let filesystem = self
-            .filesystem
-            .for_invocation()
-            .unwrap_or_else(|| self.filesystem.clone());
         let filesystem = match self.policy {
-            Some(_) => filesystem.for_policy().unwrap_or(filesystem),
-            None => filesystem,
+            Some(_) => self
+                .filesystem
+                .for_policy()
+                .unwrap_or_else(|| self.filesystem.clone()),
+            None => self.filesystem.clone(),
         };
         Self {
             filesystem,

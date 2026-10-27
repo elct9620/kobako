@@ -369,11 +369,6 @@ impl Filesystem for Directory {
         })
     }
 
-    /// Every Invocation shares the host directory.
-    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
-        None
-    }
-
     /// The same host directory, reached one name at a time.
     fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
         Some(Arc::new(Self {

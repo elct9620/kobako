@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# E2E — the +limit:+ a Host App gives a Memory or a Temporary, reaching the
-# guest's File through the real Guest Binary as Errno::ENOSPC.
+# E2E — the +limit:+ a Host App gives a Memory, reaching the guest's File
+# through the real Guest Binary as Errno::ENOSPC.
 class TestE2EMountLimit < Minitest::Test
   include E2eGuestHelper
 
@@ -61,17 +61,11 @@ class TestE2EMountLimit < Minitest::Test
   # @behavior MT-017
   def test_inodes_given_in_ruby_bound_what_the_guest_creates
     script = '(1..3).map { |n| begin; File.write("/data/f" + n.to_s, ""); :made; rescue Errno::ENOSPC; :refused; end }'
-    made = [Kobako::Filesystem::Memory.new(inodes: 3), Kobako::Filesystem::Temporary.new(inodes: 3)].map do |filesystem|
-      Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", filesystem, access: :read_write).eval(script).value
-    end
+    made = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                          .mount("/data", Kobako::Filesystem::Memory.new(inodes: 3), access: :read_write)
+                          .eval(script).value
 
-    assert_equal [%i[made made refused]] * 2, made,
-                 "an entry past inodes given through Memory.new or Temporary.new must raise Errno::ENOSPC in the guest"
-  end
-
-  # @behavior MT-014
-  def test_a_temporarys_limit_given_in_ruby_bounds_what_the_guest_writes
-    assert_equal [:refused, nil], write_beneath(Kobako::Filesystem::Temporary.new(limit: 4)),
-                 "a write past a limit given through Temporary.new must raise Errno::ENOSPC in the guest"
+    assert_equal %i[made made refused], made,
+                 "an entry past inodes given through Memory.new must raise Errno::ENOSPC in the guest"
   end
 end

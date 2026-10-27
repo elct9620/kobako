@@ -337,7 +337,8 @@ impl Mount {
 
 ## `Mount::for_invocation`
 
-The Mount as a new invocation starts from it, over that invocation's Filesystem.
+The Mount as an invocation reaches it, over the Filesystem that follows no link
+beneath a Policy.
 
 ```rust
 impl Mount {
@@ -536,17 +537,6 @@ not allow. What stands at the source is checked as it moves.
 ```rust
 pub trait Filesystem {
     fn rename(&self, from: &str, to: &str, rename: Rename) -> Result<(), FilesystemError>;
-}
-```
-
-## `Filesystem::for_invocation`
-
-The Filesystem a new invocation starts from in this one's place. `None`
-shares this one with every invocation.
-
-```rust
-pub trait Filesystem {
-    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>>;
 }
 ```
 
@@ -844,47 +834,6 @@ file twice. Or it gives a file where another path needs a directory.
 
 ```rust
 pub enum SeedError {}
-```
-
-## `Temporary`
-
-The Filesystem kobako ships that holds its files in memory and starts every
-invocation empty.
-
-```rust
-pub struct Temporary {}
-```
-
-## `Temporary::new`
-
-An empty Temporary.
-
-```rust
-impl Temporary {
-    pub fn new() -> Self {}
-}
-```
-
-## `Temporary::with_limit`
-
-This Temporary with its files holding at most the given bytes together, or
-without bound for none. Every Temporary handed out in its place keeps it.
-
-```rust
-impl Temporary {
-    pub fn with_limit(self, limit: Option<usize>) -> Self {}
-}
-```
-
-## `Temporary::with_inodes`
-
-This Temporary holding at most the given files and directories, as a
-Memory given them does. Every Temporary handed out in its place keeps it.
-
-```rust
-impl Temporary {
-    pub fn with_inodes(self, inodes: Option<usize>) -> Self {}
-}
 ```
 
 ## `Directory`

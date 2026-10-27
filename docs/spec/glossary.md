@@ -327,12 +327,11 @@ open or change at a path ─> Policy ─┬─ allows -> the call proceeds
 
 ### Filesystem
 
-The files and directories behind a Mount. It answers every call the guest makes beneath that Mount's path. kobako ships four, and a Host App may bring its own or wrap another.
+The files and directories behind a Mount. It answers every call the guest makes beneath that Mount's path, and every Invocation reaches the same one. kobako ships three, and a Host App may bring its own or wrap another.
 
 ```
 Directory  -> a host directory; nothing outside it is reachable
 Memory     -> held in memory; lives as long as the Host App's object
-Temporary  -> held in memory; every Invocation starts it empty
 Overlay    -> Layers stacked into one view; changes land in the writable ones
 ```
 

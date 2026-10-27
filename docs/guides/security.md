@@ -36,7 +36,7 @@ feature that specifies it.
 | no live time or entropy under the default `:hermetic` | [runtime](../spec/behavior/runtime.md) |
 | timeout, memory cap, and output clipping fail cleanly | [sandbox](../spec/behavior/sandbox.md) |
 | the guest holds no more files open than its cap | [sandbox](../spec/behavior/sandbox.md) |
-| a Memory or Temporary holds no more than its limit | [filesystem](../spec/behavior/filesystem.md) |
+| a Memory holds no more than its limit | [filesystem](../spec/behavior/filesystem.md) |
 | a value the wire cannot carry becomes a Handle or a controlled error | [transport-dispatch](../spec/behavior/transport-dispatch.md) |
 
 ## Isolation Profiles
@@ -70,8 +70,8 @@ leaves the host exposed in its own way.
 | `memory_limit` | up to 4 GiB of guest memory, and no value budget |
 | `stdout_limit`, `stderr_limit` | host memory without bound, read back after the run ends |
 | `open_file_limit` | a host descriptor for each file it holds open beneath a Directory |
-| a Memory's or Temporary's `limit:` | host memory without bound; one write far past a file's end fills the gap |
-| a Memory's or Temporary's `inodes:` | an entry for every file and directory it makes |
+| a Memory's `limit:` | host memory without bound; one write far past a file's end fills the gap |
+| a Memory's `inodes:` | an entry for every file and directory it makes |
 
 An uncapped output is the sharpest: a guest writing one buffer in a loop grows the
 capture on the host, not in its own memory. Reading that capture back also runs
@@ -292,7 +292,7 @@ Directory opens only files and directories: a FIFO, socket, or device raises
 | Choose | Because |
 |---|---|
 | `access: :read` unless the guest must write | a read-only Mount refuses every change |
-| a Memory or Temporary over a Directory | a Directory is a real host path the guest changes |
+| a Memory over a Directory | a Directory is a real host path the guest changes |
 | `limit:` and `inodes:` sized to the task | the defaults hold 64 MiB and 16385 entries |
 | `open_file_limit:` below the host's own | each file or directory the guest opens in a Directory holds a host descriptor |
 

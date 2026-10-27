@@ -62,7 +62,7 @@ The types those seams carry, by grade:
 
 | Grade | Names |
 |---|---|
-| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_runtime::{Memory, Temporary, Directory, Overlay, Hold, Mount, MountPathError}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
+| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_runtime::{Memory, Directory, Overlay, Hold, Mount, MountPathError}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
 | **stable · exhaustive** | `kobako_mruby::Arguments` · `kobako_runtime::{Profile, Entry, Completion, Access, Denial}` · `kobako_codec::msgpack::{Value, Arguments}` · `kobako::{Backend, Provider, msgpack::RunArg}` |
 | **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, FileType, Rename, FilesystemError, SeedError, Snapshot, Capture, Usage, OpenOptions, Metadata, DirEntry}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |
@@ -330,7 +330,7 @@ guest path ─▶ runtime: resolve, refuse links, judge the Policy ─▶ Filesy
 
 ### Filesystem Obligations
 
-Seven methods carry a guarantee the runtime gives the guest. None has a default, so
+Six methods carry a guarantee the runtime gives the guest. None has a default, so
 each Filesystem and its `File` answer them, and one wrapping another forwards them.
 A method like these joins without a default, a break marked `!`.
 
@@ -340,7 +340,6 @@ A method like these joins without a default, a break marked `!`.
 | `stored_path` | a Policy judging the spelling the host stores | the path as given |
 | `canonicalize_beneath` | a link within the directory a descriptor opened | the path as given |
 | `hold_directory` | an open directory's identity its own | `Ok(None)` |
-| `for_invocation` | one Invocation's changes from the next | `None` |
 | `for_policy` | a call to the path a Policy judged, a link swapped in refused | `None` |
 | `File::append` | another writer's append from landing over this one | `Unsupported` |
 

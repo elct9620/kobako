@@ -123,17 +123,6 @@ impl Filesystem for Overlay {
         self.stack.rename(from, to, rename)
     }
 
-    /// A fresh Overlay when any Layer starts each Invocation fresh, over
-    /// each Layer's own next Filesystem. It keeps this Overlay's lock,
-    /// since the Layers it shares are the same.
-    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
-        let stack = self.stack.for_invocation()?;
-        Some(Arc::new(Self {
-            stack,
-            lock: self.lock.clone(),
-        }))
-    }
-
     /// An Overlay over each Layer's own Filesystem for a Policy, keeping
     /// this Overlay's lock, since the Layers it shares are the same.
     fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
@@ -153,7 +142,6 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::super::memory::Memory;
-    use super::super::temporary::Temporary;
     use super::super::{FileType, Hold};
     use super::*;
 
@@ -192,15 +180,6 @@ mod tests {
         () => {
             fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
                 Ok(None)
-            }
-        };
-    }
-
-    /// The answer of a test Filesystem every Invocation shares.
-    macro_rules! is_shared {
-        () => {
-            fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
-                None
             }
         };
     }
@@ -726,21 +705,6 @@ mod tests {
         );
     }
 
-    // @behavior FS-012
-    #[test]
-    fn an_overlay_over_a_temporary_starts_every_invocation_from_its_lower_layers() {
-        let (overlay, _) = overlay_on(Arc::new(Temporary::new()));
-        overwrite(&overlay, "dir/file", b"upper");
-        let next = overlay
-            .for_invocation()
-            .expect("an Overlay over a Temporary must start each Invocation afresh");
-        assert_eq!(
-            read(next.as_ref(), "dir/file"),
-            b"lower",
-            "Overlay::for_invocation over a Temporary must hand the next Invocation the lower content"
-        );
-    }
-
     // @behavior FS-013
     #[test]
     fn an_upper_layer_hides_the_same_path_in_a_lower_one() {
@@ -970,7 +934,6 @@ mod tests {
     impl Filesystem for Interleaves {
         holds_no_links!();
         never_repeats_identities!();
-        is_shared!();
         matches_names_exactly!();
 
         fn open(
@@ -1067,7 +1030,6 @@ mod tests {
         impl Filesystem for Reenters {
             holds_no_links!();
             never_repeats_identities!();
-            is_shared!();
             matches_names_exactly!();
 
             fn open(
@@ -1440,7 +1402,6 @@ mod tests {
     impl Filesystem for Trickles {
         holds_no_links!();
         never_repeats_identities!();
-        is_shared!();
         matches_names_exactly!();
 
         fn open(
@@ -1485,7 +1446,6 @@ mod tests {
     impl Filesystem for HoldsDirectories {
         holds_no_links!();
         never_repeats_identities!();
-        is_shared!();
         matches_names_exactly!();
 
         fn open(
@@ -1527,7 +1487,6 @@ mod tests {
     impl Filesystem for KeepsWhiteouts {
         holds_no_links!();
         never_repeats_identities!();
-        is_shared!();
         matches_names_exactly!();
 
         fn open(
@@ -1572,7 +1531,6 @@ mod tests {
     impl Filesystem for ReadsNoMarker {
         holds_no_links!();
         never_repeats_identities!();
-        is_shared!();
         matches_names_exactly!();
 
         fn open(
@@ -1627,7 +1585,6 @@ mod tests {
     impl Filesystem for Vanishes {
         holds_no_links!();
         never_repeats_identities!();
-        is_shared!();
         matches_names_exactly!();
 
         fn open(
@@ -1673,7 +1630,6 @@ mod tests {
     impl Filesystem for FoldsCase {
         holds_no_links!();
         never_repeats_identities!();
-        is_shared!();
 
         fn open(
             &self,

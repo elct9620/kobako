@@ -9,9 +9,8 @@ module Kobako
   #
   # [<tt>Memory.new(files = {}, limit: 64 MiB, inodes:)</tt>]
   #   Files held in memory for as long as the object lives, seeded from a
-  #   Hash of path to contents. Every invocation shares them.
-  # [<tt>Temporary.new(limit: 64 MiB, inodes:)</tt>]
-  #   Files held in memory that every invocation starts empty.
+  #   Hash of path to contents. Every invocation shares them; one that
+  #   should start empty mounts a new Memory through Context#mount.
   # [<tt>Directory.new(path)</tt>]
   #   A host directory and everything beneath it. Nothing outside it is
   #   reachable, a symbolic link pointing out included.
@@ -20,7 +19,7 @@ module Kobako
   #   or +:read_write+ on its own. A change lands in a writable Layer, and
   #   a read-only one stays as it was. Each +layer+ answers a new Overlay.
   #
-  # A Memory or Temporary is bounded as a tmpfs mount is: its files hold
+  # A Memory is bounded as a tmpfs mount is: its files hold
   # at most +limit+ bytes together, and it holds at most +inodes+ files and
   # directories, its root among them; +nil+ lifts either bound. Without
   # +inodes+ it holds one for each 4 KiB of +limit+, and the root. Past

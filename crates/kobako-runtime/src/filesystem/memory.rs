@@ -131,10 +131,6 @@ impl Budget {
         }
     }
 
-    fn limit(&self) -> Option<usize> {
-        Some(self.limit.load(Ordering::Relaxed)).filter(|&limit| limit != usize::MAX)
-    }
-
     fn set_limit(&self, limit: Option<usize>) {
         self.limit
             .store(limit.unwrap_or(usize::MAX), Ordering::Relaxed);
@@ -270,16 +266,6 @@ impl Memory {
         self.space.inodes.set_limit(inodes);
         self.inodes_follow_limit = false;
         self
-    }
-
-    /// An empty Memory bounded as this one is.
-    pub(crate) fn to_empty(&self) -> Self {
-        let memory = Self::new().with_limit(self.space.bytes.limit());
-        if self.inodes_follow_limit {
-            memory
-        } else {
-            memory.with_inodes(self.space.inodes.limit())
-        }
     }
 
     fn root(&self) -> MutexGuard<'_, Directory> {
@@ -542,11 +528,6 @@ impl Filesystem for Memory {
         }
         Ok(())
     }
-
-    /// Every Invocation shares a Memory.
-    fn for_invocation(&self) -> Option<Arc<dyn Filesystem>> {
-        None
-    }
 }
 
 fn lock(data: &Mutex<Content>) -> MutexGuard<'_, Content> {
@@ -723,15 +704,6 @@ mod tests {
             read_all(&memory, "notes.txt"),
             b"kept",
             "a file written through Memory::open must read back from the same Memory"
-        );
-    }
-
-    // @behavior FS-003
-    #[test]
-    fn every_invocation_shares_the_one_memory() {
-        assert!(
-            Memory::new().for_invocation().is_none(),
-            "Memory::for_invocation must hand every Invocation the same Memory"
         );
     }
 

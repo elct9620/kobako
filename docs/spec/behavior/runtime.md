@@ -763,17 +763,17 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest creates and writes a file beneath it |
 | Then | the Filesystem holds that file with what was written |
 
-## `RT-082` Each invocation is handed the Filesystem it starts from
+## `RT-082` Every invocation reaches the Filesystem its Mount holds
 
 | Attribute | Value |
 | --- | --- |
-| relates | `FS-004` |
+| relates | `MT-009` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a Mount over a Temporary an earlier invocation wrote to |
+| Given | a Mount over a Memory an earlier invocation wrote a file to |
 | When | the next invocation's guest reads that file |
-| Then | it finds no file there |
+| Then | it reads what the earlier invocation wrote |
 
 ## `RT-083` Removing a Mount's root is refused as invalid
 

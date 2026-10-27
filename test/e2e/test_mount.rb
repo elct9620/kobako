@@ -136,7 +136,7 @@ class TestE2EMount < Minitest::Test
   # @behavior MT-011
   def test_an_overlay_built_layer_by_layer_reaches_the_guest_as_one_view
     lower = Kobako::Filesystem::Memory.new("note.txt" => "hello")
-    overlay = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Temporary.new, access: :read_write).layer(lower)
+    overlay = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Memory.new, access: :read_write).layer(lower)
     script = 'File.write("/data/note.txt", "changed"); File.read("/data/note.txt")'
 
     assert_equal "changed", run_beneath(overlay, script, access: :read_write),

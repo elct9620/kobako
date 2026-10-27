@@ -83,25 +83,6 @@ module Kobako
 end
 ```
 
-## `Kobako::Filesystem::Temporary.new`
-
-A Filesystem held in memory that starts every invocation empty. A `nil` limit or count lifts that bound.
-
-| Attribute | Value |
-| --- | --- |
-| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
-
-```ruby
-module Kobako
-  module Filesystem
-    class Temporary
-      def self.new(limit: 64 << 20, inodes: limit && (limit.ceildiv(4096) + 1))
-      end
-    end
-  end
-end
-```
-
 ## `Kobako::Filesystem::Directory.new`
 
 A Filesystem over a host directory, reaching nothing outside it.

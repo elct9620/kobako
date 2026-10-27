@@ -16,7 +16,6 @@ Two properties set the kinds apart: where the content lives, and how long it las
 ```
 kind       content lives       lasts
 Memory     in memory           as long as the Host App's object
-Temporary  in memory           one Invocation
 Directory  in a host directory as long as the directory
 Overlay    in its layers       as long as its writable layers
 ```
@@ -62,30 +61,6 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Memory a file was written to |
 | When | the file is opened again from the same Memory |
 | Then | it reads what was written |
-
-## `FS-003` Every Invocation shares the one Memory
-
-| Attribute | Value |
-| --- | --- |
-| relates | `FS-002` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Memory |
-| When | the next Invocation's Filesystem is taken from it |
-| Then | that Invocation is handed the same Memory |
-
-## `FS-004` A Temporary starts every Invocation empty
-
-| Attribute | Value |
-| --- | --- |
-| relates | `FS-003` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Temporary a file was written to |
-| When | the next Invocation's Filesystem is taken from it |
-| Then | that Filesystem holds no file |
 
 ## `FS-005` A Directory serves the files of its host directory
 
@@ -162,18 +137,6 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay whose read-only Layer holds a file |
 | When | the file is removed through the Overlay |
 | Then | the Overlay finds no file at that path |
-
-## `FS-012` An Overlay over a Temporary starts every Invocation from its lower Layers
-
-| Attribute | Value |
-| --- | --- |
-| relates | `FS-004`, `FS-009` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay whose writable Layer is a Temporary, with a lower file overwritten through it |
-| When | the next Invocation's Filesystem is taken from it |
-| Then | that Filesystem reads the lower file's content |
 
 ## `FS-013` An upper Layer hides the same path in a lower one
 
@@ -343,18 +306,6 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | a file grows past what any allocation can hold |
 | Then | the growth is refused as out of space, and the file holds what it held |
 
-## `FS-027` A Temporary keeps its limit in every Invocation
-
-| Attribute | Value |
-| --- | --- |
-| relates | `FS-004`, `FS-022` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Temporary given a limit |
-| When | the next Invocation's Filesystem is written past that limit |
-| Then | the write is refused as out of space |
-
 ## `FS-028` A Directory refuses to remove a directory as a file
 
 | Attribute | Value |
@@ -414,18 +365,6 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Memory whose inodes are all taken, one by a file the guest holds open |
 | When | the file is removed, and a file is created before and after its handle closes |
 | Then | the creation before is refused as out of space and the one after lands |
-
-## `FS-033` A Temporary keeps its inodes in every Invocation
-
-| Attribute | Value |
-| --- | --- |
-| relates | `FS-027`, `FS-030` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Temporary given a count of inodes |
-| When | the next Invocation's Filesystem is given an entry past that count |
-| Then | the creation is refused as out of space |
 
 ## `FS-034` A removed directory gives its inode back
 
