@@ -83,9 +83,11 @@ mod tests {
 
     /// Write `name` beneath `start`, answering the file still open.
     fn write(start: &Path, name: &str) -> Box<dyn File> {
-        let mut how = OpenHow::default();
-        how.write = true;
-        how.create = true;
+        let how = OpenHow {
+            write: true,
+            create: true,
+            ..OpenHow::default()
+        };
         let Ok(Opened::File(mut file)) = vfs::open(start, name, &how, true) else {
             panic!("{name} must open as a file");
         };
