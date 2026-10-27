@@ -22,7 +22,7 @@ pub use exclusive::Blocking;
 
 use super::path::components;
 use super::{Access, DirEntry, File, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
-use crate::vfs::Dentry;
+use crate::vfs::{Dentry, SuperBlock};
 use exclusive::{Exclusive, Inline};
 use inodes::Inode;
 use stack::{Chain, Stack};
@@ -93,12 +93,13 @@ impl Overlay {
         }))
     }
 
-    /// This Overlay with `filesystem` as a new Layer beneath the ones
-    /// already added, allowing `access` there. It takes a lock of its own,
-    /// so an Overlay holding the one it was built from as a Layer does not
-    /// wait on itself.
-    pub fn layer(mut self, filesystem: Arc<dyn Filesystem>, access: Access) -> Self {
-        self.stack.push(filesystem, access);
+    /// This Overlay with `super_block` as a new Layer beneath the ones
+    /// already added, allowing `access` there. The Layer is asked through
+    /// that SuperBlock's dentries, as overlayfs asks each layer by its own
+    /// lookup. It takes a lock of its own, so an Overlay holding the one it
+    /// was built from as a Layer does not wait on itself.
+    pub fn layer(mut self, super_block: Arc<SuperBlock>, access: Access) -> Self {
+        self.stack.push(super_block, access);
         self.lock = Arc::new(Exclusive::new(self.lock.blocking()));
         self
     }
@@ -325,8 +326,8 @@ mod tests {
     fn overlay_on(upper: Arc<dyn Filesystem>) -> (Through, Arc<Memory>) {
         let lower = memory_with("dir/file", "lower");
         let overlay = Overlay::new()
-            .layer(upper, Access::ReadWrite)
-            .layer(lower.clone(), Access::Read);
+            .layer(SuperBlock::new(upper), Access::ReadWrite)
+            .layer(SuperBlock::new(lower.clone()), Access::Read);
         (at(overlay), lower)
     }
 
@@ -365,8 +366,8 @@ mod tests {
             let lower =
                 super::super::Directory::new(&self.0).expect("the host directory must open");
             at(Overlay::new()
-                .layer(upper, Access::ReadWrite)
-                .layer(Arc::new(lower), Access::Read))
+                .layer(SuperBlock::new(upper), Access::ReadWrite)
+                .layer(SuperBlock::new(Arc::new(lower)), Access::Read))
         }
     }
 
@@ -575,8 +576,11 @@ mod tests {
         let host = LinkTree::new("shadow");
         let upper = super::super::Directory::new(&host.0).expect("the host directory must open");
         let overlay = at(Overlay::new()
-            .layer(Arc::new(upper), Access::ReadWrite)
-            .layer(memory_with("dangling", "lower"), Access::Read));
+            .layer(SuperBlock::new(Arc::new(upper)), Access::ReadWrite)
+            .layer(
+                SuperBlock::new(memory_with("dangling", "lower")),
+                Access::Read,
+            ));
         assert_eq!(
             overlay
                 .open(
@@ -602,8 +606,11 @@ mod tests {
         let host = LinkTree::new("shadow-beneath");
         let upper = super::super::Directory::new(&host.0).expect("the host directory must open");
         let overlay = at(Overlay::new()
-            .layer(Arc::new(upper), Access::ReadWrite)
-            .layer(memory_with("dirlink/x", "lower"), Access::Read));
+            .layer(SuperBlock::new(Arc::new(upper)), Access::ReadWrite)
+            .layer(
+                SuperBlock::new(memory_with("dirlink/x", "lower")),
+                Access::Read,
+            ));
         assert_eq!(
             (
                 overlay
@@ -624,8 +631,11 @@ mod tests {
     fn removing_a_file_over_a_lower_directory_leaves_it_hidden() {
         let lower = memory_with("f/g", "lower");
         let overlay = at(Overlay::new()
-            .layer(memory_with("f", "upper"), Access::ReadWrite)
-            .layer(lower.clone(), Access::ReadWrite));
+            .layer(
+                SuperBlock::new(memory_with("f", "upper")),
+                Access::ReadWrite,
+            )
+            .layer(SuperBlock::new(lower.clone()), Access::ReadWrite));
         let removed = overlay.remove_file("f");
         assert_eq!(
             (
@@ -789,8 +799,8 @@ mod tests {
     #[test]
     fn an_upper_layer_hides_the_same_path_in_a_lower_one() {
         let overlay = at(Overlay::new()
-            .layer(memory_with("note", "upper"), Access::Read)
-            .layer(memory_with("note", "lower"), Access::Read));
+            .layer(SuperBlock::new(memory_with("note", "upper")), Access::Read)
+            .layer(SuperBlock::new(memory_with("note", "lower")), Access::Read));
         assert_eq!(
             read(&overlay, "note"),
             b"upper",
@@ -804,8 +814,8 @@ mod tests {
         let upper = Arc::new(Memory::new());
         let lower = memory_with("note", "lower");
         let overlay = at(Overlay::new()
-            .layer(upper.clone(), Access::ReadWrite)
-            .layer(lower.clone(), Access::ReadWrite));
+            .layer(SuperBlock::new(upper.clone()), Access::ReadWrite)
+            .layer(SuperBlock::new(lower.clone()), Access::ReadWrite));
         overwrite(&overlay, "note", b"changed");
         assert_eq!(
             (read(&on(&lower), "note"), on(&upper).symlink_metadata("note")),
@@ -822,8 +832,8 @@ mod tests {
         let upper = Arc::new(Memory::new());
         let lower = memory_with("note", "lower");
         let overlay = at(Overlay::new()
-            .layer(upper.clone(), Access::ReadWrite)
-            .layer(lower.clone(), Access::ReadWrite));
+            .layer(SuperBlock::new(upper.clone()), Access::ReadWrite)
+            .layer(SuperBlock::new(lower.clone()), Access::ReadWrite));
         assert_eq!(
             (
                 overlay.rename("note", &overlay, "moved", Rename::File),
@@ -860,9 +870,9 @@ mod tests {
         let first = Arc::new(Memory::new());
         let second = Arc::new(Memory::new());
         let overlay = at(Overlay::new()
-            .layer(Arc::new(Memory::new()), Access::Read)
-            .layer(first.clone(), Access::ReadWrite)
-            .layer(second.clone(), Access::ReadWrite));
+            .layer(SuperBlock::new(Arc::new(Memory::new())), Access::Read)
+            .layer(SuperBlock::new(first.clone()), Access::ReadWrite)
+            .layer(SuperBlock::new(second.clone()), Access::ReadWrite));
         overwrite(&overlay, "new", b"made");
         assert_eq!(
             (
@@ -898,8 +908,8 @@ mod tests {
             .remove_file("dir/file")
             .expect("the file must be removed");
         let rebuilt = at(Overlay::new()
-            .layer(upper, Access::ReadWrite)
-            .layer(lower, Access::Read));
+            .layer(SuperBlock::new(upper), Access::ReadWrite)
+            .layer(SuperBlock::new(lower), Access::Read));
         assert_eq!(
             rebuilt.symlink_metadata("dir/file"),
             Err(FilesystemError::NotFound),
@@ -968,7 +978,10 @@ mod tests {
     // @behavior FS-021
     #[test]
     fn an_overlay_with_no_writable_layer_refuses_every_change_as_read_only() {
-        let overlay = at(Overlay::new().layer(memory_with("dir/file", "lower"), Access::Read));
+        let overlay = at(Overlay::new().layer(
+            SuperBlock::new(memory_with("dir/file", "lower")),
+            Access::Read,
+        ));
         assert_eq!(
             write(&overlay, "dir/file", b"x"),
             Err(FilesystemError::ReadOnlyFilesystem),
@@ -1094,7 +1107,7 @@ mod tests {
         on(&upper.memory)
             .remove_file("dir/.keep")
             .expect("the seed must go");
-        let overlay = at(Overlay::new().layer(upper.clone(), Access::ReadWrite));
+        let overlay = at(Overlay::new().layer(SuperBlock::new(upper.clone()), Access::ReadWrite));
         *upper.overlay.lock().unwrap() = Some(overlay.clone());
         let removed = overlay.remove_dir("dir");
         upper
@@ -1171,7 +1184,7 @@ mod tests {
             overlay: Mutex::new(None),
             answer: Mutex::new(None),
         });
-        let overlay = at(Overlay::new().layer(layer.clone(), Access::Read));
+        let overlay = at(Overlay::new().layer(SuperBlock::new(layer.clone()), Access::Read));
         *layer.overlay.lock().unwrap() = Some(overlay.clone());
         overlay
             .symlink_metadata("note")
@@ -1190,8 +1203,11 @@ mod tests {
         let upper = Memory::from_iter(files.iter().copied()).with_inodes(Some(inodes));
         let upper = Arc::new(upper);
         let overlay = Overlay::new()
-            .layer(upper.clone(), Access::ReadWrite)
-            .layer(memory_with("dir/file", "lower"), Access::Read);
+            .layer(SuperBlock::new(upper.clone()), Access::ReadWrite)
+            .layer(
+                SuperBlock::new(memory_with("dir/file", "lower")),
+                Access::Read,
+            );
         (at(overlay), upper)
     }
 
@@ -1259,8 +1275,11 @@ mod tests {
     fn a_directory_a_lower_writable_layer_still_fills_is_removed_behind_a_whiteout() {
         let lower = memory_with("dir/file", "lower");
         let overlay = at(Overlay::new()
-            .layer(memory_with("dir/.wh.file", ""), Access::ReadWrite)
-            .layer(lower.clone(), Access::ReadWrite));
+            .layer(
+                SuperBlock::new(memory_with("dir/.wh.file", "")),
+                Access::ReadWrite,
+            )
+            .layer(SuperBlock::new(lower.clone()), Access::ReadWrite));
         assert_eq!(
             (
                 overlay.remove_dir("dir"),
@@ -1288,8 +1307,8 @@ mod tests {
             .create_dir("dir")
             .expect("the directory must be made");
         let overlay = at(Overlay::new()
-            .layer(upper.clone(), Access::ReadWrite)
-            .layer(lower, Access::Read));
+            .layer(SuperBlock::new(upper.clone()), Access::ReadWrite)
+            .layer(SuperBlock::new(lower), Access::Read));
         assert_eq!(
             (
                 overlay.rename("moving", &overlay, "dir", Rename::Directory),
@@ -1314,9 +1333,9 @@ mod tests {
     #[test]
     fn a_rename_a_read_only_layer_above_would_cover_is_refused() {
         let overlay = at(Overlay::new()
-            .layer(memory_with("to", "top"), Access::Read)
-            .layer(Arc::new(Memory::new()), Access::ReadWrite)
-            .layer(memory_with("from", "moved"), Access::Read));
+            .layer(SuperBlock::new(memory_with("to", "top")), Access::Read)
+            .layer(SuperBlock::new(Arc::new(Memory::new())), Access::ReadWrite)
+            .layer(SuperBlock::new(memory_with("from", "moved")), Access::Read));
         assert_eq!(
             (
                 overlay.rename("from", &overlay, "to", Rename::Any),
@@ -1339,14 +1358,14 @@ mod tests {
         let upper = Arc::new(Memory::new());
         let overlay = at(Overlay::new()
             .layer(
-                Arc::new(
+                SuperBlock::new(Arc::new(
                     [(".wh.file", ""), (".wh.dir", "")]
                         .into_iter()
                         .collect::<Memory>(),
-                ),
+                )),
                 Access::Read,
             )
-            .layer(upper.clone(), Access::ReadWrite));
+            .layer(SuperBlock::new(upper.clone()), Access::ReadWrite));
         assert_eq!(
             (
                 write(&overlay, "file", b"new"),
@@ -1373,10 +1392,12 @@ mod tests {
         let lower: Arc<Memory> = Arc::new([("dir/a.txt", "a")].into_iter().collect());
         let overlay = at(Overlay::new()
             .layer(
-                Arc::new([("dir/.wh..wh..opq", "")].into_iter().collect::<Memory>()),
+                SuperBlock::new(Arc::new(
+                    [("dir/.wh..wh..opq", "")].into_iter().collect::<Memory>(),
+                )),
                 Access::Read,
             )
-            .layer(lower.clone(), Access::ReadWrite));
+            .layer(SuperBlock::new(lower.clone()), Access::ReadWrite));
         assert_eq!(
             (
                 write(&overlay, "dir/new.txt", b"new"),
@@ -1447,8 +1468,8 @@ mod tests {
             .remove_file("dir/.keep")
             .expect("the seed must go");
         let overlay = at(Overlay::new()
-            .layer(upper.clone(), Access::ReadWrite)
-            .layer(lower.clone(), Access::Read));
+            .layer(SuperBlock::new(upper.clone()), Access::ReadWrite)
+            .layer(SuperBlock::new(lower.clone()), Access::Read));
         overlay
             .create_dir("made")
             .expect("the directory must be made");
@@ -1885,7 +1906,7 @@ mod tests {
     #[test]
     fn a_directory_opened_from_an_overlay_follows_it_when_it_moves() {
         let upper = Arc::new(Memory::new());
-        let overlay = at(Overlay::new().layer(upper.clone(), Access::ReadWrite));
+        let overlay = at(Overlay::new().layer(SuperBlock::new(upper.clone()), Access::ReadWrite));
         overlay.create_dir("dir").expect("dir must be made");
         overlay.create_dir("dir/inner").expect("inner must be made");
         let dir = overlay.open_dir("dir").expect("dir must open");
@@ -1914,7 +1935,8 @@ mod tests {
     // @behavior FS-111
     #[test]
     fn an_overlay_directory_removed_while_opened_makes_nothing_more() {
-        let overlay = at(Overlay::new().layer(Arc::new(Memory::new()), Access::ReadWrite));
+        let overlay =
+            at(Overlay::new().layer(SuperBlock::new(Arc::new(Memory::new())), Access::ReadWrite));
         overlay.create_dir("dir").expect("dir must be made");
         let dir = overlay.open_dir("dir").expect("dir must open");
         overlay.remove_dir("dir").expect("dir must remove");
@@ -1939,7 +1961,7 @@ mod tests {
     #[test]
     fn an_overlay_directory_keeps_its_layers_directory_through_a_change_outside_it() {
         let upper = memory_with("dir/file", "x");
-        let overlay = at(Overlay::new().layer(upper.clone(), Access::ReadWrite));
+        let overlay = at(Overlay::new().layer(SuperBlock::new(upper.clone()), Access::ReadWrite));
         let dir = overlay.open_dir("dir").expect("dir must open");
         let outside = on(&upper);
         outside
@@ -1966,8 +1988,8 @@ mod tests {
     fn a_copy_up_through_one_overlay_directory_is_seen_through_another() {
         let lower: Arc<dyn Filesystem> = memory_with("dir/a.txt", "a");
         let overlay = at(Overlay::new()
-            .layer(Arc::new(Memory::new()), Access::ReadWrite)
-            .layer(lower, Access::Read));
+            .layer(SuperBlock::new(Arc::new(Memory::new())), Access::ReadWrite)
+            .layer(SuperBlock::new(lower), Access::Read));
         let first = overlay.open_dir("dir").expect("dir must open");
         let second = overlay.open_dir("dir").expect("dir must open again");
         write(&first, "b.txt", b"b").expect("the write must copy dir up");
@@ -1986,8 +2008,8 @@ mod tests {
     fn a_write_through_a_moved_overlay_directory_lands_where_it_went() {
         let upper = memory_with("dir/a.txt", "a");
         let overlay = at(Overlay::new()
-            .layer(upper.clone(), Access::ReadWrite)
-            .layer(Arc::new(Memory::new()), Access::ReadWrite));
+            .layer(SuperBlock::new(upper.clone()), Access::ReadWrite)
+            .layer(SuperBlock::new(Arc::new(Memory::new())), Access::ReadWrite));
         let dir = overlay.open_dir("dir").expect("dir must open");
         overlay
             .rename("dir", &overlay, "moved", Rename::Any)
@@ -2004,11 +2026,11 @@ mod tests {
     #[test]
     fn an_overlay_spells_a_path_as_the_layer_showing_it_stores_it() {
         let overlay = at(Overlay::new()
-            .layer(Arc::new(Memory::new()), Access::ReadWrite)
+            .layer(SuperBlock::new(Arc::new(Memory::new())), Access::ReadWrite)
             .layer(
-                Arc::new(FoldsCase::new(
+                SuperBlock::new(Arc::new(FoldsCase::new(
                     [("private/secret", "x")].into_iter().collect(),
-                )),
+                ))),
                 Access::Read,
             ));
         let private = overlay
@@ -2037,8 +2059,8 @@ mod tests {
     fn a_layer_that_cannot_read_its_markers_fails_the_lookup() {
         let top: Memory = [(".wh.file", "")].into_iter().collect();
         let overlay = at(Overlay::new()
-            .layer(Arc::new(ReadsNoMarker(top)), Access::Read)
-            .layer(memory_with("file", "hidden"), Access::Read));
+            .layer(SuperBlock::new(Arc::new(ReadsNoMarker(top))), Access::Read)
+            .layer(SuperBlock::new(memory_with("file", "hidden")), Access::Read));
         assert!(
             matches!(
                 overlay.symlink_metadata("file"),
@@ -2057,8 +2079,8 @@ mod tests {
             seen: AtomicBool::new(false),
         };
         let overlay = at(Overlay::new()
-            .layer(Arc::new(Memory::new()), Access::ReadWrite)
-            .layer(Arc::new(lower), Access::Read));
+            .layer(SuperBlock::new(Arc::new(Memory::new())), Access::ReadWrite)
+            .layer(SuperBlock::new(Arc::new(lower)), Access::Read));
         assert_eq!(
             overlay.rename("file", &overlay, "moved", Rename::Any),
             Err(FilesystemError::NotFound),
@@ -2073,8 +2095,11 @@ mod tests {
     #[test]
     fn a_directory_over_a_lower_file_on_its_way_reads_as_a_directory() {
         let overlay = at(Overlay::new()
-            .layer(memory_with("dir/sub/file", "upper"), Access::ReadWrite)
-            .layer(memory_with("dir", "lower"), Access::Read));
+            .layer(
+                SuperBlock::new(memory_with("dir/sub/file", "upper")),
+                Access::ReadWrite,
+            )
+            .layer(SuperBlock::new(memory_with("dir", "lower")), Access::Read));
         assert_eq!(
             (
                 overlay.symlink_metadata("dir/sub").map(|metadata| metadata.file_type),
@@ -2164,8 +2189,11 @@ mod tests {
             .into_iter()
             .collect();
         let overlay = at(Overlay::new()
-            .layer(Arc::new(upper), Access::ReadWrite)
-            .layer(memory_with("hidden", "lower"), Access::Read));
+            .layer(SuperBlock::new(Arc::new(upper)), Access::ReadWrite)
+            .layer(
+                SuperBlock::new(memory_with("hidden", "lower")),
+                Access::Read,
+            ));
         assert_eq!(
             (names(&overlay, ""), overlay.symlink_metadata("hidden")),
             (vec!["kept".to_string()], Err(FilesystemError::NotFound)),
@@ -2254,7 +2282,7 @@ mod tests {
     fn a_contended_overlay_waits_through_its_blocking() {
         let counts = Arc::new(CountsWaits(AtomicUsize::new(0)));
         let overlay = Overlay::new()
-            .layer(memory_with("note", "x"), Access::Read)
+            .layer(SuperBlock::new(memory_with("note", "x")), Access::Read)
             .with_blocking(counts.clone());
         let held = overlay.lock.hold().expect("the lock must be free");
         let other = at(overlay.clone());
@@ -2282,8 +2310,8 @@ mod tests {
         let lower: Arc<dyn Filesystem> =
             Arc::new([("dir/a.txt", "a")].into_iter().collect::<Memory>());
         let overlay = at(Overlay::new()
-            .layer(Arc::new(Memory::new()), Access::ReadWrite)
-            .layer(lower, Access::Read));
+            .layer(SuperBlock::new(Arc::new(Memory::new())), Access::ReadWrite)
+            .layer(SuperBlock::new(lower), Access::Read));
         let identity = |overlay: &Through| {
             let metadata = overlay
                 .symlink_metadata("dir")
@@ -2313,8 +2341,8 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
         write(&on(&upper), "dir/b.txt", b"b").expect("the upper Layer must take a write");
         let overlay = at(Overlay::new()
-            .layer(upper.clone(), Access::ReadWrite)
-            .layer(lower.clone(), Access::Read));
+            .layer(SuperBlock::new(upper.clone()), Access::ReadWrite)
+            .layer(SuperBlock::new(lower.clone()), Access::Read));
         let merged = overlay
             .symlink_metadata("dir")
             .expect("the directory must stand");
@@ -2347,8 +2375,8 @@ mod tests {
             )
         };
         let overlay = at(Overlay::new()
-            .layer(layer("upper"), Access::ReadWrite)
-            .layer(layer("lower"), Access::Read));
+            .layer(SuperBlock::new(layer("upper")), Access::ReadWrite)
+            .layer(SuperBlock::new(layer("lower")), Access::Read));
         let identity = |metadata: Result<Metadata, FilesystemError>| {
             let metadata = metadata.expect("the directory must stand");
             (metadata.dev, metadata.ino)

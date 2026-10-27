@@ -22,7 +22,7 @@ use super::readers::Readers;
 
 use super::super::path::{beneath_itself, is_beneath, join};
 use super::super::{
-    Access, DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
+    Access, DirEntry, File, FileType, FilesystemError, Metadata, OpenOptions, Rename,
 };
 use crate::vfs::SuperBlock;
 
@@ -250,9 +250,9 @@ impl Stack {
         self.upper().is_ok_and(|upper| level[upper].is_none())
     }
 
-    pub(super) fn push(&mut self, filesystem: Arc<dyn Filesystem>, access: Access) {
+    pub(super) fn push(&mut self, super_block: Arc<SuperBlock>, access: Access) {
         self.layers.push(Layer {
-            super_block: SuperBlock::new(filesystem),
+            super_block,
             access,
         });
     }

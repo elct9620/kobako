@@ -1073,8 +1073,8 @@ fn a_directory_without_an_identity_is_not_reached_again_beneath_a_policy() {
 fn an_overlay_directory_takes_one_descriptor_however_many_layers_it_spans() {
     let upper: Arc<dyn Filesystem> = Arc::new([("dir/upper", "u")].into_iter().collect::<Memory>());
     let overlay = Overlay::new()
-        .layer(upper, Access::ReadWrite)
-        .layer(file_and_directory(), Access::Read);
+        .layer(SuperBlock::new(upper), Access::ReadWrite)
+        .layer(SuperBlock::new(file_and_directory()), Access::Read);
     let mut guest = Guest::holding_at_most(
         Some(6),
         &[grant(Arc::new(overlay), Access::ReadWrite, None)],
@@ -1099,8 +1099,8 @@ fn a_directory_two_layers_hold_is_reached_through_its_descriptor() {
     let upper: Arc<dyn Filesystem> = Arc::new([("dir/upper", "u")].into_iter().collect::<Memory>());
     let lower: Arc<dyn Filesystem> = file_and_directory();
     let overlay = Overlay::new()
-        .layer(upper, Access::ReadWrite)
-        .layer(lower, Access::Read);
+        .layer(SuperBlock::new(upper), Access::ReadWrite)
+        .layer(SuperBlock::new(lower), Access::Read);
     let mut guest = Guest::new(&[grant(Arc::new(overlay), Access::ReadWrite, None)]);
     assert_eq!(
         (guest.call_bare("open_dir"), guest.call_bare("stat_inner")),
@@ -2541,8 +2541,8 @@ impl LinkedBeneath {
         let filesystem: Arc<dyn Filesystem> = if overlay {
             Arc::new(
                 Overlay::new()
-                    .layer(directory, Access::ReadWrite)
-                    .layer(Arc::new(Memory::new()), Access::Read),
+                    .layer(SuperBlock::new(directory), Access::ReadWrite)
+                    .layer(SuperBlock::new(Arc::new(Memory::new())), Access::Read),
             )
         } else {
             directory

@@ -171,9 +171,11 @@ fn overlay_layer(overlay: &OverlayFs, args: &[Value]) -> Result<OverlayFs, Magnu
     };
     let mut layers = overlay.layers.clone();
     layers.push(Opaque::from(filesystem));
-    let layer = to_super_block(filesystem)?.root().clone();
     Ok(OverlayFs::new(
-        overlay.overlay.clone().layer(layer, access),
+        overlay
+            .overlay
+            .clone()
+            .layer(to_super_block(filesystem)?, access),
         layers,
     ))
 }

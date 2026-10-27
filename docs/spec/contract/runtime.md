@@ -1021,12 +1021,12 @@ impl Overlay {
 
 ## `Overlay::layer`
 
-This Overlay with a Filesystem as a new Layer beneath the ones already added,
+This Overlay with a SuperBlock as a new Layer beneath the ones already added,
 allowing the given access there.
 
 ```rust
 impl Overlay {
-    pub fn layer(self, filesystem: Arc<dyn Filesystem>, access: Access) -> Self {}
+    pub fn layer(self, super_block: Arc<SuperBlock>, access: Access) -> Self {}
 }
 ```
 
