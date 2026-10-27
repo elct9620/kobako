@@ -69,7 +69,7 @@ leaves the host exposed in its own way.
 | `setup_timeout` | `Sandbox.new` held for as long as the Guest Binary takes to start |
 | `memory_limit` | up to 4 GiB of guest memory, and no value budget |
 | `stdout_limit`, `stderr_limit` | host memory without bound, read back after the run ends |
-| `open_file_limit` | up to two host descriptors for each file or directory open beneath a Directory |
+| `open_file_limit` | host descriptors for each file or directory open beneath a Directory |
 | a Memory's `limit:` | host memory without bound; one write far past a file's end fills the gap |
 | a Memory's `inodes:` | an entry for every file and directory it makes |
 
@@ -294,7 +294,7 @@ Directory opens only files and directories: a FIFO, socket, or device raises
 | `access: :read` unless the guest must write | a read-only Mount refuses every change |
 | a Memory over a Directory | a Directory is a real host path the guest changes |
 | `limit:` and `inodes:` sized to the task | the defaults hold 64 MiB and 16385 entries |
-| `open_file_limit:` at most half the host's own | each file or directory opened in a Directory holds up to two host descriptors |
+| `open_file_limit:` sized against the host's own | a file holds up to two host descriptors, and a directory one per Directory Layer |
 
 ### Mount Blocks
 

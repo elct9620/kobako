@@ -1,13 +1,14 @@
 //! The directories of an Overlay opened as Filesystems of their own. Each
 //! is kept by the directory above it and its name there, as overlayfs
 //! keeps its dentries, so a directory moved through the Overlay takes
-//! every one opened beneath it along.
+//! every one opened beneath it along. A node holds no Layer's directory
+//! open itself, so the descriptors an Overlay holds stay bounded by the
+//! directories handed out.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use super::super::path::{components, join, name, parent};
-use super::super::{Filesystem, Metadata};
 
 /// One directory of the view, and where it stands now.
 pub(super) struct Node {
@@ -21,13 +22,6 @@ struct State {
     /// Whether the directory was removed or replaced through the Overlay,
     /// so nothing reaches it any more.
     removed: bool,
-    /// The identity the directory had when it was opened, so another
-    /// standing at its path after a change beneath the Overlay is not
-    /// taken for it.
-    identity: Option<(u64, u64)>,
-    /// The Layer's directory giving it that identity, held open so a host
-    /// hands its inode to no other directory while this one is open.
-    _anchor: Option<Arc<dyn Filesystem>>,
 }
 
 impl Node {
@@ -37,8 +31,6 @@ impl Node {
                 parent,
                 name: name.to_string(),
                 removed: false,
-                identity: None,
-                _anchor: None,
             }),
         })
     }
@@ -69,23 +61,6 @@ impl Node {
 
     pub(super) fn removed(&self) -> bool {
         self.state().removed
-    }
-
-    /// Whether `found`, what stands at the directory's path now, is the
-    /// directory opened; one opened with no identity is taken as it.
-    pub(super) fn is(&self, found: &Metadata) -> bool {
-        self.state()
-            .identity
-            .is_none_or(|identity| identity == (found.dev, found.ino))
-    }
-
-    /// Mark the directory opened as `found`, held through `anchor`.
-    pub(super) fn opened(&self, found: &Metadata, anchor: Option<Arc<dyn Filesystem>>) {
-        let mut state = self.state();
-        if state.identity.is_none() && found.ino != 0 {
-            state.identity = Some((found.dev, found.ino));
-            state._anchor = anchor;
-        }
     }
 }
 

@@ -1327,3 +1327,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay directory opened as a Filesystem of its own |
 | When | its Layer moves the directory away and makes another in its place, outside the Overlay |
 | Then | a lookup through the opened directory answers not found |
+
+## `FS-113` A lower Layer's link beneath an upper directory is not merged
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-098` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose upper Layer holds a directory where a lower Layer holds a link to a directory |
+| When | a name the link's target holds is looked up beneath the directory, which is also listed |
+| Then | the lookup answers not found, and the listing is empty |

@@ -19,13 +19,11 @@ use std::sync::Arc;
 
 pub use exclusive::Blocking;
 
-use super::path::join;
-use super::{
-    Access, DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
-};
+use super::path::components;
+use super::{Access, DirEntry, File, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
 use exclusive::{Exclusive, Inline};
 use nodes::{Node, Nodes};
-use stack::Stack;
+use stack::{Chain, Stack};
 
 /// Layers stacked into one Filesystem, the first one added on top. Its
 /// clones share its lock; two Overlays sharing a writable Layer are not
@@ -34,14 +32,26 @@ use stack::Stack;
 ///
 /// A directory opened beneath it is an Overlay too, following that
 /// directory as it moves through the Overlay. overlayfs leaves a change
-/// made to a Layer outside it undefined; here a directory another one
-/// came to stand in the place of is not reached at all.
+/// made to a Layer outside it undefined; here, where a Layer's directory
+/// standing in the view is no longer the one opened, the directory is
+/// not reached at all, so no change lands in a Layer it was not meant
+/// for.
 #[derive(Clone)]
 pub struct Overlay {
     stack: Stack,
     lock: Arc<Exclusive>,
     nodes: Arc<Nodes>,
     node: Arc<Node>,
+    /// Each Layer's directory this one was opened as, and its identity,
+    /// held open so the host hands that identity to no other while it is;
+    /// empty for the root, which never moves.
+    held: Arc<Vec<Option<Held>>>,
+}
+
+/// One Layer's directory an opened directory was found as.
+struct Held {
+    _dir: Arc<dyn Filesystem>,
+    identity: (u64, u64),
 }
 
 impl Default for Overlay {
@@ -59,41 +69,89 @@ impl Overlay {
             lock: Arc::new(Exclusive::new(Arc::new(Inline))),
             node: nodes.root(),
             nodes,
+            held: Arc::default(),
         }
     }
 
-    /// `path` beneath this directory, from the Overlay's root, while the
-    /// directory still stands where the view shows it. The caller holds
-    /// the Overlay's lock.
-    fn path(&self, path: &str) -> Result<String, FilesystemError> {
-        if Arc::ptr_eq(&self.node, &self.nodes.root()) {
-            return Ok(path.to_string());
+    fn is_root(&self) -> bool {
+        Arc::ptr_eq(&self.node, &self.nodes.root())
+    }
+
+    /// The chain from the root to this directory, walked again one name at
+    /// a time, while each Layer's directory standing there is still the one
+    /// opened. The caller holds the Overlay's lock.
+    fn reach(&self) -> Result<Chain, FilesystemError> {
+        let mut chain = self.stack.root();
+        if self.is_root() {
+            return Ok(chain);
         }
         if self.node.removed() {
             return Err(FilesystemError::NotFound);
         }
-        let at = self.node.path();
-        if !self.node.is(&self.stack.metadata(&at)?) {
-            return Err(FilesystemError::NotFound);
+        let path = self.node.path();
+        self.stack.descend(&mut chain, components(&path))?;
+        for (held, dir) in self.held.iter().zip(chain.level()) {
+            let Some(held) = held else {
+                continue;
+            };
+            let found = dir
+                .as_ref()
+                .ok_or(FilesystemError::NotFound)?
+                .metadata("")?;
+            if (found.dev, found.ino) != held.identity {
+                return Err(FilesystemError::NotFound);
+            }
         }
-        Ok(join(&at, path))
+        Ok(chain)
     }
 
-    /// The directory at `path`, `found` there, as an Overlay of its own.
+    /// The chain to the directory holding the last name of `path` beneath
+    /// this directory, and that name; the empty name for the root itself.
     /// The caller holds the Overlay's lock.
-    fn beneath(&self, path: &str, found: Metadata) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        match found.file_type {
-            FileType::Directory => {
-                let node = self.nodes.at(path);
-                node.opened(&found, self.stack.anchor(path)?);
-                Ok(Arc::new(Self {
-                    node,
-                    ..self.clone()
-                }))
+    fn split(&self, path: &str) -> Result<(Chain, String), FilesystemError> {
+        let mut chain = self.reach()?;
+        let names: Vec<&str> = components(path).collect();
+        match names.split_last() {
+            Some((name, above)) => {
+                self.stack.descend(&mut chain, above.iter().copied())?;
+                Ok((chain, name.to_string()))
             }
-            FileType::Symlink => Err(FilesystemError::FilesystemLoop),
-            _ => Err(FilesystemError::NotADirectory),
+            None => {
+                let name = chain.pop().unwrap_or_default();
+                Ok((chain, name))
+            }
         }
+    }
+
+    /// The directory `path` names, a link at its end followed within its
+    /// Layer only where `follow` asks, as an Overlay of its own. The
+    /// caller holds the Overlay's lock.
+    fn beneath(&self, path: &str, follow: bool) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        let (mut chain, name) = self.split(path)?;
+        if name.is_empty() {
+            return Ok(Arc::new(self.clone()));
+        }
+        self.stack.enter(&mut chain, &name, follow)?;
+        let held = chain
+            .level()
+            .iter()
+            .map(|dir| {
+                dir.as_ref()
+                    .map(|dir| {
+                        let found = dir.metadata("")?;
+                        Ok(Held {
+                            _dir: dir.clone(),
+                            identity: (found.dev, found.ino),
+                        })
+                    })
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, FilesystemError>>()?;
+        Ok(Arc::new(Self {
+            node: self.nodes.at(&chain.path()),
+            held: Arc::new(held),
+            ..self.clone()
+        }))
     }
 
     /// This Overlay with `filesystem` as a new Layer beneath the ones
@@ -118,39 +176,55 @@ impl Overlay {
 impl Filesystem for Overlay {
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.open(&self.path(path)?, options)
+        let (mut chain, name) = self.split(path)?;
+        if name.is_empty() {
+            return Err(FilesystemError::IsADirectory);
+        }
+        self.stack.open(&mut chain, &name, options)
     }
 
     fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
         let _held = self.lock.hold()?;
-        let path = self.path(path)?;
-        self.beneath(&path, self.stack.metadata(&path)?)
+        self.beneath(path, true)
     }
 
     fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
         let _held = self.lock.hold()?;
-        let path = self.path(name)?;
-        self.beneath(&path, self.stack.symlink_metadata(&path)?)
+        self.beneath(name, false)
     }
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.metadata(&self.path(path)?)
+        let (chain, name) = self.split(path)?;
+        if name.is_empty() {
+            return self.stack.dir_metadata(chain.level());
+        }
+        self.stack.metadata(chain.level(), &name)
     }
 
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.symlink_metadata(&self.path(path)?)
+        let (chain, name) = self.split(path)?;
+        if name.is_empty() {
+            return self.stack.dir_metadata(chain.level());
+        }
+        self.stack.symlink_metadata(chain.level(), &name)
     }
 
     fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.stored_name(&self.path(name)?)
+        let (chain, name) = self.split(name)?;
+        if name.is_empty() {
+            return Ok(name);
+        }
+        self.stack.stored_name(chain.level(), &name)
     }
 
     fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.canonicalize_beneath(&self.path(base)?, path)
+        let mut chain = self.reach()?;
+        self.stack.descend(&mut chain, components(base))?;
+        self.stack.canonicalize_beneath(&chain, path)
     }
 
     /// A directory removed while open lists nothing, as Linux lists one.
@@ -159,25 +233,37 @@ impl Filesystem for Overlay {
         if self.node.removed() {
             return Ok(Vec::new());
         }
-        self.stack.entries(&self.path("")?)
+        self.stack.entries(self.reach()?.level())
     }
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.create_dir(&self.path(path)?)
+        let (mut chain, name) = self.split(path)?;
+        if name.is_empty() {
+            return Err(FilesystemError::AlreadyExists);
+        }
+        self.stack.create_dir(&mut chain, &name)
     }
 
+    /// The root stays, as a mount point does.
     fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        let path = self.path(path)?;
-        self.stack.remove_dir(&path)?;
-        self.nodes.removed(&path);
+        let (mut chain, name) = self.split(path)?;
+        if name.is_empty() {
+            return Err(FilesystemError::ResourceBusy);
+        }
+        self.stack.remove_dir(&mut chain, &name)?;
+        self.nodes.removed(&chain.path_of(&name));
         Ok(())
     }
 
     fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.remove_file(&self.path(path)?)
+        let (mut chain, name) = self.split(path)?;
+        if name.is_empty() {
+            return Err(FilesystemError::IsADirectory);
+        }
+        self.stack.remove_file(&mut chain, &name)
     }
 
     /// Both directories lie in one Overlay, which holds one lock however
@@ -196,8 +282,14 @@ impl Filesystem for Overlay {
             .filter(|target| Arc::ptr_eq(&target.lock, &self.lock))
             .ok_or(FilesystemError::CrossesDevices)?;
         let _held = self.lock.hold()?;
-        let (from, to) = (self.path(from)?, target.path(to)?);
-        self.stack.rename(&from, &to, rename)?;
+        let (mut from_chain, from) = self.split(from)?;
+        let (mut to_chain, to) = target.split(to)?;
+        if from.is_empty() || to.is_empty() {
+            return Err(FilesystemError::ResourceBusy);
+        }
+        self.stack
+            .rename(&mut from_chain, &from, &mut to_chain, &to, rename)?;
+        let (from, to) = (from_chain.path_of(&from), to_chain.path_of(&to));
         if from != to {
             self.nodes.removed(&to);
             self.nodes.moved(&from, &to);
@@ -371,12 +463,41 @@ mod tests {
 
         /// A writable Memory over the host directory as a read-only Layer.
         fn overlay(&self) -> Overlay {
+            self.under(Arc::new(Memory::new()))
+        }
+
+        /// The host directory as a read-only Layer beneath `upper`.
+        fn under(&self, upper: Arc<dyn Filesystem>) -> Overlay {
             let lower =
                 super::super::Directory::new(&self.0).expect("the host directory must open");
             Overlay::new()
-                .layer(Arc::new(Memory::new()), Access::ReadWrite)
+                .layer(upper, Access::ReadWrite)
                 .layer(Arc::new(lower), Access::Read)
         }
+    }
+
+    // The upper Layer's `dirlink` is a directory and the lower one's a link,
+    // so only merging directory over directory keeps the lower link's
+    // target out of the view.
+    // @behavior FS-113
+    #[cfg(unix)]
+    #[test]
+    fn a_lower_layers_link_beneath_an_upper_directory_is_not_merged() {
+        let tree = LinkTree::new("not-merged");
+        let upper = Memory::new();
+        upper
+            .create_dir("dirlink")
+            .expect("the upper directory must be made");
+        let overlay = tree.under(Arc::new(upper));
+        assert_eq!(
+            (
+                kind(&overlay, "dirlink/inner"),
+                names(&overlay, "dirlink").len()
+            ),
+            (Err(FilesystemError::NotFound), 0),
+            "a name beneath a directory an upper Layer holds, where a lower Layer holds a link, \
+             through Overlay::metadata and its listing must show nothing the link leads to"
+        );
     }
 
     #[cfg(unix)]
@@ -1070,7 +1191,7 @@ mod tests {
         }
 
         fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-            self.memory.open_dir(name)
+            self.open_dir(name)
         }
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -1481,7 +1602,7 @@ mod tests {
     /// A Memory whose files write at most three bytes per call and, when
     /// `refuses_close`, refuse their close.
     struct Trickles {
-        memory: Memory,
+        memory: Arc<dyn Filesystem>,
         refuses_close: bool,
     }
 
@@ -1538,7 +1659,21 @@ mod tests {
             self.memory.metadata(path)
         }
 
-        opens_directories!(memory);
+        /// Each directory it opens trickles too.
+        fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+            Ok(Arc::new(Self {
+                memory: self.memory.open_dir(path)?,
+                refuses_close: self.refuses_close,
+            }))
+        }
+
+        fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+            self.open_dir(name)
+        }
+
+        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.memory.entries()
+        }
 
         fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
             self.memory.create_dir(path)
@@ -1559,7 +1694,10 @@ mod tests {
             to: &str,
             rename: Rename,
         ) -> Result<(), FilesystemError> {
-            self.memory.rename(from, &self.memory, to, rename)
+            let to_dir = (_to_dir as &dyn Any)
+                .downcast_ref::<Self>()
+                .ok_or(FilesystemError::CrossesDevices)?;
+            self.memory.rename(from, to_dir.memory.as_ref(), to, rename)
         }
     }
 
@@ -2024,7 +2162,7 @@ mod tests {
 
     fn trickles(refuses_close: bool) -> Arc<Trickles> {
         Arc::new(Trickles {
-            memory: Memory::new(),
+            memory: Arc::new(Memory::new()),
             refuses_close,
         })
     }
@@ -2116,7 +2254,7 @@ mod tests {
             )
             .expect("the open must copy the lower file up");
         assert_eq!(
-            read(&upper.memory, "dir/file"),
+            read(upper.memory.as_ref(), "dir/file"),
             b"lower".to_vec(),
             "a write open through Overlay::open must copy the whole lower file up into a Layer \
              whose writes land a few bytes at a time"

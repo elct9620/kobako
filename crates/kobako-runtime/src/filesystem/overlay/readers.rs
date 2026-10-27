@@ -49,14 +49,20 @@ impl Readers {
         Box::new(Reading { file, shown })
     }
 
-    /// `path` was copied up into `layer`; every file open to read there
-    /// reads the copy from now on, wherever it moves.
-    pub(super) fn copied(&self, path: &str, layer: &dyn Filesystem) -> Result<(), FilesystemError> {
+    /// `path` was copied up as `name` into `dir`, a writable Layer's
+    /// directory; every file open to read there reads the copy from now
+    /// on, wherever it moves.
+    pub(super) fn copied(
+        &self,
+        path: &str,
+        dir: &dyn Filesystem,
+        name: &str,
+    ) -> Result<(), FilesystemError> {
         let Some(shown) = self.lock().get(path).and_then(Weak::upgrade) else {
             return Ok(());
         };
-        let copy = layer.open(
-            path,
+        let copy = dir.open(
+            name,
             &OpenOptions {
                 read: true,
                 ..OpenOptions::default()
