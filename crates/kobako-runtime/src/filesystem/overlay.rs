@@ -147,15 +147,6 @@ impl Filesystem for Overlay {
         self.beneath(name)
     }
 
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        let _held = self.lock.hold()?;
-        let (chain, name) = self.split(path, false)?;
-        if name.is_empty() {
-            return self.stack.dir_metadata(chain.level());
-        }
-        self.stack.metadata(chain.level(), &name)
-    }
-
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.lock.hold()?;
         let (chain, name) = self.split(path, false)?;
@@ -261,12 +252,8 @@ mod tests {
     /// The answer of a test Filesystem holding no links.
     macro_rules! holds_no_links {
         () => {
-            fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-                self.metadata(path)
-            }
-
             fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-                self.metadata(name)?;
+                self.symlink_metadata(name)?;
                 Err(FilesystemError::InvalidInput)
             }
         };
@@ -551,7 +538,11 @@ mod tests {
         overlay
             .create_dir("made")
             .expect("a directory must be made in the writable Layer");
-        let file_type = |path| overlay.metadata(path).map(|metadata| metadata.file_type);
+        let file_type = |path| {
+            overlay
+                .symlink_metadata(path)
+                .map(|metadata| metadata.file_type)
+        };
         assert_eq!(
             (
                 overlay.rename("pipe", &overlay, "dir", Rename::Any),
@@ -671,7 +662,7 @@ mod tests {
             (
                 removed,
                 overlay.symlink_metadata("f").err(),
-                lower.metadata("f/g").is_ok()
+                lower.symlink_metadata("f/g").is_ok()
             ),
             (Ok(()), Some(FilesystemError::NotFound), true),
             "a file a higher Layer holds over a lower Layer's directory, removed through \
@@ -721,7 +712,7 @@ mod tests {
         assert_eq!(
             (
                 moved,
-                overlay.metadata("dir").err(),
+                overlay.symlink_metadata("dir").err(),
                 overlay
                     .open_dir_nofollow("moved")
                     .and_then(|dir| dir.entries())
@@ -819,7 +810,7 @@ mod tests {
             .remove_file("dir/file")
             .expect("the file must be removed");
         assert_eq!(
-            overlay.metadata("dir/file"),
+            overlay.symlink_metadata("dir/file"),
             Err(FilesystemError::NotFound),
             "a lower file removed through Overlay::remove_file must no longer be found there"
         );
@@ -848,7 +839,7 @@ mod tests {
             .layer(lower.clone(), Access::ReadWrite);
         overwrite(&overlay, "note", b"changed");
         assert_eq!(
-            (read(lower.as_ref(), "note"), upper.metadata("note")),
+            (read(lower.as_ref(), "note"), upper.symlink_metadata("note")),
             (b"changed".to_vec(), Err(FilesystemError::NotFound)),
             "a writable lower Layer's file written through Overlay::open must change in that Layer alone"
         );
@@ -905,7 +896,7 @@ mod tests {
             .layer(second.clone(), Access::ReadWrite);
         overwrite(&overlay, "new", b"made");
         assert_eq!(
-            (read(first.as_ref(), "new"), second.metadata("new")),
+            (read(first.as_ref(), "new"), second.symlink_metadata("new")),
             (b"made".to_vec(), Err(FilesystemError::NotFound)),
             "a file created through Overlay::open must land in the topmost writable Layer"
         );
@@ -920,7 +911,7 @@ mod tests {
             .remove_file("dir/file")
             .expect("the file must be removed");
         assert_eq!(
-            upper.metadata("dir/.wh.file").map(|metadata| metadata.file_type),
+            upper.symlink_metadata("dir/.wh.file").map(|metadata| metadata.file_type),
             Ok(FileType::File),
             "a read-only Layer's file removed through Overlay::remove_file must leave .wh.file beside it in the writable Layer"
         );
@@ -938,7 +929,7 @@ mod tests {
             .layer(upper, Access::ReadWrite)
             .layer(lower, Access::Read);
         assert_eq!(
-            rebuilt.metadata("dir/file"),
+            rebuilt.symlink_metadata("dir/file"),
             Err(FilesystemError::NotFound),
             "a lower file removed through an Overlay over a Memory must stay gone from a new Overlay over the same Layers"
         );
@@ -1030,7 +1021,7 @@ mod tests {
         assert_eq!(
             (
                 read(&overlay, "dir/moved"),
-                overlay.metadata("dir/file"),
+                overlay.symlink_metadata("dir/file"),
                 read(lower.as_ref(), "dir/file"),
             ),
             (
@@ -1063,8 +1054,8 @@ mod tests {
             self.memory.open(path, options)
         }
 
-        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.memory.metadata(path)
+        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            self.memory.symlink_metadata(path)
         }
 
         fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
@@ -1140,7 +1131,7 @@ mod tests {
             .join()
             .expect("the other call must not panic");
         assert_eq!(
-            (removed, *upper.finished_inside.lock().unwrap(), overlay.metadata("dir/new").is_ok()),
+            (removed, *upper.finished_inside.lock().unwrap(), overlay.symlink_metadata("dir/new").is_ok()),
             (Ok(()), Some(false), false),
             "a change through Overlay::open started while Overlay::remove_dir runs must wait for it, \
              failing rather than landing in the directory being removed"
@@ -1168,11 +1159,11 @@ mod tests {
                 self.memory.open(path, options)
             }
 
-            fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
                 if let Some(overlay) = self.overlay.lock().unwrap().take() {
-                    *self.answer.lock().unwrap() = Some(overlay.metadata(path));
+                    *self.answer.lock().unwrap() = Some(overlay.symlink_metadata(path));
                 }
-                self.memory.metadata(path)
+                self.memory.symlink_metadata(path)
             }
 
             opens_directories!(memory);
@@ -1208,7 +1199,7 @@ mod tests {
         let overlay = Overlay::new().layer(layer.clone(), Access::Read);
         *layer.overlay.lock().unwrap() = Some(overlay.clone());
         overlay
-            .metadata("note")
+            .symlink_metadata("note")
             .expect("the outer call must answer");
         assert_eq!(
             layer.answer.lock().unwrap().take(),
@@ -1250,8 +1241,8 @@ mod tests {
         assert_eq!(
             (
                 overlay.create_dir("dir"),
-                overlay.metadata("dir"),
-                upper.metadata("dir")
+                overlay.symlink_metadata("dir"),
+                upper.symlink_metadata("dir")
             ),
             (
                 Err(FilesystemError::StorageFull),
@@ -1272,7 +1263,7 @@ mod tests {
         assert_eq!(
             (
                 overlay.rename("dir/file", &overlay, "dir/moved", Rename::Any),
-                overlay.metadata("dir/moved"),
+                overlay.symlink_metadata("dir/moved"),
                 read(&overlay, "dir/file")
             ),
             (
@@ -1298,7 +1289,7 @@ mod tests {
         assert_eq!(
             (
                 overlay.remove_dir("dir"),
-                overlay.metadata("dir").err(),
+                overlay.symlink_metadata("dir").err(),
                 read(lower.as_ref(), "dir/file")
             ),
             (Ok(()), Some(FilesystemError::NotFound), b"lower".to_vec()),
@@ -1325,8 +1316,10 @@ mod tests {
         assert_eq!(
             (
                 overlay.rename("moving", &overlay, "dir", Rename::Directory),
-                upper.metadata("moving").map(|metadata| metadata.file_type),
-                upper.metadata("dir").err()
+                upper
+                    .symlink_metadata("moving")
+                    .map(|metadata| metadata.file_type),
+                upper.symlink_metadata("dir").err()
             ),
             (
                 Err(FilesystemError::StorageFull),
@@ -1381,8 +1374,8 @@ mod tests {
             (
                 write(&overlay, "file", b"new"),
                 overlay.create_dir("dir"),
-                upper.metadata("file").err(),
-                upper.metadata("dir").err()
+                upper.symlink_metadata("file").err(),
+                upper.symlink_metadata("dir").err()
             ),
             (
                 Err(FilesystemError::ReadOnlyFilesystem),
@@ -1410,7 +1403,7 @@ mod tests {
         assert_eq!(
             (
                 write(&overlay, "dir/new.txt", b"new"),
-                lower.metadata("dir/new.txt").err()
+                lower.symlink_metadata("dir/new.txt").err()
             ),
             (
                 Err(FilesystemError::ReadOnlyFilesystem),
@@ -1428,7 +1421,7 @@ mod tests {
         assert_eq!(
             (
                 overlay.rename("dir", &overlay, "moved", Rename::Any),
-                overlay.metadata("moved")
+                overlay.symlink_metadata("moved")
             ),
             (
                 Err(FilesystemError::CrossesDevices),
@@ -1485,7 +1478,7 @@ mod tests {
             .expect("the directory must move over the empty one");
         assert_eq!(
             upper
-                .metadata("dir/.wh..wh..opq")
+                .symlink_metadata("dir/.wh..wh..opq")
                 .map(|metadata| metadata.file_type),
             Ok(FileType::File),
             "a directory moved through Overlay::rename over one a read-only Layer holds must be \
@@ -1503,7 +1496,7 @@ mod tests {
         assert_eq!(
             (
                 write(&overlay, "dir/file", b"x"),
-                upper.metadata("dir/file"),
+                upper.symlink_metadata("dir/file"),
                 read(&overlay, "dir/file")
             ),
             (
@@ -1572,8 +1565,8 @@ mod tests {
             }))
         }
 
-        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.memory.metadata(path)
+        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            self.memory.symlink_metadata(path)
         }
 
         /// Each directory it opens trickles too.
@@ -1629,8 +1622,8 @@ mod tests {
             self.0.open(path, options)
         }
 
-        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.0.metadata(path)
+        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            self.0.symlink_metadata(path)
         }
 
         opens_directories!(0);
@@ -1673,8 +1666,8 @@ mod tests {
             self.0.open(path, options)
         }
 
-        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.0.metadata(path)
+        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            self.0.symlink_metadata(path)
         }
 
         opens_directories!(0);
@@ -1720,7 +1713,7 @@ mod tests {
             self.0.open(path, options)
         }
 
-        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
             if path
                 .rsplit('/')
                 .next()
@@ -1730,7 +1723,7 @@ mod tests {
                     "the marker cannot be read".to_string(),
                 ));
             }
-            self.0.metadata(path)
+            self.0.symlink_metadata(path)
         }
 
         opens_directories!(0);
@@ -1777,11 +1770,11 @@ mod tests {
             self.memory.open(path, options)
         }
 
-        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
             if path == "file" && self.seen.swap(true, Ordering::SeqCst) {
                 return Err(FilesystemError::NotFound);
             }
-            self.memory.metadata(path)
+            self.memory.symlink_metadata(path)
         }
 
         opens_directories!(memory);
@@ -1837,8 +1830,8 @@ mod tests {
             )))
         }
 
-        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.0.metadata(&path.to_lowercase())
+        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            self.0.symlink_metadata(&path.to_lowercase())
         }
 
         fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
@@ -1879,7 +1872,7 @@ mod tests {
 
     /// What `path` names through `fs`, or why it names nothing.
     fn kind(fs: &dyn Filesystem, path: &str) -> Result<FileType, FilesystemError> {
-        fs.metadata(path).map(|metadata| metadata.file_type)
+        fs.symlink_metadata(path).map(|metadata| metadata.file_type)
     }
 
     // The inner directory is opened too, so only directories held as the
@@ -2050,7 +2043,10 @@ mod tests {
             .layer(Arc::new(ReadsNoMarker(top)), Access::Read)
             .layer(memory_with("file", "hidden"), Access::Read);
         assert!(
-            matches!(overlay.metadata("file"), Err(FilesystemError::Other(_))),
+            matches!(
+                overlay.symlink_metadata("file"),
+                Err(FilesystemError::Other(_))
+            ),
             "a file looked up through Overlay::metadata, beneath a Layer that cannot read the \
              whiteout over it, must fail the lookup rather than show the file"
         );
@@ -2084,7 +2080,7 @@ mod tests {
             .layer(memory_with("dir", "lower"), Access::Read);
         assert_eq!(
             (
-                overlay.metadata("dir/sub").map(|metadata| metadata.file_type),
+                overlay.symlink_metadata("dir/sub").map(|metadata| metadata.file_type),
                 read(&overlay, "dir/sub/file")
             ),
             (Ok(FileType::Directory), b"upper".to_vec()),
@@ -2111,7 +2107,7 @@ mod tests {
             overlay.remove_dir("dir"),
         );
         assert_eq!(
-            (refused, overlay.metadata("dir/file").err()),
+            (refused, overlay.symlink_metadata("dir/file").err()),
             (
                 (
                     Err(FilesystemError::PermissionDenied),
@@ -2174,7 +2170,7 @@ mod tests {
             .layer(Arc::new(upper), Access::ReadWrite)
             .layer(memory_with("hidden", "lower"), Access::Read);
         assert_eq!(
-            (names(&overlay, ""), overlay.metadata("hidden")),
+            (names(&overlay, ""), overlay.symlink_metadata("hidden")),
             (vec!["kept".to_string()], Err(FilesystemError::NotFound)),
             "an Overlay whose upper Layer holds an opaque marker at its root must list only that \
              Layer's entries through Overlay::read_dir and find no lower file through \
@@ -2233,7 +2229,7 @@ mod tests {
         assert_eq!(
             (
                 write(&overlay, "dir/file", b"x"),
-                upper.metadata("dir/file"),
+                upper.symlink_metadata("dir/file"),
                 read(&overlay, "dir/file")
             ),
             (
@@ -2265,7 +2261,7 @@ mod tests {
             .with_blocking(counts.clone());
         let held = overlay.lock.hold().expect("the lock must be free");
         let other = overlay.clone();
-        let waiter = thread::spawn(move || other.metadata("note").map(|m| m.file_type));
+        let waiter = thread::spawn(move || other.symlink_metadata("note").map(|m| m.file_type));
         while counts.0.load(Ordering::SeqCst) == 0 {
             thread::sleep(Duration::from_millis(1));
         }
@@ -2292,7 +2288,9 @@ mod tests {
             .layer(Arc::new(Memory::new()), Access::ReadWrite)
             .layer(lower, Access::Read);
         let identity = |overlay: &Overlay| {
-            let metadata = overlay.metadata("dir").expect("the directory must stand");
+            let metadata = overlay
+                .symlink_metadata("dir")
+                .expect("the directory must stand");
             (metadata.dev, metadata.ino)
         };
         let before = identity(&overlay);
@@ -2318,8 +2316,15 @@ mod tests {
         let overlay = Overlay::new()
             .layer(upper.clone(), Access::ReadWrite)
             .layer(lower.clone(), Access::Read);
-        let merged = overlay.metadata("dir").expect("the directory must stand");
-        let modified = |layer: &Memory| layer.metadata("dir").expect("a Layer holds it").modified;
+        let merged = overlay
+            .symlink_metadata("dir")
+            .expect("the directory must stand");
+        let modified = |layer: &Memory| {
+            layer
+                .symlink_metadata("dir")
+                .expect("a Layer holds it")
+                .modified
+        };
         assert_eq!(
             (
                 merged.nlink,
@@ -2351,7 +2356,7 @@ mod tests {
         };
         assert_eq!(
             identity(overlay.symlink_metadata("dir")),
-            identity(overlay.metadata("dir")),
+            identity(overlay.symlink_metadata("dir")),
             "a directory two Layers hold, looked up through Overlay::symlink_metadata, must \
              report the identity Overlay::metadata does"
         );

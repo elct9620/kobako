@@ -60,12 +60,16 @@ pub trait Filesystem: Any + Send + Sync {
     /// runtime follows a link itself.
     fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError>;
 
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError>;
+    /// What this directory reports of itself, as `fstat` answers; by
+    /// default what `symlink_metadata` answers for the empty path.
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        self.symlink_metadata("")
+    }
 
     /// What `path` names without following a link standing there, as
-    /// `lstat` answers. A link is reported as one and nothing of where it
-    /// points: no size, and no way to read it. A Filesystem holding no
-    /// links answers `metadata`.
+    /// `lstat` answers, since the runtime follows a link itself. A link is
+    /// reported as one and nothing of where it points: no size, and no way
+    /// to read it.
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError>;
 
     /// The entry `name` in this directory spelled as it is stored, so a

@@ -191,7 +191,7 @@ impl Filesystem for RubyFilesystem {
 
     /// A Ruby object answers `stat` alone, so it holds no links to refuse.
     fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        if self.metadata(name)?.file_type != FileType::Directory {
+        if self.symlink_metadata(name)?.file_type != FileType::Directory {
             return Err(FilesystemError::NotADirectory);
         }
         Ok(Arc::new(Self {
@@ -201,7 +201,8 @@ impl Filesystem for RubyFilesystem {
         }))
     }
 
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+    /// A Ruby object answers `stat` alone, so it holds no links.
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let own_dev = self.dev;
         let path = self.path(path);
         ask(
@@ -239,11 +240,6 @@ impl Filesystem for RubyFilesystem {
         )
     }
 
-    /// A Ruby object answers `stat` alone, so it holds no links.
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.metadata(path)
-    }
-
     /// A Ruby object matches names exactly, as its contract asks.
     fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
         Ok(name.to_string())
@@ -251,7 +247,7 @@ impl Filesystem for RubyFilesystem {
 
     /// A Ruby object answers `stat` alone, so it holds no links.
     fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-        self.metadata(name)?;
+        self.symlink_metadata(name)?;
         Err(FilesystemError::InvalidInput)
     }
 
@@ -265,7 +261,7 @@ impl Filesystem for RubyFilesystem {
         names
             .into_iter()
             .map(|name| {
-                let file_type = self.metadata(&name)?.file_type;
+                let file_type = self.symlink_metadata(&name)?.file_type;
                 Ok(DirEntry::new(name, file_type))
             })
             .collect()

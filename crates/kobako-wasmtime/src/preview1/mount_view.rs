@@ -26,12 +26,8 @@ use crate::wasi::Wasi;
 /// The answer of a test Filesystem holding no links.
 macro_rules! holds_no_links {
     () => {
-        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.metadata(path)
-        }
-
         fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-            self.metadata(name)?;
+            self.symlink_metadata(name)?;
             Err(FilesystemError::InvalidInput)
         }
     };
@@ -595,8 +591,8 @@ impl Filesystem for StoresUpperCase {
         self.0.open(path, options)
     }
 
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.0.metadata(path)
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.0.symlink_metadata(path)
     }
 
     fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
@@ -900,8 +896,8 @@ impl Filesystem for ReusesInodes {
         self.memory.entries()
     }
 
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        let found = self.memory.metadata(path)?;
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        let found = self.memory.symlink_metadata(path)?;
         if path != "dir" {
             return Ok(found);
         }
@@ -991,8 +987,8 @@ impl Filesystem for NamesNoIdentity {
         self.0.open(path, options)
     }
 
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        let found = self.0.metadata(path)?;
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        let found = self.0.symlink_metadata(path)?;
         Ok(Metadata::new(found.file_type, found.len))
     }
 
@@ -1175,8 +1171,8 @@ impl Filesystem for ChangeCounter {
         self.memory.open(path, options)
     }
 
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.memory.metadata(path)
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.memory.symlink_metadata(path)
     }
 
     opens_directories!(memory);
@@ -1227,8 +1223,8 @@ impl Filesystem for SwappedForADirectory {
         self.0.open(path, options)
     }
 
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.0.metadata(path)
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.0.symlink_metadata(path)
     }
 
     opens_directories!(0);
@@ -1274,7 +1270,7 @@ fn a_directory_beneath_a_mount_with_a_policy_does_not_move() {
     assert_eq!(
         (
             guest.call_bare("rename_to_new"),
-            swapped.metadata("new.txt/secret")
+            swapped.symlink_metadata("new.txt/secret")
         ),
         (ERRNO_XDEV, Err(FilesystemError::NotFound)),
         "path_rename of what is a directory by the time it moves, beneath a Mount with a \
@@ -1341,8 +1337,8 @@ impl Filesystem for AppendedMeanwhile {
         }))
     }
 
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.0.metadata(path)
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        self.0.symlink_metadata(path)
     }
 
     opens_directories!(0);
@@ -1758,10 +1754,6 @@ impl Filesystem for FailsLookingUpDir {
         self.0.open(path, options)
     }
 
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.0.metadata(path)
-    }
-
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         match path {
             "dir" => Err(FilesystemError::Other("unreadable".into())),
@@ -1848,7 +1840,7 @@ fn a_path_ending_in_a_dot_makes_nothing_where_no_directory_stands() {
         guest.call_flagged(MISSING_DOT, OFLAGS_CREAT, 0),
     ];
     assert_eq!(
-        (answers, memory.metadata("missing").is_err()),
+        (answers, memory.symlink_metadata("missing").is_err()),
         ([ERRNO_NOENT, ERRNO_NOENT], true),
         "path_create_directory and path_open with O_CREAT of missing/. beneath a Mount through \
          preview1 must answer ENOENT, as Linux does, and make nothing named missing"
@@ -1871,7 +1863,7 @@ fn a_path_ending_in_a_dot_is_neither_removed_nor_moved() {
         guest.call_pair("rename_paths", OUT_OF_FILE, MOVED),
     ];
     assert_eq!(
-        (answers, memory.metadata("dir/inner").is_ok()),
+        (answers, memory.symlink_metadata("dir/inner").is_ok()),
         (
             [
                 ERRNO_INVAL,

@@ -222,12 +222,6 @@ impl Filesystem for Directory {
         self.at(path, |dir, name| open_in(dir, name, options))
     }
 
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.at(path, |dir, name| {
-            Ok(to_metadata(dir.metadata(name).map_err(to_error)?))
-        })
-    }
-
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         self.at(path, |dir, name| {
             Ok(to_metadata(dir.symlink_metadata(name).map_err(to_error)?))
@@ -467,7 +461,7 @@ mod tests {
         assert_eq!(
             (
                 directory
-                    .metadata("pipe")
+                    .symlink_metadata("pipe")
                     .map(|metadata| metadata.file_type),
                 directory
                     .symlink_metadata("pipe")
@@ -724,19 +718,10 @@ mod tests {
             .map(|entry| entry.file_type);
         let shape = |metadata: Metadata| (metadata.file_type, metadata.len);
         assert_eq!(
-            (
-                directory.symlink_metadata("link").map(shape),
-                listed,
-                directory.metadata("link").map(shape)
-            ),
-            (
-                Ok((FileType::Symlink, 0)),
-                Some(FileType::Symlink),
-                Ok((FileType::File, 5))
-            ),
+            (directory.symlink_metadata("link").map(shape), listed),
+            (Ok((FileType::Symlink, 0)), Some(FileType::Symlink)),
             "a host link looked up through Directory::symlink_metadata and listed through \
-             Directory::read_dir must report a link with no size, and Directory::metadata must \
-             report the file it points to"
+             Directory::entries must report a link with no size"
         );
     }
 
@@ -765,28 +750,6 @@ mod tests {
         std::os::unix::fs::symlink("../secret", host.0.join("dir/up"))
             .expect("the link must be made");
         host
-    }
-
-    // Both links stay inside the host directory, so only the opened
-    // directory confining its own lookups can refuse the outer one.
-    // @behavior FS-097
-    #[cfg(unix)]
-    #[test]
-    fn a_directory_follows_a_link_only_within_the_directory_it_opened() {
-        let host = linked_beneath("beneath");
-        let directory = Directory::new(&host.0).expect("the host directory must open");
-        let dir = directory
-            .open_dir_nofollow("dir")
-            .expect("the directory must open");
-        assert_eq!(
-            (
-                dir.metadata("in/y").map(|m| m.file_type),
-                dir.metadata("up").map(|m| m.file_type)
-            ),
-            (Ok(FileType::File), Err(FilesystemError::NotPermitted)),
-            "a link staying within a directory Directory::open_dir opened must lead where it \
-             points, and one leading out of it must not be permitted"
-        );
     }
 
     // The link leads to a directory inside the host directory, so only
@@ -877,7 +840,9 @@ mod tests {
         fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
         let expected = fs::metadata(host.0.join("dir")).expect("the host must stat it");
         let directory = Directory::new(&host.0).expect("the host directory must open");
-        let reported = directory.metadata("dir").expect("the directory must stand");
+        let reported = directory
+            .symlink_metadata("dir")
+            .expect("the directory must stand");
         assert_eq!(
             (reported.dev, reported.ino),
             (expected.dev(), expected.ino()),

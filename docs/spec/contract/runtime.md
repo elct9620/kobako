@@ -548,18 +548,18 @@ pub trait Filesystem {
 
 ## `Filesystem::metadata`
 
-What a path names, and its length.
+What the directory reports of itself, by default what `symlink_metadata`
+answers for the empty path.
 
 ```rust
 pub trait Filesystem {
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError>;
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {}
 }
 ```
 
 ## `Filesystem::symlink_metadata`
 
-What a path names without following a link standing there. A Filesystem
-holding no links answers as `metadata` does.
+What a path names without following a link standing there.
 
 ```rust
 pub trait Filesystem {

@@ -403,7 +403,7 @@ fn an_exclusive_open_without_create_makes_no_file() {
         return;
     };
     assert_eq!(
-        (answer, memory.metadata("lock").is_err()),
+        (answer, memory.symlink_metadata("lock").is_err()),
         (Err("Errno::ENOENT".to_string()), true),
         "File.open with RDONLY | EXCL of a path nothing is at through the bundled guest must \
          raise Errno::ENOENT and make no file"
@@ -566,10 +566,6 @@ where
 
     fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
         self.memory.open_dir_nofollow(name)
-    }
-
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.memory.metadata(path)
     }
 
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {

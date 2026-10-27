@@ -247,7 +247,7 @@ impl Filesystem for OneNote {
         }
     }
 
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         match path {
             "" => Ok(Metadata::new(FileType::Directory, 0)),
             "note.txt" => NoteFile(self.0).metadata(),
@@ -263,16 +263,12 @@ impl Filesystem for OneNote {
         }
     }
 
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.metadata(path)
-    }
-
     fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
         Ok(name.to_string())
     }
 
     fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-        self.metadata(name)?;
+        self.symlink_metadata(name)?;
         Err(FilesystemError::InvalidInput)
     }
 

@@ -195,7 +195,7 @@ mod tests {
 
         fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
             let at = self.path(path);
-            if self.root.metadata(&at)?.file_type != FileType::Directory {
+            if self.root.symlink_metadata(&at)?.file_type != FileType::Directory {
                 return Err(FilesystemError::NotADirectory);
             }
             Ok(Arc::new(Self {
@@ -204,12 +204,8 @@ mod tests {
             }))
         }
 
-        fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.root.metadata(&self.path(path))
-        }
-
         fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.metadata(path)
+            self.root.symlink_metadata(&self.path(path))
         }
 
         fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
@@ -295,7 +291,7 @@ mod tests {
             (
                 vfs::create_dir(&dir, "made"),
                 dir.entries(),
-                memory.metadata("dir/made").err()
+                memory.symlink_metadata("dir/made").err()
             ),
             (
                 Err(vfs::Error::Filesystem(FilesystemError::NotFound)),

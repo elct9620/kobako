@@ -330,26 +330,6 @@ impl Stack {
         Ok(None)
     }
 
-    /// `lookup`, a link shown followed within the Layer holding it, or
-    /// `None` where the link points at nothing.
-    fn locate(
-        &self,
-        level: &Level,
-        name: &str,
-    ) -> Result<Option<(usize, Metadata)>, FilesystemError> {
-        match self.lookup(level, name)? {
-            Some((index, found)) if found.file_type == FileType::Symlink => {
-                let dir = level[index].as_ref().ok_or(FilesystemError::NotFound)?;
-                match dir.metadata(name) {
-                    Ok(metadata) => Ok(Some((index, metadata))),
-                    Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => Ok(None),
-                    Err(err) => Err(err),
-                }
-            }
-            found => Ok(found),
-        }
-    }
-
     /// The directory `name` in `level`, found as `found` names it first: each
     /// Layer's own directory there, merged downward until a Layer holds
     /// something else there, hides it, or marks its directory opaque, as
@@ -396,12 +376,9 @@ impl Stack {
     /// Layer shows it.
     pub(super) fn dir_metadata(&self, level: &Level) -> Result<Metadata, FilesystemError> {
         let mut shown = level.iter().flatten();
-        let topmost = shown
-            .next()
-            .ok_or(FilesystemError::NotFound)?
-            .metadata("")?;
+        let topmost = shown.next().ok_or(FilesystemError::NotFound)?.metadata()?;
         let lowest = match shown.last() {
-            Some(lowest) => lowest.metadata("")?.with_nlink(1),
+            Some(lowest) => lowest.metadata()?.with_nlink(1),
             None => topmost,
         };
         Ok(Metadata {
@@ -425,17 +402,6 @@ impl Stack {
             return Ok(found);
         }
         self.dir_metadata(&self.merged(level, name, (index, found))?)
-    }
-
-    pub(super) fn metadata(&self, level: &Level, name: &str) -> Result<Metadata, FilesystemError> {
-        refuse_reserved(name)?;
-        match self.lookup(level, name)?.ok_or(FilesystemError::NotFound)? {
-            (index, found) if found.file_type == FileType::Symlink => level[index]
-                .as_ref()
-                .ok_or(FilesystemError::NotFound)?
-                .metadata(name),
-            (index, found) => self.merge_identity(level, name, index, found),
-        }
     }
 
     /// What the Layer showing `name` holds there, a link it holds
@@ -715,12 +681,7 @@ impl Stack {
         refuse_reserved(name)?;
         let changes = options.write || options.truncate;
         let level = chain.level().clone();
-        let found = if options.nofollow {
-            self.lookup(&level, name)?
-        } else {
-            self.locate(&level, name)?
-        };
-        match found {
+        match self.lookup(&level, name)? {
             Some((_, found)) if found.file_type == FileType::Directory => {
                 Err(FilesystemError::IsADirectory)
             }

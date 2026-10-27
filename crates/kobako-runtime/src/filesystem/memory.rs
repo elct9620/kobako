@@ -514,17 +514,13 @@ impl Filesystem for Memory {
         Ok(Arc::new(self.beneath(self.dir.directory(name)?)))
     }
 
-    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+    /// A Memory holds no links.
+    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.hold();
         match self.dir.find(path)? {
             Node::File(data) => Ok(lock(&data).metadata()),
             Node::Directory(dir) => Ok(dir.metadata(self.tree.dev)),
         }
-    }
-
-    /// A Memory holds no links.
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.metadata(path)
     }
 
     /// A Memory matches names byte for byte.
@@ -534,7 +530,7 @@ impl Filesystem for Memory {
 
     /// A Memory holds no links.
     fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-        self.metadata(name)?;
+        self.symlink_metadata(name)?;
         Err(FilesystemError::InvalidInput)
     }
 
@@ -842,7 +838,10 @@ mod tests {
         );
         assert_eq!(memory.remove_file("dir/file"), Ok(()));
         assert_eq!(memory.remove_dir("dir"), Ok(()));
-        assert_eq!(memory.metadata("dir"), Err(FilesystemError::NotFound));
+        assert_eq!(
+            memory.symlink_metadata("dir"),
+            Err(FilesystemError::NotFound)
+        );
     }
 
     #[test]
@@ -852,7 +851,10 @@ mod tests {
             .rename("old", &memory, "new", Rename::Any)
             .expect("the rename must succeed");
         assert_eq!(read_all(&memory, "new/inner/file"), b"x");
-        assert_eq!(memory.metadata("old"), Err(FilesystemError::NotFound));
+        assert_eq!(
+            memory.symlink_metadata("old"),
+            Err(FilesystemError::NotFound)
+        );
     }
 
     fn writable(fs: &dyn Filesystem, path: &str) -> Box<dyn File> {
@@ -966,7 +968,7 @@ mod tests {
     fn a_path_beneath_a_file_is_not_a_directory() {
         let memory: Memory = [("file", "x")].into_iter().collect();
         assert_eq!(
-            memory.metadata("file/inner"),
+            memory.symlink_metadata("file/inner"),
             Err(FilesystemError::NotADirectory)
         );
     }
@@ -1051,8 +1053,8 @@ mod tests {
             (
                 memory.rename("dir", &memory, "moved", Rename::File),
                 memory.rename("file", &memory, "moved", Rename::Directory),
-                memory.metadata("dir/inner").map(|m| m.file_type),
-                memory.metadata("file").map(|m| m.file_type),
+                memory.symlink_metadata("dir/inner").map(|m| m.file_type),
+                memory.symlink_metadata("file").map(|m| m.file_type),
             ),
             (
                 Err(FilesystemError::CrossesDevices),
@@ -1114,7 +1116,10 @@ mod tests {
     #[test]
     fn a_device_of_its_own_stands_apart_from_every_other_device() {
         let (first, second) = (Metadata::unique_device(), Metadata::unique_device());
-        let memory = Memory::new().metadata("").expect("the root must stand").dev;
+        let memory = Memory::new()
+            .symlink_metadata("")
+            .expect("the root must stand")
+            .dev;
         assert!(
             [first, second, memory].iter().all(|dev| dev >> 63 == 1)
                 && first != second
@@ -1184,8 +1189,8 @@ mod tests {
         create(dir.as_ref(), "made").expect("the file must be made");
         assert_eq!(
             (
-                memory.metadata("moved/made").map(|m| m.file_type),
-                memory.metadata("dir/made").map(|m| m.file_type)
+                memory.symlink_metadata("moved/made").map(|m| m.file_type),
+                memory.symlink_metadata("dir/made").map(|m| m.file_type)
             ),
             (Ok(FileType::File), Err(FilesystemError::NotFound)),
             "a file made through a directory Memory::open_dir opened before Memory::rename moved \
@@ -1209,7 +1214,7 @@ mod tests {
                 create(dir.as_ref(), "made"),
                 dir.create_dir("inner"),
                 dir.entries().map(|entries| entries.len()),
-                dir.metadata("").map(|m| m.file_type)
+                dir.symlink_metadata("").map(|m| m.file_type)
             ),
             (
                 Err(FilesystemError::NotFound),
@@ -1236,7 +1241,7 @@ mod tests {
         assert_eq!(
             (
                 memory.rename("a", inner.as_ref(), "a", Rename::Any),
-                memory.metadata("a/b").map(|m| m.file_type)
+                memory.symlink_metadata("a/b").map(|m| m.file_type)
             ),
             (Err(FilesystemError::InvalidInput), Ok(FileType::Directory)),
             "Memory::rename of a directory into one opened beneath it must answer InvalidInput \
@@ -1281,7 +1286,9 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
         file.write_at(b"c", 0)
             .expect("the file must take a write within its length");
-        let written = memory.metadata("file").expect("the file must stand");
+        let written = memory
+            .symlink_metadata("file")
+            .expect("the file must stand");
         assert_eq!(
             (
                 written.accessed == made.accessed,
@@ -1304,7 +1311,12 @@ mod tests {
         memory
             .create_dir("dir/b")
             .expect("a directory must be made");
-        let nlink = |path| memory.metadata(path).expect("the entry must stand").nlink;
+        let nlink = |path| {
+            memory
+                .symlink_metadata(path)
+                .expect("the entry must stand")
+                .nlink
+        };
         assert_eq!(
             (nlink("dir"), nlink("dir/file")),
             (Some(4), Some(1)),
@@ -1321,7 +1333,9 @@ mod tests {
             .create_dir("dir")
             .expect("the directory must be made");
         let identity = |path| {
-            let metadata = memory.metadata(path).expect("the directory must stand");
+            let metadata = memory
+                .symlink_metadata(path)
+                .expect("the directory must stand");
             (metadata.dev, metadata.ino)
         };
         let before = identity("dir");

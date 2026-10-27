@@ -543,8 +543,8 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Step | Statement |
 | --- | --- |
 | Given | a Directory whose host directory holds a link to a file beside it |
-| When | the link is looked up following none, and its directory is listed |
-| Then | both report a link with no size, and a lookup that follows reports the file |
+| When | the link is looked up, and its directory is listed |
+| Then | both report a link with no size |
 
 ## `FS-049` An Overlay reports a link its Layer holds as a link
 
@@ -1135,18 +1135,6 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Memory holding an empty file |
 | When | no bytes are written at an offset past its end |
 | Then | the write answers zero, and the file stays empty, as Linux pwrite does |
-
-## `FS-097` A Directory follows a link only within the directory it opened
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-007` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a directory opened from a Directory, holding a link inside it and one leading out |
-| When | each link is looked up through the opened directory |
-| Then | the inner link leads to where it points, and the outer one is not permitted |
 
 ## `FS-099` A Directory opens no link as a directory
 

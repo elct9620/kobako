@@ -98,7 +98,7 @@ impl Path {
 
     /// What the directory reports of itself.
     pub fn metadata(&self) -> Result<Metadata, Error> {
-        Ok(seen(self.reach_dir()?.metadata("")?, self.profile))
+        Ok(seen(self.reach_dir()?.metadata()?, self.profile))
     }
 
     /// The entries of the directory, without `.` or `..`; none once it was
@@ -166,7 +166,7 @@ impl Path {
         let Some(identity) = self.identity else {
             return Err(FilesystemError::NotFound.into());
         };
-        match found.metadata("") {
+        match found.metadata() {
             Ok(found) if Identity::of(&found) == Some(identity) => Ok(()),
             Ok(_) | Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {
                 Err(FilesystemError::NotFound.into())
