@@ -5,7 +5,7 @@
 # each ask re-enters Ruby from the guest span through the GVL, so its
 # cost grows with the opens a script makes and has no other metric.
 #
-#   14a / 14b — one File.read beneath a Memory Mount, without and with a
+#   14a / 14b — one File.read beneath a Tmpfs Mount, without and with a
 #               block. The delta is one block call plus the
 #               per-invocation Grant translation.
 #   14c / 14d — 100 File.read calls in one invocation, without and with a
@@ -29,7 +29,7 @@ guest = Kobako::Bench::Guest.path
 # memory_limit: nil — see benchmark/mruby_eval.rb for rationale.
 def mounted_sandbox(guest, &policy)
   sandbox = Kobako::Sandbox.new(wasm_path: guest, memory_limit: nil)
-  sandbox.mount("/data", Kobako::Filesystem::Memory.new("note.txt" => "hello"), &policy)
+  sandbox.mount("/data", Kobako::Filesystem::Tmpfs.new("note.txt" => "hello"), &policy)
   sandbox.eval("nil")
   sandbox
 end

@@ -701,7 +701,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a Mount over a Memory holding a file |
+| Given | an invocation handed a Mount over a Tmpfs holding a file |
 | When | the guest opens and reads that file beneath the Mount's path |
 | Then | it reads the file's content |
 
@@ -713,9 +713,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a read-write Mount over a Memory |
+| Given | an invocation handed a read-write Mount over a Tmpfs |
 | When | the guest creates and writes a file beneath the Mount's path |
-| Then | the Memory holds that file with what was written |
+| Then | the Tmpfs holds that file with what was written |
 
 ## `RT-078` A change beneath a read-only Mount is refused as a read-only filesystem
 
@@ -773,7 +773,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Mount over a Memory an earlier invocation wrote a file to |
+| Given | a Mount over a Tmpfs an earlier invocation wrote a file to |
 | When | the next invocation's guest reads that file |
 | Then | it reads what the earlier invocation wrote |
 
@@ -953,7 +953,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a Directory Mount whose host directory holds a link |
+| Given | an invocation handed a Bind Mount whose host directory holds a link |
 | When | the guest stats the link, following it and then following none |
 | Then | the first answers a regular file, and the second a symbolic link |
 
@@ -965,7 +965,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a Directory Mount holding a link to a directory |
+| Given | an invocation handed a Bind Mount holding a link to a directory |
 | When | the guest stats the link with a trailing slash, following no link |
 | Then | the stat answers a directory |
 
@@ -990,7 +990,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a Directory Mount holding a link to a directory |
+| Given | an invocation handed a Bind Mount holding a link to a directory |
 | When | the guest opens the link following no link, then again with a trailing slash |
 | Then | the first answers ELOOP, and the second opens the directory |
 
@@ -1003,7 +1003,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a Directory Mount with a Policy, holding a link to a directory |
+| Given | an invocation handed a Bind Mount with a Policy, holding a link to a directory |
 | When | the guest opens or removes a path through the link, or opens the link following it |
 | Then | each call answers ELOOP and changes nothing |
 
@@ -1064,7 +1064,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a Directory Mount holding a link to nothing |
+| Given | an invocation handed a Bind Mount holding a link to nothing |
 | When | the guest opens the link following no link, then again with `O_CREAT` and `O_EXCL` |
 | Then | the first answers ELOOP, the second EEXIST, and nothing is made where it points |
 
@@ -1221,7 +1221,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a Directory Mount holding a link to a directory |
+| Given | an invocation handed a Bind Mount holding a link to a directory |
 | When | the guest names a path taking `..` or a final `.` right after the link |
 | Then | the call answers ELOOP |
 
@@ -1272,11 +1272,11 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a read-write Directory Mount, with or without a Policy, holding a link to a directory |
+| Given | a read-write Bind Mount, with or without a Policy, holding a link to a directory |
 | When | the guest unlinks or renames the link, named with a trailing slash |
 | Then | each answers ENOTDIR, and the link stays |
 
-## `RT-125` A link out of a Directory or into a loop answers ELOOP beneath a Policy
+## `RT-125` A link out of a Bind or into a loop answers ELOOP beneath a Policy
 
 | Attribute | Value |
 | --- | --- |
@@ -1284,7 +1284,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory Mount with a Policy, holding links out of it and into a loop |
+| Given | a Bind Mount with a Policy, holding links out of it and into a loop |
 | When | the guest opens a path through each link, then unlinks each link |
 | Then | each open answers ELOOP, and each unlink removes the link |
 
@@ -1308,7 +1308,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a Directory Mount holding a FIFO |
+| Given | an invocation handed a Bind Mount holding a FIFO |
 | When | the guest stats the FIFO and opens it |
 | Then | the stat answers an unknown filetype named once, and the open answers EACCES |
 
@@ -1394,7 +1394,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a read-write Directory Mount holding a directory, a file, and a link to nothing |
+| Given | a read-write Bind Mount holding a directory, a file, and a link to nothing |
 | When | the guest unlinks each, and a missing name, named with a trailing slash |
 | Then | the directory answers EISDIR, the missing name ENOENT, the rest ENOTDIR, and all stay |
 
@@ -1504,7 +1504,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory Mount holding a link to a file outside its host directory |
+| Given | a Bind Mount holding a link to a file outside its host directory |
 | When | the guest opens the link's path from the Mount's root |
 | Then | the open answers EPERM, as wasmtime-wasi does |
 
@@ -1529,7 +1529,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory Mount whose Policy allows one directory and refuses another |
+| Given | a Bind Mount whose Policy allows one directory and refuses another |
 | When | another writer swaps the allowed directory for a link as the Policy judges |
 | Then | the read reaches the directory the walk held, and nothing the Policy refused |
 
@@ -1652,7 +1652,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory Mount with a Policy, holding a directory beneath its root |
+| Given | a Bind Mount with a Policy, holding a directory beneath its root |
 | When | the guest renames that directory onto its own path |
 | Then | the rename succeeds and changes nothing |
 
@@ -1664,7 +1664,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation on the weaker posture, with a Mount over a Memory |
+| Given | an invocation on the weaker posture, with a Mount over a Tmpfs |
 | When | the guest writes a file and reads what the path names |
 | Then | its modification time is no earlier than the write |
 
@@ -1676,7 +1676,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation on the strongest posture, with a Mount over a Memory |
+| Given | an invocation on the strongest posture, with a Mount over a Tmpfs |
 | When | the guest writes a file and reads what the path and the open file name |
 | Then | each time reads the Unix epoch |
 
@@ -1688,7 +1688,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | one Memory mounted for an invocation on each posture |
+| Given | one Tmpfs mounted for an invocation on each posture |
 | When | the weaker writes a file and the strongest reads what the path names |
 | Then | each time the strongest reads is the Unix epoch |
 

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use common::real_sandbox;
 use kobako::filesystem::{
-    DirEntry, File, FileType, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Rename,
+    DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename, Tmpfs,
 };
 use kobako::msgpack::Value;
 use kobako::{Access, Dentry, Error, Policy, Profile, Sandbox, SuperBlock};
@@ -27,7 +27,7 @@ const RESCUE_DENIED: &str =
 
 fn memory(contents: &str) -> Arc<SuperBlock> {
     SuperBlock::new(Arc::new(
-        [("note.txt", contents)].into_iter().collect::<Memory>(),
+        [("note.txt", contents)].into_iter().collect::<Tmpfs>(),
     ))
 }
 
@@ -35,7 +35,7 @@ fn sandbox_with_note() -> Option<Sandbox> {
     let mut sandbox = real_sandbox()?;
     sandbox
         .mount("/data", memory("hello"), Access::Read)
-        .expect("mount a Memory at /data");
+        .expect("mount a Tmpfs at /data");
     Some(sandbox)
 }
 
@@ -85,7 +85,7 @@ fn a_mounted_filesystem_is_reachable_from_the_guest() {
     assert_eq!(
         text(value),
         "hello",
-        "a file in a Memory mounted through Sandbox::mount must be read by the guest's File"
+        "a file in a Tmpfs mounted through Sandbox::mount must be read by the guest's File"
     );
 }
 
@@ -239,7 +239,7 @@ impl File for NoteFile {
     }
 }
 
-impl Filesystem for OneNote {
+impl Inode for OneNote {
     fn open(
         &self,
         dentry: &Dentry,
@@ -262,7 +262,7 @@ impl Filesystem for OneNote {
         }
     }
 
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
         match dentry.name().as_str() {
             "note.txt" => Err(FilesystemError::NotADirectory),
             _ => Err(FilesystemError::NotFound),
@@ -297,7 +297,7 @@ impl Filesystem for OneNote {
     fn rename(
         &self,
         _from: &Dentry,
-        _to_dir: &dyn Filesystem,
+        _to_dir: &dyn Inode,
         _to: &Dentry,
         _rename: Rename,
     ) -> Result<(), FilesystemError> {

@@ -11,12 +11,12 @@ guest ─ system interface ─> runtime (descriptors, access, paths) ─> Filesy
 
 A Filesystem answers only for files and directories. The runtime in front of it owns descriptors, access, and path resolution. So these scenarios read each kind directly, without a guest. The guest's view through a Mount belongs to the runtime's own scenarios.
 
-Two properties set the kinds apart: where the content lives, and how long it lasts. Each kind is witnessed on both. The Directory kind adds a third property, that nothing outside its directory is reachable.
+Two properties set the kinds apart: where the content lives, and how long it lasts. Each kind is witnessed on both. The Bind kind adds a third property, that nothing outside its directory is reachable.
 
 ```
 kind       content lives       lasts
-Memory     in memory           as long as the Host App's object
-Directory  in a host directory as long as the directory
+Tmpfs     in memory           as long as the Host App's object
+Bind  in a host directory as long as the directory
 Overlay    in its layers       as long as its writable layers
 ```
 
@@ -40,17 +40,17 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 ## Includes
 
 - `crates/kobako-runtime/src/filesystem/*.rs`
-- `crates/kobako-runtime/src/filesystem/directory/spelling.rs`
+- `crates/kobako-runtime/src/filesystem/bind/spelling.rs`
 
-## `FS-001` A Memory serves the files it was seeded with
+## `FS-001` A Tmpfs serves the files it was seeded with
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory seeded with a file |
+| Given | a Tmpfs seeded with a file |
 | When | the file is opened and read |
 | Then | it reads the seeded content |
 
-## `FS-002` A Memory keeps what was written for as long as it lives
+## `FS-002` A Tmpfs keeps what was written for as long as it lives
 
 | Attribute | Value |
 | --- | --- |
@@ -58,19 +58,19 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory a file was written to |
-| When | the file is opened again from the same Memory |
+| Given | a Tmpfs a file was written to |
+| When | the file is opened again from the same Tmpfs |
 | Then | it reads what was written |
 
-## `FS-005` A Directory serves the files of its host directory
+## `FS-005` A Bind serves the files of its host directory
 
 | Step | Statement |
 | --- | --- |
 | Given | a host directory holding a file |
-| When | a Directory over it opens and reads that file |
+| When | a Bind over it opens and reads that file |
 | Then | it reads the host file's content |
 
-## `FS-006` A Directory writes into its host directory
+## `FS-006` A Bind writes into its host directory
 
 | Attribute | Value |
 | --- | --- |
@@ -78,11 +78,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory over a host directory |
+| Given | a Bind over a host directory |
 | When | a file is created and written through it |
 | Then | the host directory holds that file with that content |
 
-## `FS-007` A Directory reaches nothing outside its host directory
+## `FS-007` A Bind reaches nothing outside its host directory
 
 | Attribute | Value |
 | --- | --- |
@@ -90,7 +90,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory over a host directory holding a link to a file outside it |
+| Given | a Bind over a host directory holding a link to a file outside it |
 | When | the link's path is opened |
 | Then | the open is refused |
 
@@ -194,7 +194,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a lower file removed through an Overlay whose writable Layer is a Memory |
+| Given | a lower file removed through an Overlay whose writable Layer is a Tmpfs |
 | When | a new Overlay is built over the same Layers |
 | Then | the new Overlay finds no file at that path |
 
@@ -246,7 +246,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | a file is written through the Overlay |
 | Then | the write is refused as read-only |
 
-## `FS-022` A write past a Memory's limit is refused as out of space
+## `FS-022` A write past a Tmpfs's size is refused as out of space
 
 | Attribute | Value |
 | --- | --- |
@@ -254,11 +254,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory given a limit its file already nears |
-| When | a write would grow its files past that limit |
+| Given | a Tmpfs given a size its file already nears |
+| When | a write would grow its files past that size |
 | Then | the write is refused as out of space, and the file holds what it held |
 
-## `FS-023` A Memory given no limit of its own holds 64 MiB
+## `FS-023` A Tmpfs given no size of its own holds 64 MiB
 
 | Attribute | Value |
 | --- | --- |
@@ -266,11 +266,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory created without a limit |
+| Given | a Tmpfs created without a size |
 | When | a file grows to 64 MiB, and then one byte past it |
 | Then | the first growth lands and the second is refused as out of space |
 
-## `FS-024` A Memory whose limit is set to none is not bounded by it
+## `FS-024` A Tmpfs whose size is set to none is not bounded by it
 
 | Attribute | Value |
 | --- | --- |
@@ -278,7 +278,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory whose limit is set to none |
+| Given | a Tmpfs whose size is set to none |
 | When | a file grows one byte past 64 MiB |
 | Then | the growth lands |
 
@@ -290,7 +290,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory whose one file fills its limit |
+| Given | a Tmpfs whose one file fills its size |
 | When | the file is removed and another file is written as large |
 | Then | the second write lands |
 
@@ -302,11 +302,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory whose limit is set to none |
+| Given | a Tmpfs whose size is set to none |
 | When | a file grows past what any allocation can hold |
 | Then | the growth is refused as out of space, and the file holds what it held |
 
-## `FS-028` A Directory refuses to remove a directory as a file
+## `FS-028` A Bind refuses to remove a directory as a file
 
 | Attribute | Value |
 | --- | --- |
@@ -314,11 +314,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory whose host directory holds a directory |
+| Given | a Bind whose host directory holds a directory |
 | When | that directory is removed as a file |
 | Then | the removal answers that it is a directory, on every host |
 
-## `FS-029` A Directory on Windows refuses a name holding a backslash
+## `FS-029` A Bind on Windows refuses a name holding a backslash
 
 | Attribute | Value |
 | --- | --- |
@@ -326,11 +326,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory on a Windows host |
+| Given | a Bind on a Windows host |
 | When | a path holding a backslash is opened there |
 | Then | the open is refused as invalid, and the host is not asked |
 
-## `FS-030` A Memory holds at most its inodes
+## `FS-030` A Tmpfs holds at most its inodes
 
 | Attribute | Value |
 | --- | --- |
@@ -338,11 +338,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory given a count of inodes, its root counted among them |
+| Given | a Tmpfs given a count of inodes, its root counted among them |
 | When | a file or a directory is created past that count |
 | Then | the creation is refused as out of space |
 
-## `FS-031` A Memory given only a limit holds an inode for each 4 KiB of it
+## `FS-031` A Tmpfs given only a size holds an inode for each 4 KiB of it
 
 | Attribute | Value |
 | --- | --- |
@@ -350,7 +350,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory given a limit of 8 KiB and no inodes of its own |
+| Given | a Tmpfs given a size of 8 KiB and no inodes of its own |
 | When | three files are created |
 | Then | the first two land and the third is refused as out of space |
 
@@ -362,7 +362,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory whose inodes are all taken, one by a file the guest holds open |
+| Given | a Tmpfs whose inodes are all taken, one by a file the guest holds open |
 | When | the file is removed, and a file is created before and after its handle closes |
 | Then | the creation before is refused as out of space and the one after lands |
 
@@ -374,11 +374,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory whose inodes are all taken, some by directories |
+| Given | a Tmpfs whose inodes are all taken, some by directories |
 | When | a directory is removed, or replaced by renaming another onto it |
 | Then | a directory created afterwards lands |
 
-## `FS-035` A Memory moves only what a rename allows
+## `FS-035` A Tmpfs moves only what a rename allows
 
 | Attribute | Value |
 | --- | --- |
@@ -386,11 +386,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory holding a directory and a file |
+| Given | a Tmpfs holding a directory and a file |
 | When | the directory is renamed as a file only, and the file as a directory only |
 | Then | each is refused, as crossing devices and as no directory, and neither moves |
 
-## `FS-036` A Memory appends at its file's end as it stands
+## `FS-036` A Tmpfs appends at its file's end as it stands
 
 | Attribute | Value |
 | --- | --- |
@@ -398,7 +398,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory file open through two handles |
+| Given | a Tmpfs file open through two handles |
 | When | each handle appends in turn |
 | Then | each append lands after the one before, and answers where it landed |
 
@@ -522,7 +522,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | the lower file is written, copying it up |
 | Then | the write is refused as out of space, and the lower file still reads |
 
-## `FS-047` A Directory opens no link an open asks not to follow
+## `FS-047` A Bind opens no link an open asks not to follow
 
 | Attribute | Value |
 | --- | --- |
@@ -530,11 +530,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory whose host directory holds a link to a file beside it |
+| Given | a Bind whose host directory holds a link to a file beside it |
 | When | the link is opened asking to follow none, and then asking to follow it |
 | Then | the first open is refused as a link and the second reaches the file |
 
-## `FS-048` A Directory reports a link a lookup does not follow as a link
+## `FS-048` A Bind reports a link a lookup does not follow as a link
 
 | Attribute | Value |
 | --- | --- |
@@ -542,7 +542,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory whose host directory holds a link to a file beside it |
+| Given | a Bind whose host directory holds a link to a file beside it |
 | When | the link is looked up, and its directory is listed |
 | Then | both report a link with no size |
 
@@ -554,7 +554,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Layer is a Directory holding a link to a file and one to nothing |
+| Given | an Overlay whose read-only Layer is a Bind holding a link to a file and one to nothing |
 | When | each link is looked up through the Overlay, following none |
 | Then | each is reported as a link |
 
@@ -567,7 +567,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Directory Layer holds a link to a directory and one to nothing |
+| Given | an Overlay whose read-only Bind Layer holds a link to a directory and one to nothing |
 | When | each link is removed as a directory and then as a file |
 | Then | the first is refused as no directory, the rest leave the view, and the Layer stays as it was |
 
@@ -580,7 +580,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Directory Layer holds a link to a file and a link to nothing |
+| Given | an Overlay whose read-only Bind Layer holds a link to a file and a link to nothing |
 | When | the guest writes, creates, or renames through one of those links |
 | Then | each change is refused as crossing devices, and the target stays |
 
@@ -592,7 +592,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Directory Layer holds a link to nothing |
+| Given | an Overlay whose read-only Bind Layer holds a link to nothing |
 | When | a file is created there exclusively, or a directory is made there |
 | Then | each is refused as already existing |
 
@@ -605,7 +605,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose upper Directory Layer holds a link to nothing where a lower Layer holds a file |
+| Given | an Overlay whose upper Bind Layer holds a link to nothing where a lower Layer holds a file |
 | When | the path is opened to read through the Overlay |
 | Then | it is not found |
 
@@ -655,7 +655,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose writable Directory Layer holds `dirlink` as a link to a directory, over a Layer holding `dirlink/x` |
+| Given | an Overlay whose writable Bind Layer holds `dirlink` as a link to a directory, over a Layer holding `dirlink/x` |
 | When | `dirlink` is looked up and opened as a directory through the Overlay |
 | Then | it stands as the link, so nothing of the lower `dirlink` shows |
 
@@ -708,7 +708,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | `dir/file` is renamed to `dir/file/x` through the Overlay |
 | Then | the rename is refused as no directory |
 
-## `FS-062` A Memory seeded with a list it cannot hold panics
+## `FS-062` A Tmpfs seeded with a list it cannot hold panics
 
 | Attribute | Value |
 | --- | --- |
@@ -717,7 +717,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Step | Statement |
 | --- | --- |
 | Given | a list naming the root, a file twice, or a file where another path needs a directory |
-| When | a Memory is seeded with it |
+| When | a Tmpfs is seeded with it |
 | Then | the seeding panics |
 
 ## `FS-063` A refused change leaves what a whiteout hid hidden
@@ -733,7 +733,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | a directory is renamed onto `dir`, and `dir` is removed, through the Overlay |
 | Then | both are refused, and the whited-out file stays hidden |
 
-## `FS-064` A Directory opens a file already there without writing to create it
+## `FS-064` A Bind opens a file already there without writing to create it
 
 | Attribute | Value |
 | --- | --- |
@@ -741,11 +741,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory whose host directory holds a file only reading is allowed on |
+| Given | a Bind whose host directory holds a file only reading is allowed on |
 | When | the file is opened asking to create it but not to write, and so is a missing one |
 | Then | the file opens, and the missing one is created |
 
-## `FS-065` A Directory answers a host failure as the error naming it
+## `FS-065` A Bind answers a host failure as the error naming it
 
 | Attribute | Value |
 | --- | --- |
@@ -753,11 +753,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory over a host directory |
+| Given | a Bind over a host directory |
 | When | a file is created under a name longer than the host allows |
 | Then | the creation fails as a name too long, not as an unnamed failure |
 
-## `FS-066` A Directory refuses to list a host name that is not UTF-8
+## `FS-066` A Bind refuses to list a host name that is not UTF-8
 
 | Attribute | Value |
 | --- | --- |
@@ -765,11 +765,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory on a Linux host whose host directory holds a name that is not UTF-8 |
+| Given | a Bind on a Linux host whose host directory holds a name that is not UTF-8 |
 | When | the directory is listed |
 | Then | the listing fails as an illegal byte sequence, not as an unnamed failure |
 
-## `FS-067` A Memory tried with a list it cannot hold answers why
+## `FS-067` A Tmpfs tried with a list it cannot hold answers why
 
 | Attribute | Value |
 | --- | --- |
@@ -778,10 +778,10 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Step | Statement |
 | --- | --- |
 | Given | a list naming the root, a file twice, or a file where another path needs a directory |
-| When | a Memory is tried with it |
+| When | a Tmpfs is tried with it |
 | Then | the trial answers the error naming what the list holds wrong |
 
-## `FS-068` A Directory answers a host file too large as too large
+## `FS-068` A Bind answers a host file too large as too large
 
 | Attribute | Value |
 | --- | --- |
@@ -789,11 +789,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory over a host directory |
+| Given | a Bind over a host directory |
 | When | the host refuses a write because the file would grow too large |
 | Then | the write fails as a file too large, not as an unnamed failure |
 
-## `FS-069` A Directory appends at its host file's end in one step
+## `FS-069` A Bind appends at its host file's end in one step
 
 | Attribute | Value |
 | --- | --- |
@@ -801,11 +801,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory file on a unix host, open through two handles |
+| Given | a Bind file on a unix host, open through two handles |
 | When | both handles append at the same time |
 | Then | every append keeps its bytes, and none lands over another |
 
-## `FS-070` A Memory gives each directory it makes an identity of its own
+## `FS-070` A Tmpfs gives each directory it makes an identity of its own
 
 | Attribute | Value |
 | --- | --- |
@@ -813,11 +813,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory holding a directory |
+| Given | a Tmpfs holding a directory |
 | When | the directory moves, and another is made at its old path |
 | Then | the moved directory keeps its identity, and the new one has another |
 
-## `FS-071` A Directory reports the identity its host gives a path
+## `FS-071` A Bind reports the identity its host gives a path
 
 | Attribute | Value |
 | --- | --- |
@@ -825,7 +825,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory over a host directory |
+| Given | a Bind over a host directory |
 | When | a path beneath it is asked for its metadata |
 | Then | the metadata carries the device and inode numbers the host reports |
 
@@ -941,15 +941,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | the file is renamed through the Overlay |
 | Then | the rename answers not found |
 
-## `FS-081` A Directory spells a name it matches exactly as given
+## `FS-081` A Bind spells a name it matches exactly as given
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory over a host directory holding `dir/file` |
+| Given | a Bind over a host directory holding `dir/file` |
 | When | `file`, and a name `dir` lacks, are asked of `dir` for their stored spelling |
 | Then | each comes back as given |
 
-## `FS-082` A Directory spells a name as a folding host stores it
+## `FS-082` A Bind spells a name as a folding host stores it
 
 | Attribute | Value |
 | --- | --- |
@@ -957,7 +957,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory over a macOS host directory folding case and Unicode form |
+| Given | a Bind over a macOS host directory folding case and Unicode form |
 | When | names are asked for their stored spelling in another case and form |
 | Then | each name it holds comes back as the host stores it |
 
@@ -973,7 +973,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | names it shows, and a new name beside them, are asked in upper case |
 | Then | the names it holds come back in lower case, and the new name as given |
 
-## `FS-084` A Directory spells a name as a folding Linux filesystem lists it
+## `FS-084` A Bind spells a name as a folding Linux filesystem lists it
 
 | Attribute | Value |
 | --- | --- |
@@ -982,7 +982,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory over a Linux host directory whose filesystem folds names |
+| Given | a Bind over a Linux host directory whose filesystem folds names |
 | When | a name is asked for its stored spelling in another case |
 | Then | the name comes back as the directory's listing names it |
 
@@ -994,11 +994,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory, and two device numbers taken for Filesystems without one |
+| Given | a Tmpfs, and two device numbers taken for Filesystems without one |
 | When | their device numbers are compared, with each other and with a host's |
 | Then | each differs from the others, and none is one a host reports |
 
-## `FS-086` A directory opened from a Directory keeps its inode from the next one made
+## `FS-086` A directory opened from a Bind keeps its inode from the next one made
 
 | Attribute | Value |
 | --- | --- |
@@ -1006,11 +1006,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory over a Linux host reusing inode numbers, with a directory opened from it |
+| Given | a Bind over a Linux host reusing inode numbers, with a directory opened from it |
 | When | the directory is removed and another made at its path |
 | Then | the new directory takes another inode number |
 
-## `FS-087` A Memory tried with a path through `..` answers why
+## `FS-087` A Tmpfs tried with a path through `..` answers why
 
 | Attribute | Value |
 | --- | --- |
@@ -1019,7 +1019,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Step | Statement |
 | --- | --- |
 | Given | a list naming a path through `..` |
-| When | a Memory is tried with it |
+| When | a Tmpfs is tried with it |
 | Then | the trial answers the error naming that path |
 
 ## `FS-088` An Overlay refuses to move a file a lower writable Layer holds
@@ -1048,7 +1048,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | a file removed through it is made again |
 | Then | the call succeeds, and the view shows the new file |
 
-## `FS-090` A Directory opens only a file or a directory
+## `FS-090` A Bind opens only a file or a directory
 
 | Attribute | Value |
 | --- | --- |
@@ -1056,11 +1056,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory holding a FIFO, and one over a host directory holding a device |
+| Given | a Bind holding a FIFO, and one over a host directory holding a device |
 | When | the FIFO and the device are opened |
 | Then | each open is refused as permission denied, without waiting |
 
-## `FS-091` A Directory reports a FIFO as of an unknown type
+## `FS-091` A Bind reports a FIFO as of an unknown type
 
 | Attribute | Value |
 | --- | --- |
@@ -1068,7 +1068,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory holding a FIFO |
+| Given | a Bind holding a FIFO |
 | When | the FIFO is looked up and listed |
 | Then | each answers an unknown type |
 
@@ -1081,11 +1081,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a writable Layer over a read-only Directory holding a FIFO |
+| Given | a writable Layer over a read-only Bind holding a FIFO |
 | When | the FIFO is written or renamed through the Overlay |
 | Then | the write is refused as permission denied, the rename as crossing devices |
 
-## `FS-093` A Directory on Windows refuses to append
+## `FS-093` A Bind on Windows refuses to append
 
 | Attribute | Value |
 | --- | --- |
@@ -1094,11 +1094,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory file on a Windows host |
+| Given | a Bind file on a Windows host |
 | When | it is appended to |
 | Then | the append is refused as unsupported, and the file stays as it was |
 
-## `FS-094` A Memory holds each entry under its own name
+## `FS-094` A Tmpfs holds each entry under its own name
 
 | Attribute | Value |
 | --- | --- |
@@ -1107,7 +1107,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory holding a file in a directory |
+| Given | a Tmpfs holding a file in a directory |
 | When | the directory is moved into a new directory of its name, many times over |
 | Then | each entry still holds only its own name, however deep it lies |
 
@@ -1124,7 +1124,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | the FIFO is renamed onto the lower directory, and the upper directory onto the FIFO |
 | Then | the first is refused as a directory, the second as no directory, and both stay |
 
-## `FS-096` A write of no bytes leaves a Memory file as it was
+## `FS-096` A write of no bytes leaves a Tmpfs file as it was
 
 | Attribute | Value |
 | --- | --- |
@@ -1132,11 +1132,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory holding an empty file |
+| Given | a Tmpfs holding an empty file |
 | When | no bytes are written at an offset past its end |
 | Then | the write answers zero, and the file stays empty, as Linux pwrite does |
 
-## `FS-099` A Directory opens no link as a directory
+## `FS-099` A Bind opens no link as a directory
 
 | Attribute | Value |
 | --- | --- |
@@ -1144,7 +1144,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory holding a link to a directory |
+| Given | a Bind holding a link to a directory |
 | When | the link is opened as a directory |
 | Then | the open is a link loop, since the runtime follows a link itself |
 
@@ -1156,7 +1156,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose Directory Layer holds a link to a directory |
+| Given | an Overlay whose Bind Layer holds a link to a directory |
 | When | the link is opened as a directory, and read |
 | Then | the open is a link loop, and the read answers where it points |
 
@@ -1208,7 +1208,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | the root is listed and the file is looked up |
 | Then | the listing shows only the upper Layer's entries, and the file is not found |
 
-## `FS-105` A directory opened from a Memory follows it when it moves
+## `FS-105` A directory opened from a Tmpfs follows it when it moves
 
 | Attribute | Value |
 | --- | --- |
@@ -1216,11 +1216,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory directory opened as a Filesystem of its own |
+| Given | a Tmpfs directory opened as a Filesystem of its own |
 | When | the directory is renamed, and a file is made through the opened one |
 | Then | the file stands beneath the directory's new path |
 
-## `FS-106` A Memory directory removed while opened makes nothing more
+## `FS-106` A Tmpfs directory removed while opened makes nothing more
 
 | Attribute | Value |
 | --- | --- |
@@ -1228,11 +1228,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory directory opened as a Filesystem of its own |
+| Given | a Tmpfs directory opened as a Filesystem of its own |
 | When | the directory is removed, then made into, listed, and looked up through the opened one |
 | Then | the make is not found, the listing is empty, and the lookup finds a directory |
 
-## `FS-107` A Memory directory never moves beneath itself
+## `FS-107` A Tmpfs directory never moves beneath itself
 
 | Attribute | Value |
 | --- | --- |
@@ -1240,11 +1240,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory directory, and a directory beneath it opened as a Filesystem of its own |
+| Given | a Tmpfs directory, and a directory beneath it opened as a Filesystem of its own |
 | When | the outer directory is renamed into the opened one |
 | Then | the rename answers invalid input, and both stay where they were |
 
-## `FS-108` A directory opened from a Directory follows it when the host moves it
+## `FS-108` A directory opened from a Bind follows it when the host moves it
 
 | Attribute | Value |
 | --- | --- |
@@ -1252,7 +1252,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory's host directory opened as a Filesystem of its own |
+| Given | a Bind's host directory opened as a Filesystem of its own |
 | When | the host renames the directory, and a file is made through the opened one |
 | Then | the file stands beneath the directory's new host path |
 
@@ -1264,7 +1264,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory holding a file, and a directory of another Memory |
+| Given | a Tmpfs holding a file, and a directory of another Tmpfs |
 | When | the file is renamed into that directory |
 | Then | the rename answers crossing devices, and the file stays |
 
@@ -1316,7 +1316,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | a name the link's target holds is looked up beneath the directory, which is also listed |
 | Then | the lookup answers not found, and the listing is empty |
 
-## `FS-114` A Directory reads where a link points
+## `FS-114` A Bind reads where a link points
 
 | Attribute | Value |
 | --- | --- |
@@ -1324,11 +1324,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory holding a link and a directory |
+| Given | a Bind holding a link and a directory |
 | When | each is read as a link |
 | Then | the link answers where it points as stored, and the directory is invalid input |
 
-## `FS-115` A Memory keeps a file's times as a tmpfs mounted noatime does
+## `FS-115` A Tmpfs keeps a file's times as a tmpfs mounted noatime does
 
 | Attribute | Value |
 | --- | --- |
@@ -1336,11 +1336,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a file made in a Memory |
+| Given | a file made in a Tmpfs |
 | When | it is read, and later written |
 | Then | its access time stays, and its other two times move to the write |
 
-## `FS-116` A Memory counts a directory's names as a tmpfs does
+## `FS-116` A Tmpfs counts a directory's names as a tmpfs does
 
 | Attribute | Value |
 | --- | --- |
@@ -1348,7 +1348,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Memory directory holding a file and two directories |
+| Given | a Tmpfs directory holding a file and two directories |
 | When | the directory and the file are read |
 | Then | the directory counts four names, and the file one |
 

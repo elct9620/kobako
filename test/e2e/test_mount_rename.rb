@@ -16,7 +16,7 @@ class TestE2EMountRename < Minitest::Test
 
   # A read-write mount of +app/+ whose block refuses only +app/.env+.
   def sandbox_refusing_env
-    secrets = Kobako::Filesystem::Memory.new("app/.env" => "secret", "app/main.rb" => "ok")
+    secrets = Kobako::Filesystem::Tmpfs.new("app/.env" => "secret", "app/main.rb" => "ok")
     Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", secrets, access: :read_write) do |path, _access|
       path != "/data/app/.env"
     end
@@ -33,7 +33,7 @@ class TestE2EMountRename < Minitest::Test
 
   # Without a block the move judges no path the block could have refused.
   def test_a_directory_beneath_a_mount_without_a_block_moves
-    secrets = Kobako::Filesystem::Memory.new("app/.env" => "secret")
+    secrets = Kobako::Filesystem::Tmpfs.new("app/.env" => "secret")
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", secrets, access: :read_write)
 
     assert_equal [:moved, "secret"], sandbox.eval(RENAME_THEN_READ).value,

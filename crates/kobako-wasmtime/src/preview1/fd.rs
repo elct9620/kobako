@@ -618,7 +618,7 @@ mod tests {
     //! does, so its Filesystem learns of the close and may refuse it.
     use std::sync::Arc;
 
-    use kobako_runtime::filesystem::{Access, File, FilesystemError, Memory, Metadata};
+    use kobako_runtime::filesystem::{Access, File, FilesystemError, Metadata, Tmpfs};
     use kobako_runtime::mount::Mount;
     use kobako_runtime::profile::Profile;
     use kobako_runtime::vfs::SuperBlock;
@@ -667,7 +667,7 @@ mod tests {
             mount: Arc::new(
                 Mount::new(
                     "/data",
-                    SuperBlock::new(Arc::new(Memory::new())),
+                    SuperBlock::new(Arc::new(Tmpfs::new())),
                     Access::Read,
                 )
                 .expect("/data is a guest path"),

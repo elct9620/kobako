@@ -19,7 +19,7 @@ class TestE2EMountSpelling < Minitest::Test
       skip "the host directory matches names exactly" unless File.exist?(File.join(host, "PRIVATE"))
 
       assert_equal "Errno::EACCES", read_in_upper_case(host),
-                   "a file read in another case through a Directory Mount whose block refuses the spelling " \
+                   "a file read in another case through a Bind Mount whose block refuses the spelling " \
                    "its folding host stores must be refused"
     end
   end
@@ -30,7 +30,7 @@ class TestE2EMountSpelling < Minitest::Test
   # +/data+, with a block refusing everything under +/data/private/+.
   def read_in_upper_case(host)
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.mount("/data", Kobako::Filesystem::Directory.new(host)) { |at, _| !at.start_with?("/data/private/") }
+    sandbox.mount("/data", Kobako::Filesystem::Bind.new(host)) { |at, _| !at.start_with?("/data/private/") }
     sandbox.eval('begin; File.read("/data/PRIVATE/SECRET"); rescue => e; e.class.to_s; end').value
   end
 end

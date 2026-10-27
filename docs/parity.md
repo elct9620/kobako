@@ -44,7 +44,7 @@ grows append-only with the corpus.
 | services | Service stubs and their narrowing |
 | preloads | source or bytecode snippets |
 | extensions | Extensions to install |
-| mounts | a Memory seeded with files, at a guest path |
+| mounts | a Tmpfs seeded with files, at a guest path |
 | invocations | the verbs run in order |
 
 `test/support/parity/scenario.rb` defines the shape, and each executor

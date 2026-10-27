@@ -16,8 +16,8 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use super::inodes::Inodes;
 use super::lower::Lower;
+use super::merged::MergedDirs;
 use super::readers::Readers;
 
 use super::super::path::{beneath_itself, is_beneath, join};
@@ -235,12 +235,12 @@ pub(super) fn refuse_reserved(name: &str) -> Result<(), FilesystemError> {
 pub(super) struct Stack {
     layers: Vec<Layer>,
     readers: Arc<Readers>,
-    inodes: Arc<Inodes>,
+    merged_dirs: Arc<MergedDirs>,
 }
 
 impl Stack {
-    pub(super) fn inodes(&self) -> &Inodes {
-        &self.inodes
+    pub(super) fn merged_dirs(&self) -> &MergedDirs {
+        &self.merged_dirs
     }
 
     /// Whether the topmost writable Layer, where every copy up lands, holds
@@ -545,7 +545,7 @@ impl Stack {
             }
         };
         chain.steps[step].level[into] = Some(dir.clone());
-        self.inodes.copied_up(&chain.path_to(step), into, &dir);
+        self.merged_dirs.copied_up(&chain.path_to(step), into, &dir);
         Ok(dir)
     }
 

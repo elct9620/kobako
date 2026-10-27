@@ -1,4 +1,4 @@
-//! `Directory`: a Filesystem over a host directory, from which nothing
+//! `Bind`: a Filesystem over a host directory, from which nothing
 //! outside it is reachable.
 //!
 //! Every path resolves through `cap_std::fs::Dir`, which refuses a `..`
@@ -16,16 +16,16 @@ use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
-use super::{DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
+use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename};
 use crate::vfs::Dentry;
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
-pub struct Directory {
+pub struct Bind {
     dir: Arc<Dir>,
 }
 
-impl Directory {
+impl Bind {
     /// Open the host directory at `path`, the one place this Filesystem
     /// reaches outside itself.
     pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {
@@ -45,7 +45,7 @@ impl Directory {
         call(&self.dir, to_host_name(&dentry.name())?)
     }
 
-    /// `dir`, opened beneath a Directory, as a Directory of its own.
+    /// `dir`, opened beneath a Bind, as a Bind of its own.
     fn beneath(dir: Dir) -> Self {
         Self { dir: Arc::new(dir) }
     }
@@ -117,7 +117,7 @@ fn to_file_type(host: cap_std::fs::FileType) -> FileType {
 
 /// What a host entry is, a file's size alone counted: a link reports no
 /// size, so nothing of where it points reaches the guest. The host names
-/// its identity, link count, and times on unix; elsewhere a Directory
+/// its identity, link count, and times on unix; elsewhere a Bind
 /// reports none.
 fn to_metadata(metadata: cap_std::fs::Metadata) -> Metadata {
     let file_type = to_file_type(metadata.file_type());
@@ -214,12 +214,12 @@ fn open_in(dir: &Dir, name: &str, options: &OpenOptions) -> Result<Box<dyn File>
             .map_err(io::Error::from)
             .map_err(to_error)?;
     }
-    Ok(Box::new(DirectoryFile {
+    Ok(Box::new(BindFile {
         file: file.into_std(),
     }))
 }
 
-impl Filesystem for Directory {
+impl Inode for Bind {
     fn open(
         &self,
         dentry: &Dentry,
@@ -240,7 +240,7 @@ impl Filesystem for Directory {
 
     /// The host directory's own descriptor, so its inode stays taken while
     /// it is open.
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
         let dir = self.at(dentry, open_dir_nofollow)?;
         Ok(Arc::new(Self::beneath(dir)))
     }
@@ -309,7 +309,7 @@ impl Filesystem for Directory {
     fn rename(
         &self,
         from: &Dentry,
-        to_dir: &dyn Filesystem,
+        to_dir: &dyn Inode,
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
@@ -331,11 +331,11 @@ impl Filesystem for Directory {
 
 /// An open host file. The runtime names every offset, so each access seeks
 /// first.
-struct DirectoryFile {
+struct BindFile {
     file: std::fs::File,
 }
 
-impl File for DirectoryFile {
+impl File for BindFile {
     fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
         self.file.seek(SeekFrom::Start(offset)).map_err(to_error)?;
         self.file.read(buf).map_err(to_error)
@@ -397,11 +397,11 @@ mod tests {
     use super::*;
     use crate::vfs::through::{through, Through};
 
-    /// The host directory at `path` as a Directory, reached through the
+    /// The host directory at `path` as a Bind, reached through the
     /// VFS.
     fn opened(path: impl AsRef<Path>) -> Through {
         through(Arc::new(
-            Directory::new(path).expect("the host directory must open"),
+            Bind::new(path).expect("the host directory must open"),
         ))
     }
 
@@ -463,7 +463,7 @@ mod tests {
                 Some(FilesystemError::PermissionDenied),
                 Some(FilesystemError::PermissionDenied)
             ]),
-            "a FIFO and a device opened through Directory::open must be refused as permission \
+            "a FIFO and a device opened through Bind::open must be refused as permission \
              denied without waiting"
         );
     }
@@ -495,7 +495,7 @@ mod tests {
                 Ok(FileType::Unknown),
                 vec![FileType::Unknown]
             ),
-            "a FIFO looked up through Directory::metadata and symlink_metadata, and listed \
+            "a FIFO looked up through Bind::metadata and symlink_metadata, and listed \
              through read_dir, must answer an unknown type"
         );
     }
@@ -521,7 +521,7 @@ mod tests {
         assert_eq!(
             &buf[..read],
             b"a,b",
-            "a host file read through a Directory's open must read back its content"
+            "a host file read through a Bind's open must read back its content"
         );
     }
 
@@ -553,7 +553,7 @@ mod tests {
         assert_eq!(
             fs::read(host.0.join("out.txt")).expect("the host file must exist"),
             b"written",
-            "a file created through a Directory's open must land in the host directory"
+            "a file created through a Bind's open must land in the host directory"
         );
     }
 
@@ -581,7 +581,7 @@ mod tests {
                 fs::read(host.0.join("f")).expect("the host file must read")
             ),
             (Some(FilesystemError::Unsupported), b"x".to_vec()),
-            "an append through a Directory file on Windows must be refused as unsupported and \
+            "an append through a Bind file on Windows must be refused as unsupported and \
              leave the file as it was"
         );
     }
@@ -601,7 +601,7 @@ mod tests {
                 directory.open(r"d\f", &OpenOptions::default()),
                 Err(FilesystemError::InvalidInput)
             ),
-            "a path holding a backslash opened through a Directory on Windows must be refused as \
+            "a path holding a backslash opened through a Bind on Windows must be refused as \
              invalid input"
         );
     }
@@ -624,14 +624,14 @@ mod tests {
         assert_eq!(
             created.map(drop),
             Err(FilesystemError::InvalidFilename),
-            "a name past the host's limit created through Directory::open must fail as \
+            "a name past the host's limit created through Bind::open must fail as \
              InvalidFilename, not as an unnamed failure"
         );
     }
 
     // Which offset a host refuses depends on its filesystem: tmpfs, XFS and
     // overlay keep files up to `i64::MAX`. The host's own EFBIG, 27 on Linux
-    // and macOS alike, is what the Directory must name.
+    // and macOS alike, is what the Bind must name.
     // @behavior FS-068
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
@@ -639,7 +639,7 @@ mod tests {
         assert_eq!(
             to_error(io::Error::from_raw_os_error(27)),
             FilesystemError::FileTooLarge,
-            "a host EFBIG through Directory's error mapping must fail as FileTooLarge, \
+            "a host EFBIG through Bind's error mapping must fail as FileTooLarge, \
              not as an unnamed failure"
         );
     }
@@ -658,7 +658,7 @@ mod tests {
         assert_eq!(
             directory.entries().map(drop),
             Err(FilesystemError::IllegalSequence),
-            "a host name that is not UTF-8 listed through Directory::entries must fail as \
+            "a host name that is not UTF-8 listed through Bind::entries must fail as \
              IllegalSequence, not as an unnamed failure"
         );
     }
@@ -687,7 +687,7 @@ mod tests {
                 host.0.join("new").exists()
             ),
             (Ok(()), Ok(()), true),
-            "a Directory::open that may create, of a read-only host file already there, must open \
+            "a Bind::open that may create, of a read-only host file already there, must open \
              it, and of a missing one must create it"
         );
     }
@@ -717,7 +717,7 @@ mod tests {
         assert_eq!(
             (open(true), open(false)),
             (Err(FilesystemError::FilesystemLoop), Ok(())),
-            "a host link opened through a Directory must be refused when the open asks to follow \
+            "a host link opened through a Bind must be refused when the open asks to follow \
              none, and reached when it does not"
         );
     }
@@ -742,8 +742,8 @@ mod tests {
         assert_eq!(
             (directory.symlink_metadata("link").map(shape), listed),
             (Ok((FileType::Symlink, 0)), Some(FileType::Symlink)),
-            "a host link looked up through Directory::symlink_metadata and listed through \
-             Directory::entries must report a link with no size"
+            "a host link looked up through Bind::symlink_metadata and listed through \
+             Bind::entries must report a link with no size"
         );
     }
 
@@ -756,7 +756,7 @@ mod tests {
         assert_eq!(
             directory.remove_file("sub"),
             Err(FilesystemError::IsADirectory),
-            "a host directory removed through Directory::remove_file must answer IsADirectory"
+            "a host directory removed through Bind::remove_file must answer IsADirectory"
         );
     }
 
@@ -786,7 +786,7 @@ mod tests {
         assert_eq!(
             dir.open_dir("in").map(drop),
             Err(FilesystemError::FilesystemLoop),
-            "a link to a directory opened through Directory::open_dir must be a link loop"
+            "a link to a directory opened through Bind::open_dir must be a link loop"
         );
     }
 
@@ -803,7 +803,7 @@ mod tests {
                 Ok("../secret".to_string()),
                 Err(FilesystemError::InvalidInput)
             ),
-            "Directory::read_link must answer where a link points as stored, and refuse a \
+            "Bind::read_link must answer where a link points as stored, and refuse a \
              directory as invalid input"
         );
     }
@@ -832,7 +832,7 @@ mod tests {
                     }
                 )
                 .is_ok(),
-            "a link that stays inside the host directory must still open through a Directory's open"
+            "a link that stays inside the host directory must still open through a Bind's open"
         );
         assert!(
             directory
@@ -844,7 +844,7 @@ mod tests {
                     }
                 )
                 .is_err(),
-            "a link out of the host directory opened through a Directory's open must be refused"
+            "a link out of the host directory opened through a Bind's open must be refused"
         );
     }
 
@@ -864,7 +864,7 @@ mod tests {
         assert_eq!(
             (reported.dev, reported.ino),
             (expected.dev(), expected.ino()),
-            "a host directory's metadata through Directory::metadata must carry the device and \
+            "a host directory's metadata through Bind::metadata must carry the device and \
              inode numbers the host reports"
         );
     }
@@ -909,7 +909,7 @@ mod tests {
                 written.iter().filter(|&&b| b == b'b').count()
             ),
             (10_000, 10_000),
-            "two handles appending to one host file through a Directory's File::append must each \
+            "two handles appending to one host file through a Bind's File::append must each \
              keep every byte"
         );
     }
@@ -950,7 +950,7 @@ mod tests {
         drop(opened);
         assert!(
             held_open,
-            "a directory Directory::open_dir opened must stay open once removed"
+            "a directory Bind::open_dir opened must stay open once removed"
         );
         if !reuses {
             eprintln!("the host does not reuse inode numbers; nothing more to witness");
@@ -958,7 +958,7 @@ mod tests {
         }
         assert_ne!(
             made, first,
-            "a directory made where Directory::open_dir holds a removed one open must take \
+            "a directory made where Bind::open_dir holds a removed one open must take \
              another inode number on a host reusing them"
         );
     }
@@ -988,7 +988,7 @@ mod tests {
                 host.0.join("dir").exists()
             ),
             (true, false),
-            "a file made through a directory Directory::open_dir opened before the host moved it \
+            "a file made through a directory Bind::open_dir opened before the host moved it \
              must stand beneath the directory's new host path"
         );
     }
@@ -1006,7 +1006,7 @@ mod tests {
         assert_eq!(
             (dir.stored_name("file"), dir.stored_name("new")),
             (Ok("file".to_string()), Ok("new".to_string())),
-            "a name asked of Directory::stored_name in the spelling its host stores, and one it \
+            "a name asked of Bind::stored_name in the spelling its host stores, and one it \
              does not hold, must come back as given"
         );
     }
@@ -1039,7 +1039,7 @@ mod tests {
                 Ok("caf\u{e9}".to_string()),
                 Ok("missing".to_string())
             ),
-            "a name asked of Directory::stored_name in another case and Unicode form on a host \
+            "a name asked of Bind::stored_name in another case and Unicode form on a host \
              folding both must come back as the host stores it, one it does not hold as given"
         );
     }

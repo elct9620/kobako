@@ -39,7 +39,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a Memory holding a file mounted at `/data` |
+| Given | a Sandbox with a Tmpfs holding a file mounted at `/data` |
 | When | the script reads that file beneath `/data` |
 | Then | it reads the file's content |
 
@@ -131,9 +131,9 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a Memory mounted at `/data`, and an invocation whose Context mounted another Memory there |
+| Given | a Sandbox with a Tmpfs mounted at `/data`, and an invocation whose Context mounted another Tmpfs there |
 | When | the next invocation reads beneath `/data` |
-| Then | it reads the Sandbox's own Memory |
+| Then | it reads the Sandbox's own Tmpfs |
 
 ## `MT-010` A Context cannot mount a path the Sandbox never mounted
 
@@ -155,9 +155,9 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox mounting an Overlay of a writable Memory over a read-only Memory holding a file |
+| Given | a Sandbox mounting an Overlay of a writable Tmpfs over a read-only Tmpfs holding a file |
 | When | the script overwrites that file and reads it back |
-| Then | it reads what it wrote, and the Memory still holds the file as it was |
+| Then | it reads what it wrote, and the Tmpfs still holds the file as it was |
 
 ## `MT-012` Adding a Layer leaves the Overlay it was added to as it was
 
@@ -171,7 +171,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | When | a second Layer is added to it |
 | Then | the guest reaches only the first Layer through a mount of the original Overlay |
 
-## `MT-013` A Memory's limit given in Ruby bounds what the guest writes
+## `MT-013` A Tmpfs's size given in Ruby bounds what the guest writes
 
 | Attribute | Value |
 | --- | --- |
@@ -179,11 +179,11 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox mounting a Memory seeded with files and given a limit |
-| When | the script writes past that limit |
+| Given | a Sandbox mounting a Tmpfs seeded with files and given a size |
+| When | the script writes past that size |
 | Then | the script raises `Errno::ENOSPC`, and the seeded files still read |
 
-## `MT-015` A Memory refuses a keyword it does not know
+## `MT-015` A Tmpfs refuses a keyword it does not know
 
 | Attribute | Value |
 | --- | --- |
@@ -191,8 +191,8 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | no Memory |
-| When | one is created with a misspelled `limit` keyword |
+| Given | no Tmpfs |
+| When | one is created with a misspelled `size` keyword |
 | Then | the creation raises `ArgumentError` naming the unknown keyword |
 
 ## `MT-016` A mount's block answers after the host compacts its heap
@@ -216,7 +216,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox mounting a Memory given a count of inodes |
+| Given | a Sandbox mounting a Tmpfs given a count of inodes |
 | When | the script creates empty files past that count |
 | Then | the script raises `Errno::ENOSPC` |
 
@@ -293,7 +293,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | When | the script opens a path beneath the mount and rescues every failure |
 | Then | the run raises `Interrupt` in the Host App |
 
-## `MT-024` A Memory given files it cannot hold raises ArgumentError
+## `MT-024` A Tmpfs given files it cannot hold raises ArgumentError
 
 | Attribute | Value |
 | --- | --- |
@@ -302,7 +302,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Step | Statement |
 | --- | --- |
 | Given | files naming the root, or a file where another path needs a directory |
-| When | a Memory is created with them |
+| When | a Tmpfs is created with them |
 | Then | the creation raises `ArgumentError` naming the path |
 
 ## `MT-025` A mount's block is asked once for a read, as a read

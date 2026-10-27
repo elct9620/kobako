@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    DirEntry, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Rename,
+    DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
@@ -44,24 +44,24 @@ fn run(source: &str, grants: &[Grant], flags: Vec<Flag>) -> Option<Result<String
     })
 }
 
-fn mount(filesystem: Arc<dyn Filesystem>, access: Access) -> Grant {
+fn mount(filesystem: Arc<dyn Inode>, access: Access) -> Grant {
     Grant::Mount(
         Mount::new("/data", SuperBlock::new(filesystem), access).expect("/data is a guest path"),
     )
 }
 
-fn note_memory() -> Arc<Memory> {
+fn note_memory() -> Arc<Tmpfs> {
     Arc::new([("note.txt", "hello\nworld\n")].into_iter().collect())
 }
 
 /// The root of `filesystem` as the host reaches it through the VFS.
-fn host<F: Filesystem>(filesystem: &Arc<F>) -> Path {
+fn host<F: Inode>(filesystem: &Arc<F>) -> Path {
     let mount = Mount::new("/data", SuperBlock::new(filesystem.clone()), Access::Read)
         .expect("/data is a guest path");
     Path::root(mount, Profile::Permissive)
 }
 
-fn contents<F: Filesystem>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
+fn contents<F: Inode>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
     let mut how = OpenHow::default();
     how.read = true;
     let Ok(Opened::File(mut file)) = vfs::open(&host(filesystem), path, &how, true) else {
@@ -93,7 +93,7 @@ fn a_script_reads_a_file_beneath_a_mounted_path() {
 // @behavior FL-002
 #[test]
 fn a_script_writes_a_file_beneath_a_read_write_mount() {
-    let memory = Arc::new(Memory::new());
+    let memory = Arc::new(Tmpfs::new());
     let Some(answer) = run(
         r#"print File.open("/data/out.txt", "w") { |f| f.write("kept"); :done }"#,
         &[mount(memory.clone(), Access::ReadWrite)],
@@ -109,7 +109,7 @@ fn a_script_writes_a_file_beneath_a_read_write_mount() {
     assert_eq!(
         contents(&memory, "out.txt"),
         b"kept",
-        "a file written in File.open's block through the bundled guest must land in the Memory"
+        "a file written in File.open's block through the bundled guest must land in the Tmpfs"
     );
 }
 
@@ -184,7 +184,7 @@ fn writing_beneath_a_read_only_mount_raises_erofs() {
 // @behavior FL-012
 #[test]
 fn a_write_past_a_mounts_space_raises_enospc() {
-    let full = Arc::new(Memory::new().with_limit(Some(4)));
+    let full = Arc::new(Tmpfs::new().with_size(Some(4)));
     let Some(answer) = run(
         r#"File.open("/data/note.txt", "w") { |file| file.write("five!") }"#,
         &[mount(full, Access::ReadWrite)],
@@ -195,7 +195,7 @@ fn a_write_past_a_mounts_space_raises_enospc() {
     assert_eq!(
         answer,
         Err("Errno::ENOSPC".to_string()),
-        "IO#write past a Memory's limit through the bundled guest must raise Errno::ENOSPC"
+        "IO#write past a Tmpfs's limit through the bundled guest must raise Errno::ENOSPC"
     );
 }
 
@@ -222,7 +222,7 @@ fn a_name_or_path_past_linuxs_limits_raises_enametoolong() {
     "#;
     let Some(answer) = run(
         script,
-        &[mount(Arc::new(Memory::new()), Access::ReadWrite)],
+        &[mount(Arc::new(Tmpfs::new()), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
@@ -325,7 +325,7 @@ fn an_exclusive_create_refuses_a_file_already_there() {
 // @behavior FL-025
 #[test]
 fn an_exclusive_create_makes_a_file_nothing_is_at() {
-    let memory = Arc::new(Memory::new());
+    let memory = Arc::new(Tmpfs::new());
     let Some(answer) = run(
         r#"File.open("/data/lock", "w+x") { |f| f.write("mine") }; nil"#,
         &[mount(memory.clone(), Access::ReadWrite)],
@@ -400,7 +400,7 @@ fn an_integer_mode_opens_by_its_file_constants_flags() {
 // @behavior FL-028
 #[test]
 fn an_exclusive_open_without_create_makes_no_file() {
-    let memory = Arc::new(Memory::new());
+    let memory = Arc::new(Tmpfs::new());
     let Some(answer) = run(
         r#"File.open("/data/lock", File::RDONLY | File::EXCL) { }"#,
         &[mount(memory.clone(), Access::ReadWrite)],
@@ -483,7 +483,7 @@ fn rdonly_beside_wronly_opens_to_write_only() {
 
 // Neither open asks to write, so only a mode that reaches the host as it
 // stands, rather than one refused before it leaves the guest, changes
-// the Memory.
+// the Tmpfs.
 // @behavior FL-032
 #[test]
 fn an_integer_mode_may_create_or_truncate_without_asking_to_write() {
@@ -549,9 +549,9 @@ fn file_constants_names_the_flags_an_open_honors() {
     );
 }
 
-/// A Memory whose every open file is handed through `wrap` first.
+/// A Tmpfs whose every open file is handed through `wrap` first.
 struct WrapsFiles<W> {
-    memory: Memory,
+    memory: Tmpfs,
     wrap: W,
 }
 
@@ -564,7 +564,7 @@ impl<W> WrapsFiles<W> {
     }
 }
 
-impl<W, F> Filesystem for WrapsFiles<W>
+impl<W, F> Inode for WrapsFiles<W>
 where
     W: Fn(Box<dyn File>) -> F + Send + Sync + 'static,
     F: File + 'static,
@@ -577,7 +577,7 @@ where
         Ok(Box::new((self.wrap)(self.memory.open(dentry, options)?)))
     }
 
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
         self.memory.open_dir(dentry)
     }
 
@@ -616,7 +616,7 @@ where
     fn rename(
         &self,
         from: &Dentry,
-        _to_dir: &dyn Filesystem,
+        _to_dir: &dyn Inode,
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
@@ -674,7 +674,7 @@ fn a_read_of_a_length_asks_the_filesystem_once() {
     assert_eq!(
         reads.load(Ordering::Relaxed),
         1,
-        "File#read(64) of a longer file through the bundled guest must ask its Filesystem for one read"
+        "File#read(64) of a longer file through the bundled guest must ask its Inode forone read"
     );
 }
 

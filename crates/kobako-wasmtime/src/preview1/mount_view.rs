@@ -7,8 +7,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    DirEntry, Directory, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Overlay,
-    Rename,
+    Bind, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Overlay, Rename, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
@@ -42,11 +41,11 @@ macro_rules! matches_names_exactly {
     };
 }
 
-/// The answers of a test Filesystem over the Memory in `$inner` that opens,
-/// lists, and reports its directories as that Memory does.
+/// The answers of a test Filesystem over the Tmpfs in `$inner` that opens,
+/// lists, and reports its directories as that Tmpfs does.
 macro_rules! opens_directories {
     ($inner:tt) => {
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
             self.$inner.open_dir(dentry)
         }
 
@@ -62,7 +61,7 @@ macro_rules! opens_directories {
 
 /// The root of `filesystem` as the host reaches it through the VFS, a
 /// writer of its own beside the guest.
-fn host<F: Filesystem>(filesystem: &Arc<F>) -> Path {
+fn host<F: Inode>(filesystem: &Arc<F>) -> Path {
     let mount = Mount::new(
         "/data",
         SuperBlock::new(filesystem.clone()),
@@ -88,7 +87,7 @@ const ERRNO_ROFS: i32 = 69;
 const ERRNO_XDEV: i32 = 75;
 const ERRNO_NOTCAPABLE: i32 = 76;
 
-/// Memory holds an `iovec` at 64 over 512..576, a `ciovec` at 80 over
+/// Tmpfs holds an `iovec` at 64 over 512..576, a `ciovec` at 80 over
 /// "hello" at 600, the paths `file.txt` at 700 and `../file.txt` at 720,
 /// and from 740 the paths the resolution rules turn on. An opened
 /// descriptor lands at 128, a count at 132, a listing's count at 136, a
@@ -419,11 +418,7 @@ fn build_options(set: impl FnOnce(&mut OpenOptions)) -> OpenOptions {
     options
 }
 
-fn grant(
-    filesystem: Arc<dyn Filesystem>,
-    access: Access,
-    policy: Option<Arc<dyn Policy>>,
-) -> Grant {
+fn grant(filesystem: Arc<dyn Inode>, access: Access, policy: Option<Arc<dyn Policy>>) -> Grant {
     let mount =
         Mount::new("/data", SuperBlock::new(filesystem), access).expect("/data is a guest path");
     Grant::Mount(match policy {
@@ -598,11 +593,11 @@ impl Policy for AllowsAll {
     }
 }
 
-/// A Memory storing every name in upper case while it reaches each by
+/// A Tmpfs storing every name in upper case while it reaches each by
 /// any case, as a host that folds case does.
-struct StoresUpperCase(Memory);
+struct StoresUpperCase(Tmpfs);
 
-impl Filesystem for StoresUpperCase {
+impl Inode for StoresUpperCase {
     holds_no_links!();
 
     fn open(
@@ -638,7 +633,7 @@ impl Filesystem for StoresUpperCase {
     fn rename(
         &self,
         from: &Dentry,
-        _to_dir: &dyn Filesystem,
+        _to_dir: &dyn Inode,
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
@@ -651,7 +646,7 @@ impl Filesystem for StoresUpperCase {
 // @behavior RT-120
 #[test]
 fn a_policy_judges_a_path_as_its_filesystem_stores_it() {
-    let memory: Memory = [("file.txt", "granted")].into_iter().collect();
+    let memory: Tmpfs = [("file.txt", "granted")].into_iter().collect();
     let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/FILE.TXT"));
     let mut guest = Guest::new(&[grant(
         Arc::new(StoresUpperCase(memory)),
@@ -672,7 +667,7 @@ fn a_policy_judges_a_path_as_its_filesystem_stores_it() {
 #[test]
 fn a_policy_judges_a_path_beneath_an_opened_directory_as_its_filesystem_stores_it() {
     const INNER: (i32, i32) = (960, 5);
-    let memory: Memory = [("dir/inner", "x")].into_iter().collect();
+    let memory: Tmpfs = [("dir/inner", "x")].into_iter().collect();
     let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/DIR/inner"));
     let mut guest = Guest::new(&[grant(
         Arc::new(StoresUpperCase(memory)),
@@ -691,7 +686,7 @@ fn a_policy_judges_a_path_beneath_an_opened_directory_as_its_filesystem_stores_i
 // @behavior RT-075
 #[test]
 fn a_mount_appears_as_a_directory_at_its_path() {
-    let mut guest = Guest::new(&[grant(Arc::new(Memory::new()), Access::Read, None)]);
+    let mut guest = Guest::new(&[grant(Arc::new(Tmpfs::new()), Access::Read, None)]);
     assert_eq!(
         guest.call_bare("preopen_name"),
         0,
@@ -713,7 +708,7 @@ fn a_mount_appears_as_a_directory_at_its_path() {
 // @behavior RT-107
 #[test]
 fn a_listing_goes_on_over_the_entries_it_began_with() {
-    let memory: Arc<Memory> = Arc::new([("a.txt", "")].into_iter().collect());
+    let memory = tmpfs_with("a.txt", "");
     let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
     assert_eq!(
         guest.list(0, 51),
@@ -736,33 +731,33 @@ fn a_listing_goes_on_over_the_entries_it_began_with() {
 // @behavior RT-076
 #[test]
 fn a_guest_reads_a_file_beneath_a_mount() {
-    let memory: Memory = [("file.txt", "granted")].into_iter().collect();
+    let memory: Tmpfs = [("file.txt", "granted")].into_iter().collect();
     let mut guest = Guest::new(&[grant(Arc::new(memory), Access::Read, None)]);
     assert_eq!(guest.call("read_file", FILE), 0, "the read must succeed");
     assert_eq!(
         guest.read_back(),
         b"granted",
-        "a file read beneath a Mount through preview1 must read the Memory's content"
+        "a file read beneath a Mount through preview1 must read the Tmpfs's content"
     );
 }
 
 // @behavior RT-077
 #[test]
 fn a_guest_writes_a_file_beneath_a_read_write_mount() {
-    let memory = Arc::new(Memory::new());
+    let memory = Arc::new(Tmpfs::new());
     let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
     assert_eq!(guest.call("write_file", FILE), 0, "the write must succeed");
     assert_eq!(
         contents(&host(&memory), "file.txt").as_deref(),
         Some(&b"hello"[..]),
-        "a file written beneath a read-write Mount through preview1 must land in the Memory"
+        "a file written beneath a read-write Mount through preview1 must land in the Tmpfs"
     );
 }
 
 // @behavior RT-078
 #[test]
 fn a_change_beneath_a_read_only_mount_is_a_read_only_filesystem() {
-    let mut guest = Guest::new(&[grant(Arc::new(Memory::new()), Access::Read, None)]);
+    let mut guest = Guest::new(&[grant(Arc::new(Tmpfs::new()), Access::Read, None)]);
     assert_eq!(
         guest.call("write_file", FILE),
         ERRNO_ROFS,
@@ -776,7 +771,7 @@ fn a_change_beneath_a_read_only_mount_is_a_read_only_filesystem() {
 // @behavior RT-078
 #[test]
 fn a_truncating_open_beneath_a_read_only_mount_is_refused() {
-    let memory: Arc<Memory> = Arc::new([("file.txt", "granted")].into_iter().collect());
+    let memory = tmpfs_with("file.txt", "granted");
     let mut guest = Guest::new(&[grant(memory.clone(), Access::Read, None)]);
     assert_eq!(
         (
@@ -792,7 +787,7 @@ fn a_truncating_open_beneath_a_read_only_mount_is_refused() {
 // @behavior RT-079
 #[test]
 fn a_path_above_a_mounts_root_is_refused() {
-    let memory: Memory = [("file.txt", "granted")].into_iter().collect();
+    let memory: Tmpfs = [("file.txt", "granted")].into_iter().collect();
     let mut guest = Guest::new(&[grant(Arc::new(memory), Access::Read, None)]);
     assert_eq!(
         guest.call("read_file", ABOVE_ROOT),
@@ -806,7 +801,7 @@ fn a_path_above_a_mounts_root_is_refused() {
 // @behavior RT-115
 #[test]
 fn a_path_above_the_directory_it_is_opened_beneath_is_refused() {
-    let memory: Memory = [("file.txt", "granted"), ("dir/inner.txt", "beneath")]
+    let memory: Tmpfs = [("file.txt", "granted"), ("dir/inner.txt", "beneath")]
         .into_iter()
         .collect();
     let mut guest = Guest::new(&[grant(Arc::new(memory), Access::Read, None)]);
@@ -819,7 +814,7 @@ fn a_path_above_the_directory_it_is_opened_beneath_is_refused() {
 }
 
 /// What `stat_inner` answers through `dir` opened, beneath a Mount with
-/// `policy`, before `change` runs on the host's root of the Memory
+/// `policy`, before `change` runs on the host's root of the Tmpfs
 /// holding it.
 fn stat_after(policy: Option<Arc<dyn Policy>>, change: impl FnOnce(&Path)) -> i32 {
     let memory = file_and_directory();
@@ -884,17 +879,17 @@ fn a_directory_moved_while_opened_beneath_a_policy_is_not_reached() {
     );
 }
 
-/// A Memory naming `dir` by one inode number for as long as no directory
+/// A Tmpfs naming `dir` by one inode number for as long as no directory
 /// it opened there is open, as a host hands a removed directory's number
 /// to the next one made, and by a fresh number once an open `dir` was
 /// removed.
 struct ReusesInodes {
-    memory: Arc<Memory>,
-    opened: Mutex<Vec<Weak<dyn Filesystem>>>,
+    memory: Arc<Tmpfs>,
+    opened: Mutex<Vec<Weak<dyn Inode>>>,
     removed_while_open: AtomicUsize,
 }
 
-impl Filesystem for ReusesInodes {
+impl Inode for ReusesInodes {
     holds_no_links!();
     matches_names_exactly!();
 
@@ -906,7 +901,7 @@ impl Filesystem for ReusesInodes {
         self.memory.open(dentry, options)
     }
 
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
         let opened = self.memory.open_dir(dentry)?;
         if dentry.name() == "dir" {
             self.opened.lock().unwrap().push(Arc::downgrade(&opened));
@@ -956,7 +951,7 @@ impl Filesystem for ReusesInodes {
     fn rename(
         &self,
         from: &Dentry,
-        _to_dir: &dyn Filesystem,
+        _to_dir: &dyn Inode,
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
@@ -1001,11 +996,11 @@ fn a_directory_descriptor_holds_its_directory_while_open() {
     );
 }
 
-/// A Memory reporting no identity for anything it holds, as a host whose
+/// A Tmpfs reporting no identity for anything it holds, as a host whose
 /// stat names no inode.
-struct NamesNoIdentity(Arc<Memory>);
+struct NamesNoIdentity(Arc<Tmpfs>);
 
-impl Filesystem for NamesNoIdentity {
+impl Inode for NamesNoIdentity {
     holds_no_links!();
     matches_names_exactly!();
     opens_directories!(0);
@@ -1038,7 +1033,7 @@ impl Filesystem for NamesNoIdentity {
     fn rename(
         &self,
         from: &Dentry,
-        _to_dir: &dyn Filesystem,
+        _to_dir: &dyn Inode,
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
@@ -1071,7 +1066,7 @@ fn a_directory_without_an_identity_is_not_reached_again_beneath_a_policy() {
 // @behavior RT-152
 #[test]
 fn an_overlay_directory_takes_one_descriptor_however_many_layers_it_spans() {
-    let upper: Arc<dyn Filesystem> = Arc::new([("dir/upper", "u")].into_iter().collect::<Memory>());
+    let upper: Arc<dyn Inode> = tmpfs_with("dir/upper", "u");
     let overlay = Overlay::new()
         .layer(SuperBlock::new(upper), Access::ReadWrite)
         .layer(SuperBlock::new(file_and_directory()), Access::Read);
@@ -1096,8 +1091,8 @@ fn an_overlay_directory_takes_one_descriptor_however_many_layers_it_spans() {
 // call compares it with the Overlay's stat.
 #[test]
 fn a_directory_two_layers_hold_is_reached_through_its_descriptor() {
-    let upper: Arc<dyn Filesystem> = Arc::new([("dir/upper", "u")].into_iter().collect::<Memory>());
-    let lower: Arc<dyn Filesystem> = file_and_directory();
+    let upper: Arc<dyn Inode> = tmpfs_with("dir/upper", "u");
+    let lower: Arc<dyn Inode> = file_and_directory();
     let overlay = Overlay::new()
         .layer(SuperBlock::new(upper), Access::ReadWrite)
         .layer(SuperBlock::new(lower), Access::Read);
@@ -1127,7 +1122,7 @@ fn a_directory_moved_back_to_its_path_is_reached_through_its_descriptor_again() 
 // @behavior RT-080
 #[test]
 fn a_policy_refusing_an_open_answers_access_denied() {
-    let memory: Memory = [("file.txt", "granted")].into_iter().collect();
+    let memory: Tmpfs = [("file.txt", "granted")].into_iter().collect();
     let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/file.txt"));
     let mut guest = Guest::new(&[grant(Arc::new(memory), Access::Read, Some(policy))]);
     assert_eq!(
@@ -1140,7 +1135,7 @@ fn a_policy_refusing_an_open_answers_access_denied() {
 // @behavior RT-081
 #[test]
 fn a_policy_decides_in_the_place_of_a_mounts_access() {
-    let memory = Arc::new(Memory::new());
+    let memory = Arc::new(Tmpfs::new());
     let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
     let mut guest = Guest::new(&[grant(memory.clone(), Access::Read, Some(policy))]);
     assert_eq!(guest.call("write_file", FILE), 0, "the write must succeed");
@@ -1154,7 +1149,7 @@ fn a_policy_decides_in_the_place_of_a_mounts_access() {
 // @behavior RT-082
 #[test]
 fn every_invocation_reaches_the_filesystem_its_mount_holds() {
-    let memory = Arc::new(Memory::new());
+    let memory = Arc::new(Tmpfs::new());
     let grants = [grant(memory.clone(), Access::ReadWrite, None)];
     assert_eq!(
         Guest::new(&grants).call("write_file", FILE),
@@ -1164,7 +1159,7 @@ fn every_invocation_reaches_the_filesystem_its_mount_holds() {
     assert_eq!(
         Guest::new(&grants).call("read_file", FILE),
         0,
-        "a file an earlier invocation wrote beneath a Mount over a Memory must be found by the \
+        "a file an earlier invocation wrote beneath a Mount over a Tmpfs must be found by the \
          next invocation through preview1"
     );
     assert_eq!(
@@ -1174,10 +1169,10 @@ fn every_invocation_reaches_the_filesystem_its_mount_holds() {
     );
 }
 
-/// A Memory holding `file.txt` that counts every change it is asked for,
+/// A Tmpfs holding `file.txt` that counts every change it is asked for,
 /// so a test can tell the runtime refused before asking it.
 struct ChangeCounter {
-    memory: Memory,
+    memory: Tmpfs,
     changes: AtomicUsize,
 }
 
@@ -1194,7 +1189,7 @@ impl ChangeCounter {
     }
 }
 
-impl Filesystem for ChangeCounter {
+impl Inode for ChangeCounter {
     holds_no_links!();
     matches_names_exactly!();
 
@@ -1230,7 +1225,7 @@ impl Filesystem for ChangeCounter {
     fn rename(
         &self,
         from: &Dentry,
-        _to_dir: &dyn Filesystem,
+        _to_dir: &dyn Inode,
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
@@ -1239,10 +1234,10 @@ impl Filesystem for ChangeCounter {
     }
 }
 
-/// A Memory holding `file.txt` that, as a rename reaches it, replaces the
+/// A Tmpfs holding `file.txt` that, as a rename reaches it, replaces the
 /// file with a directory holding `secret`, as another invocation sharing
-/// the Memory could between the runtime's checks and the move.
-struct SwappedForADirectory(Arc<Memory>);
+/// the Tmpfs could between the runtime's checks and the move.
+struct SwappedForADirectory(Arc<Tmpfs>);
 
 impl SwappedForADirectory {
     fn new() -> Arc<Self> {
@@ -1252,7 +1247,7 @@ impl SwappedForADirectory {
     }
 }
 
-impl Filesystem for SwappedForADirectory {
+impl Inode for SwappedForADirectory {
     holds_no_links!();
     matches_names_exactly!();
 
@@ -1285,7 +1280,7 @@ impl Filesystem for SwappedForADirectory {
     fn rename(
         &self,
         from: &Dentry,
-        _to_dir: &dyn Filesystem,
+        _to_dir: &dyn Inode,
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
@@ -1319,10 +1314,10 @@ fn a_directory_beneath_a_mount_with_a_policy_does_not_move() {
     );
 }
 
-/// A Memory whose files take another writer's `bbb` at their end as one
+/// A Tmpfs whose files take another writer's `bbb` at their end as one
 /// is written, once the length the write would land at is known and
 /// before it lands, as another invocation sharing the file could.
-struct AppendedMeanwhile(Arc<Memory>);
+struct AppendedMeanwhile(Arc<Tmpfs>);
 
 struct AppendedMeanwhileFile {
     file: Box<dyn File>,
@@ -1366,7 +1361,7 @@ impl File for AppendedMeanwhileFile {
     }
 }
 
-impl Filesystem for AppendedMeanwhile {
+impl Inode for AppendedMeanwhile {
     holds_no_links!();
     matches_names_exactly!();
 
@@ -1403,7 +1398,7 @@ impl Filesystem for AppendedMeanwhile {
     fn rename(
         &self,
         from: &Dentry,
-        _to_dir: &dyn Filesystem,
+        _to_dir: &dyn Inode,
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
@@ -1416,7 +1411,7 @@ impl Filesystem for AppendedMeanwhile {
 // @behavior RT-095
 #[test]
 fn an_append_lands_after_another_writers_append() {
-    let memory: Arc<Memory> = Arc::new([("file.txt", "granted")].into_iter().collect());
+    let memory = tmpfs_with("file.txt", "granted");
     let shared = Arc::new(AppendedMeanwhile(memory.clone()));
     let mut guest = Guest::new(&[grant(shared.clone(), Access::ReadWrite, None)]);
     assert_eq!(
@@ -1436,7 +1431,7 @@ const FILETYPE_REGULAR_FILE: u8 = 4;
 const FILETYPE_SYMBOLIC_LINK: u8 = 7;
 
 /// A host directory of its own holding `file.txt` as a link to `target`,
-/// made by `make_target`, and a guest handed it as a read-only Directory
+/// made by `make_target`, and a guest handed it as a read-only Bind
 /// Mount.
 #[cfg(unix)]
 fn linked(name: &str, make_target: fn(&std::path::Path)) -> (std::path::PathBuf, Guest) {
@@ -1456,13 +1451,13 @@ fn linked_under(
     std::fs::create_dir_all(&host).expect("the host directory must be created");
     make_target(&host.join("target"));
     std::os::unix::fs::symlink("target", host.join("file.txt")).expect("the link must be made");
-    let directory = Directory::new(&host).expect("the host directory must open");
+    let directory = Bind::new(&host).expect("the host directory must open");
     let guest = Guest::new(&[grant(Arc::new(directory), access, policy)]);
     (host, guest)
 }
 
 /// What each stat of `path` with the given lookupflags answers, and the
-/// filetype it wrote, beneath a Directory Mount whose host directory
+/// filetype it wrote, beneath a Bind Mount whose host directory
 /// holds `file.txt` as a link to `target`, made by `make_target`.
 #[cfg(unix)]
 fn stat_link(
@@ -1505,7 +1500,7 @@ fn a_guest_sees_a_fifo_as_of_an_unknown_type_and_cannot_open_it() {
         .status()
         .expect("mkfifo must run");
     assert!(made.success(), "the FIFO must be made");
-    let directory = Directory::new(&host).expect("the host directory must open");
+    let directory = Bind::new(&host).expect("the host directory must open");
     let mut guest = Guest::new(&[grant(Arc::new(directory), Access::Read, None)]);
     let stat = guest
         .instance
@@ -1525,7 +1520,7 @@ fn a_guest_sees_a_fifo_as_of_an_unknown_type_and_cannot_open_it() {
     assert_eq!(
         (stat, filestat[16], nlink, opened),
         (0, FILETYPE_UNKNOWN, 1, ERRNO_ACCES),
-        "path_filestat_get of a FIFO beneath a Directory Mount through preview1 must report an \
+        "path_filestat_get of a FIFO beneath a Bind Mount through preview1 must report an \
          unknown filetype named once, and path_open of it must answer EACCES"
     );
 }
@@ -1544,7 +1539,7 @@ fn a_stat_following_no_link_reports_the_link_itself() {
     assert_eq!(
         answers,
         [(0, FILETYPE_REGULAR_FILE), (0, FILETYPE_SYMBOLIC_LINK)],
-        "path_filestat_get of a host link beneath a Directory Mount through preview1 must report \
+        "path_filestat_get of a host link beneath a Bind Mount through preview1 must report \
          the file it points to when following links, and a symbolic link when following none"
     );
 }
@@ -1564,13 +1559,13 @@ fn a_stat_of_a_link_named_with_a_trailing_slash_reports_its_directory() {
         answers,
         [(0, FILETYPE_DIRECTORY), (0, FILETYPE_SYMBOLIC_LINK)],
         "path_filestat_get following no link of a host link to a directory, named with a \
-         trailing slash, beneath a Directory Mount through preview1 must report the directory, \
+         trailing slash, beneath a Bind Mount through preview1 must report the directory, \
          and without the slash a symbolic link"
     );
 }
 
 /// What `path_unlink_file` and `path_rename` answer for the link
-/// `file.txt/` to a directory beneath a read-write Directory Mount taking
+/// `file.txt/` to a directory beneath a read-write Bind Mount taking
 /// `policy`, and whether the link stays; `name` keeps its host directory
 /// its own.
 #[cfg(unix)]
@@ -1599,7 +1594,7 @@ fn a_link_named_with_a_trailing_slash_is_neither_removed_nor_moved() {
         ],
         [([ERRNO_NOTDIR, ERRNO_NOTDIR], true); 2],
         "path_unlink_file and path_rename of a host link to a directory named with a trailing \
-         slash, beneath a read-write Directory Mount with or without a Policy through preview1, \
+         slash, beneath a read-write Bind Mount with or without a Policy through preview1, \
          must answer ENOTDIR as Linux does and leave the link"
     );
 }
@@ -1618,7 +1613,7 @@ fn an_unlink_with_a_trailing_slash_answers_for_the_name_itself() {
     std::fs::create_dir_all(host.join("dir")).expect("the host directory must be created");
     std::fs::write(host.join("file.txt"), "granted").expect("the host file must be written");
     std::os::unix::fs::symlink("nowhere", host.join("gone")).expect("the link must be made");
-    let directory = Directory::new(&host).expect("the host directory must open");
+    let directory = Bind::new(&host).expect("the host directory must open");
     let mut guest = Guest::new(&[grant(Arc::new(directory), Access::ReadWrite, None)]);
     let answers = [
         DIR_AS_DIRECTORY,
@@ -1636,7 +1631,7 @@ fn an_unlink_with_a_trailing_slash_answers_for_the_name_itself() {
             [true; 3]
         ),
         "path_unlink_file of a directory, a file, a link to nothing, and a missing name, each \
-         named with a trailing slash beneath a read-write Directory Mount through preview1, must \
+         named with a trailing slash beneath a read-write Bind Mount through preview1, must \
          answer EISDIR, ENOTDIR, ENOTDIR, and ENOENT as Linux does and remove nothing"
     );
 }
@@ -1644,7 +1639,7 @@ fn an_unlink_with_a_trailing_slash_answers_for_the_name_itself() {
 // @behavior RT-099
 #[test]
 fn an_allocation_for_a_file_beneath_a_mount_is_unsupported() {
-    let memory: Arc<Memory> = Arc::new([("file.txt", "granted")].into_iter().collect());
+    let memory = tmpfs_with("file.txt", "granted");
     let answer =
         Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]).call("allocate_file", FILE);
     assert_eq!(
@@ -1672,7 +1667,7 @@ fn an_open_following_no_link_refuses_a_link_to_a_directory() {
     assert_eq!(
         answers,
         [ERRNO_LOOP, 0],
-        "path_open following no link of a host link to a directory beneath a Directory Mount \
+        "path_open following no link of a host link to a directory beneath a Bind Mount \
          through preview1 must answer ELOOP, and with a trailing slash open the directory"
     );
 }
@@ -1746,7 +1741,7 @@ fn a_link_out_of_a_directory_or_into_a_loop_answers_eloop_beneath_a_policy() {
             std::fs::create_dir_all(&host).expect("the host directory must be created");
             std::os::unix::fs::symlink(target, host.join("file.txt"))
                 .expect("the link must be made");
-            let directory = Directory::new(&host).expect("the host directory must open");
+            let directory = Bind::new(&host).expect("the host directory must open");
             let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
             let mut guest =
                 Guest::new(&[grant(Arc::new(directory), Access::ReadWrite, Some(policy))]);
@@ -1764,7 +1759,7 @@ fn a_link_out_of_a_directory_or_into_a_loop_answers_eloop_beneath_a_policy() {
     assert_eq!(
         (answers, kept),
         (vec![([ERRNO_LOOP, 0], true); 3], true),
-        "path_open through a host link out of a Directory, by an absolute or a relative target, \
+        "path_open through a host link out of a Bind, by an absolute or a relative target, \
          or into a loop, beneath a Mount with a Policy through preview1 must answer ELOOP, and \
          path_unlink_file of each link must remove it"
     );
@@ -1788,11 +1783,11 @@ fn a_link_check_that_fails_fails_the_call_beneath_a_policy() {
     );
 }
 
-/// A Memory failing every lookup of `dir` itself, as a host directory
+/// A Tmpfs failing every lookup of `dir` itself, as a host directory
 /// that cannot be read could.
-struct FailsLookingUpDir(Memory);
+struct FailsLookingUpDir(Tmpfs);
 
-impl Filesystem for FailsLookingUpDir {
+impl Inode for FailsLookingUpDir {
     matches_names_exactly!();
 
     fn open(
@@ -1814,7 +1809,7 @@ impl Filesystem for FailsLookingUpDir {
         self.0.read_link(dentry)
     }
 
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
         match dentry.name().as_str() {
             "dir" => Err(FilesystemError::Other("unreadable".into())),
             _ => self.0.open_dir(dentry),
@@ -1844,7 +1839,7 @@ impl Filesystem for FailsLookingUpDir {
     fn rename(
         &self,
         from: &Dentry,
-        _to_dir: &dyn Filesystem,
+        _to_dir: &dyn Inode,
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
@@ -1869,11 +1864,15 @@ fn a_step_out_of_a_link_answers_eloop() {
         .collect::<Vec<_>>(),
         [ERRNO_LOOP; 2],
         "path_filestat_get of `file.txt/.` and `file.txt/../file.txt`, where `file.txt` is a \
-         host link to a directory, beneath a Directory Mount through preview1 must answer ELOOP"
+         host link to a directory, beneath a Bind Mount through preview1 must answer ELOOP"
     );
 }
 
-fn file_and_directory() -> Arc<Memory> {
+fn tmpfs_with(path: &str, contents: &str) -> Arc<Tmpfs> {
+    Arc::new([(path, contents)].into_iter().collect())
+}
+
+fn file_and_directory() -> Arc<Tmpfs> {
     Arc::new(
         [("file.txt", "granted"), ("dir/inner", "x")]
             .into_iter()
@@ -1974,7 +1973,7 @@ fn a_create_of_a_host_file_that_only_reads_opens_it() {
         std::fs::Permissions::from_mode(0o444),
     )
     .expect("the host file must become read-only");
-    let directory = Directory::new(&host).expect("the host directory must open");
+    let directory = Bind::new(&host).expect("the host directory must open");
     let answer = Guest::new(&[grant(Arc::new(directory), Access::ReadWrite, None)]).call_flagged(
         FILE,
         OFLAGS_CREAT,
@@ -1983,7 +1982,7 @@ fn a_create_of_a_host_file_that_only_reads_opens_it() {
     let _ = std::fs::remove_dir_all(&host);
     assert_eq!(
         answer, 0,
-        "path_open with O_CREAT and no write of a read-only host file beneath a Directory Mount \
+        "path_open with O_CREAT and no write of a read-only host file beneath a Bind Mount \
          through preview1 must open it"
     );
 }
@@ -2002,7 +2001,7 @@ fn a_seek_past_the_largest_offset_overflows() {
     );
 }
 
-// A Memory clamps a read past its end and tries to grow for a write or a
+// A Tmpfs clamps a read past its end and tries to grow for a write or a
 // size, so only the check before the Filesystem answers each as Linux does.
 // @behavior RT-116
 #[test]
@@ -2016,7 +2015,7 @@ fn an_offset_past_the_largest_signed_offset_is_invalid() {
         ),
         (ERRNO_INVAL, ERRNO_INVAL, ERRNO_INVAL),
         "fd_pread, fd_pwrite, and fd_filestat_set_size past the largest signed 64-bit offset of a \
-         Memory file beneath a Mount through preview1 must answer EINVAL, as Linux does"
+         Tmpfs file beneath a Mount through preview1 must answer EINVAL, as Linux does"
     );
 }
 
@@ -2196,7 +2195,7 @@ const NEW: (i32, i32) = (840, 7);
 const RIGHTS_FD_READ: u64 = 1 << 1;
 const ERRNO_PERM: i32 = 63;
 
-// A Memory would refuse the bytes for want of space, so only the refusal
+// A Tmpfs would refuse the bytes for want of space, so only the refusal
 // before the Filesystem is asked answers EFBIG.
 // @behavior RT-133
 #[test]
@@ -2207,7 +2206,7 @@ fn a_write_at_the_largest_signed_offset_is_too_large() {
     assert_eq!(
         (answer, contents(&host(&memory), "file.txt")),
         (ERRNO_FBIG, Some(b"granted".to_vec())),
-        "fd_write at the largest signed 64-bit offset of a Memory file beneath a Mount through \
+        "fd_write at the largest signed 64-bit offset of a Tmpfs file beneath a Mount through \
          preview1 must answer EFBIG, as Linux does, and leave the file as it was"
     );
 }
@@ -2223,7 +2222,7 @@ fn an_advice_past_the_largest_signed_offset_is_invalid() {
             guest.call_at("advise_for", 0)
         ),
         (ERRNO_INVAL, ERRNO_INVAL, 0),
-        "fd_advise from or for past the largest signed 64-bit offset of a Memory file beneath a \
+        "fd_advise from or for past the largest signed 64-bit offset of a Tmpfs file beneath a \
          Mount through preview1 must answer EINVAL, as an advice within it succeeds"
     );
 }
@@ -2301,7 +2300,7 @@ fn an_open_following_no_link_finds_a_dangling_link_as_itself() {
     assert_eq!(
         (answers, made),
         ([ERRNO_LOOP, ERRNO_EXIST], false),
-        "path_open following no link of a dangling host link beneath a Directory Mount through \
+        "path_open following no link of a dangling host link beneath a Bind Mount through \
          preview1 must answer ELOOP, and with O_CREAT and O_EXCL EEXIST, as Linux does, making \
          nothing where it points"
     );
@@ -2352,7 +2351,7 @@ fn unlinking_a_mounts_root_answers_that_it_is_a_directory() {
 /// What reading `path` answers beneath a read-only Mount holding
 /// `file.txt`.
 fn read_beneath(path: (i32, i32)) -> i32 {
-    let memory: Memory = [("file.txt", "granted")].into_iter().collect();
+    let memory: Tmpfs = [("file.txt", "granted")].into_iter().collect();
     Guest::new(&[grant(Arc::new(memory), Access::Read, None)]).call("read_file", path)
 }
 
@@ -2376,7 +2375,7 @@ fn a_dot_dot_after_a_missing_name_names_nothing() {
     );
 }
 
-// The Memory would hold `file.txt` and any other name, so only the NUL
+// The Tmpfs would hold `file.txt` and any other name, so only the NUL
 // refuses the open.
 // @behavior RT-122
 #[test]
@@ -2412,7 +2411,7 @@ fn a_path_ending_in_a_slash_names_only_a_directory() {
 // @behavior RT-093
 #[test]
 fn a_rename_of_a_file_onto_a_path_ending_in_a_slash_is_not_a_directory() {
-    let memory: Arc<Memory> = Arc::new([("file.txt", "granted")].into_iter().collect());
+    let memory = tmpfs_with("file.txt", "granted");
     let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
     assert_eq!(
         (
@@ -2428,7 +2427,7 @@ fn a_rename_of_a_file_onto_a_path_ending_in_a_slash_is_not_a_directory() {
 // @behavior RT-090
 #[test]
 fn a_file_created_at_a_path_ending_in_a_slash_is_refused_as_a_directory() {
-    let memory = Arc::new(Memory::new());
+    let memory = Arc::new(Tmpfs::new());
     let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
     assert_eq!(
         (
@@ -2450,9 +2449,9 @@ const RIGHTS_FD_WRITE: u64 = 1 << 6;
 const RIGHTS_FD_READDIR: u64 = 1 << 14;
 
 /// What opening `path` with `oflags` and `fdflags` answers beneath a
-/// read-write Memory holding `file.txt`, and the paths it holds after.
+/// read-write Tmpfs holding `file.txt`, and the paths it holds after.
 fn open_flagged(path: (i32, i32), oflags: i32, fdflags: i32) -> (i32, Vec<String>) {
-    let memory: Arc<Memory> = Arc::new([("file.txt", "granted")].into_iter().collect());
+    let memory = tmpfs_with("file.txt", "granted");
     let errno = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)])
         .call_flagged(path, oflags, fdflags);
     let held = memory
@@ -2534,15 +2533,15 @@ impl LinkedBeneath {
         Self(host)
     }
 
-    /// A guest over this host directory as a Directory Mount, or as an
-    /// Overlay's writable Directory Layer above an empty Memory.
+    /// A guest over this host directory as a Bind Mount, or as an
+    /// Overlay's writable Bind Layer above an empty Tmpfs.
     fn guest(&self, overlay: bool) -> Guest {
-        let directory = Arc::new(Directory::new(&self.0).expect("the host directory must open"));
-        let filesystem: Arc<dyn Filesystem> = if overlay {
+        let directory = Arc::new(Bind::new(&self.0).expect("the host directory must open"));
+        let filesystem: Arc<dyn Inode> = if overlay {
             Arc::new(
                 Overlay::new()
                     .layer(SuperBlock::new(directory), Access::ReadWrite)
-                    .layer(SuperBlock::new(Arc::new(Memory::new())), Access::Read),
+                    .layer(SuperBlock::new(Arc::new(Tmpfs::new())), Access::Read),
             )
         } else {
             directory
@@ -2583,7 +2582,7 @@ fn a_link_leading_out_of_an_opened_directory_is_not_permitted() {
         ),
         ([ERRNO_PERM; 5], [ERRNO_PERM; 5], false),
         "an open, a stat, or a create through preview1 of a path whose link leads out of a \
-         directory opened beneath a Directory Mount, or an Overlay's Directory Layer, must answer \
+         directory opened beneath a Bind Mount, or an Overlay's Bind Layer, must answer \
          EPERM, as wasmtime-wasi does, and create nothing"
     );
 }
@@ -2601,7 +2600,7 @@ fn a_step_out_of_where_a_link_led_answers_eloop() {
         (answers(false), answers(true)),
         (ERRNO_LOOP, ERRNO_LOOP),
         "an open through preview1 of `in/inner/../../sub/y`, where `in` is a link within a \
-         directory opened beneath a Directory Mount or an Overlay's Directory Layer, must answer \
+         directory opened beneath a Bind Mount or an Overlay's Bind Layer, must answer \
          ELOOP"
     );
 }
@@ -2614,7 +2613,7 @@ fn a_step_out_of_where_a_link_led_answers_eloop() {
 #[test]
 fn a_directory_renamed_onto_its_own_path_beneath_a_policy_stays() {
     let host = LinkedBeneath::new("onto-itself");
-    let directory = Arc::new(Directory::new(&host.0).expect("the host directory must open"));
+    let directory = Arc::new(Bind::new(&host.0).expect("the host directory must open"));
     let mut guest = Guest::new(&[grant(
         directory,
         Access::ReadWrite,
@@ -2626,7 +2625,7 @@ fn a_directory_renamed_onto_its_own_path_beneath_a_policy_stays() {
             host.0.join("dir/sub/y").is_file()
         ),
         (0, true),
-        "path_rename of `dir/sub` onto itself beneath a Directory Mount with a Policy through \
+        "path_rename of `dir/sub` onto itself beneath a Bind Mount with a Policy through \
          preview1 must change nothing and succeed, as rename(2) does"
     );
 }
@@ -2641,7 +2640,7 @@ fn a_link_loop_answers_eloop() {
         (answers(false), answers(true)),
         (ERRNO_LOOP, ERRNO_LOOP),
         "an open through preview1 following a link pointing at itself, beneath a Directory \
-         Mount or an Overlay's Directory Layer, must answer ELOOP"
+         Mount or an Overlay's Bind Layer, must answer ELOOP"
     );
 }
 
@@ -2661,7 +2660,7 @@ fn a_link_staying_within_an_opened_directory_is_followed() {
         (answers(false), answers(true)),
         ([0; 2], [0; 2]),
         "an open through preview1 of a path whose links stay within a directory opened beneath \
-         a Directory Mount, or an Overlay's Directory Layer, must reach the file they lead to"
+         a Bind Mount, or an Overlay's Bind Layer, must reach the file they lead to"
     );
 }
 
@@ -2682,7 +2681,7 @@ fn a_create_through_a_dangling_link_beneath_an_opened_directory_is_refused() {
         (answers(false), answers(true)),
         ((ERRNO_LOOP, false), (ERRNO_LOOP, false)),
         "an open through preview1 creating a file through a link pointing at nothing beneath a \
-         directory opened beneath a Directory Mount, or an Overlay's Directory Layer, must answer \
+         directory opened beneath a Bind Mount, or an Overlay's Bind Layer, must answer \
          ELOOP and create nothing"
     );
 }
@@ -2703,7 +2702,7 @@ fn a_link_leading_out_of_a_mount_is_not_permitted() {
     let _ = std::fs::remove_file(&outside);
     assert_eq!(
         errno, ERRNO_PERM,
-        "an open through preview1 from a Directory Mount's root of a link to a file outside its \
+        "an open through preview1 from a Bind Mount's root of a link to a file outside its \
          host directory must answer EPERM, as wasmtime-wasi does"
     );
 }
@@ -2765,7 +2764,7 @@ fn a_link_swapped_in_after_a_policy_judges_a_path_is_not_followed() {
         std::fs::write(host.join(dir).join("x"), dir).expect("the host file must be written");
     }
     let policy = SwapsWhileAsked(host.clone(), std::sync::atomic::AtomicBool::new(true));
-    let directory = Directory::new(&host).expect("the host directory must open");
+    let directory = Bind::new(&host).expect("the host directory must open");
     let mut guest = Guest::new(&[grant(
         Arc::new(directory),
         Access::Read,
@@ -2776,7 +2775,7 @@ fn a_link_swapped_in_after_a_policy_judges_a_path_is_not_followed() {
     assert_eq!(
         answer,
         (0, b"pub".to_vec()),
-        "a read through preview1 beneath a Directory Mount with a Policy, of a path whose \
+        "a read through preview1 beneath a Bind Mount with a Policy, of a path whose \
          directory another writer swaps for a link as the Policy judges it, must read the \
          directory the walk held and nothing where the link points"
     );

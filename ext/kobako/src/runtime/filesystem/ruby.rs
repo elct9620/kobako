@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{
-    DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
+    DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename,
 };
 use kobako_runtime::vfs::Dentry;
 
@@ -215,7 +215,7 @@ fn join(dir: &str, name: &str) -> String {
     }
 }
 
-impl Filesystem for RubyFilesystem {
+impl Inode for RubyFilesystem {
     fn open(
         &self,
         dentry: &Dentry,
@@ -234,7 +234,7 @@ impl Filesystem for RubyFilesystem {
     }
 
     /// A Ruby object answers `stat` alone, so it holds no links to refuse.
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
         if self.symlink_metadata(dentry)?.file_type != FileType::Directory {
             return Err(FilesystemError::NotADirectory);
         }
@@ -315,7 +315,7 @@ impl Filesystem for RubyFilesystem {
     fn rename(
         &self,
         from: &Dentry,
-        to_dir: &dyn Filesystem,
+        to_dir: &dyn Inode,
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {

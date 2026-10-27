@@ -166,8 +166,8 @@ mod tests {
 
     use super::Dentry;
     use crate::filesystem::{
-        Access, DirEntry, File, FileType, Filesystem, FilesystemError, Memory, Metadata,
-        OpenOptions, Rename,
+        Access, DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename,
+        Tmpfs,
     };
     use crate::mount::Mount;
     use crate::profile::Profile;
@@ -192,7 +192,7 @@ mod tests {
         }
     }
 
-    impl Filesystem for ByPath {
+    impl Inode for ByPath {
         fn open(
             &self,
             dentry: &Dentry,
@@ -201,7 +201,7 @@ mod tests {
             self.root.open(&self.path(dentry), options)
         }
 
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
             let at = self.path(dentry);
             if self.root.symlink_metadata(&at)?.file_type != FileType::Directory {
                 return Err(FilesystemError::NotADirectory);
@@ -250,7 +250,7 @@ mod tests {
         fn rename(
             &self,
             from: &Dentry,
-            to_dir: &dyn Filesystem,
+            to_dir: &dyn Inode,
             to: &Dentry,
             rename: Rename,
         ) -> Result<(), FilesystemError> {
@@ -262,7 +262,7 @@ mod tests {
         }
     }
 
-    fn by_path(memory: &Arc<Memory>) -> Arc<SuperBlock> {
+    fn by_path(memory: &Arc<Tmpfs>) -> Arc<SuperBlock> {
         SuperBlock::new(Arc::new(ByPath {
             root: through(memory.clone()),
             at: String::new(),
@@ -291,7 +291,7 @@ mod tests {
     // @behavior RT-159
     #[test]
     fn a_directory_removed_through_the_vfs_makes_nothing_more_whatever_its_filesystem() {
-        let memory: Arc<Memory> = Arc::new([("dir/keep", "x")].into_iter().collect());
+        let memory: Arc<Tmpfs> = Arc::new([("dir/keep", "x")].into_iter().collect());
         let root = root_of(&by_path(&memory));
         let dir = open_dir(&root, "dir");
         vfs::remove_file(&root, "dir/keep").expect("the file must go");
@@ -318,7 +318,7 @@ mod tests {
     // @behavior RT-160
     #[test]
     fn a_directory_removed_beneath_one_mount_is_removed_beneath_another_of_its_instance() {
-        let memory: Arc<Memory> = Arc::new([("dir/keep", "x")].into_iter().collect());
+        let memory: Arc<Tmpfs> = Arc::new([("dir/keep", "x")].into_iter().collect());
         let instance = by_path(&memory);
         let (first, second) = (root_of(&instance), root_of(&instance));
         let dir = open_dir(&first, "dir");

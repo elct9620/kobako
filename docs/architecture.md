@@ -73,7 +73,7 @@ Each part owns one concern, and its dependencies on other kobako parts may only 
 | `kobako-baker` | the build-time bake of the boot state into an artifact | none |
 | `kobako-parity` | the Rust half of the parity harness, never published | kobako, codec |
 
-`kobako-transport` takes no dependency at all, third-party included. Elsewhere, `rmp` sits behind `kobako-codec`'s `msgpack` feature, `beni` under every guest crate that touches mruby, and the `msgpack` gem under `lib/`. `cap-std` sits under `kobako-runtime`'s Directory, and `wasmtime-wasi` under `kobako-wasmtime` for the preview1 calls kobako does not answer itself. `cap-fs-ext` opens a Directory's path for a Policy without following a link. `rustix` and `libc` ask the host what `cap-std` cannot.
+`kobako-transport` takes no dependency at all, third-party included. Elsewhere, `rmp` sits behind `kobako-codec`'s `msgpack` feature, `beni` under every guest crate that touches mruby, and the `msgpack` gem under `lib/`. `cap-std` sits under `kobako-runtime`'s Bind, and `wasmtime-wasi` under `kobako-wasmtime` for the preview1 calls kobako does not answer itself. `cap-fs-ext` opens a Bind's path for a Policy without following a link. `rustix` and `libc` ask the host what `cap-std` cannot.
 
 ### Dialect Overlays
 

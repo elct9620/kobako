@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Differential parity — a Memory mounted at a guest path: both frontends
+# Differential parity — a Tmpfs mounted at a guest path: both frontends
 # hand the guest the same files, and a write beneath a read-only Mount
 # fails under the same attribution.
 class TestParityMount < Parity::Case

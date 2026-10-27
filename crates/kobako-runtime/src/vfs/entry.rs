@@ -12,7 +12,7 @@ use crate::filesystem::{Access, FileType, FilesystemError, Rename};
 /// directory being made, so it is no refusal here, as `mkdir(2)` takes it.
 pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {
     let resolved = resolve(start, path, false, false)?;
-    resolved.judge(Access::ReadWrite)?;
+    resolved.check(Access::ReadWrite)?;
     refuse_root(&resolved.name, FilesystemError::AlreadyExists)?;
     Ok(resolved.base.create_dir(&resolved.child())?)
 }
@@ -21,7 +21,7 @@ pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {
 pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
     refuse_dot_end(start, path, FilesystemError::InvalidInput)?;
     let mut resolved = resolve(start, path, false, false)?;
-    resolved.judge(Access::ReadWrite)?;
+    resolved.check(Access::ReadWrite)?;
     resolved.check_directory()?;
     refuse_root(&resolved.name, FilesystemError::InvalidInput)?;
     resolved.base.remove_dir(&resolved.child())?;
@@ -38,7 +38,7 @@ pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
 /// file removes as a directory.
 pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
     let mut resolved = resolve(start, path, false, false)?;
-    resolved.judge(Access::ReadWrite)?;
+    resolved.check(Access::ReadWrite)?;
     resolved.check_directory()?;
     refuse_root(&resolved.name, FilesystemError::IsADirectory)?;
     Ok(resolved.base.remove_file(&resolved.child())?)
@@ -69,8 +69,8 @@ pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<
     if !Arc::ptr_eq(from.mount(), to.mount()) {
         return Err(FilesystemError::CrossesDevices.into());
     }
-    source.judge(Access::ReadWrite)?;
-    target.judge(Access::ReadWrite)?;
+    source.check(Access::ReadWrite)?;
+    target.check(Access::ReadWrite)?;
     // Each side was walked on its own, so a rename onto its own path is
     // known by the path rather than by the directories each walk opened;
     // it changes nothing once the source stands, as `rename(2)` answers.

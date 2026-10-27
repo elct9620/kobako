@@ -52,7 +52,7 @@ class TestE2EIoState < Minitest::Test
 
   def sandbox
     Kobako::Sandbox.new(wasm_path: REAL_WASM)
-                   .mount("/data", Kobako::Filesystem::Memory.new("note.txt" => ""), access: :read_write)
+                   .mount("/data", Kobako::Filesystem::Tmpfs.new("note.txt" => ""), access: :read_write)
   end
 
   # @behavior IO-003

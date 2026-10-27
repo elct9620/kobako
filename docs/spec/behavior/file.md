@@ -45,9 +45,9 @@ disable_file flag -> no File constant
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a read-write Mount over a Memory |
+| Given | an invocation handed a read-write Mount over a Tmpfs |
 | When | the script writes a file inside a `File.open` block |
-| Then | the Memory holds that file with what was written |
+| Then | the Tmpfs holds that file with what was written |
 
 ## `FL-003` A script reads a file line by line
 
@@ -158,7 +158,7 @@ disable_file flag -> no File constant
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a read-write Mount over a Memory with a small limit |
+| Given | an invocation handed a read-write Mount over a Tmpfs with a small limit |
 | When | the script writes past that limit through an open file |
 | Then | the write raises `Errno::ENOSPC` |
 
@@ -315,9 +315,9 @@ disable_file flag -> no File constant
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a read-write Mount over a Memory |
+| Given | an invocation handed a read-write Mount over a Tmpfs |
 | When | the script opens a new file with `w+x` and writes to it |
-| Then | the Memory holds that file with what was written |
+| Then | the Tmpfs holds that file with what was written |
 
 ## `FL-026` An access mode CRuby refuses raises ArgumentError
 
@@ -400,9 +400,9 @@ disable_file flag -> no File constant
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a read-write Mount over a Memory holding a file |
+| Given | an invocation handed a read-write Mount over a Tmpfs holding a file |
 | When | the script opens a new path with `File::CREAT \| File::EXCL`, and the file with `File::RDONLY \| File::TRUNC` |
-| Then | the Memory holds the new empty file, and the file is empty |
+| Then | the Tmpfs holds the new empty file, and the file is empty |
 
 ## `FL-033` A path holding a NUL byte raises ArgumentError
 

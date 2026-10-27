@@ -72,11 +72,11 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::filesystem::{Access, Filesystem, Memory};
+    use crate::filesystem::{Access, Inode, Tmpfs};
     use crate::mount::Mount;
     use crate::vfs::{self, OpenHow, Opened, Path, SuperBlock};
 
-    fn path_over(memory: Arc<dyn Filesystem>, profile: Profile) -> Path {
+    fn path_over(memory: Arc<dyn Inode>, profile: Profile) -> Path {
         let mount = Mount::new("/data", SuperBlock::new(memory), Access::ReadWrite)
             .expect("/data is a guest path");
         Path::root(mount, profile)
@@ -103,13 +103,13 @@ mod tests {
     // @behavior RT-156
     #[test]
     fn the_weaker_posture_sees_the_times_a_filesystem_keeps() {
-        let start = path_over(Arc::new(Memory::new()), Profile::Permissive);
+        let start = path_over(Arc::new(Tmpfs::new()), Profile::Permissive);
         let before = SystemTime::now();
         write(&start, "file");
         let modified = vfs::metadata(&start, "file")
             .expect("the file must stand")
             .modified
-            .expect("a Memory keeps a modification time");
+            .expect("a Tmpfs keeps a modification time");
         assert!(
             modified >= before,
             "vfs::metadata of a file written beneath a Path on the weaker posture must report a \
@@ -117,12 +117,12 @@ mod tests {
         );
     }
 
-    // A Memory records the host's real time, so only the posture's view
+    // A Tmpfs records the host's real time, so only the posture's view
     // turns it into the epoch.
     // @behavior RT-157
     #[test]
     fn the_strongest_posture_sees_every_time_at_the_unix_epoch() {
-        let start = path_over(Arc::new(Memory::new()), Profile::Hermetic);
+        let start = path_over(Arc::new(Tmpfs::new()), Profile::Hermetic);
         let file = write(&start, "file");
         let epoch = [Some(UNIX_EPOCH); 3];
         assert_eq!(
@@ -139,14 +139,14 @@ mod tests {
     // @behavior RT-158
     #[test]
     fn a_time_another_posture_wrote_reaches_the_strongest_posture_as_the_epoch() {
-        let memory: Arc<dyn Filesystem> = Arc::new(Memory::new());
+        let memory: Arc<dyn Inode> = Arc::new(Tmpfs::new());
         write(&path_over(memory.clone(), Profile::Permissive), "file");
         let hermetic = path_over(memory, Profile::Hermetic);
         assert_eq!(
             times(&vfs::metadata(&hermetic, "file").expect("the file must stand")),
             [Some(UNIX_EPOCH); 3],
             "vfs::metadata beneath a Path on the strongest posture, of a file the weaker posture \
-             wrote into the same Memory, must report each time as the Unix epoch"
+             wrote into the same Tmpfs, must report each time as the Unix epoch"
         );
     }
 }

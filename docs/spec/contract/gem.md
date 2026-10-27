@@ -64,9 +64,9 @@ module Kobako
 end
 ```
 
-## `Kobako::Filesystem::Memory.new`
+## `Kobako::Filesystem::Tmpfs.new`
 
-A Filesystem held in memory and shared by every invocation, seeded with files. A `nil` limit or count lifts that bound.
+A Filesystem held in memory and shared by every invocation, seeded with files. A `nil` size or count lifts that bound.
 
 | Attribute | Value |
 | --- | --- |
@@ -75,15 +75,15 @@ A Filesystem held in memory and shared by every invocation, seeded with files. A
 ```ruby
 module Kobako
   module Filesystem
-    class Memory
-      def self.new(files = {}, limit: 64 << 20, inodes: limit && (limit.ceildiv(4096) + 1), **seeded)
+    class Tmpfs
+      def self.new(files = {}, size: 64 << 20, nr_inodes: size && (size.ceildiv(4096) + 1), **seeded)
       end
     end
   end
 end
 ```
 
-## `Kobako::Filesystem::Directory.new`
+## `Kobako::Filesystem::Bind.new`
 
 A Filesystem over a host directory, reaching nothing outside it.
 
@@ -94,7 +94,7 @@ A Filesystem over a host directory, reaching nothing outside it.
 ```ruby
 module Kobako
   module Filesystem
-    class Directory
+    class Bind
       def self.new(path)
       end
     end

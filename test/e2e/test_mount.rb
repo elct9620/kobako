@@ -11,7 +11,7 @@ class TestE2EMount < Minitest::Test
 
   def sandbox_with_note(&policy)
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    sandbox.mount("/data", Kobako::Filesystem::Memory.new("note.txt" => "hello"), &policy)
+    sandbox.mount("/data", Kobako::Filesystem::Tmpfs.new("note.txt" => "hello"), &policy)
   end
 
   # What +script+ answers with +filesystem+ mounted at +/data+.
@@ -22,7 +22,7 @@ class TestE2EMount < Minitest::Test
   # @behavior MT-001
   def test_a_mounted_filesystem_is_reachable_from_the_guest
     assert_equal "hello", sandbox_with_note.eval('File.read("/data/note.txt")').value,
-                 "a file in a Memory mounted through Sandbox#mount must be read by the guest's File"
+                 "a file in a Tmpfs mounted through Sandbox#mount must be read by the guest's File"
   end
 
   # @behavior MT-002
@@ -31,7 +31,7 @@ class TestE2EMount < Minitest::Test
     sandbox.eval("nil")
 
     assert_raises(ArgumentError, "Sandbox#mount after the first invocation must be refused") do
-      sandbox.mount("/more", Kobako::Filesystem::Memory.new)
+      sandbox.mount("/more", Kobako::Filesystem::Tmpfs.new)
     end
   end
 
@@ -41,7 +41,7 @@ class TestE2EMount < Minitest::Test
 
     ["data", "/data/../etc", "/data/", "/a//b"].each do |at|
       assert_raises(ArgumentError, "Sandbox#mount at #{at.inspect} must be refused as no absolute guest path") do
-        sandbox.mount(at, Kobako::Filesystem::Memory.new)
+        sandbox.mount(at, Kobako::Filesystem::Tmpfs.new)
       end
     end
   end
@@ -61,14 +61,14 @@ class TestE2EMount < Minitest::Test
   # @behavior MT-004
   def test_a_path_mounted_twice_is_refused
     assert_raises(ArgumentError, "Sandbox#mount at a path already mounted must be refused") do
-      sandbox_with_note.mount("/data", Kobako::Filesystem::Memory.new)
+      sandbox_with_note.mount("/data", Kobako::Filesystem::Tmpfs.new)
     end
   end
 
   # @behavior MT-005
   def test_a_mount_nested_inside_another_is_refused
     assert_raises(ArgumentError, "Sandbox#mount beneath a mounted path must be refused") do
-      sandbox_with_note.mount("/data/inner", Kobako::Filesystem::Memory.new)
+      sandbox_with_note.mount("/data/inner", Kobako::Filesystem::Tmpfs.new)
     end
   end
 
@@ -118,7 +118,7 @@ class TestE2EMount < Minitest::Test
   def test_a_context_replaces_a_mount_for_its_invocation_only
     sandbox = sandbox_with_note
     replaced = sandbox.eval('File.read("/data/note.txt")') do |ctx|
-      ctx.mount("/data", Kobako::Filesystem::Memory.new("note.txt" => "other"))
+      ctx.mount("/data", Kobako::Filesystem::Tmpfs.new("note.txt" => "other"))
     end.value
 
     assert_equal "other", replaced, "ctx.mount must replace the mount for its own invocation"
@@ -129,26 +129,26 @@ class TestE2EMount < Minitest::Test
   # @behavior MT-010
   def test_a_context_cannot_mount_a_path_the_sandbox_never_mounted
     assert_raises(ArgumentError, "ctx.mount at a path the Sandbox never mounted must be refused") do
-      sandbox_with_note.eval("nil") { |ctx| ctx.mount("/other", Kobako::Filesystem::Memory.new) }
+      sandbox_with_note.eval("nil") { |ctx| ctx.mount("/other", Kobako::Filesystem::Tmpfs.new) }
     end
   end
 
   # @behavior MT-011
   def test_an_overlay_built_layer_by_layer_reaches_the_guest_as_one_view
-    lower = Kobako::Filesystem::Memory.new("note.txt" => "hello")
-    overlay = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Memory.new, access: :read_write).layer(lower)
+    lower = Kobako::Filesystem::Tmpfs.new("note.txt" => "hello")
+    overlay = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Tmpfs.new, access: :read_write).layer(lower)
     script = 'File.write("/data/note.txt", "changed"); File.read("/data/note.txt")'
 
     assert_equal "changed", run_beneath(overlay, script, access: :read_write),
                  "a file overwritten through an Overlay built with Overlay#layer must read back what was written"
     assert_equal "hello", run_beneath(lower, 'File.read("/data/note.txt")'),
-                 "the read-only Memory beneath an Overlay built with Overlay#layer must still hold the file as it was"
+                 "the read-only Tmpfs beneath an Overlay built with Overlay#layer must still hold the file as it was"
   end
 
   # @behavior MT-012
   def test_adding_a_layer_leaves_the_overlay_it_was_added_to_as_it_was
-    first = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Memory.new("a.txt" => "a"))
-    first.layer(Kobako::Filesystem::Memory.new("b.txt" => "b"))
+    first = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Tmpfs.new("a.txt" => "a"))
+    first.layer(Kobako::Filesystem::Tmpfs.new("b.txt" => "b"))
 
     assert_equal [true, false], run_beneath(first, '[File.exist?("/data/a.txt"), File.exist?("/data/b.txt")]'),
                  "an Overlay mounted after Overlay#layer added to it must reach only its own Layer"

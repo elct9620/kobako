@@ -7,13 +7,13 @@
 
 use std::sync::Arc;
 
-use super::super::{DirEntry, File, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
+use super::super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename};
 use crate::vfs::{Dentry, SuperBlock};
 
 #[derive(Clone)]
 pub(super) struct Lower {
     super_block: Arc<SuperBlock>,
-    dir: Arc<dyn Filesystem>,
+    dir: Arc<dyn Inode>,
     dentry: Arc<Dentry>,
 }
 

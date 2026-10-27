@@ -1,4 +1,4 @@
-//! `Memory`: a Filesystem held in memory, living as long as the Host
+//! `Tmpfs`: a Filesystem held in memory, living as long as the Host
 //! App's object does.
 
 use std::any::Any;
@@ -8,22 +8,22 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::SystemTime;
 
 use super::path::{ancestors, components, name, normalize_seed, parent};
-use super::{DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
+use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename};
 use crate::vfs::Dentry;
 
 /// Files and directories held in memory. Every Invocation it is handed to
 /// shares it, so what one writes the next reads. What its files hold
 /// together, and how many entries it holds, are bounded as a tmpfs mount
 /// bounds its size and its inodes, so a guest cannot grow it past what
-/// the Host App allowed. A directory opened beneath it is a Memory too,
+/// the Host App allowed. A directory opened beneath it is a Tmpfs too,
 /// following that directory wherever it moves, as a tmpfs descriptor
 /// follows its inode.
-pub struct Memory {
+pub struct Tmpfs {
     tree: Arc<Tree>,
     dir: Arc<Dir>,
 }
 
-/// What every directory of one Memory shares.
+/// What every directory of one Tmpfs shares.
 struct Tree {
     /// Held across each call, so a change is never seen half made and a
     /// move finds the directories above its target as they stand, as
@@ -31,11 +31,11 @@ struct Tree {
     lock: Mutex<()>,
     space: Arc<Space>,
     inodes_follow_limit: AtomicBool,
-    /// The device number this Memory reports, its own as each tmpfs mount
+    /// The device number this Tmpfs reports, its own as each tmpfs mount
     /// has its own, so it shares an identity with no other Filesystem.
     dev: u64,
     /// The inode number the next directory takes, so each one made has an
-    /// identity no other directory of this Memory had.
+    /// identity no other directory of this Tmpfs had.
     next_ino: AtomicU64,
 }
 
@@ -200,7 +200,7 @@ impl Dir {
     }
 }
 
-/// What a Memory holds: the bytes of its files, and its entries, each
+/// What a Tmpfs holds: the bytes of its files, and its entries, each
 /// file and directory and the root counting one as an inode does.
 struct Space {
     bytes: Budget,
@@ -247,7 +247,7 @@ impl Budget {
     }
 }
 
-/// One file's bytes, counted against its Memory's space, with the file's
+/// One file's bytes, counted against its Tmpfs's space, with the file's
 /// inode, for as long as they live, which outlasts the file's name while
 /// a handle holds them.
 struct Content {
@@ -278,7 +278,7 @@ impl Content {
         }))
     }
 
-    /// What the file reports, named once, as a Memory holds no hard links.
+    /// What the file reports, named once, as a Tmpfs holds no hard links.
     fn metadata(&self) -> Metadata {
         self.times
             .report(Metadata::new(FileType::File, self.bytes.len() as u64).with_nlink(1))
@@ -316,15 +316,15 @@ fn inodes_for(bytes: Option<usize>) -> Option<usize> {
 
 const PAGE: usize = 4096;
 
-impl Memory {
-    /// The most bytes a Memory's files hold unless given a limit of their
+impl Tmpfs {
+    /// The most bytes a Tmpfs's files hold unless given a limit of their
     /// own: the size Docker gives a `--tmpfs` mount.
-    pub const DEFAULT_LIMIT: usize = 64 * 1024 * 1024;
+    pub const DEFAULT_SIZE: usize = 64 * 1024 * 1024;
 
     pub fn new() -> Self {
         let space = Space {
-            bytes: Budget::new(Some(Self::DEFAULT_LIMIT)),
-            inodes: Budget::new(inodes_for(Some(Self::DEFAULT_LIMIT))),
+            bytes: Budget::new(Some(Self::DEFAULT_SIZE)),
+            inodes: Budget::new(inodes_for(Some(Self::DEFAULT_SIZE))),
         };
         space.inodes.add(1);
         Self {
@@ -340,7 +340,7 @@ impl Memory {
     }
 
     /// A directory in `parent` with an inode number no directory of this
-    /// Memory had.
+    /// Tmpfs had.
     fn new_directory(&self, parent: &Arc<Dir>) -> Arc<Dir> {
         Dir::new(
             self.tree.next_ino.fetch_add(1, Ordering::Relaxed),
@@ -348,22 +348,23 @@ impl Memory {
         )
     }
 
-    /// This Memory with its files holding at most `limit` bytes together,
-    /// or without bound for `None`. Unless given inodes of their own, its
-    /// entries follow the limit: one for each 4 KiB it spans, and the
-    /// root. What it was seeded with counts, but is never refused.
-    pub fn with_limit(self, limit: Option<usize>) -> Self {
-        self.tree.space.bytes.set_limit(limit);
+    /// This Tmpfs with its files holding at most `size` bytes together,
+    /// or without bound for `None`, as a tmpfs mount's `size` does. Unless
+    /// given `nr_inodes` of its own, its entries follow the size: one for
+    /// each 4 KiB it spans, and the root. What it was seeded with counts,
+    /// but is never refused.
+    pub fn with_size(self, size: Option<usize>) -> Self {
+        self.tree.space.bytes.set_limit(size);
         if self.tree.inodes_follow_limit.load(Ordering::Relaxed) {
-            self.tree.space.inodes.set_limit(inodes_for(limit));
+            self.tree.space.inodes.set_limit(inodes_for(size));
         }
         self
     }
 
-    /// This Memory holding at most `inodes` entries, the root among them,
+    /// This Tmpfs holding at most `nr_inodes` entries, the root among them,
     /// or without bound for `None`, as a tmpfs mount's `nr_inodes` does.
-    pub fn with_inodes(self, inodes: Option<usize>) -> Self {
-        self.tree.space.inodes.set_limit(inodes);
+    pub fn with_nr_inodes(self, nr_inodes: Option<usize>) -> Self {
+        self.tree.space.inodes.set_limit(nr_inodes);
         self.tree
             .inodes_follow_limit
             .store(false, Ordering::Relaxed);
@@ -377,7 +378,7 @@ impl Memory {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// The directory `dir` of this Memory, as a Memory of its own.
+    /// The directory `dir` of this Tmpfs, as a Tmpfs of its own.
     fn beneath(&self, dir: Arc<Dir>) -> Self {
         Self {
             tree: self.tree.clone(),
@@ -386,13 +387,13 @@ impl Memory {
     }
 }
 
-impl Default for Memory {
+impl Default for Tmpfs {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Why a list of files cannot seed a Memory as given.
+/// Why a list of files cannot seed a Tmpfs as given.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SeedError {
@@ -411,21 +412,21 @@ pub enum SeedError {
 impl std::fmt::Display for SeedError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Root => write!(f, "a Memory seeds no file at its root"),
-            Self::Twice(path) => write!(f, "a Memory seeds {path} twice"),
+            Self::Root => write!(f, "a Tmpfs seeds no file at its root"),
+            Self::Twice(path) => write!(f, "a Tmpfs seeds {path} twice"),
             Self::FileAndDirectory(path) => {
-                write!(f, "a Memory seeds {path} as both a file and a directory")
+                write!(f, "a Tmpfs seeds {path} as both a file and a directory")
             }
-            Self::DotDot(path) => write!(f, "a Memory seeds no path through `..`, got {path}"),
+            Self::DotDot(path) => write!(f, "a Tmpfs seeds no path through `..`, got {path}"),
         }
     }
 }
 
 impl std::error::Error for SeedError {}
 
-impl Memory {
-    /// A Memory seeded with files, each `(path, contents)`, its directories
-    /// created along the way, or why no Memory holds the list as given.
+impl Tmpfs {
+    /// A Tmpfs seeded with files, each `(path, contents)`, its directories
+    /// created along the way, or why no Tmpfs holds the list as given.
     pub fn try_from_iter<P, C, I>(files: I) -> Result<Self, SeedError>
     where
         P: AsRef<str>,
@@ -473,20 +474,20 @@ impl Memory {
     }
 }
 
-/// A Memory seeded with files, each `(path, contents)`, its directories
+/// A Tmpfs seeded with files, each `(path, contents)`, its directories
 /// created along the way.
 ///
 /// # Panics
 ///
-/// When `Memory::try_from_iter` refuses the list: a list written into the
-/// Host App's own code that no Memory holds is a defect in that code.
-impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
+/// When `Tmpfs::try_from_iter` refuses the list: a list written into the
+/// Host App's own code that no Tmpfs holds is a defect in that code.
+impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Tmpfs {
     fn from_iter<I: IntoIterator<Item = (P, C)>>(files: I) -> Self {
         Self::try_from_iter(files).unwrap_or_else(|error| panic!("{error}"))
     }
 }
 
-impl Filesystem for Memory {
+impl Inode for Tmpfs {
     fn open(
         &self,
         dentry: &Dentry,
@@ -511,11 +512,11 @@ impl Filesystem for Memory {
             }
             Err(error) => return Err(error),
         };
-        Ok(Box::new(MemoryFile { data }))
+        Ok(Box::new(TmpfsFile { data }))
     }
 
-    /// A Memory holds no links to refuse.
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    /// A Tmpfs holds no links to refuse.
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
         let _held = self.hold();
         Ok(Arc::new(self.beneath(self.dir.directory(&dentry.name())?)))
     }
@@ -525,7 +526,7 @@ impl Filesystem for Memory {
         Ok(self.dir.metadata(self.tree.dev))
     }
 
-    /// A Memory holds no links.
+    /// A Tmpfs holds no links.
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         let _held = self.hold();
         match self.dir.find(&dentry.name())? {
@@ -534,12 +535,12 @@ impl Filesystem for Memory {
         }
     }
 
-    /// A Memory matches names byte for byte.
+    /// A Tmpfs matches names byte for byte.
     fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         Ok(dentry.name())
     }
 
-    /// A Memory holds no links.
+    /// A Tmpfs holds no links.
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         self.symlink_metadata(dentry)?;
         Err(FilesystemError::InvalidInput)
@@ -613,7 +614,7 @@ impl Filesystem for Memory {
     fn rename(
         &self,
         from: &Dentry,
-        to_dir: &dyn Filesystem,
+        to_dir: &dyn Inode,
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
@@ -678,13 +679,13 @@ fn write(data: &mut Content, buf: &[u8], start: usize) -> Result<usize, Filesyst
     Ok(buf.len())
 }
 
-/// An open file of a Memory, sharing its bytes with every other handle on
+/// An open file of a Tmpfs, sharing its bytes with every other handle on
 /// the same path.
-struct MemoryFile {
+struct TmpfsFile {
     data: Arc<Mutex<Content>>,
 }
 
-impl File for MemoryFile {
+impl File for TmpfsFile {
     fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
         let data = &lock(&self.data).bytes;
         let start = usize::try_from(offset)
@@ -724,7 +725,7 @@ mod tests {
     use crate::vfs::through::{through, Through};
 
     /// `memory` reached through the VFS.
-    fn at(memory: Memory) -> Through {
+    fn at(memory: Tmpfs) -> Through {
         through(Arc::new(memory))
     }
 
@@ -746,22 +747,22 @@ mod tests {
 
     // @behavior FS-001
     #[test]
-    fn a_memory_serves_the_files_it_was_seeded_with() {
+    fn a_tmpfs_serves_the_files_it_was_seeded_with() {
         let memory = at([("/config/app.yml", "name: kobako")].into_iter().collect());
         assert_eq!(
             read_all(&memory, "config/app.yml"),
             b"name: kobako",
-            "a file seeded into Memory through FromIterator must read back its content"
+            "a file seeded into Tmpfs through FromIterator must read back its content"
         );
     }
 
     // @behavior FS-067
     #[test]
-    fn a_memory_tried_with_a_list_it_cannot_hold_answers_why() {
+    fn a_tmpfs_tried_with_a_list_it_cannot_hold_answers_why() {
         let refused = [
-            Memory::try_from_iter([("/", "x")]),
-            Memory::try_from_iter([("a", "x"), ("a/b", "y")]),
-            Memory::try_from_iter([("a", "x"), ("/a", "y")]),
+            Tmpfs::try_from_iter([("/", "x")]),
+            Tmpfs::try_from_iter([("a", "x"), ("a/b", "y")]),
+            Tmpfs::try_from_iter([("a", "x"), ("/a", "y")]),
         ]
         .map(|tried| tried.map(drop));
         assert_eq!(
@@ -772,7 +773,7 @@ mod tests {
                 Err(SeedError::Twice("a".to_string())),
             ],
             "a list naming the root, a file beneath a file, or a file twice through \
-             Memory::try_from_iter must answer the SeedError naming it"
+             Tmpfs::try_from_iter must answer the SeedError naming it"
         );
     }
 
@@ -780,47 +781,47 @@ mod tests {
     // would be held where no call reaches it.
     // @behavior FS-087
     #[test]
-    fn a_memory_tried_with_a_path_through_dot_dot_answers_why() {
+    fn a_tmpfs_tried_with_a_path_through_dot_dot_answers_why() {
         assert_eq!(
-            Memory::try_from_iter([("a/../b", "x")]).map(drop),
+            Tmpfs::try_from_iter([("a/../b", "x")]).map(drop),
             Err(SeedError::DotDot("a/../b".to_string())),
-            "a list naming a path through `..` through Memory::try_from_iter must answer \
+            "a list naming a path through `..` through Tmpfs::try_from_iter must answer \
              SeedError::DotDot naming it"
         );
     }
 
     // @behavior FS-062
     #[test]
-    #[should_panic(expected = "a Memory seeds no file at its root")]
-    fn a_memory_seeded_at_its_root_panics() {
-        let _: Memory = [("/", "x")].into_iter().collect();
+    #[should_panic(expected = "a Tmpfs seeds no file at its root")]
+    fn a_tmpfs_seeded_at_its_root_panics() {
+        let _: Tmpfs = [("/", "x")].into_iter().collect();
     }
 
     // @behavior FS-062
     #[test]
-    #[should_panic(expected = "a Memory seeds a as both a file and a directory")]
-    fn a_memory_seeded_with_a_file_beneath_a_file_panics() {
-        let _: Memory = [("a", "x"), ("a/b", "y")].into_iter().collect();
+    #[should_panic(expected = "a Tmpfs seeds a as both a file and a directory")]
+    fn a_tmpfs_seeded_with_a_file_beneath_a_file_panics() {
+        let _: Tmpfs = [("a", "x"), ("a/b", "y")].into_iter().collect();
     }
 
     // @behavior FS-062
     #[test]
-    #[should_panic(expected = "a Memory seeds a as both a file and a directory")]
-    fn a_memory_seeded_with_a_file_over_a_directory_panics() {
-        let _: Memory = [("a/b", "y"), ("a", "x")].into_iter().collect();
+    #[should_panic(expected = "a Tmpfs seeds a as both a file and a directory")]
+    fn a_tmpfs_seeded_with_a_file_over_a_directory_panics() {
+        let _: Tmpfs = [("a/b", "y"), ("a", "x")].into_iter().collect();
     }
 
     // @behavior FS-062
     #[test]
-    #[should_panic(expected = "a Memory seeds a twice")]
-    fn a_memory_seeded_with_one_path_twice_panics() {
-        let _: Memory = [("a", "x"), ("a", "y")].into_iter().collect();
+    #[should_panic(expected = "a Tmpfs seeds a twice")]
+    fn a_tmpfs_seeded_with_one_path_twice_panics() {
+        let _: Tmpfs = [("a", "x"), ("a", "y")].into_iter().collect();
     }
 
     // @behavior FS-002
     #[test]
-    fn a_memory_keeps_what_was_written() {
-        let memory = at(Memory::new());
+    fn a_tmpfs_keeps_what_was_written() {
+        let memory = at(Tmpfs::new());
         let mut file = memory
             .open(
                 "notes.txt",
@@ -836,7 +837,7 @@ mod tests {
         assert_eq!(
             read_all(&memory, "notes.txt"),
             b"kept",
-            "a file written through Memory::open must read back from the same Memory"
+            "a file written through Tmpfs::open must read back from the same Tmpfs"
         );
     }
 
@@ -882,23 +883,23 @@ mod tests {
 
     // @behavior FS-022
     #[test]
-    fn a_write_past_a_memorys_limit_is_refused() {
-        let memory: Memory = [("file", "x")].into_iter().collect();
-        let memory = at(memory.with_limit(Some(4)));
+    fn a_write_past_a_tmpfs_size_is_refused() {
+        let memory: Tmpfs = [("file", "x")].into_iter().collect();
+        let memory = at(memory.with_size(Some(4)));
         assert_eq!(
             (
                 writable(&memory, "file").write_at(b"four", 1),
                 read_all(&memory, "file")
             ),
             (Err(FilesystemError::StorageFull), b"x".to_vec()),
-            "a write growing a Memory's files past its limit through MemoryFile::write_at must \
+            "a write growing a Tmpfs's files past its limit through TmpfsFile::write_at must \
              answer StorageFull and leave the file as it was"
         );
     }
 
     // @behavior FS-096
     #[test]
-    fn a_write_of_no_bytes_leaves_a_memory_file_as_it_was() {
+    fn a_write_of_no_bytes_leaves_a_tmpfs_file_as_it_was() {
         let memory = at([("file", "")].into_iter().collect());
         assert_eq!(
             (
@@ -906,39 +907,39 @@ mod tests {
                 read_all(&memory, "file")
             ),
             (Ok(0), Vec::new()),
-            "an empty write past the end through MemoryFile::write_at must answer 0 and leave \
+            "an empty write past the end through TmpfsFile::write_at must answer 0 and leave \
              the file empty"
         );
     }
 
     // @behavior FS-023
     #[test]
-    fn a_memory_holds_its_default_limit() {
-        let memory = at(Memory::new());
+    fn a_tmpfs_holds_its_default_size() {
+        let memory = at(Tmpfs::new());
         let mut file = writable(&memory, "file");
         let mib_64 = 64 * 1024 * 1024;
         assert_eq!(
             (file.set_len(mib_64), file.set_len(mib_64 + 1)),
             (Ok(()), Err(FilesystemError::StorageFull)),
-            "a Memory given no limit through Memory::new must hold 64 MiB and refuse a byte more"
+            "a Tmpfs given no limit through Tmpfs::new must hold 64 MiB and refuse a byte more"
         );
     }
 
     // @behavior FS-024
     #[test]
-    fn a_memory_without_a_limit_grows_past_the_default() {
-        let memory = at(Memory::new().with_limit(None));
+    fn a_tmpfs_without_a_size_grows_past_the_default() {
+        let memory = at(Tmpfs::new().with_size(None));
         assert_eq!(
-            writable(&memory, "file").set_len(Memory::DEFAULT_LIMIT as u64 + 1),
+            writable(&memory, "file").set_len(Tmpfs::DEFAULT_SIZE as u64 + 1),
             Ok(()),
-            "a Memory given no limit through Memory::with_limit(None) must grow past 64 MiB"
+            "a Tmpfs given no limit through Tmpfs::with_size(None) must grow past 64 MiB"
         );
     }
 
     // @behavior FS-025
     #[test]
     fn a_removed_file_returns_its_space() {
-        let memory = at(Memory::new().with_limit(Some(4)));
+        let memory = at(Tmpfs::new().with_size(Some(4)));
         writable(&memory, "first")
             .write_at(b"four", 0)
             .expect("the first file must fit");
@@ -946,7 +947,7 @@ mod tests {
         assert_eq!(
             writable(&memory, "second").write_at(b"four", 0),
             Ok(4),
-            "the space a file removed through Memory::remove_file held must be free for the next"
+            "the space a file removed through Tmpfs::remove_file held must be free for the next"
         );
     }
 
@@ -955,8 +956,8 @@ mod tests {
     // @behavior FS-026
     #[test]
     fn a_file_grown_past_what_can_be_allocated_is_refused() {
-        let memory: Memory = [("file", "x")].into_iter().collect();
-        let memory = at(memory.with_limit(None));
+        let memory: Tmpfs = [("file", "x")].into_iter().collect();
+        let memory = at(memory.with_size(None));
         let mut file = writable(&memory, "file");
         let unallocatable = isize::MAX as u64 + 1;
         assert_eq!(
@@ -970,7 +971,7 @@ mod tests {
                 Err(FilesystemError::StorageFull),
                 b"x".to_vec()
             ),
-            "a length no allocator can hand out through MemoryFile::set_len and write_at must \
+            "a length no allocator can hand out through TmpfsFile::set_len and write_at must \
              answer StorageFull rather than abort"
         );
     }
@@ -1000,8 +1001,8 @@ mod tests {
     // kind of entry gets past the count.
     // @behavior FS-030
     #[test]
-    fn a_memory_holds_at_most_its_inodes() {
-        let memory = at(Memory::new().with_inodes(Some(3)));
+    fn a_tmpfs_holds_at_most_its_inodes() {
+        let memory = at(Tmpfs::new().with_nr_inodes(Some(3)));
         assert_eq!(
             (
                 create(&memory, "file"),
@@ -1015,15 +1016,15 @@ mod tests {
                 Err(FilesystemError::StorageFull),
                 Err(FilesystemError::StorageFull)
             ),
-            "a Memory given inodes through Memory::with_inodes must refuse a file or directory \
+            "a Tmpfs given inodes through Tmpfs::with_nr_inodes must refuse a file or directory \
              past them, the root counted, as out of space"
         );
     }
 
     // @behavior FS-031
     #[test]
-    fn a_memorys_inodes_follow_its_limit() {
-        let memory = at(Memory::new().with_limit(Some(2 * 4096)));
+    fn a_tmpfs_inodes_follow_its_size() {
+        let memory = at(Tmpfs::new().with_size(Some(2 * 4096)));
         assert_eq!(
             (
                 create(&memory, "a"),
@@ -1031,7 +1032,7 @@ mod tests {
                 create(&memory, "c")
             ),
             (Ok(()), Ok(()), Err(FilesystemError::StorageFull)),
-            "a Memory given only a limit through Memory::with_limit must hold one entry for each \
+            "a Tmpfs given only a limit through Tmpfs::with_size must hold one entry for each \
              4 KiB of it and the root"
         );
     }
@@ -1040,7 +1041,7 @@ mod tests {
     // read as the append lands puts its bytes after the first's.
     // @behavior FS-036
     #[test]
-    fn a_memory_appends_at_the_end_as_it_stands() {
+    fn a_tmpfs_appends_at_the_end_as_it_stands() {
         let memory = at([("log", "a")].into_iter().collect());
         let mut first = writable(&memory, "log");
         let mut second = writable(&memory, "log");
@@ -1051,14 +1052,14 @@ mod tests {
                 read_all(&memory, "log")
             ),
             (Ok((1, 2)), Ok((3, 3)), b"abbccc".to_vec()),
-            "MemoryFile::append through two handles on one file must land each at the end as it \
+            "TmpfsFile::append through two handles on one file must land each at the end as it \
              stands, answering where it landed"
         );
     }
 
     // @behavior FS-035
     #[test]
-    fn a_memory_moves_only_what_a_rename_allows() {
+    fn a_tmpfs_moves_only_what_a_rename_allows() {
         let memory = at([("dir/inner", "x"), ("file", "y")].into_iter().collect());
         assert_eq!(
             (
@@ -1073,7 +1074,7 @@ mod tests {
                 Ok(FileType::File),
                 Ok(FileType::File)
             ),
-            "Memory::rename must refuse a directory a file-only rename names as crossing \
+            "Tmpfs::rename must refuse a directory a file-only rename names as crossing \
              devices, and a file a directory-only rename names as no directory, moving neither"
         );
     }
@@ -1083,7 +1084,7 @@ mod tests {
     // @behavior FS-034
     #[test]
     fn a_removed_directory_gives_its_inode_back() {
-        let memory = at(Memory::new().with_inodes(Some(3)));
+        let memory = at(Tmpfs::new().with_nr_inodes(Some(3)));
         memory
             .create_dir("a")
             .expect("the first directory must fit");
@@ -1098,7 +1099,7 @@ mod tests {
         assert_eq!(
             (after_removal, memory.create_dir("d")),
             (Ok(()), Ok(())),
-            "a directory removed through Memory::remove_dir, or replaced through Memory::rename, \
+            "a directory removed through Tmpfs::remove_dir, or replaced through Tmpfs::rename, \
              must give its inode back"
         );
     }
@@ -1108,7 +1109,7 @@ mod tests {
     // @behavior FS-032
     #[test]
     fn a_removed_file_gives_its_inode_back_once_closed() {
-        let memory = at(Memory::new().with_inodes(Some(2)));
+        let memory = at(Tmpfs::new().with_nr_inodes(Some(2)));
         let handle = writable(&memory, "first");
         memory.remove_file("first").expect("the file must remove");
         let while_open = create(&memory, "second");
@@ -1116,7 +1117,7 @@ mod tests {
         assert_eq!(
             (while_open, create(&memory, "second")),
             (Err(FilesystemError::StorageFull), Ok(())),
-            "the inode of a file removed through Memory::remove_file must stay taken while a \
+            "the inode of a file removed through Tmpfs::remove_file must stay taken while a \
              handle holds it, and be free once it closes"
         );
     }
@@ -1127,7 +1128,7 @@ mod tests {
     #[test]
     fn a_device_of_its_own_stands_apart_from_every_other_device() {
         let (first, second) = (Metadata::unique_device(), Metadata::unique_device());
-        let memory = at(Memory::new())
+        let memory = at(Tmpfs::new())
             .metadata()
             .expect("the root must stand")
             .dev;
@@ -1136,7 +1137,7 @@ mod tests {
                 && first != second
                 && memory != first
                 && memory != second,
-            "devices from Metadata::unique_device and a Memory's root must each set the top bit \
+            "devices from Metadata::unique_device and a Tmpfs's root must each set the top bit \
              and differ from one another"
         );
     }
@@ -1155,13 +1156,13 @@ mod tests {
             .collect()
     }
 
-    // Each round nests the file one level deeper, so a Memory holding
+    // Each round nests the file one level deeper, so a Tmpfs holding
     // whole paths would hold names growing with the depth; held under its
     // own name, every entry stays the one letter it was given.
     // @behavior FS-094
     #[test]
-    fn a_memory_holds_each_entry_under_its_own_name() {
-        let held: Arc<Memory> = Arc::new([("d/f", "x")].into_iter().collect());
+    fn a_tmpfs_holds_each_entry_under_its_own_name() {
+        let held: Arc<Tmpfs> = Arc::new([("d/f", "x")].into_iter().collect());
         let memory = through(held.clone());
         for _ in 0..64 {
             memory
@@ -1183,14 +1184,14 @@ mod tests {
                     .collect::<Vec<_>>(),
                 b"x".to_vec()
             ),
-            "a directory moved deeper 64 times through Memory::rename must leave every entry \
+            "a directory moved deeper 64 times through Tmpfs::rename must leave every entry \
              holding only its own name, and the file reading where it now lies"
         );
     }
 
     // @behavior FS-105
     #[test]
-    fn a_directory_opened_from_a_memory_follows_it_when_it_moves() {
+    fn a_directory_opened_from_a_tmpfs_follows_it_when_it_moves() {
         let memory = at([("dir/.keep", "")].into_iter().collect());
         let dir = memory.open_dir("dir").expect("the directory must open");
         memory
@@ -1203,15 +1204,15 @@ mod tests {
                 memory.symlink_metadata("dir/made").map(|m| m.file_type)
             ),
             (Ok(FileType::File), Err(FilesystemError::NotFound)),
-            "a file made through a directory Memory::open_dir opened before Memory::rename moved \
+            "a file made through a directory Tmpfs::open_dir opened before Tmpfs::rename moved \
              it must stand beneath the directory's new path"
         );
     }
 
     // @behavior FS-106
     #[test]
-    fn a_memory_directory_removed_while_opened_makes_nothing_more() {
-        let memory = at(Memory::new());
+    fn a_tmpfs_directory_removed_while_opened_makes_nothing_more() {
+        let memory = at(Tmpfs::new());
         memory
             .create_dir("dir")
             .expect("the directory must be made");
@@ -1230,15 +1231,15 @@ mod tests {
                 Ok(0),
                 Ok(FileType::Directory)
             ),
-            "a directory Memory::open_dir opened, once Memory::remove_dir removed it, must make \
+            "a directory Tmpfs::open_dir opened, once Tmpfs::remove_dir removed it, must make \
              nothing, list nothing, and still stat as a directory"
         );
     }
 
     // @behavior FS-107
     #[test]
-    fn a_memory_directory_never_moves_beneath_itself() {
-        let memory = at(Memory::new());
+    fn a_tmpfs_directory_never_moves_beneath_itself() {
+        let memory = at(Tmpfs::new());
         memory.create_dir("a").expect("the directory must be made");
         memory
             .create_dir("a/b")
@@ -1250,23 +1251,23 @@ mod tests {
                 memory.symlink_metadata("a/b").map(|m| m.file_type)
             ),
             (Err(FilesystemError::InvalidInput), Ok(FileType::Directory)),
-            "Memory::rename of a directory into one opened beneath it must answer InvalidInput \
+            "Tmpfs::rename of a directory into one opened beneath it must answer InvalidInput \
              and move nothing"
         );
     }
 
     // @behavior FS-109
     #[test]
-    fn a_rename_into_a_directory_of_another_memory_crosses_devices() {
+    fn a_rename_into_a_directory_of_another_tmpfs_crosses_devices() {
         let memory = at([("file", "x")].into_iter().collect());
-        let other = at(Memory::new());
+        let other = at(Tmpfs::new());
         assert_eq!(
             (
                 memory.rename("file", &other, "file", Rename::Any),
                 read_all(&memory, "file")
             ),
             (Err(FilesystemError::CrossesDevices), b"x".to_vec()),
-            "Memory::rename into a directory of another Memory must answer CrossesDevices and \
+            "Tmpfs::rename into a directory of another Tmpfs must answer CrossesDevices and \
              leave the file"
         );
     }
@@ -1275,8 +1276,8 @@ mod tests {
     // the file was made cannot pass for one the write moved.
     // @behavior FS-115
     #[test]
-    fn a_memory_keeps_a_files_times_as_a_tmpfs_mounted_noatime_does() {
-        let memory = at(Memory::new());
+    fn a_tmpfs_keeps_a_files_times_as_a_tmpfs_mounted_noatime_does() {
+        let memory = at(Tmpfs::new());
         let options = OpenOptions {
             read: true,
             write: true,
@@ -1302,14 +1303,14 @@ mod tests {
                 written.changed == written.modified,
             ),
             (true, true, true),
-            "Memory::metadata of a file read and then written must keep its access time from \
+            "Tmpfs::metadata of a file read and then written must keep its access time from \
              when it was made, and move its modification and change times to the write"
         );
     }
 
     // @behavior FS-116
     #[test]
-    fn a_memory_counts_a_directorys_names_as_a_tmpfs_does() {
+    fn a_tmpfs_counts_a_directorys_names_as_a_tmpfs_does() {
         let memory = at([("dir/file", "x")].into_iter().collect());
         memory
             .create_dir("dir/a")
@@ -1326,15 +1327,15 @@ mod tests {
         assert_eq!(
             (nlink("dir"), nlink("dir/file")),
             (Some(4), Some(1)),
-            "Memory::metadata of a directory holding a file and two directories must count four \
+            "Tmpfs::metadata of a directory holding a file and two directories must count four \
              names, and of the file one"
         );
     }
 
     // @behavior FS-070
     #[test]
-    fn a_memory_gives_each_directory_it_makes_an_identity_of_its_own() {
-        let memory = at(Memory::new());
+    fn a_tmpfs_gives_each_directory_it_makes_an_identity_of_its_own() {
+        let memory = at(Tmpfs::new());
         memory
             .create_dir("dir")
             .expect("the directory must be made");
@@ -1354,8 +1355,8 @@ mod tests {
         assert_eq!(
             (identity("moved") == before, identity("dir") == before),
             (true, false),
-            "a directory moved through Memory::rename must keep its identity, and one made at its \
-             old path through Memory::create_dir must have another"
+            "a directory moved through Tmpfs::rename must keep its identity, and one made at its \
+             old path through Tmpfs::create_dir must have another"
         );
     }
 }

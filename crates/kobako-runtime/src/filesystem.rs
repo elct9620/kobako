@@ -2,25 +2,25 @@
 //! guest makes beneath that Mount's path.
 //!
 //! A runtime owns the descriptors and path resolution, and the Mount
-//! decides access; a `Filesystem` only answers for the files and directories
+//! decides access; an `Inode` only answers for the files and directories
 //! themselves, so a third party brings one without implementing any of
 //! that. A runtime asks a directory about one name at a time, carried by
 //! the `Dentry` the VFS made for it, as Linux hands a filesystem's
 //! `inode_operations` a dentry: never `.`, `..`, or a name holding `/`.
 
-mod directory;
-mod memory;
+mod bind;
 mod overlay;
 mod path;
+mod tmpfs;
 
 use std::any::Any;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-pub use directory::Directory;
-pub use memory::{Memory, SeedError};
+pub use bind::Bind;
 pub use overlay::{Blocking, Overlay};
+pub use tmpfs::{SeedError, Tmpfs};
 
 use crate::vfs::Dentry;
 
@@ -50,7 +50,7 @@ pub enum Access {
 /// spelling the host stores. Every Invocation reaches the same Filesystem;
 /// one that should start afresh is handed in its place for that
 /// Invocation.
-pub trait Filesystem: Any + Send + Sync {
+pub trait Inode: Any + Send + Sync {
     /// Open the file `dentry` names as `options` asks, creating or
     /// truncating it where they say to.
     fn open(
@@ -63,7 +63,7 @@ pub trait Filesystem: Any + Send + Sync {
     /// one: `NotADirectory` where anything else stands, and
     /// `FilesystemLoop` for a link standing there, as `O_NOFOLLOW` refuses
     /// one, since the runtime follows a link itself.
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError>;
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError>;
 
     /// What this directory reports of itself, as `fstat` answers.
     fn metadata(&self) -> Result<Metadata, FilesystemError>;
@@ -106,7 +106,7 @@ pub trait Filesystem: Any + Send + Sync {
     fn rename(
         &self,
         from: &Dentry,
-        to_dir: &dyn Filesystem,
+        to_dir: &dyn Inode,
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError>;
@@ -146,7 +146,7 @@ pub trait File: Send {
     }
 }
 
-/// How `Filesystem::open` opens a file.
+/// How `Inode::open` opens a file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct OpenOptions {
@@ -163,7 +163,7 @@ pub struct OpenOptions {
     pub nofollow: bool,
 }
 
-/// What `Filesystem::rename` may move, as `renameat2` flags ask more of
+/// What `Inode::rename` may move, as `renameat2` flags ask more of
 /// a rename than its two paths.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]

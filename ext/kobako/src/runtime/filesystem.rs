@@ -1,5 +1,5 @@
-//! The Ruby face of the Filesystem: `Kobako::Filesystem::Memory`,
-//! `Directory`, and `Overlay`, each standing for the `kobako_runtime`
+//! The Ruby face of the Filesystem: `Kobako::Filesystem::Tmpfs`,
+//! `Bind`, and `Overlay`, each standing for the `kobako_runtime`
 //! Filesystem of that kind.
 //!
 //! A kind kobako ships runs in Rust; Ruby only picks it and the access.
@@ -21,7 +21,7 @@ use magnus::{
 
 use ruby::RubyFilesystem;
 
-use kobako_runtime::filesystem::{Access, Blocking, Directory, Memory, Overlay};
+use kobako_runtime::filesystem::{Access, Bind, Blocking, Overlay, Tmpfs};
 use kobako_runtime::vfs::SuperBlock;
 
 pub(super) use grants::{to_grants, validate_mount};
@@ -36,8 +36,8 @@ macro_rules! filesystem_class {
     };
 }
 
-filesystem_class!(MemoryFs, "Kobako::Filesystem::Memory");
-filesystem_class!(DirectoryFs, "Kobako::Filesystem::Directory");
+filesystem_class!(TmpfsFs, "Kobako::Filesystem::Tmpfs");
+filesystem_class!(BindFs, "Kobako::Filesystem::Bind");
 
 /// The Overlay itself rather than a shared handle, so `layer` can answer a
 /// new one and leave this one as it was. It marks the Ruby object of
@@ -69,37 +69,37 @@ impl DataTypeFunctions for OverlayFs {
 
 pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     let module = kobako.define_module("Filesystem")?;
-    let memory = module.define_class("Memory", ruby.class_object())?;
-    memory.define_singleton_method("new", function!(memory_new, -1))?;
-    let directory = module.define_class("Directory", ruby.class_object())?;
-    directory.define_singleton_method("new", function!(directory_new, 1))?;
+    let tmpfs = module.define_class("Tmpfs", ruby.class_object())?;
+    tmpfs.define_singleton_method("new", function!(tmpfs_new, -1))?;
+    let bind = module.define_class("Bind", ruby.class_object())?;
+    bind.define_singleton_method("new", function!(bind_new, 1))?;
     let overlay = module.define_class("Overlay", ruby.class_object())?;
     overlay.define_singleton_method("new", function!(overlay_new, 0))?;
     overlay.define_method("layer", method!(overlay_layer, -1))?;
-    MemoryFs::class(ruby);
-    DirectoryFs::class(ruby);
+    TmpfsFs::class(ruby);
+    BindFs::class(ruby);
     OverlayFs::class(ruby);
     Ok(())
 }
 
-/// `Memory.new(files = {}, limit: 64 MiB, inodes:)`: each
+/// `Tmpfs.new(files = {}, size: 64 MiB, nr_inodes:)`: each
 /// `path => contents` pair becomes a file, its directories created along
 /// the way. Ruby hands a bare `"path" => contents` over as keywords, so
-/// every String keyword is a file too. Without `inodes:` the entries
-/// follow the limit.
-fn memory_new(args: &[Value]) -> Result<MemoryFs, MagnusError> {
+/// every String keyword is a file too. Without `nr_inodes:` the entries
+/// follow the size.
+fn tmpfs_new(args: &[Value]) -> Result<TmpfsFs, MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
     let args = scan_args::<(), (Option<RHash>,), (), (), RHash, ()>(args)?;
     let mut files = Vec::new();
-    let mut limit = Some(Memory::DEFAULT_LIMIT);
-    let mut inodes = None;
-    let limit_key = ruby.to_symbol("limit");
-    let inodes_key = ruby.to_symbol("inodes");
+    let mut size = Some(Tmpfs::DEFAULT_SIZE);
+    let mut nr_inodes = None;
+    let size_key = ruby.to_symbol("size");
+    let nr_inodes_key = ruby.to_symbol("nr_inodes");
     for hash in args.optional.0.into_iter().chain([args.keywords]) {
         hash.foreach(|key: Value, value: Value| {
             match Symbol::from_value(key) {
-                Some(key) if key.equal(limit_key)? => limit = to_limit(value)?,
-                Some(key) if key.equal(inodes_key)? => inodes = Some(to_limit(value)?),
+                Some(key) if key.equal(size_key)? => size = to_count(value)?,
+                Some(key) if key.equal(nr_inodes_key)? => nr_inodes = Some(to_count(value)?),
                 Some(key) => {
                     return Err(MagnusError::new(
                         ruby.exception_arg_error(),
@@ -114,25 +114,25 @@ fn memory_new(args: &[Value]) -> Result<MemoryFs, MagnusError> {
             Ok(magnus::r_hash::ForEach::Continue)
         })?;
     }
-    // A list no Memory holds is an `ArgumentError` the Host App can rescue.
-    let memory = Memory::try_from_iter(files)
+    // A list no Tmpfs holds is an `ArgumentError` the Host App can rescue.
+    let tmpfs = Tmpfs::try_from_iter(files)
         .map_err(|error| MagnusError::new(ruby.exception_arg_error(), error.to_string()))?
-        .with_limit(limit);
-    Ok(MemoryFs(SuperBlock::new(Arc::new(match inodes {
-        Some(inodes) => memory.with_inodes(inodes),
-        None => memory,
+        .with_size(size);
+    Ok(TmpfsFs(SuperBlock::new(Arc::new(match nr_inodes {
+        Some(nr_inodes) => tmpfs.with_nr_inodes(nr_inodes),
+        None => tmpfs,
     }))))
 }
 
-/// A `limit:` or `inodes:` count, or `nil` for none.
-fn to_limit(limit: Value) -> Result<Option<usize>, MagnusError> {
-    Option::<usize>::try_convert(limit)
+/// A `size:` or `nr_inodes:` count, or `nil` for none.
+fn to_count(count: Value) -> Result<Option<usize>, MagnusError> {
+    Option::<usize>::try_convert(count)
 }
 
-fn directory_new(path: String) -> Result<DirectoryFs, MagnusError> {
+fn bind_new(path: String) -> Result<BindFs, MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
-    Directory::new(&path)
-        .map(|directory| DirectoryFs(SuperBlock::new(Arc::new(directory))))
+    Bind::new(&path)
+        .map(|directory| BindFs(SuperBlock::new(Arc::new(directory))))
         .map_err(|err| {
             MagnusError::new(
                 ruby.exception_arg_error(),
@@ -201,10 +201,10 @@ fn to_access(access: Value) -> Result<Access, MagnusError> {
 /// Filesystem written in Ruby has no instance of its own to share, so each
 /// call makes one.
 fn to_super_block(value: Value) -> Result<Arc<SuperBlock>, MagnusError> {
-    if let Ok(fs) = <&MemoryFs>::try_convert(value) {
+    if let Ok(fs) = <&TmpfsFs>::try_convert(value) {
         return Ok(fs.0.clone());
     }
-    if let Ok(fs) = <&DirectoryFs>::try_convert(value) {
+    if let Ok(fs) = <&BindFs>::try_convert(value) {
         return Ok(fs.0.clone());
     }
     if let Ok(fs) = <&OverlayFs>::try_convert(value) {

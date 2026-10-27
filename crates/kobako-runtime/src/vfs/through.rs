@@ -8,7 +8,7 @@ use super::namei::{resolve, Resolved};
 use super::path::{Identity, Path};
 use super::{Error, SuperBlock};
 use crate::filesystem::{
-    Access, DirEntry, File, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
+    Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename,
 };
 use crate::mount::Mount;
 use crate::profile::Profile;
@@ -18,7 +18,7 @@ use crate::profile::Profile;
 pub(crate) struct Through(Path);
 
 /// The root of `filesystem`, mounted read-write.
-pub(crate) fn through(filesystem: Arc<dyn Filesystem>) -> Through {
+pub(crate) fn through(filesystem: Arc<dyn Inode>) -> Through {
     let mount = Mount::new("/data", SuperBlock::new(filesystem), Access::ReadWrite)
         .expect("/data is a guest path");
     Through(Path::root(mount, Profile::Permissive))

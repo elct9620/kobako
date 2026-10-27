@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::dentry::Dentry;
 use super::seen::seen;
 use super::Error;
-use crate::filesystem::{DirEntry, Filesystem, FilesystemError, Metadata};
+use crate::filesystem::{DirEntry, FilesystemError, Inode, Metadata};
 use crate::mount::Mount;
 use crate::profile::Profile;
 
@@ -32,7 +32,7 @@ impl Identity {
 /// One directory on the way to another, the name it was entered by, and
 /// its dentry.
 pub(crate) struct Step {
-    pub(crate) dir: Arc<dyn Filesystem>,
+    pub(crate) dir: Arc<dyn Inode>,
     pub(crate) name: String,
     pub(crate) dentry: Arc<Dentry>,
 }
@@ -46,7 +46,7 @@ pub struct Path {
     /// Policy reaches it by again, and whether it was removed.
     dentry: Arc<Dentry>,
     /// The directory itself, which a call reaches wherever it moved.
-    dir: Arc<dyn Filesystem>,
+    dir: Arc<dyn Inode>,
     /// Its identity when it was opened, so another standing where it
     /// stands later is not taken for it.
     identity: Option<Identity>,
@@ -70,7 +70,7 @@ impl Path {
     /// The directory `dir`, opened beneath this one as `dentry`.
     pub(crate) fn opened(
         &self,
-        dir: Arc<dyn Filesystem>,
+        dir: Arc<dyn Inode>,
         dentry: Arc<Dentry>,
         identity: Option<Identity>,
     ) -> Self {
@@ -111,7 +111,7 @@ impl Path {
         Ok(dir.entries()?)
     }
 
-    fn reach_dir(&self) -> Result<Arc<dyn Filesystem>, Error> {
+    fn reach_dir(&self) -> Result<Arc<dyn Inode>, Error> {
         let mut chain = self.reach()?;
         Ok(chain.pop().expect("a chain reaches its directory").dir)
     }
@@ -159,7 +159,7 @@ impl Path {
     /// one opened, as a POSIX descriptor never reaches another directory. A
     /// Mount's root never moves; any other directory opened with no
     /// identity cannot be told from another, so it is reached no more.
-    fn confirm(&self, found: &dyn Filesystem) -> Result<(), Error> {
+    fn confirm(&self, found: &dyn Inode) -> Result<(), Error> {
         if self.is_root() {
             return Ok(());
         }

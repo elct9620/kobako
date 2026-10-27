@@ -36,7 +36,7 @@ feature that specifies it.
 | no live time or entropy under the default `:hermetic` | [runtime](../spec/behavior/runtime.md) |
 | timeout, memory cap, and output clipping fail cleanly | [sandbox](../spec/behavior/sandbox.md) |
 | the guest holds no more files open than its cap | [sandbox](../spec/behavior/sandbox.md) |
-| a Memory holds no more than its limit | [filesystem](../spec/behavior/filesystem.md) |
+| a Tmpfs holds no more than its size | [filesystem](../spec/behavior/filesystem.md) |
 | a value the wire cannot carry becomes a Handle or a controlled error | [transport-dispatch](../spec/behavior/transport-dispatch.md) |
 
 ## Isolation Profiles
@@ -69,9 +69,9 @@ leaves the host exposed in its own way.
 | `setup_timeout` | `Sandbox.new` held for as long as the Guest Binary takes to start |
 | `memory_limit` | up to 4 GiB of guest memory, and no value budget |
 | `stdout_limit`, `stderr_limit` | host memory without bound, read back after the run ends |
-| `open_file_limit` | host descriptors for each file or directory open beneath a Directory |
-| a Memory's `limit:` | host memory without bound; one write far past a file's end fills the gap |
-| a Memory's `inodes:` | an entry for every file and directory it makes |
+| `open_file_limit` | host descriptors for each file or directory open beneath a Bind |
+| a Tmpfs's `size:` | host memory without bound; one write far past a file's end fills the gap |
+| a Tmpfs's `nr_inodes:` | an entry for every file and directory it makes |
 
 An uncapped output is the sharpest: a guest writing one buffer in a loop grows the
 capture on the host, not in its own memory. Reading that capture back also runs
@@ -286,15 +286,15 @@ captured once at `bind` would span the Sandbox's lifetime instead.
 
 A Mount hands the guest a Filesystem at one path. kobako keeps the guest beneath
 that path and holds its access; what the Filesystem holds is yours to choose. A
-Directory opens only files and directories: a FIFO, socket, or device raises
+Bind opens only files and directories: a FIFO, socket, or device raises
 `Errno::EACCES`.
 
 | Choose | Because |
 |---|---|
 | `access: :read` unless the guest must write | a read-only Mount refuses every change |
-| a Memory over a Directory | a Directory is a real host path the guest changes |
-| `limit:` and `inodes:` sized to the task | the defaults hold 64 MiB and 16385 entries |
-| `open_file_limit:` sized against the host's own | a file holds up to two host descriptors, and a directory one per Directory Layer |
+| a Tmpfs over a Bind | a Bind is a real host path the guest changes |
+| `size:` and `nr_inodes:` sized to the task | the defaults hold 64 MiB and 16385 entries |
+| `open_file_limit:` sized against the host's own | a file holds up to two host descriptors, and a directory one per Bind Layer |
 
 ### Mount Blocks
 
@@ -334,12 +334,12 @@ Some risks stay with the host, because kobako cannot see them.
 
 | Risk | Where it lies |
 |---|---|
-| another process changing a Directory's host files | the host directory |
-| a link swapped in between kobako's check and its open, without a block | the host's race, never leading beyond the Directory |
-| a hard link or mount point inside a Directory | the guest reaches what it leads to |
-| a Directory's host disk | kobako caps no space there; the host directory's own quota does |
-| a device swapped into a Directory as the guest opens a file | opened once before its refusal |
-| a link in a Directory without a block | the guest reaches its target, never beyond the Directory, and never reads where it points |
+| another process changing a Bind's host files | the host directory |
+| a link swapped in between kobako's check and its open, without a block | the host's race, never leading beyond the Bind |
+| a hard link or mount point inside a Bind | the guest reaches what it leads to |
+| a Bind's host disk | kobako caps no space there; the host directory's own quota does |
+| a device swapped into a Bind as the guest opens a file | opened once before its refusal |
+| a link in a Bind without a block | the guest reaches its target, never beyond the Bind, and never reads where it points |
 | a link through a directory the guest opened | followed only within it; leading out raises `Errno::EPERM` |
 | a link loop without a block | `Errno::ELOOP` after 40 links, as Linux answers |
 | a `..` out of where a link led | `Errno::ELOOP`, as the guest never learns where it points |
@@ -364,10 +364,10 @@ What happens to it later decides what a call through it reaches.
 
 Beneath a block, each call reaches the directory again from the Mount's root.
 It compares the identity there, so the block judges where the directory stands
-now. A Directory holds the host directory open meanwhile, so the host never
+now. A Bind holds the host directory open meanwhile, so the host never
 hands its inode number to the next one made. The comparison and the call are two
 steps, so a swap between them is the host's race.
 A path resolved through it stays beneath it, as a descriptor only ever narrows
-what the guest may reach. On Windows a Directory reports no identity. It refuses a
+what the guest may reach. On Windows a Bind reports no identity. It refuses a
 path holding a backslash there, so a block never judges one name while the host
 walks two.

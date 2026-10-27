@@ -18,7 +18,7 @@ use std::sync::Arc;
 use super::dentry::Dentry;
 use super::path::{Path, Step};
 use super::Error;
-use crate::filesystem::{Access, FileType, Filesystem, FilesystemError, Metadata};
+use crate::filesystem::{Access, FileType, FilesystemError, Inode, Metadata};
 use crate::mount::Mount;
 
 use super::{NAME_MAX, PATH_MAX};
@@ -36,7 +36,7 @@ pub(crate) fn names_directory(path: &str) -> bool {
 /// the Mount's root the walk took.
 pub(crate) struct Resolved {
     pub(crate) mount: Arc<Mount>,
-    pub(crate) base: Arc<dyn Filesystem>,
+    pub(crate) base: Arc<dyn Inode>,
     /// Where `base` stands in its SuperBlock.
     pub(crate) dentry: Arc<Dentry>,
     pub(crate) name: String,
@@ -109,7 +109,7 @@ impl Resolved {
     }
 
     /// Ask the Mount whether the guest may reach the path with `access`.
-    pub(crate) fn judge(&self, access: Access) -> Result<(), Error> {
+    pub(crate) fn check(&self, access: Access) -> Result<(), Error> {
         Ok(self.mount.check(|| self.spelled(), access)?)
     }
 }
@@ -132,7 +132,7 @@ fn parts(path: &str, from_link: bool) -> VecDeque<Part> {
 /// A directory the walk stands in, its dentry, and whether a link led to
 /// it.
 struct Frame {
-    dir: Arc<dyn Filesystem>,
+    dir: Arc<dyn Inode>,
     name: String,
     dentry: Arc<Dentry>,
     through_link: bool,
@@ -150,7 +150,7 @@ struct Walk {
 }
 
 impl Walk {
-    fn top(&self) -> &Arc<dyn Filesystem> {
+    fn top(&self) -> &Arc<dyn Inode> {
         &self.frames.last().expect("a walk stands somewhere").dir
     }
 

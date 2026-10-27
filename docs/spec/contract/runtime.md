@@ -299,7 +299,7 @@ The instance a Filesystem's root answers for.
 
 ```rust
 impl SuperBlock {
-    pub fn new(root: Arc<dyn Filesystem>) -> Arc<Self> {}
+    pub fn new(root: Arc<dyn Inode>) -> Arc<Self> {}
 }
 ```
 
@@ -309,7 +309,7 @@ The Filesystem's root directory.
 
 ```rust
 impl SuperBlock {
-    pub fn root(&self) -> &Arc<dyn Filesystem> {}
+    pub fn root(&self) -> &Arc<dyn Inode> {}
 }
 ```
 
@@ -533,7 +533,7 @@ pub trait Policy {
 }
 ```
 
-## `Filesystem`
+## `Inode`
 
 The files and directories beneath a Mount's root or a directory opened
 beneath it, as the `*at` calls reach them. Each call names
@@ -542,115 +542,115 @@ by delegating, wrapping each directory it opens too. No method has a default,
 so a wrapper forwards each.
 
 ```rust
-pub trait Filesystem {}
+pub trait Inode {}
 ```
 
-## `Filesystem::open`
+## `Inode::open`
 
 Open the file a Dentry names, creating or truncating it where the options say
 to.
 
 ```rust
-pub trait Filesystem {
+pub trait Inode {
     fn open(&self, dentry: &Dentry, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError>;
 }
 ```
 
-## `Filesystem::open_dir`
+## `Inode::open_dir`
 
 The directory a Dentry names in this one, as a Filesystem of its own.
 Anything else standing there is refused, a link among them.
 
 ```rust
-pub trait Filesystem {
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError>;
+pub trait Inode {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError>;
 }
 ```
 
-## `Filesystem::metadata`
+## `Inode::metadata`
 
 What the directory reports of itself.
 
 ```rust
-pub trait Filesystem {
+pub trait Inode {
     fn metadata(&self) -> Result<Metadata, FilesystemError>;
 }
 ```
 
-## `Filesystem::symlink_metadata`
+## `Inode::symlink_metadata`
 
 What a Dentry names without following a link standing there.
 
 ```rust
-pub trait Filesystem {
+pub trait Inode {
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
 }
 ```
 
-## `Filesystem::stored_name`
+## `Inode::stored_name`
 
 The name a Dentry carries, spelled as this directory stores it, for a Policy
 to judge. A name it does not hold stays as given. A Filesystem matching names
 exactly answers the name itself.
 
 ```rust
-pub trait Filesystem {
+pub trait Inode {
     fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
 }
 ```
 
-## `Filesystem::read_link`
+## `Inode::read_link`
 
 Where a link a Dentry names points, for the runtime to follow. Anything else
 standing there is invalid input, as it is for a Filesystem holding no links.
 
 ```rust
-pub trait Filesystem {
+pub trait Inode {
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
 }
 ```
 
-## `Filesystem::entries`
+## `Inode::entries`
 
 The entries of this directory.
 
 ```rust
-pub trait Filesystem {
+pub trait Inode {
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError>;
 }
 ```
 
-## `Filesystem::create_dir`
+## `Inode::create_dir`
 
 Create the directory a Dentry names.
 
 ```rust
-pub trait Filesystem {
+pub trait Inode {
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
 }
 ```
 
-## `Filesystem::remove_dir`
+## `Inode::remove_dir`
 
 Remove the empty directory a Dentry names.
 
 ```rust
-pub trait Filesystem {
+pub trait Inode {
     fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
 }
 ```
 
-## `Filesystem::remove_file`
+## `Inode::remove_file`
 
 Remove the file a Dentry names.
 
 ```rust
-pub trait Filesystem {
+pub trait Inode {
     fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
 }
 ```
 
-## `Filesystem::rename`
+## `Inode::rename`
 
 Move what one Dentry names to another in a target directory, refusing what
 the given Rename does not allow. The target is a directory of the same Mount,
@@ -658,8 +658,8 @@ so one of another type crosses devices. What stands at the source is checked
 as it moves.
 
 ```rust
-pub trait Filesystem {
-    fn rename(&self, from: &Dentry, to_dir: &dyn Filesystem, to: &Dentry, rename: Rename) -> Result<(), FilesystemError>;
+pub trait Inode {
+    fn rename(&self, from: &Dentry, to_dir: &dyn Inode, to: &Dentry, rename: Rename) -> Result<(), FilesystemError>;
 }
 ```
 
@@ -889,79 +889,79 @@ impl FilesystemError {
 }
 ```
 
-## `Memory`
+## `Tmpfs`
 
 The Filesystem kobako ships that holds its files in memory for as long as the
 object lives. Every invocation shares it.
 
 ```rust
-pub struct Memory {}
+pub struct Tmpfs {}
 ```
 
-## `Memory::new`
+## `Tmpfs::new`
 
-An empty Memory. One seeded with files is collected from `(path, contents)`
+An empty Tmpfs. One seeded with files is collected from `(path, contents)`
 pairs instead.
 
 ```rust
-impl Memory {
+impl Tmpfs {
     pub fn new() -> Self {}
 }
 ```
 
-## `Memory::DEFAULT_LIMIT`
+## `Tmpfs::DEFAULT_SIZE`
 
-The most bytes a Memory's files hold together unless it is given a limit of
+The most bytes a Tmpfs's files hold together unless it is given a size of
 its own.
 
 ```rust
-impl Memory {
-    pub const DEFAULT_LIMIT: usize = 64 * 1024 * 1024;
+impl Tmpfs {
+    pub const DEFAULT_SIZE: usize = 64 * 1024 * 1024;
 }
 ```
 
-## `Memory::with_limit`
+## `Tmpfs::with_size`
 
-This Memory with its files holding at most the given bytes together, or
+This Tmpfs with its files holding at most the given bytes together, or
 without bound for none. A write past it is refused as out of space.
 
 ```rust
-impl Memory {
-    pub fn with_limit(self, limit: Option<usize>) -> Self {}
+impl Tmpfs {
+    pub fn with_size(self, size: Option<usize>) -> Self {}
 }
 ```
 
-## `Memory::with_inodes`
+## `Tmpfs::with_nr_inodes`
 
-This Memory holding at most the given files and directories, its root
+This Tmpfs holding at most the given files and directories, its root
 among them, or without bound for none. Without it, one is held for each
-4 KiB of the limit, and the root. An entry past it is refused as out of
+4 KiB of the size, and the root. An entry past it is refused as out of
 space.
 
 ```rust
-impl Memory {
-    pub fn with_inodes(self, inodes: Option<usize>) -> Self {}
+impl Tmpfs {
+    pub fn with_nr_inodes(self, nr_inodes: Option<usize>) -> Self {}
 }
 ```
 
-## `Memory::from_iter`
+## `Tmpfs::from_iter`
 
-A Memory seeded with files, each a path and its contents, its directories made
-along the way. It panics on a list `Memory::try_from_iter` refuses.
+A Tmpfs seeded with files, each a path and its contents, its directories made
+along the way. It panics on a list `Tmpfs::try_from_iter` refuses.
 
 ```rust
-impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
+impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Tmpfs {
     fn from_iter<I: IntoIterator<Item = (P, C)>>(files: I) -> Self {}
 }
 ```
 
-## `Memory::try_from_iter`
+## `Tmpfs::try_from_iter`
 
-A Memory seeded with files as `Memory::from_iter` seeds them. A list no Memory
+A Tmpfs seeded with files as `Tmpfs::from_iter` seeds them. A list no Tmpfs
 holds as given answers the `SeedError` naming why.
 
 ```rust
-impl Memory {
+impl Tmpfs {
     pub fn try_from_iter<P, C, I>(files: I) -> Result<Self, SeedError>
     where
         P: AsRef<str>,
@@ -973,29 +973,29 @@ impl Memory {
 
 ## `SeedError`
 
-Why a list of files cannot seed a Memory. The list names the root or gives a
+Why a list of files cannot seed a Tmpfs. The list names the root or gives a
 file twice. Or it gives a file where another path needs a directory.
 
 ```rust
 pub enum SeedError {}
 ```
 
-## `Directory`
+## `Bind`
 
 The Filesystem kobako ships over a host directory. Nothing outside that
 directory is reachable through it.
 
 ```rust
-pub struct Directory {}
+pub struct Bind {}
 ```
 
-## `Directory::new`
+## `Bind::new`
 
-A Directory over the host directory at a path, refusing one that cannot be
+A Bind over the host directory at a path, refusing one that cannot be
 opened.
 
 ```rust
-impl Directory {
+impl Bind {
     pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {}
 }
 ```

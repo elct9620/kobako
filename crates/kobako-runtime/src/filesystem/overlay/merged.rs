@@ -16,14 +16,14 @@ use super::lower::Lower;
 use super::stack::Level;
 
 /// One directory of the view and the Layers' directories it stands for.
-pub(super) struct Inode {
+pub(super) struct MergedDir {
     level: Mutex<Level>,
     /// Where it stood beneath the Overlay's root when it was opened, by
     /// which a change through it reaches its writable Layer's directory.
     path: String,
 }
 
-impl Inode {
+impl MergedDir {
     pub(super) fn new(level: Level, path: String) -> Arc<Self> {
         Arc::new(Self {
             level: Mutex::new(level),
@@ -47,19 +47,19 @@ impl Inode {
 /// Every opened directory of one Overlay that no writable Layer holds yet,
 /// by its path.
 #[derive(Default)]
-pub(super) struct Inodes(Mutex<Shared>);
+pub(super) struct MergedDirs(Mutex<Shared>);
 
 /// The shared directories, and how many the table may reach before those
 /// no longer open are swept out: twice what the last sweep left, so each
 /// opening pays a constant share of the sweeps.
 #[derive(Default)]
 struct Shared {
-    entries: HashMap<String, Weak<Inode>>,
+    entries: HashMap<String, Weak<MergedDir>>,
     sweep_at: usize,
 }
 
 impl std::ops::Deref for Shared {
-    type Target = HashMap<String, Weak<Inode>>;
+    type Target = HashMap<String, Weak<MergedDir>>;
 
     fn deref(&self) -> &Self::Target {
         &self.entries
@@ -72,7 +72,7 @@ impl std::ops::DerefMut for Shared {
     }
 }
 
-impl Inodes {
+impl MergedDirs {
     fn lock(&self) -> MutexGuard<'_, Shared> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -80,29 +80,29 @@ impl Inodes {
     /// The directory at `path`, standing for `level` as just found: the
     /// one already shared there, brought up to date, where a writable Layer
     /// is missing from `level`, or one of its own otherwise.
-    pub(super) fn at(&self, path: String, level: Level, shared: bool) -> Arc<Inode> {
+    pub(super) fn at(&self, path: String, level: Level, shared: bool) -> Arc<MergedDir> {
         if !shared {
-            return Inode::new(level, path);
+            return MergedDir::new(level, path);
         }
-        let mut inodes = self.lock();
-        if inodes.entries.len() >= inodes.sweep_at {
-            inodes.entries.retain(|_, inode| inode.strong_count() > 0);
-            inodes.sweep_at = (inodes.entries.len() * 2).max(16);
+        let mut dirs = self.lock();
+        if dirs.entries.len() >= dirs.sweep_at {
+            dirs.entries.retain(|_, dir| dir.strong_count() > 0);
+            dirs.sweep_at = (dirs.entries.len() * 2).max(16);
         }
-        if let Some(inode) = inodes.get(&path).and_then(Weak::upgrade) {
-            *inode.lock() = level;
-            return inode;
+        if let Some(dir) = dirs.get(&path).and_then(Weak::upgrade) {
+            *dir.lock() = level;
+            return dir;
         }
-        let inode = Inode::new(level, path.clone());
-        inodes.insert(path, Arc::downgrade(&inode));
-        inode
+        let dir = MergedDir::new(level, path.clone());
+        dirs.insert(path, Arc::downgrade(&dir));
+        dir
     }
 
     /// Layer `into` now holds `dir` as the directory at `path`, made or
     /// found there by a copy up, so every handle of it asks that Layer too.
     pub(super) fn copied_up(&self, path: &str, into: usize, dir: &Lower) {
-        if let Some(inode) = self.lock().get(path).and_then(Weak::upgrade) {
-            inode.lock()[into] = Some(dir.clone());
+        if let Some(merged) = self.lock().get(path).and_then(Weak::upgrade) {
+            merged.lock()[into] = Some(dir.clone());
         }
     }
 

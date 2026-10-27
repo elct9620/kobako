@@ -59,7 +59,7 @@ class TestE2EHostException < Minitest::Test
   # ENOENT before any access is judged.
   # @behavior MT-023
   def test_an_interrupt_a_mount_block_raises_ends_the_run
-    sandbox = marking_sandbox.mount("/data", Kobako::Filesystem::Memory.new("note.txt" => "")) { raise Interrupt }
+    sandbox = marking_sandbox.mount("/data", Kobako::Filesystem::Tmpfs.new("note.txt" => "")) { raise Interrupt }
 
     assert_raises(Interrupt,
                   "an Interrupt from a mount's block through Sandbox#eval must raise in the Host App") do

@@ -1,5 +1,5 @@
 //! The differential probe beneath a Mount: each path call, made on the
-//! same host directory through kobako's `Directory` Mount and through
+//! same host directory through kobako's `Bind` Mount and through
 //! wasmtime-wasi's own preopen, must leave the same errno, the same
 //! descriptor, and the same directory behind. A listing of the Mount must
 //! answer the same errno.
@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use kobako_runtime::filesystem::Access;
-use kobako_runtime::filesystem::Directory;
+use kobako_runtime::filesystem::Bind;
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
@@ -378,7 +378,7 @@ fn through_wasmtime_wasi(call: Call, path: &str) -> Observation {
     observe(store, &linker, call, path, &host)
 }
 
-/// `host` behind a kobako `Directory` Mount at `AT`.
+/// `host` behind a kobako `Bind` Mount at `AT`.
 fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
     let engine = shared_engine().expect("shared engine must be constructible");
     let config = Config {
@@ -390,7 +390,7 @@ fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
         open_file_limit: None,
         profile: Profile::Hermetic,
     };
-    let directory = Directory::new(&host.0).expect("the host directory must open");
+    let directory = Bind::new(&host.0).expect("the host directory must open");
     let grant = Grant::Mount(
         Mount::new(AT, SuperBlock::new(Arc::new(directory)), Access::ReadWrite)
             .expect("AT is a guest path"),
@@ -561,7 +561,7 @@ fn every_path_call_beneath_a_mount_answers_as_a_wasmtime_wasi_preopen() {
         .collect();
     assert!(
         differing.is_empty(),
-        "each path call on a host directory through a kobako Directory Mount must answer as \
+        "each path call on a host directory through a kobako Bind Mount must answer as \
          wasmtime-wasi's preopen of it does:\n{}",
         differing.join("\n")
     );
@@ -605,6 +605,6 @@ fn a_listing_holding_a_name_that_is_not_utf8_answers_as_a_wasmtime_wasi_preopen(
     assert_eq!(
         kobako, oracle,
         "fd_readdir on a host directory holding a name that is not UTF-8 through a kobako \
-         Directory Mount must answer as wasmtime-wasi's preopen of it does"
+         Bind Mount must answer as wasmtime-wasi's preopen of it does"
     );
 }

@@ -3,20 +3,20 @@
 use std::sync::Arc;
 
 use super::dentry::Dentries;
-use crate::filesystem::Filesystem;
+use crate::filesystem::Inode;
 
 /// One Filesystem instance, with the directories of it a guest reaches.
 /// Every Mount of the same SuperBlock shares them, as a bind mount shares
 /// its super block, so a directory moved or removed beneath one Mount is
 /// moved or removed beneath every other.
 pub struct SuperBlock {
-    root: Arc<dyn Filesystem>,
+    root: Arc<dyn Inode>,
     dentries: Dentries,
 }
 
 impl SuperBlock {
     /// The instance `root` answers for.
-    pub fn new(root: Arc<dyn Filesystem>) -> Arc<Self> {
+    pub fn new(root: Arc<dyn Inode>) -> Arc<Self> {
         Arc::new(Self {
             root,
             dentries: Dentries::default(),
@@ -24,7 +24,7 @@ impl SuperBlock {
     }
 
     /// The Filesystem's root directory.
-    pub fn root(&self) -> &Arc<dyn Filesystem> {
+    pub fn root(&self) -> &Arc<dyn Inode> {
         &self.root
     }
 

@@ -332,9 +332,9 @@ open or change at a path ─> Policy ─┬─ allows -> the call proceeds
 The files and directories behind a Mount. It answers every call the guest makes beneath that Mount's path, and every Invocation reaches the same one. kobako ships three, and a Host App may bring its own or wrap another.
 
 ```
-Directory  -> a host directory; nothing outside it is reachable
-Memory     -> held in memory; lives as long as the Host App's object
-Overlay    -> Layers stacked into one view; changes land in the writable ones
+Bind     -> a host directory; nothing outside it is reachable
+Tmpfs    -> held in memory; lives as long as the Host App's object
+Overlay  -> Layers stacked into one view; changes land in the writable ones
 ```
 
 ### Layer
@@ -347,10 +347,30 @@ Overlay -> Layer (writable) -> Layer (read-only) -> ...
 
 ### Identity
 
-The device and inode numbers a Filesystem reports for what a path holds, as `st_dev` and `st_ino` do. A directory keeps its identity when it moves, and a directory made in its place has another. A directory a Filesystem opens stays open, so its number stays its own while it is. An inode number of zero reports none.
+The device and inode numbers that key an Inode, as `st_dev` and `st_ino` do. A directory keeps its identity when it moves, and a directory made in its place has another. A directory a Filesystem opens stays open, so its number stays its own while it is. An inode number of zero reports none.
 
 ```
 open a directory beneath a Policy -> remember its identity
 later call -> same identity at its path ─┬─ yes -> proceeds
                                           └─ no, or none -> ENOENT
+```
+
+### Inode
+
+One file or directory a Filesystem holds, answering the calls about the names in it. A Filesystem is written as its Inodes, as Linux writes one as its `inode_operations`. The runtime asks an Inode about one name at a time.
+
+### SuperBlock
+
+One Filesystem instance and the names reached in it. Every Mount of the instance shares it, so a name moved beneath one is moved beneath all.
+
+### Dentry
+
+One name of a SuperBlock and the directory above it, made by the runtime alone. A name moved through the runtime takes its Dentry along, and one removed through it is dead. An Inode reads the name a call is about from its Dentry.
+
+### Path
+
+A directory the guest reached beneath a Mount, as the Mount, its SuperBlock, and the Dentry naming it. The runtime walks a guest path from one, one name at a time.
+
+```
+Path = Mount + Dentry ─▶ Inode ─▶ the next Path
 ```

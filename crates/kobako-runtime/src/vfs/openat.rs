@@ -58,7 +58,7 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<Opene
     // Creating changes the Mount only where nothing stands yet, so the
     // Mount judges the open once, knowing what it does.
     let changes = how.write || how.truncate || (how.create && existing.is_none());
-    resolved.judge(if changes {
+    resolved.check(if changes {
         Access::ReadWrite
     } else {
         Access::Read

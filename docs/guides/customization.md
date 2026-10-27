@@ -55,14 +55,14 @@ Each row is one seam a third party can fill, with the endpoint it sits on.
 | The whole guest | `impl kobako_core::Guest` + `export_guest!` | guest | replaceable · methods append-only |
 | Wasm engine | `impl Runtime`, handed to `Sandbox::with_runtime` | Rust host SDK | replaceable |
 | Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | a host frontend of your own | replaceable |
-| Filesystem | `impl Filesystem` + `File`, behind a Mount | Rust host SDK | replaceable · methods append-only |
+| Filesystem | `impl Inode` + `File`, behind a Mount | Rust host SDK | replaceable · methods append-only |
 | Overlay lock wait | `impl Blocking`, handed to `Overlay::with_blocking` | a host frontend of your own | replaceable · methods append-only |
 
 The types those seams carry, by grade:
 
 | Grade | Names |
 |---|---|
-| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_runtime::{Memory, Directory, Overlay, Mount, MountPathError}` · `kobako_runtime::vfs::{SuperBlock, Dentry, Path, open, create_dir, remove_dir, remove_file, rename, metadata, symlink_metadata, read_link, set_times, PATH_MAX, NAME_MAX}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
+| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_runtime::{Tmpfs, Bind, Inode, Overlay, Mount, MountPathError}` · `kobako_runtime::vfs::{SuperBlock, Dentry, Path, open, create_dir, remove_dir, remove_file, rename, metadata, symlink_metadata, read_link, set_times, PATH_MAX, NAME_MAX}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
 | **stable · exhaustive** | `kobako_mruby::Arguments` · `kobako_runtime::{Profile, Entry, Completion, Access, Denial}` · `kobako_runtime::vfs::{Error, Opened}` · `kobako_codec::msgpack::{Value, Arguments}` · `kobako::{Backend, Provider, msgpack::RunArg}` |
 | **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, FileType, Rename, FilesystemError, SeedError, Snapshot, Capture, Usage, OpenOptions, Metadata, DirEntry}` · `kobako_runtime::vfs::OpenHow` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |
@@ -316,19 +316,19 @@ driver, so choosing an engine there means choosing a different frontend.
 
 ## Filesystem
 
-A Mount hands the guest any `impl Filesystem`, and an Overlay stacks them as Layers.
-The runtime walks each guest path one name at a time and judges it before the
+A Mount hands the guest any `impl Inode`, and an Overlay stacks them as Layers.
+The runtime walks each guest path one name at a time and checks it before the
 Filesystem acts on it. It follows a link itself, so a Filesystem only answers one
 name in a directory it already opened.
 
 ```
-guest path ─▶ runtime: walk name by name, follow links, judge the Policy ─▶ Filesystem
+guest path ─▶ runtime: walk name by name, follow links, check the Policy ─▶ Filesystem
                               ▲                                               │
-                              ├── symlink_metadata · open_dir_nofollow ───────┤
+                              ├── symlink_metadata · open_dir ────────────────┤
                               └── read_link · stored_name ────────────────────┘
 ```
 
-A directory the guest opens is a Filesystem of its own, from `open_dir_nofollow`. A
+A directory the guest opens is a Filesystem of its own, from `open_dir`. A
 wrapper wraps each directory it opens too, so it still sees every call beneath it.
 
 ### Filesystem Obligations

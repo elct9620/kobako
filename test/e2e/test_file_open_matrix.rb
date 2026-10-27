@@ -46,26 +46,26 @@ class TestE2EFileOpenMatrix < Minitest::Test
     @roots&.each { |root| FileUtils.remove_entry(root) }
   end
 
-  def directory = Kobako::Filesystem::Directory.new(seeded_root)
+  def directory = Kobako::Filesystem::Bind.new(seeded_root)
 
   # @behavior FL-034 FL-035
   def test_a_read_write_directory_answers_as_cruby_does
     assert_equal READ_WRITE, answers(directory, access: :read_write),
-                 "File.open and IO.new beneath a read-write Directory Mount through Sandbox#eval must answer " \
+                 "File.open and IO.new beneath a read-write Bind Mount through Sandbox#eval must answer " \
                  "as CRuby does over a read-write Linux directory"
   end
 
   # @behavior FL-034
-  def test_a_read_write_memory_answers_as_cruby_does
-    assert_equal READ_WRITE, answers(Kobako::Filesystem::Memory.new(SEED), access: :read_write),
-                 "File.open and IO.new beneath a read-write Memory Mount through Sandbox#eval must answer " \
+  def test_a_read_write_tmpfs_answers_as_cruby_does
+    assert_equal READ_WRITE, answers(Kobako::Filesystem::Tmpfs.new(SEED), access: :read_write),
+                 "File.open and IO.new beneath a read-write Tmpfs Mount through Sandbox#eval must answer " \
                  "as CRuby does over a read-write Linux directory"
   end
 
   # @behavior FL-034
   def test_an_overlay_answers_as_cruby_does
-    overlay = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Memory.new, access: :read_write)
-                                         .layer(Kobako::Filesystem::Memory.new(SEED))
+    overlay = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Tmpfs.new, access: :read_write)
+                                         .layer(Kobako::Filesystem::Tmpfs.new(SEED))
 
     assert_equal READ_WRITE, answers(overlay, access: :read_write),
                  "File.open and IO.new beneath an Overlay Mount over a read-only Layer through Sandbox#eval " \
@@ -75,14 +75,14 @@ class TestE2EFileOpenMatrix < Minitest::Test
   # @behavior FL-034
   def test_a_read_only_directory_answers_as_cruby_does
     assert_equal READ_ONLY, answers(directory),
-                 "File.open and IO.new beneath a read-only Directory Mount through Sandbox#eval must answer " \
+                 "File.open and IO.new beneath a read-only Bind Mount through Sandbox#eval must answer " \
                  "as CRuby does over a read-only Linux directory"
   end
 
   # @behavior FL-034
-  def test_a_read_only_memory_answers_as_cruby_does
-    assert_equal READ_ONLY, answers(Kobako::Filesystem::Memory.new(SEED)),
-                 "File.open and IO.new beneath a read-only Memory Mount through Sandbox#eval must answer " \
+  def test_a_read_only_tmpfs_answers_as_cruby_does
+    assert_equal READ_ONLY, answers(Kobako::Filesystem::Tmpfs.new(SEED)),
+                 "File.open and IO.new beneath a read-only Tmpfs Mount through Sandbox#eval must answer " \
                  "as CRuby does over a read-only Linux directory"
   end
 

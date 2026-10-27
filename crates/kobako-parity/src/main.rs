@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use serde_json::{json, Map, Value as Json};
 
-use kobako::filesystem::Memory;
+use kobako::filesystem::Tmpfs;
 use kobako::msgpack::{RunArg, Value, ValueReceiver};
 use kobako::{
     Access, Backend, Error, Execution, Extension, Fault, FaultKind, Handles, Options, Profile,
@@ -120,7 +120,7 @@ fn apply_flag(sandbox: &mut Sandbox, flag: &Json) -> Result<(), String> {
     .map_err(|err| format!("flag failed: {err}"))
 }
 
-/// A scenario mounts a Memory seeded from its files, the one kind both
+/// A scenario mounts a Tmpfs seeded from its files, the one kind both
 /// frontends build from plain data.
 fn apply_mount(sandbox: &mut Sandbox, mount: &Json) -> Result<(), String> {
     let at = mount["at"].as_str().ok_or("mount must carry at")?;
@@ -146,7 +146,7 @@ fn apply_mount(sandbox: &mut Sandbox, mount: &Json) -> Result<(), String> {
     sandbox
         .mount(
             at,
-            SuperBlock::new(Arc::new(files.collect::<Memory>())),
+            SuperBlock::new(Arc::new(files.collect::<Tmpfs>())),
             access,
         )
         .map_err(|err| format!("mount failed: {err}"))

@@ -22,7 +22,7 @@ class TestE2EOpenFileLimit < Minitest::Test
   # Three standard descriptors and the Mount leave room for +room+ files.
   def sandbox(room: 2)
     Kobako::Sandbox.new(wasm_path: REAL_WASM, open_file_limit: 4 + room)
-                   .mount("/data", Kobako::Filesystem::Memory.new("note.txt" => "hello"))
+                   .mount("/data", Kobako::Filesystem::Tmpfs.new("note.txt" => "hello"))
   end
 
   # @behavior S-201

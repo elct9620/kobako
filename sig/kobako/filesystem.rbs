@@ -1,6 +1,6 @@
 module Kobako
   module Filesystem
-    type mountable = Memory | Directory | Overlay | _Readable
+    type mountable = Tmpfs | Bind | Overlay | _Readable
 
     type access = :read | :read_write
 
@@ -64,14 +64,14 @@ module Kobako
       def dev: () -> Integer
     end
 
-    class Memory
+    class Tmpfs
       # A bare <tt>"path" => contents</tt> arrives as keywords, which RBS
-      # cannot key by String; a Symbol keyword past +limit+ and +inodes+
+      # cannot key by String; a Symbol keyword past +size+ and +nr_inodes+
       # raises ArgumentError.
-      def initialize: (?Hash[String, String] files, ?limit: Integer?, ?inodes: Integer?, **String) -> void
+      def initialize: (?Hash[String, String] files, ?size: Integer?, ?nr_inodes: Integer?, **String) -> void
     end
 
-    class Directory
+    class Bind
       def initialize: (String path) -> void
     end
 

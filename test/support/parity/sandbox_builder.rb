@@ -75,10 +75,10 @@ module Parity
       sandbox.flag(flag.fetch(:name), flag.fetch(:value), advisory: flag.fetch(:advisory))
     end
 
-    # A scenario mounts a Memory seeded from its files, the one kind both
+    # A scenario mounts a Tmpfs seeded from its files, the one kind both
     # frontends build from plain data.
     def apply_mount(sandbox, mount)
-      filesystem = Kobako::Filesystem::Memory.new(mount.fetch(:files))
+      filesystem = Kobako::Filesystem::Tmpfs.new(mount.fetch(:files))
       sandbox.mount(mount.fetch(:at), filesystem, access: mount.fetch(:access).to_sym)
     end
 

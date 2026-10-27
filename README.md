@@ -191,23 +191,23 @@ sandbox.eval("Req::Current.user_id") { |ctx| ctx.bind("Req::Current", request) }
 `mount` places a `Kobako::Filesystem` at an absolute guest path, where the guest's `File` reads it. The default access is `:read`, so a write beneath it raises `Errno::EROFS` in the guest.
 
 ```ruby
-sandbox.mount("/config", Kobako::Filesystem::Memory.new("app.yml" => yaml))
-sandbox.mount("/tmp", Kobako::Filesystem::Memory.new, access: :read_write)
-sandbox.mount("/data", Kobako::Filesystem::Directory.new("var/data")) { |path, _access| path.end_with?(".csv") }
+sandbox.mount("/config", Kobako::Filesystem::Tmpfs.new("app.yml" => yaml))
+sandbox.mount("/tmp", Kobako::Filesystem::Tmpfs.new, access: :read_write)
+sandbox.mount("/data", Kobako::Filesystem::Bind.new("var/data")) { |path, _access| path.end_with?(".csv") }
 
 sandbox.eval('File.read("/config/app.yml")')
-sandbox.eval('File.write("/tmp/scratch", "x")') { |ctx| ctx.mount("/tmp", Kobako::Filesystem::Memory.new, access: :read_write) }
+sandbox.eval('File.write("/tmp/scratch", "x")') { |ctx| ctx.mount("/tmp", Kobako::Filesystem::Tmpfs.new, access: :read_write) }
 ```
 
 | Kind | Holds |
 |---|---|
-| `Memory.new(files = {}, limit:, inodes:)` | files in memory, shared by every invocation |
-| `Directory.new(path)` | a host directory; nothing outside it is reachable |
+| `Tmpfs.new(files = {}, size:, nr_inodes:)` | files in memory, shared by every invocation |
+| `Bind.new(path)` | a host directory; nothing outside it is reachable |
 | `Overlay.new.layer(fs, access:)` | Layers stacked into one view, the first added on top |
 
-Every invocation reaches the same Filesystem, so the last line starts empty with a Memory of its own.
+Every invocation reaches the same Filesystem, so the last line starts empty with a Tmpfs of its own.
 
-A Memory is bounded as a tmpfs mount is. Its files hold 64 MiB unless `limit:` gives another size in bytes. It holds one file or directory for each 4 KiB of that limit, and its root, unless `inodes:` gives another count. `nil` lifts either bound, and the guest raises `Errno::ENOSPC` past one.
+A Tmpfs is bounded as a tmpfs mount is. Its files hold 64 MiB unless `size:` gives another size in bytes. It holds one file or directory for each 4 KiB of that size, and its root, unless `nr_inodes:` gives another count. `nil` lifts either bound, and the guest raises `Errno::ENOSPC` past one.
 
 A block decides each open and each change that reaches the Mount in the access's place, asked at most once for each. A falsy answer or a `StandardError` fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run.
 
@@ -233,8 +233,8 @@ Beneath a mount, `File.open` and `IO.new` answer as CRuby does over a Linux dire
 
 ```ruby
 overlay = Kobako::Filesystem::Overlay.new
-  .layer(Kobako::Filesystem::Memory.new, access: :read_write) # every change lands here
-  .layer(Kobako::Filesystem::Directory.new("app"))             # never written
+  .layer(Kobako::Filesystem::Tmpfs.new, access: :read_write) # every change lands here
+  .layer(Kobako::Filesystem::Bind.new("app"))             # never written
 sandbox.mount("/app", overlay, access: :read_write)
 ```
 
