@@ -650,6 +650,28 @@ fn a_policy_judges_a_path_as_its_filesystem_stores_it() {
     );
 }
 
+// A Policy handed the descriptor's path as the guest spelled it would see
+// `/data/dir/inner` and let the read through.
+// @behavior RT-120
+#[test]
+fn a_policy_judges_a_path_beneath_an_opened_directory_as_its_filesystem_stores_it() {
+    const INNER: (i32, i32) = (960, 5);
+    let memory: Memory = [("dir/inner", "x")].into_iter().collect();
+    let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/DIR/inner"));
+    let mut guest = Guest::new(&[grant(
+        Arc::new(StoresUpperCase(memory)),
+        Access::Read,
+        Some(policy),
+    )]);
+    assert_eq!(
+        guest.call("open_beneath_dir", INNER),
+        ERRNO_ACCES,
+        "path_open of `inner` through `dir` opened beneath a Mount whose Policy refuses \
+         `/data/DIR/inner`, over a Filesystem storing `dir` as `DIR`, through preview1 must \
+         answer EACCES"
+    );
+}
+
 // @behavior RT-075
 #[test]
 fn a_mount_appears_as_a_directory_at_its_path() {
@@ -1757,7 +1779,20 @@ impl Filesystem for FailsLookingUpDir {
         self.0.read_link(name)
     }
 
-    opens_directories!(0);
+    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        match path {
+            "dir" => Err(FilesystemError::Other("unreadable".into())),
+            path => self.0.open_dir(path),
+        }
+    }
+
+    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        self.open_dir(name)
+    }
+
+    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.0.entries()
+    }
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         self.0.create_dir(path)

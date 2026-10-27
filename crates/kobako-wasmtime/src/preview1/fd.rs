@@ -13,7 +13,6 @@ use wasmtime_wasi::p2::{InputStream, OutputStream, StreamError};
 use super::args::{
     self, FDFLAGS_APPEND, FDFLAGS_NONBLOCK, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
 };
-use super::beneath::directory_of;
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
 use crate::descriptors::{Descriptor, Descriptors, OpenFile};
@@ -280,10 +279,7 @@ pub(crate) fn filestat_get(
         Descriptor::Stdin(_) | Descriptor::Channel(_) => {
             write_filestat(mem, out, FILETYPE_UNKNOWN, 0, 0)
         }
-        Descriptor::Directory(dir) => {
-            let (base, path) = directory_of(dir)?;
-            write_metadata(mem, out, base.metadata(&path)?)
-        }
+        Descriptor::Directory(dir) => write_metadata(mem, out, dir.path.metadata()?),
         Descriptor::File(file) => write_metadata(mem, out, file.file.metadata()?),
     }
 }
@@ -337,7 +333,10 @@ pub(crate) fn prestat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, o
         Descriptor::Directory(dir) if dir.preopen => {
             GuestMemory::check_aligned(out, 4)?;
             mem.write_u8(out, 0)?;
-            mem.write_u32(GuestMemory::field(out, 4)?, dir.mount.at().len() as u32)
+            mem.write_u32(
+                GuestMemory::field(out, 4)?,
+                dir.path.mount().at().len() as u32,
+            )
         }
         _ => Err(Errno::Badf.into()),
     }
@@ -352,7 +351,7 @@ pub(crate) fn prestat_dir_name(
 ) -> Answer {
     match descriptor(table, fd)? {
         Descriptor::Directory(dir) if dir.preopen => {
-            let name = dir.mount.at().as_bytes();
+            let name = dir.path.mount().at().as_bytes();
             if name.len() > path_len as usize {
                 return Err(Errno::Nametoolong.into());
             }
@@ -444,11 +443,9 @@ pub(crate) fn readdir(
         _ => return Err(Errno::Badf.into()),
     };
     let skip = usize::try_from(cookie).map_err(|_| Errno::Overflow)?;
-    let (base, path) = directory_of(dir)?;
     let listing = match dir.listing.take() {
         Some(listing) if cookie != 0 => listing,
-        _ if path.is_empty() => base.entries()?,
-        _ => base.open_dir(&path)?.entries()?,
+        _ => dir.path.entries()?,
     };
     let entries = [(".", FILETYPE_DIRECTORY), ("..", FILETYPE_DIRECTORY)]
         .into_iter()

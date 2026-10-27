@@ -3,6 +3,7 @@
 
 use kobako_runtime::filesystem::FilesystemError;
 use kobako_runtime::mount::Denial;
+use kobako_runtime::vfs;
 
 /// One preview1 `errno`, numbered as the witx `$errno` enum numbers it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -214,6 +215,18 @@ impl From<Denial> for Failure {
             Denial::ReadOnly => Errno::Rofs,
             Denial::Refused => Errno::Acces,
         })
+    }
+}
+
+/// A path absolute or above its descriptor is `NOTCAPABLE`, as preview1
+/// names a capability the guest does not hold.
+impl From<vfs::Error> for Failure {
+    fn from(error: vfs::Error) -> Self {
+        match error {
+            vfs::Error::Filesystem(error) => error.into(),
+            vfs::Error::Denied(denial) => denial.into(),
+            vfs::Error::NotCapable => Errno::Notcapable.into(),
+        }
     }
 }
 

@@ -295,52 +295,165 @@ impl Mount {
 }
 ```
 
-## `Mount::guest_path`
-
-The absolute guest path a path relative to the Mount's root stands for.
-
-```rust
-impl Mount {
-    pub fn guest_path(&self, path: &str) -> String {}
-}
-```
-
-## `Mount::check`
-
-Whether the Guest may reach a path beneath the Mount with the given access.
-
-```rust
-impl Mount {
-    pub fn check(&self, path: &str, access: Access) -> Result<(), Denial> {}
-}
-```
-
-## `Mount::moves_directories`
-
-Whether a directory may move beneath the Mount; not under a Policy.
-
-```rust
-impl Mount {
-    pub fn moves_directories(&self) -> bool {}
-}
-```
-
-## `Mount::follows_links`
-
-Whether a path beneath the Mount may pass through a link; not under a Policy.
-
-```rust
-impl Mount {
-    pub fn follows_links(&self) -> bool {}
-}
-```
-
 ## `Denial`
 
 Why a Mount refused a call: a change beneath a read-only Mount, or its Policy.
 
 ```rust
 pub enum Denial {}
+```
+
+## `Path`
+
+A directory beneath a Mount, as a directory descriptor holds one.
+
+```rust
+pub struct Path {}
+```
+
+## `Path::root`
+
+The root of a Mount, where each of its descriptors starts.
+
+```rust
+impl Path {
+    pub fn root(mount: Mount) -> Self {}
+}
+```
+
+## `Path::mount`
+
+The Mount the directory stands beneath.
+
+```rust
+impl Path {
+    pub fn mount(&self) -> &Arc<Mount> {}
+}
+```
+
+## `Path::metadata`
+
+What the directory reports of itself.
+
+```rust
+impl Path {
+    pub fn metadata(&self) -> Result<Metadata, Error> {}
+}
+```
+
+## `Path::entries`
+
+The entries of the directory, without `.` or `..`.
+
+```rust
+impl Path {
+    pub fn entries(&self) -> Result<Vec<DirEntry>, Error> {}
+}
+```
+
+## `OpenHow`
+
+How to open a path, as `openat2` takes its flags.
+
+```rust
+pub struct OpenHow {}
+```
+
+## `Opened`
+
+What an open reached: a directory or a file.
+
+```rust
+pub enum Opened {}
+```
+
+## `open`
+
+Open a path beneath a directory, answering too many open files where the
+caller has no descriptor left.
+
+```rust
+pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<Opened, Error> {}
+```
+
+## `create_dir`
+
+Make a directory at a path beneath a directory.
+
+```rust
+pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {}
+```
+
+## `remove_dir`
+
+Remove the empty directory at a path beneath a directory.
+
+```rust
+pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {}
+```
+
+## `remove_file`
+
+Remove the file at a path beneath a directory.
+
+```rust
+pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {}
+```
+
+## `rename`
+
+Move an entry within one Mount.
+
+```rust
+pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<(), Error> {}
+```
+
+## `metadata`
+
+What a path names, a link at its end followed.
+
+```rust
+pub fn metadata(start: &Path, path: &str) -> Result<Metadata, Error> {}
+```
+
+## `symlink_metadata`
+
+What a path names, a link at its end reported as itself.
+
+```rust
+pub fn symlink_metadata(start: &Path, path: &str) -> Result<Metadata, Error> {}
+```
+
+## `read_link`
+
+Refuse reading a link as unsupported once the path is known to stand.
+
+```rust
+pub fn read_link(start: &Path, path: &str) -> Result<(), Error> {}
+```
+
+## `set_times`
+
+Refuse setting timestamps as unsupported once the path is known to stand.
+
+```rust
+pub fn set_times(start: &Path, path: &str) -> Result<(), Error> {}
+```
+
+## `PATH_MAX`
+
+The longest path, its terminating NUL counted, as Linux's.
+
+```rust
+pub const PATH_MAX: usize = 4096;
+```
+
+## `NAME_MAX`
+
+The longest name within a path, as Linux's.
+
+```rust
+pub const NAME_MAX: usize = 255;
 ```
 
 ## `Access`

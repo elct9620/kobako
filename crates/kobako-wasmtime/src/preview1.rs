@@ -9,7 +9,6 @@
 //! wasmtime-wasi's.
 
 mod args;
-mod beneath;
 mod errno;
 mod fd;
 mod memory;

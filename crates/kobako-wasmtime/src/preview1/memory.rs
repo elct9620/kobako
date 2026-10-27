@@ -5,7 +5,8 @@
 use std::cell::Cell;
 use std::ops::Range;
 
-use super::beneath::PATH_MAX;
+use kobako_runtime::vfs::PATH_MAX;
+
 use super::errno::{Answer, Errno, Failure};
 
 fn out_of_bounds() -> Failure {

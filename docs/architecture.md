@@ -61,7 +61,7 @@ Each part owns one concern, and its dependencies on other kobako parts may only 
 |---|---|---|
 | `kobako-transport` | the core envelope and the ABI's values | none, ever |
 | `kobako-codec` | the payload dialects, one namespace and feature per schema | none |
-| `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant`, `Mount`, `Filesystem` and its shipped kinds | transport |
+| `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant`, `Mount`, `vfs`, `Filesystem` and kinds | transport |
 | `kobako-wasmtime` | one engine behind that contract | runtime, transport |
 | `kobako` | the Rust host model: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
 | `lib/` | the Ruby host model and its own dialect | the native ext |
@@ -178,7 +178,7 @@ Each context owns the rules below and the parts that keep them.
 | Host | the Sandbox lifecycle, what the guest may call, how a failure reaches the Host App | `lib/`, `kobako` |
 | Wire | the envelope, the tag registry, the codecs | `kobako-transport`, `kobako-codec`, `lib/kobako/{codec,payload}/`, `docs/wire/` |
 | Isolation | the engine and the Ambient authority a Posture grants | `kobako-runtime`, `kobako-wasmtime`, `ext/` |
-| Filesystem | Mounts, Policies, and the Filesystem kinds | `kobako-runtime`'s filesystem, the preview1 driver, their bridges in `ext/` and `lib/` |
+| Filesystem | Mounts, Policies, the VFS, and the Filesystem kinds | `kobako-runtime`'s filesystem and vfs, the preview1 driver, their bridges in `ext/` and `lib/` |
 
 The guest has no context of its own. Its words are either shared or the Wire's, and the capability gems speak CRuby's, which [`parity.md`](parity.md) governs.
 

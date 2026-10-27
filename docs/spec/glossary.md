@@ -303,6 +303,8 @@ One of the two streams guest code writes to: output and error. Each is captured 
 - `crates/kobako-runtime/src/filesystem.rs`
 - `crates/kobako-runtime/src/filesystem/**/*.rs`
 - `crates/kobako-runtime/src/mount.rs`
+- `crates/kobako-runtime/src/vfs.rs`
+- `crates/kobako-runtime/src/vfs/**/*.rs`
 - `crates/kobako-wasmtime/src/preview1/**/*.rs`
 - `ext/kobako/src/runtime/filesystem.rs`
 - `ext/kobako/src/runtime/filesystem/**/*.rs`

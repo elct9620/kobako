@@ -9,8 +9,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::{DirEntry, File, Filesystem, Metadata};
+use kobako_runtime::filesystem::{DirEntry, File};
 use kobako_runtime::mount::Mount;
+use kobako_runtime::vfs::Path;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
 /// What one descriptor stands for.
@@ -24,35 +25,8 @@ pub(crate) enum Descriptor {
     File(OpenFile),
 }
 
-/// What a directory is, apart from where it stands: the device and inode
-/// numbers its Filesystem names it by.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Identity {
-    dev: u64,
-    ino: u64,
-}
-
-impl Identity {
-    /// The identity `metadata` names, or `None` where its inode of zero
-    /// reports none.
-    pub(crate) fn of(metadata: &Metadata) -> Option<Self> {
-        (metadata.ino != 0).then_some(Self {
-            dev: metadata.dev,
-            ino: metadata.ino,
-        })
-    }
-}
-
 pub(crate) struct OpenDirectory {
-    pub(crate) mount: Arc<Mount>,
-    /// The directory itself, which a call reaches wherever it moved.
-    pub(crate) handle: Arc<dyn Filesystem>,
-    /// The directory's path relative to the mount's root when it was
-    /// opened, which a Mount with a Policy reaches it by again.
-    pub(crate) path: String,
-    /// The identity the directory had when it was opened, so one standing
-    /// at its path later is not taken for it.
-    pub(crate) identity: Option<Identity>,
+    pub(crate) path: Path,
     pub(crate) preopen: bool,
     /// The entries a listing began with, held until it reaches its end, so
     /// each later call reads on without listing the directory again.
@@ -95,16 +69,10 @@ impl Descriptors {
             (2, Descriptor::Channel(stderr)),
         ]);
         for (fd, mount) in (3..).zip(mounts) {
-            // A Mount's root never moves, so it needs no identity to be
-            // found again.
-            let handle = mount.filesystem().clone();
             used.insert(
                 fd,
                 Descriptor::Directory(OpenDirectory {
-                    mount: Arc::new(mount),
-                    handle,
-                    path: String::new(),
-                    identity: None,
+                    path: Path::root(mount),
                     preopen: true,
                     listing: None,
                 }),

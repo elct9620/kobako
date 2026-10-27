@@ -143,7 +143,7 @@ Files and tests are named for what they hold.
 | What | Its name | As in |
 |---|---|---|
 | A Ruby file | the constant it defines | `value_budget.rb` → `ValueBudget` |
-| A Rust module | what it makes or does | `descriptors.rs`, `beneath.rs` |
+| A Rust module | what it makes or does | `descriptors.rs`, `namei.rs` |
 | A fixture | a noun, its situation in a comment | `minimal_abi_ok.wat` |
 | A Rust test | the behaviour as a sentence | `the_guest_wall_clock_reads_the_unix_epoch` |
 | A Minitest test | `test_`, then the behaviour | `test_a_block_run_on_another_thread_refuses` |

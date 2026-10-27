@@ -23,6 +23,7 @@ use kobako_runtime::filesystem::Directory;
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
+use kobako_runtime::vfs::PATH_MAX;
 use wasmtime::{Linker, Module, Store};
 use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::{FsPerms, WasiCtxBuilder};
@@ -31,7 +32,6 @@ use crate::cache::shared_engine;
 use crate::config::Config;
 use crate::imports;
 use crate::invocation::Invocation;
-use crate::preview1::beneath::PATH_MAX;
 use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
 use crate::wasi::Wasi;
 
