@@ -184,20 +184,26 @@ mod tests {
         };
     }
 
-    fn read(fs: &dyn Filesystem, path: &str) -> Vec<u8> {
-        let mut file = fs
-            .open(
-                path,
-                &OpenOptions {
-                    read: true,
-                    ..OpenOptions::default()
-                },
-            )
-            .expect("the file must open");
+    fn open_to_read(fs: &dyn Filesystem, path: &str) -> Box<dyn File> {
+        fs.open(
+            path,
+            &OpenOptions {
+                read: true,
+                ..OpenOptions::default()
+            },
+        )
+        .expect("the file must open to read")
+    }
+
+    fn read_from(file: &mut dyn File) -> Vec<u8> {
         let mut buf = vec![0; 64];
         let read = file.read_at(&mut buf, 0).expect("the file must read");
         buf.truncate(read);
         buf
+    }
+
+    fn read(fs: &dyn Filesystem, path: &str) -> Vec<u8> {
+        read_from(open_to_read(fs, path).as_mut())
     }
 
     fn write(fs: &dyn Filesystem, path: &str, contents: &[u8]) -> Result<(), FilesystemError> {
@@ -1781,24 +1787,6 @@ mod tests {
             memory: Memory::new(),
             refuses_close,
         })
-    }
-
-    fn open_to_read(fs: &dyn Filesystem, path: &str) -> Box<dyn File> {
-        fs.open(
-            path,
-            &OpenOptions {
-                read: true,
-                ..OpenOptions::default()
-            },
-        )
-        .expect("the file must open to read")
-    }
-
-    fn read_from(file: &mut dyn File) -> Vec<u8> {
-        let mut buf = vec![0; 64];
-        let read = file.read_at(&mut buf, 0).expect("the file must read");
-        buf.truncate(read);
-        buf
     }
 
     // @behavior FS-101
