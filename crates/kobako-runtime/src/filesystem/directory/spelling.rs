@@ -142,7 +142,7 @@ mod macos {
 #[cfg(target_os = "linux")]
 mod linux {
     use cap_std::fs::Dir;
-    use rustix::fs::{fstatfs, ioctl_getflags};
+    use rustix::fs::{fstatfs, ioctl_getflags, openat, Mode, OFlags};
 
     /// The 32-bit magic numbers of filesystems matching names byte for
     /// byte unless a directory is marked to fold case: ext4, Btrfs, tmpfs,
@@ -154,9 +154,19 @@ mod linux {
     /// Linux's `FS_CASEFOLD_FL`.
     const CASEFOLD: u32 = 0x4000_0000;
 
+    /// cap-std holds `parent` for its path alone, which answers no flags,
+    /// so they are asked of the same directory opened to read.
     pub(super) fn matches_exactly(parent: &Dir) -> bool {
         let exact = fstatfs(parent).is_ok_and(|stats| EXACT.contains(&(stats.f_type as u32)));
-        exact && ioctl_getflags(parent).is_ok_and(|flags| flags.bits() & CASEFOLD == 0)
+        exact
+            && openat(
+                parent,
+                ".",
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .and_then(|readable| ioctl_getflags(&readable))
+            .is_ok_and(|flags| flags.bits() & CASEFOLD == 0)
     }
 
     #[cfg(test)]
@@ -164,7 +174,31 @@ mod linux {
         use cap_std::ambient_authority;
 
         use super::super::stored_name_by_listing;
-        use super::Dir;
+        use super::{fstatfs, matches_exactly, Dir, EXACT};
+
+        // A Directory opens its directories as cap-std does, for a path
+        // alone, and a filesystem known to match exactly still spells
+        // without listing. A host on another filesystem has nothing here
+        // to witness.
+        // @behavior FS-081
+        #[test]
+        fn a_directory_opened_for_its_path_alone_is_known_to_match_exactly() {
+            let path = std::env::temp_dir().join(format!("kobako-exact-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("the host directory must be created");
+            let dir = Dir::open_ambient_dir(&path, ambient_authority())
+                .expect("the host directory must open");
+            let known = fstatfs(&dir).is_ok_and(|stats| EXACT.contains(&(stats.f_type as u32)));
+            let exact = matches_exactly(&dir);
+            let _ = std::fs::remove_dir_all(&path);
+            if known {
+                assert!(
+                    exact,
+                    "a directory cap-std opened on a filesystem known to match names exactly, \
+                     asked through matches_exactly, must answer that it matches exactly"
+                );
+            }
+        }
 
         // A Linux host whose filesystem is not known to match exactly,
         // XFS among them, spells by listing; the host here matches
