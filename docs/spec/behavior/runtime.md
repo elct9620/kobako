@@ -1642,3 +1642,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a directory opened beneath a Mount, holding a link pointing at itself |
 | When | the guest opens the link, following it |
 | Then | the open answers ELOOP |
+
+## `RT-155` A directory renamed onto its own path beneath a Policy stays
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-094` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory Mount with a Policy, holding a directory beneath its root |
+| When | the guest renames that directory onto its own path |
+| Then | the rename succeeds and changes nothing |

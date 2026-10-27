@@ -137,6 +137,7 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 1150) "pub/x")
   (data (i32.const 1160) "in/inner/../../sub/y")
   (data (i32.const 1184) "loop")
+  (data (i32.const 1190) "dir/sub")
   ;; An iovec naming 16 bytes past the one page of memory.
   (data (i32.const 1140) "\00\00\02\00\10\00\00\00")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
@@ -2422,6 +2423,7 @@ const DIR_UP: (i32, i32) = (1120, 6);
 const NOWHERE: (i32, i32) = (1130, 7);
 const OUT_OF_IN: (i32, i32) = (1160, 20);
 const LOOP: (i32, i32) = (1184, 4);
+const DIR_SUB: (i32, i32) = (1190, 7);
 
 /// A host directory whose `dir` holds links staying within it (`in`,
 /// `twisty`), links leading out of it (`up`, `updir`), links pointing at
@@ -2525,6 +2527,31 @@ fn a_step_out_of_where_a_link_led_answers_eloop() {
         "an open through preview1 of `in/inner/../../sub/y`, where `in` is a link within a \
          directory opened beneath a Directory Mount or an Overlay's Directory Layer, must answer \
          ELOOP"
+    );
+}
+
+// A Policy lets no directory move, and each side of the rename is walked
+// on its own, so only a rename recognised as onto its own path, rather
+// than by the directory each walk opened, changes nothing and succeeds.
+// @behavior RT-155
+#[cfg(unix)]
+#[test]
+fn a_directory_renamed_onto_its_own_path_beneath_a_policy_stays() {
+    let host = LinkedBeneath::new("onto-itself");
+    let directory = Arc::new(Directory::new(&host.0).expect("the host directory must open"));
+    let mut guest = Guest::new(&[grant(
+        directory,
+        Access::ReadWrite,
+        Some(Arc::new(AllowsAll)),
+    )]);
+    assert_eq!(
+        (
+            guest.call_pair("rename_paths", DIR_SUB, DIR_SUB),
+            host.0.join("dir/sub/y").is_file()
+        ),
+        (0, true),
+        "path_rename of `dir/sub` onto itself beneath a Directory Mount with a Policy through \
+         preview1 must change nothing and succeed, as rename(2) does"
     );
 }
 

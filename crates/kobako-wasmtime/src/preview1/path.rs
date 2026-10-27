@@ -342,6 +342,13 @@ pub(crate) fn rename(
     }
     from_dir.mount.check(&from_judged, Access::ReadWrite)?;
     to_dir.mount.check(&to_judged, Access::ReadWrite)?;
+    // Each side was walked on its own, so a rename onto its own path is
+    // known by the path rather than by the directories each walk opened;
+    // it changes nothing once the source stands, as `rename(2)` answers.
+    if onto_itself {
+        from_base.symlink_metadata(&from)?;
+        return Ok(());
+    }
     let rename = match (from_dir.mount.moves_directories(), names_directory) {
         (false, _) => Rename::File,
         (true, true) => Rename::Directory,
