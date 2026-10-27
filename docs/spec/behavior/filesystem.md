@@ -1219,3 +1219,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay file open to read after a write copied it up |
 | When | the file is removed, and a new file at its path is renamed away |
 | Then | the open file still reads what it held |
+
+## `FS-104` An opaque marker at a Layer's root hides the Layers below
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-013`, `FS-019` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose upper Layer holds an opaque marker at its root, over a Layer holding a file |
+| When | the root is listed and the file is looked up |
+| Then | the listing shows only the upper Layer's entries, and the file is not found |

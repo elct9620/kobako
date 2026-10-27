@@ -1832,6 +1832,26 @@ mod tests {
         );
     }
 
+    // The marker comes with the Layer, as an OCI layer carries one at its
+    // root, so no change through the Overlay made it.
+    // @behavior FS-104
+    #[test]
+    fn an_opaque_marker_at_a_layers_root_hides_the_layers_below() {
+        let upper: Memory = [(".wh..wh..opq", ""), ("kept", "upper")]
+            .into_iter()
+            .collect();
+        let overlay = Overlay::new()
+            .layer(Arc::new(upper), Access::ReadWrite)
+            .layer(memory_with("hidden", "lower"), Access::Read);
+        assert_eq!(
+            (names(&overlay, ""), overlay.metadata("hidden")),
+            (vec!["kept".to_string()], Err(FilesystemError::NotFound)),
+            "an Overlay whose upper Layer holds an opaque marker at its root must list only that \
+             Layer's entries through Overlay::read_dir and find no lower file through \
+             Overlay::metadata"
+        );
+    }
+
     // @behavior FS-103
     #[test]
     fn a_file_open_to_read_keeps_what_it_held_once_removed() {

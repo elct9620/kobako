@@ -75,14 +75,31 @@ impl Layer {
     /// directories or in `path` itself, or a file or link standing at it
     /// or above it, as overlayfs merges only directories. A marker lives
     /// in a directory, so the walk ends at the first directory above
-    /// `path` this Layer lacks.
+    /// `path` this Layer lacks. The root has no directory to hold a
+    /// whiteout of it, so only its opaque marker hides it.
     fn hides(&self, path: &str) -> Result<bool, FilesystemError> {
-        if self.holds(&join(path, OPAQUE))? {
+        self.hides_given(path, false)
+    }
+
+    /// `hides`, for a `path` this Layer was found to hold nothing at, so
+    /// neither what stands there nor a marker inside it is looked up again.
+    fn hides_absent(&self, path: &str) -> Result<bool, FilesystemError> {
+        self.hides_given(path, true)
+    }
+
+    fn hides_given(&self, path: &str, absent: bool) -> Result<bool, FilesystemError> {
+        if path.is_empty() {
+            return self.holds(OPAQUE);
+        }
+        if !absent && self.holds(&join(path, OPAQUE))? {
             return Ok(true);
         }
         for name in ancestors(path).chain(std::iter::once(path)) {
             if self.holds(&whiteout(name))? || self.holds(&join(parent(name), OPAQUE))? {
                 return Ok(true);
+            }
+            if absent && name == path {
+                break;
             }
             match self.filesystem.symlink_metadata(name) {
                 Ok(metadata) if metadata.file_type != FileType::Directory => return Ok(true),
@@ -230,7 +247,7 @@ impl Stack {
     /// followed within that Layer, or `None` when no Layer shows it or the
     /// link shown points at nothing.
     fn locate(&self, path: &str) -> Result<Option<(usize, Metadata)>, FilesystemError> {
-        match self.locate_by(path, <dyn Filesystem>::symlink_metadata)? {
+        match self.locate_entry(path)? {
             Some((index, metadata)) if metadata.file_type == FileType::Symlink => Ok(self.layers
                 [index]
                 .find(path)?
@@ -239,16 +256,14 @@ impl Stack {
         }
     }
 
-    fn locate_by(
-        &self,
-        path: &str,
-        lookup: Lookup,
-    ) -> Result<Option<(usize, Metadata)>, FilesystemError> {
+    /// The topmost Layer holding an entry at `path` and that entry, a link
+    /// reported as itself, or `None` when no Layer shows one.
+    fn locate_entry(&self, path: &str) -> Result<Option<(usize, Metadata)>, FilesystemError> {
         for (index, layer) in self.layers.iter().enumerate() {
-            if let Some(metadata) = layer.find_by(path, lookup)? {
+            if let Some(metadata) = layer.find_by(path, <dyn Filesystem>::symlink_metadata)? {
                 return Ok(Some((index, metadata)));
             }
-            if layer.hides(path)? {
+            if layer.hides_absent(path)? {
                 break;
             }
         }
@@ -264,7 +279,12 @@ impl Stack {
             if holds {
                 holders.push(index);
             }
-            if layer.hides(path)? {
+            let hidden = if holds {
+                layer.hides(path)?
+            } else {
+                layer.hides_absent(path)?
+            };
+            if hidden {
                 let shadowed = if holds {
                     self.beneath(index, path)?
                 } else {
@@ -282,7 +302,7 @@ impl Stack {
             if layer.holds(path)? {
                 return Ok(Some(index));
             }
-            if layer.hides(path)? {
+            if layer.hides_absent(path)? {
                 return Ok(None);
             }
         }
@@ -303,7 +323,7 @@ impl Stack {
     /// no change succeeds out of sight.
     fn refuse_covered(&self, path: &str, into: usize) -> Result<(), FilesystemError> {
         for layer in &self.layers[..into] {
-            if layer.holds(path)? || layer.hides(path)? {
+            if layer.holds(path)? || layer.hides_absent(path)? {
                 return Err(FilesystemError::ReadOnlyFilesystem);
             }
         }
@@ -320,7 +340,7 @@ impl Stack {
             if target.holds(dir)? {
                 continue;
             }
-            match self.locate_by(dir, <dyn Filesystem>::symlink_metadata)? {
+            match self.locate_entry(dir)? {
                 Some((_, metadata)) => match metadata.file_type {
                     FileType::Directory => target.filesystem.create_dir(dir)?,
                     FileType::Symlink => return Err(FilesystemError::CrossesDevices),
@@ -474,7 +494,7 @@ impl Stack {
         path: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        match self.locate_by(path, <dyn Filesystem>::symlink_metadata)? {
+        match self.locate_entry(path)? {
             Some(_) if options.create_new => Err(FilesystemError::AlreadyExists),
             Some((index, _)) if self.layers[index].writable() => {
                 self.layers[index].filesystem.open(path, options)
@@ -501,9 +521,7 @@ impl Stack {
     /// reported as one even where it points at nothing.
     pub(super) fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         refuse_reserved(path)?;
-        let (index, metadata) = self
-            .locate_by(path, <dyn Filesystem>::symlink_metadata)?
-            .ok_or(FilesystemError::NotFound)?;
+        let (index, metadata) = self.locate_entry(path)?.ok_or(FilesystemError::NotFound)?;
         self.merge_identity(path, index, metadata)
     }
 
@@ -513,7 +531,7 @@ impl Stack {
         if path.is_empty() {
             return Ok(String::new());
         }
-        match self.locate_by(path, <dyn Filesystem>::symlink_metadata) {
+        match self.locate_entry(path) {
             Ok(Some((index, _))) => self.layers[index].filesystem.stored_path(path),
             Ok(None) | Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {
                 Ok(join(&self.stored_path(parent(path))?, name(path)))
@@ -540,7 +558,7 @@ impl Stack {
             .map(|(end, _)| start + end)
             .chain([full.len()]);
         for end in ends {
-            match self.locate_by(&full[..end], <dyn Filesystem>::symlink_metadata) {
+            match self.locate_entry(&full[..end]) {
                 Ok(Some((index, metadata))) if metadata.file_type == FileType::Symlink => {
                     return self.layers[index]
                         .filesystem
@@ -645,10 +663,7 @@ impl Stack {
     /// the whiteout goes, so the lower Layers' entries never show in it.
     pub(super) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         refuse_reserved(path)?;
-        if self
-            .locate_by(path, <dyn Filesystem>::symlink_metadata)?
-            .is_some()
-        {
+        if self.locate_entry(path)?.is_some() {
             return Err(FilesystemError::AlreadyExists);
         }
         let upper = self.upper()?;
@@ -730,7 +745,7 @@ impl Stack {
             return Err(beneath_itself(moving.file_type));
         }
         let replaced = self
-            .locate_by(to, <dyn Filesystem>::symlink_metadata)?
+            .locate_entry(to)?
             .map(|(_, metadata)| metadata.file_type);
         // Only a directory replaces a directory, and only an empty one.
         match (moving.file_type == FileType::Directory, replaced) {
