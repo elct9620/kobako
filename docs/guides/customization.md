@@ -340,9 +340,9 @@ A method like these joins without a default, a break marked `!`.
 | Method | Keeps | An implementor without it answers |
 |---|---|---|
 | `symlink_metadata` | a link from being followed but where the runtime follows it | what stands there, as no link does |
-| `open_dir_nofollow` | the same, for each directory on a path, and its identity held while open | the directory, as no link stands there |
+| `open_dir` | the same, for each directory on a path, and its identity held while open | the directory, as no link stands there |
 | `read_link` | a link followed only within the directory a descriptor opened | `InvalidInput` |
-| `stored_name` | a Policy judging the spelling the host stores | the name as given |
+| `stored_name` | a Policy checking the spelling the host stores | the name as given |
 | `File::append` | another writer's append from landing over this one | `Unsupported` |
 
 An Overlay waits for its lock through `Blocking`. A frontend whose threads share a
