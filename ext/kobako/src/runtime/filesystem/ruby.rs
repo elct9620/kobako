@@ -18,6 +18,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use kobako_runtime::filesystem::{
     DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
 };
+use kobako_runtime::vfs::Dentry;
 
 use crate::runtime::pinned_value::PinnedValue;
 use crate::runtime::{escape, gvl};
@@ -48,9 +49,48 @@ impl RubyFilesystem {
         })
     }
 
-    /// `path` beneath this directory, as the object is asked it.
-    fn path(&self, path: &str) -> String {
-        join(&self.at, path)
+    /// The name `dentry` carries beneath this directory, as the object is
+    /// asked it.
+    fn path(&self, dentry: &Dentry) -> String {
+        join(&self.at, &dentry.name())
+    }
+
+    /// What the object's `stat` answers for `path`.
+    fn stat(&self, path: String) -> Result<Metadata, FilesystemError> {
+        let own_dev = self.dev;
+        ask(
+            self.object,
+            "stat",
+            FilesystemError::Unsupported,
+            |_, fs| {
+                let stat: Value = fs.funcall("stat", (path,))?;
+                let metadata = if stat.funcall::<_, _, bool>("directory?", ())? {
+                    Metadata::new(FileType::Directory, 0)
+                } else {
+                    Metadata::new(FileType::File, stat.funcall("size", ())?)
+                };
+                // A stat names its identity as `File::Stat` does; without a
+                // `dev` the Filesystem stands for a device of its own, so it
+                // shares an identity with no other Filesystem.
+                let dev = if stat.respond_to("dev", false)? {
+                    stat.funcall("dev", ())?
+                } else {
+                    own_dev
+                };
+                let metadata = metadata
+                    .with_identity(dev, stat.funcall("ino", ())?)
+                    .with_times(
+                        time_of(stat, "atime")?,
+                        time_of(stat, "mtime")?,
+                        time_of(stat, "ctime")?,
+                    );
+                Ok(if stat.respond_to("nlink", false)? {
+                    metadata.with_nlink(stat.funcall("nlink", ())?)
+                } else {
+                    metadata
+                })
+            },
+        )
     }
 }
 
@@ -176,8 +216,12 @@ fn join(dir: &str, name: &str) -> String {
 }
 
 impl Filesystem for RubyFilesystem {
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        let path = self.path(path);
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
+        let path = self.path(dentry);
         ask(
             self.object,
             "open",
@@ -190,64 +234,34 @@ impl Filesystem for RubyFilesystem {
     }
 
     /// A Ruby object answers `stat` alone, so it holds no links to refuse.
-    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        if self.symlink_metadata(name)?.file_type != FileType::Directory {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        if self.symlink_metadata(dentry)?.file_type != FileType::Directory {
             return Err(FilesystemError::NotADirectory);
         }
         Ok(Arc::new(Self {
             object: self.object,
             dev: self.dev,
-            at: self.path(name),
+            at: self.path(dentry),
         }))
     }
 
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        self.stat(self.at.clone())
+    }
+
     /// A Ruby object answers `stat` alone, so it holds no links.
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        let own_dev = self.dev;
-        let path = self.path(path);
-        ask(
-            self.object,
-            "stat",
-            FilesystemError::Unsupported,
-            |_, fs| {
-                let stat: Value = fs.funcall("stat", (path,))?;
-                let metadata = if stat.funcall::<_, _, bool>("directory?", ())? {
-                    Metadata::new(FileType::Directory, 0)
-                } else {
-                    Metadata::new(FileType::File, stat.funcall("size", ())?)
-                };
-                // A stat names its identity as `File::Stat` does; without a
-                // `dev` the Filesystem stands for a device of its own, so it
-                // shares an identity with no other Filesystem.
-                let dev = if stat.respond_to("dev", false)? {
-                    stat.funcall("dev", ())?
-                } else {
-                    own_dev
-                };
-                let metadata = metadata
-                    .with_identity(dev, stat.funcall("ino", ())?)
-                    .with_times(
-                        time_of(stat, "atime")?,
-                        time_of(stat, "mtime")?,
-                        time_of(stat, "ctime")?,
-                    );
-                Ok(if stat.respond_to("nlink", false)? {
-                    metadata.with_nlink(stat.funcall("nlink", ())?)
-                } else {
-                    metadata
-                })
-            },
-        )
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.stat(self.path(dentry))
     }
 
     /// A Ruby object matches names exactly, as its contract asks.
-    fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
-        Ok(name.to_string())
+    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        Ok(dentry.name())
     }
 
     /// A Ruby object answers `stat` alone, so it holds no links.
-    fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-        self.symlink_metadata(name)?;
+    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        self.symlink_metadata(dentry)?;
         Err(FilesystemError::InvalidInput)
     }
 
@@ -261,35 +275,35 @@ impl Filesystem for RubyFilesystem {
         names
             .into_iter()
             .map(|name| {
-                let file_type = self.symlink_metadata(&name)?.file_type;
+                let file_type = self.stat(join(&self.at, &name))?.file_type;
                 Ok(DirEntry::new(name, file_type))
             })
             .collect()
     }
 
-    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         change(
             self.object,
             "mkdir",
-            (self.path(path),),
+            (self.path(dentry),),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
 
-    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         change(
             self.object,
             "rmdir",
-            (self.path(path),),
+            (self.path(dentry),),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
 
-    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         change(
             self.object,
             "unlink",
-            (self.path(path),),
+            (self.path(dentry),),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
@@ -300,9 +314,9 @@ impl Filesystem for RubyFilesystem {
     /// which their shared device names.
     fn rename(
         &self,
-        from: &str,
+        from: &Dentry,
         to_dir: &dyn Filesystem,
-        to: &str,
+        to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
         let target = (to_dir as &dyn Any)

@@ -13,7 +13,7 @@ use kobako_runtime::filesystem::{
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::SuperBlock;
+use kobako_runtime::vfs::{self, Dentry, OpenHow, Opened, Path, SuperBlock};
 use wasmtime::{Instance, Module, Store};
 
 use crate::cache::shared_engine;
@@ -26,8 +26,8 @@ use crate::wasi::Wasi;
 /// The answer of a test Filesystem holding no links.
 macro_rules! holds_no_links {
     () => {
-        fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-            self.symlink_metadata(name)?;
+        fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            self.symlink_metadata(dentry)?;
             Err(FilesystemError::InvalidInput)
         }
     };
@@ -36,24 +36,40 @@ macro_rules! holds_no_links {
 /// The answer of a test Filesystem matching names byte for byte.
 macro_rules! matches_names_exactly {
     () => {
-        fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
-            Ok(name.to_string())
+        fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            Ok(dentry.name())
         }
     };
 }
 
-/// The answers of a test Filesystem over the Memory in `$inner` that opens
-/// and lists its directories as that Memory does.
+/// The answers of a test Filesystem over the Memory in `$inner` that opens,
+/// lists, and reports its directories as that Memory does.
 macro_rules! opens_directories {
     ($inner:tt) => {
-        fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-            self.$inner.open_dir_nofollow(name)
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+            self.$inner.open_dir(dentry)
+        }
+
+        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+            self.$inner.metadata()
         }
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
             self.$inner.entries()
         }
     };
+}
+
+/// The root of `filesystem` as the host reaches it through the VFS, a
+/// writer of its own beside the guest.
+fn host<F: Filesystem>(filesystem: &Arc<F>) -> Path {
+    let mount = Mount::new(
+        "/data",
+        SuperBlock::new(filesystem.clone()),
+        Access::ReadWrite,
+    )
+    .expect("/data is a guest path");
+    Path::root(mount, Profile::Permissive)
 }
 
 const ERRNO_ACCES: i32 = 2;
@@ -544,10 +560,12 @@ impl Guest {
     }
 }
 
-fn contents(filesystem: &dyn Filesystem, path: &str) -> Option<Vec<u8>> {
-    let mut file = filesystem
-        .open(path, &build_options(|options| options.read = true))
-        .ok()?;
+fn contents(root: &Path, path: &str) -> Option<Vec<u8>> {
+    let mut how = OpenHow::default();
+    how.read = true;
+    let Ok(Opened::File(mut file)) = vfs::open(root, path, &how, true) else {
+        return None;
+    };
     let mut buf = vec![0; 64];
     let read = file.read_at(&mut buf, 0).ok()?;
     buf.truncate(read);
@@ -555,13 +573,13 @@ fn contents(filesystem: &dyn Filesystem, path: &str) -> Option<Vec<u8>> {
 }
 
 /// Make an empty file at `path`.
-fn overwrite(filesystem: &dyn Filesystem, path: &str) {
-    filesystem
-        .open(
-            path,
-            &build_options(|options| (options.write, options.create) = (true, true)),
-        )
-        .expect("the file must be made");
+fn overwrite(root: &Path, path: &str) {
+    let mut how = OpenHow::default();
+    (how.write, how.create) = (true, true);
+    assert!(
+        matches!(vfs::open(root, path, &how, true), Ok(Opened::File(_))),
+        "the file must be made"
+    );
 }
 
 struct Refuses(&'static str);
@@ -587,37 +605,41 @@ struct StoresUpperCase(Memory);
 impl Filesystem for StoresUpperCase {
     holds_no_links!();
 
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        self.0.open(path, options)
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
+        self.0.open(dentry, options)
     }
 
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.0.symlink_metadata(path)
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.0.symlink_metadata(dentry)
     }
 
-    fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
-        Ok(name.to_uppercase())
+    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        Ok(dentry.name().to_uppercase())
     }
 
     opens_directories!(0);
 
-    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.create_dir(path)
+    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.create_dir(dentry)
     }
 
-    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.remove_dir(path)
+    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.remove_dir(dentry)
     }
 
-    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.remove_file(path)
+    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.remove_file(dentry)
     }
 
     fn rename(
         &self,
-        from: &str,
+        from: &Dentry,
         _to_dir: &dyn Filesystem,
-        to: &str,
+        to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
         self.0.rename(from, &self.0, to, rename)
@@ -698,12 +720,7 @@ fn a_listing_goes_on_over_the_entries_it_began_with() {
         [".", ".."],
         "the first listing must hold the dots"
     );
-    memory
-        .open(
-            "b.txt",
-            &build_options(|options| (options.write, options.create) = (true, true)),
-        )
-        .expect("the file must be made");
+    overwrite(&host(&memory), "b.txt");
     assert_eq!(
         guest.list(2, 4096),
         ["a.txt"],
@@ -736,7 +753,7 @@ fn a_guest_writes_a_file_beneath_a_read_write_mount() {
     let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
     assert_eq!(guest.call("write_file", FILE), 0, "the write must succeed");
     assert_eq!(
-        contents(memory.as_ref(), "file.txt").as_deref(),
+        contents(&host(&memory), "file.txt").as_deref(),
         Some(&b"hello"[..]),
         "a file written beneath a read-write Mount through preview1 must land in the Memory"
     );
@@ -764,7 +781,7 @@ fn a_truncating_open_beneath_a_read_only_mount_is_refused() {
     assert_eq!(
         (
             guest.call("truncate_file", FILE),
-            contents(memory.as_ref(), "file.txt")
+            contents(&host(&memory), "file.txt")
         ),
         (ERRNO_ROFS, Some(b"granted".to_vec())),
         "a read-rights open with O_TRUNC beneath a read-only Mount through preview1 must answer \
@@ -802,8 +819,9 @@ fn a_path_above_the_directory_it_is_opened_beneath_is_refused() {
 }
 
 /// What `stat_inner` answers through `dir` opened, beneath a Mount with
-/// `policy`, before `change` runs on the Memory holding it.
-fn stat_after(policy: Option<Arc<dyn Policy>>, change: impl FnOnce(&Memory)) -> i32 {
+/// `policy`, before `change` runs on the host's root of the Memory
+/// holding it.
+fn stat_after(policy: Option<Arc<dyn Policy>>, change: impl FnOnce(&Path)) -> i32 {
     let memory = file_and_directory();
     let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, policy)]);
     assert_eq!(
@@ -811,17 +829,17 @@ fn stat_after(policy: Option<Arc<dyn Policy>>, change: impl FnOnce(&Memory)) -> 
         0,
         "dir must open as a directory"
     );
-    change(&memory);
+    change(&host(&memory));
     guest.call_bare("stat_inner")
 }
 
 /// Move `dir` away, its `inner` with it, and make another `dir` holding
 /// an `inner` of its own, so only where the descriptor reaches decides
 /// whether the lookup finds one.
-fn move_and_replace(memory: &Memory) {
-    memory.rename("dir", memory, "moved", Rename::Any).unwrap();
-    memory.create_dir("dir").unwrap();
-    overwrite(memory, "dir/inner");
+fn move_and_replace(root: &Path) {
+    vfs::rename(root, "dir", root, "moved").unwrap();
+    vfs::create_dir(root, "dir").unwrap();
+    overwrite(root, "dir/inner");
 }
 
 // A directory made at the path holds an `inner` of its own, so only the
@@ -829,11 +847,11 @@ fn move_and_replace(memory: &Memory) {
 // @behavior RT-117
 #[test]
 fn a_directory_made_in_a_removed_directorys_place_is_not_reached_through_it() {
-    let answer = stat_after(None, |memory| {
-        memory.remove_file("dir/inner").unwrap();
-        memory.remove_dir("dir").unwrap();
-        memory.create_dir("dir").unwrap();
-        overwrite(memory, "dir/inner");
+    let answer = stat_after(None, |root| {
+        vfs::remove_file(root, "dir/inner").unwrap();
+        vfs::remove_dir(root, "dir").unwrap();
+        vfs::create_dir(root, "dir").unwrap();
+        overwrite(root, "dir/inner");
     });
     assert_eq!(
         answer, ERRNO_NOENT,
@@ -880,58 +898,66 @@ impl Filesystem for ReusesInodes {
     holds_no_links!();
     matches_names_exactly!();
 
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        self.memory.open(path, options)
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
+        self.memory.open(dentry, options)
     }
 
-    fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        let opened = self.memory.open_dir_nofollow(path)?;
-        if path == "dir" {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        let opened = self.memory.open_dir(dentry)?;
+        if dentry.name() == "dir" {
             self.opened.lock().unwrap().push(Arc::downgrade(&opened));
         }
         Ok(opened)
+    }
+
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        self.memory.metadata()
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         self.memory.entries()
     }
 
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        let found = self.memory.symlink_metadata(path)?;
-        if path != "dir" {
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        let found = self.memory.symlink_metadata(dentry)?;
+        if dentry.name() != "dir" {
             return Ok(found);
         }
         let ino = 100 + self.removed_while_open.load(Ordering::SeqCst) as u64;
         Ok(found.with_identity(1, ino))
     }
 
-    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.memory.create_dir(path)
+    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.memory.create_dir(dentry)
     }
 
-    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.memory.remove_dir(path)?;
+    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.memory.remove_dir(dentry)?;
         let open = self
             .opened
             .lock()
             .unwrap()
             .iter()
             .any(|dir| dir.strong_count() > 0);
-        if path == "dir" && open {
+        if dentry.name() == "dir" && open {
             self.removed_while_open.fetch_add(1, Ordering::SeqCst);
         }
         Ok(())
     }
 
-    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        self.memory.remove_file(path)
+    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.memory.remove_file(dentry)
     }
 
     fn rename(
         &self,
-        from: &str,
+        from: &Dentry,
         _to_dir: &dyn Filesystem,
-        to: &str,
+        to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
         self.memory.rename(from, self.memory.as_ref(), to, rename)
@@ -961,10 +987,11 @@ fn a_directory_descriptor_holds_its_directory_while_open() {
         0,
         "dir must open as a directory"
     );
-    reuses.remove_file("dir/inner").unwrap();
-    reuses.remove_dir("dir").unwrap();
-    reuses.create_dir("dir").unwrap();
-    overwrite(memory.as_ref(), "dir/inner");
+    let outside = host(&reuses);
+    vfs::remove_file(&outside, "dir/inner").unwrap();
+    vfs::remove_dir(&outside, "dir").unwrap();
+    vfs::create_dir(&outside, "dir").unwrap();
+    overwrite(&host(&memory), "dir/inner");
     assert_eq!(
         guest.call_bare("stat_inner"),
         ERRNO_NOENT,
@@ -983,32 +1010,36 @@ impl Filesystem for NamesNoIdentity {
     matches_names_exactly!();
     opens_directories!(0);
 
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        self.0.open(path, options)
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
+        self.0.open(dentry, options)
     }
 
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        let found = self.0.symlink_metadata(path)?;
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        let found = self.0.symlink_metadata(dentry)?;
         Ok(Metadata::new(found.file_type, found.len))
     }
 
-    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.create_dir(path)
+    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.create_dir(dentry)
     }
 
-    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.remove_dir(path)
+    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.remove_dir(dentry)
     }
 
-    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.remove_file(path)
+    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.remove_file(dentry)
     }
 
     fn rename(
         &self,
-        from: &str,
+        from: &Dentry,
         _to_dir: &dyn Filesystem,
-        to: &str,
+        to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
         self.0.rename(from, self.0.as_ref(), to, rename)
@@ -1082,9 +1113,9 @@ fn a_directory_two_layers_hold_is_reached_through_its_descriptor() {
 // @behavior RT-118
 #[test]
 fn a_directory_moved_back_to_its_path_is_reached_through_its_descriptor_again() {
-    let answer = stat_after(None, |memory| {
-        memory.rename("dir", memory, "moved", Rename::Any).unwrap();
-        memory.rename("moved", memory, "dir", Rename::Any).unwrap();
+    let answer = stat_after(None, |root| {
+        vfs::rename(root, "dir", root, "moved").unwrap();
+        vfs::rename(root, "moved", root, "dir").unwrap();
     });
     assert_eq!(
         answer, 0,
@@ -1114,7 +1145,7 @@ fn a_policy_decides_in_the_place_of_a_mounts_access() {
     let mut guest = Guest::new(&[grant(memory.clone(), Access::Read, Some(policy))]);
     assert_eq!(guest.call("write_file", FILE), 0, "the write must succeed");
     assert_eq!(
-        contents(memory.as_ref(), "file.txt").as_deref(),
+        contents(&host(&memory), "file.txt").as_deref(),
         Some(&b"hello"[..]),
         "a write a Policy allows beneath a read-only Mount through preview1 must land"
     );
@@ -1137,7 +1168,7 @@ fn every_invocation_reaches_the_filesystem_its_mount_holds() {
          next invocation through preview1"
     );
     assert_eq!(
-        contents(memory.as_ref(), "file.txt").as_deref(),
+        contents(&host(&memory), "file.txt").as_deref(),
         Some(&b"hello"[..]),
         "the file the next invocation finds must hold what the earlier invocation wrote"
     );
@@ -1167,36 +1198,40 @@ impl Filesystem for ChangeCounter {
     holds_no_links!();
     matches_names_exactly!();
 
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        self.memory.open(path, options)
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
+        self.memory.open(dentry, options)
     }
 
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.memory.symlink_metadata(path)
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.memory.symlink_metadata(dentry)
     }
 
     opens_directories!(memory);
 
-    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.change();
-        self.memory.create_dir(path)
+        self.memory.create_dir(dentry)
     }
 
-    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.change();
-        self.memory.remove_dir(path)
+        self.memory.remove_dir(dentry)
     }
 
-    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.change();
-        self.memory.remove_file(path)
+        self.memory.remove_file(dentry)
     }
 
     fn rename(
         &self,
-        from: &str,
+        from: &Dentry,
         _to_dir: &dyn Filesystem,
-        to: &str,
+        to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
         self.change();
@@ -1207,11 +1242,13 @@ impl Filesystem for ChangeCounter {
 /// A Memory holding `file.txt` that, as a rename reaches it, replaces the
 /// file with a directory holding `secret`, as another invocation sharing
 /// the Memory could between the runtime's checks and the move.
-struct SwappedForADirectory(Memory);
+struct SwappedForADirectory(Arc<Memory>);
 
 impl SwappedForADirectory {
     fn new() -> Arc<Self> {
-        Arc::new(Self([("file.txt", "granted")].into_iter().collect()))
+        Arc::new(Self(Arc::new(
+            [("file.txt", "granted")].into_iter().collect(),
+        )))
     }
 }
 
@@ -1219,42 +1256,43 @@ impl Filesystem for SwappedForADirectory {
     holds_no_links!();
     matches_names_exactly!();
 
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        self.0.open(path, options)
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
+        self.0.open(dentry, options)
     }
 
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.0.symlink_metadata(path)
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.0.symlink_metadata(dentry)
     }
 
     opens_directories!(0);
 
-    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.create_dir(path)
+    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.create_dir(dentry)
     }
 
-    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.remove_dir(path)
+    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.remove_dir(dentry)
     }
 
-    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.remove_file(path)
+    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.remove_file(dentry)
     }
 
     fn rename(
         &self,
-        from: &str,
+        from: &Dentry,
         _to_dir: &dyn Filesystem,
-        to: &str,
+        to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
         self.0.remove_file(from)?;
         self.0.create_dir(from)?;
-        drop(self.0.open(
-            &format!("{from}/secret"),
-            &build_options(|options| (options.write, options.create) = (true, true)),
-        )?);
-        self.0.rename(from, &self.0, to, rename)
+        overwrite(&host(&self.0), &format!("{}/secret", from.name()));
+        self.0.rename(from, self.0.as_ref(), to, rename)
     }
 }
 
@@ -1270,9 +1308,12 @@ fn a_directory_beneath_a_mount_with_a_policy_does_not_move() {
     assert_eq!(
         (
             guest.call_bare("rename_to_new"),
-            swapped.symlink_metadata("new.txt/secret")
+            vfs::symlink_metadata(&host(&swapped.0), "new.txt/secret")
         ),
-        (ERRNO_XDEV, Err(FilesystemError::NotFound)),
+        (
+            ERRNO_XDEV,
+            Err(vfs::Error::Filesystem(FilesystemError::NotFound))
+        ),
         "path_rename of what is a directory by the time it moves, beneath a Mount with a \
          Policy, through preview1 must answer EXDEV and move nothing"
     );
@@ -1281,7 +1322,7 @@ fn a_directory_beneath_a_mount_with_a_policy_does_not_move() {
 /// A Memory whose files take another writer's `bbb` at their end as one
 /// is written, once the length the write would land at is known and
 /// before it lands, as another invocation sharing the file could.
-struct AppendedMeanwhile(Memory);
+struct AppendedMeanwhile(Arc<Memory>);
 
 struct AppendedMeanwhileFile {
     file: Box<dyn File>,
@@ -1329,40 +1370,44 @@ impl Filesystem for AppendedMeanwhile {
     holds_no_links!();
     matches_names_exactly!();
 
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
         let writes = build_options(|options| options.write = true);
         Ok(Box::new(AppendedMeanwhileFile {
-            file: self.0.open(path, options)?,
-            other: std::sync::Mutex::new(self.0.open(path, &writes)?),
+            file: self.0.open(dentry, options)?,
+            other: std::sync::Mutex::new(self.0.open(dentry, &writes)?),
         }))
     }
 
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.0.symlink_metadata(path)
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.0.symlink_metadata(dentry)
     }
 
     opens_directories!(0);
 
-    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.create_dir(path)
+    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.create_dir(dentry)
     }
 
-    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.remove_dir(path)
+    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.remove_dir(dentry)
     }
 
-    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.remove_file(path)
+    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.remove_file(dentry)
     }
 
     fn rename(
         &self,
-        from: &str,
+        from: &Dentry,
         _to_dir: &dyn Filesystem,
-        to: &str,
+        to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
-        self.0.rename(from, &self.0, to, rename)
+        self.0.rename(from, self.0.as_ref(), to, rename)
     }
 }
 
@@ -1371,13 +1416,13 @@ impl Filesystem for AppendedMeanwhile {
 // @behavior RT-095
 #[test]
 fn an_append_lands_after_another_writers_append() {
-    let memory: Memory = [("file.txt", "granted")].into_iter().collect();
-    let shared = Arc::new(AppendedMeanwhile(memory));
+    let memory: Arc<Memory> = Arc::new([("file.txt", "granted")].into_iter().collect());
+    let shared = Arc::new(AppendedMeanwhile(memory.clone()));
     let mut guest = Guest::new(&[grant(shared.clone(), Access::ReadWrite, None)]);
     assert_eq!(
         (
             guest.call("append_file", FILE),
-            contents(&shared.0, "file.txt")
+            contents(&host(&memory), "file.txt")
         ),
         (0, Some(b"grantedbbbhello".to_vec())),
         "fd_write to a file opened to append beneath a Mount through preview1 must land after \
@@ -1603,7 +1648,7 @@ fn an_allocation_for_a_file_beneath_a_mount_is_unsupported() {
     let answer =
         Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]).call("allocate_file", FILE);
     assert_eq!(
-        (answer, contents(memory.as_ref(), "file.txt")),
+        (answer, contents(&host(&memory), "file.txt")),
         (ERRNO_NOTSUP, Some(b"granted".to_vec())),
         "fd_allocate of a file beneath a read-write Mount through preview1 must answer ENOTSUP \
          as wasmtime-wasi does, leaving the file as it was"
@@ -1750,49 +1795,57 @@ struct FailsLookingUpDir(Memory);
 impl Filesystem for FailsLookingUpDir {
     matches_names_exactly!();
 
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        self.0.open(path, options)
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
+        self.0.open(dentry, options)
     }
 
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        match path {
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        match dentry.name().as_str() {
             "dir" => Err(FilesystemError::Other("unreadable".into())),
-            path => self.0.symlink_metadata(path),
+            _ => self.0.symlink_metadata(dentry),
         }
     }
 
-    fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-        self.0.read_link(name)
+    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        self.0.read_link(dentry)
     }
 
-    fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        match path {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        match dentry.name().as_str() {
             "dir" => Err(FilesystemError::Other("unreadable".into())),
-            path => self.0.open_dir_nofollow(path),
+            _ => self.0.open_dir(dentry),
         }
+    }
+
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        self.0.metadata()
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         self.0.entries()
     }
 
-    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.create_dir(path)
+    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.create_dir(dentry)
     }
 
-    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.remove_dir(path)
+    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.remove_dir(dentry)
     }
 
-    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        self.0.remove_file(path)
+    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.0.remove_file(dentry)
     }
 
     fn rename(
         &self,
-        from: &str,
+        from: &Dentry,
         _to_dir: &dyn Filesystem,
-        to: &str,
+        to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
         self.0.rename(from, &self.0, to, rename)
@@ -1840,7 +1893,10 @@ fn a_path_ending_in_a_dot_makes_nothing_where_no_directory_stands() {
         guest.call_flagged(MISSING_DOT, OFLAGS_CREAT, 0),
     ];
     assert_eq!(
-        (answers, memory.symlink_metadata("missing").is_err()),
+        (
+            answers,
+            vfs::symlink_metadata(&host(&memory), "missing").is_err()
+        ),
         ([ERRNO_NOENT, ERRNO_NOENT], true),
         "path_create_directory and path_open with O_CREAT of missing/. beneath a Mount through \
          preview1 must answer ENOENT, as Linux does, and make nothing named missing"
@@ -1863,7 +1919,10 @@ fn a_path_ending_in_a_dot_is_neither_removed_nor_moved() {
         guest.call_pair("rename_paths", OUT_OF_FILE, MOVED),
     ];
     assert_eq!(
-        (answers, memory.symlink_metadata("dir/inner").is_ok()),
+        (
+            answers,
+            vfs::symlink_metadata(&host(&memory), "dir/inner").is_ok()
+        ),
         (
             [
                 ERRNO_INVAL,
@@ -2146,7 +2205,7 @@ fn a_write_at_the_largest_signed_offset_is_too_large() {
     let answer = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)])
         .call_bare("write_at_the_largest_offset");
     assert_eq!(
-        (answer, contents(memory.as_ref(), "file.txt")),
+        (answer, contents(&host(&memory), "file.txt")),
         (ERRNO_FBIG, Some(b"granted".to_vec())),
         "fd_write at the largest signed 64-bit offset of a Memory file beneath a Mount through \
          preview1 must answer EFBIG, as Linux does, and leave the file as it was"
@@ -2219,7 +2278,7 @@ fn a_file_moved_beneath_itself_is_no_directory() {
         BENEATH_FILE,
     );
     assert_eq!(
-        (answer, contents(memory.as_ref(), "file.txt")),
+        (answer, contents(&host(&memory), "file.txt")),
         (ERRNO_NOTDIR, Some(b"granted".to_vec())),
         "path_rename of a file to a path beneath it, beneath a Mount through preview1, must \
          answer ENOTDIR as Linux does and leave the file in place"
@@ -2358,7 +2417,7 @@ fn a_rename_of_a_file_onto_a_path_ending_in_a_slash_is_not_a_directory() {
     assert_eq!(
         (
             guest.call_bare("rename_onto_itself_as_directory"),
-            contents(memory.as_ref(), "file.txt")
+            contents(&host(&memory), "file.txt")
         ),
         (ERRNO_NOTDIR, Some(b"granted".to_vec())),
         "path_rename of `file.txt` onto `file.txt/` beneath a Mount through preview1 must \

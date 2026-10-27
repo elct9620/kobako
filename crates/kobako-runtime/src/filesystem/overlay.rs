@@ -11,6 +11,7 @@
 
 mod exclusive;
 mod inodes;
+mod lower;
 mod readers;
 mod stack;
 
@@ -21,6 +22,7 @@ pub use exclusive::Blocking;
 
 use super::path::components;
 use super::{Access, DirEntry, File, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
+use crate::vfs::Dentry;
 use exclusive::{Exclusive, Inline};
 use inodes::Inode;
 use stack::{Chain, Stack};
@@ -77,32 +79,11 @@ impl Overlay {
         Ok(Chain::at(inode.path().to_string(), level))
     }
 
-    /// The chain to the directory holding the last name of `path` beneath
-    /// this directory, and that name; the empty name for this directory
-    /// itself. The caller holds the Overlay's lock.
-    fn split(&self, path: &str, changes: bool) -> Result<(Chain, String), FilesystemError> {
-        let mut chain = self.chain(changes)?;
-        let names: Vec<&str> = components(path).collect();
-        match names.split_last() {
-            Some((name, above)) => {
-                self.stack.descend(&mut chain, above.iter().copied())?;
-                Ok((chain, name.to_string()))
-            }
-            None => {
-                let name = chain.pop().unwrap_or_default();
-                Ok((chain, name))
-            }
-        }
-    }
-
-    /// The directory `path` names, as an Overlay of its own. The caller
-    /// holds the Overlay's lock.
-    fn beneath(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        let (mut chain, name) = self.split(path, false)?;
-        if name.is_empty() {
-            return Ok(Arc::new(self.clone()));
-        }
-        self.stack.enter(&mut chain, &name)?;
+    /// The directory `name` in this one, as an Overlay of its own. The
+    /// caller holds the Overlay's lock.
+    fn beneath(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        let mut chain = self.chain(false)?;
+        self.stack.enter(&mut chain, name)?;
         let level = chain.level().clone();
         let shared = self.stack.misses_writable(&level);
         let inode = self.stack.inodes().at(chain.path(), level, shared);
@@ -132,46 +113,43 @@ impl Overlay {
 }
 
 impl Filesystem for Overlay {
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
         let _held = self.lock.hold()?;
         let changes = options.write || options.truncate || options.create || options.create_new;
-        let (mut chain, name) = self.split(path, changes)?;
-        if name.is_empty() {
-            return Err(FilesystemError::IsADirectory);
-        }
-        self.stack.open(&mut chain, &name, options)
+        let mut chain = self.chain(changes)?;
+        self.stack.open(&mut chain, &dentry.name(), options)
     }
 
-    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.beneath(name)
+        self.beneath(&dentry.name())
     }
 
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
         let _held = self.lock.hold()?;
-        let (chain, name) = self.split(path, false)?;
-        if name.is_empty() {
-            return self.stack.dir_metadata(chain.level());
-        }
-        self.stack.symlink_metadata(chain.level(), &name)
+        self.stack.dir_metadata(self.chain(false)?.level())
     }
 
-    fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         let _held = self.lock.hold()?;
-        let (chain, name) = self.split(name, false)?;
-        if name.is_empty() {
-            return Ok(name);
-        }
-        self.stack.stored_name(chain.level(), &name)
+        self.stack
+            .symlink_metadata(self.chain(false)?.level(), &dentry.name())
     }
 
-    fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
+    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         let _held = self.lock.hold()?;
-        let (chain, name) = self.split(name, false)?;
-        if name.is_empty() {
-            return Err(FilesystemError::InvalidInput);
-        }
-        self.stack.read_link(chain.level(), &name)
+        self.stack
+            .stored_name(self.chain(false)?.level(), &dentry.name())
+    }
+
+    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        let _held = self.lock.hold()?;
+        self.stack
+            .read_link(self.chain(false)?.level(), &dentry.name())
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -179,34 +157,24 @@ impl Filesystem for Overlay {
         self.stack.entries(self.chain(false)?.level())
     }
 
-    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        let (mut chain, name) = self.split(path, true)?;
-        if name.is_empty() {
-            return Err(FilesystemError::AlreadyExists);
-        }
-        self.stack.create_dir(&mut chain, &name)
+        self.stack
+            .create_dir(&mut self.chain(true)?, &dentry.name())
     }
 
-    /// The root stays, as a mount point does.
-    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        let (mut chain, name) = self.split(path, true)?;
-        if name.is_empty() {
-            return Err(FilesystemError::ResourceBusy);
-        }
+        let (mut chain, name) = (self.chain(true)?, dentry.name());
         self.stack.remove_dir(&mut chain, &name)?;
         self.stack.inodes().forget(&chain.path_of(&name));
         Ok(())
     }
 
-    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        let (mut chain, name) = self.split(path, true)?;
-        if name.is_empty() {
-            return Err(FilesystemError::IsADirectory);
-        }
-        self.stack.remove_file(&mut chain, &name)
+        self.stack
+            .remove_file(&mut self.chain(true)?, &dentry.name())
     }
 
     /// Both directories lie in one Overlay, which holds one lock however
@@ -214,9 +182,9 @@ impl Filesystem for Overlay {
     /// no handle's that a directory made there later reaches.
     fn rename(
         &self,
-        from: &str,
+        from: &Dentry,
         to_dir: &dyn Filesystem,
-        to: &str,
+        to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
         let target = (to_dir as &dyn Any)
@@ -224,11 +192,8 @@ impl Filesystem for Overlay {
             .filter(|target| Arc::ptr_eq(&target.lock, &self.lock))
             .ok_or(FilesystemError::CrossesDevices)?;
         let _held = self.lock.hold()?;
-        let (mut from_chain, from) = self.split(from, true)?;
-        let (mut to_chain, to) = target.split(to, true)?;
-        if from.is_empty() || to.is_empty() {
-            return Err(FilesystemError::ResourceBusy);
-        }
+        let (mut from_chain, from) = (self.chain(true)?, from.name());
+        let (mut to_chain, to) = (target.chain(true)?, to.name());
         self.stack
             .rename(&mut from_chain, &from, &mut to_chain, &to, rename)?;
         if from_chain.path_of(&from) != to_chain.path_of(&to) {
@@ -248,12 +213,13 @@ mod tests {
     use super::super::memory::Memory;
     use super::super::FileType;
     use super::*;
+    use crate::vfs::through::{through, Through};
 
     /// The answer of a test Filesystem holding no links.
     macro_rules! holds_no_links {
         () => {
-            fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-                self.symlink_metadata(name)?;
+            fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+                self.symlink_metadata(dentry)?;
                 Err(FilesystemError::InvalidInput)
             }
         };
@@ -262,21 +228,22 @@ mod tests {
     /// The answer of a test Filesystem matching names byte for byte.
     macro_rules! matches_names_exactly {
         () => {
-            fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
-                Ok(name.to_string())
+            fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+                Ok(dentry.name())
             }
         };
     }
 
     /// The answers of a test Filesystem over the Memory in `$inner` that
-    /// opens and lists its directories as that Memory does.
+    /// opens, lists, and reports its directories as that Memory does.
     macro_rules! opens_directories {
         ($inner:tt) => {
-            fn open_dir_nofollow(
-                &self,
-                name: &str,
-            ) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-                self.$inner.open_dir_nofollow(name)
+            fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+                self.$inner.open_dir(dentry)
+            }
+
+            fn metadata(&self) -> Result<Metadata, FilesystemError> {
+                self.$inner.metadata()
             }
 
             fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -285,7 +252,17 @@ mod tests {
         };
     }
 
-    fn open_to_read(fs: &dyn Filesystem, path: &str) -> Box<dyn File> {
+    /// `filesystem` reached through the VFS.
+    fn at(filesystem: impl Filesystem) -> Through {
+        through(Arc::new(filesystem))
+    }
+
+    /// The Filesystem `filesystem` holds, reached through the VFS.
+    fn on<F: Filesystem>(filesystem: &Arc<F>) -> Through {
+        through(filesystem.clone())
+    }
+
+    fn open_to_read(fs: &Through, path: &str) -> Box<dyn File> {
         fs.open(
             path,
             &OpenOptions {
@@ -303,11 +280,11 @@ mod tests {
         buf
     }
 
-    fn read(fs: &dyn Filesystem, path: &str) -> Vec<u8> {
+    fn read(fs: &Through, path: &str) -> Vec<u8> {
         read_from(open_to_read(fs, path).as_mut())
     }
 
-    fn write(fs: &dyn Filesystem, path: &str, contents: &[u8]) -> Result<(), FilesystemError> {
+    fn write(fs: &Through, path: &str, contents: &[u8]) -> Result<(), FilesystemError> {
         fs.open(
             path,
             &OpenOptions {
@@ -321,14 +298,16 @@ mod tests {
         .map(drop)
     }
 
-    fn overwrite(fs: &dyn Filesystem, path: &str, contents: &[u8]) {
+    fn overwrite(fs: &Through, path: &str, contents: &[u8]) {
         write(fs, path, contents).expect("the write must land");
     }
 
-    fn names(fs: &dyn Filesystem, path: &str) -> Vec<String> {
-        let mut names: Vec<String> = fs
-            .open_dir_nofollow(path)
-            .and_then(|dir| dir.entries())
+    fn names(fs: &Through, path: &str) -> Vec<String> {
+        let listed = match path {
+            "" => fs.entries(),
+            path => fs.open_dir(path).and_then(|dir| dir.entries()),
+        };
+        let mut names: Vec<String> = listed
             .expect("the directory must list")
             .into_iter()
             .map(|entry| entry.name)
@@ -343,12 +322,12 @@ mod tests {
 
     /// A writable `upper` over a read-only Memory holding `dir/file` =
     /// "lower".
-    fn overlay_on(upper: Arc<dyn Filesystem>) -> (Overlay, Arc<Memory>) {
+    fn overlay_on(upper: Arc<dyn Filesystem>) -> (Through, Arc<Memory>) {
         let lower = memory_with("dir/file", "lower");
         let overlay = Overlay::new()
             .layer(upper, Access::ReadWrite)
             .layer(lower.clone(), Access::Read);
-        (overlay, lower)
+        (at(overlay), lower)
     }
 
     /// A host directory holding `target`, `dir/inner`, and the links `link`
@@ -377,17 +356,17 @@ mod tests {
         }
 
         /// A writable Memory over the host directory as a read-only Layer.
-        fn overlay(&self) -> Overlay {
+        fn overlay(&self) -> Through {
             self.under(Arc::new(Memory::new()))
         }
 
         /// The host directory as a read-only Layer beneath `upper`.
-        fn under(&self, upper: Arc<dyn Filesystem>) -> Overlay {
+        fn under(&self, upper: Arc<dyn Filesystem>) -> Through {
             let lower =
                 super::super::Directory::new(&self.0).expect("the host directory must open");
-            Overlay::new()
+            at(Overlay::new()
                 .layer(upper, Access::ReadWrite)
-                .layer(Arc::new(lower), Access::Read)
+                .layer(Arc::new(lower), Access::Read))
         }
     }
 
@@ -399,11 +378,11 @@ mod tests {
     #[test]
     fn a_lower_layers_link_beneath_an_upper_directory_is_not_merged() {
         let tree = LinkTree::new("not-merged");
-        let upper = Memory::new();
-        upper
+        let upper = Arc::new(Memory::new());
+        on(&upper)
             .create_dir("dirlink")
             .expect("the upper directory must be made");
-        let overlay = tree.under(Arc::new(upper));
+        let overlay = tree.under(upper);
         assert_eq!(
             (
                 kind(&overlay, "dirlink/inner"),
@@ -432,11 +411,11 @@ mod tests {
         let overlay = host.overlay();
         assert_eq!(
             (
-                overlay.open_dir_nofollow("dirlink").map(drop),
+                overlay.open_dir("dirlink").map(drop),
                 overlay.read_link("dirlink")
             ),
             (Err(FilesystemError::FilesystemLoop), Ok("dir".to_string())),
-            "a link a Directory Layer holds, opened through Overlay::open_dir_nofollow, must be a \
+            "a link a Directory Layer holds, opened through Overlay::open_dir, must be a \
              link loop, and through Overlay::read_link must answer where it points"
         );
     }
@@ -447,11 +426,7 @@ mod tests {
     fn an_overlay_reports_a_link_its_layer_holds_as_a_link() {
         let host = LinkTree::new("lstat");
         let overlay = host.overlay();
-        let file_type = |path| {
-            overlay
-                .symlink_metadata(path)
-                .map(|metadata| metadata.file_type)
-        };
+        let file_type = |path| kind(&overlay, path);
         assert_eq!(
             (file_type("link"), file_type("dangling")),
             (Ok(FileType::Symlink), Ok(FileType::Symlink)),
@@ -538,11 +513,7 @@ mod tests {
         overlay
             .create_dir("made")
             .expect("a directory must be made in the writable Layer");
-        let file_type = |path| {
-            overlay
-                .symlink_metadata(path)
-                .map(|metadata| metadata.file_type)
-        };
+        let file_type = |path| kind(&overlay, path);
         assert_eq!(
             (
                 overlay.rename("pipe", &overlay, "dir", Rename::Any),
@@ -576,7 +547,6 @@ mod tests {
         };
         let refused = [
             write(&overlay, "link", b"upper"),
-            overlay.open("dirlink/new", &creates).map(drop),
             overlay.open("dangling", &creates).map(drop),
             overlay.rename("link", &overlay, "moved", Rename::Any),
         ];
@@ -585,15 +555,14 @@ mod tests {
             (
                 [
                     Err(FilesystemError::CrossesDevices),
-                    Err(FilesystemError::FilesystemLoop),
                     Err(FilesystemError::CrossesDevices),
                     Err(FilesystemError::CrossesDevices)
                 ],
                 b"lower".to_vec()
             ),
             "a write, a create, and a rename reaching through a link a read-only Directory Layer \
-             holds, through an Overlay, must be refused, as crossing devices or, beneath the \
-             directory link, as a link loop, and leave the target as it was"
+             holds, through an Overlay, must be refused as crossing devices and leave the target \
+             as it was"
         );
     }
 
@@ -605,9 +574,9 @@ mod tests {
     fn a_link_a_layer_holds_hides_what_the_layers_below_hold_there() {
         let host = LinkTree::new("shadow");
         let upper = super::super::Directory::new(&host.0).expect("the host directory must open");
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(Arc::new(upper), Access::ReadWrite)
-            .layer(memory_with("dangling", "lower"), Access::Read);
+            .layer(memory_with("dangling", "lower"), Access::Read));
         assert_eq!(
             overlay
                 .open(
@@ -632,15 +601,15 @@ mod tests {
     fn a_link_a_layer_holds_hides_what_the_layers_below_hold_beneath_it() {
         let host = LinkTree::new("shadow-beneath");
         let upper = super::super::Directory::new(&host.0).expect("the host directory must open");
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(Arc::new(upper), Access::ReadWrite)
-            .layer(memory_with("dirlink/x", "lower"), Access::Read);
+            .layer(memory_with("dirlink/x", "lower"), Access::Read));
         assert_eq!(
             (
                 overlay
                     .symlink_metadata("dirlink")
                     .map(|metadata| metadata.file_type),
-                overlay.open_dir_nofollow("dirlink").map(drop)
+                overlay.open_dir("dirlink").map(drop)
             ),
             (Ok(FileType::Symlink), Err(FilesystemError::FilesystemLoop)),
             "a directory a higher Directory Layer holds as a link, looked up and opened through an \
@@ -654,15 +623,15 @@ mod tests {
     #[test]
     fn removing_a_file_over_a_lower_directory_leaves_it_hidden() {
         let lower = memory_with("f/g", "lower");
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(memory_with("f", "upper"), Access::ReadWrite)
-            .layer(lower.clone(), Access::ReadWrite);
+            .layer(lower.clone(), Access::ReadWrite));
         let removed = overlay.remove_file("f");
         assert_eq!(
             (
                 removed,
                 overlay.symlink_metadata("f").err(),
-                lower.symlink_metadata("f/g").is_ok()
+                on(&lower).symlink_metadata("f/g").is_ok()
             ),
             (Ok(()), Some(FilesystemError::NotFound), true),
             "a file a higher Layer holds over a lower Layer's directory, removed through \
@@ -714,7 +683,7 @@ mod tests {
                 moved,
                 overlay.symlink_metadata("dir").err(),
                 overlay
-                    .open_dir_nofollow("moved")
+                    .open_dir("moved")
                     .and_then(|dir| dir.entries())
                     .map(|entries| entries.len())
             ),
@@ -781,7 +750,7 @@ mod tests {
         let (overlay, _) = overlay_on(upper.clone());
         overwrite(&overlay, "dir/file", b"upper");
         assert_eq!(
-            read(upper.as_ref(), "dir/file"),
+            read(&on(&upper), "dir/file"),
             b"upper",
             "a read-only Layer's file written through Overlay::open must land in the writable Layer above it"
         );
@@ -796,7 +765,7 @@ mod tests {
             .remove_file("dir/file")
             .expect("the file must be removed");
         assert_eq!(
-            read(lower.as_ref(), "dir/file"),
+            read(&on(&lower), "dir/file"),
             b"lower",
             "a read-only Layer's file written and removed through an Overlay must stay as it was"
         );
@@ -819,9 +788,9 @@ mod tests {
     // @behavior FS-013
     #[test]
     fn an_upper_layer_hides_the_same_path_in_a_lower_one() {
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(memory_with("note", "upper"), Access::Read)
-            .layer(memory_with("note", "lower"), Access::Read);
+            .layer(memory_with("note", "lower"), Access::Read));
         assert_eq!(
             read(&overlay, "note"),
             b"upper",
@@ -834,12 +803,12 @@ mod tests {
     fn a_write_to_a_writable_layers_file_changes_it_in_place() {
         let upper = Arc::new(Memory::new());
         let lower = memory_with("note", "lower");
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(upper.clone(), Access::ReadWrite)
-            .layer(lower.clone(), Access::ReadWrite);
+            .layer(lower.clone(), Access::ReadWrite));
         overwrite(&overlay, "note", b"changed");
         assert_eq!(
-            (read(lower.as_ref(), "note"), upper.symlink_metadata("note")),
+            (read(&on(&lower), "note"), on(&upper).symlink_metadata("note")),
             (b"changed".to_vec(), Err(FilesystemError::NotFound)),
             "a writable lower Layer's file written through Overlay::open must change in that Layer alone"
         );
@@ -852,14 +821,14 @@ mod tests {
     fn an_overlay_refuses_to_move_a_file_a_lower_writable_layer_holds() {
         let upper = Arc::new(Memory::new());
         let lower = memory_with("note", "lower");
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(upper.clone(), Access::ReadWrite)
-            .layer(lower.clone(), Access::ReadWrite);
+            .layer(lower.clone(), Access::ReadWrite));
         assert_eq!(
             (
                 overlay.rename("note", &overlay, "moved", Rename::File),
-                read(lower.as_ref(), "note"),
-                upper.entries().map(|entries| entries.len())
+                read(&on(&lower), "note"),
+                on(&upper).entries().map(|entries| entries.len())
             ),
             (Err(FilesystemError::CrossesDevices), b"lower".to_vec(), Ok(0)),
             "a file a lower writable Layer holds, renamed through Overlay::rename, must be refused \
@@ -890,13 +859,16 @@ mod tests {
     fn a_new_file_lands_in_the_topmost_writable_layer() {
         let first = Arc::new(Memory::new());
         let second = Arc::new(Memory::new());
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(Arc::new(Memory::new()), Access::Read)
             .layer(first.clone(), Access::ReadWrite)
-            .layer(second.clone(), Access::ReadWrite);
+            .layer(second.clone(), Access::ReadWrite));
         overwrite(&overlay, "new", b"made");
         assert_eq!(
-            (read(first.as_ref(), "new"), second.symlink_metadata("new")),
+            (
+                read(&on(&first), "new"),
+                on(&second).symlink_metadata("new")
+            ),
             (b"made".to_vec(), Err(FilesystemError::NotFound)),
             "a file created through Overlay::open must land in the topmost writable Layer"
         );
@@ -911,7 +883,7 @@ mod tests {
             .remove_file("dir/file")
             .expect("the file must be removed");
         assert_eq!(
-            upper.symlink_metadata("dir/.wh.file").map(|metadata| metadata.file_type),
+            on(&upper).symlink_metadata("dir/.wh.file").map(|metadata| metadata.file_type),
             Ok(FileType::File),
             "a read-only Layer's file removed through Overlay::remove_file must leave .wh.file beside it in the writable Layer"
         );
@@ -925,9 +897,9 @@ mod tests {
         overlay
             .remove_file("dir/file")
             .expect("the file must be removed");
-        let rebuilt = Overlay::new()
+        let rebuilt = at(Overlay::new()
             .layer(upper, Access::ReadWrite)
-            .layer(lower, Access::Read);
+            .layer(lower, Access::Read));
         assert_eq!(
             rebuilt.symlink_metadata("dir/file"),
             Err(FilesystemError::NotFound),
@@ -996,7 +968,7 @@ mod tests {
     // @behavior FS-021
     #[test]
     fn an_overlay_with_no_writable_layer_refuses_every_change_as_read_only() {
-        let overlay = Overlay::new().layer(memory_with("dir/file", "lower"), Access::Read);
+        let overlay = at(Overlay::new().layer(memory_with("dir/file", "lower"), Access::Read));
         assert_eq!(
             write(&overlay, "dir/file", b"x"),
             Err(FilesystemError::ReadOnlyFilesystem),
@@ -1022,7 +994,7 @@ mod tests {
             (
                 read(&overlay, "dir/moved"),
                 overlay.symlink_metadata("dir/file"),
-                read(lower.as_ref(), "dir/file"),
+                read(&on(&lower), "dir/file"),
             ),
             (
                 b"lower".to_vec(),
@@ -1036,8 +1008,8 @@ mod tests {
     /// call through `overlay` on a thread of its own and gives it a while
     /// to finish, recording whether it did before this call returned.
     struct Interleaves {
-        memory: Memory,
-        overlay: Mutex<Option<Overlay>>,
+        memory: Arc<Memory>,
+        overlay: Mutex<Option<Through>>,
         finished_inside: Mutex<Option<bool>>,
         other: Mutex<Option<thread::JoinHandle<()>>>,
     }
@@ -1046,19 +1018,23 @@ mod tests {
         holds_no_links!();
         matches_names_exactly!();
 
+        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+            self.memory.metadata()
+        }
+
         fn open(
             &self,
-            path: &str,
+            dentry: &Dentry,
             options: &OpenOptions,
         ) -> Result<Box<dyn File>, FilesystemError> {
-            self.memory.open(path, options)
+            self.memory.open(dentry, options)
         }
 
-        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.memory.symlink_metadata(path)
+        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.memory.symlink_metadata(dentry)
         }
 
-        fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
             if let Some(overlay) = self.overlay.lock().unwrap().take() {
                 let finished = Arc::new(AtomicUsize::new(0));
                 let marker = finished.clone();
@@ -1073,33 +1049,33 @@ mod tests {
                 *self.finished_inside.lock().unwrap() = Some(finished.load(Ordering::SeqCst) == 1);
                 *self.other.lock().unwrap() = Some(handle);
             }
-            self.memory.open_dir_nofollow(path)
+            self.memory.open_dir(dentry)
         }
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
             self.memory.entries()
         }
 
-        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.memory.create_dir(path)
+        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.memory.create_dir(dentry)
         }
 
-        fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.memory.remove_dir(path)
+        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.memory.remove_dir(dentry)
         }
 
-        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-            self.memory.remove_file(path)
+        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.memory.remove_file(dentry)
         }
 
         fn rename(
             &self,
-            from: &str,
+            from: &Dentry,
             _to_dir: &dyn Filesystem,
-            to: &str,
+            to: &Dentry,
             rename: Rename,
         ) -> Result<(), FilesystemError> {
-            self.memory.rename(from, &self.memory, to, rename)
+            self.memory.rename(from, self.memory.as_ref(), to, rename)
         }
     }
 
@@ -1110,16 +1086,15 @@ mod tests {
     #[test]
     fn a_change_through_an_overlay_waits_for_the_one_in_progress() {
         let upper = Arc::new(Interleaves {
-            memory: [("dir/.keep", "")].into_iter().collect(),
+            memory: memory_with("dir/.keep", ""),
             overlay: Mutex::new(None),
             finished_inside: Mutex::new(None),
             other: Mutex::new(None),
         });
-        upper
-            .memory
+        on(&upper.memory)
             .remove_file("dir/.keep")
             .expect("the seed must go");
-        let overlay = Overlay::new().layer(upper.clone(), Access::ReadWrite);
+        let overlay = at(Overlay::new().layer(upper.clone(), Access::ReadWrite));
         *upper.overlay.lock().unwrap() = Some(overlay.clone());
         let removed = overlay.remove_dir("dir");
         upper
@@ -1143,7 +1118,7 @@ mod tests {
     fn a_call_through_an_overlay_from_inside_one_answers_a_deadlock() {
         struct Reenters {
             memory: Memory,
-            overlay: Mutex<Option<Overlay>>,
+            overlay: Mutex<Option<Through>>,
             answer: Mutex<Option<Result<Metadata, FilesystemError>>>,
         }
 
@@ -1153,38 +1128,38 @@ mod tests {
 
             fn open(
                 &self,
-                path: &str,
+                dentry: &Dentry,
                 options: &OpenOptions,
             ) -> Result<Box<dyn File>, FilesystemError> {
-                self.memory.open(path, options)
+                self.memory.open(dentry, options)
             }
 
-            fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+            fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
                 if let Some(overlay) = self.overlay.lock().unwrap().take() {
-                    *self.answer.lock().unwrap() = Some(overlay.symlink_metadata(path));
+                    *self.answer.lock().unwrap() = Some(overlay.symlink_metadata(&dentry.name()));
                 }
-                self.memory.symlink_metadata(path)
+                self.memory.symlink_metadata(dentry)
             }
 
             opens_directories!(memory);
 
-            fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-                self.memory.create_dir(path)
+            fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+                self.memory.create_dir(dentry)
             }
 
-            fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-                self.memory.remove_dir(path)
+            fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+                self.memory.remove_dir(dentry)
             }
 
-            fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-                self.memory.remove_file(path)
+            fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+                self.memory.remove_file(dentry)
             }
 
             fn rename(
                 &self,
-                from: &str,
+                from: &Dentry,
                 _to_dir: &dyn Filesystem,
-                to: &str,
+                to: &Dentry,
                 rename: Rename,
             ) -> Result<(), FilesystemError> {
                 self.memory.rename(from, &self.memory, to, rename)
@@ -1196,7 +1171,7 @@ mod tests {
             overlay: Mutex::new(None),
             answer: Mutex::new(None),
         });
-        let overlay = Overlay::new().layer(layer.clone(), Access::Read);
+        let overlay = at(Overlay::new().layer(layer.clone(), Access::Read));
         *layer.overlay.lock().unwrap() = Some(overlay.clone());
         overlay
             .symlink_metadata("note")
@@ -1211,13 +1186,13 @@ mod tests {
 
     /// A writable Memory seeded with `files` and room for `inodes`, over a
     /// read-only one holding `dir/file` = "lower".
-    fn full_over_lower(files: &[(&str, &str)], inodes: usize) -> (Overlay, Arc<Memory>) {
+    fn full_over_lower(files: &[(&str, &str)], inodes: usize) -> (Through, Arc<Memory>) {
         let upper = Memory::from_iter(files.iter().copied()).with_inodes(Some(inodes));
         let upper = Arc::new(upper);
         let overlay = Overlay::new()
             .layer(upper.clone(), Access::ReadWrite)
             .layer(memory_with("dir/file", "lower"), Access::Read);
-        (overlay, upper)
+        (at(overlay), upper)
     }
 
     // The upper copy is all the room there is, so the whiteout cannot be
@@ -1242,7 +1217,7 @@ mod tests {
             (
                 overlay.create_dir("dir"),
                 overlay.symlink_metadata("dir"),
-                upper.symlink_metadata("dir")
+                on(&upper).symlink_metadata("dir")
             ),
             (
                 Err(FilesystemError::StorageFull),
@@ -1283,14 +1258,14 @@ mod tests {
     #[test]
     fn a_directory_a_lower_writable_layer_still_fills_is_removed_behind_a_whiteout() {
         let lower = memory_with("dir/file", "lower");
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(memory_with("dir/.wh.file", ""), Access::ReadWrite)
-            .layer(lower.clone(), Access::ReadWrite);
+            .layer(lower.clone(), Access::ReadWrite));
         assert_eq!(
             (
                 overlay.remove_dir("dir"),
                 overlay.symlink_metadata("dir").err(),
-                read(lower.as_ref(), "dir/file")
+                read(&on(&lower), "dir/file")
             ),
             (Ok(()), Some(FilesystemError::NotFound), b"lower".to_vec()),
             "a directory the view shows empty, removed through Overlay::remove_dir while a lower \
@@ -1305,21 +1280,23 @@ mod tests {
     #[test]
     fn a_rename_that_cannot_mark_its_directory_opaque_moves_nothing() {
         let upper = Arc::new(Memory::new().with_inodes(Some(2)));
-        upper
+        on(&upper)
             .create_dir("moving")
             .expect("the directory must be made");
         let lower = Arc::new(Memory::new());
-        lower.create_dir("dir").expect("the directory must be made");
-        let overlay = Overlay::new()
+        on(&lower)
+            .create_dir("dir")
+            .expect("the directory must be made");
+        let overlay = at(Overlay::new()
             .layer(upper.clone(), Access::ReadWrite)
-            .layer(lower, Access::Read);
+            .layer(lower, Access::Read));
         assert_eq!(
             (
                 overlay.rename("moving", &overlay, "dir", Rename::Directory),
-                upper
+                on(&upper)
                     .symlink_metadata("moving")
                     .map(|metadata| metadata.file_type),
-                upper.symlink_metadata("dir").err()
+                on(&upper).symlink_metadata("dir").err()
             ),
             (
                 Err(FilesystemError::StorageFull),
@@ -1336,10 +1313,10 @@ mod tests {
     // @behavior FS-076
     #[test]
     fn a_rename_a_read_only_layer_above_would_cover_is_refused() {
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(memory_with("to", "top"), Access::Read)
             .layer(Arc::new(Memory::new()), Access::ReadWrite)
-            .layer(memory_with("from", "moved"), Access::Read);
+            .layer(memory_with("from", "moved"), Access::Read));
         assert_eq!(
             (
                 overlay.rename("from", &overlay, "to", Rename::Any),
@@ -1360,7 +1337,7 @@ mod tests {
     #[test]
     fn a_name_a_read_only_layer_above_hides_is_not_made() {
         let upper = Arc::new(Memory::new());
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(
                 Arc::new(
                     [(".wh.file", ""), (".wh.dir", "")]
@@ -1369,13 +1346,13 @@ mod tests {
                 ),
                 Access::Read,
             )
-            .layer(upper.clone(), Access::ReadWrite);
+            .layer(upper.clone(), Access::ReadWrite));
         assert_eq!(
             (
                 write(&overlay, "file", b"new"),
                 overlay.create_dir("dir"),
-                upper.symlink_metadata("file").err(),
-                upper.symlink_metadata("dir").err()
+                on(&upper).symlink_metadata("file").err(),
+                on(&upper).symlink_metadata("dir").err()
             ),
             (
                 Err(FilesystemError::ReadOnlyFilesystem),
@@ -1394,16 +1371,16 @@ mod tests {
     #[test]
     fn a_file_beneath_a_read_only_layers_opaque_directory_is_not_made() {
         let lower: Arc<Memory> = Arc::new([("dir/a.txt", "a")].into_iter().collect());
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(
                 Arc::new([("dir/.wh..wh..opq", "")].into_iter().collect::<Memory>()),
                 Access::Read,
             )
-            .layer(lower.clone(), Access::ReadWrite);
+            .layer(lower.clone(), Access::ReadWrite));
         assert_eq!(
             (
                 write(&overlay, "dir/new.txt", b"new"),
-                lower.symlink_metadata("dir/new.txt").err()
+                on(&lower).symlink_metadata("dir/new.txt").err()
             ),
             (
                 Err(FilesystemError::ReadOnlyFilesystem),
@@ -1466,10 +1443,12 @@ mod tests {
     fn a_directory_moved_over_a_lower_one_is_marked_opaque() {
         let upper = Arc::new(Memory::new());
         let lower: Arc<Memory> = Arc::new([("dir/.keep", "")].into_iter().collect());
-        lower.remove_file("dir/.keep").expect("the seed must go");
-        let overlay = Overlay::new()
+        on(&lower)
+            .remove_file("dir/.keep")
+            .expect("the seed must go");
+        let overlay = at(Overlay::new()
             .layer(upper.clone(), Access::ReadWrite)
-            .layer(lower.clone(), Access::Read);
+            .layer(lower.clone(), Access::Read));
         overlay
             .create_dir("made")
             .expect("the directory must be made");
@@ -1477,7 +1456,7 @@ mod tests {
             .rename("made", &overlay, "dir", Rename::Any)
             .expect("the directory must move over the empty one");
         assert_eq!(
-            upper
+            on(&upper)
                 .symlink_metadata("dir/.wh..wh..opq")
                 .map(|metadata| metadata.file_type),
             Ok(FileType::File),
@@ -1496,7 +1475,7 @@ mod tests {
         assert_eq!(
             (
                 write(&overlay, "dir/file", b"x"),
-                upper.symlink_metadata("dir/file"),
+                on(&upper).symlink_metadata("dir/file"),
                 read(&overlay, "dir/file")
             ),
             (
@@ -1556,48 +1535,52 @@ mod tests {
 
         fn open(
             &self,
-            path: &str,
+            dentry: &Dentry,
             options: &OpenOptions,
         ) -> Result<Box<dyn File>, FilesystemError> {
             Ok(Box::new(TrickleFile {
-                file: self.memory.open(path, options)?,
+                file: self.memory.open(dentry, options)?,
                 refuses_close: self.refuses_close,
             }))
         }
 
-        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.memory.symlink_metadata(path)
+        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.memory.symlink_metadata(dentry)
         }
 
         /// Each directory it opens trickles too.
-        fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
             Ok(Arc::new(Self {
-                memory: self.memory.open_dir_nofollow(path)?,
+                memory: self.memory.open_dir(dentry)?,
                 refuses_close: self.refuses_close,
             }))
+        }
+
+        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+            self.memory.metadata()
         }
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
             self.memory.entries()
         }
 
-        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.memory.create_dir(path)
+        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.memory.create_dir(dentry)
         }
 
-        fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.memory.remove_dir(path)
+        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.memory.remove_dir(dentry)
         }
 
-        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-            self.memory.remove_file(path)
+        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.memory.remove_file(dentry)
         }
 
         fn rename(
             &self,
-            from: &str,
+            from: &Dentry,
             _to_dir: &dyn Filesystem,
-            to: &str,
+            to: &Dentry,
             rename: Rename,
         ) -> Result<(), FilesystemError> {
             let to_dir = (_to_dir as &dyn Any)
@@ -1616,35 +1599,35 @@ mod tests {
 
         fn open(
             &self,
-            path: &str,
+            dentry: &Dentry,
             options: &OpenOptions,
         ) -> Result<Box<dyn File>, FilesystemError> {
-            self.0.open(path, options)
+            self.0.open(dentry, options)
         }
 
-        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.0.symlink_metadata(path)
+        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.0.symlink_metadata(dentry)
         }
 
         opens_directories!(0);
 
-        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.0.create_dir(path)
+        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.0.create_dir(dentry)
         }
 
-        fn remove_dir(&self, _path: &str) -> Result<(), FilesystemError> {
+        fn remove_dir(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
             Err(FilesystemError::PermissionDenied)
         }
 
-        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-            self.0.remove_file(path)
+        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.0.remove_file(dentry)
         }
 
         fn rename(
             &self,
-            _from: &str,
+            _from: &Dentry,
             _to_dir: &dyn Filesystem,
-            _to: &str,
+            _to: &Dentry,
             _rename: Rename,
         ) -> Result<(), FilesystemError> {
             Err(FilesystemError::PermissionDenied)
@@ -1660,38 +1643,38 @@ mod tests {
 
         fn open(
             &self,
-            path: &str,
+            dentry: &Dentry,
             options: &OpenOptions,
         ) -> Result<Box<dyn File>, FilesystemError> {
-            self.0.open(path, options)
+            self.0.open(dentry, options)
         }
 
-        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.0.symlink_metadata(path)
+        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.0.symlink_metadata(dentry)
         }
 
         opens_directories!(0);
 
-        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.0.create_dir(path)
+        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.0.create_dir(dentry)
         }
 
-        fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.0.remove_dir(path)
+        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.0.remove_dir(dentry)
         }
 
-        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-            match path.rsplit('/').next() {
-                Some(name) if name.starts_with(".wh.") => Err(FilesystemError::PermissionDenied),
-                _ => self.0.remove_file(path),
+        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            if dentry.name().starts_with(".wh.") {
+                return Err(FilesystemError::PermissionDenied);
             }
+            self.0.remove_file(dentry)
         }
 
         fn rename(
             &self,
-            from: &str,
+            from: &Dentry,
             _to_dir: &dyn Filesystem,
-            to: &str,
+            to: &Dentry,
             rename: Rename,
         ) -> Result<(), FilesystemError> {
             self.0.rename(from, &self.0, to, rename)
@@ -1707,44 +1690,40 @@ mod tests {
 
         fn open(
             &self,
-            path: &str,
+            dentry: &Dentry,
             options: &OpenOptions,
         ) -> Result<Box<dyn File>, FilesystemError> {
-            self.0.open(path, options)
+            self.0.open(dentry, options)
         }
 
-        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            if path
-                .rsplit('/')
-                .next()
-                .is_some_and(|name| name.starts_with(".wh."))
-            {
+        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            if dentry.name().starts_with(".wh.") {
                 return Err(FilesystemError::Other(
                     "the marker cannot be read".to_string(),
                 ));
             }
-            self.0.symlink_metadata(path)
+            self.0.symlink_metadata(dentry)
         }
 
         opens_directories!(0);
 
-        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.0.create_dir(path)
+        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.0.create_dir(dentry)
         }
 
-        fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.0.remove_dir(path)
+        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.0.remove_dir(dentry)
         }
 
-        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-            self.0.remove_file(path)
+        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.0.remove_file(dentry)
         }
 
         fn rename(
             &self,
-            from: &str,
+            from: &Dentry,
             _to_dir: &dyn Filesystem,
-            to: &str,
+            to: &Dentry,
             rename: Rename,
         ) -> Result<(), FilesystemError> {
             self.0.rename(from, &self.0, to, rename)
@@ -1764,38 +1743,38 @@ mod tests {
 
         fn open(
             &self,
-            path: &str,
+            dentry: &Dentry,
             options: &OpenOptions,
         ) -> Result<Box<dyn File>, FilesystemError> {
-            self.memory.open(path, options)
+            self.memory.open(dentry, options)
         }
 
-        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            if path == "file" && self.seen.swap(true, Ordering::SeqCst) {
+        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            if dentry.name() == "file" && self.seen.swap(true, Ordering::SeqCst) {
                 return Err(FilesystemError::NotFound);
             }
-            self.memory.symlink_metadata(path)
+            self.memory.symlink_metadata(dentry)
         }
 
         opens_directories!(memory);
 
-        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.memory.create_dir(path)
+        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.memory.create_dir(dentry)
         }
 
-        fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.memory.remove_dir(path)
+        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.memory.remove_dir(dentry)
         }
 
-        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-            self.memory.remove_file(path)
+        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.memory.remove_file(dentry)
         }
 
         fn rename(
             &self,
-            from: &str,
+            from: &Dentry,
             _to_dir: &dyn Filesystem,
-            to: &str,
+            to: &Dentry,
             rename: Rename,
         ) -> Result<(), FilesystemError> {
             self.memory.rename(from, &self.memory, to, rename)
@@ -1803,13 +1782,28 @@ mod tests {
     }
 
     /// A Memory storing names in lower case and reaching each by any
-    /// case, as a host that folds case does; each directory it opens
-    /// folds case too.
-    struct FoldsCase(Arc<dyn Filesystem>);
+    /// case, as a host that folds case does, answering each call by the
+    /// folded path from its root; each directory it opens folds case too.
+    struct FoldsCase {
+        root: Through,
+        at: String,
+    }
 
     impl FoldsCase {
         fn new(memory: Memory) -> Self {
-            Self(Arc::new(memory))
+            Self {
+                root: at(memory),
+                at: String::new(),
+            }
+        }
+
+        /// The name `dentry` carries, folded, beneath this directory.
+        fn path(&self, dentry: &Dentry) -> String {
+            let name = dentry.name().to_lowercase();
+            match self.at.as_str() {
+                "" => name,
+                at => format!("{at}/{name}"),
+            }
         }
     }
 
@@ -1818,60 +1812,69 @@ mod tests {
 
         fn open(
             &self,
-            path: &str,
+            dentry: &Dentry,
             options: &OpenOptions,
         ) -> Result<Box<dyn File>, FilesystemError> {
-            self.0.open(&path.to_lowercase(), options)
+            self.root.open(&self.path(dentry), options)
         }
 
-        fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-            Ok(Arc::new(Self(
-                self.0.open_dir_nofollow(&path.to_lowercase())?,
-            )))
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+            let at = self.path(dentry);
+            self.root.open_dir(&at)?;
+            Ok(Arc::new(Self {
+                root: self.root.clone(),
+                at,
+            }))
         }
 
-        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.0.symlink_metadata(&path.to_lowercase())
+        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+            self.root.symlink_metadata(&self.at)
         }
 
-        fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
-            Ok(name.to_lowercase())
+        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.root.symlink_metadata(&self.path(dentry))
+        }
+
+        fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            Ok(dentry.name().to_lowercase())
         }
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.0.entries()
+            match self.at.as_str() {
+                "" => self.root.entries(),
+                at => self.root.open_dir(at)?.entries(),
+            }
         }
 
-        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.0.create_dir(&path.to_lowercase())
+        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.create_dir(&self.path(dentry))
         }
 
-        fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.0.remove_dir(&path.to_lowercase())
+        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.remove_dir(&self.path(dentry))
         }
 
-        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-            self.0.remove_file(&path.to_lowercase())
+        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.remove_file(&self.path(dentry))
         }
 
         fn rename(
             &self,
-            from: &str,
-            _to_dir: &dyn Filesystem,
-            to: &str,
+            from: &Dentry,
+            to_dir: &dyn Filesystem,
+            to: &Dentry,
             rename: Rename,
         ) -> Result<(), FilesystemError> {
-            self.0.rename(
-                &from.to_lowercase(),
-                self.0.as_ref(),
-                &to.to_lowercase(),
-                rename,
-            )
+            let target = (to_dir as &dyn Any)
+                .downcast_ref::<Self>()
+                .ok_or(FilesystemError::CrossesDevices)?;
+            self.root
+                .rename(&self.path(from), &self.root, &target.path(to), rename)
         }
     }
 
     /// What `path` names through `fs`, or why it names nothing.
-    fn kind(fs: &dyn Filesystem, path: &str) -> Result<FileType, FilesystemError> {
+    fn kind(fs: &Through, path: &str) -> Result<FileType, FilesystemError> {
         fs.symlink_metadata(path).map(|metadata| metadata.file_type)
     }
 
@@ -1882,18 +1885,16 @@ mod tests {
     #[test]
     fn a_directory_opened_from_an_overlay_follows_it_when_it_moves() {
         let upper = Arc::new(Memory::new());
-        let overlay = Overlay::new().layer(upper.clone(), Access::ReadWrite);
+        let overlay = at(Overlay::new().layer(upper.clone(), Access::ReadWrite));
         overlay.create_dir("dir").expect("dir must be made");
         overlay.create_dir("dir/inner").expect("inner must be made");
-        let dir = overlay.open_dir_nofollow("dir").expect("dir must open");
-        let inner = overlay
-            .open_dir_nofollow("dir/inner")
-            .expect("inner must open");
+        let dir = overlay.open_dir("dir").expect("dir must open");
+        let inner = overlay.open_dir("dir/inner").expect("inner must open");
         overlay
             .rename("dir", &overlay, "moved", Rename::Any)
             .expect("the directory must move");
-        overwrite(dir.as_ref(), "a", b"x");
-        overwrite(inner.as_ref(), "b", b"x");
+        overwrite(&dir, "a", b"x");
+        overwrite(&inner, "b", b"x");
         assert_eq!(
             (
                 kind(&overlay, "moved/a"),
@@ -1913,14 +1914,14 @@ mod tests {
     // @behavior FS-111
     #[test]
     fn an_overlay_directory_removed_while_opened_makes_nothing_more() {
-        let overlay = Overlay::new().layer(Arc::new(Memory::new()), Access::ReadWrite);
+        let overlay = at(Overlay::new().layer(Arc::new(Memory::new()), Access::ReadWrite));
         overlay.create_dir("dir").expect("dir must be made");
-        let dir = overlay.open_dir_nofollow("dir").expect("dir must open");
+        let dir = overlay.open_dir("dir").expect("dir must open");
         overlay.remove_dir("dir").expect("dir must remove");
         overlay.create_dir("dir").expect("another dir must be made");
         assert_eq!(
             (
-                write(dir.as_ref(), "made", b"x"),
+                write(&dir, "made", b"x"),
                 dir.entries().map(|entries| entries.len()),
                 names(&overlay, "dir").len()
             ),
@@ -1938,17 +1939,18 @@ mod tests {
     #[test]
     fn an_overlay_directory_keeps_its_layers_directory_through_a_change_outside_it() {
         let upper = memory_with("dir/file", "x");
-        let overlay = Overlay::new().layer(upper.clone(), Access::ReadWrite);
-        let dir = overlay.open_dir_nofollow("dir").expect("dir must open");
-        upper
-            .rename("dir", upper.as_ref(), "moved", Rename::Any)
+        let overlay = at(Overlay::new().layer(upper.clone(), Access::ReadWrite));
+        let dir = overlay.open_dir("dir").expect("dir must open");
+        let outside = on(&upper);
+        outside
+            .rename("dir", &outside, "moved", Rename::Any)
             .expect("the Layer must move it");
-        upper
+        outside
             .create_dir("dir")
             .expect("the Layer must make another");
-        overwrite(upper.as_ref(), "dir/file", b"other");
+        overwrite(&outside, "dir/file", b"other");
         assert_eq!(
-            read(dir.as_ref(), "file"),
+            read(&dir, "file"),
             b"x".to_vec(),
             "a read through a directory Overlay::open_dir opened, once its Layer moved it away \
              and made another in its place outside the Overlay, must read the directory it \
@@ -1963,16 +1965,14 @@ mod tests {
     #[test]
     fn a_copy_up_through_one_overlay_directory_is_seen_through_another() {
         let lower: Arc<dyn Filesystem> = memory_with("dir/a.txt", "a");
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(Arc::new(Memory::new()), Access::ReadWrite)
-            .layer(lower, Access::Read);
-        let first = overlay.open_dir_nofollow("dir").expect("dir must open");
-        let second = overlay
-            .open_dir_nofollow("dir")
-            .expect("dir must open again");
-        write(first.as_ref(), "b.txt", b"b").expect("the write must copy dir up");
+            .layer(lower, Access::Read));
+        let first = overlay.open_dir("dir").expect("dir must open");
+        let second = overlay.open_dir("dir").expect("dir must open again");
+        write(&first, "b.txt", b"b").expect("the write must copy dir up");
         assert_eq!(
-            read(second.as_ref(), "b.txt"),
+            read(&second, "b.txt"),
             b"b".to_vec(),
             "a read through one directory Overlay::open_dir opened, of a file written through \
              another opened before the write copied it up, must read the file"
@@ -1985,18 +1985,15 @@ mod tests {
     #[test]
     fn a_write_through_a_moved_overlay_directory_lands_where_it_went() {
         let upper = memory_with("dir/a.txt", "a");
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(upper.clone(), Access::ReadWrite)
-            .layer(Arc::new(Memory::new()), Access::ReadWrite);
-        let dir = overlay.open_dir_nofollow("dir").expect("dir must open");
+            .layer(Arc::new(Memory::new()), Access::ReadWrite));
+        let dir = overlay.open_dir("dir").expect("dir must open");
         overlay
             .rename("dir", &overlay, "moved", Rename::Any)
             .expect("the directory must move");
         assert_eq!(
-            (
-                write(dir.as_ref(), "b.txt", b"b"),
-                read(upper.as_ref(), "moved/b.txt")
-            ),
+            (write(&dir, "b.txt", b"b"), read(&on(&upper), "moved/b.txt")),
             (Ok(()), b"b".to_vec()),
             "a write through a directory Overlay::open_dir opened, once Overlay::rename moved it \
              over a second writable Layer, must land where it moved"
@@ -2006,16 +2003,16 @@ mod tests {
     // @behavior FS-083
     #[test]
     fn an_overlay_spells_a_path_as_the_layer_showing_it_stores_it() {
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(Arc::new(Memory::new()), Access::ReadWrite)
             .layer(
                 Arc::new(FoldsCase::new(
                     [("private/secret", "x")].into_iter().collect(),
                 )),
                 Access::Read,
-            );
+            ));
         let private = overlay
-            .open_dir_nofollow("PRIVATE")
+            .open_dir("PRIVATE")
             .expect("the directory must open in any case");
         assert_eq!(
             (
@@ -2039,9 +2036,9 @@ mod tests {
     #[test]
     fn a_layer_that_cannot_read_its_markers_fails_the_lookup() {
         let top: Memory = [(".wh.file", "")].into_iter().collect();
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(Arc::new(ReadsNoMarker(top)), Access::Read)
-            .layer(memory_with("file", "hidden"), Access::Read);
+            .layer(memory_with("file", "hidden"), Access::Read));
         assert!(
             matches!(
                 overlay.symlink_metadata("file"),
@@ -2059,9 +2056,9 @@ mod tests {
             memory: [("file", "lower")].into_iter().collect(),
             seen: AtomicBool::new(false),
         };
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(Arc::new(Memory::new()), Access::ReadWrite)
-            .layer(Arc::new(lower), Access::Read);
+            .layer(Arc::new(lower), Access::Read));
         assert_eq!(
             overlay.rename("file", &overlay, "moved", Rename::Any),
             Err(FilesystemError::NotFound),
@@ -2075,9 +2072,9 @@ mod tests {
     // @behavior FS-078
     #[test]
     fn a_directory_over_a_lower_file_on_its_way_reads_as_a_directory() {
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(memory_with("dir/sub/file", "upper"), Access::ReadWrite)
-            .layer(memory_with("dir", "lower"), Access::Read);
+            .layer(memory_with("dir", "lower"), Access::Read));
         assert_eq!(
             (
                 overlay.symlink_metadata("dir/sub").map(|metadata| metadata.file_type),
@@ -2166,9 +2163,9 @@ mod tests {
         let upper: Memory = [(".wh..wh..opq", ""), ("kept", "upper")]
             .into_iter()
             .collect();
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(Arc::new(upper), Access::ReadWrite)
-            .layer(memory_with("hidden", "lower"), Access::Read);
+            .layer(memory_with("hidden", "lower"), Access::Read));
         assert_eq!(
             (names(&overlay, ""), overlay.symlink_metadata("hidden")),
             (vec!["kept".to_string()], Err(FilesystemError::NotFound)),
@@ -2214,7 +2211,7 @@ mod tests {
             )
             .expect("the open must copy the lower file up");
         assert_eq!(
-            read(upper.memory.as_ref(), "dir/file"),
+            read(&through(upper.memory.clone()), "dir/file"),
             b"lower".to_vec(),
             "a write open through Overlay::open must copy the whole lower file up into a Layer \
              whose writes land a few bytes at a time"
@@ -2229,7 +2226,7 @@ mod tests {
         assert_eq!(
             (
                 write(&overlay, "dir/file", b"x"),
-                upper.symlink_metadata("dir/file"),
+                on(&upper).symlink_metadata("dir/file"),
                 read(&overlay, "dir/file")
             ),
             (
@@ -2260,7 +2257,7 @@ mod tests {
             .layer(memory_with("note", "x"), Access::Read)
             .with_blocking(counts.clone());
         let held = overlay.lock.hold().expect("the lock must be free");
-        let other = overlay.clone();
+        let other = at(overlay.clone());
         let waiter = thread::spawn(move || other.symlink_metadata("note").map(|m| m.file_type));
         while counts.0.load(Ordering::SeqCst) == 0 {
             thread::sleep(Duration::from_millis(1));
@@ -2284,10 +2281,10 @@ mod tests {
     fn an_overlay_keeps_a_directorys_identity_when_a_write_copies_it_up() {
         let lower: Arc<dyn Filesystem> =
             Arc::new([("dir/a.txt", "a")].into_iter().collect::<Memory>());
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(Arc::new(Memory::new()), Access::ReadWrite)
-            .layer(lower, Access::Read);
-        let identity = |overlay: &Overlay| {
+            .layer(lower, Access::Read));
+        let identity = |overlay: &Through| {
             let metadata = overlay
                 .symlink_metadata("dir")
                 .expect("the directory must stand");
@@ -2310,17 +2307,19 @@ mod tests {
     fn an_overlay_reports_a_merged_directory_as_overlayfs_does() {
         let lower: Arc<Memory> = Arc::new([("dir/a.txt", "a")].into_iter().collect());
         let upper: Arc<Memory> = Arc::new(Memory::new());
-        upper.create_dir("dir").expect("the directory must be made");
+        on(&upper)
+            .create_dir("dir")
+            .expect("the directory must be made");
         std::thread::sleep(std::time::Duration::from_millis(10));
-        write(upper.as_ref(), "dir/b.txt", b"b").expect("the upper Layer must take a write");
-        let overlay = Overlay::new()
+        write(&on(&upper), "dir/b.txt", b"b").expect("the upper Layer must take a write");
+        let overlay = at(Overlay::new()
             .layer(upper.clone(), Access::ReadWrite)
-            .layer(lower.clone(), Access::Read);
+            .layer(lower.clone(), Access::Read));
         let merged = overlay
             .symlink_metadata("dir")
             .expect("the directory must stand");
-        let modified = |layer: &Memory| {
-            layer
+        let modified = |layer: &Arc<Memory>| {
+            on(layer)
                 .symlink_metadata("dir")
                 .expect("a Layer holds it")
                 .modified
@@ -2347,9 +2346,9 @@ mod tests {
                     .collect::<Memory>(),
             )
         };
-        let overlay = Overlay::new()
+        let overlay = at(Overlay::new()
             .layer(layer("upper"), Access::ReadWrite)
-            .layer(layer("lower"), Access::Read);
+            .layer(layer("lower"), Access::Read));
         let identity = |metadata: Result<Metadata, FilesystemError>| {
             let metadata = metadata.expect("the directory must stand");
             (metadata.dev, metadata.ino)

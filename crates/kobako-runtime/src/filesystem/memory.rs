@@ -9,6 +9,7 @@ use std::time::SystemTime;
 
 use super::path::{ancestors, components, name, normalize_seed, parent};
 use super::{DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
+use crate::vfs::Dentry;
 
 /// Files and directories held in memory. Every Invocation it is handed to
 /// shares it, so what one writes the next reads. What its files hold
@@ -486,7 +487,12 @@ impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Memory {
 }
 
 impl Filesystem for Memory {
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
+        let path = &dentry.name();
         let _held = self.hold();
         let data = match self.dir.find(path) {
             Ok(Node::Directory(_)) => return Err(FilesystemError::IsADirectory),
@@ -509,28 +515,33 @@ impl Filesystem for Memory {
     }
 
     /// A Memory holds no links to refuse.
-    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
         let _held = self.hold();
-        Ok(Arc::new(self.beneath(self.dir.directory(name)?)))
+        Ok(Arc::new(self.beneath(self.dir.directory(&dentry.name())?)))
+    }
+
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        let _held = self.hold();
+        Ok(self.dir.metadata(self.tree.dev))
     }
 
     /// A Memory holds no links.
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         let _held = self.hold();
-        match self.dir.find(path)? {
+        match self.dir.find(&dentry.name())? {
             Node::File(data) => Ok(lock(&data).metadata()),
             Node::Directory(dir) => Ok(dir.metadata(self.tree.dev)),
         }
     }
 
     /// A Memory matches names byte for byte.
-    fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
-        Ok(name.to_string())
+    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        Ok(dentry.name())
     }
 
     /// A Memory holds no links.
-    fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-        self.symlink_metadata(name)?;
+    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        self.symlink_metadata(dentry)?;
         Err(FilesystemError::InvalidInput)
     }
 
@@ -545,7 +556,8 @@ impl Filesystem for Memory {
             .collect())
     }
 
-    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        let path = &dentry.name();
         let _held = self.hold();
         if self.dir.find(path).is_ok() {
             return Err(FilesystemError::AlreadyExists);
@@ -557,17 +569,11 @@ impl Filesystem for Memory {
         Ok(())
     }
 
-    /// The root stays, as a mount point does. A directory removed while
-    /// opened is marked so, and nothing is made in it any more.
-    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+    /// A directory removed while opened is marked so, and nothing is made
+    /// in it any more.
+    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        let path = &dentry.name();
         let _held = self.hold();
-        if path.is_empty() {
-            return Err(if self.dir.state().entries.is_empty() {
-                FilesystemError::ResourceBusy
-            } else {
-                FilesystemError::DirectoryNotEmpty
-            });
-        }
         let (dir, name) = self.dir.parent_of(path)?;
         let mut state = dir.state();
         let removed = match state.entries.get(name) {
@@ -585,11 +591,9 @@ impl Filesystem for Memory {
         Ok(())
     }
 
-    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        let path = &dentry.name();
         let _held = self.hold();
-        if path.is_empty() {
-            return Err(FilesystemError::IsADirectory);
-        }
         let (dir, name) = self.dir.parent_of(path)?;
         let mut state = dir.state();
         match state.entries.get(name) {
@@ -608,15 +612,16 @@ impl Filesystem for Memory {
     /// refuses it once it finds the source above the target.
     fn rename(
         &self,
-        from: &str,
+        from: &Dentry,
         to_dir: &dyn Filesystem,
-        to: &str,
+        to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
             .filter(|target| Arc::ptr_eq(&target.tree, &self.tree))
             .ok_or(FilesystemError::CrossesDevices)?;
+        let (from, to) = (&from.name(), &to.name());
         let _held = self.hold();
         let moving = self.dir.find(from)?;
         let (from_dir, from_name) = self.dir.parent_of(from)?;
@@ -716,8 +721,14 @@ impl File for MemoryFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vfs::through::{through, Through};
 
-    fn read_all(fs: &dyn Filesystem, path: &str) -> Vec<u8> {
+    /// `memory` reached through the VFS.
+    fn at(memory: Memory) -> Through {
+        through(Arc::new(memory))
+    }
+
+    fn read_all(fs: &Through, path: &str) -> Vec<u8> {
         let mut file = fs
             .open(
                 path,
@@ -736,7 +747,7 @@ mod tests {
     // @behavior FS-001
     #[test]
     fn a_memory_serves_the_files_it_was_seeded_with() {
-        let memory: Memory = [("/config/app.yml", "name: kobako")].into_iter().collect();
+        let memory = at([("/config/app.yml", "name: kobako")].into_iter().collect());
         assert_eq!(
             read_all(&memory, "config/app.yml"),
             b"name: kobako",
@@ -809,7 +820,7 @@ mod tests {
     // @behavior FS-002
     #[test]
     fn a_memory_keeps_what_was_written() {
-        let memory = Memory::new();
+        let memory = at(Memory::new());
         let mut file = memory
             .open(
                 "notes.txt",
@@ -831,7 +842,7 @@ mod tests {
 
     #[test]
     fn a_directory_with_entries_is_not_removed() {
-        let memory: Memory = [("dir/file", "x")].into_iter().collect();
+        let memory = at([("dir/file", "x")].into_iter().collect());
         assert_eq!(
             memory.remove_dir("dir"),
             Err(FilesystemError::DirectoryNotEmpty)
@@ -846,7 +857,7 @@ mod tests {
 
     #[test]
     fn a_renamed_directory_carries_its_entries() {
-        let memory: Memory = [("old/inner/file", "x")].into_iter().collect();
+        let memory = at([("old/inner/file", "x")].into_iter().collect());
         memory
             .rename("old", &memory, "new", Rename::Any)
             .expect("the rename must succeed");
@@ -857,7 +868,7 @@ mod tests {
         );
     }
 
-    fn writable(fs: &dyn Filesystem, path: &str) -> Box<dyn File> {
+    fn writable(fs: &Through, path: &str) -> Box<dyn File> {
         fs.open(
             path,
             &OpenOptions {
@@ -873,7 +884,7 @@ mod tests {
     #[test]
     fn a_write_past_a_memorys_limit_is_refused() {
         let memory: Memory = [("file", "x")].into_iter().collect();
-        let memory = memory.with_limit(Some(4));
+        let memory = at(memory.with_limit(Some(4)));
         assert_eq!(
             (
                 writable(&memory, "file").write_at(b"four", 1),
@@ -888,7 +899,7 @@ mod tests {
     // @behavior FS-096
     #[test]
     fn a_write_of_no_bytes_leaves_a_memory_file_as_it_was() {
-        let memory: Memory = [("file", "")].into_iter().collect();
+        let memory = at([("file", "")].into_iter().collect());
         assert_eq!(
             (
                 writable(&memory, "file").write_at(b"", 1000),
@@ -903,7 +914,7 @@ mod tests {
     // @behavior FS-023
     #[test]
     fn a_memory_holds_its_default_limit() {
-        let memory = Memory::new();
+        let memory = at(Memory::new());
         let mut file = writable(&memory, "file");
         let mib_64 = 64 * 1024 * 1024;
         assert_eq!(
@@ -916,7 +927,7 @@ mod tests {
     // @behavior FS-024
     #[test]
     fn a_memory_without_a_limit_grows_past_the_default() {
-        let memory = Memory::new().with_limit(None);
+        let memory = at(Memory::new().with_limit(None));
         assert_eq!(
             writable(&memory, "file").set_len(Memory::DEFAULT_LIMIT as u64 + 1),
             Ok(()),
@@ -927,7 +938,7 @@ mod tests {
     // @behavior FS-025
     #[test]
     fn a_removed_file_returns_its_space() {
-        let memory = Memory::new().with_limit(Some(4));
+        let memory = at(Memory::new().with_limit(Some(4)));
         writable(&memory, "first")
             .write_at(b"four", 0)
             .expect("the first file must fit");
@@ -945,7 +956,7 @@ mod tests {
     #[test]
     fn a_file_grown_past_what_can_be_allocated_is_refused() {
         let memory: Memory = [("file", "x")].into_iter().collect();
-        let memory = memory.with_limit(None);
+        let memory = at(memory.with_limit(None));
         let mut file = writable(&memory, "file");
         let unallocatable = isize::MAX as u64 + 1;
         assert_eq!(
@@ -966,14 +977,14 @@ mod tests {
 
     #[test]
     fn a_path_beneath_a_file_is_not_a_directory() {
-        let memory: Memory = [("file", "x")].into_iter().collect();
+        let memory = at([("file", "x")].into_iter().collect());
         assert_eq!(
             memory.symlink_metadata("file/inner"),
             Err(FilesystemError::NotADirectory)
         );
     }
 
-    fn create(fs: &dyn Filesystem, path: &str) -> Result<(), FilesystemError> {
+    fn create(fs: &Through, path: &str) -> Result<(), FilesystemError> {
         fs.open(
             path,
             &OpenOptions {
@@ -990,7 +1001,7 @@ mod tests {
     // @behavior FS-030
     #[test]
     fn a_memory_holds_at_most_its_inodes() {
-        let memory = Memory::new().with_inodes(Some(3));
+        let memory = at(Memory::new().with_inodes(Some(3)));
         assert_eq!(
             (
                 create(&memory, "file"),
@@ -1012,7 +1023,7 @@ mod tests {
     // @behavior FS-031
     #[test]
     fn a_memorys_inodes_follow_its_limit() {
-        let memory = Memory::new().with_limit(Some(2 * 4096));
+        let memory = at(Memory::new().with_limit(Some(2 * 4096)));
         assert_eq!(
             (
                 create(&memory, "a"),
@@ -1030,7 +1041,7 @@ mod tests {
     // @behavior FS-036
     #[test]
     fn a_memory_appends_at_the_end_as_it_stands() {
-        let memory: Memory = [("log", "a")].into_iter().collect();
+        let memory = at([("log", "a")].into_iter().collect());
         let mut first = writable(&memory, "log");
         let mut second = writable(&memory, "log");
         assert_eq!(
@@ -1048,7 +1059,7 @@ mod tests {
     // @behavior FS-035
     #[test]
     fn a_memory_moves_only_what_a_rename_allows() {
-        let memory: Memory = [("dir/inner", "x"), ("file", "y")].into_iter().collect();
+        let memory = at([("dir/inner", "x"), ("file", "y")].into_iter().collect());
         assert_eq!(
             (
                 memory.rename("dir", &memory, "moved", Rename::File),
@@ -1072,7 +1083,7 @@ mod tests {
     // @behavior FS-034
     #[test]
     fn a_removed_directory_gives_its_inode_back() {
-        let memory = Memory::new().with_inodes(Some(3));
+        let memory = at(Memory::new().with_inodes(Some(3)));
         memory
             .create_dir("a")
             .expect("the first directory must fit");
@@ -1097,7 +1108,7 @@ mod tests {
     // @behavior FS-032
     #[test]
     fn a_removed_file_gives_its_inode_back_once_closed() {
-        let memory = Memory::new().with_inodes(Some(2));
+        let memory = at(Memory::new().with_inodes(Some(2)));
         let handle = writable(&memory, "first");
         memory.remove_file("first").expect("the file must remove");
         let while_open = create(&memory, "second");
@@ -1116,8 +1127,8 @@ mod tests {
     #[test]
     fn a_device_of_its_own_stands_apart_from_every_other_device() {
         let (first, second) = (Metadata::unique_device(), Metadata::unique_device());
-        let memory = Memory::new()
-            .symlink_metadata("")
+        let memory = at(Memory::new())
+            .metadata()
             .expect("the root must stand")
             .dev;
         assert!(
@@ -1150,7 +1161,8 @@ mod tests {
     // @behavior FS-094
     #[test]
     fn a_memory_holds_each_entry_under_its_own_name() {
-        let memory: Memory = [("d/f", "x")].into_iter().collect();
+        let held: Arc<Memory> = Arc::new([("d/f", "x")].into_iter().collect());
+        let memory = through(held.clone());
         for _ in 0..64 {
             memory
                 .create_dir("n")
@@ -1162,7 +1174,7 @@ mod tests {
                 .rename("n", &memory, "d", Rename::Any)
                 .expect("the new directory must take the old name");
         }
-        let held = names(&memory.dir);
+        let held = names(&held.dir);
         assert_eq!(
             (held, read_all(&memory, &format!("{}f", "d/".repeat(65)))),
             (
@@ -1179,14 +1191,12 @@ mod tests {
     // @behavior FS-105
     #[test]
     fn a_directory_opened_from_a_memory_follows_it_when_it_moves() {
-        let memory: Memory = [("dir/.keep", "")].into_iter().collect();
-        let dir = memory
-            .open_dir_nofollow("dir")
-            .expect("the directory must open");
+        let memory = at([("dir/.keep", "")].into_iter().collect());
+        let dir = memory.open_dir("dir").expect("the directory must open");
         memory
             .rename("dir", &memory, "moved", Rename::Any)
             .expect("the directory must move");
-        create(dir.as_ref(), "made").expect("the file must be made");
+        create(&dir, "made").expect("the file must be made");
         assert_eq!(
             (
                 memory.symlink_metadata("moved/made").map(|m| m.file_type),
@@ -1201,17 +1211,15 @@ mod tests {
     // @behavior FS-106
     #[test]
     fn a_memory_directory_removed_while_opened_makes_nothing_more() {
-        let memory = Memory::new();
+        let memory = at(Memory::new());
         memory
             .create_dir("dir")
             .expect("the directory must be made");
-        let dir = memory
-            .open_dir_nofollow("dir")
-            .expect("the directory must open");
+        let dir = memory.open_dir("dir").expect("the directory must open");
         memory.remove_dir("dir").expect("the directory must remove");
         assert_eq!(
             (
-                create(dir.as_ref(), "made"),
+                create(&dir, "made"),
                 dir.create_dir("inner"),
                 dir.entries().map(|entries| entries.len()),
                 dir.symlink_metadata("").map(|m| m.file_type)
@@ -1230,17 +1238,15 @@ mod tests {
     // @behavior FS-107
     #[test]
     fn a_memory_directory_never_moves_beneath_itself() {
-        let memory = Memory::new();
+        let memory = at(Memory::new());
         memory.create_dir("a").expect("the directory must be made");
         memory
             .create_dir("a/b")
             .expect("the inner directory must be made");
-        let inner = memory
-            .open_dir_nofollow("a/b")
-            .expect("the directory must open");
+        let inner = memory.open_dir("a/b").expect("the directory must open");
         assert_eq!(
             (
-                memory.rename("a", inner.as_ref(), "a", Rename::Any),
+                memory.rename("a", &inner, "a", Rename::Any),
                 memory.symlink_metadata("a/b").map(|m| m.file_type)
             ),
             (Err(FilesystemError::InvalidInput), Ok(FileType::Directory)),
@@ -1252,8 +1258,8 @@ mod tests {
     // @behavior FS-109
     #[test]
     fn a_rename_into_a_directory_of_another_memory_crosses_devices() {
-        let memory: Memory = [("file", "x")].into_iter().collect();
-        let other = Memory::new();
+        let memory = at([("file", "x")].into_iter().collect());
+        let other = at(Memory::new());
         assert_eq!(
             (
                 memory.rename("file", &other, "file", Rename::Any),
@@ -1270,7 +1276,7 @@ mod tests {
     // @behavior FS-115
     #[test]
     fn a_memory_keeps_a_files_times_as_a_tmpfs_mounted_noatime_does() {
-        let memory = Memory::new();
+        let memory = at(Memory::new());
         let options = OpenOptions {
             read: true,
             write: true,
@@ -1304,7 +1310,7 @@ mod tests {
     // @behavior FS-116
     #[test]
     fn a_memory_counts_a_directorys_names_as_a_tmpfs_does() {
-        let memory: Memory = [("dir/file", "x")].into_iter().collect();
+        let memory = at([("dir/file", "x")].into_iter().collect());
         memory
             .create_dir("dir/a")
             .expect("a directory must be made");
@@ -1328,7 +1334,7 @@ mod tests {
     // @behavior FS-070
     #[test]
     fn a_memory_gives_each_directory_it_makes_an_identity_of_its_own() {
-        let memory = Memory::new();
+        let memory = at(Memory::new());
         memory
             .create_dir("dir")
             .expect("the directory must be made");

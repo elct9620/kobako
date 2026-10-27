@@ -13,7 +13,8 @@ use kobako_runtime::filesystem::{
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
-use kobako_runtime::vfs::SuperBlock;
+use kobako_runtime::profile::Profile;
+use kobako_runtime::vfs::{self, Dentry, OpenHow, Opened, Path, SuperBlock};
 use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Outcome, Preamble};
 
@@ -53,14 +54,19 @@ fn note_memory() -> Arc<Memory> {
     Arc::new([("note.txt", "hello\nworld\n")].into_iter().collect())
 }
 
-fn contents(filesystem: &dyn Filesystem, path: &str) -> Vec<u8> {
-    let mut file = filesystem
-        .open(path, &{
-            let mut options = OpenOptions::default();
-            options.read = true;
-            options
-        })
-        .expect("the file must exist");
+/// The root of `filesystem` as the host reaches it through the VFS.
+fn host<F: Filesystem>(filesystem: &Arc<F>) -> Path {
+    let mount = Mount::new("/data", SuperBlock::new(filesystem.clone()), Access::Read)
+        .expect("/data is a guest path");
+    Path::root(mount, Profile::Permissive)
+}
+
+fn contents<F: Filesystem>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
+    let mut how = OpenHow::default();
+    how.read = true;
+    let Ok(Opened::File(mut file)) = vfs::open(&host(filesystem), path, &how, true) else {
+        panic!("the file must exist");
+    };
     let mut buf = vec![0; 64];
     let read = file.read_at(&mut buf, 0).expect("the file must read");
     buf.truncate(read);
@@ -101,7 +107,7 @@ fn a_script_writes_a_file_beneath_a_read_write_mount() {
         "File.open must answer its block's value"
     );
     assert_eq!(
-        contents(memory.as_ref(), "out.txt"),
+        contents(&memory, "out.txt"),
         b"kept",
         "a file written in File.open's block through the bundled guest must land in the Memory"
     );
@@ -309,7 +315,7 @@ fn an_exclusive_create_refuses_a_file_already_there() {
         return;
     };
     assert_eq!(
-        (answer, contents(memory.as_ref(), "note.txt")),
+        (answer, contents(&memory, "note.txt")),
         (Err("Errno::EEXIST".to_string()), b"hello\nworld\n".to_vec()),
         "File.open with wx of a file already there through the bundled guest must raise \
          Errno::EEXIST and leave the file as it was"
@@ -328,7 +334,7 @@ fn an_exclusive_create_makes_a_file_nothing_is_at() {
         return;
     };
     assert_eq!(
-        (answer, contents(memory.as_ref(), "lock")),
+        (answer, contents(&memory, "lock")),
         (Ok(String::new()), b"mine".to_vec()),
         "File.open with w+x of a path nothing is at through the bundled guest must create the \
          file with what was written"
@@ -382,7 +388,7 @@ fn an_integer_mode_opens_by_its_file_constants_flags() {
         return;
     };
     assert_eq!(
-        (answer, contents(memory.as_ref(), "note.txt")),
+        (answer, contents(&memory, "note.txt")),
         (Err("Errno::EEXIST".to_string()), b"hello\nworld\n".to_vec()),
         "File.open with WRONLY | CREAT | EXCL of a file already there through the bundled guest \
          must raise Errno::EEXIST and leave the file as it was"
@@ -403,7 +409,10 @@ fn an_exclusive_open_without_create_makes_no_file() {
         return;
     };
     assert_eq!(
-        (answer, memory.symlink_metadata("lock").is_err()),
+        (
+            answer,
+            vfs::symlink_metadata(&host(&memory), "lock").is_err()
+        ),
         (Err("Errno::ENOENT".to_string()), true),
         "File.open with RDONLY | EXCL of a path nothing is at through the bundled guest must \
          raise Errno::ENOENT and make no file"
@@ -465,7 +474,7 @@ fn rdonly_beside_wronly_opens_to_write_only() {
         return;
     };
     assert_eq!(
-        (answer, contents(memory.as_ref(), "note.txt")),
+        (answer, contents(&memory, "note.txt")),
         (Ok("IOError".to_string()), b"Jello\nworld\n".to_vec()),
         "File.open with RDONLY | WRONLY through the bundled guest must write and raise IOError \
          on a read"
@@ -493,8 +502,8 @@ fn an_integer_mode_may_create_or_truncate_without_asking_to_write() {
     assert_eq!(
         (
             answer,
-            contents(memory.as_ref(), "lock"),
-            contents(memory.as_ref(), "note.txt")
+            contents(&memory, "lock"),
+            contents(&memory, "note.txt")
         ),
         (Ok(String::new()), Vec::new(), Vec::new()),
         "File.open with CREAT | EXCL of a new path and with RDONLY | TRUNC of a file through the \
@@ -560,47 +569,55 @@ where
     W: Fn(Box<dyn File>) -> F + Send + Sync + 'static,
     F: File + 'static,
 {
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        Ok(Box::new((self.wrap)(self.memory.open(path, options)?)))
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
+        Ok(Box::new((self.wrap)(self.memory.open(dentry, options)?)))
     }
 
-    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        self.memory.open_dir_nofollow(name)
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        self.memory.open_dir(dentry)
     }
 
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        self.memory.symlink_metadata(path)
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        self.memory.metadata()
     }
 
-    fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
-        self.memory.stored_name(name)
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.memory.symlink_metadata(dentry)
     }
 
-    fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-        self.memory.read_link(name)
+    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        self.memory.stored_name(dentry)
+    }
+
+    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        self.memory.read_link(dentry)
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         self.memory.entries()
     }
 
-    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.memory.create_dir(path)
+    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.memory.create_dir(dentry)
     }
 
-    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        self.memory.remove_dir(path)
+    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.memory.remove_dir(dentry)
     }
 
-    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        self.memory.remove_file(path)
+    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.memory.remove_file(dentry)
     }
 
     fn rename(
         &self,
-        from: &str,
+        from: &Dentry,
         _to_dir: &dyn Filesystem,
-        to: &str,
+        to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
         self.memory.rename(from, &self.memory, to, rename)
@@ -925,7 +942,7 @@ fn a_write_lands_whole_when_the_filesystem_takes_it_in_parts() {
         return;
     };
     assert_eq!(
-        (answer, contents(filesystem.as_ref(), "note.txt")),
+        (answer, contents(&filesystem,"note.txt")),
         (Ok("11".to_string()), b"hello world".to_vec()),
         "IO#write to a file whose Filesystem takes three bytes per write through the bundled guest \
          must answer every byte and land them all"

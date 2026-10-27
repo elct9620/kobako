@@ -141,14 +141,14 @@ impl Path {
         }];
         for name in self.dentry.names() {
             let above = chain.last().expect("a chain holds the root");
-            let dir = match above.dir.open_dir_nofollow(&name) {
+            let dentry = super_block.dentries().child(&above.dentry, &name);
+            let dir = match above.dir.open_dir(&dentry) {
                 Ok(dir) => dir,
                 Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {
                     return Err(FilesystemError::NotFound.into())
                 }
                 Err(err) => return Err(err.into()),
             };
-            let dentry = super_block.dentries().child(&above.dentry, &name);
             chain.push(Step { dir, name, dentry });
         }
         self.confirm(chain.last().expect("a chain holds the root").dir.as_ref())?;

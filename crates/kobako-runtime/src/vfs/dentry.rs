@@ -1,4 +1,4 @@
-//! The directories of one SuperBlock a guest has reached, each kept by the
+//! The names of one SuperBlock a guest has reached, each kept by the
 //! directory above it and its name there, as Linux's dcache keeps its
 //! dentries: a directory moved through the VFS takes every one beneath it
 //! along, and one removed or replaced through it is dead.
@@ -6,8 +6,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-/// One directory of a SuperBlock, and where it stands now.
-pub(crate) struct Dentry {
+/// One name of a SuperBlock, and where it stands now. Only the VFS makes
+/// one, so a Filesystem reads the name a call is about from it.
+pub struct Dentry {
     state: Mutex<State>,
 }
 
@@ -33,6 +34,11 @@ impl Dentry {
 
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The name in the directory above, empty for the root.
+    pub fn name(&self) -> String {
+        self.state().name.clone()
     }
 
     /// Each name from the SuperBlock's root down to this directory.
@@ -158,25 +164,27 @@ mod tests {
     use std::any::Any;
     use std::sync::Arc;
 
+    use super::Dentry;
     use crate::filesystem::{
         Access, DirEntry, File, FileType, Filesystem, FilesystemError, Memory, Metadata,
         OpenOptions, Rename,
     };
     use crate::mount::Mount;
     use crate::profile::Profile;
+    use crate::vfs::through::{through, Through};
     use crate::vfs::{self, OpenHow, Opened, Path, SuperBlock};
 
     /// A Filesystem answering each call by the path from its root, as one
     /// written in Ruby does, so a directory it opened reaches whatever
     /// stands at that path later and keeps no death of its own.
     struct ByPath {
-        root: Arc<Memory>,
+        root: Through,
         at: String,
     }
 
     impl ByPath {
-        fn path(&self, name: &str) -> String {
-            [self.at.as_str(), name]
+        fn path(&self, dentry: &Dentry) -> String {
+            [self.at.as_str(), &dentry.name()]
                 .into_iter()
                 .filter(|part| !part.is_empty())
                 .collect::<Vec<_>>()
@@ -187,14 +195,14 @@ mod tests {
     impl Filesystem for ByPath {
         fn open(
             &self,
-            path: &str,
+            dentry: &Dentry,
             options: &OpenOptions,
         ) -> Result<Box<dyn File>, FilesystemError> {
-            self.root.open(&self.path(path), options)
+            self.root.open(&self.path(dentry), options)
         }
 
-        fn open_dir_nofollow(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-            let at = self.path(path);
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+            let at = self.path(dentry);
             if self.root.symlink_metadata(&at)?.file_type != FileType::Directory {
                 return Err(FilesystemError::NotADirectory);
             }
@@ -204,56 +212,59 @@ mod tests {
             }))
         }
 
-        fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-            self.root.symlink_metadata(&self.path(path))
+        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+            self.root.symlink_metadata(&self.at)
         }
 
-        fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
-            Ok(name.to_string())
+        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.root.symlink_metadata(&self.path(dentry))
         }
 
-        fn read_link(&self, _name: &str) -> Result<String, FilesystemError> {
+        fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            Ok(dentry.name())
+        }
+
+        fn read_link(&self, _dentry: &Dentry) -> Result<String, FilesystemError> {
             Err(FilesystemError::InvalidInput)
         }
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.root.open_dir_nofollow(&self.at)?.entries()
+            match self.at.as_str() {
+                "" => self.root.entries(),
+                at => self.root.open_dir(at)?.entries(),
+            }
         }
 
-        fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.root.create_dir(&self.path(path))
+        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.create_dir(&self.path(dentry))
         }
 
-        fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-            self.root.remove_dir(&self.path(path))
+        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.remove_dir(&self.path(dentry))
         }
 
-        fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-            self.root.remove_file(&self.path(path))
+        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.remove_file(&self.path(dentry))
         }
 
         fn rename(
             &self,
-            from: &str,
+            from: &Dentry,
             to_dir: &dyn Filesystem,
-            to: &str,
+            to: &Dentry,
             rename: Rename,
         ) -> Result<(), FilesystemError> {
             let target = (to_dir as &dyn Any)
                 .downcast_ref::<Self>()
                 .ok_or(FilesystemError::CrossesDevices)?;
-            self.root.rename(
-                &self.path(from),
-                self.root.as_ref(),
-                &target.path(to),
-                rename,
-            )
+            self.root
+                .rename(&self.path(from), &self.root, &target.path(to), rename)
         }
     }
 
     fn by_path(memory: &Arc<Memory>) -> Arc<SuperBlock> {
         SuperBlock::new(Arc::new(ByPath {
-            root: memory.clone(),
+            root: through(memory.clone()),
             at: String::new(),
         }))
     }
@@ -291,7 +302,7 @@ mod tests {
             (
                 vfs::create_dir(&dir, "made"),
                 dir.entries(),
-                memory.symlink_metadata("dir/made").err()
+                through(memory.clone()).symlink_metadata("dir/made").err()
             ),
             (
                 Err(vfs::Error::Filesystem(FilesystemError::NotFound)),

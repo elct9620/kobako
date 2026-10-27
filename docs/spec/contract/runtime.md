@@ -313,6 +313,25 @@ impl SuperBlock {
 }
 ```
 
+## `Dentry`
+
+One name of a SuperBlock, made by the VFS alone. A Filesystem reads the name
+a call is about from it.
+
+```rust
+pub struct Dentry {}
+```
+
+## `Dentry::name`
+
+The name in the directory above, empty for the root.
+
+```rust
+impl Dentry {
+    pub fn name(&self) -> String {}
+}
+```
+
 ## `Mount::allows_writes`
 
 Whether a change beneath the Mount may be allowed at all, without asking
@@ -516,10 +535,11 @@ pub trait Policy {
 
 ## `Filesystem`
 
-The files and directories beneath one directory, as the `*at` calls reach
-them. That directory is a Mount's root, or one opened beneath it. One may wrap another
-and answer by delegating, wrapping each directory it opens too. The methods
-keeping a guarantee have no default, so a wrapper forwards them.
+The files and directories beneath a Mount's root or a directory opened
+beneath it, as the `*at` calls reach them. Each call names
+one entry by the Dentry the VFS made for it. One may wrap another and answer
+by delegating, wrapping each directory it opens too. No method has a default,
+so a wrapper forwards each.
 
 ```rust
 pub trait Filesystem {}
@@ -527,66 +547,66 @@ pub trait Filesystem {}
 
 ## `Filesystem::open`
 
-Open the file at a path, creating or truncating it where the options say to.
+Open the file a Dentry names, creating or truncating it where the options say
+to.
 
 ```rust
 pub trait Filesystem {
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError>;
+    fn open(&self, dentry: &Dentry, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError>;
 }
 ```
 
-## `Filesystem::open_dir_nofollow`
+## `Filesystem::open_dir`
 
-The directory of a name in this one, as a Filesystem of its own. Anything
-else standing there is refused, a link among them.
+The directory a Dentry names in this one, as a Filesystem of its own.
+Anything else standing there is refused, a link among them.
 
 ```rust
 pub trait Filesystem {
-    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError>;
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError>;
 }
 ```
 
 ## `Filesystem::metadata`
 
-What the directory reports of itself, by default what `symlink_metadata`
-answers for the empty path.
+What the directory reports of itself.
 
 ```rust
 pub trait Filesystem {
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {}
+    fn metadata(&self) -> Result<Metadata, FilesystemError>;
 }
 ```
 
 ## `Filesystem::symlink_metadata`
 
-What a path names without following a link standing there.
+What a Dentry names without following a link standing there.
 
 ```rust
 pub trait Filesystem {
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError>;
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
 }
 ```
 
 ## `Filesystem::stored_name`
 
-A name in this directory spelled as it is stored. A name it does not hold
-stays as given. A Filesystem matching names exactly answers the name itself.
+The name a Dentry carries, spelled as this directory stores it, for a Policy
+to judge. A name it does not hold stays as given. A Filesystem matching names
+exactly answers the name itself.
 
 ```rust
 pub trait Filesystem {
-    fn stored_name(&self, name: &str) -> Result<String, FilesystemError>;
+    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
 }
 ```
 
 ## `Filesystem::read_link`
 
-Where a link in this directory points, for the runtime to follow. Anything
-else standing there is invalid input, as it is for a Filesystem holding no
-links.
+Where a link a Dentry names points, for the runtime to follow. Anything else
+standing there is invalid input, as it is for a Filesystem holding no links.
 
 ```rust
 pub trait Filesystem {
-    fn read_link(&self, name: &str) -> Result<String, FilesystemError>;
+    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
 }
 ```
 
@@ -602,44 +622,44 @@ pub trait Filesystem {
 
 ## `Filesystem::create_dir`
 
-Create a directory.
+Create the directory a Dentry names.
 
 ```rust
 pub trait Filesystem {
-    fn create_dir(&self, path: &str) -> Result<(), FilesystemError>;
+    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
 }
 ```
 
 ## `Filesystem::remove_dir`
 
-Remove an empty directory.
+Remove the empty directory a Dentry names.
 
 ```rust
 pub trait Filesystem {
-    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError>;
+    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
 }
 ```
 
 ## `Filesystem::remove_file`
 
-Remove a file.
+Remove the file a Dentry names.
 
 ```rust
 pub trait Filesystem {
-    fn remove_file(&self, path: &str) -> Result<(), FilesystemError>;
+    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
 }
 ```
 
 ## `Filesystem::rename`
 
-Move a file or directory to a path beneath a target directory, refusing what
+Move what one Dentry names to another in a target directory, refusing what
 the given Rename does not allow. The target is a directory of the same Mount,
 so one of another type crosses devices. What stands at the source is checked
 as it moves.
 
 ```rust
 pub trait Filesystem {
-    fn rename(&self, from: &str, to_dir: &dyn Filesystem, to: &str, rename: Rename) -> Result<(), FilesystemError>;
+    fn rename(&self, from: &Dentry, to_dir: &dyn Filesystem, to: &Dentry, rename: Rename) -> Result<(), FilesystemError>;
 }
 ```
 

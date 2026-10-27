@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use super::super::path::is_beneath;
-use super::super::Filesystem;
+use super::lower::Lower;
 use super::stack::Level;
 
 /// One directory of the view and the Layers' directories it stands for.
@@ -100,7 +100,7 @@ impl Inodes {
 
     /// Layer `into` now holds `dir` as the directory at `path`, made or
     /// found there by a copy up, so every handle of it asks that Layer too.
-    pub(super) fn copied_up(&self, path: &str, into: usize, dir: &Arc<dyn Filesystem>) {
+    pub(super) fn copied_up(&self, path: &str, into: usize, dir: &Lower) {
         if let Some(inode) = self.lock().get(path).and_then(Weak::upgrade) {
             inode.lock()[into] = Some(dir.clone());
         }

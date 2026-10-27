@@ -580,9 +580,9 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Directory Layer holds links to a file, a directory, and nothing |
+| Given | an Overlay whose read-only Directory Layer holds a link to a file and a link to nothing |
 | When | the guest writes, creates, or renames through one of those links |
-| Then | each change is refused, as crossing devices or as a link loop, and the target stays |
+| Then | each change is refused as crossing devices, and the target stays |
 
 ## `FS-052` An Overlay finds a dangling link where a new entry would go
 

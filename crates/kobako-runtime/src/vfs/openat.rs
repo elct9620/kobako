@@ -76,7 +76,7 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<Opene
                 truncate: how.truncate,
                 nofollow: true,
             };
-            let file = resolved.base.open(&resolved.name, &options)?;
+            let file = resolved.base.open(&resolved.child(), &options)?;
             Ok(Opened::File(seen_file(file, start.profile())))
         }
     }
@@ -106,14 +106,12 @@ fn open_directory(
     resolved: Resolved,
     identity: Option<Identity>,
 ) -> Result<Opened, Error> {
-    let dir = resolved.base.open_dir_nofollow(&resolved.name)?;
-    let dentry = match resolved.name.as_str() {
-        "" => resolved.dentry.clone(),
-        name => resolved
-            .mount
-            .super_block()
-            .dentries()
-            .child(&resolved.dentry, name),
+    let (dir, dentry) = match resolved.name.as_str() {
+        "" => (resolved.base.clone(), resolved.dentry.clone()),
+        _ => {
+            let dentry = resolved.child();
+            (resolved.base.open_dir(&dentry)?, dentry)
+        }
     };
     Ok(Opened::Directory(start.opened(dir, dentry, identity)))
 }

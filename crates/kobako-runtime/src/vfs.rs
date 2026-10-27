@@ -15,10 +15,13 @@ mod path;
 mod seen;
 mod stat;
 mod super_block;
+#[cfg(test)]
+pub(crate) mod through;
 
 use crate::filesystem::FilesystemError;
 use crate::mount::Denial;
 
+pub use dentry::Dentry;
 pub use entry::{create_dir, remove_dir, remove_file, rename};
 pub use openat::{open, OpenHow, Opened};
 pub use path::Path;

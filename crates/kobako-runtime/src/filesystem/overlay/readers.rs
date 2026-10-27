@@ -5,7 +5,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-use super::super::{File, Filesystem, FilesystemError, Metadata, OpenOptions};
+use super::super::{File, FilesystemError, Metadata, OpenOptions};
+use super::lower::Lower;
 
 type Copy = Arc<Mutex<Box<dyn File>>>;
 
@@ -55,7 +56,7 @@ impl Readers {
     pub(super) fn copied(
         &self,
         path: &str,
-        dir: &dyn Filesystem,
+        dir: &Lower,
         name: &str,
     ) -> Result<(), FilesystemError> {
         let Some(shown) = self.lock().get(path).and_then(Weak::upgrade) else {

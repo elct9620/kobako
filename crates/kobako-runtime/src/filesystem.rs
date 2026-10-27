@@ -4,10 +4,9 @@
 //! A runtime owns the descriptors and path resolution, and the Mount
 //! decides access; a `Filesystem` only answers for the files and directories
 //! themselves, so a third party brings one without implementing any of
-//! that. Every path a runtime hands over is relative to the Filesystem's
-//! own root, its components joined by `/`, with no `.` or `..` left and
-//! no leading `/`; the empty path is the root, which a runtime never asks
-//! to remove or move.
+//! that. A runtime asks a directory about one name at a time, carried by
+//! the `Dentry` the VFS made for it, as Linux hands a filesystem's
+//! `inode_operations` a dentry: never `.`, `..`, or a name holding `/`.
 
 mod directory;
 mod memory;
@@ -22,6 +21,8 @@ use std::time::SystemTime;
 pub use directory::Directory;
 pub use memory::{Memory, SeedError};
 pub use overlay::{Blocking, Overlay};
+
+use crate::vfs::Dentry;
 
 /// What the guest may do beneath a Mount, or an Overlay in one of its
 /// Layers.
@@ -43,69 +44,70 @@ pub enum Access {
 /// itself, as the VFS above a filesystem does, so a link never leads a
 /// call out of the directory a descriptor opened. Four methods keep a
 /// guarantee the runtime gives the guest, so each Filesystem answers them
-/// itself and a wrapper forwards them: `symlink_metadata`,
-/// `open_dir_nofollow`, and `read_link` keep a link from being followed
-/// anywhere but where the runtime follows it, and `stored_name` keeps a
-/// Policy judging the spelling the host stores. Every Invocation reaches the same Filesystem;
+/// itself and a wrapper forwards them: `symlink_metadata`, `open_dir`, and
+/// `read_link` keep a link from being followed anywhere but where the
+/// runtime follows it, and `stored_name` keeps a Policy judging the
+/// spelling the host stores. Every Invocation reaches the same Filesystem;
 /// one that should start afresh is handed in its place for that
 /// Invocation.
 pub trait Filesystem: Any + Send + Sync {
-    /// Open the file at `path` as `options` asks, creating or truncating it
-    /// where they say to.
-    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError>;
+    /// Open the file `dentry` names as `options` asks, creating or
+    /// truncating it where they say to.
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError>;
 
-    /// The directory `name` in this one, as `O_DIRECTORY` opens one:
-    /// `NotADirectory` where anything else stands, and `FilesystemLoop`
-    /// for a link standing there, as `O_NOFOLLOW` refuses one, since the
-    /// runtime follows a link itself.
-    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError>;
+    /// The directory `dentry` names in this one, as `O_DIRECTORY` opens
+    /// one: `NotADirectory` where anything else stands, and
+    /// `FilesystemLoop` for a link standing there, as `O_NOFOLLOW` refuses
+    /// one, since the runtime follows a link itself.
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError>;
 
-    /// What this directory reports of itself, as `fstat` answers; by
-    /// default what `symlink_metadata` answers for the empty path.
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.symlink_metadata("")
-    }
+    /// What this directory reports of itself, as `fstat` answers.
+    fn metadata(&self) -> Result<Metadata, FilesystemError>;
 
-    /// What `path` names without following a link standing there, as
+    /// What `dentry` names without following a link standing there, as
     /// `lstat` answers, since the runtime follows a link itself. A link is
     /// reported as one and nothing of where it points: no size, and no way
     /// to read it.
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError>;
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
 
-    /// The entry `name` in this directory spelled as it is stored, so a
+    /// The name `dentry` carries spelled as this directory stores it, so a
     /// name a host reaches by more than one spelling is judged by one; a
     /// name it does not hold stays as given. A Filesystem matching names
-    /// exactly answers `name`.
-    fn stored_name(&self, name: &str) -> Result<String, FilesystemError>;
+    /// exactly answers the name. Only a Policy asks, as an LSM asks a
+    /// filesystem for what it judges by, so no other caller pays for it.
+    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
 
-    /// Where the link `name` in this directory points, as `readlinkat`
-    /// answers, for the runtime to follow; a guest never reads it.
-    /// `InvalidInput` where anything else stands, as `readlinkat` refuses
-    /// one, which is a Filesystem holding no links's answer for every name
-    /// it holds.
-    fn read_link(&self, name: &str) -> Result<String, FilesystemError>;
+    /// Where the link `dentry` names points, as `readlinkat` answers, for
+    /// the runtime to follow; a guest never reads it. `InvalidInput` where
+    /// anything else stands, as `readlinkat` refuses one, which is a
+    /// Filesystem holding no links's answer for every name it holds.
+    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
 
     /// The entries of this directory, without `.` or `..`.
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError>;
 
-    fn create_dir(&self, path: &str) -> Result<(), FilesystemError>;
+    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
 
-    /// Remove the empty directory at `path`.
-    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError>;
+    /// Remove the empty directory `dentry` names.
+    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
 
-    fn remove_file(&self, path: &str) -> Result<(), FilesystemError>;
+    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
 
-    /// Move the entry at `from` to `to` beneath `to_dir`, refusing one
-    /// `rename` does not allow; a move onto its own path changes nothing
+    /// Move the entry `from` names to `to` in `to_dir`, refusing one
+    /// `rename` does not allow; a move onto its own name changes nothing
     /// and is allowed. A runtime hands only a `to_dir` of the same Mount,
     /// so it is of this Filesystem's own type, and one that is not answers
     /// `CrossesDevices`. The Filesystem checks what stands at `from` as it
     /// moves it, under the same lock, so nothing replaces it in between.
     fn rename(
         &self,
-        from: &str,
+        from: &Dentry,
         to_dir: &dyn Filesystem,
-        to: &str,
+        to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError>;
 }

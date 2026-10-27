@@ -13,7 +13,7 @@ use kobako::filesystem::{
     DirEntry, File, FileType, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Rename,
 };
 use kobako::msgpack::Value;
-use kobako::{Access, Error, Policy, Profile, Sandbox, SuperBlock};
+use kobako::{Access, Dentry, Error, Policy, Profile, Sandbox, SuperBlock};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::InvokeError;
 use kobako_runtime::grant::Grant;
@@ -240,35 +240,41 @@ impl File for NoteFile {
 }
 
 impl Filesystem for OneNote {
-    fn open(&self, path: &str, _options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        match path {
+    fn open(
+        &self,
+        dentry: &Dentry,
+        _options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
+        match dentry.name().as_str() {
             "note.txt" => Ok(Box::new(NoteFile(self.0))),
             _ => Err(FilesystemError::NotFound),
         }
     }
 
-    fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        match path {
-            "" => Ok(Metadata::new(FileType::Directory, 0)),
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        Ok(Metadata::new(FileType::Directory, 0))
+    }
+
+    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        match dentry.name().as_str() {
             "note.txt" => NoteFile(self.0).metadata(),
             _ => Err(FilesystemError::NotFound),
         }
     }
 
-    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        match name {
-            "" => Ok(Arc::new(OneNote(self.0))),
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        match dentry.name().as_str() {
             "note.txt" => Err(FilesystemError::NotADirectory),
             _ => Err(FilesystemError::NotFound),
         }
     }
 
-    fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
-        Ok(name.to_string())
+    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        Ok(dentry.name())
     }
 
-    fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-        self.symlink_metadata(name)?;
+    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        self.symlink_metadata(dentry)?;
         Err(FilesystemError::InvalidInput)
     }
 
@@ -276,23 +282,23 @@ impl Filesystem for OneNote {
         Ok(vec![DirEntry::new("note.txt", FileType::File)])
     }
 
-    fn create_dir(&self, _path: &str) -> Result<(), FilesystemError> {
+    fn create_dir(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
         Err(FilesystemError::ReadOnlyFilesystem)
     }
 
-    fn remove_dir(&self, _path: &str) -> Result<(), FilesystemError> {
+    fn remove_dir(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
         Err(FilesystemError::ReadOnlyFilesystem)
     }
 
-    fn remove_file(&self, _path: &str) -> Result<(), FilesystemError> {
+    fn remove_file(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
         Err(FilesystemError::ReadOnlyFilesystem)
     }
 
     fn rename(
         &self,
-        _from: &str,
+        _from: &Dentry,
         _to_dir: &dyn Filesystem,
-        _to: &str,
+        _to: &Dentry,
         _rename: Rename,
     ) -> Result<(), FilesystemError> {
         Err(FilesystemError::ReadOnlyFilesystem)

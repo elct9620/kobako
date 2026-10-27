@@ -53,13 +53,26 @@ pub(crate) struct Resolved {
 }
 
 impl Resolved {
+    /// The dentry of the name in `base`, as `d_alloc` makes one for a name
+    /// a call is about.
+    pub(crate) fn child(&self) -> Arc<Dentry> {
+        self.mount
+            .super_block()
+            .dentries()
+            .child(&self.dentry, &self.name)
+    }
+
     /// What stands at the name, a link reported as itself, asked of the
-    /// Filesystem once however many checks need it.
+    /// Filesystem once however many checks need it; the directory itself
+    /// for the empty name.
     pub(crate) fn found(&mut self) -> Result<Metadata, FilesystemError> {
-        let (base, name) = (&self.base, &self.name);
-        self.found
-            .get_or_insert_with(|| base.symlink_metadata(name))
-            .clone()
+        if self.found.is_none() {
+            self.found = Some(match self.name.as_str() {
+                "" => self.base.metadata(),
+                _ => self.base.symlink_metadata(&self.child()),
+            });
+        }
+        self.found.clone().expect("found was just asked")
     }
 
     /// Refuse the name as `NotADirectory` when it must be a directory and
@@ -82,10 +95,10 @@ impl Resolved {
     pub(crate) fn spelled(&self) -> Result<String, FilesystemError> {
         let mut names = Vec::new();
         for pair in self.frames.windows(2) {
-            names.push(pair[0].dir.stored_name(&pair[1].name)?);
+            names.push(pair[0].dir.stored_name(&pair[1].dentry)?);
         }
         if !self.name.is_empty() {
-            names.push(self.base.stored_name(&self.name)?);
+            names.push(self.base.stored_name(&self.child())?);
         }
         Ok(names
             .iter()
@@ -141,17 +154,22 @@ impl Walk {
         &self.frames.last().expect("a walk stands somewhere").dir
     }
 
+    /// The dentry of `name` in the directory the walk stands in.
+    fn child(&self, name: &str) -> Arc<Dentry> {
+        self.mount.super_block().dentries().child(
+            &self.frames.last().expect("a walk stands somewhere").dentry,
+            name,
+        )
+    }
+
     /// Step into the directory `part` names, or follow the link standing
     /// there; `dot` is a `.` or `..` right after it, which no link takes.
     /// The directory is opened first, a link standing there refused, so
     /// only a name that opens as none is asked what it is.
     fn descend(&mut self, part: Part, dot: bool) -> Result<(), Error> {
-        match self.top().open_dir_nofollow(&part.name) {
+        let dentry = self.child(&part.name);
+        match self.top().open_dir(&dentry) {
             Ok(dir) => {
-                let dentry = self.mount.super_block().dentries().child(
-                    &self.frames.last().expect("a walk stands somewhere").dentry,
-                    &part.name,
-                );
                 self.frames.push(Frame {
                     dir,
                     name: part.name,
@@ -161,9 +179,9 @@ impl Walk {
                 Ok(())
             }
             Err(FilesystemError::FilesystemLoop) => {
-                match self.top().symlink_metadata(&part.name)?.file_type {
+                match self.top().symlink_metadata(&dentry)?.file_type {
                     FileType::Symlink if dot => Err(FilesystemError::FilesystemLoop.into()),
-                    FileType::Symlink => self.follow(&part.name),
+                    FileType::Symlink => self.follow(&dentry),
                     _ => Err(FilesystemError::FilesystemLoop.into()),
                 }
             }
@@ -171,9 +189,9 @@ impl Walk {
         }
     }
 
-    /// Walk on through where the link `name` points, before whatever is
-    /// left of the path.
-    fn follow(&mut self, name: &str) -> Result<(), Error> {
+    /// Walk on through where the link `dentry` names points, before
+    /// whatever is left of the path.
+    fn follow(&mut self, dentry: &Dentry) -> Result<(), Error> {
         if !self.follows_links {
             return Err(FilesystemError::FilesystemLoop.into());
         }
@@ -181,7 +199,7 @@ impl Walk {
         if self.links > MAX_LINKS {
             return Err(FilesystemError::FilesystemLoop.into());
         }
-        let target = self.top().read_link(name)?;
+        let target = self.top().read_link(dentry)?;
         if target.starts_with('/') {
             return Err(FilesystemError::NotPermitted.into());
         }
@@ -216,7 +234,7 @@ impl Walk {
     /// A final `.` after `name` stands in it, which must be a directory
     /// and no link.
     fn stays_in(&self, name: &str) -> Result<(), Error> {
-        match self.top().symlink_metadata(name)?.file_type {
+        match self.top().symlink_metadata(&self.child(name))?.file_type {
             FileType::Directory => Ok(()),
             FileType::Symlink => Err(FilesystemError::FilesystemLoop.into()),
             _ => Err(FilesystemError::NotADirectory.into()),
@@ -306,12 +324,13 @@ pub(crate) fn resolve(
     let mut found = None;
     let mut followed = false;
     while let Some(name) = last.as_ref().filter(|_| follow) {
-        let looked_up = walk.top().symlink_metadata(&name.name);
+        let dentry = walk.child(&name.name);
+        let looked_up = walk.top().symlink_metadata(&dentry);
         if !matches!(&looked_up, Ok(metadata) if metadata.file_type == FileType::Symlink) {
             found = Some(looked_up);
             break;
         }
-        walk.follow(&name.name)?;
+        walk.follow(&dentry)?;
         followed = true;
         last = walk.run(None)?;
     }

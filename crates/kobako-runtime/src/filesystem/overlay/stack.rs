@@ -17,12 +17,14 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::inodes::Inodes;
+use super::lower::Lower;
 use super::readers::Readers;
 
 use super::super::path::{beneath_itself, is_beneath, join};
 use super::super::{
     Access, DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
 };
+use crate::vfs::SuperBlock;
 
 /// The prefix of a whiteout, and of every name reserved for a marker.
 const WHITEOUT: &str = ".wh.";
@@ -31,7 +33,7 @@ const OPAQUE: &str = ".wh..wh..opq";
 
 #[derive(Clone)]
 struct Layer {
-    filesystem: Arc<dyn Filesystem>,
+    super_block: Arc<SuperBlock>,
     access: Access,
 }
 
@@ -43,7 +45,7 @@ impl Layer {
 
 /// Each Layer's directory at one directory of the view, topmost first;
 /// `None` where that Layer holds no directory the view merges there.
-pub(super) type Level = Vec<Option<Arc<dyn Filesystem>>>;
+pub(super) type Level = Vec<Option<Lower>>;
 
 /// The directories of the view from the root to one of them.
 #[derive(Clone)]
@@ -94,19 +96,10 @@ impl Chain {
     pub(super) fn path_of(&self, name: &str) -> String {
         join(&self.path(), name)
     }
-
-    /// Step back to the directory above, answering the name stepped out
-    /// of; the root has none.
-    pub(super) fn pop(&mut self) -> Option<String> {
-        if self.steps.len() == 1 {
-            return None;
-        }
-        self.steps.pop().map(|step| step.name)
-    }
 }
 
 /// What `dir` holds at `name`, a link reported as itself.
-fn entry(dir: &dyn Filesystem, name: &str) -> Result<Option<Metadata>, FilesystemError> {
+fn entry(dir: &Lower, name: &str) -> Result<Option<Metadata>, FilesystemError> {
     match dir.symlink_metadata(name) {
         Ok(metadata) => Ok(Some(metadata)),
         Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => Ok(None),
@@ -117,14 +110,14 @@ fn entry(dir: &dyn Filesystem, name: &str) -> Result<Option<Metadata>, Filesyste
 /// Whether `dir` has an entry at `name`, a link pointing at nothing among
 /// them. A Layer that cannot answer fails the call, so a marker it could
 /// not read never lets a lower entry show.
-fn holds(dir: &dyn Filesystem, name: &str) -> Result<bool, FilesystemError> {
+fn holds(dir: &Lower, name: &str) -> Result<bool, FilesystemError> {
     Ok(entry(dir, name)?.is_some())
 }
 
 /// Whether `dir` hides `name` in every Layer below it with a whiteout. A
 /// directory's opaque marker hides every name at once, so a level never
 /// holds the Layers below one; each name need not ask again.
-fn hides(dir: &dyn Filesystem, name: &str) -> Result<bool, FilesystemError> {
+fn hides(dir: &Lower, name: &str) -> Result<bool, FilesystemError> {
     holds(dir, &whiteout(name))
 }
 
@@ -136,16 +129,16 @@ fn below_opaque_cut(mut level: Level) -> Result<Level, FilesystemError> {
         if cut {
             *dir = None;
         } else if let Some(shown) = dir {
-            cut = holds(shown.as_ref(), OPAQUE)?;
+            cut = holds(shown, OPAQUE)?;
         }
     }
     Ok(level)
 }
 
 /// Whether the directory `name` in `dir` holds an opaque marker.
-fn opaque_inside(dir: &dyn Filesystem, name: &str) -> Result<bool, FilesystemError> {
-    match dir.open_dir_nofollow(name) {
-        Ok(inner) => holds(inner.as_ref(), OPAQUE),
+fn opaque_inside(dir: &Lower, name: &str) -> Result<bool, FilesystemError> {
+    match dir.open_dir(name) {
+        Ok(inner) => holds(&inner, OPAQUE),
         Err(
             FilesystemError::NotFound
             | FilesystemError::NotADirectory
@@ -188,7 +181,7 @@ fn copy_whole(source: &mut dyn File, target: &mut dyn File) -> Result<(), Filesy
 /// means it is not. When `act` fails, or a marker will not go, the markers
 /// taken out are put back, so the view stays as it was.
 fn without_markers(
-    dir: &dyn Filesystem,
+    dir: &Lower,
     act: impl FnOnce() -> Result<(), FilesystemError>,
 ) -> Result<(), FilesystemError> {
     let markers: Vec<String> = dir.entries()?.into_iter().map(|entry| entry.name).collect();
@@ -213,7 +206,7 @@ fn without_markers(
 }
 
 /// An empty file `name` in `dir`, as every marker is.
-fn put_marker(dir: &dyn Filesystem, name: &str) -> Result<(), FilesystemError> {
+fn put_marker(dir: &Lower, name: &str) -> Result<(), FilesystemError> {
     dir.open(
         name,
         &OpenOptions {
@@ -258,7 +251,10 @@ impl Stack {
     }
 
     pub(super) fn push(&mut self, filesystem: Arc<dyn Filesystem>, access: Access) {
-        self.layers.push(Layer { filesystem, access });
+        self.layers.push(Layer {
+            super_block: SuperBlock::new(filesystem),
+            access,
+        });
     }
 
     /// The chain at the root of the view, every Layer's root merged down to
@@ -270,7 +266,7 @@ impl Stack {
                 level: below_opaque_cut(
                     self.layers
                         .iter()
-                        .map(|layer| Some(layer.filesystem.clone()))
+                        .map(|layer| Some(Lower::root(&layer.super_block)))
                         .collect(),
                 )?,
             }],
@@ -320,10 +316,10 @@ impl Stack {
             let Some(dir) = dir else {
                 continue;
             };
-            if let Some(found) = entry(dir.as_ref(), name)? {
+            if let Some(found) = entry(dir, name)? {
                 return Ok(Some((index, found)));
             }
-            if hides(dir.as_ref(), name)? {
+            if hides(dir, name)? {
                 break;
             }
         }
@@ -348,12 +344,12 @@ impl Stack {
             let standing = if index == found.0 {
                 Some(found.1)
             } else {
-                entry(dir.as_ref(), name)?
+                entry(dir, name)?
             };
             match standing {
                 Some(metadata) if metadata.file_type == FileType::Directory => {
-                    let inner = dir.open_dir_nofollow(name)?;
-                    let opaque = holds(inner.as_ref(), OPAQUE)?;
+                    let inner = dir.open_dir(name)?;
+                    let opaque = holds(&inner, OPAQUE)?;
                     merged[index] = Some(inner);
                     if opaque {
                         break;
@@ -362,7 +358,7 @@ impl Stack {
                 Some(_) => break,
                 None => {}
             }
-            if hides(dir.as_ref(), name)? {
+            if hides(dir, name)? {
                 break;
             }
         }
@@ -453,15 +449,15 @@ impl Stack {
             let Some(dir) = dir else {
                 continue;
             };
-            let found = entry(dir.as_ref(), name)?;
+            let found = entry(dir, name)?;
             let hidden = match &found {
                 Some(metadata) => {
                     holders.push(index);
                     metadata.file_type != FileType::Directory
-                        || hides(dir.as_ref(), name)?
-                        || opaque_inside(dir.as_ref(), name)?
+                        || hides(dir, name)?
+                        || opaque_inside(dir, name)?
                 }
-                None => hides(dir.as_ref(), name)?,
+                None => hides(dir, name)?,
             };
             if hidden {
                 let shadowed = match found {
@@ -485,10 +481,10 @@ impl Stack {
             let Some(dir) = dir else {
                 continue;
             };
-            if holds(dir.as_ref(), name)? {
+            if holds(dir, name)? {
                 return Ok(Some(index));
             }
-            if hides(dir.as_ref(), name)? {
+            if hides(dir, name)? {
                 return Ok(None);
             }
         }
@@ -514,7 +510,6 @@ impl Stack {
         into: usize,
     ) -> Result<(), FilesystemError> {
         for dir in level[..into].iter().flatten() {
-            let dir = dir.as_ref();
             if holds(dir, name)? || hides(dir, name)? || holds(dir, OPAQUE)? {
                 return Err(FilesystemError::ReadOnlyFilesystem);
             }
@@ -525,20 +520,11 @@ impl Stack {
     /// The directory `chain` reaches in Layer `into`, made there along
     /// with each directory above it that so far shows only from another
     /// Layer.
-    fn upper_dir(
-        &self,
-        chain: &mut Chain,
-        into: usize,
-    ) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    fn upper_dir(&self, chain: &mut Chain, into: usize) -> Result<Lower, FilesystemError> {
         self.made(chain, chain.steps.len() - 1, into)
     }
 
-    fn made(
-        &self,
-        chain: &mut Chain,
-        step: usize,
-        into: usize,
-    ) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    fn made(&self, chain: &mut Chain, step: usize, into: usize) -> Result<Lower, FilesystemError> {
         if let Some(dir) = &chain.steps[step].level[into] {
             return Ok(dir.clone());
         }
@@ -547,17 +533,15 @@ impl Stack {
         }
         let parent = self.made(chain, step - 1, into)?;
         let name = chain.steps[step].name.clone();
-        let dir = match entry(parent.as_ref(), &name)? {
-            Some(found) if found.file_type == FileType::Directory => {
-                parent.open_dir_nofollow(&name)?
-            }
+        let dir = match entry(&parent, &name)? {
+            Some(found) if found.file_type == FileType::Directory => parent.open_dir(&name)?,
             Some(found) if found.file_type == FileType::Symlink => {
                 return Err(FilesystemError::CrossesDevices)
             }
             Some(_) => return Err(FilesystemError::NotADirectory),
             None => {
                 parent.create_dir(&name)?;
-                parent.open_dir_nofollow(&name)?
+                parent.open_dir(&name)?
             }
         };
         chain.steps[step].level[into] = Some(dir.clone());
@@ -579,8 +563,7 @@ impl Stack {
         let source_dir = chain.level()[from]
             .clone()
             .ok_or(FilesystemError::NotFound)?;
-        if entry(source_dir.as_ref(), name)?.map(|found| found.file_type) == Some(FileType::Symlink)
-        {
+        if entry(&source_dir, name)?.map(|found| found.file_type) == Some(FileType::Symlink) {
             return Err(FilesystemError::CrossesDevices);
         }
         let target_dir = self.upper_dir(chain, into)?;
@@ -606,19 +589,18 @@ impl Stack {
             let _ = target_dir.remove_file(name);
             return copied;
         }
-        self.readers
-            .copied(&chain.path_of(name), target_dir.as_ref(), name)
+        self.readers.copied(&chain.path_of(name), &target_dir, name)
     }
 
     /// Clear the whiteout of `name` in `dir` once an entry has landed
     /// there. A whiteout left beside the entry hides only what lies below,
     /// which the entry replaced, so failing to clear it fails nothing.
-    fn unhide(dir: &dyn Filesystem, name: &str) {
+    fn unhide(dir: &Lower, name: &str) {
         let _ = dir.remove_file(&whiteout(name));
     }
 
     fn mark(&self, chain: &mut Chain, marker: &str, into: usize) -> Result<(), FilesystemError> {
-        put_marker(self.upper_dir(chain, into)?.as_ref(), marker)
+        put_marker(&self.upper_dir(chain, into)?, marker)
     }
 
     /// The Layer a whiteout over the Layer at `shown` lands in, or `None`
@@ -643,15 +625,15 @@ impl Stack {
         &self,
         chain: &mut Chain,
         name: &str,
-        keeps: impl Fn(&dyn Filesystem) -> Result<bool, FilesystemError>,
-        remove: impl Fn(&dyn Filesystem) -> Result<(), FilesystemError>,
+        keeps: impl Fn(&Lower) -> Result<bool, FilesystemError>,
+        remove: impl Fn(&Lower) -> Result<(), FilesystemError>,
     ) -> Result<(), FilesystemError> {
         let level = chain.level().clone();
         let (holders, shadowed) = self.holders(&level, name)?;
         let mut kept = Vec::new();
         for &index in &holders {
             let dir = level[index].as_ref().ok_or(FilesystemError::NotFound)?;
-            if !self.layers[index].writable() || keeps(dir.as_ref())? {
+            if !self.layers[index].writable() || keeps(dir)? {
                 kept.push(index);
             }
         }
@@ -661,12 +643,7 @@ impl Stack {
         }
         for &index in &holders {
             if !kept.contains(&index) {
-                remove(
-                    level[index]
-                        .as_ref()
-                        .ok_or(FilesystemError::NotFound)?
-                        .as_ref(),
-                )?;
+                remove(level[index].as_ref().ok_or(FilesystemError::NotFound)?)?;
             }
         }
         Ok(())
@@ -729,7 +706,7 @@ impl Stack {
                 self.refuse_covered(&level, name, upper)?;
                 let dir = self.upper_dir(chain, upper)?;
                 let file = dir.open(name, options)?;
-                Self::unhide(dir.as_ref(), name);
+                Self::unhide(&dir, name);
                 Ok(file)
             }
         }
@@ -779,17 +756,17 @@ impl Stack {
         let upper = self.upper()?;
         self.refuse_covered(&level, name, upper)?;
         let dir = self.upper_dir(chain, upper)?;
-        let hid = holds(dir.as_ref(), &whiteout(name))?;
+        let hid = holds(&dir, &whiteout(name))?;
         dir.create_dir(name)?;
         if hid {
             let marked = dir
-                .open_dir_nofollow(name)
-                .and_then(|made| put_marker(made.as_ref(), OPAQUE));
+                .open_dir(name)
+                .and_then(|made| put_marker(&made, OPAQUE));
             if let Err(err) = marked {
                 let _ = dir.remove_dir(name);
                 return Err(err);
             }
-            Self::unhide(dir.as_ref(), name);
+            Self::unhide(&dir, name);
         }
         Ok(())
     }
@@ -815,14 +792,14 @@ impl Stack {
             name,
             |dir| {
                 Ok(dir
-                    .open_dir_nofollow(name)?
+                    .open_dir(name)?
                     .entries()?
                     .iter()
                     .any(|entry| !entry.name.starts_with(WHITEOUT)))
             },
             |dir| {
-                let inner = dir.open_dir_nofollow(name)?;
-                without_markers(inner.as_ref(), || dir.remove_dir(name))
+                let inner = dir.open_dir(name)?;
+                without_markers(&inner, || dir.remove_dir(name))
             },
         )
     }
@@ -890,7 +867,7 @@ impl Stack {
         if moving.file_type == FileType::Directory {
             for (index, dir) in to_level.iter().enumerate() {
                 if let Some(dir) = dir {
-                    replaces_below |= index != upper && holds(dir.as_ref(), to_name)?;
+                    replaces_below |= index != upper && holds(dir, to_name)?;
                 }
             }
         }
@@ -927,23 +904,23 @@ impl Stack {
             .clone()
             .ok_or(FilesystemError::NotFound)?;
         let moving_dir = if moving.file_type == FileType::Directory {
-            Some(source_dir.open_dir_nofollow(from_name)?)
+            Some(source_dir.open_dir(from_name)?)
         } else {
             None
         };
         let marks = match &moving_dir {
-            Some(dir) => replaces_below && !holds(dir.as_ref(), OPAQUE)?,
+            Some(dir) => replaces_below && !holds(dir, OPAQUE)?,
             None => false,
         };
         if let (true, Some(dir)) = (marks, &moving_dir) {
-            put_marker(dir.as_ref(), OPAQUE)?;
+            put_marker(dir, OPAQUE)?;
         }
-        let moved = || source_dir.rename(from_name, target_dir.as_ref(), to_name, rename);
+        let moved = || source_dir.rename(from_name, &target_dir, to_name, rename);
         let replaces_dir =
             matches!(replaced, Some((_, found)) if found.file_type == FileType::Directory);
-        let moved = if replaces_dir && holds(target_dir.as_ref(), to_name)? {
-            let inner = target_dir.open_dir_nofollow(to_name)?;
-            without_markers(inner.as_ref(), moved)
+        let moved = if replaces_dir && holds(&target_dir, to_name)? {
+            let inner = target_dir.open_dir(to_name)?;
+            without_markers(&inner, moved)
         } else {
             moved()
         };
@@ -953,13 +930,13 @@ impl Stack {
             }
             return Err(err);
         }
-        Self::unhide(target_dir.as_ref(), to_name);
+        Self::unhide(&target_dir, to_name);
         Ok(())
     }
 }
 
 /// The Layer's directory a level holds, which it holds wherever it shows
 /// a name.
-fn held(dir: &Option<Arc<dyn Filesystem>>) -> Result<&Arc<dyn Filesystem>, FilesystemError> {
+fn held(dir: &Option<Lower>) -> Result<&Lower, FilesystemError> {
     dir.as_ref().ok_or(FilesystemError::NotFound)
 }
