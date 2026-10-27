@@ -10,8 +10,7 @@ use std::sync::Arc;
 
 use common::real_sandbox;
 use kobako::filesystem::{
-    DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Memory, Metadata, OpenOptions,
-    Rename,
+    DirEntry, File, FileType, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Rename,
 };
 use kobako::msgpack::Value;
 use kobako::{Access, Error, Policy, Profile, Sandbox};
@@ -280,10 +279,6 @@ impl Filesystem for OneNote {
 
     fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
         None
-    }
-
-    fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
-        Ok(None)
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {

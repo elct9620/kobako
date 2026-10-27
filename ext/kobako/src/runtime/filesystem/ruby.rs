@@ -15,7 +15,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
-    DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions, Rename,
+    DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
 };
 
 use crate::runtime::pinned_value::PinnedValue;
@@ -235,12 +235,6 @@ impl Filesystem for RubyFilesystem {
     /// A Ruby object holds no links a Policy needs kept from being followed.
     fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
         None
-    }
-
-    /// A Ruby object keeps an `ino` its own while open, as its contract
-    /// asks, so nothing is held.
-    fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
-        Ok(None)
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {

@@ -21,8 +21,7 @@ pub use exclusive::Blocking;
 
 use super::path::join;
 use super::{
-    Access, DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions,
-    Rename,
+    Access, DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
 };
 use exclusive::{Exclusive, Inline};
 use nodes::{Node, Nodes};
@@ -154,11 +153,6 @@ impl Filesystem for Overlay {
         self.stack.canonicalize_beneath(&self.path(base)?, path)
     }
 
-    fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
-        let _held = self.lock.hold()?;
-        self.stack.hold_directory(&self.path(path)?)
-    }
-
     /// A directory removed while open lists nothing, as Linux lists one.
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.lock.hold()?;
@@ -230,7 +224,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::super::memory::Memory;
-    use super::super::{FileType, Hold};
+    use super::super::FileType;
     use super::*;
 
     /// The answer of a test Filesystem holding no links.
@@ -280,15 +274,6 @@ mod tests {
 
             fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
                 self.$inner.entries()
-            }
-        };
-    }
-
-    /// The answer of a test Filesystem whose identities never repeat.
-    macro_rules! never_repeats_identities {
-        () => {
-            fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
-                Ok(None)
             }
         };
     }
@@ -1052,7 +1037,6 @@ mod tests {
 
     impl Filesystem for Interleaves {
         holds_no_links!();
-        never_repeats_identities!();
         matches_names_exactly!();
 
         fn open(
@@ -1162,7 +1146,6 @@ mod tests {
 
         impl Filesystem for Reenters {
             holds_no_links!();
-            never_repeats_identities!();
             matches_names_exactly!();
 
             fn open(
@@ -1538,7 +1521,6 @@ mod tests {
 
     impl Filesystem for Trickles {
         holds_no_links!();
-        never_repeats_identities!();
         matches_names_exactly!();
 
         fn open(
@@ -1586,7 +1568,6 @@ mod tests {
 
     impl Filesystem for HoldsDirectories {
         holds_no_links!();
-        never_repeats_identities!();
         matches_names_exactly!();
 
         fn open(
@@ -1631,7 +1612,6 @@ mod tests {
 
     impl Filesystem for KeepsWhiteouts {
         holds_no_links!();
-        never_repeats_identities!();
         matches_names_exactly!();
 
         fn open(
@@ -1679,7 +1659,6 @@ mod tests {
 
     impl Filesystem for ReadsNoMarker {
         holds_no_links!();
-        never_repeats_identities!();
         matches_names_exactly!();
 
         fn open(
@@ -1737,7 +1716,6 @@ mod tests {
 
     impl Filesystem for Vanishes {
         holds_no_links!();
-        never_repeats_identities!();
         matches_names_exactly!();
 
         fn open(
@@ -1793,7 +1771,6 @@ mod tests {
 
     impl Filesystem for FoldsCase {
         holds_no_links!();
-        never_repeats_identities!();
 
         fn open(
             &self,

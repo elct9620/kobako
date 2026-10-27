@@ -3,12 +3,12 @@
 //! answers before the Filesystem is asked.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    DirEntry, Directory, File, Filesystem, FilesystemError, Hold, Memory, Metadata, OpenOptions,
-    Overlay, Rename,
+    DirEntry, Directory, File, Filesystem, FilesystemError, Memory, Metadata, OpenOptions, Overlay,
+    Rename,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
@@ -62,15 +62,6 @@ macro_rules! opens_directories {
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
             self.$inner.entries()
-        }
-    };
-}
-
-/// The answer of a test Filesystem whose identities never repeat.
-macro_rules! never_repeats_identities {
-    () => {
-        fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
-            Ok(None)
         }
     };
 }
@@ -595,7 +586,6 @@ struct StoresUpperCase(Memory);
 
 impl Filesystem for StoresUpperCase {
     holds_no_links!();
-    never_repeats_identities!();
 
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.0.open(path, options)
@@ -854,22 +844,14 @@ fn a_directory_moved_while_opened_beneath_a_policy_is_not_reached() {
     );
 }
 
-/// A Memory naming `dir` by one inode number for as long as nothing holds
-/// it, as a host hands a removed directory's number to the next one made,
-/// and by a fresh number once a held `dir` was removed.
+/// A Memory naming `dir` by one inode number for as long as no directory
+/// it opened there is open, as a host hands a removed directory's number
+/// to the next one made, and by a fresh number once an open `dir` was
+/// removed.
 struct ReusesInodes {
     memory: Arc<Memory>,
-    holds: Arc<AtomicUsize>,
-    removed_while_held: AtomicUsize,
-}
-
-/// Counts as holding a directory until it drops.
-struct Holding(Arc<AtomicUsize>);
-
-impl Drop for Holding {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
-    }
+    opened: Mutex<Vec<Weak<dyn Filesystem>>>,
+    removed_while_open: AtomicUsize,
 }
 
 impl Filesystem for ReusesInodes {
@@ -880,24 +862,30 @@ impl Filesystem for ReusesInodes {
         self.memory.open(path, options)
     }
 
+    fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        let opened = self.memory.open_dir(path)?;
+        if path == "dir" {
+            self.opened.lock().unwrap().push(Arc::downgrade(&opened));
+        }
+        Ok(opened)
+    }
+
+    fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+        self.open_dir(name)
+    }
+
+    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.memory.entries()
+    }
+
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let found = self.memory.metadata(path)?;
         if path != "dir" {
             return Ok(found);
         }
-        let ino = 100 + self.removed_while_held.load(Ordering::SeqCst) as u64;
+        let ino = 100 + self.removed_while_open.load(Ordering::SeqCst) as u64;
         Ok(found.with_identity(1, ino))
     }
-
-    fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
-        if path != "dir" {
-            return Ok(None);
-        }
-        self.holds.fetch_add(1, Ordering::SeqCst);
-        Ok(Some(Hold::new(Holding(self.holds.clone()))))
-    }
-
-    opens_directories!(memory);
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         self.memory.create_dir(path)
@@ -905,8 +893,14 @@ impl Filesystem for ReusesInodes {
 
     fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         self.memory.remove_dir(path)?;
-        if self.holds.load(Ordering::SeqCst) > 0 {
-            self.removed_while_held.fetch_add(1, Ordering::SeqCst);
+        let open = self
+            .opened
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|dir| dir.strong_count() > 0);
+        if path == "dir" && open {
+            self.removed_while_open.fetch_add(1, Ordering::SeqCst);
         }
         Ok(())
     }
@@ -926,18 +920,24 @@ impl Filesystem for ReusesInodes {
     }
 }
 
-// The Filesystem gives the new `dir` the old one's number unless a Hold
-// on it lives, so only the descriptor keeping its Hold refuses the call.
+// The Filesystem gives the new `dir` the old one's number unless the
+// directory opened there is still open, and beneath a Policy the
+// descriptor finds its directory again by that number, so only the
+// descriptor keeping the directory open refuses the call.
 // @behavior RT-121
 #[test]
 fn a_directory_descriptor_holds_its_directory_while_open() {
     let memory = file_and_directory();
     let reuses = Arc::new(ReusesInodes {
         memory: memory.clone(),
-        holds: Arc::new(AtomicUsize::new(0)),
-        removed_while_held: AtomicUsize::new(0),
+        opened: Mutex::new(Vec::new()),
+        removed_while_open: AtomicUsize::new(0),
     });
-    let mut guest = Guest::new(&[grant(reuses.clone(), Access::ReadWrite, None)]);
+    let mut guest = Guest::new(&[grant(
+        reuses.clone(),
+        Access::ReadWrite,
+        Some(Arc::new(AllowsAll)),
+    )]);
     assert_eq!(
         guest.call_bare("open_dir"),
         0,
@@ -953,6 +953,66 @@ fn a_directory_descriptor_holds_its_directory_while_open() {
         "path_filestat_get through a directory descriptor beneath a Mount through preview1, once \
          its directory is removed and made again on a Filesystem reusing inode numbers, must \
          answer ENOENT"
+    );
+}
+
+/// A Memory reporting no identity for anything it holds, as a host whose
+/// stat names no inode.
+struct NamesNoIdentity(Arc<Memory>);
+
+impl Filesystem for NamesNoIdentity {
+    holds_no_links!();
+    matches_names_exactly!();
+    opens_directories!(0);
+
+    fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+        self.0.open(path, options)
+    }
+
+    fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+        let found = self.0.metadata(path)?;
+        Ok(Metadata::new(found.file_type, found.len))
+    }
+
+    fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.create_dir(path)
+    }
+
+    fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.remove_dir(path)
+    }
+
+    fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+        self.0.remove_file(path)
+    }
+
+    fn rename(
+        &self,
+        from: &str,
+        _to_dir: &dyn Filesystem,
+        to: &str,
+        rename: Rename,
+    ) -> Result<(), FilesystemError> {
+        self.0.rename(from, self.0.as_ref(), to, rename)
+    }
+}
+
+// Without an identity the descriptor cannot tell its directory from one
+// made in its place, so beneath a Policy it answers less rather than
+// reach another.
+// @behavior RT-151
+#[test]
+fn a_directory_without_an_identity_is_not_reached_again_beneath_a_policy() {
+    let mut guest = Guest::new(&[grant(
+        Arc::new(NamesNoIdentity(file_and_directory())),
+        Access::ReadWrite,
+        Some(Arc::new(AllowsAll)),
+    )]);
+    assert_eq!(
+        (guest.call_bare("open_dir"), guest.call_bare("stat_inner")),
+        (0, ERRNO_NOENT),
+        "path_filestat_get through a directory descriptor beneath a Mount with a Policy, over a \
+         Filesystem reporting no identity, through preview1 must answer ENOENT"
     );
 }
 
@@ -1062,7 +1122,6 @@ impl ChangeCounter {
 impl Filesystem for ChangeCounter {
     holds_no_links!();
     matches_names_exactly!();
-    never_repeats_identities!();
 
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.memory.open(path, options)
@@ -1115,7 +1174,6 @@ impl SwappedForADirectory {
 impl Filesystem for SwappedForADirectory {
     holds_no_links!();
     matches_names_exactly!();
-    never_repeats_identities!();
 
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.0.open(path, options)
@@ -1226,7 +1284,6 @@ impl File for AppendedMeanwhileFile {
 impl Filesystem for AppendedMeanwhile {
     holds_no_links!();
     matches_names_exactly!();
-    never_repeats_identities!();
 
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         let writes = build_options(|options| options.write = true);
@@ -1648,7 +1705,6 @@ struct FailsLookingUpDir(Memory);
 
 impl Filesystem for FailsLookingUpDir {
     matches_names_exactly!();
-    never_repeats_identities!();
 
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         self.0.open(path, options)

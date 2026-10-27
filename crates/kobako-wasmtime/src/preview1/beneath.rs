@@ -170,11 +170,15 @@ pub(crate) fn resolve(dir: &OpenDirectory, path: &str) -> Answer<ResolvedPath> {
 }
 
 /// `dir` still stands at its path, `NOENT` once another directory or
-/// nothing does, as a POSIX descriptor never reaches a directory made in
-/// its place. A directory opened with no identity follows its path alone.
+/// nothing does, as a POSIX descriptor never reaches another directory.
+/// A Mount's root never moves; any other directory opened with no
+/// identity cannot be told from another, so it is reached no more.
 fn confirm(dir: &OpenDirectory) -> Answer {
-    let Some(identity) = dir.identity else {
+    if dir.preopen {
         return Ok(());
+    }
+    let Some(identity) = dir.identity else {
+        return Err(Errno::Noent.into());
     };
     match dir.mount.filesystem().metadata(&dir.path) {
         Ok(found) if Identity::of(&found) == Some(identity) => Ok(()),

@@ -34,16 +34,17 @@ pub enum Access {
 /// reach them from a directory descriptor: a Mount's root, or a directory
 /// opened beneath it, which answers as a Filesystem of its own. One may
 /// wrap another and answer by delegating, so it sees every call on the
-/// way through, and wraps each directory it opens as well.
+/// way through, and wraps each directory it opens as well. A directory it
+/// opens keeps its identity its own while it is open, as an open
+/// descriptor keeps a host's inode from being reused.
 ///
-/// Six methods keep a guarantee the runtime gives the guest, so each
+/// Five methods keep a guarantee the runtime gives the guest, so each
 /// Filesystem answers them itself and a wrapper forwards them:
 /// `symlink_metadata` and `open_dir_nofollow` keep a link from being
 /// followed where a Mount refuses links, `stored_name` keeps a Policy
 /// judging the spelling the host stores, `canonicalize_beneath` keeps a
-/// link within the directory a descriptor opened, `hold_directory` keeps
-/// an open directory's identity its own, and `for_policy` keeps a call to
-/// the path a Policy judged. Every Invocation reaches the same Filesystem;
+/// link within the directory a descriptor opened, and `for_policy` keeps
+/// a call to the path a Policy judged. Every Invocation reaches the same Filesystem;
 /// one that should start afresh is handed in its place for that
 /// Invocation.
 pub trait Filesystem: Any + Send + Sync {
@@ -81,12 +82,6 @@ pub trait Filesystem: Any + Send + Sync {
     /// reaches nothing above it, as a capability never widens. A
     /// Filesystem holding no links answers `path`.
     fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError>;
-
-    /// Keep the directory at `path` from handing its identity to another
-    /// while the Hold lives, as an open descriptor keeps a host's inode
-    /// from being reused. A Filesystem whose identities never repeat
-    /// holds nothing.
-    fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError>;
 
     /// The entries of this directory, without `.` or `..`.
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError>;
@@ -248,22 +243,6 @@ impl Metadata {
     pub fn unique_device() -> u64 {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         (1 << 63) | NEXT.fetch_add(1, Ordering::Relaxed)
-    }
-}
-
-/// What keeps a directory's identity its own while a descriptor has the
-/// directory open, released when it drops.
-pub struct Hold {
-    _kept: Box<dyn Send + Sync>,
-}
-
-impl Hold {
-    /// A Hold keeping `kept`, such as a host directory's descriptor, until
-    /// it drops.
-    pub fn new(kept: impl Send + Sync + 'static) -> Self {
-        Self {
-            _kept: Box::new(kept),
-        }
     }
 }
 

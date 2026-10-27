@@ -17,9 +17,7 @@ use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
 use super::path::{components, name, parent};
-use super::{
-    DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions, Rename,
-};
+use super::{DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
@@ -265,16 +263,8 @@ impl Filesystem for Directory {
         })
     }
 
-    /// The host directory's own descriptor, so its inode stays taken.
-    /// Elsewhere a Directory reports no identity, so it holds nothing.
-    fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
-        if cfg!(not(unix)) {
-            return Ok(None);
-        }
-        let dir = self.at(path, |dir, name| self.open_dir_in(dir, name))?;
-        Ok(Some(Hold::new(dir)))
-    }
-
+    /// The host directory's own descriptor, so its inode stays taken while
+    /// it is open.
     fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
         let dir = self.at(path, |dir, name| self.open_dir_in(dir, name))?;
         Ok(Arc::new(self.beneath(dir)))
@@ -988,14 +978,14 @@ mod tests {
     }
 
     // ext4 hands a removed directory's inode number to the next one made,
-    // so the number staying unused while held is what the Hold keeps. A
-    // host that never reuses numbers cannot show that, but every Linux
-    // host lists the removed directory among the process's descriptors
-    // while it is held.
+    // so the number staying unused while open is what the opened directory
+    // keeps. A host that never reuses numbers cannot show that, but every
+    // Linux host lists the removed directory among the process's
+    // descriptors while it is open.
     // @behavior FS-086
     #[cfg(target_os = "linux")]
     #[test]
-    fn a_directory_held_keeps_its_inode_number_from_the_next_one_made() {
+    fn a_directory_opened_keeps_its_inode_number_from_the_next_one_made() {
         use std::os::unix::fs::MetadataExt;
 
         let host = HostDir::new("held");
@@ -1011,9 +1001,7 @@ mod tests {
         let reuses = ino("dir") == first;
         let first = ino("dir");
         let directory = Directory::new(&host.0).expect("the host directory must open");
-        let hold = directory
-            .hold_directory("dir")
-            .expect("the directory must be held");
+        let opened = directory.open_dir("dir").expect("the directory must open");
         fs::remove_dir(host.0.join("dir")).expect("the host directory must go");
         let removed = format!("{} (deleted)", host.0.join("dir").display());
         let held_open = fs::read_dir("/proc/self/fd")
@@ -1022,10 +1010,10 @@ mod tests {
             .any(|target| target.to_string_lossy() == removed);
         fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
         let made = ino("dir");
-        drop(hold);
+        drop(opened);
         assert!(
             held_open,
-            "a directory Directory::hold_directory holds must stay open once removed"
+            "a directory Directory::open_dir opened must stay open once removed"
         );
         if !reuses {
             eprintln!("the host does not reuse inode numbers; nothing more to witness");
@@ -1033,7 +1021,7 @@ mod tests {
         }
         assert_ne!(
             made, first,
-            "a directory made where Directory::hold_directory holds a removed one must take \
+            "a directory made where Directory::open_dir holds a removed one open must take \
              another inode number on a host reusing them"
         );
     }

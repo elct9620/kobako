@@ -14,8 +14,7 @@ use super::readers::Readers;
 
 use super::super::path::{ancestors, beneath_itself, is_beneath, join, name, parent};
 use super::super::{
-    Access, DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions,
-    Rename,
+    Access, DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
 };
 
 /// The prefix of a whiteout, and of every name reserved for a marker.
@@ -626,16 +625,6 @@ impl Stack {
         }
         let (lowest, _) = self.lowest_directory(path, index, metadata)?;
         Ok(self.layers[lowest].filesystem.open_dir(path).ok())
-    }
-
-    /// The Hold of the Layer whose directory gives `path` its identity.
-    pub(super) fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
-        let (index, metadata) = self.locate(path)?.ok_or(FilesystemError::NotFound)?;
-        if metadata.file_type != FileType::Directory {
-            return Err(FilesystemError::NotADirectory);
-        }
-        let (lowest, _) = self.lowest_directory(path, index, metadata)?;
-        self.layers[lowest].filesystem.hold_directory(path)
     }
 
     pub(super) fn entries(&self, path: &str) -> Result<Vec<DirEntry>, FilesystemError> {

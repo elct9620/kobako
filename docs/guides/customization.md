@@ -343,7 +343,7 @@ A method like these joins without a default, a break marked `!`.
 | `open_dir_nofollow` | the same, for each directory on a path | `open_dir` |
 | `stored_name` | a Policy judging the spelling the host stores | the name as given |
 | `canonicalize_beneath` | a link within the directory a descriptor opened | the path as given |
-| `hold_directory` | an open directory's identity its own | `Ok(None)` |
+| `open_dir` | an open directory's identity its own, held while open | no identity |
 | `for_policy` | a call to the path a Policy judged, a link swapped in refused | `None` |
 | `File::append` | another writer's append from landing over this one | `Unsupported` |
 

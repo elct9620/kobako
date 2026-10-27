@@ -7,9 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use super::path::{ancestors, components, name, normalize_seed, parent};
-use super::{
-    DirEntry, File, FileType, Filesystem, FilesystemError, Hold, Metadata, OpenOptions, Rename,
-};
+use super::{DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
 
 /// Files and directories held in memory. Every Invocation it is handed to
 /// shares it, so what one writes the next reads. What its files hold
@@ -484,11 +482,6 @@ impl Filesystem for Memory {
     /// A Memory holds no links a Policy needs kept from being followed.
     fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
         None
-    }
-
-    /// A Memory never hands out a directory's identity twice.
-    fn hold_directory(&self, _path: &str) -> Result<Option<Hold>, FilesystemError> {
-        Ok(None)
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {

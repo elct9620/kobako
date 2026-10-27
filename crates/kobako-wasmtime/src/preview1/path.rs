@@ -261,7 +261,6 @@ pub(crate) fn open(
     let descriptor = match existing {
         Some(FileType::Directory) => Descriptor::Directory(OpenDirectory {
             handle: open_dir(base.as_ref(), &path, follow)?,
-            _hold: base.hold_directory(&path)?,
             mount,
             path: opened_at,
             identity,

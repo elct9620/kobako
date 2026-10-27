@@ -345,10 +345,10 @@ Overlay -> Layer (writable) -> Layer (read-only) -> ...
 
 ### Identity
 
-The device and inode numbers a Filesystem reports for what a path holds, as `st_dev` and `st_ino` do. A directory keeps its identity when it moves, and a directory made in its place has another. A Filesystem holds a directory a descriptor opened, or never reuses a number, so the number stays the opened one's. An inode number of zero reports none.
+The device and inode numbers a Filesystem reports for what a path holds, as `st_dev` and `st_ino` do. A directory keeps its identity when it moves, and a directory made in its place has another. A directory a Filesystem opens stays open, so its number stays its own while it is. An inode number of zero reports none.
 
 ```
-open a directory -> remember its identity
-later call       -> same identity at its path ─┬─ yes -> proceeds
-                                                └─ no  -> ENOENT
+open a directory beneath a Policy -> remember its identity
+later call -> same identity at its path ─┬─ yes -> proceeds
+                                          └─ no, or none -> ENOENT
 ```

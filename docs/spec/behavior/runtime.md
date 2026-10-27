@@ -1240,14 +1240,14 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Attribute | Value |
 | --- | --- |
-| refines | `RT-117` |
+| refines | `RT-150` |
 | relates | `FS-086` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest holding a directory it opened, on a Filesystem reusing inode numbers |
+| Given | a guest holding a directory it opened beneath a Policy, on a Filesystem reusing inode numbers |
 | When | the directory is removed and another made at its path |
-| Then | each call through the descriptor answers ENOENT |
+| Then | a lookup through the descriptor answers ENOENT |
 
 ## `RT-122` A path holding a NUL is invalid
 
@@ -1594,3 +1594,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a directory it opened beneath a Mount with a Policy |
 | When | the directory moves away and another is made at its path |
 | Then | a lookup through the descriptor answers ENOENT |
+
+## `RT-151` A directory without an identity is not reached again beneath a Policy
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-150` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount with a Policy |
+| When | the Filesystem reports no identity for the directory, and a lookup goes through it |
+| Then | the lookup answers ENOENT |

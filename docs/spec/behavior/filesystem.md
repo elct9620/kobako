@@ -998,7 +998,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | their device numbers are compared, with each other and with a host's |
 | Then | each differs from the others, and none is one a host reports |
 
-## `FS-086` A Directory holding a directory keeps its inode from the next one made
+## `FS-086` A directory opened from a Directory keeps its inode from the next one made
 
 | Attribute | Value |
 | --- | --- |
@@ -1006,7 +1006,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory over a Linux host reusing inode numbers, holding a directory |
+| Given | a Directory over a Linux host reusing inode numbers, with a directory opened from it |
 | When | the directory is removed and another made at its path |
 | Then | the new directory takes another inode number |
 

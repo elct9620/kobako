@@ -481,36 +481,6 @@ pub trait Filesystem {
 }
 ```
 
-## `Filesystem::hold_directory`
-
-Keep a directory's identity its own while a descriptor has it open. A
-Filesystem whose identities never repeat holds nothing.
-
-```rust
-pub trait Filesystem {
-    fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError>;
-}
-```
-
-## `Hold`
-
-What keeps a directory's identity its own until it drops.
-
-```rust
-pub struct Hold {}
-```
-
-## `Hold::new`
-
-A Hold keeping a value, such as a host directory's descriptor, until it
-drops.
-
-```rust
-impl Hold {
-    pub fn new(kept: impl Send + Sync + 'static) -> Self {}
-}
-```
-
 ## `Filesystem::entries`
 
 The entries of this directory.
