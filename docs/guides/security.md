@@ -318,6 +318,16 @@ refused path exists. An open that what stands at the path refuses, such as
 sandbox.mount("/data", fs) { |path, _access| path.start_with?("/data/public/") }
 ```
 
+### Shared Backends
+
+kobako defends a Mount against the guest and against another Sandbox's guest writing to the same backend. A change from anywhere else is the host's.
+
+| Writer | kobako's answer |
+|---|---|
+| the guest itself | kept beneath its Mount, its access held |
+| another Sandbox's guest sharing a backend | neither guest reaches what its Mount or block refuses |
+| the host, or a change to a Layer outside its Overlay | no crash or deadlock; the rest is the host's |
+
 ### Host Side
 
 Some risks stay with the host, because kobako cannot see them.
@@ -341,12 +351,22 @@ Some risks stay with the host, because kobako cannot see them.
 | one Overlay's writable Layer shared by another | the two are not serialized against each other |
 | one Overlay mounted in invocations that run at once | each waits for the other's call, and the wait runs past `timeout:` |
 
-A directory the guest opened is reached by its path, as kobako holds every guest
-path, and remembers its identity. Once another directory stands at that path, a
-call through it raises `Errno::ENOENT`, as a POSIX descriptor never reaches one.
-A Directory holds the host directory open meanwhile, so the host never hands its
-inode number to the next one made. The check and the call are two steps, so a
-swap between them is the host's race.
+### Opened Directories
+
+A directory the guest opened is held as itself, as a POSIX descriptor holds one.
+What happens to it later decides what a call through it reaches.
+
+| After it opens | A call through it |
+|---|---|
+| it moves | reaches it where it went |
+| it is removed | makes nothing more |
+| it moves beneath a Mount with a block | raises `Errno::ENOENT` |
+
+Beneath a block, each call reaches the directory again from the Mount's root.
+It compares the identity there, so the block judges where the directory stands
+now. A Directory holds the host directory open meanwhile, so the host never
+hands its inode number to the next one made. The comparison and the call are two
+steps, so a swap between them is the host's race.
 A path resolved through it stays beneath it, as a descriptor only ever narrows
 what the guest may reach. On Windows a Directory reports no identity. It refuses a
 path holding a backslash there, so a block never judges one name while the host
