@@ -13,12 +13,13 @@ pub(crate) fn name(path: &str) -> &str {
     path.rsplit_once('/').map_or(path, |(_, name)| name)
 }
 
-/// The path of `name` within the directory `dir`.
+/// The path of `name` within the directory `dir`; an empty `name` is `dir`
+/// itself.
 pub(crate) fn join(dir: &str, name: &str) -> String {
-    if dir.is_empty() {
-        name.to_string()
-    } else {
-        format!("{dir}/{name}")
+    match (dir, name) {
+        ("", name) => name.to_string(),
+        (dir, "") => dir.to_string(),
+        (dir, name) => format!("{dir}/{name}"),
     }
 }
 

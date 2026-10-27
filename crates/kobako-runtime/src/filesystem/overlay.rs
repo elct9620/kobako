@@ -10,6 +10,7 @@
 //! across several Layers is never seen half made.
 
 mod exclusive;
+mod nodes;
 mod readers;
 mod stack;
 
@@ -24,19 +25,24 @@ use super::{
     Rename,
 };
 use exclusive::{Exclusive, Inline};
+use nodes::{Node, Nodes};
 use stack::Stack;
 
 /// Layers stacked into one Filesystem, the first one added on top. Its
 /// clones share its lock; two Overlays sharing a writable Layer are not
 /// serialized against each other, as overlayfs leaves two mounts sharing
 /// an upper directory undefined.
+///
+/// A directory opened beneath it is an Overlay too, following that
+/// directory as it moves through the Overlay. overlayfs leaves a change
+/// made to a Layer outside it undefined; here a directory another one
+/// came to stand in the place of is not reached at all.
 #[derive(Clone)]
 pub struct Overlay {
     stack: Stack,
     lock: Arc<Exclusive>,
-    /// Where this directory lies beneath the Overlay's root, the empty
-    /// path being the root itself.
-    at: String,
+    nodes: Arc<Nodes>,
+    node: Arc<Node>,
 }
 
 impl Default for Overlay {
@@ -48,29 +54,44 @@ impl Default for Overlay {
 impl Overlay {
     /// An Overlay with no Layer yet.
     pub fn new() -> Self {
+        let nodes = Arc::new(Nodes::default());
         Self {
             stack: Stack::default(),
             lock: Arc::new(Exclusive::new(Arc::new(Inline))),
-            at: String::new(),
+            node: nodes.root(),
+            nodes,
         }
     }
 
-    /// `path` beneath this directory, from the Overlay's root.
-    fn path(&self, path: &str) -> String {
-        join(&self.at, path)
+    /// `path` beneath this directory, from the Overlay's root, while the
+    /// directory still stands where the view shows it. The caller holds
+    /// the Overlay's lock.
+    fn path(&self, path: &str) -> Result<String, FilesystemError> {
+        if Arc::ptr_eq(&self.node, &self.nodes.root()) {
+            return Ok(path.to_string());
+        }
+        if self.node.removed() {
+            return Err(FilesystemError::NotFound);
+        }
+        let at = self.node.path();
+        if !self.node.is(&self.stack.metadata(&at)?) {
+            return Err(FilesystemError::NotFound);
+        }
+        Ok(join(&at, path))
     }
 
     /// The directory at `path`, `found` there, as an Overlay of its own.
-    fn beneath(
-        &self,
-        path: String,
-        found: Metadata,
-    ) -> Result<Arc<dyn Filesystem>, FilesystemError> {
+    /// The caller holds the Overlay's lock.
+    fn beneath(&self, path: &str, found: Metadata) -> Result<Arc<dyn Filesystem>, FilesystemError> {
         match found.file_type {
-            FileType::Directory => Ok(Arc::new(Self {
-                at: path,
-                ..self.clone()
-            })),
+            FileType::Directory => {
+                let node = self.nodes.at(path);
+                node.opened(&found, self.stack.anchor(path)?);
+                Ok(Arc::new(Self {
+                    node,
+                    ..self.clone()
+                }))
+            }
             FileType::Symlink => Err(FilesystemError::FilesystemLoop),
             _ => Err(FilesystemError::NotADirectory),
         }
@@ -98,74 +119,77 @@ impl Overlay {
 impl Filesystem for Overlay {
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.open(&self.path(path), options)
+        self.stack.open(&self.path(path)?, options)
     }
 
     fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        let path = self.path(path);
-        let found = {
-            let _held = self.lock.hold()?;
-            self.stack.metadata(&path)?
-        };
-        self.beneath(path, found)
+        let _held = self.lock.hold()?;
+        let path = self.path(path)?;
+        self.beneath(&path, self.stack.metadata(&path)?)
     }
 
     fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        let path = self.path(name);
-        let found = {
-            let _held = self.lock.hold()?;
-            self.stack.symlink_metadata(&path)?
-        };
-        self.beneath(path, found)
+        let _held = self.lock.hold()?;
+        let path = self.path(name)?;
+        self.beneath(&path, self.stack.symlink_metadata(&path)?)
     }
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.metadata(&self.path(path))
+        self.stack.metadata(&self.path(path)?)
     }
 
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.symlink_metadata(&self.path(path))
+        self.stack.symlink_metadata(&self.path(path)?)
     }
 
     fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.stored_name(&self.path(name))
+        self.stack.stored_name(&self.path(name)?)
     }
 
     fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.canonicalize_beneath(&self.path(base), path)
+        self.stack.canonicalize_beneath(&self.path(base)?, path)
     }
 
     fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.hold_directory(&self.path(path))
+        self.stack.hold_directory(&self.path(path)?)
     }
 
+    /// A directory removed while open lists nothing, as Linux lists one.
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.entries(&self.at)
+        if self.node.removed() {
+            return Ok(Vec::new());
+        }
+        self.stack.entries(&self.path("")?)
     }
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.create_dir(&self.path(path))
+        self.stack.create_dir(&self.path(path)?)
     }
 
     fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.remove_dir(&self.path(path))
+        let path = self.path(path)?;
+        self.stack.remove_dir(&path)?;
+        self.nodes.removed(&path);
+        Ok(())
     }
 
     fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.remove_file(&self.path(path))
+        self.stack.remove_file(&self.path(path)?)
     }
 
     /// Both directories lie in one Overlay, which holds one lock however
-    /// many directories of it are open.
+    /// many directories of it are open. A directory replaced at `to` is
+    /// gone for whoever opened it, and one moved from `from` is reached
+    /// where it went.
     fn rename(
         &self,
         from: &str,
@@ -178,8 +202,13 @@ impl Filesystem for Overlay {
             .filter(|target| Arc::ptr_eq(&target.lock, &self.lock))
             .ok_or(FilesystemError::CrossesDevices)?;
         let _held = self.lock.hold()?;
-        self.stack
-            .rename(&self.path(from), &target.path(to), rename)
+        let (from, to) = (self.path(from)?, target.path(to)?);
+        self.stack.rename(&from, &to, rename)?;
+        if from != to {
+            self.nodes.removed(&to);
+            self.nodes.moved(&from, &to);
+        }
+        Ok(())
     }
 
     /// An Overlay over each Layer's own Filesystem for a Policy, keeping
@@ -1820,6 +1849,86 @@ mod tests {
                 rename,
             )
         }
+    }
+
+    /// What `path` names through `fs`, or why it names nothing.
+    fn kind(fs: &dyn Filesystem, path: &str) -> Result<FileType, FilesystemError> {
+        fs.metadata(path).map(|metadata| metadata.file_type)
+    }
+
+    // The inner directory is opened too, so only nodes kept by the one
+    // above them, not by their own path, take it along.
+    // @behavior FS-110
+    #[test]
+    fn a_directory_opened_from_an_overlay_follows_it_when_it_moves() {
+        let upper = Arc::new(Memory::new());
+        let overlay = Overlay::new().layer(upper.clone(), Access::ReadWrite);
+        overlay.create_dir("dir").expect("dir must be made");
+        overlay.create_dir("dir/inner").expect("inner must be made");
+        let dir = overlay.open_dir("dir").expect("dir must open");
+        let inner = overlay.open_dir("dir/inner").expect("inner must open");
+        overlay
+            .rename("dir", &overlay, "moved", Rename::Any)
+            .expect("the directory must move");
+        overwrite(dir.as_ref(), "a", b"x");
+        overwrite(inner.as_ref(), "b", b"x");
+        assert_eq!(
+            (
+                kind(&overlay, "moved/a"),
+                kind(&overlay, "moved/inner/b"),
+                kind(&overlay, "dir")
+            ),
+            (
+                Ok(FileType::File),
+                Ok(FileType::File),
+                Err(FilesystemError::NotFound)
+            ),
+            "files made through directories Overlay::open_dir opened before Overlay::rename moved \
+             the outer one must stand beneath its new path"
+        );
+    }
+
+    // @behavior FS-111
+    #[test]
+    fn an_overlay_directory_removed_while_opened_makes_nothing_more() {
+        let overlay = Overlay::new().layer(Arc::new(Memory::new()), Access::ReadWrite);
+        overlay.create_dir("dir").expect("dir must be made");
+        let dir = overlay.open_dir("dir").expect("dir must open");
+        overlay.remove_dir("dir").expect("dir must remove");
+        overlay.create_dir("dir").expect("another dir must be made");
+        assert_eq!(
+            (
+                write(dir.as_ref(), "made", b"x"),
+                dir.entries().map(|entries| entries.len()),
+                names(&overlay, "dir").len()
+            ),
+            (Err(FilesystemError::NotFound), Ok(0), 0),
+            "a directory Overlay::open_dir opened, once Overlay::remove_dir removed it and another \
+             was made in its place, must make nothing, list nothing, and leave the new one empty"
+        );
+    }
+
+    // overlayfs leaves a change made to a Layer outside it undefined, so
+    // the opened directory answers less rather than reach another one.
+    // @behavior FS-112
+    #[test]
+    fn a_directory_replaced_in_a_layer_outside_its_overlay_is_not_reached() {
+        let upper = memory_with("dir/file", "x");
+        let overlay = Overlay::new().layer(upper.clone(), Access::ReadWrite);
+        let dir = overlay.open_dir("dir").expect("dir must open");
+        upper
+            .rename("dir", upper.as_ref(), "moved", Rename::Any)
+            .expect("the Layer must move it");
+        upper
+            .create_dir("dir")
+            .expect("the Layer must make another");
+        overwrite(upper.as_ref(), "dir/file", b"other");
+        assert_eq!(
+            kind(dir.as_ref(), "file"),
+            Err(FilesystemError::NotFound),
+            "a lookup through a directory Overlay::open_dir opened, once its Layer moved it away \
+             and made another in its place outside the Overlay, must answer NotFound"
+        );
     }
 
     // @behavior FS-083

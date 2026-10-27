@@ -1291,3 +1291,39 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a Memory holding a file, and a directory of another Memory |
 | When | the file is renamed into that directory |
 | Then | the rename answers crossing devices, and the file stays |
+
+## `FS-110` A directory opened from an Overlay follows it when it moves
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-105` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay directory, and one beneath it, each opened as a Filesystem of its own |
+| When | the outer directory is renamed through the Overlay, and files are made through both |
+| Then | each file stands beneath the outer directory's new path |
+
+## `FS-111` An Overlay directory removed while opened makes nothing more
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-106` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay directory opened as a Filesystem of its own |
+| When | the directory is removed and another made at its path, then made into and listed |
+| Then | the make is not found, the listing is empty, and the new directory stays empty |
+
+## `FS-112` A directory replaced in a Layer outside its Overlay is not reached
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-111` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay directory opened as a Filesystem of its own |
+| When | its Layer moves the directory away and makes another in its place, outside the Overlay |
+| Then | a lookup through the opened directory answers not found |

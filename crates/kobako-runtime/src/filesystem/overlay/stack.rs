@@ -612,6 +612,22 @@ impl Stack {
         Ok(lowest)
     }
 
+    /// The directory `path` in the Layer giving it its identity, held open
+    /// by a directory of the view opened there.
+    pub(super) fn anchor(
+        &self,
+        path: &str,
+    ) -> Result<Option<Arc<dyn Filesystem>>, FilesystemError> {
+        let Some((index, metadata)) = self.locate(path)? else {
+            return Ok(None);
+        };
+        if metadata.file_type != FileType::Directory {
+            return Ok(None);
+        }
+        let (lowest, _) = self.lowest_directory(path, index, metadata)?;
+        Ok(self.layers[lowest].filesystem.open_dir(path).ok())
+    }
+
     /// The Hold of the Layer whose directory gives `path` its identity.
     pub(super) fn hold_directory(&self, path: &str) -> Result<Option<Hold>, FilesystemError> {
         let (index, metadata) = self.locate(path)?.ok_or(FilesystemError::NotFound)?;
