@@ -273,8 +273,10 @@ mod tests {
     }
 
     fn open_dir(start: &Path, path: &str) -> Path {
-        let mut how = OpenHow::default();
-        how.directory = true;
+        let how = OpenHow {
+            directory: true,
+            ..OpenHow::default()
+        };
         match vfs::open(start, path, &how, true) {
             Ok(Opened::Directory(dir)) => dir,
             _ => panic!("{path} must open as a directory"),
@@ -292,18 +294,21 @@ mod tests {
         vfs::remove_file(&root, "dir/keep").expect("the file must go");
         vfs::remove_dir(&root, "dir").expect("the directory must go");
         vfs::create_dir(&root, "dir").expect("another directory must be made");
+        vfs::create_dir(&root, "dir/other").expect("an entry must be made in it");
         assert_eq!(
             (
                 vfs::create_dir(&dir, "made"),
+                dir.entries(),
                 memory.metadata("dir/made").err()
             ),
             (
                 Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
+                Ok(Vec::new()),
                 Some(FilesystemError::NotFound)
             ),
-            "vfs::create_dir through a directory vfs::remove_dir removed, over a Filesystem \
-             answering by path, must answer NotFound and make nothing in the directory made \
-             in its place"
+            "vfs::create_dir and Path::entries through a directory vfs::remove_dir removed, over \
+             a Filesystem answering by path, must answer NotFound and list nothing, and make \
+             nothing in the directory made in its place"
         );
     }
 

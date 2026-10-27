@@ -101,9 +101,14 @@ impl Path {
         Ok(seen(self.reach_dir()?.metadata("")?, self.profile))
     }
 
-    /// The entries of the directory, without `.` or `..`.
+    /// The entries of the directory, without `.` or `..`; none once it was
+    /// removed, as Linux lists a dead directory.
     pub fn entries(&self) -> Result<Vec<DirEntry>, Error> {
-        Ok(self.reach_dir()?.entries()?)
+        let dir = self.reach_dir()?;
+        if self.dentry.is_dead() {
+            return Ok(Vec::new());
+        }
+        Ok(dir.entries()?)
     }
 
     fn reach_dir(&self) -> Result<Arc<dyn Filesystem>, Error> {

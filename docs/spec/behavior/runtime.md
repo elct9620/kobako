@@ -1703,7 +1703,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a directory opened beneath a Mount, over a Filesystem answering each call by its path |
 | When | it is removed, another made in its place, and a make goes through it |
-| Then | the make answers not found, and the new directory stays empty |
+| Then | the make answers not found, a listing through it is empty, and nothing is made |
 
 ## `RT-160` A directory removed beneath one Mount is removed beneath another of its instance
 

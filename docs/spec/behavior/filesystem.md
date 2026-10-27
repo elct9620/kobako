@@ -1316,17 +1316,17 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | the directory is removed and another made at its path, then made into and listed |
 | Then | the make is not found, the listing is empty, and the new directory stays empty |
 
-## `FS-112` A directory replaced in a Layer outside its Overlay is not reached
+## `FS-112` An Overlay directory keeps its Layer's directory through a change outside the Overlay
 
 | Attribute | Value |
 | --- | --- |
-| relates | `FS-111` |
+| relates | `FS-110` |
 
 | Step | Statement |
 | --- | --- |
 | Given | an Overlay directory opened as a Filesystem of its own |
 | When | its Layer moves the directory away and makes another in its place, outside the Overlay |
-| Then | a lookup through the opened directory answers not found |
+| Then | a read through the opened directory reads the directory it opened |
 
 ## `FS-113` A lower Layer's link beneath an upper directory is not merged
 
@@ -1399,3 +1399,27 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a directory a read-only Layer marks opaque, over a writable Layer holding it too |
 | When | a file is made in that directory |
 | Then | the make is refused as read-only, and the writable Layer holds nothing new |
+
+## `FS-119` A copy up through one Overlay directory is seen through another
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-072` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory only a read-only Layer holds, opened twice beneath an Overlay |
+| When | a file is written through the first, copying the directory up |
+| Then | a read through the second reads the file |
+
+## `FS-120` A write through a moved Overlay directory lands where it went
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-110` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory opened beneath an Overlay of two writable Layers, only the upper holding it |
+| When | the directory is moved through the Overlay, then written into through the one opened |
+| Then | the file lands where the directory moved |

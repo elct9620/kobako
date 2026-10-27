@@ -10,7 +10,7 @@
 //! across several Layers is never seen half made.
 
 mod exclusive;
-mod nodes;
+mod inodes;
 mod readers;
 mod stack;
 
@@ -22,7 +22,7 @@ pub use exclusive::Blocking;
 use super::path::components;
 use super::{Access, DirEntry, File, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
 use exclusive::{Exclusive, Inline};
-use nodes::{Node, Nodes};
+use inodes::Inode;
 use stack::{Chain, Stack};
 
 /// Layers stacked into one Filesystem, the first one added on top. Its
@@ -30,28 +30,18 @@ use stack::{Chain, Stack};
 /// serialized against each other, as overlayfs leaves two mounts sharing
 /// an upper directory undefined.
 ///
-/// A directory opened beneath it is an Overlay too, following that
-/// directory as it moves through the Overlay. overlayfs leaves a change
-/// made to a Layer outside it undefined; here, where a Layer's directory
-/// standing in the view is no longer the one opened, the directory is
-/// not reached at all, so no change lands in a Layer it was not meant
-/// for.
+/// A directory opened beneath it is an Overlay too, holding each Layer's
+/// directory it stands for, so it is reached wherever those directories
+/// move, as a descriptor reaches its directory. overlayfs leaves a change
+/// made to a Layer outside it undefined; here such a change is the
+/// host's, and a directory opened before it keeps the Layers' directories
+/// it holds.
 #[derive(Clone)]
 pub struct Overlay {
     stack: Stack,
     lock: Arc<Exclusive>,
-    nodes: Arc<Nodes>,
-    node: Arc<Node>,
-    /// Each Layer's directory this one was opened as, and its identity,
-    /// held open so the host hands that identity to no other while it is;
-    /// empty for the root, which never moves.
-    held: Arc<Vec<Option<Held>>>,
-}
-
-/// One Layer's directory an opened directory was found as.
-struct Held {
-    _dir: Arc<dyn Filesystem>,
-    identity: (u64, u64),
+    /// The directory this one stands for, `None` for the root.
+    inode: Option<Arc<Inode>>,
 }
 
 impl Default for Overlay {
@@ -63,53 +53,39 @@ impl Default for Overlay {
 impl Overlay {
     /// An Overlay with no Layer yet.
     pub fn new() -> Self {
-        let nodes = Arc::new(Nodes::default());
         Self {
             stack: Stack::default(),
             lock: Arc::new(Exclusive::new(Arc::new(Inline))),
-            node: nodes.root(),
-            nodes,
-            held: Arc::default(),
+            inode: None,
         }
     }
 
-    fn is_root(&self) -> bool {
-        Arc::ptr_eq(&self.node, &self.nodes.root())
-    }
-
-    /// The chain from the root to this directory, walked again one name at
-    /// a time, while each Layer's directory standing there is still the one
-    /// opened. The caller holds the Overlay's lock.
-    fn reach(&self) -> Result<Chain, FilesystemError> {
-        let mut chain = self.stack.root()?;
-        if self.is_root() {
+    /// The chain to this directory: its Layers' directories as it holds
+    /// them, or, for a change through a directory some writable Layer
+    /// does not hold yet, the chain from the root, so the change can make
+    /// it there first. The caller holds the Overlay's lock.
+    fn chain(&self, changes: bool) -> Result<Chain, FilesystemError> {
+        let Some(inode) = &self.inode else {
+            return self.stack.root();
+        };
+        let level = inode.level();
+        if changes && !inode.through_link() && self.stack.misses_writable(&level) {
+            let mut chain = self.stack.root()?;
+            self.stack.descend(&mut chain, components(inode.path()))?;
             return Ok(chain);
         }
-        if self.node.removed() {
-            return Err(FilesystemError::NotFound);
-        }
-        let path = self.node.path();
-        self.stack.descend(&mut chain, components(&path))?;
-        for (held, dir) in self.held.iter().zip(chain.level()) {
-            let Some(held) = held else {
-                continue;
-            };
-            let found = dir
-                .as_ref()
-                .ok_or(FilesystemError::NotFound)?
-                .metadata("")?;
-            if (found.dev, found.ino) != held.identity {
-                return Err(FilesystemError::NotFound);
-            }
-        }
-        Ok(chain)
+        Ok(Chain::at(
+            inode.path().to_string(),
+            level,
+            inode.through_link(),
+        ))
     }
 
     /// The chain to the directory holding the last name of `path` beneath
-    /// this directory, and that name; the empty name for the root itself.
-    /// The caller holds the Overlay's lock.
-    fn split(&self, path: &str) -> Result<(Chain, String), FilesystemError> {
-        let mut chain = self.reach()?;
+    /// this directory, and that name; the empty name for this directory
+    /// itself. The caller holds the Overlay's lock.
+    fn split(&self, path: &str, changes: bool) -> Result<(Chain, String), FilesystemError> {
+        let mut chain = self.chain(changes)?;
         let names: Vec<&str> = components(path).collect();
         match names.split_last() {
             Some((name, above)) => {
@@ -127,29 +103,19 @@ impl Overlay {
     /// Layer only where `follow` asks, as an Overlay of its own. The
     /// caller holds the Overlay's lock.
     fn beneath(&self, path: &str, follow: bool) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        let (mut chain, name) = self.split(path)?;
+        let (mut chain, name) = self.split(path, false)?;
         if name.is_empty() {
             return Ok(Arc::new(self.clone()));
         }
         self.stack.enter(&mut chain, &name, follow)?;
-        let held = chain
-            .level()
-            .iter()
-            .map(|dir| {
-                dir.as_ref()
-                    .map(|dir| {
-                        let found = dir.metadata("")?;
-                        Ok(Held {
-                            _dir: dir.clone(),
-                            identity: (found.dev, found.ino),
-                        })
-                    })
-                    .transpose()
-            })
-            .collect::<Result<Vec<_>, FilesystemError>>()?;
+        let level = chain.level().clone();
+        let shared = self.stack.misses_writable(&level);
+        let inode = self
+            .stack
+            .inodes()
+            .at(chain.path(), level, chain.through_link(), shared);
         Ok(Arc::new(Self {
-            node: self.nodes.at(&chain.path()),
-            held: Arc::new(held),
+            inode: Some(inode),
             ..self.clone()
         }))
     }
@@ -176,7 +142,8 @@ impl Overlay {
 impl Filesystem for Overlay {
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
         let _held = self.lock.hold()?;
-        let (mut chain, name) = self.split(path)?;
+        let changes = options.write || options.truncate || options.create || options.create_new;
+        let (mut chain, name) = self.split(path, changes)?;
         if name.is_empty() {
             return Err(FilesystemError::IsADirectory);
         }
@@ -195,7 +162,7 @@ impl Filesystem for Overlay {
 
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.lock.hold()?;
-        let (chain, name) = self.split(path)?;
+        let (chain, name) = self.split(path, false)?;
         if name.is_empty() {
             return self.stack.dir_metadata(chain.level());
         }
@@ -204,7 +171,7 @@ impl Filesystem for Overlay {
 
     fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.lock.hold()?;
-        let (chain, name) = self.split(path)?;
+        let (chain, name) = self.split(path, false)?;
         if name.is_empty() {
             return self.stack.dir_metadata(chain.level());
         }
@@ -213,7 +180,7 @@ impl Filesystem for Overlay {
 
     fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.lock.hold()?;
-        let (chain, name) = self.split(name)?;
+        let (chain, name) = self.split(name, false)?;
         if name.is_empty() {
             return Ok(name);
         }
@@ -222,25 +189,21 @@ impl Filesystem for Overlay {
 
     fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.lock.hold()?;
-        let (chain, name) = self.split(name)?;
+        let (chain, name) = self.split(name, false)?;
         if name.is_empty() {
             return Err(FilesystemError::InvalidInput);
         }
         self.stack.read_link(chain.level(), &name)
     }
 
-    /// A directory removed while open lists nothing, as Linux lists one.
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.lock.hold()?;
-        if self.node.removed() {
-            return Ok(Vec::new());
-        }
-        self.stack.entries(self.reach()?.level())
+        self.stack.entries(self.chain(false)?.level())
     }
 
     fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        let (mut chain, name) = self.split(path)?;
+        let (mut chain, name) = self.split(path, true)?;
         if name.is_empty() {
             return Err(FilesystemError::AlreadyExists);
         }
@@ -250,18 +213,18 @@ impl Filesystem for Overlay {
     /// The root stays, as a mount point does.
     fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        let (mut chain, name) = self.split(path)?;
+        let (mut chain, name) = self.split(path, true)?;
         if name.is_empty() {
             return Err(FilesystemError::ResourceBusy);
         }
         self.stack.remove_dir(&mut chain, &name)?;
-        self.nodes.removed(&chain.path_of(&name));
+        self.stack.inodes().forget(&chain.path_of(&name));
         Ok(())
     }
 
     fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        let (mut chain, name) = self.split(path)?;
+        let (mut chain, name) = self.split(path, true)?;
         if name.is_empty() {
             return Err(FilesystemError::IsADirectory);
         }
@@ -270,8 +233,7 @@ impl Filesystem for Overlay {
 
     /// Both directories lie in one Overlay, which holds one lock however
     /// many directories of it are open. A directory replaced at `to` is
-    /// gone for whoever opened it, and one moved from `from` is reached
-    /// where it went.
+    /// no handle's that a directory made there later reaches.
     fn rename(
         &self,
         from: &str,
@@ -284,17 +246,15 @@ impl Filesystem for Overlay {
             .filter(|target| Arc::ptr_eq(&target.lock, &self.lock))
             .ok_or(FilesystemError::CrossesDevices)?;
         let _held = self.lock.hold()?;
-        let (mut from_chain, from) = self.split(from)?;
-        let (mut to_chain, to) = target.split(to)?;
+        let (mut from_chain, from) = self.split(from, true)?;
+        let (mut to_chain, to) = target.split(to, true)?;
         if from.is_empty() || to.is_empty() {
             return Err(FilesystemError::ResourceBusy);
         }
         self.stack
             .rename(&mut from_chain, &from, &mut to_chain, &to, rename)?;
-        let (from, to) = (from_chain.path_of(&from), to_chain.path_of(&to));
-        if from != to {
-            self.nodes.removed(&to);
-            self.nodes.moved(&from, &to);
+        if from_chain.path_of(&from) != to_chain.path_of(&to) {
+            self.stack.inodes().forget(&to_chain.path_of(&to));
         }
         Ok(())
     }
@@ -1979,8 +1939,9 @@ mod tests {
         fs.metadata(path).map(|metadata| metadata.file_type)
     }
 
-    // The inner directory is opened too, so only nodes kept by the one
-    // above them, not by their own path, take it along.
+    // The inner directory is opened too, so only directories held as the
+    // Layers' directories themselves, not reached again by their path,
+    // take it along.
     // @behavior FS-110
     #[test]
     fn a_directory_opened_from_an_overlay_follows_it_when_it_moves() {
@@ -2031,11 +1992,13 @@ mod tests {
         );
     }
 
-    // overlayfs leaves a change made to a Layer outside it undefined, so
-    // the opened directory answers less rather than reach another one.
+    // A change made to a Layer outside its Overlay is the host's, so the
+    // opened directory keeps the Layer's directory it holds, as a
+    // descriptor keeps its directory, rather than reach the one made in
+    // its place.
     // @behavior FS-112
     #[test]
-    fn a_directory_replaced_in_a_layer_outside_its_overlay_is_not_reached() {
+    fn an_overlay_directory_keeps_its_layers_directory_through_a_change_outside_it() {
         let upper = memory_with("dir/file", "x");
         let overlay = Overlay::new().layer(upper.clone(), Access::ReadWrite);
         let dir = overlay.open_dir("dir").expect("dir must open");
@@ -2047,10 +2010,56 @@ mod tests {
             .expect("the Layer must make another");
         overwrite(upper.as_ref(), "dir/file", b"other");
         assert_eq!(
-            kind(dir.as_ref(), "file"),
-            Err(FilesystemError::NotFound),
-            "a lookup through a directory Overlay::open_dir opened, once its Layer moved it away \
-             and made another in its place outside the Overlay, must answer NotFound"
+            read(dir.as_ref(), "file"),
+            b"x".to_vec(),
+            "a read through a directory Overlay::open_dir opened, once its Layer moved it away \
+             and made another in its place outside the Overlay, must read the directory it \
+             opened"
+        );
+    }
+
+    // Only the lower Layer holds `dir` when both handles open it, so the
+    // second sees the file only if the copy up through the first reaches
+    // it too.
+    // @behavior FS-119
+    #[test]
+    fn a_copy_up_through_one_overlay_directory_is_seen_through_another() {
+        let lower: Arc<dyn Filesystem> = memory_with("dir/a.txt", "a");
+        let overlay = Overlay::new()
+            .layer(Arc::new(Memory::new()), Access::ReadWrite)
+            .layer(lower, Access::Read);
+        let first = overlay.open_dir("dir").expect("dir must open");
+        let second = overlay.open_dir("dir").expect("dir must open again");
+        write(first.as_ref(), "b.txt", b"b").expect("the write must copy dir up");
+        assert_eq!(
+            read(second.as_ref(), "b.txt"),
+            b"b".to_vec(),
+            "a read through one directory Overlay::open_dir opened, of a file written through \
+             another opened before the write copied it up, must read the file"
+        );
+    }
+
+    // The writable Layer below holds no `dir`, so reaching it again by the
+    // path it was opened at would miss where it moved.
+    // @behavior FS-120
+    #[test]
+    fn a_write_through_a_moved_overlay_directory_lands_where_it_went() {
+        let upper = memory_with("dir/a.txt", "a");
+        let overlay = Overlay::new()
+            .layer(upper.clone(), Access::ReadWrite)
+            .layer(Arc::new(Memory::new()), Access::ReadWrite);
+        let dir = overlay.open_dir("dir").expect("dir must open");
+        overlay
+            .rename("dir", &overlay, "moved", Rename::Any)
+            .expect("the directory must move");
+        assert_eq!(
+            (
+                write(dir.as_ref(), "b.txt", b"b"),
+                read(upper.as_ref(), "moved/b.txt")
+            ),
+            (Ok(()), b"b".to_vec()),
+            "a write through a directory Overlay::open_dir opened, once Overlay::rename moved it \
+             over a second writable Layer, must land where it moved"
         );
     }
 

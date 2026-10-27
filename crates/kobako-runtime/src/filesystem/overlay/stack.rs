@@ -16,6 +16,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use super::inodes::Inodes;
 use super::readers::Readers;
 
 use super::super::path::{beneath_itself, is_beneath, join};
@@ -60,9 +61,36 @@ struct Step {
 }
 
 impl Chain {
+    /// A chain starting at the directory at `path` beneath the root, which
+    /// `level` stands for and a link led to where `through_link` says.
+    pub(super) fn at(path: String, level: Level, through_link: bool) -> Self {
+        Self {
+            steps: vec![Step {
+                name: path,
+                level,
+                through_link,
+            }],
+        }
+    }
+
     /// The directory the chain reaches.
     pub(super) fn level(&self) -> &Level {
         &self.last().level
+    }
+
+    /// Whether a link a Layer holds led to the directory the chain reaches.
+    pub(super) fn through_link(&self) -> bool {
+        self.last().through_link
+    }
+
+    /// Where the directory at `step` stands beneath the root.
+    fn path_to(&self, step: usize) -> String {
+        self.steps[..=step]
+            .iter()
+            .map(|step| step.name.as_str())
+            .filter(|name| !name.is_empty())
+            .collect::<Vec<_>>()
+            .join("/")
     }
 
     fn last(&self) -> &Step {
@@ -71,12 +99,7 @@ impl Chain {
 
     /// Where the directory the chain reaches stands beneath the root.
     pub(super) fn path(&self) -> String {
-        self.steps
-            .iter()
-            .map(|step| step.name.as_str())
-            .filter(|name| !name.is_empty())
-            .collect::<Vec<_>>()
-            .join("/")
+        self.path_to(self.steps.len() - 1)
     }
 
     /// The path of `name` in the directory the chain reaches.
@@ -231,9 +254,21 @@ pub(super) fn refuse_reserved(name: &str) -> Result<(), FilesystemError> {
 pub(super) struct Stack {
     layers: Vec<Layer>,
     readers: Arc<Readers>,
+    inodes: Arc<Inodes>,
 }
 
 impl Stack {
+    pub(super) fn inodes(&self) -> &Inodes {
+        &self.inodes
+    }
+
+    /// Whether the topmost writable Layer, where every copy up lands, holds
+    /// no directory in `level`, so a change through it may have to make one
+    /// there first. Only such a directory never moves through the Overlay.
+    pub(super) fn misses_writable(&self, level: &Level) -> bool {
+        self.upper().is_ok_and(|upper| level[upper].is_none())
+    }
+
     pub(super) fn push(&mut self, filesystem: Arc<dyn Filesystem>, access: Access) {
         self.layers.push(Layer { filesystem, access });
     }
@@ -595,6 +630,7 @@ impl Stack {
             }
         };
         chain.steps[step].level[into] = Some(dir.clone());
+        self.inodes.copied_up(&chain.path_to(step), into, &dir);
         Ok(dir)
     }
 
