@@ -198,7 +198,7 @@ impl Walk {
                 }
                 "" | "." | ".." => {
                     if let Some(name) = last.take() {
-                        let dot = part.name != "";
+                        let dot = !part.name.is_empty();
                         self.pending.push_front(part);
                         self.descend(name, dot)?;
                         continue;
@@ -281,10 +281,7 @@ pub(crate) fn resolve(
     };
     let mut last = walk.run(None)?;
     let mut followed = false;
-    while follow {
-        let Some(name) = &last else {
-            break;
-        };
+    while let Some(name) = last.as_ref().filter(|_| follow) {
         match walk.top().symlink_metadata(&name.name) {
             Ok(found) if found.file_type == FileType::Symlink => {}
             _ => break,
