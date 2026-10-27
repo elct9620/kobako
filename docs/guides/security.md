@@ -32,7 +32,7 @@ feature that specifies it.
 | each invocation starts from the same boot state | [sandbox](../spec/behavior/sandbox.md) |
 | a binding belongs to its own Sandbox | [services](../spec/behavior/services.md) |
 | no ambient filesystem, environment, or socket | [runtime](../spec/behavior/runtime.md) |
-| a Mount reaches nothing above its root, and its access holds | [runtime](../spec/behavior/runtime.md) |
+| a path the guest gives stays within its Mount, and the Mount's access holds | [runtime](../spec/behavior/runtime.md) |
 | no live time or entropy under the default `:hermetic` | [runtime](../spec/behavior/runtime.md) |
 | timeout, memory cap, and output clipping fail cleanly | [sandbox](../spec/behavior/sandbox.md) |
 | the guest holds no more files open than its cap | [sandbox](../spec/behavior/sandbox.md) |
@@ -334,6 +334,7 @@ Some risks stay with the host, because kobako cannot see them.
 | a link loop in a Directory without a block | the guest sees `Errno::EIO`, not `Errno::ELOOP` |
 | a `..` right after a link in a Directory | `Errno::ELOOP`, as the guest never learns where it points |
 | a directory the guest lists in steps | its entries held in host memory until the listing ends, once per descriptor |
+| a directory the guest opened, moved out of the Mount by the host | still reached through that descriptor, as Linux reaches it, unless a block guards the Mount |
 | a link below an Overlay's writable Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
 | a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
 | a `\` in a name a Ruby Filesystem receives | the Filesystem's to refuse, as Windows reads it as a separator |
