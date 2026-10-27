@@ -81,7 +81,7 @@ impl Overlay {
     /// a time, while each Layer's directory standing there is still the one
     /// opened. The caller holds the Overlay's lock.
     fn reach(&self) -> Result<Chain, FilesystemError> {
-        let mut chain = self.stack.root();
+        let mut chain = self.stack.root()?;
         if self.is_root() {
             return Ok(chain);
         }
@@ -1483,6 +1483,32 @@ mod tests {
             ),
             "a file and a directory made through an Overlay where a read-only Layer above the \
              writable one holds their whiteouts must be refused as read-only and not made"
+        );
+    }
+
+    // The opaque marker hides the writable Layer's directory from the view,
+    // so a file landing there would succeed out of sight.
+    // @behavior FS-118
+    #[test]
+    fn a_file_beneath_a_read_only_layers_opaque_directory_is_not_made() {
+        let lower: Arc<Memory> = Arc::new([("dir/a.txt", "a")].into_iter().collect());
+        let overlay = Overlay::new()
+            .layer(
+                Arc::new([("dir/.wh..wh..opq", "")].into_iter().collect::<Memory>()),
+                Access::Read,
+            )
+            .layer(lower.clone(), Access::ReadWrite);
+        assert_eq!(
+            (
+                write(&overlay, "dir/new.txt", b"new"),
+                lower.metadata("dir/new.txt").err()
+            ),
+            (
+                Err(FilesystemError::ReadOnlyFilesystem),
+                Some(FilesystemError::NotFound)
+            ),
+            "a file made through an Overlay in a directory a read-only Layer marks opaque, over a \
+             writable Layer holding it, must be refused as read-only and not made"
         );
     }
 

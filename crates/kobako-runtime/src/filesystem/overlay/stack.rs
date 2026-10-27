@@ -73,7 +73,10 @@ impl Chain {
     pub(super) fn path(&self) -> String {
         self.steps
             .iter()
-            .fold(String::new(), |path, step| join(&path, &step.name))
+            .map(|step| step.name.as_str())
+            .filter(|name| !name.is_empty())
+            .collect::<Vec<_>>()
+            .join("/")
     }
 
     /// The path of `name` in the directory the chain reaches.
@@ -107,10 +110,25 @@ fn holds(dir: &dyn Filesystem, name: &str) -> Result<bool, FilesystemError> {
     Ok(entry(dir, name)?.is_some())
 }
 
-/// Whether `dir` hides `name` in every Layer below it: a whiteout of it,
-/// or the directory's own opaque marker.
+/// Whether `dir` hides `name` in every Layer below it with a whiteout. A
+/// directory's opaque marker hides every name at once, so a level never
+/// holds the Layers below one; each name need not ask again.
 fn hides(dir: &dyn Filesystem, name: &str) -> Result<bool, FilesystemError> {
-    Ok(holds(dir, &whiteout(name))? || holds(dir, OPAQUE)?)
+    holds(dir, &whiteout(name))
+}
+
+/// `level` without the Layers below the topmost directory marked opaque,
+/// as overlayfs stops looking further down once it finds one.
+fn below_opaque_cut(mut level: Level) -> Result<Level, FilesystemError> {
+    let mut cut = false;
+    for dir in &mut level {
+        if cut {
+            *dir = None;
+        } else if let Some(shown) = dir {
+            cut = holds(shown.as_ref(), OPAQUE)?;
+        }
+    }
+    Ok(level)
 }
 
 /// Whether the directory `name` in `dir` holds an opaque marker.
@@ -220,19 +238,21 @@ impl Stack {
         self.layers.push(Layer { filesystem, access });
     }
 
-    /// The chain at the root of the view, every Layer's root merged.
-    pub(super) fn root(&self) -> Chain {
-        Chain {
+    /// The chain at the root of the view, every Layer's root merged down to
+    /// the first marked opaque.
+    pub(super) fn root(&self) -> Result<Chain, FilesystemError> {
+        Ok(Chain {
             steps: vec![Step {
                 name: String::new(),
-                level: self
-                    .layers
-                    .iter()
-                    .map(|layer| Some(layer.filesystem.clone()))
-                    .collect(),
+                level: below_opaque_cut(
+                    self.layers
+                        .iter()
+                        .map(|layer| Some(layer.filesystem.clone()))
+                        .collect(),
+                )?,
                 through_link: false,
             }],
-        }
+        })
     }
 
     /// Walk `chain` into each of `names` in turn, each a directory the view
@@ -264,7 +284,7 @@ impl Stack {
         let step = match found.file_type {
             FileType::Directory => Step {
                 name: name.to_string(),
-                level: self.merged(level, name, index)?,
+                level: self.merged(level, name, (index, found))?,
                 through_link: false,
             },
             FileType::Symlink if follow => {
@@ -328,17 +348,27 @@ impl Stack {
         }
     }
 
-    /// The directory `name` in `level`, found as one first in the Layer at
-    /// `found`: each Layer's own directory there, merged downward until a
-    /// Layer holds something else there, hides it, or marks its directory
-    /// opaque, as overlayfs merges only directories.
-    fn merged(&self, level: &Level, name: &str, found: usize) -> Result<Level, FilesystemError> {
+    /// The directory `name` in `level`, found as `found` names it first: each
+    /// Layer's own directory there, merged downward until a Layer holds
+    /// something else there, hides it, or marks its directory opaque, as
+    /// overlayfs merges only directories.
+    fn merged(
+        &self,
+        level: &Level,
+        name: &str,
+        found: (usize, Metadata),
+    ) -> Result<Level, FilesystemError> {
         let mut merged = vec![None; level.len()];
-        for (index, dir) in level.iter().enumerate().skip(found) {
+        for (index, dir) in level.iter().enumerate().skip(found.0) {
             let Some(dir) = dir else {
                 continue;
             };
-            match entry(dir.as_ref(), name)? {
+            let standing = if index == found.0 {
+                Some(found.1)
+            } else {
+                entry(dir.as_ref(), name)?
+            };
+            match standing {
                 Some(metadata) if metadata.file_type == FileType::Directory => {
                     let inner = dir.open_dir_nofollow(name)?;
                     let opaque = holds(inner.as_ref(), OPAQUE)?;
@@ -392,7 +422,7 @@ impl Stack {
         if found.file_type != FileType::Directory {
             return Ok(found);
         }
-        self.dir_metadata(&self.merged(level, name, index)?)
+        self.dir_metadata(&self.merged(level, name, (index, found))?)
     }
 
     pub(super) fn metadata(&self, level: &Level, name: &str) -> Result<Metadata, FilesystemError> {
@@ -507,8 +537,8 @@ impl Stack {
     }
 
     /// Refuse as read-only a change landing at `name` in Layer `into` that
-    /// a read-only Layer above it would cover, holding or hiding `name`,
-    /// so no change succeeds out of sight.
+    /// a read-only Layer above it would cover, holding or hiding `name` or
+    /// marking its directory opaque, so no change succeeds out of sight.
     fn refuse_covered(
         &self,
         level: &Level,
@@ -516,7 +546,8 @@ impl Stack {
         into: usize,
     ) -> Result<(), FilesystemError> {
         for dir in level[..into].iter().flatten() {
-            if holds(dir.as_ref(), name)? || hides(dir.as_ref(), name)? {
+            let dir = dir.as_ref();
+            if holds(dir, name)? || hides(dir, name)? || holds(dir, OPAQUE)? {
                 return Err(FilesystemError::ReadOnlyFilesystem);
             }
         }
@@ -766,8 +797,13 @@ impl Stack {
     }
 
     /// Whether the directory `name` in `level` shows no entry.
-    fn is_empty(&self, level: &Level, name: &str, index: usize) -> Result<bool, FilesystemError> {
-        Ok(self.entries(&self.merged(level, name, index)?)?.is_empty())
+    fn is_empty(
+        &self,
+        level: &Level,
+        name: &str,
+        found: (usize, Metadata),
+    ) -> Result<bool, FilesystemError> {
+        Ok(self.entries(&self.merged(level, name, found)?)?.is_empty())
     }
 
     /// A directory made where a whiteout hid one is marked opaque before
@@ -809,7 +845,7 @@ impl Stack {
         if found.file_type != FileType::Directory {
             return Err(FilesystemError::NotADirectory);
         }
-        if !self.is_empty(&level, name, index)? {
+        if !self.is_empty(&level, name, (index, found))? {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
         self.withdraw(
@@ -877,7 +913,7 @@ impl Stack {
             }
             (true, Some((index, found)))
                 if found.file_type == FileType::Directory
-                    && !self.is_empty(&to_level, to_name, index)? =>
+                    && !self.is_empty(&to_level, to_name, (index, found))? =>
             {
                 return Err(FilesystemError::DirectoryNotEmpty)
             }

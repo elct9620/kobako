@@ -1387,3 +1387,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a directory two Layers of an Overlay hold, written last in the upper |
 | When | the Overlay reads it |
 | Then | it counts one name and reports the upper Layer's times |
+
+## `FS-118` An Overlay makes nothing beneath a read-only Layer's opaque directory
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-077` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory a read-only Layer marks opaque, over a writable Layer holding it too |
+| When | a file is made in that directory |
+| Then | the make is refused as read-only, and the writable Layer holds nothing new |

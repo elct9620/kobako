@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-use super::super::path::{components, join, name, parent};
+use super::super::path::{components, name, parent};
 
 /// One directory of the view, and where it stands now.
 pub(super) struct Node {
@@ -52,11 +52,9 @@ impl Node {
             names.push(state.name.clone());
             at = state.parent.clone();
         }
-        names
-            .iter()
-            .rev()
-            .filter(|name| !name.is_empty())
-            .fold(String::new(), |path, name| join(&path, name))
+        names.reverse();
+        names.retain(|name| !name.is_empty());
+        names.join("/")
     }
 
     pub(super) fn removed(&self) -> bool {
@@ -68,7 +66,30 @@ impl Node {
 /// and its name there.
 pub(super) struct Nodes {
     root: Arc<Node>,
-    open: Mutex<HashMap<(usize, String), Weak<Node>>>,
+    open: Mutex<Open>,
+}
+
+/// The open directories, and how many entries the table may reach before
+/// those no longer open are swept out: twice what the last sweep left, so
+/// each opening pays a constant share of the sweeps.
+#[derive(Default)]
+struct Open {
+    entries: HashMap<(usize, String), Weak<Node>>,
+    sweep_at: usize,
+}
+
+impl Open {
+    fn sweep_when_grown(&mut self) {
+        if self.entries.len() < self.sweep_at {
+            return;
+        }
+        self.entries.retain(|_, node| node.strong_count() > 0);
+        self.sweep_at = (self.entries.len() * 2).max(16);
+    }
+
+    fn get(&self, key: &(usize, String)) -> Option<Arc<Node>> {
+        self.entries.get(key).and_then(Weak::upgrade)
+    }
 }
 
 impl Default for Nodes {
@@ -81,7 +102,7 @@ impl Default for Nodes {
 }
 
 impl Nodes {
-    fn open(&self) -> MutexGuard<'_, HashMap<(usize, String), Weak<Node>>> {
+    fn open(&self) -> MutexGuard<'_, Open> {
         self.open.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -93,15 +114,15 @@ impl Nodes {
     /// already, with each directory above it.
     pub(super) fn at(&self, path: &str) -> Arc<Node> {
         let mut open = self.open();
-        open.retain(|_, node| node.strong_count() > 0);
+        open.sweep_when_grown();
         let mut node = self.root.clone();
         for name in components(path) {
             let key = (Arc::as_ptr(&node) as usize, name.to_string());
-            node = match open.get(&key).and_then(Weak::upgrade) {
+            node = match open.get(&key) {
                 Some(child) => child,
                 None => {
                     let child = Node::new(Some(node), name);
-                    open.insert(key, Arc::downgrade(&child));
+                    open.entries.insert(key, Arc::downgrade(&child));
                     child
                 }
             };
@@ -115,7 +136,7 @@ impl Nodes {
         let mut node = self.root.clone();
         for name in components(path) {
             let key = (Arc::as_ptr(&node) as usize, name.to_string());
-            node = open.get(&key).and_then(Weak::upgrade)?;
+            node = open.get(&key)?;
         }
         Some(node)
     }
@@ -128,6 +149,7 @@ impl Nodes {
         let parent = node.state().parent.clone();
         if let Some(parent) = parent {
             self.open()
+                .entries
                 .remove(&(Arc::as_ptr(&parent) as usize, name(path).to_string()));
         }
         node.state().removed = true;
@@ -143,9 +165,10 @@ impl Nodes {
         let mut open = self.open();
         let mut state = node.state();
         if let Some(previous) = &state.parent {
-            open.remove(&(Arc::as_ptr(previous) as usize, state.name.clone()));
+            open.entries
+                .remove(&(Arc::as_ptr(previous) as usize, state.name.clone()));
         }
-        open.insert(
+        open.entries.insert(
             (Arc::as_ptr(&target) as usize, name(to).to_string()),
             Arc::downgrade(&node),
         );
