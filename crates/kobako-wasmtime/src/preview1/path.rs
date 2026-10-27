@@ -13,7 +13,7 @@ use kobako_runtime::mount::Mount;
 use super::args::{
     self, FDFLAGS_APPEND, FDFLAGS_NONBLOCK, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
 };
-use super::beneath::{resolve, ResolvedPath};
+use super::beneath::{names_directory, resolve, ResolvedPath};
 use super::errno::{Answer, Errno};
 use super::fd::write_metadata;
 use super::memory::GuestMemory;
@@ -44,34 +44,10 @@ fn directory(table: &Descriptors, fd: u32) -> Answer<&OpenDirectory> {
     }
 }
 
-/// Whether the guest may reach `path` with `access`, as its Mount
-/// decides. A Mount that follows no link refuses one first. A Mount with
-/// a Policy, the one kind judging a path at all, resolves every path from
-/// its root, so `path` is the one the Policy judges.
-fn judge(mount: &Mount, path: &str, access: Access, follows_last: bool) -> Answer {
-    if !mount.follows_links() {
-        refuse_links(mount, path, follows_last)?;
-    }
-    Ok(mount.check(path, access)?)
-}
-
-/// Refuse a link standing on the way to `path`, and at its end when the
-/// call would follow it, before the Mount judges a path the link would
-/// lead elsewhere.
-fn refuse_links(mount: &Mount, path: &str, follows_last: bool) -> Answer {
-    let ends = path.match_indices('/').map(|(end, _)| end);
-    for end in ends.chain(follows_last.then_some(path.len())) {
-        match mount.filesystem().symlink_metadata(&path[..end]) {
-            Ok(metadata) if metadata.file_type == FileType::Symlink => {
-                return Err(Errno::Loop.into())
-            }
-            Ok(_) => {}
-            // What is missing holds no link; the call answers for it.
-            Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => break,
-            Err(err) => return Err(err.into()),
-        }
-    }
-    Ok(())
+/// Whether the guest may reach the path `resolved` judges, from the Mount's
+/// root, with `access`, as its Mount decides.
+fn judge(mount: &Mount, resolved: &ResolvedPath, access: Access) -> Answer {
+    Ok(mount.check(&resolved.judged, access)?)
 }
 
 /// A path beneath `fd` and the directory it is relative to, for a call
@@ -82,11 +58,9 @@ fn beneath<'a>(
     mem: &GuestMemory,
     fd: u32,
     path: (u32, u32),
-) -> Answer<(&'a OpenDirectory, Arc<dyn Filesystem>, String)> {
+) -> Answer<(&'a OpenDirectory, ResolvedPath)> {
     let dir = directory(table, fd)?;
-    let (base, path) = resolve(dir, &mem.path(path.0, path.1)?)?
-        .check_directory(<dyn Filesystem>::symlink_metadata)?;
-    Ok((dir, base, path))
+    Ok((dir, resolve(dir, &mem.path(path.0, path.1)?, false, false)?))
 }
 
 /// A trailing `/` asks for the directory being made, so it is no
@@ -98,8 +72,8 @@ pub(crate) fn create_directory(
     path: (u32, u32),
 ) -> Answer {
     let dir = directory(table, fd)?;
-    let resolved = resolve(dir, &mem.path(path.0, path.1)?)?;
-    judge(&dir.mount, &resolved.path, Access::ReadWrite, false)?;
+    let resolved = resolve(dir, &mem.path(path.0, path.1)?, false, false)?;
+    judge(&dir.mount, &resolved, Access::ReadWrite)?;
     Ok(resolved.base.create_dir(&resolved.path)?)
 }
 
@@ -113,21 +87,14 @@ pub(crate) fn filestat_get(
 ) -> Answer {
     args::flags(flags, args::LOOKUPFLAGS)?;
     let dir = directory(table, fd)?;
-    let resolved = resolve(dir, &mem.path(path.0, path.1)?)?;
+    let path = mem.path(path.0, path.1)?;
     // A trailing `/` resolves a link standing there, as Linux's `lstat` does.
-    let follow = flags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 || resolved.names_directory;
-    let resolved = if follow {
-        resolved.follow_last(dir, false)?
-    } else {
-        resolved
-    };
-    let (filesystem, path) = resolved.check_directory(<dyn Filesystem>::metadata)?;
-    let metadata = if follow {
-        filesystem.metadata(&path)?
-    } else {
-        filesystem.symlink_metadata(&path)?
-    };
-    write_metadata(mem, out, metadata)
+    let follow = flags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 || names_directory(&path);
+    let resolved = resolve(dir, &path, follow, false)?;
+    // A link the walk did not follow at the end is one swapped in since,
+    // so it is reported as itself rather than followed.
+    let (filesystem, path) = resolved.check_directory(<dyn Filesystem>::symlink_metadata)?;
+    write_metadata(mem, out, filesystem.symlink_metadata(&path)?)
 }
 
 /// A Filesystem keeps no timestamps of the guest's choosing.
@@ -141,7 +108,9 @@ pub(crate) fn filestat_set_times(
 ) -> Answer {
     args::flags(flags, args::LOOKUPFLAGS)?;
     args::fstflags(fst_flags)?;
-    beneath(table, mem, fd, path)?;
+    beneath(table, mem, fd, path)?
+        .1
+        .check_directory(<dyn Filesystem>::symlink_metadata)?;
     Err(Errno::Notsup.into())
 }
 
@@ -193,42 +162,26 @@ pub(crate) fn open(
     if oflag(OFLAGS_DIRECTORY) && oflag(OFLAGS_CREAT | OFLAGS_EXCL | OFLAGS_TRUNC) {
         return Err(Errno::Inval.into());
     }
-    let resolved = resolve(dir, &path)?;
+    // A trailing `/` resolves a link standing there, as Linux's `open` does.
+    let follow = flags.dirflags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 || names_directory(&path);
+    let resolved = resolve(dir, &path, follow, oflag(OFLAGS_CREAT))?;
     // A path ending in `/` asks for a directory, which cannot be created
     // as a file.
     if path.ends_with('/') && oflag(OFLAGS_CREAT) {
         return Err(Errno::Isdir.into());
     }
-    // A trailing `/` resolves a link standing there, as Linux's `open` does.
-    let follow = flags.dirflags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 || resolved.names_directory;
-    let resolved = if follow {
-        resolved.follow_last(dir, oflag(OFLAGS_CREAT))?
-    } else {
-        resolved
-    };
-    let (base, path) = resolved.check_directory(<dyn Filesystem>::metadata)?;
+    let judged = resolved.judged.clone();
+    // The walk followed every link the call asked it to, so a link at the
+    // end now is one swapped in since, and is opened as itself.
+    let (base, path) = resolved.check_directory(<dyn Filesystem>::symlink_metadata)?;
     let mount = Arc::clone(&dir.mount);
-    // Beneath a Policy the path is already the Mount's; elsewhere it is
-    // kept as the opened directory's path at the time.
-    let opened_at = if mount.follows_links() {
-        join(&dir.path, &path)
-    } else {
-        path.clone()
-    };
     if table.is_full() {
         return Err(Errno::Mfile.into());
     }
 
     let read = flags.rights_base & RIGHTS_FD_READ != 0;
     let write = flags.rights_base & RIGHTS_FD_WRITE != 0;
-    if !mount.follows_links() {
-        refuse_links(&mount, &path, follow)?;
-    }
-    let looked_up = if follow {
-        base.metadata(&path)
-    } else {
-        base.symlink_metadata(&path)
-    };
+    let looked_up = base.symlink_metadata(&path);
     let (existing, identity) = match looked_up {
         Ok(metadata) => (Some(metadata.file_type), Identity::of(&metadata)),
         Err(FilesystemError::NotFound) => (None, None),
@@ -257,12 +210,12 @@ pub(crate) fn open(
     } else {
         Access::Read
     };
-    mount.check(&path, access)?;
+    mount.check(&judged, access)?;
     let descriptor = match existing {
         Some(FileType::Directory) => Descriptor::Directory(OpenDirectory {
-            handle: open_dir(base.as_ref(), &path, follow)?,
+            handle: base.open_dir_nofollow(&path)?,
             mount,
-            path: opened_at,
+            path: judged,
             identity,
             preopen: false,
             listing: None,
@@ -276,7 +229,7 @@ pub(crate) fn open(
             options.create = oflag(OFLAGS_CREAT) && existing.is_none();
             options.create_new = oflag(OFLAGS_CREAT) && oflag(OFLAGS_EXCL);
             options.truncate = oflag(OFLAGS_TRUNC);
-            options.nofollow = !follow;
+            options.nofollow = true;
             Descriptor::File(OpenFile {
                 file: base.open(&path, &options)?,
                 position: 0,
@@ -298,7 +251,9 @@ pub(crate) fn readlink(
     fd: u32,
     path: (u32, u32),
 ) -> Answer {
-    beneath(table, mem, fd, path)?;
+    beneath(table, mem, fd, path)?
+        .1
+        .check_directory(<dyn Filesystem>::symlink_metadata)?;
     Err(Errno::Notsup.into())
 }
 
@@ -312,8 +267,8 @@ fn refuse_dot_end(dir: &OpenDirectory, path: &str, refusal: Errno) -> Answer {
         return Ok(());
     }
     if !parent.is_empty() {
-        let parent = resolve(dir, parent)?;
-        if parent.base.metadata(&parent.path)?.file_type != FileType::Directory {
+        let parent = resolve(dir, parent, false, false)?;
+        if parent.base.symlink_metadata(&parent.path)?.file_type != FileType::Directory {
             return Err(Errno::Notdir.into());
         }
     }
@@ -340,9 +295,10 @@ pub(crate) fn remove_directory(
         &mem.path(path.0, path.1)?,
         Errno::Inval,
     )?;
-    let (dir, base, path) = beneath(table, mem, fd, path)?;
+    let (dir, resolved) = beneath(table, mem, fd, path)?;
+    judge(&dir.mount, &resolved, Access::ReadWrite)?;
+    let (base, path) = resolved.check_directory(<dyn Filesystem>::symlink_metadata)?;
     refuse_root(&path, Errno::Inval)?;
-    judge(&dir.mount, &path, Access::ReadWrite, false)?;
     Ok(base.remove_dir(&path)?)
 }
 
@@ -360,8 +316,8 @@ pub(crate) fn rename(
     let (from, to) = (mem.path(old.1 .0, old.1 .1)?, mem.path(new.1 .0, new.1 .1)?);
     refuse_dot_end(from_dir, &from, Errno::Busy)?;
     refuse_dot_end(to_dir, &to, Errno::Busy)?;
-    let from = resolve(from_dir, &from)?;
-    let to = resolve(to_dir, &to)?;
+    let from = resolve(from_dir, &from, false, false)?;
+    let to = resolve(to_dir, &to, false, false)?;
     refuse_root(&from.path, Errno::Busy)?;
     refuse_root(&to.path, Errno::Busy)?;
     // A trailing `/` on either side asks that the source be a directory,
@@ -369,20 +325,23 @@ pub(crate) fn rename(
     // leaves everything as it was. A rename moves a link rather than what
     // it points at, so each side is checked as it stands.
     let names_directory = from.names_directory || to.names_directory;
+    let onto_itself = to.judged == from.judged;
+    let (from_judged, to_judged) = (from.judged.clone(), to.judged.clone());
     let (from_base, from) = ResolvedPath {
         names_directory,
         ..from
     }
     .check_directory(<dyn Filesystem>::symlink_metadata)?;
-    let (to_base, to) = match to {
-        to if Arc::ptr_eq(&to.base, &from_base) && to.path == from => (to.base, to.path),
-        to => to.check_directory(<dyn Filesystem>::symlink_metadata)?,
+    let (to_base, to) = if onto_itself {
+        (to.base, to.path)
+    } else {
+        to.check_directory(<dyn Filesystem>::symlink_metadata)?
     };
     if !Arc::ptr_eq(&from_dir.mount, &to_dir.mount) {
         return Err(Errno::Xdev.into());
     }
-    judge(&from_dir.mount, &from, Access::ReadWrite, false)?;
-    judge(&to_dir.mount, &to, Access::ReadWrite, false)?;
+    from_dir.mount.check(&from_judged, Access::ReadWrite)?;
+    to_dir.mount.check(&to_judged, Access::ReadWrite)?;
     let rename = match (from_dir.mount.moves_directories(), names_directory) {
         (false, _) => Rename::File,
         (true, true) => Rename::Directory,
@@ -413,28 +372,9 @@ pub(crate) fn unlink_file(
 ) -> Answer {
     // Linux's `unlink` follows no link at the end, so a trailing `/` is
     // answered by the name itself: no file removes as a directory.
-    let (dir, base, path) = beneath(table, mem, fd, path)?;
+    let (dir, resolved) = beneath(table, mem, fd, path)?;
+    judge(&dir.mount, &resolved, Access::ReadWrite)?;
+    let (base, path) = resolved.check_directory(<dyn Filesystem>::symlink_metadata)?;
     refuse_root(&path, Errno::Isdir)?;
-    judge(&dir.mount, &path, Access::ReadWrite, false)?;
     Ok(base.remove_file(&path)?)
-}
-
-/// The directory at `path` beneath `base`, a link standing at its end
-/// followed only where `follow` asks, as `O_NOFOLLOW` refuses one.
-fn open_dir(base: &dyn Filesystem, path: &str, follow: bool) -> Answer<Arc<dyn Filesystem>> {
-    if follow {
-        return Ok(base.open_dir(path)?);
-    }
-    Ok(match path.rsplit_once('/') {
-        Some((parent, name)) => base.open_dir(parent)?.open_dir_nofollow(name)?,
-        None => base.open_dir_nofollow(path)?,
-    })
-}
-
-fn join(dir: &str, path: &str) -> String {
-    match (dir, path) {
-        ("", path) => path.to_string(),
-        (dir, "") => dir.to_string(),
-        (dir, path) => format!("{dir}/{path}"),
-    }
 }

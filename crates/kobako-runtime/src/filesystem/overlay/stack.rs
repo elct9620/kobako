@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use super::readers::Readers;
 
-use super::super::path::{beneath_itself, components, is_beneath, join};
+use super::super::path::{beneath_itself, is_beneath, join};
 use super::super::{
     Access, DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename,
 };
@@ -218,32 +218,6 @@ pub(super) struct Stack {
 impl Stack {
     pub(super) fn push(&mut self, filesystem: Arc<dyn Filesystem>, access: Access) {
         self.layers.push(Layer { filesystem, access });
-    }
-
-    /// The Layers a Mount with a Policy reaches, or `None` when no Layer
-    /// holds a link.
-    pub(super) fn for_policy(&self) -> Option<Self> {
-        let next: Vec<_> = self
-            .layers
-            .iter()
-            .map(|layer| layer.filesystem.for_policy())
-            .collect();
-        if next.iter().all(Option::is_none) {
-            return None;
-        }
-        let layers = self
-            .layers
-            .iter()
-            .zip(next)
-            .map(|(layer, next)| Layer {
-                filesystem: next.unwrap_or_else(|| layer.filesystem.clone()),
-                access: layer.access,
-            })
-            .collect();
-        Some(Self {
-            layers,
-            readers: Arc::default(),
-        })
     }
 
     /// The chain at the root of the view, every Layer's root merged.
@@ -447,36 +421,16 @@ impl Stack {
         }
     }
 
-    /// `path` beneath the directory `chain` reaches, with its links
-    /// followed by the Layer showing the first of them, within that
-    /// directory; a path the view shows no link on answers as given.
-    pub(super) fn canonicalize_beneath(
-        &self,
-        chain: &Chain,
-        path: &str,
-    ) -> Result<String, FilesystemError> {
-        let mut walk = chain.clone();
-        for name in components(path) {
-            match self.lookup(walk.level(), name) {
-                Ok(Some((index, found))) if found.file_type == FileType::Symlink => {
-                    return chain.level()[index]
-                        .as_ref()
-                        .ok_or(FilesystemError::NotPermitted)?
-                        .canonicalize_beneath("", path)
-                }
-                Ok(Some((index, found))) if found.file_type == FileType::Directory => {
-                    let level = self.merged(walk.level(), name, index)?;
-                    walk.steps.push(Step {
-                        name: name.to_string(),
-                        level,
-                        through_link: false,
-                    });
-                }
-                Ok(_) | Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => break,
-                Err(err) => return Err(err),
+    /// Where the link the view shows at `name` points, as the Layer
+    /// holding it reads it.
+    pub(super) fn read_link(&self, level: &Level, name: &str) -> Result<String, FilesystemError> {
+        refuse_reserved(name)?;
+        match self.lookup(level, name)?.ok_or(FilesystemError::NotFound)? {
+            (index, found) if found.file_type == FileType::Symlink => {
+                held(&level[index])?.read_link(name)
             }
+            _ => Err(FilesystemError::InvalidInput),
         }
-        Ok(path.to_string())
     }
 
     /// Every Layer still showing `name` in `level`, topmost first, and the

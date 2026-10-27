@@ -474,14 +474,10 @@ impl Filesystem for Memory {
         Ok(name.to_string())
     }
 
-    /// A Memory holds no links to follow.
-    fn canonicalize_beneath(&self, _base: &str, path: &str) -> Result<String, FilesystemError> {
-        Ok(path.to_string())
-    }
-
-    /// A Memory holds no links a Policy needs kept from being followed.
-    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
-        None
+    /// A Memory holds no links.
+    fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
+        self.metadata(name)?;
+        Err(FilesystemError::InvalidInput)
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {

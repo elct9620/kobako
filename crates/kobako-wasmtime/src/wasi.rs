@@ -164,7 +164,7 @@ impl Wasi {
 /// frontend from handing one over.
 fn to_mount(grant: &Grant) -> Option<Mount> {
     match grant {
-        Grant::Mount(mount) => Some(mount.for_invocation()),
+        Grant::Mount(mount) => Some(mount.clone()),
         _ => None,
     }
 }

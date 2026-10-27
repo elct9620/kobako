@@ -335,17 +335,6 @@ impl Mount {
 }
 ```
 
-## `Mount::for_invocation`
-
-The Mount as an invocation reaches it, over the Filesystem that follows no link
-beneath a Policy.
-
-```rust
-impl Mount {
-    pub fn for_invocation(&self) -> Self {}
-}
-```
-
 ## `Denial`
 
 Why a Mount refused a call: a change beneath a read-only Mount, or its Policy.
@@ -457,27 +446,15 @@ pub trait Filesystem {
 }
 ```
 
-## `Filesystem::canonicalize_beneath`
+## `Filesystem::read_link`
 
-A path beneath a directory with every link on it followed, refused where a
-link leads out of that directory. A Filesystem holding no links answers the
-path itself.
-
-```rust
-pub trait Filesystem {
-    fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError>;
-}
-```
-
-## `Filesystem::for_policy`
-
-The Filesystem a Mount with a Policy hands its calls in this one's place.
-It follows no link on any path, so a call reaches only the path the Policy
-judged. A Filesystem holding no links answers `None`.
+Where a link in this directory points, for the runtime to follow. Anything
+else standing there is invalid input, as it is for a Filesystem holding no
+links.
 
 ```rust
 pub trait Filesystem {
-    fn for_policy(&self) -> Option<Arc<dyn Filesystem>>;
+    fn read_link(&self, name: &str) -> Result<String, FilesystemError>;
 }
 ```
 

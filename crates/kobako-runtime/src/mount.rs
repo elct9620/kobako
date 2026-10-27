@@ -179,21 +179,4 @@ impl Mount {
     pub fn follows_links(&self) -> bool {
         self.policy.is_none()
     }
-
-    /// This Mount as an Invocation reaches it; beneath a Policy, over the
-    /// Filesystem that follows no link, so each call reaches the path the
-    /// Policy judged.
-    pub fn for_invocation(&self) -> Self {
-        let filesystem = match self.policy {
-            Some(_) => self
-                .filesystem
-                .for_policy()
-                .unwrap_or_else(|| self.filesystem.clone()),
-            None => self.filesystem.clone(),
-        };
-        Self {
-            filesystem,
-            ..self.clone()
-        }
-    }
 }

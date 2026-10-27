@@ -56,7 +56,7 @@ A method is named for what it does, and each kind shows it this way.
 |---|---|---|
 | acts | a verb, then its object | `preload`, `register_source` |
 | finds a thing by a key | the noun, `_by_`, and the key | `error_by_name` |
-| makes or converts a value | `new`, `with_`, `for_`, `from_`, `into_`, `to_` | `with_inodes`, `for_policy` |
+| makes or converts a value | `new`, `with_`, `for_`, `from_`, `into_`, `to_` | `with_inodes`, `from_posix_name` |
 | adds one more of a member it already holds | the member's noun, as `Command::arg` | `layer` |
 | runs a block under a condition | a preposition and the condition | `within_value_budget { … }` |
 | is called when something happens | `on_` and the event | `on_dispatch` |

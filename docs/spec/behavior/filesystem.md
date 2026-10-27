@@ -1136,7 +1136,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | no bytes are written at an offset past its end |
 | Then | the write answers zero, and the file stays empty, as Linux pwrite does |
 
-## `FS-097` A Directory follows a link only within the directory it resolves beneath
+## `FS-097` A Directory follows a link only within the directory it opened
 
 | Attribute | Value |
 | --- | --- |
@@ -1144,9 +1144,9 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory holding a directory with a link inside it and one leading out |
-| When | each link's path is resolved beneath that directory |
-| Then | the inner link resolves to where it leads, and the outer one is not permitted |
+| Given | a directory opened from a Directory, holding a link inside it and one leading out |
+| When | each link is looked up through the opened directory |
+| Then | the inner link leads to where it points, and the outer one is not permitted |
 
 ## `FS-098` An Overlay follows a link beneath a directory within the Layer holding it
 
@@ -1160,7 +1160,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | each link's path is resolved beneath that directory |
 | Then | the inner link resolves to where it leads, and the outer one is not permitted |
 
-## `FS-099` A Directory for a Policy follows no link on a path
+## `FS-099` A Directory opens no link as a directory where asked not to follow
 
 | Attribute | Value |
 | --- | --- |
@@ -1168,11 +1168,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Directory for a Policy, holding a link to a directory |
-| When | a path through the link is opened, and the link itself is listed |
-| Then | each is a link loop |
+| Given | a Directory holding a link to a directory |
+| When | the link is opened as a directory, following it and following no link |
+| Then | the first reaches the directory, and the second is a link loop |
 
-## `FS-100` An Overlay for a Policy follows no link in any Layer
+## `FS-100` An Overlay opens no link as a directory where asked not to follow
 
 | Attribute | Value |
 | --- | --- |
@@ -1180,9 +1180,9 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay for a Policy whose Directory Layer holds a link to a directory |
-| When | a path through the link is opened |
-| Then | the open is a link loop |
+| Given | an Overlay whose Directory Layer holds a link to a directory |
+| When | the link is opened as a directory both ways, and read |
+| Then | following reaches the directory, following none is a link loop, and the read answers where it points |
 
 ## `FS-101` A file opened to read before a copy up reads the copy
 
@@ -1339,3 +1339,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay whose upper Layer holds a directory where a lower Layer holds a link to a directory |
 | When | a name the link's target holds is looked up beneath the directory, which is also listed |
 | Then | the lookup answers not found, and the listing is empty |
+
+## `FS-114` A Directory reads where a link points
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-047` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Directory holding a link and a directory |
+| When | each is read as a link |
+| Then | the link answers where it points as stored, and the directory is invalid input |

@@ -1530,7 +1530,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a Directory Mount whose Policy allows one directory and refuses another |
 | When | another writer swaps the allowed directory for a link as the Policy judges |
-| Then | the open answers ELOOP and reads nothing the Policy refused |
+| Then | the read reaches the directory the walk held, and nothing the Policy refused |
 
 ## `RT-146` A Policy is asked once for an open that may create, as what it does
 
@@ -1618,3 +1618,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation with room for two descriptors, handed an Overlay whose two Layers hold a directory |
 | When | the guest opens the directory, then two files |
 | Then | the directory and the first file open, and the second answers EMFILE |
+
+## `RT-153` A step out of where a link led answers ELOOP
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-119` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory opened beneath a Mount, holding a link to a directory within it |
+| When | the guest names a path stepping out with `..` after passing through the link |
+| Then | the call answers ELOOP |
+
+## `RT-154` A link loop answers ELOOP
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-141` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory opened beneath a Mount, holding a link pointing at itself |
+| When | the guest opens the link, following it |
+| Then | the open answers ELOOP |

@@ -227,14 +227,10 @@ impl Filesystem for RubyFilesystem {
         Ok(name.to_string())
     }
 
-    /// A Ruby object holds no links to follow.
-    fn canonicalize_beneath(&self, _base: &str, path: &str) -> Result<String, FilesystemError> {
-        Ok(path.to_string())
-    }
-
-    /// A Ruby object holds no links a Policy needs kept from being followed.
-    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
-        None
+    /// A Ruby object answers `stat` alone, so it holds no links.
+    fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
+        self.metadata(name)?;
+        Err(FilesystemError::InvalidInput)
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {

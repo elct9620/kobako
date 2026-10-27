@@ -38,13 +38,14 @@ pub enum Access {
 /// opens keeps its identity its own while it is open, as an open
 /// descriptor keeps a host's inode from being reused.
 ///
-/// Five methods keep a guarantee the runtime gives the guest, so each
-/// Filesystem answers them itself and a wrapper forwards them:
-/// `symlink_metadata` and `open_dir_nofollow` keep a link from being
-/// followed where a Mount refuses links, `stored_name` keeps a Policy
-/// judging the spelling the host stores, `canonicalize_beneath` keeps a
-/// link within the directory a descriptor opened, and `for_policy` keeps
-/// a call to the path a Policy judged. Every Invocation reaches the same Filesystem;
+/// The runtime walks a guest's path one name at a time and follows a link
+/// itself, as the VFS above a filesystem does, so a link never leads a
+/// call out of the directory a descriptor opened. Four methods keep a
+/// guarantee the runtime gives the guest, so each Filesystem answers them
+/// itself and a wrapper forwards them: `symlink_metadata`,
+/// `open_dir_nofollow`, and `read_link` keep a link from being followed
+/// anywhere but where the runtime follows it, and `stored_name` keeps a
+/// Policy judging the spelling the host stores. Every Invocation reaches the same Filesystem;
 /// one that should start afresh is handed in its place for that
 /// Invocation.
 pub trait Filesystem: Any + Send + Sync {
@@ -75,13 +76,12 @@ pub trait Filesystem: Any + Send + Sync {
     /// exactly answers `name`.
     fn stored_name(&self, name: &str) -> Result<String, FilesystemError>;
 
-    /// `path`, relative to the directory at `base`, with every link on it
-    /// followed, as cap-std's `Dir::canonicalize` answers: still relative
-    /// to `base`, `NotPermitted` where a link leads out of `base`, and
-    /// `NotFound` where nothing stands. A descriptor opened on `base`
-    /// reaches nothing above it, as a capability never widens. A
-    /// Filesystem holding no links answers `path`.
-    fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError>;
+    /// Where the link `name` in this directory points, as `readlinkat`
+    /// answers, for the runtime to follow; a guest never reads it.
+    /// `InvalidInput` where anything else stands, as `readlinkat` refuses
+    /// one, which is a Filesystem holding no links's answer for every name
+    /// it holds.
+    fn read_link(&self, name: &str) -> Result<String, FilesystemError>;
 
     /// The entries of this directory, without `.` or `..`.
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError>;
@@ -106,13 +106,6 @@ pub trait Filesystem: Any + Send + Sync {
         to: &str,
         rename: Rename,
     ) -> Result<(), FilesystemError>;
-
-    /// The Filesystem a Mount with a Policy hands its calls in this one's
-    /// place, following no link anywhere on a path, each name reached
-    /// from the directory already held, so a link another writer swaps in
-    /// after the Policy judged the path is a link loop rather than
-    /// followed. A Filesystem holding no links answers `None`.
-    fn for_policy(&self) -> Option<Arc<dyn Filesystem>>;
 }
 
 /// One open file. The runtime keeps its position, so every read and write

@@ -581,12 +581,8 @@ where
         self.memory.stored_name(name)
     }
 
-    fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError> {
-        self.memory.canonicalize_beneath(base, path)
-    }
-
-    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
-        self.memory.for_policy()
+    fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
+        self.memory.read_link(name)
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {

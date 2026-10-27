@@ -9,75 +9,43 @@ mod spelling;
 
 use std::any::Any;
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::path::{Component, Path};
+use std::path::Path;
 use std::sync::Arc;
 
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
-use super::path::{components, name, parent};
 use super::{DirEntry, File, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Rename};
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
 pub struct Directory {
     dir: Arc<Dir>,
-    /// Whether a path may pass through a link, which a Directory for a
-    /// Policy follows nowhere on it.
-    follows_links: bool,
 }
 
 impl Directory {
     /// Open the host directory at `path`, the one place this Filesystem
     /// reaches outside itself.
     pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {
-        Ok(Self {
-            dir: Arc::new(Dir::open_ambient_dir(path, ambient_authority())?),
-            follows_links: true,
-        })
+        Ok(Self::beneath(Dir::open_ambient_dir(
+            path,
+            ambient_authority(),
+        )?))
     }
 
-    /// Answer `call` with the directory holding `path`'s last name and
-    /// that name. A Directory for a Policy reaches that directory one name
-    /// at a time from the one it already holds, following no link, so a
-    /// link swapped in on the way is a loop rather than a path elsewhere.
+    /// Answer `call` with this directory and `path` as the host spells it.
     fn at<T>(
         &self,
         path: &str,
         call: impl FnOnce(&Dir, &str) -> Result<T, FilesystemError>,
     ) -> Result<T, FilesystemError> {
-        if self.follows_links {
-            return call(&self.dir, to_host_path(path)?);
-        }
-        let mut held: Option<Dir> = None;
-        for component in components(parent(path)) {
-            let from = held.as_ref().unwrap_or(&self.dir);
-            held = Some(open_dir_nofollow(from, to_host_path(component)?)?);
-        }
-        call(
-            held.as_ref().unwrap_or(&self.dir),
-            to_host_path(name(path))?,
-        )
+        call(&self.dir, to_host_path(path)?)
     }
 
-    /// `dir`, opened beneath this Directory, as a Directory of its own
-    /// following links where this one does.
-    fn beneath(&self, dir: Dir) -> Self {
-        Self {
-            dir: Arc::new(dir),
-            follows_links: self.follows_links,
-        }
-    }
-
-    /// The directory `name` in `dir`, a link there followed only where
-    /// this Directory follows links.
-    fn open_dir_in(&self, dir: &Dir, name: &str) -> Result<Dir, FilesystemError> {
-        if self.follows_links {
-            dir.open_dir(name).map_err(to_error)
-        } else {
-            open_dir_nofollow(dir, name)
-        }
+    /// `dir`, opened beneath a Directory, as a Directory of its own.
+    fn beneath(dir: Dir) -> Self {
+        Self { dir: Arc::new(dir) }
     }
 }
 
@@ -233,25 +201,11 @@ fn open_in(dir: &Dir, name: &str, options: &OpenOptions) -> Result<Box<dyn File>
 }
 
 impl Filesystem for Directory {
-    /// A Directory for a Policy follows no link at the end either.
     fn open(&self, path: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
-        let options = OpenOptions {
-            nofollow: options.nofollow || !self.follows_links,
-            ..*options
-        };
-        self.at(path, |dir, name| open_in(dir, name, &options))
+        self.at(path, |dir, name| open_in(dir, name, options))
     }
 
-    /// A Directory for a Policy answers a link at the end as a loop rather
-    /// than follow it.
     fn metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
-        if !self.follows_links {
-            let metadata = self.symlink_metadata(path)?;
-            if metadata.file_type == FileType::Symlink {
-                return Err(FilesystemError::FilesystemLoop);
-            }
-            return Ok(metadata);
-        }
         self.at(path, |dir, name| {
             Ok(to_metadata(dir.metadata(name).map_err(to_error)?))
         })
@@ -266,13 +220,13 @@ impl Filesystem for Directory {
     /// The host directory's own descriptor, so its inode stays taken while
     /// it is open.
     fn open_dir(&self, path: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
-        let dir = self.at(path, |dir, name| self.open_dir_in(dir, name))?;
-        Ok(Arc::new(self.beneath(dir)))
+        let dir = self.at(path, |dir, name| dir.open_dir(name).map_err(to_error))?;
+        Ok(Arc::new(Self::beneath(dir)))
     }
 
     fn open_dir_nofollow(&self, name: &str) -> Result<Arc<dyn Filesystem>, FilesystemError> {
         let dir = open_dir_nofollow(&self.dir, to_host_path(name)?)?;
-        Ok(Arc::new(self.beneath(dir)))
+        Ok(Arc::new(Self::beneath(dir)))
     }
 
     fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
@@ -281,28 +235,15 @@ impl Filesystem for Directory {
             .unwrap_or_else(|| name.to_string()))
     }
 
-    /// A Directory for a Policy follows no link, so a path resolves as
-    /// given.
-    fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError> {
-        if !self.follows_links {
-            return Ok(path.to_string());
-        }
-        let beneath = self.dir.open_dir(to_host_path(base)?).map_err(to_error)?;
-        let found = beneath
-            .canonicalize(to_host_path(path)?)
-            .map_err(to_error)?;
-        found
-            .components()
-            .filter_map(|component| match component {
-                Component::Normal(name) => Some(
-                    name.to_str()
-                        .map(str::to_string)
-                        .ok_or(FilesystemError::IllegalSequence),
-                ),
-                _ => None,
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map(|names| names.join("/"))
+    /// A target that is no valid UTF-8 answers `IllegalSequence`, as a
+    /// guest path is one.
+    fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
+        self.dir
+            .read_link(to_host_path(name)?)
+            .map_err(to_error)?
+            .into_os_string()
+            .into_string()
+            .map_err(|_| FilesystemError::IllegalSequence)
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -366,14 +307,6 @@ impl Filesystem for Directory {
                     .map_err(to_error)
             })
         })
-    }
-
-    /// The same host directory, reached one name at a time.
-    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
-        Some(Arc::new(Self {
-            dir: self.dir.clone(),
-            follows_links: false,
-        }))
     }
 }
 
@@ -807,67 +740,75 @@ mod tests {
         );
     }
 
-    // Both links stay inside the host directory, so only resolving beneath
-    // `dir` rather than beneath the root can refuse the outer one.
-    // @behavior FS-097
+    /// A host directory holding `dir/sub/y` and `secret`, with `dir/in`
+    /// linking to `sub` and `dir/up` to `../secret`.
     #[cfg(unix)]
-    #[test]
-    fn a_directory_follows_a_link_only_within_the_directory_it_resolves_beneath() {
-        let host = HostDir::new("beneath");
+    fn linked_beneath(name: &str) -> HostDir {
+        let host = HostDir::new(name);
         fs::create_dir_all(host.0.join("dir/sub")).expect("the host directory must be created");
         fs::write(host.0.join("dir/sub/y"), "inner").expect("the inner file must be written");
         fs::write(host.0.join("secret"), "outer").expect("the outer file must be written");
         std::os::unix::fs::symlink("sub", host.0.join("dir/in")).expect("the link must be made");
         std::os::unix::fs::symlink("../secret", host.0.join("dir/up"))
             .expect("the link must be made");
+        host
+    }
 
+    // Both links stay inside the host directory, so only the opened
+    // directory confining its own lookups can refuse the outer one.
+    // @behavior FS-097
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_follows_a_link_only_within_the_directory_it_opened() {
+        let host = linked_beneath("beneath");
         let directory = Directory::new(&host.0).expect("the host directory must open");
+        let dir = directory.open_dir("dir").expect("the directory must open");
         assert_eq!(
             (
-                directory.canonicalize_beneath("dir", "in/y"),
-                directory.canonicalize_beneath("dir", "up"),
+                dir.metadata("in/y").map(|m| m.file_type),
+                dir.metadata("up").map(|m| m.file_type)
             ),
-            (Ok("sub/y".to_string()), Err(FilesystemError::NotPermitted)),
-            "a link staying within `dir`, resolved through Directory::canonicalize_beneath, must \
-             resolve to where it leads, and one leading out of `dir` must not be permitted"
+            (Ok(FileType::File), Err(FilesystemError::NotPermitted)),
+            "a link staying within a directory Directory::open_dir opened must lead where it \
+             points, and one leading out of it must not be permitted"
         );
     }
 
-    // The link leads to a directory inside the host directory, so only a
-    // Directory following no link refuses what a plain one reaches.
+    // The link leads to a directory inside the host directory, so only
+    // refusing the link itself keeps it from being opened.
     // @behavior FS-099
     #[cfg(unix)]
     #[test]
-    fn a_directory_for_a_policy_follows_no_link_on_a_path() {
-        let host = HostDir::new("for-policy");
-        fs::create_dir_all(host.0.join("target")).expect("the host directory must be created");
-        fs::write(host.0.join("target/x"), "inner").expect("the inner file must be written");
-        std::os::unix::fs::symlink("target", host.0.join("link")).expect("the link must be made");
+    fn a_directory_opens_no_link_as_a_directory_where_asked_not_to_follow() {
+        let host = linked_beneath("open-dir-nofollow");
         let directory = Directory::new(&host.0).expect("the host directory must open");
-        let reading = OpenOptions {
-            read: true,
-            ..OpenOptions::default()
-        };
-        let answers = |filesystem: &dyn Filesystem| {
-            (
-                filesystem.open("link/x", &reading).map(drop),
-                filesystem.open_dir("link").map(drop),
-            )
-        };
-        let for_policy = directory
-            .for_policy()
-            .expect("a Directory has a Filesystem for a Policy");
+        let dir = directory.open_dir("dir").expect("the directory must open");
         assert_eq!(
-            (answers(&directory), answers(for_policy.as_ref())),
             (
-                (Ok(()), Ok(())),
-                (
-                    Err(FilesystemError::FilesystemLoop),
-                    Err(FilesystemError::FilesystemLoop)
-                ),
+                dir.open_dir("in").map(drop),
+                dir.open_dir_nofollow("in").map(drop)
             ),
-            "a path through a link opened, and the link listed, through a Directory's \
-             for_policy must each be a link loop, where the Directory itself reaches them"
+            (Ok(()), Err(FilesystemError::FilesystemLoop)),
+            "a link to a directory opened through Directory::open_dir must lead where it points, \
+             and through Directory::open_dir_nofollow must be a link loop"
+        );
+    }
+
+    // @behavior FS-114
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_reads_where_a_link_points() {
+        let host = linked_beneath("read-link");
+        let directory = Directory::new(&host.0).expect("the host directory must open");
+        let dir = directory.open_dir("dir").expect("the directory must open");
+        assert_eq!(
+            (dir.read_link("up"), dir.read_link("sub")),
+            (
+                Ok("../secret".to_string()),
+                Err(FilesystemError::InvalidInput)
+            ),
+            "Directory::read_link must answer where a link points as stored, and refuse a \
+             directory as invalid input"
         );
     }
 

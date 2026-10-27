@@ -317,15 +317,15 @@ driver, so choosing an engine there means choosing a different frontend.
 ## Filesystem
 
 A Mount hands the guest any `impl Filesystem`, and an Overlay stacks them as Layers.
-The runtime resolves and judges each guest path before the Filesystem acts on it.
-A Filesystem sees only a normalized path beneath its root. A lookup may come first,
-as an open answers what stands at a path before its access is judged.
+The runtime walks each guest path one name at a time and judges it before the
+Filesystem acts on it. It follows a link itself, so a Filesystem only answers one
+name in a directory it already opened.
 
 ```
-guest path ─▶ runtime: resolve, refuse links, judge the Policy ─▶ Filesystem
-                              ▲                                     │
-                              ├── symlink_metadata · stored_name ───┤
-                              └── canonicalize_beneath ─────────────┘
+guest path ─▶ runtime: walk name by name, follow links, judge the Policy ─▶ Filesystem
+                              ▲                                               │
+                              ├── symlink_metadata · open_dir_nofollow ───────┤
+                              └── read_link · stored_name ────────────────────┘
 ```
 
 A directory the guest opens is a Filesystem of its own, from `open_dir`. A wrapper
@@ -333,18 +333,17 @@ wraps each directory it opens too, so it still sees every call beneath it.
 
 ### Filesystem Obligations
 
-Seven methods carry a guarantee the runtime gives the guest. None has a default, so
+Six methods carry a guarantee the runtime gives the guest. None has a default, so
 each Filesystem and its `File` answer them, and one wrapping another forwards them.
 A method like these joins without a default, a break marked `!`.
 
 | Method | Keeps | An implementor without it answers |
 |---|---|---|
-| `symlink_metadata` | a link from being followed where a Mount refuses links | `metadata` |
+| `symlink_metadata` | a link from being followed but where the runtime follows it | `metadata` |
 | `open_dir_nofollow` | the same, for each directory on a path | `open_dir` |
+| `read_link` | a link followed only within the directory a descriptor opened | `InvalidInput` |
 | `stored_name` | a Policy judging the spelling the host stores | the name as given |
-| `canonicalize_beneath` | a link within the directory a descriptor opened | the path as given |
 | `open_dir` | an open directory's identity its own, held while open | no identity |
-| `for_policy` | a call to the path a Policy judged, a link swapped in refused | `None` |
 | `File::append` | another writer's append from landing over this one | `Unsupported` |
 
 An Overlay waits for its lock through `Blocking`. A frontend whose threads share a

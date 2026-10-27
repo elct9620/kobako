@@ -29,12 +29,9 @@ macro_rules! holds_no_links {
             self.metadata(path)
         }
 
-        fn canonicalize_beneath(&self, _base: &str, path: &str) -> Result<String, FilesystemError> {
-            Ok(path.to_string())
-        }
-
-        fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
-            None
+        fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
+            self.metadata(name)?;
+            Err(FilesystemError::InvalidInput)
         }
     };
 }
@@ -138,6 +135,8 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 1120) "dir/up")
   (data (i32.const 1130) "nowhere")
   (data (i32.const 1150) "pub/x")
+  (data (i32.const 1160) "in/inner/../../sub/y")
+  (data (i32.const 1184) "loop")
   ;; An iovec naming 16 bytes past the one page of memory.
   (data (i32.const 1140) "\00\00\02\00\10\00\00\00")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
@@ -1753,12 +1752,8 @@ impl Filesystem for FailsLookingUpDir {
         }
     }
 
-    fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError> {
-        self.0.canonicalize_beneath(base, path)
-    }
-
-    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
-        None
+    fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
+        self.0.read_link(name)
     }
 
     opens_directories!(0);
@@ -2425,10 +2420,13 @@ const TWISTY: (i32, i32) = (1100, 6);
 const DANGLE: (i32, i32) = (1110, 6);
 const DIR_UP: (i32, i32) = (1120, 6);
 const NOWHERE: (i32, i32) = (1130, 7);
+const OUT_OF_IN: (i32, i32) = (1160, 20);
+const LOOP: (i32, i32) = (1184, 4);
 
 /// A host directory whose `dir` holds links staying within it (`in`,
-/// `twisty`), links leading out of it (`up`, `updir`), and links pointing
-/// at nothing out of it (`dangle`) and within it (`nowhere`).
+/// `twisty`), links leading out of it (`up`, `updir`), links pointing at
+/// nothing out of it (`dangle`) and within it (`nowhere`), and a link
+/// pointing at itself (`loop`).
 #[cfg(unix)]
 struct LinkedBeneath(std::path::PathBuf);
 
@@ -2438,7 +2436,8 @@ impl LinkedBeneath {
         let host =
             std::env::temp_dir().join(format!("kobako-beneath-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&host);
-        std::fs::create_dir_all(host.join("dir/sub")).expect("the host directory must be created");
+        std::fs::create_dir_all(host.join("dir/sub/inner"))
+            .expect("the host directory must be created");
         std::fs::create_dir_all(host.join("other")).expect("the host directory must be created");
         for file in ["secret", "other/x", "dir/sub/y"] {
             std::fs::write(host.join(file), "x").expect("the host file must be written");
@@ -2450,6 +2449,7 @@ impl LinkedBeneath {
             ("sub/../sub/y", "dir/twisty"),
             ("../escaped", "dir/dangle"),
             ("missing", "dir/nowhere"),
+            ("loop", "dir/loop"),
         ] {
             std::os::unix::fs::symlink(target, host.join(link)).expect("the link must be made");
         }
@@ -2507,6 +2507,38 @@ fn a_link_leading_out_of_an_opened_directory_is_not_permitted() {
         "an open, a stat, or a create through preview1 of a path whose link leads out of a \
          directory opened beneath a Directory Mount, or an Overlay's Directory Layer, must answer \
          EPERM, as wasmtime-wasi does, and create nothing"
+    );
+}
+
+// The second `..` leaves `sub`, where `in` led, two names after the link,
+// and still stays within `dir`, so only refusing to step out of where a
+// link led answers ELOOP; Linux would land beside where `in` points.
+// @behavior RT-153
+#[cfg(unix)]
+#[test]
+fn a_step_out_of_where_a_link_led_answers_eloop() {
+    let host = LinkedBeneath::new("led");
+    let answers = |overlay| host.guest(overlay).call("open_beneath_dir", OUT_OF_IN);
+    assert_eq!(
+        (answers(false), answers(true)),
+        (ERRNO_LOOP, ERRNO_LOOP),
+        "an open through preview1 of `in/inner/../../sub/y`, where `in` is a link within a \
+         directory opened beneath a Directory Mount or an Overlay's Directory Layer, must answer \
+         ELOOP"
+    );
+}
+
+// @behavior RT-154
+#[cfg(unix)]
+#[test]
+fn a_link_loop_answers_eloop() {
+    let host = LinkedBeneath::new("loop");
+    let answers = |overlay| host.guest(overlay).call("open_following_beneath_dir", LOOP);
+    assert_eq!(
+        (answers(false), answers(true)),
+        (ERRNO_LOOP, ERRNO_LOOP),
+        "an open through preview1 following a link pointing at itself, beneath a Directory \
+         Mount or an Overlay's Directory Layer, must answer ELOOP"
     );
 }
 
@@ -2616,9 +2648,9 @@ impl Policy for SwapsWhileAsked {
     }
 }
 
-// The swap happens inside the Policy's own judgment, so only a call that
-// reaches the path without following the link swapped in meanwhile is
-// refused; a plain Directory would read `secret/x`.
+// The swap happens inside the Policy's own judgment, after the walk opened
+// `pub`, so only a call acting on the directory it walked to, rather than
+// on the path again, keeps from reading `secret/x`.
 // @behavior RT-145
 #[cfg(unix)]
 #[test]
@@ -2631,16 +2663,18 @@ fn a_link_swapped_in_after_a_policy_judges_a_path_is_not_followed() {
     }
     let policy = SwapsWhileAsked(host.clone(), std::sync::atomic::AtomicBool::new(true));
     let directory = Directory::new(&host).expect("the host directory must open");
-    let errno = Guest::new(&[grant(
+    let mut guest = Guest::new(&[grant(
         Arc::new(directory),
         Access::Read,
         Some(Arc::new(policy)),
-    )])
-    .call("open_following", PUB_X);
+    )]);
+    let answer = (guest.call("read_file", PUB_X), guest.read_back());
     let _ = std::fs::remove_dir_all(&host);
     assert_eq!(
-        errno, ERRNO_LOOP,
-        "an open through preview1 beneath a Directory Mount with a Policy, of a path whose \
-         directory another writer swaps for a link as the Policy judges it, must answer ELOOP"
+        answer,
+        (0, b"pub".to_vec()),
+        "a read through preview1 beneath a Directory Mount with a Policy, of a path whose \
+         directory another writer swaps for a link as the Policy judges it, must read the \
+         directory the walk held and nothing where the link points"
     );
 }

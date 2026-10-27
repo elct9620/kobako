@@ -306,7 +306,7 @@ foresee. The block judges paths, so nothing may reach a path it never judged:
 |---|---|
 | a rename of a directory | `Errno::EXDEV`, and it copies entry by entry |
 | a path through a host link | `Errno::ELOOP` |
-| a link another writer swaps in after the block judges | `Errno::ELOOP` |
+| a link another writer swaps in after the block judges | never followed; the call reaches the directory it walked to |
 | another case or Unicode form of a name | the block judges the spelling the host stores |
 | on Windows, a spelling the host lists under no name | `Errno::EACCES` |
 
@@ -331,8 +331,8 @@ Some risks stay with the host, because kobako cannot see them.
 | a device swapped into a Directory as the guest opens a file | opened once before its refusal |
 | a link in a Directory without a block | the guest reaches its target, never beyond the Directory, and never reads where it points |
 | a link through a directory the guest opened | followed only within it; leading out raises `Errno::EPERM` |
-| a link loop in a Directory without a block | the guest sees `Errno::EIO`, not `Errno::ELOOP` |
-| a `..` right after a link in a Directory | `Errno::ELOOP`, as the guest never learns where it points |
+| a link loop without a block | `Errno::ELOOP` after 40 links, as Linux answers |
+| a `..` out of where a link led | `Errno::ELOOP`, as the guest never learns where it points |
 | a directory the guest lists in steps | its entries held in host memory until the listing ends, once per descriptor |
 | a directory the guest opened, moved out of the Mount by the host | still reached through that descriptor, as Linux reaches it, unless a block guards the Mount |
 | a link below an Overlay's writable Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |

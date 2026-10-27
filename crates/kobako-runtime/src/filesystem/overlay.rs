@@ -220,11 +220,13 @@ impl Filesystem for Overlay {
         self.stack.stored_name(chain.level(), &name)
     }
 
-    fn canonicalize_beneath(&self, base: &str, path: &str) -> Result<String, FilesystemError> {
+    fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.lock.hold()?;
-        let mut chain = self.reach()?;
-        self.stack.descend(&mut chain, components(base))?;
-        self.stack.canonicalize_beneath(&chain, path)
+        let (chain, name) = self.split(name)?;
+        if name.is_empty() {
+            return Err(FilesystemError::InvalidInput);
+        }
+        self.stack.read_link(chain.level(), &name)
     }
 
     /// A directory removed while open lists nothing, as Linux lists one.
@@ -296,16 +298,6 @@ impl Filesystem for Overlay {
         }
         Ok(())
     }
-
-    /// An Overlay over each Layer's own Filesystem for a Policy, keeping
-    /// this Overlay's lock, since the Layers it shares are the same.
-    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
-        let stack = self.stack.for_policy()?;
-        Some(Arc::new(Self {
-            stack,
-            ..self.clone()
-        }))
-    }
 }
 
 #[cfg(test)]
@@ -326,16 +318,9 @@ mod tests {
                 self.metadata(path)
             }
 
-            fn canonicalize_beneath(
-                &self,
-                _base: &str,
-                path: &str,
-            ) -> Result<String, FilesystemError> {
-                Ok(path.to_string())
-            }
-
-            fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
-                None
+            fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
+                self.metadata(name)?;
+                Err(FilesystemError::InvalidInput)
             }
         };
     }
@@ -507,10 +492,9 @@ mod tests {
         }
     }
 
-    // The link points at a file in the same Layer, so only a lookup that
-    // reaches the Layer's own `symlink_metadata` can answer a link.
     // The links stand in the Directory Layer beneath a Memory one, so only
-    // the merged view handing them to the Layer holding them resolves them.
+    // the merged view handing them to the Layer holding them resolves them,
+    // within the directory the Layer opened.
     // @behavior FS-098
     #[cfg(unix)]
     #[test]
@@ -522,42 +506,40 @@ mod tests {
         std::os::unix::fs::symlink("sub", host.0.join("dir/in")).expect("the link must be made");
         std::os::unix::fs::symlink("../target", host.0.join("dir/up"))
             .expect("the link must be made");
-        let overlay = host.overlay();
+        let dir = host
+            .overlay()
+            .open_dir("dir")
+            .expect("the directory must open");
         assert_eq!(
-            (
-                overlay.canonicalize_beneath("dir", "in/y"),
-                overlay.canonicalize_beneath("dir", "up"),
-            ),
-            (Ok("sub/y".to_string()), Err(FilesystemError::NotPermitted)),
-            "a link a Directory Layer holds within `dir`, resolved through \
-             Overlay::canonicalize_beneath, must resolve to where it leads, and one leading out \
-             of `dir` must not be permitted"
+            (kind(dir.as_ref(), "in/y"), kind(dir.as_ref(), "up")),
+            (Ok(FileType::File), Err(FilesystemError::NotPermitted)),
+            "a link a Directory Layer holds within a directory Overlay::open_dir opened must lead \
+             where it points, and one leading out of it must not be permitted"
         );
     }
 
     // The link stands in the Directory Layer beneath a Memory one, so only
-    // the Overlay handing each Layer's own Filesystem for a Policy refuses it.
+    // the Overlay asking that Layer without following refuses it.
     // @behavior FS-100
     #[cfg(unix)]
     #[test]
-    fn an_overlay_for_a_policy_follows_no_link_in_any_layer() {
-        let host = LinkTree::new("for-policy");
+    fn an_overlay_opens_no_link_as_a_directory_where_asked_not_to_follow() {
+        let host = LinkTree::new("nofollow");
         let overlay = host.overlay();
-        let reading = OpenOptions {
-            read: true,
-            ..OpenOptions::default()
-        };
-        let for_policy = overlay
-            .for_policy()
-            .expect("an Overlay over a Directory has a Filesystem for a Policy");
         assert_eq!(
             (
-                overlay.open("dirlink/inner", &reading).map(drop),
-                for_policy.open("dirlink/inner", &reading).map(drop),
+                overlay.open_dir("dirlink").map(drop),
+                overlay.open_dir_nofollow("dirlink").map(drop),
+                overlay.read_link("dirlink")
             ),
-            (Ok(()), Err(FilesystemError::FilesystemLoop)),
-            "a path through a link a Directory Layer holds, opened through an Overlay's \
-             for_policy, must be a link loop, where the Overlay itself reaches it"
+            (
+                Ok(()),
+                Err(FilesystemError::FilesystemLoop),
+                Ok("dir".to_string())
+            ),
+            "a link a Directory Layer holds, opened through Overlay::open_dir, must lead where it \
+             points, through Overlay::open_dir_nofollow must be a link loop, and through \
+             Overlay::read_link must answer where it points"
         );
     }
 

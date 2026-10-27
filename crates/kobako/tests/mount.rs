@@ -273,12 +273,9 @@ impl Filesystem for OneNote {
         Ok(name.to_string())
     }
 
-    fn canonicalize_beneath(&self, _base: &str, path: &str) -> Result<String, FilesystemError> {
-        Ok(path.to_string())
-    }
-
-    fn for_policy(&self) -> Option<Arc<dyn Filesystem>> {
-        None
+    fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
+        self.metadata(name)?;
+        Err(FilesystemError::InvalidInput)
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
