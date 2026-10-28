@@ -1,6 +1,6 @@
 //! Opening a path, as Linux's `openat2` opens one.
 
-use super::namei::{opened_as_directory, resolve, Resolved};
+use super::namei::{opened_as_directory, resolve, Nameidata};
 use super::path::{Identity, Path};
 use super::seen::seen_file;
 use super::Error;
@@ -78,7 +78,7 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<Opene
                 truncate: how.truncate,
                 nofollow: true,
             };
-            let file = resolved.base.open(&resolved.child(), &options)?;
+            let file = resolved.base().open(&resolved.child(), &options)?;
             Ok(Opened::File(seen_file(file, start.profile())))
         }
     }
@@ -105,16 +105,16 @@ fn refuse_what_stands(existing: Option<FileType>, how: &OpenHow) -> Result<(), E
 
 fn open_directory(
     start: &Path,
-    resolved: Resolved,
+    resolved: Nameidata,
     identity: Option<Identity>,
 ) -> Result<Opened, Error> {
     let (dir, dentry) = match resolved.name.as_str() {
-        "" => (resolved.base.clone(), resolved.dentry.clone()),
+        "" => (resolved.base().clone(), resolved.dentry().clone()),
         // The directory opens now, as Linux's `vfs_open` holds what it
         // opened, so the descriptor follows it wherever it moves.
         _ => {
             let dentry = resolved.child();
-            let dir = resolved.base.open_dir(&dentry)?;
+            let dir = resolved.base().open_dir(&dentry)?;
             opened_as_directory(&dir)?;
             (dir, dentry)
         }

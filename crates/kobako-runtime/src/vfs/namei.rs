@@ -31,35 +31,62 @@ pub(crate) fn names_directory(path: &str) -> bool {
     matches!(path.rsplit('/').next(), Some("" | "."))
 }
 
-/// A guest path resolved beneath a directory: the directory holding its
-/// last name, that name, empty for the directory itself, and the path from
-/// the Mount's root the walk took.
-pub(crate) struct Resolved {
+/// A guest path walked beneath a directory, as Linux's `nameidata` carries
+/// one walk from where it starts to the call it ends in: the directories
+/// it stands in, the names still to walk, and the last name, empty for
+/// the directory itself, left for the call to act on.
+pub(crate) struct Nameidata {
     pub(crate) mount: Arc<Mount>,
-    pub(crate) base: Arc<dyn Inode>,
-    /// Where `base` stands in its Filesystem.
-    pub(crate) dentry: Arc<Dentry>,
+    /// Each directory from where the walk can be spelled from, the Mount's
+    /// root beneath a Policy, down to the one it stands in.
+    frames: Vec<Frame>,
+    /// How many frames stand above the directory the walk started from,
+    /// which no `..` climbs into.
+    above: usize,
+    pending: VecDeque<Part>,
+    follows_links: bool,
+    links: usize,
+    /// Whether each directory stepped into is opened at once, so a link
+    /// on the way is found where it stands; otherwise a Filesystem may
+    /// open several names in one call when the walk is complete.
+    eager: bool,
     pub(crate) name: String,
     /// The path from the Mount's root, each name as the guest gave it.
     pub(crate) judged: String,
     /// Whether the path ended in `/` or `/.`, which only a directory
     /// satisfies.
     pub(crate) names_directory: bool,
-    /// Each directory from where the walk can be spelled from, the Mount's
-    /// root beneath a Policy, down to `base`.
-    frames: Vec<Frame>,
     /// What stands at `name`, a link reported as itself, once asked.
     found: Option<Result<Metadata, FilesystemError>>,
 }
 
-impl Resolved {
-    /// The dentry of the name in `base`, as `d_alloc` makes one for a name
-    /// a call is about.
+impl Nameidata {
+    /// The directory the walk stands in, which holds the last name.
+    pub(crate) fn base(&self) -> &Arc<dyn Inode> {
+        &self.frame().dir
+    }
+
+    /// Where `base` stands in its Filesystem.
+    pub(crate) fn dentry(&self) -> &Arc<Dentry> {
+        &self.frame().dentry
+    }
+
+    fn frame(&self) -> &Frame {
+        self.frames.last().expect("a walk stands somewhere")
+    }
+
+    /// The dentry of the last name in `base`, as `d_alloc` makes one for a
+    /// name a call is about.
     pub(crate) fn child(&self) -> Arc<Dentry> {
+        self.child_of(&self.name)
+    }
+
+    /// The dentry of `name` in the directory the walk stands in.
+    fn child_of(&self, name: &str) -> Arc<Dentry> {
         self.mount
             .filesystem()
             .dentries()
-            .child(&self.dentry, &self.name)
+            .child(self.dentry(), name)
     }
 
     /// What stands at the name, a link reported as itself, asked of the
@@ -67,7 +94,7 @@ impl Resolved {
     /// for the empty name.
     pub(crate) fn found(&mut self) -> Result<Metadata, FilesystemError> {
         if self.found.is_none() {
-            self.found = Some(look_up(&self.base, &self.child(), &self.name));
+            self.found = Some(look_up(self.base(), &self.child(), &self.name));
         }
         self.found.clone().expect("found was just asked")
     }
@@ -95,7 +122,7 @@ impl Resolved {
             names.push(pair[0].dir.stored_name(&pair[1].dentry)?);
         }
         if !self.name.is_empty() {
-            names.push(self.base.stored_name(&self.child())?);
+            names.push(self.base().stored_name(&self.child())?);
         }
         Ok(names
             .iter()
@@ -135,21 +162,6 @@ struct Frame {
     through_link: bool,
 }
 
-struct Walk {
-    mount: Arc<Mount>,
-    frames: Vec<Frame>,
-    /// How many frames stand above the directory the walk started from,
-    /// which no `..` climbs into.
-    above: usize,
-    pending: VecDeque<Part>,
-    follows_links: bool,
-    links: usize,
-    /// Whether each directory stepped into is opened at once, so a link
-    /// on the way is found where it stands; otherwise a Filesystem may
-    /// open several names in one call when the walk is complete.
-    eager: bool,
-}
-
 /// What stands at `name` in `dir`, a link reported as itself; `dir` itself
 /// for the empty name.
 fn look_up(dir: &Arc<dyn Inode>, child: &Dentry, name: &str) -> Result<Metadata, FilesystemError> {
@@ -168,27 +180,15 @@ pub(crate) fn opened_as_directory(dir: &Arc<dyn Inode>) -> Result<(), Filesystem
     }
 }
 
-impl Walk {
-    fn top(&self) -> &Arc<dyn Inode> {
-        &self.frames.last().expect("a walk stands somewhere").dir
-    }
-
-    /// The dentry of `name` in the directory the walk stands in.
-    fn child(&self, name: &str) -> Arc<Dentry> {
-        self.mount.filesystem().dentries().child(
-            &self.frames.last().expect("a walk stands somewhere").dentry,
-            name,
-        )
-    }
-
+impl Nameidata {
     /// Step into the directory `part` names, or follow the link standing
     /// there; `dot` is a `.` or `..` right after it, which no link takes,
     /// so the directory opens at once there. The directory is opened
     /// first, a link standing there refused, so only a name that opens as
     /// none is asked what it is.
     fn descend(&mut self, part: Part, dot: bool) -> Result<(), Error> {
-        let dentry = self.child(&part.name);
-        let opened = self.top().open_dir(&dentry).and_then(|dir| {
+        let dentry = self.child_of(&part.name);
+        let opened = self.base().open_dir(&dentry).and_then(|dir| {
             if self.eager || dot {
                 opened_as_directory(&dir)?;
             }
@@ -205,7 +205,7 @@ impl Walk {
                 Ok(())
             }
             Err(FilesystemError::FilesystemLoop) => {
-                match self.top().symlink_metadata(&dentry)?.file_type {
+                match self.base().symlink_metadata(&dentry)?.file_type {
                     FileType::Symlink if dot => Err(FilesystemError::FilesystemLoop.into()),
                     FileType::Symlink => self.follow(&dentry),
                     _ => Err(FilesystemError::FilesystemLoop.into()),
@@ -225,7 +225,7 @@ impl Walk {
         if self.links > MAX_LINKS {
             return Err(FilesystemError::FilesystemLoop.into());
         }
-        let target = self.top().read_link(dentry)?;
+        let target = self.base().read_link(dentry)?;
         if target.starts_with('/') {
             return Err(FilesystemError::NotPermitted.into());
         }
@@ -260,7 +260,11 @@ impl Walk {
     /// A final `.` after `name` stands in it, which must be a directory
     /// and no link.
     fn stays_in(&self, name: &str) -> Result<(), Error> {
-        match self.top().symlink_metadata(&self.child(name))?.file_type {
+        match self
+            .base()
+            .symlink_metadata(&self.child_of(name))?
+            .file_type
+        {
             FileType::Directory => Ok(()),
             FileType::Symlink => Err(FilesystemError::FilesystemLoop.into()),
             _ => Err(FilesystemError::NotADirectory.into()),
@@ -276,7 +280,7 @@ impl Walk {
         found: Result<Metadata, FilesystemError>,
     ) -> Result<Result<Metadata, FilesystemError>, Error> {
         if found.is_err() && self.descended() {
-            opened_as_directory(self.top())?;
+            opened_as_directory(self.base())?;
         }
         Ok(found)
     }
@@ -346,7 +350,7 @@ pub(crate) fn resolve(
     path: &str,
     follow: bool,
     creates: bool,
-) -> Result<Resolved, Error> {
+) -> Result<Nameidata, Error> {
     match path_lookupat(start, path, follow, creates, false) {
         Err(Error::Filesystem(FilesystemError::FilesystemLoop))
             if start.mount().follows_links() =>
@@ -365,7 +369,7 @@ fn path_lookupat(
     follow: bool,
     creates: bool,
     eager: bool,
-) -> Result<Resolved, Error> {
+) -> Result<Nameidata, Error> {
     let chain = start.reach()?;
     if path.is_empty() {
         return Err(FilesystemError::NotFound.into());
@@ -373,7 +377,7 @@ fn path_lookupat(
     if path.starts_with('/') {
         return Err(Error::NotCapable);
     }
-    let mut walk = Walk {
+    let mut nd = Nameidata {
         mount: start.mount().clone(),
         above: chain.len() - 1,
         frames: chain
@@ -389,66 +393,57 @@ fn path_lookupat(
         follows_links: start.mount().follows_links(),
         links: 0,
         eager,
+        name: String::new(),
+        judged: String::new(),
+        names_directory: names_directory(path),
+        found: None,
     };
-    let mut last = walk.run(None)?;
+    let mut last = nd.run(None)?;
     let mut found = None;
     let mut followed = false;
     while let Some(name) = last.as_ref().filter(|_| follow) {
-        let dentry = walk.child(&name.name);
-        let looked_up = walk.top().symlink_metadata(&dentry);
+        let dentry = nd.child_of(&name.name);
+        let looked_up = nd.base().symlink_metadata(&dentry);
         if !matches!(&looked_up, Ok(metadata) if metadata.file_type == FileType::Symlink) {
             found = Some(looked_up);
             break;
         }
-        walk.follow(&dentry)?;
+        nd.follow(&dentry)?;
         followed = true;
-        last = walk.run(None)?;
+        last = nd.run(None)?;
     }
-    let name = last.map(|part| part.name).unwrap_or_default();
+    nd.name = last.map(|part| part.name).unwrap_or_default();
     // A walk that stepped into directories not yet opened settles its last
     // name now; one that stepped into none leaves it to the call to ask.
-    let found = match found {
-        Some(found) => Some(walk.complete(found)?),
-        None if walk.descended() => {
-            Some(walk.complete(look_up(walk.top(), &walk.child(&name), &name))?)
-        }
+    nd.found = match found {
+        Some(found) => Some(nd.complete(found)?),
+        None if nd.descended() => Some(nd.complete(look_up(nd.base(), &nd.child(), &nd.name))?),
         None => None,
     };
-    if followed && creates && matches!(found, Some(Err(FilesystemError::NotFound))) {
+    if followed && creates && matches!(nd.found, Some(Err(FilesystemError::NotFound))) {
         return Err(FilesystemError::FilesystemLoop.into());
     }
-    let judged = start
+    nd.judged = start
         .dentry()
         .names()
         .iter()
         .map(String::as_str)
         .chain(
-            walk.frames[walk.above + 1..]
+            nd.frames[nd.above + 1..]
                 .iter()
                 .map(|frame| frame.name.as_str()),
         )
-        .chain(std::iter::once(name.as_str()))
+        .chain(std::iter::once(nd.name.as_str()))
         .filter(|name| !name.is_empty())
         .collect::<Vec<_>>()
         .join("/");
-    if judged.len() >= PATH_MAX {
+    if nd.judged.len() >= PATH_MAX {
         return Err(FilesystemError::InvalidFilename.into());
     }
-    let top = walk.frames.last().expect("a walk stands somewhere");
     // A directory removed through the VFS holds no name any more, as
     // Linux's lookup in a dead directory finds nothing.
-    if !name.is_empty() && top.dentry.is_dead() {
+    if !nd.name.is_empty() && nd.dentry().is_dead() {
         return Err(FilesystemError::NotFound.into());
     }
-    let (base, dentry) = (top.dir.clone(), top.dentry.clone());
-    Ok(Resolved {
-        mount: start.mount().clone(),
-        base,
-        dentry,
-        name,
-        judged,
-        names_directory: names_directory(path),
-        frames: walk.frames,
-        found,
-    })
+    Ok(nd)
 }

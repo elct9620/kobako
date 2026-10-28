@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use super::namei::{resolve, Resolved};
+use super::namei::{resolve, Nameidata};
 use super::path::{Identity, Path};
 use super::{Error, Filesystem};
 use crate::filesystem::{
@@ -35,7 +35,7 @@ fn to_filesystem_error(error: Error) -> FilesystemError {
 impl Through {
     /// `path` resolved beneath this directory, a link at its end left as
     /// it stands.
-    fn resolve(&self, path: &str) -> Result<Resolved, FilesystemError> {
+    fn resolve(&self, path: &str) -> Result<Nameidata, FilesystemError> {
         resolve(&self.0, path, false, false).map_err(to_filesystem_error)
     }
 
@@ -45,13 +45,13 @@ impl Through {
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
         let resolved = self.resolve(path)?;
-        resolved.base.open(&resolved.child(), options)
+        resolved.base().open(&resolved.child(), options)
     }
 
     pub(crate) fn open_dir(&self, path: &str) -> Result<Self, FilesystemError> {
         let resolved = self.resolve(path)?;
         let dentry = resolved.child();
-        let dir = resolved.base.open_dir(&dentry)?;
+        let dir = resolved.base().open_dir(&dentry)?;
         let identity = Identity::of(&dir.metadata()?);
         Ok(Self(self.0.opened(dir, dentry, identity)))
     }
@@ -73,12 +73,12 @@ impl Through {
 
     pub(crate) fn stored_name(&self, path: &str) -> Result<String, FilesystemError> {
         let resolved = self.resolve(path)?;
-        resolved.base.stored_name(&resolved.child())
+        resolved.base().stored_name(&resolved.child())
     }
 
     pub(crate) fn read_link(&self, path: &str) -> Result<String, FilesystemError> {
         let resolved = self.resolve(path)?;
-        resolved.base.read_link(&resolved.child())
+        resolved.base().read_link(&resolved.child())
     }
 
     pub(crate) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -87,17 +87,17 @@ impl Through {
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let resolved = self.resolve(path)?;
-        resolved.base.create_dir(&resolved.child())
+        resolved.base().create_dir(&resolved.child())
     }
 
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let resolved = self.resolve(path)?;
-        resolved.base.remove_dir(&resolved.child())
+        resolved.base().remove_dir(&resolved.child())
     }
 
     pub(crate) fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
         let resolved = self.resolve(path)?;
-        resolved.base.remove_file(&resolved.child())
+        resolved.base().remove_file(&resolved.child())
     }
 
     /// Move `from` beneath this directory to `to` beneath `to_dir`, as
@@ -110,9 +110,9 @@ impl Through {
         rename: Rename,
     ) -> Result<(), FilesystemError> {
         let (source, target) = (self.resolve(from)?, to_dir.resolve(to)?);
-        source.base.rename(
+        source.base().rename(
             &source.child(),
-            target.base.as_ref(),
+            target.base().as_ref(),
             &target.child(),
             rename,
         )

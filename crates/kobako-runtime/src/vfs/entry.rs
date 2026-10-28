@@ -14,7 +14,7 @@ pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {
     let resolved = resolve(start, path, false, false)?;
     resolved.check(Access::ReadWrite)?;
     refuse_root(&resolved.name, FilesystemError::AlreadyExists)?;
-    Ok(resolved.base.create_dir(&resolved.child())?)
+    Ok(resolved.base().create_dir(&resolved.child())?)
 }
 
 /// Remove the empty directory `path` beneath `start`.
@@ -24,12 +24,12 @@ pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
     resolved.check(Access::ReadWrite)?;
     resolved.check_directory()?;
     refuse_root(&resolved.name, FilesystemError::InvalidInput)?;
-    resolved.base.remove_dir(&resolved.child())?;
+    resolved.base().remove_dir(&resolved.child())?;
     resolved
         .mount
         .filesystem()
         .dentries()
-        .delete(&resolved.dentry, &resolved.name);
+        .delete(resolved.dentry(), &resolved.name);
     Ok(())
 }
 
@@ -41,7 +41,7 @@ pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
     resolved.check(Access::ReadWrite)?;
     resolved.check_directory()?;
     refuse_root(&resolved.name, FilesystemError::IsADirectory)?;
-    Ok(resolved.base.remove_file(&resolved.child())?)
+    Ok(resolved.base().remove_file(&resolved.child())?)
 }
 
 /// Move `from_path` beneath `from` to `to_path` beneath `to`. A rename
@@ -83,17 +83,17 @@ pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<
         (true, true) => Rename::Directory,
         (true, false) => Rename::Any,
     };
-    source.base.rename(
+    source.base().rename(
         &source.child(),
-        target.base.as_ref(),
+        target.base().as_ref(),
         &target.child(),
         rename,
     )?;
     // A directory replaced at the target is gone for whoever holds it, and
     // one moved from the source is reached where it went.
     let dentries = source.mount.filesystem().dentries();
-    dentries.delete(&target.dentry, &target.name);
-    dentries.rename(&source.dentry, &source.name, &target.dentry, &target.name);
+    dentries.delete(target.dentry(), &target.name);
+    dentries.rename(source.dentry(), &source.name, target.dentry(), &target.name);
     Ok(())
 }
 
