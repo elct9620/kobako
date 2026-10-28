@@ -357,7 +357,7 @@ later call -> same identity at its path ─┬─ yes -> proceeds
 
 ### Inode
 
-One file or directory a Filesystem holds, answering the calls about the names in it. A Filesystem is written as its Inodes, as Linux writes one as its `inode_operations`. The runtime asks an Inode about one name at a time.
+One directory a Filesystem holds, answering the calls about the names in it. A Filesystem is written as its Inodes, as Linux writes one as a directory's `inode_operations`. The runtime asks an Inode about one name at a time. A file it opens answers as an open file.
 
 ### Dentry
 
