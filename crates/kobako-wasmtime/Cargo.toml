@@ -42,7 +42,7 @@ kobako-transport = { version = "0.19.0", path = "../kobako-transport" }
 # kobako runs short-lived synchronous sandboxes. `component-model` and
 # `async` still arrive through wasmtime-wasi's `p1`, which builds on `p2`;
 # kobako loads only core Modules, so none of that code is reached.
-wasmtime = { version = "49.0.4", default-features = false, features = [
+wasmtime = { version = "50.0.0", default-features = false, features = [
     "cranelift",
     "runtime",
     "gc",
