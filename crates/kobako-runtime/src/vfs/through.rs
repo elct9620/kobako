@@ -67,7 +67,7 @@ impl Through {
         if path.is_empty() {
             return self.metadata();
         }
-        let mut resolved = self.resolve(path)?;
+        let resolved = self.resolve(path)?;
         resolved.found()
     }
 

@@ -866,6 +866,30 @@ fn a_directory_moved_while_opened_is_reached_through_its_descriptor() {
     );
 }
 
+// A Bind opens a directory a walk only steps through when a call needs
+// it, so only an open that holds the host directory at once keeps the
+// descriptor on it once another stands at its path.
+// @behavior RT-149
+#[cfg(unix)]
+#[test]
+fn a_host_directory_moved_while_opened_is_reached_through_its_descriptor() {
+    let host = LinkedHost::new("moved-open");
+    std::fs::create_dir_all(host.0.join("real2/inner")).expect("the host tree must be made");
+    std::fs::remove_file(host.0.join("dir")).expect("the link must go");
+    std::fs::rename(host.0.join("real2"), host.0.join("dir")).expect("the directory must move");
+    let mut guest = host.guest();
+    assert_eq!(guest.call_bare("open_dir"), 0, "dir must open");
+    std::fs::rename(host.0.join("dir"), host.0.join("moved")).expect("the directory must move");
+    std::fs::create_dir(host.0.join("dir")).expect("another directory must be made");
+    assert_eq!(
+        guest.call_bare("stat_inner"),
+        0,
+        "path_filestat_get of inner through a descriptor of a host directory beneath a Bind \
+         Mount, moved away after it opened and another made at its path, through preview1 must \
+         reach the directory where it moved"
+    );
+}
+
 // The Policy judges paths, so the descriptor reaches its directory from
 // the Mount's root again and finds another one standing there.
 // @behavior RT-150

@@ -48,8 +48,9 @@ pub(crate) struct Resolved {
     /// Each directory from where the walk can be spelled from, the Mount's
     /// root beneath a Policy, down to `base`.
     frames: Vec<Frame>,
-    /// What stands at `name`, a link reported as itself, once asked.
-    found: Option<Result<Metadata, FilesystemError>>,
+    /// What stands at `name`, a link reported as itself, as the walk
+    /// completed.
+    found: Result<Metadata, FilesystemError>,
 }
 
 impl Resolved {
@@ -65,19 +66,13 @@ impl Resolved {
     /// What stands at the name, a link reported as itself, asked of the
     /// Filesystem once however many checks need it; the directory itself
     /// for the empty name.
-    pub(crate) fn found(&mut self) -> Result<Metadata, FilesystemError> {
-        if self.found.is_none() {
-            self.found = Some(match self.name.as_str() {
-                "" => self.base.metadata(),
-                _ => self.base.symlink_metadata(&self.child()),
-            });
-        }
-        self.found.clone().expect("found was just asked")
+    pub(crate) fn found(&self) -> Result<Metadata, FilesystemError> {
+        self.found.clone()
     }
 
     /// Refuse the name as `NotADirectory` when it must be a directory and
     /// something else stands there.
-    pub(crate) fn check_directory(&mut self) -> Result<(), Error> {
+    pub(crate) fn check_directory(&self) -> Result<(), Error> {
         if self.names_directory {
             match self.found() {
                 Ok(metadata) if metadata.file_type != FileType::Directory => {
@@ -155,7 +150,7 @@ struct Walk {
 
 /// Refuse what a directory just stepped into answers unless it opened as
 /// a directory.
-fn opened_as_directory(dir: &Arc<dyn Inode>) -> Result<(), FilesystemError> {
+pub(crate) fn opened_as_directory(dir: &Arc<dyn Inode>) -> Result<(), FilesystemError> {
     match dir.metadata()?.file_type {
         FileType::Directory => Ok(()),
         _ => Err(FilesystemError::NotADirectory),
@@ -435,6 +430,6 @@ fn path_lookupat(
         judged,
         names_directory: names_directory(path),
         frames: walk.frames,
-        found: Some(found),
+        found,
     })
 }

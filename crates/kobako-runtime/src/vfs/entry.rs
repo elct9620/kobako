@@ -20,7 +20,7 @@ pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {
 /// Remove the empty directory `path` beneath `start`.
 pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
     refuse_dot_end(start, path, FilesystemError::InvalidInput)?;
-    let mut resolved = resolve(start, path, false, false)?;
+    let resolved = resolve(start, path, false, false)?;
     resolved.check(Access::ReadWrite)?;
     resolved.check_directory()?;
     refuse_root(&resolved.name, FilesystemError::InvalidInput)?;
@@ -37,7 +37,7 @@ pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
 /// link at the end, so a trailing `/` is answered by the name itself: no
 /// file removes as a directory.
 pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
-    let mut resolved = resolve(start, path, false, false)?;
+    let resolved = resolve(start, path, false, false)?;
     resolved.check(Access::ReadWrite)?;
     resolved.check_directory()?;
     refuse_root(&resolved.name, FilesystemError::IsADirectory)?;
@@ -52,7 +52,7 @@ pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<
     refuse_dot_end(from, from_path, FilesystemError::ResourceBusy)?;
     refuse_dot_end(to, to_path, FilesystemError::ResourceBusy)?;
     let mut source = resolve(from, from_path, false, false)?;
-    let mut target = resolve(to, to_path, false, false)?;
+    let target = resolve(to, to_path, false, false)?;
     refuse_root(&source.name, FilesystemError::ResourceBusy)?;
     refuse_root(&target.name, FilesystemError::ResourceBusy)?;
     // A trailing `/` on either side asks that the source be a directory,

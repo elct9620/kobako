@@ -1,6 +1,6 @@
 //! Opening a path, as Linux's `openat2` opens one.
 
-use super::namei::{resolve, Resolved};
+use super::namei::{opened_as_directory, resolve, Resolved};
 use super::path::{Identity, Path};
 use super::seen::seen_file;
 use super::Error;
@@ -44,7 +44,7 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<Opene
     }
     // A trailing `/` resolves a link standing there, as Linux's `open` does.
     let follow = how.follow || super::namei::names_directory(path);
-    let mut resolved = resolve(start, path, follow, how.create)?;
+    let resolved = resolve(start, path, follow, how.create)?;
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
     resolved.check_directory()?;
@@ -110,9 +110,13 @@ fn open_directory(
 ) -> Result<Opened, Error> {
     let (dir, dentry) = match resolved.name.as_str() {
         "" => (resolved.base.clone(), resolved.dentry.clone()),
+        // The directory opens now, as Linux's `vfs_open` holds what it
+        // opened, so the descriptor follows it wherever it moves.
         _ => {
             let dentry = resolved.child();
-            (resolved.base.open_dir(&dentry)?, dentry)
+            let dir = resolved.base.open_dir(&dentry)?;
+            opened_as_directory(&dir)?;
+            (dir, dentry)
         }
     };
     Ok(Opened::Directory(start.opened(dir, dentry, identity)))

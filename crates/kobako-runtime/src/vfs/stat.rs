@@ -20,7 +20,7 @@ pub fn symlink_metadata(start: &Path, path: &str) -> Result<Metadata, Error> {
 }
 
 fn stat(start: &Path, path: &str, follow: bool) -> Result<Metadata, Error> {
-    let mut resolved = resolve(start, path, follow, false)?;
+    let resolved = resolve(start, path, follow, false)?;
     // A link the walk did not follow at the end is one swapped in since,
     // so it is reported as itself rather than followed.
     resolved.check_directory()?;
