@@ -30,12 +30,11 @@ pub struct Tmpfs {
     dir: Arc<Dir>,
 }
 
-/// What every directory of one Tmpfs shares.
+/// What every directory of one Tmpfs shares. No lock spans it: the VFS
+/// holds each directory a call changes and serializes moves between
+/// directories, as Linux's tmpfs relies on `i_rwsem` and
+/// `s_vfs_rename_mutex`.
 struct Tree {
-    /// Held across each call, so a change is never seen half made and a
-    /// move finds the directories above its target as they stand, as
-    /// Linux serializes moves between directories under one lock.
-    lock: Mutex<()>,
     space: Arc<Space>,
     inodes_follow_limit: AtomicBool,
     /// The device number this Tmpfs reports, its own as each tmpfs mount
@@ -353,7 +352,6 @@ impl Tmpfs {
         space.inodes.add(1);
         Self {
             tree: Arc::new(Tree {
-                lock: Mutex::new(()),
                 space: Arc::new(space),
                 inodes_follow_limit: AtomicBool::new(true),
                 dev: Metadata::unique_device(),
@@ -393,13 +391,6 @@ impl Tmpfs {
             .inodes_follow_limit
             .store(false, Ordering::Relaxed);
         self
-    }
-
-    fn hold(&self) -> MutexGuard<'_, ()> {
-        self.tree
-            .lock
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// The directory `dir` of this Tmpfs, as a Tmpfs of its own.
@@ -520,7 +511,6 @@ impl Inode for Tmpfs {
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
         let path = &dentry.name();
-        let _held = self.hold();
         let data = match self.dir.find(path) {
             Ok(Node::Directory(_)) => return Err(FilesystemError::IsADirectory),
             // A character device 0:0 has no driver to open it.
@@ -545,18 +535,15 @@ impl Inode for Tmpfs {
 
     /// A Tmpfs holds no links to refuse.
     fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
-        let _held = self.hold();
         Ok(Arc::new(self.beneath(self.dir.directory(&dentry.name())?)))
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        let _held = self.hold();
         Ok(self.dir.metadata(self.tree.dev))
     }
 
     /// A Tmpfs holds no links.
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        let _held = self.hold();
         match self.dir.find(&dentry.name())? {
             Node::File(data) => Ok(lock(&data).metadata()),
             Node::Directory(dir) => Ok(dir.metadata(self.tree.dev)),
@@ -576,7 +563,6 @@ impl Inode for Tmpfs {
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        let _held = self.hold();
         Ok(self
             .dir
             .state()
@@ -588,7 +574,6 @@ impl Inode for Tmpfs {
 
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         let path = &dentry.name();
-        let _held = self.hold();
         if self.dir.find(path).is_ok() {
             return Err(FilesystemError::AlreadyExists);
         }
@@ -603,7 +588,6 @@ impl Inode for Tmpfs {
     /// in it any more.
     fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         let path = &dentry.name();
-        let _held = self.hold();
         let (dir, name) = self.dir.parent_of(path)?;
         let mut state = dir.state();
         let removed = match state.entries.get(name) {
@@ -625,7 +609,6 @@ impl Inode for Tmpfs {
 
     fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         let path = &dentry.name();
-        let _held = self.hold();
         let (dir, name) = self.dir.parent_of(path)?;
         let mut state = dir.state();
         match state.entries.get(name) {
@@ -654,7 +637,6 @@ impl Inode for Tmpfs {
             .filter(|target| Arc::ptr_eq(&target.tree, &self.tree))
             .ok_or(FilesystemError::CrossesDevices)?;
         let (from, to) = (&from.name(), &to.name());
-        let _held = self.hold();
         let moving = self.dir.find(from)?;
         let (from_dir, from_name) = self.dir.parent_of(from)?;
         let (to_dir, to_name) = target.dir.parent_of(to)?;

@@ -234,7 +234,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | When | both evaluate scripts reaching the Overlay at once, whichever GVL mode each takes |
 | Then | both finish |
 
-## `MT-020` A Sandbox reaching an Overlay from inside its own call raises EDEADLK
+## `MT-020` A Sandbox reaching an Overlay from inside its own read reads, and its change raises EDEADLK
 
 | Attribute | Value |
 | --- | --- |
@@ -242,9 +242,9 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose lower Ruby Layer evaluates a script through that Overlay |
-| When | the inner script reads a file there |
-| Then | it raises `Errno::EDEADLK` |
+| Given | an Overlay whose lower Ruby Layer, asked during a read, evaluates a script through that Overlay |
+| When | the inner script reads one file there and writes another |
+| Then | the read answers, and the write raises `Errno::EDEADLK` |
 
 ## `MT-021` A Filesystem a Rust Host App writes mounts like the kinds kobako ships
 

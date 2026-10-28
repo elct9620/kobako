@@ -22,7 +22,7 @@ mod utimes;
 use crate::filesystem::FilesystemError;
 use crate::mount::Denial;
 
-pub(crate) use rwsem::Inline;
+pub(crate) use rwsem::{Inline, RwSemaphore, RwSemaphoreGuard};
 
 pub use dentry::Dentry;
 pub use filesystem::Filesystem;

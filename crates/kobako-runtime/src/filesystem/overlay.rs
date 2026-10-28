@@ -5,10 +5,10 @@
 //! its marks. A removal hides what a lower Layer still shows with a
 //! whiteout, and a directory made again where one was removed is marked
 //! opaque, each as Linux marks it, in the upper, so they last as long as
-//! it does. Every call holds the Overlay's lock, so a change across
-//! several Layers is never seen half made.
+//! it does. The VFS holds each directory a call changes, as Linux's
+//! `i_rwsem` does above overlayfs, and a copy up holds the lock of what
+//! it copies, so a change across several Layers is never seen half made.
 
-mod exclusive;
 mod file;
 mod inode;
 mod path;
@@ -19,15 +19,14 @@ use std::sync::Arc;
 
 use super::path::components;
 use super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename, Tmpfs};
-use crate::vfs::{Blocking, Dentry, Filesystem, Inline};
-use exclusive::Exclusive;
+use crate::vfs::{Blocking, Dentry, Filesystem};
 use inode::OverlayInode;
 use stack::{Chain, OverlayFs};
 
 /// Read-only lower Layers under an upper Tmpfs, stacked into one
-/// Filesystem. Its clones share its lock; two Overlays sharing an upper
-/// are not serialized against each other, as overlayfs leaves two mounts
-/// sharing an upper directory undefined.
+/// Filesystem. Two Overlays sharing an upper are not serialized against
+/// each other, as overlayfs leaves two mounts sharing an upper directory
+/// undefined.
 ///
 /// A directory opened beneath it is an Overlay too, holding each Layer's
 /// directory it stands for, so it is reached wherever those directories
@@ -38,7 +37,6 @@ use stack::{Chain, OverlayFs};
 #[derive(Clone)]
 pub struct Overlay {
     fs: OverlayFs,
-    lock: Arc<Exclusive>,
     /// The directory this one stands for, `None` for the root.
     inode: Option<Arc<OverlayInode>>,
     /// How many Overlays stack here, itself among them, as Linux counts
@@ -82,7 +80,6 @@ impl Overlay {
         }
         Ok(Self {
             fs: OverlayFs::new(lower, upper)?,
-            lock: Arc::new(Exclusive::new(Arc::new(Inline))),
             inode: None,
             stack_depth,
         })
@@ -91,7 +88,7 @@ impl Overlay {
     /// The chain to this directory: its Layers' directories as it holds
     /// them, or, for a change through a directory the upper does not hold
     /// yet, the chain from the root, so the change can make it there
-    /// first. The caller holds the Overlay's lock.
+    /// first.
     fn chain(&self, changes: bool) -> Result<Chain, FilesystemError> {
         let Some(inode) = &self.inode else {
             return self.fs.root();
@@ -105,8 +102,7 @@ impl Overlay {
         Ok(Chain::at(inode.path().to_string(), level))
     }
 
-    /// The directory `name` in this one, as an Overlay of its own. The
-    /// caller holds the Overlay's lock.
+    /// The directory `name` in this one, as an Overlay of its own.
     fn beneath(&self, name: &str) -> Result<Arc<dyn Inode>, FilesystemError> {
         let mut chain = self.chain(false)?;
         self.fs.enter(&mut chain, name)?;
@@ -119,10 +115,10 @@ impl Overlay {
         }))
     }
 
-    /// This Overlay waiting for its lock through `blocking`.
+    /// This Overlay waiting for a copy up's lock through `blocking`.
     pub fn with_blocking(self, blocking: Arc<dyn Blocking>) -> Self {
         Self {
-            lock: Arc::new(Exclusive::new(blocking)),
+            fs: self.fs.with_blocking(blocking),
             ..self
         }
     }
@@ -134,52 +130,43 @@ impl Inode for Overlay {
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        let _held = self.lock.hold()?;
         let changes = options.write || options.truncate || options.create || options.create_new;
         let mut chain = self.chain(changes)?;
         self.fs.open(&mut chain, &dentry.name(), options)
     }
 
     fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
-        let _held = self.lock.hold()?;
         self.beneath(&dentry.name())
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        let _held = self.lock.hold()?;
         self.fs.dir_metadata(self.chain(false)?.level())
     }
 
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        let _held = self.lock.hold()?;
         self.fs
             .symlink_metadata(self.chain(false)?.level(), &dentry.name())
     }
 
     fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        let _held = self.lock.hold()?;
         self.fs
             .stored_name(self.chain(false)?.level(), &dentry.name())
     }
 
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        let _held = self.lock.hold()?;
         self.fs
             .read_link(self.chain(false)?.level(), &dentry.name())
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        let _held = self.lock.hold()?;
         self.fs.entries(self.chain(false)?.level())
     }
 
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        let _held = self.lock.hold()?;
         self.fs.create_dir(&mut self.chain(true)?, &dentry.name())
     }
 
     fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        let _held = self.lock.hold()?;
         let (mut chain, name) = (self.chain(true)?, dentry.name());
         self.fs.remove_dir(&mut chain, &name)?;
         self.fs.inodes().forget(&chain.path_of(&name));
@@ -187,13 +174,12 @@ impl Inode for Overlay {
     }
 
     fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        let _held = self.lock.hold()?;
         self.fs.remove_file(&mut self.chain(true)?, &dentry.name())
     }
 
-    /// Both directories lie in one Overlay, which holds one lock however
-    /// many directories of it are open. A directory replaced at `to` is
-    /// no handle's that a directory made there later reaches.
+    /// Both directories lie in one Overlay, however many directories of
+    /// it are open. A directory replaced at `to` is no handle's that a
+    /// directory made there later reaches.
     fn rename(
         &self,
         from: &Dentry,
@@ -203,9 +189,8 @@ impl Inode for Overlay {
     ) -> Result<(), FilesystemError> {
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
-            .filter(|target| Arc::ptr_eq(&target.lock, &self.lock))
+            .filter(|target| target.fs.is(&self.fs))
             .ok_or(FilesystemError::CrossesDevices)?;
-        let _held = self.lock.hold()?;
         let (mut from_chain, from) = (self.chain(true)?, from.name());
         let (mut to_chain, to) = (target.chain(true)?, to.name());
         self.fs
@@ -1055,11 +1040,12 @@ mod tests {
     }
 
     /// A Tmpfs that, the first time it opens a directory, starts another
-    /// call through `overlay` on a thread of its own and gives it a while
-    /// to finish, recording whether it did before this call returned.
+    /// call through the VFS at `overlay` on a thread of its own and gives
+    /// it a while to finish, recording whether it did before this call
+    /// returned.
     struct Interleaves {
         tmpfs: Arc<Tmpfs>,
-        overlay: Mutex<Option<KernPath>>,
+        overlay: Mutex<Option<crate::vfs::Path>>,
         finished_inside: Mutex<Option<bool>>,
         other: Mutex<Option<thread::JoinHandle<()>>>,
     }
@@ -1085,11 +1071,17 @@ mod tests {
         }
 
         fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
-            if let Some(overlay) = self.overlay.lock().unwrap().take() {
+            let interleaving = self.overlay.lock().unwrap().take();
+            if let Some(overlay) = interleaving {
                 let finished = Arc::new(AtomicUsize::new(0));
                 let marker = finished.clone();
                 let handle = thread::spawn(move || {
-                    let _ = write(&overlay, "dir/new", b"made");
+                    let how = crate::vfs::OpenHow {
+                        write: true,
+                        create: true,
+                        ..crate::vfs::OpenHow::default()
+                    };
+                    let _ = crate::vfs::open(&overlay, "dir/new", &how, true);
                     marker.store(1, Ordering::SeqCst);
                 });
                 let deadline = Instant::now() + Duration::from_millis(200);
@@ -1144,9 +1136,15 @@ mod tests {
         on(&lower.tmpfs)
             .remove_file("dir/.keep")
             .expect("the seed must go");
-        let overlay = at(over(lower.clone(), Arc::new(Tmpfs::new())));
-        *lower.overlay.lock().unwrap() = Some(overlay.clone());
-        let removed = overlay.remove_dir("dir");
+        let mount = crate::mount::Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(over(lower.clone(), Arc::new(Tmpfs::new())))),
+            super::super::Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = crate::vfs::Path::root(mount, crate::profile::Profile::Permissive);
+        *lower.overlay.lock().unwrap() = Some(root.clone());
+        let removed = crate::vfs::remove_dir(&root, "dir").is_ok();
         lower
             .other
             .lock()
@@ -1156,20 +1154,26 @@ mod tests {
             .join()
             .expect("the other call must not panic");
         assert_eq!(
-            (removed, *lower.finished_inside.lock().unwrap(), overlay.symlink_metadata("dir/new").is_ok()),
-            (Ok(()), Some(false), false),
-            "a change through Overlay::open started while Overlay::remove_dir runs must wait for it, \
-             failing rather than landing in the directory being removed"
+            (
+                removed,
+                *lower.finished_inside.lock().unwrap(),
+                crate::vfs::symlink_metadata(&root, "dir/new").is_ok()
+            ),
+            (true, Some(false), false),
+            "a create through vfs::open into an Overlay directory vfs::remove_dir is removing must \
+             wait for it, failing rather than landing in the directory being removed"
         );
     }
 
     // @behavior FS-038
     #[test]
-    fn a_call_through_an_overlay_from_inside_one_answers_a_deadlock() {
+    fn a_change_through_an_overlay_from_inside_one_answers_a_deadlock() {
+        type Answers = (bool, Result<(), crate::vfs::Error>);
+
         struct Reenters {
             tmpfs: Tmpfs,
-            overlay: Mutex<Option<KernPath>>,
-            answer: Mutex<Option<Result<Metadata, FilesystemError>>>,
+            overlay: Mutex<Option<crate::vfs::Path>>,
+            answer: Mutex<Option<Answers>>,
         }
 
         impl Inode for Reenters {
@@ -1185,8 +1189,12 @@ mod tests {
             }
 
             fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-                if let Some(overlay) = self.overlay.lock().unwrap().take() {
-                    *self.answer.lock().unwrap() = Some(overlay.symlink_metadata(&dentry.name()));
+                let reentering = self.overlay.lock().unwrap().take();
+                if let Some(overlay) = reentering {
+                    *self.answer.lock().unwrap() = Some((
+                        crate::vfs::symlink_metadata(&overlay, &dentry.name()).is_ok(),
+                        crate::vfs::create_dir(&overlay, "made"),
+                    ));
                 }
                 self.tmpfs.symlink_metadata(dentry)
             }
@@ -1221,16 +1229,24 @@ mod tests {
             overlay: Mutex::new(None),
             answer: Mutex::new(None),
         });
-        let overlay = at(lowers(layer.clone(), Arc::new(Tmpfs::new())));
-        *layer.overlay.lock().unwrap() = Some(overlay.clone());
-        overlay
-            .symlink_metadata("note")
-            .expect("the outer call must answer");
+        let mount = crate::mount::Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(over(layer.clone(), Arc::new(Tmpfs::new())))),
+            super::super::Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = crate::vfs::Path::root(mount, crate::profile::Profile::Permissive);
+        *layer.overlay.lock().unwrap() = Some(root.clone());
+        crate::vfs::symlink_metadata(&root, "note").expect("the outer call must answer");
+        let answers = layer.answer.lock().unwrap().take();
         assert_eq!(
-            layer.answer.lock().unwrap().take(),
-            Some(Err(FilesystemError::Deadlock)),
-            "a call through an Overlay made from inside one of its own calls on the same thread \
-             must answer Deadlock rather than wait forever"
+            answers,
+            Some((
+                true,
+                Err(crate::vfs::Error::Filesystem(FilesystemError::Deadlock))
+            )),
+            "a read through an Overlay made from inside one of its own reads on the same thread \
+             must answer, and a change must answer Deadlock rather than wait forever"
         );
     }
 
@@ -1948,7 +1964,7 @@ mod tests {
         );
     }
 
-    /// Counts each wait its Overlay's lock makes through it.
+    /// Counts each wait a copy up's lock makes through it.
     struct CountsWaits(AtomicUsize);
 
     impl Blocking for CountsWaits {
@@ -1958,27 +1974,81 @@ mod tests {
         }
     }
 
+    /// A Tmpfs whose first open sleeps a while, flagging that it began.
+    struct SleepsOnOpen {
+        tmpfs: Arc<Tmpfs>,
+        opening: AtomicBool,
+    }
+
+    impl Inode for SleepsOnOpen {
+        holds_no_links!();
+        matches_names_exactly!();
+        opens_directories!(tmpfs);
+
+        fn open(
+            &self,
+            dentry: &Dentry,
+            options: &OpenOptions,
+        ) -> Result<Box<dyn File>, FilesystemError> {
+            if !self.opening.swap(true, Ordering::SeqCst) {
+                thread::sleep(Duration::from_millis(100));
+            }
+            self.tmpfs.open(dentry, options)
+        }
+
+        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.tmpfs.symlink_metadata(dentry)
+        }
+
+        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.tmpfs.create_dir(dentry)
+        }
+
+        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.tmpfs.remove_dir(dentry)
+        }
+
+        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.tmpfs.remove_file(dentry)
+        }
+
+        fn rename(
+            &self,
+            from: &Dentry,
+            _to_dir: &dyn Inode,
+            to: &Dentry,
+            rename: Rename,
+        ) -> Result<(), FilesystemError> {
+            self.tmpfs.rename(from, self.tmpfs.as_ref(), to, rename)
+        }
+    }
+
+    // The first copy up holds the file's lock while its lower open sleeps,
+    // so the second, of the same file, finds the lock held and waits.
     // @behavior FS-039
     #[test]
-    fn a_contended_overlay_waits_through_its_blocking() {
+    fn a_contended_copy_up_waits_through_the_overlays_blocking() {
         let counts = Arc::new(CountsWaits(AtomicUsize::new(0)));
-        let overlay =
-            lowers(tmpfs_with("note", "x"), Arc::new(Tmpfs::new())).with_blocking(counts.clone());
-        let held = overlay.lock.hold().expect("the lock must be free");
-        let other = at(overlay.clone());
-        let waiter = thread::spawn(move || other.symlink_metadata("note").map(|m| m.file_type));
-        while counts.0.load(Ordering::SeqCst) == 0 {
+        let lower = Arc::new(SleepsOnOpen {
+            tmpfs: tmpfs_with("note", "lower"),
+            opening: AtomicBool::new(false),
+        });
+        let overlay = over(lower.clone(), Arc::new(Tmpfs::new())).with_blocking(counts.clone());
+        let (first, second) = (at(overlay.clone()), at(overlay));
+        let copying = thread::spawn(move || write(&first, "note", b"first"));
+        while !lower.opening.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(1));
         }
-        drop(held);
+        let waited = write(&second, "note", b"later");
         assert_eq!(
             (
-                waiter.join().expect("the waiter must not panic"),
-                counts.0.load(Ordering::SeqCst)
+                copying.join().expect("the first copy up must not panic"),
+                waited,
+                counts.0.load(Ordering::SeqCst) > 0
             ),
-            (Ok(FileType::File), 1),
-            "a call through an Overlay whose lock another thread holds must wait through the \
-             Blocking given by Overlay::with_blocking, then answer"
+            (Ok(()), Ok(()), true),
+            "a write through an Overlay copying up a file another thread is copying up must wait \
+             through the Blocking given by Overlay::with_blocking, then land"
         );
     }
 

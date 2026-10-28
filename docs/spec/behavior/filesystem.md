@@ -413,7 +413,20 @@ both live in the upper and never show, so no name is reserved
 | When | another thread creates a file in it before the removal returns |
 | Then | the creation waits, and the removal finds the directory empty |
 
-## `FS-038` A call through an Overlay from inside one answers a deadlock
+## `FS-038` A change through an Overlay from inside one of its reads answers a deadlock
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-037` |
+| relates | `RT-166` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose Layer, asked during a read, reads and then changes that Overlay on the same thread |
+| When | the Layer's calls back are made |
+| Then | the read answers, and the change answers a deadlock rather than waiting |
+
+## `FS-039` A contended copy up waits through the Overlay's Blocking
 
 | Attribute | Value |
 | --- | --- |
@@ -421,21 +434,9 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose Layer calls back into that Overlay on the same thread |
-| When | the Layer's call back is made |
-| Then | it answers a deadlock rather than waiting |
-
-## `FS-039` A contended Overlay waits through its Blocking
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-037` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay given a Blocking, its lock held by another thread |
-| When | a call is made through the Overlay |
-| Then | it waits through the Blocking once, then answers |
+| Given | an Overlay given a Blocking, one thread copying a lower file up |
+| When | another thread writes the same file |
+| Then | it waits through the Blocking, then lands |
 
 ## `FS-040` A removal through an Overlay that cannot leave its whiteout removes nothing
 

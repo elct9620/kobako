@@ -346,6 +346,6 @@ A method like these joins without a default, a break marked `!`.
 | `stored_name` | a Policy checking the spelling the host stores | the name as given |
 | `File::append` | another writer's append from landing over this one | `Unsupported` |
 
-An Overlay waits for its lock through `Blocking`. A frontend whose threads share a
+An Overlay waits for a copy up's lock through `Blocking`. A frontend whose threads share a
 lock of their own gives that lock up inside `wait`, as Ruby gives up the GVL.
 Otherwise the holder it waits for never finishes.

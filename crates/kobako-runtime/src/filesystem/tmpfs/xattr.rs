@@ -8,13 +8,11 @@ impl Tmpfs {
     /// The value of the attribute `name` on this directory, as `getxattr`
     /// reads it, or `None` where it is not set.
     pub(crate) fn getxattr(&self, name: &str) -> Option<Vec<u8>> {
-        let _held = self.hold();
         self.dir.state().xattrs.get(name).cloned()
     }
 
     /// Set the attribute `name` on this directory, as `setxattr` does.
     pub(crate) fn setxattr(&self, name: &str, value: &[u8]) -> Result<(), FilesystemError> {
-        let _held = self.hold();
         self.dir
             .state()
             .xattrs
@@ -25,7 +23,6 @@ impl Tmpfs {
     /// Take the attribute `name` off this directory, as `removexattr`
     /// does.
     pub(crate) fn removexattr(&self, name: &str) {
-        let _held = self.hold();
         self.dir.state().xattrs.remove(name);
     }
 }

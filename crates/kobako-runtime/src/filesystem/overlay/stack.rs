@@ -24,12 +24,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use super::file::Readers;
-use super::inode::Inodes;
+use super::inode::{InodeLocks, Inodes};
 use super::path::OverlayPath;
 
 use super::super::path::join;
 use super::super::{File, FileType, FilesystemError, Metadata};
-use crate::vfs::Filesystem;
+use crate::vfs::{Blocking, Filesystem, Inline};
 
 /// The directories of the upper Tmpfs holding the view's changes and the
 /// changes being built, as overlayfs's `upperdir` and `workdir`.
@@ -221,6 +221,9 @@ pub(super) struct OverlayFs {
     temp: Arc<AtomicU64>,
     readers: Arc<Readers>,
     inodes: Arc<Inodes>,
+    locks: Arc<InodeLocks>,
+    /// What a copy up waiting for another's lock gives up meanwhile.
+    blocking: Arc<dyn Blocking>,
 }
 
 impl OverlayFs {
@@ -249,7 +252,19 @@ impl OverlayFs {
             temp: Arc::default(),
             readers: Arc::default(),
             inodes: Arc::default(),
+            locks: Arc::default(),
+            blocking: Arc::new(Inline),
         })
+    }
+
+    /// This view waiting for a copy up's lock through `blocking`.
+    pub(super) fn with_blocking(self, blocking: Arc<dyn Blocking>) -> Self {
+        Self { blocking, ..self }
+    }
+
+    /// Whether `other` is this view, reached through another directory.
+    pub(super) fn is(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inodes, &other.inodes)
     }
 
     pub(super) fn inodes(&self) -> &Inodes {

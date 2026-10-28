@@ -1055,7 +1055,7 @@ impl Overlay {
 
 ## `Overlay::with_blocking`
 
-This Overlay waiting for its lock through the given Blocking.
+This Overlay waiting for a copy up's lock through the given Blocking.
 
 ```rust
 impl Overlay {

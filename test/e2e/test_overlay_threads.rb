@@ -49,37 +49,50 @@ class TestE2EOverlayThreads < Minitest::Test
                  "must both finish"
   end
 
-  # A Ruby Layer whose first +stat+ runs +nested+, recording what it answers.
+  # A Ruby Layer holding only +x+, whose first +stat+ runs +nested+,
+  # recording what it answers.
   def reentering_layer(answers, &nested)
     layer = Object.new
     layer.define_singleton_method(:open) { |path, _flags| raise Errno::ENOENT, path }
     layer.define_singleton_method(:stat) do |path|
-      answers << nested.call if answers.empty?
-      Data.define(:directory?, :size, :ino).new(path.empty?, 0, 1)
+      answers[0] = (answers << :running) && nested.call if answers.empty?
+      raise Errno::ENOENT, path unless ["", "x"].include?(path)
+
+      Data.define(:directory?, :size, :ino).new(path.empty?, 0, path.empty? ? 1 : 2)
     end
     layer
   end
 
   READ_X = 'begin; File.read("/data/x"); rescue Errno::EDEADLK; :deadlock; rescue Errno::ENOENT; :none; end'
 
-  # What a script reading +/data/x+ through +overlay+ answers.
-  def read_through(overlay)
-    Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", overlay).eval(READ_X).value
+  # Read +/data/x+, then write +/data/y+, answering how each went.
+  READ_THEN_WRITE = <<~RUBY
+    read = begin; File.read("/data/x"); :read; rescue Errno::ENOENT; :read; rescue Errno::EDEADLK; :deadlock; end
+    written = begin; File.write("/data/y", "z"); :written; rescue Errno::EDEADLK; :deadlock; end
+    [read, written]
+  RUBY
+
+  # What +script+ answers through +overlay+.
+  def read_through(overlay, script = READ_X)
+    Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", overlay, access: :read_write).eval(script).value
   end
 
-  # The nested Sandbox runs on the Thread that already holds the Overlay's
-  # lock, so waiting would never end.
+  # The nested Sandbox runs on the Thread already holding the directory
+  # shared for the outer read, so a read beside it shares the hold, and a
+  # change waiting for it to be let go would wait forever.
   # @behavior MT-020
-  def test_a_sandbox_reaching_an_overlay_from_inside_its_own_call_raises_edeadlk
+  def test_a_sandbox_reaching_an_overlay_from_inside_its_own_read_reads_and_its_change_raises_edeadlk
     answers = []
     overlay = nil
-    overlay = Kobako::Filesystem::Overlay.new(lower: [reentering_layer(answers) { read_through(overlay) }],
-                                              upper: Kobako::Filesystem::Tmpfs.new)
+    overlay = Kobako::Filesystem::Overlay.new(
+      lower: [reentering_layer(answers) { read_through(overlay, READ_THEN_WRITE) }],
+      upper: Kobako::Filesystem::Tmpfs.new
+    )
     read_through(overlay)
 
-    assert_equal [:deadlock], answers,
-                 "a Sandbox#eval reaching an Overlay from inside one of that Overlay's own Ruby Layer calls " \
-                 "must raise Errno::EDEADLK in its guest"
+    assert_equal [%i[read deadlock]], answers,
+                 "a Sandbox#eval reaching an Overlay from inside one of that Overlay's own Ruby Layer reads " \
+                 "must read, and its write must raise Errno::EDEADLK in its guest"
   end
 
   # @behavior MT-019

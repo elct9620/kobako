@@ -5,7 +5,7 @@
 
 use super::super::super::{FileType, FilesystemError, OpenOptions};
 use super::super::path::OverlayPath;
-use super::{copy_whole, entry, Chain, OverlayFs};
+use super::{copy_whole, entry, holds, Chain, OverlayFs};
 use crate::filesystem::tmpfs::RenameFlag;
 
 impl OverlayFs {
@@ -39,6 +39,8 @@ impl OverlayFs {
         }
         let parent = self.copy_up(chain, step - 1, into)?;
         let name = chain.steps[step].name.clone();
+        let lock = self.locks.get(&chain.path_to(step));
+        let _held = lock.down_write(self.blocking.as_ref())?;
         let dir = match entry(&parent, &name)? {
             Some(found) if found.file_type == FileType::Directory => parent.open_dir(&name)?,
             Some(found) if found.file_type == FileType::Symlink => {
@@ -92,6 +94,13 @@ impl OverlayFs {
             return Err(FilesystemError::CrossesDevices);
         }
         let target_dir = self.upper_dir(chain, into)?;
+        let lock = self.locks.get(&chain.path_of(name));
+        let _held = lock.down_write(self.blocking.as_ref())?;
+        // Another call may have copied it up while this one waited, as
+        // overlayfs's `ovl_already_copied_up_locked` checks.
+        if holds(&target_dir, name)? {
+            return Ok(());
+        }
         let mut source = source_dir.open(
             name,
             &OpenOptions {

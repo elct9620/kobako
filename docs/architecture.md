@@ -146,7 +146,7 @@ A change to the wire therefore stays inside the endpoints and `kobako-transport`
 | a result that does not frame | a `Trap` |
 | a host resource the guest reaches through WASI | a `kobako-runtime` `Grant`, such as a `Mount` |
 | a path call the guest makes beneath a Mount | a `kobako-runtime` `vfs` operation |
-| how a frontend's thread waits on an Overlay's lock | a `kobako-runtime` `Blocking` |
+| how a frontend's thread waits on a directory's or a copy up's lock | a `kobako-runtime` `Blocking` |
 | a frontend giving up on an invocation its callback cannot answer | `DispatchHandler::abandoned` |
 
 The two sides replace different units.

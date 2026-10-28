@@ -44,14 +44,12 @@ impl Tmpfs {
     /// Whether a whiteout stands at `name`, as overlayfs's
     /// `ovl_is_whiteout` reads a character device 0:0.
     pub(crate) fn is_whiteout(&self, name: &str) -> bool {
-        let _held = self.hold();
         matches!(self.dir.find(name), Ok(Node::Whiteout { .. }))
     }
 
     /// Make a whiteout at `name`, as `vfs_whiteout` does; refused when
     /// anything stands there.
     pub(crate) fn whiteout(&self, name: &str) -> Result<(), FilesystemError> {
-        let _held = self.hold();
         let (dir, name) = self.dir.parent_of(name)?;
         if dir.state().entries.contains_key(name) {
             return Err(FilesystemError::AlreadyExists);
@@ -73,7 +71,6 @@ impl Tmpfs {
         if !Arc::ptr_eq(&target.tree, &self.tree) {
             return Err(FilesystemError::CrossesDevices);
         }
-        let _held = self.hold();
         let (from_dir, from_name) = self.dir.parent_of(from)?;
         let (to_dir, to_name) = target.dir.parent_of(to)?;
         let moving = from_dir

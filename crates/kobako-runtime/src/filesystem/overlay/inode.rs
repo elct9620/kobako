@@ -15,6 +15,23 @@ use super::super::path::is_beneath;
 use super::path::OverlayPath;
 use super::stack::Level;
 use crate::hashtable::Hashtable;
+use crate::vfs::RwSemaphore;
+
+/// The lock a copy up of each path of the view holds, as overlayfs's
+/// `ovl_inode` holds `lock` across `ovl_copy_up_start`, so two calls never
+/// copy one file or directory up at once.
+#[derive(Default)]
+pub(super) struct InodeLocks(Mutex<Hashtable<String, RwSemaphore>>);
+
+impl InodeLocks {
+    /// The lock of `path`, kept while a call holds it.
+    pub(super) fn get(&self, path: &str) -> Arc<RwSemaphore> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_or_insert_with(path.to_string(), Arc::default)
+    }
+}
 
 /// One directory of the view and the Layers' directories it stands for.
 pub(super) struct OverlayInode {

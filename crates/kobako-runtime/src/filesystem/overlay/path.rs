@@ -1,17 +1,18 @@
 //! One Layer's directory as an Overlay holds it: the directory and its
 //! dentry in the Layer's Filesystem, as overlayfs's `ovl_path` pairs a
-//! layer with its dentry and looks a name up beneath it with `lookup_one`,
-//! so the Layer
-//! is asked about a name through a dentry the VFS made, and a directory
-//! removed or moved through the Overlay is removed or moved in the
-//! Layer's dentries too.
+//! layer with its dentry. Each call holds that directory's lock as the
+//! VFS helpers overlayfs calls do: shared while a name is looked up, as
+//! `lookup_one_unlocked`, and exclusive while one is made, removed, or
+//! moved, as `start_creating`, `start_removing`, and `lock_rename`. A
+//! directory removed or moved through the Overlay is removed or moved in
+//! the Layer's dentries too.
 
 use std::any::Any;
 use std::sync::Arc;
 
 use super::super::tmpfs::{RenameFlag, TmpfsFile};
 use super::super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs};
-use crate::vfs::{Dentry, Filesystem};
+use crate::vfs::{Dentry, Filesystem, RwSemaphoreGuard};
 
 /// The attribute marking a directory opaque, and its value, as
 /// overlayfs's `OVL_XATTR_OPAQUE`.
@@ -40,6 +41,28 @@ impl OverlayPath {
         self.filesystem.dentries().child(&self.dentry, name)
     }
 
+    fn shared(&self) -> Result<RwSemaphoreGuard<'_>, FilesystemError> {
+        self.dentry.rwsem.down_read(self.filesystem.blocking())
+    }
+
+    fn exclusive(&self) -> Result<RwSemaphoreGuard<'_>, FilesystemError> {
+        self.dentry.rwsem.down_write(self.filesystem.blocking())
+    }
+
+    /// Hold this directory and `target` for a move between them, as
+    /// `lock_rename` holds the Layer's rename mutex first when they differ.
+    fn lock_rename<'a>(
+        &'a self,
+        target: &'a Self,
+    ) -> Result<Vec<RwSemaphoreGuard<'a>>, FilesystemError> {
+        if Arc::ptr_eq(&self.dentry, &target.dentry) {
+            return Ok(vec![self.exclusive()?]);
+        }
+        let blocking = self.filesystem.blocking();
+        let rename = self.filesystem.rename_mutex().down_write(blocking)?;
+        Ok(vec![rename, self.exclusive()?, target.exclusive()?])
+    }
+
     /// This directory as a Tmpfs, the one kind holding an Overlay's marks.
     fn tmpfs(&self) -> Option<&Tmpfs> {
         (self.dir.as_ref() as &dyn Any).downcast_ref::<Tmpfs>()
@@ -53,7 +76,10 @@ impl OverlayPath {
     /// Whether a whiteout stands at `name`; a Layer that is no Tmpfs
     /// holds none.
     pub(super) fn is_whiteout(&self, name: &str) -> bool {
-        self.tmpfs().is_some_and(|tmpfs| tmpfs.is_whiteout(name))
+        self.tmpfs().is_some_and(|tmpfs| {
+            let _held = self.shared();
+            tmpfs.is_whiteout(name)
+        })
     }
 
     /// Whether this directory hides the Layers below it.
@@ -64,15 +90,18 @@ impl OverlayPath {
     }
 
     pub(super) fn set_opaque(&self) -> Result<(), FilesystemError> {
+        let _held = self.exclusive()?;
         self.upper()?.setxattr(OPAQUE_XATTR, OPAQUE)
     }
 
     pub(super) fn remove_opaque(&self) -> Result<(), FilesystemError> {
+        let _held = self.exclusive()?;
         self.upper()?.removexattr(OPAQUE_XATTR);
         Ok(())
     }
 
     pub(super) fn whiteout(&self, name: &str) -> Result<(), FilesystemError> {
+        let _held = self.exclusive()?;
         self.upper()?.whiteout(name)
     }
 
@@ -85,6 +114,7 @@ impl OverlayPath {
         to: &str,
         flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
+        let _held = self.lock_rename(target)?;
         self.upper()?.rename2(from, target.upper()?, to, flag)?;
         let dentries = self.filesystem.dentries();
         dentries.delete(&target.dentry, to);
@@ -100,24 +130,32 @@ impl OverlayPath {
     }
 
     pub(super) fn link(&self, file: &TmpfsFile, name: &str) -> Result<(), FilesystemError> {
+        let _held = self.exclusive()?;
         self.upper()?.link(file, name)
     }
 
     pub(super) fn set_times(&self, metadata: &Metadata) -> Result<(), FilesystemError> {
+        let _held = self.exclusive()?;
         self.upper()?
             .set_times(metadata.accessed, metadata.modified);
         Ok(())
     }
 
+    /// A file made here holds the directory, as `O_CREAT` does.
     pub(super) fn open(
         &self,
         name: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
+        let _held = match options.create || options.create_new {
+            true => self.exclusive()?,
+            false => self.shared()?,
+        };
         self.dir.open(&self.child(name), options)
     }
 
     pub(super) fn open_dir(&self, name: &str) -> Result<Self, FilesystemError> {
+        let _held = self.shared()?;
         let dentry = self.child(name);
         Ok(Self {
             dir: self.dir.open_dir(&dentry)?,
@@ -131,32 +169,39 @@ impl OverlayPath {
     }
 
     pub(super) fn symlink_metadata(&self, name: &str) -> Result<Metadata, FilesystemError> {
+        let _held = self.shared()?;
         self.dir.symlink_metadata(&self.child(name))
     }
 
     pub(super) fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
+        let _held = self.shared()?;
         self.dir.stored_name(&self.child(name))
     }
 
     pub(super) fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
+        let _held = self.shared()?;
         self.dir.read_link(&self.child(name))
     }
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+        let _held = self.shared()?;
         self.dir.entries()
     }
 
     pub(super) fn create_dir(&self, name: &str) -> Result<(), FilesystemError> {
+        let _held = self.exclusive()?;
         self.dir.create_dir(&self.child(name))
     }
 
     pub(super) fn remove_dir(&self, name: &str) -> Result<(), FilesystemError> {
+        let _held = self.exclusive()?;
         self.dir.remove_dir(&self.child(name))?;
         self.filesystem.dentries().delete(&self.dentry, name);
         Ok(())
     }
 
     pub(super) fn remove_file(&self, name: &str) -> Result<(), FilesystemError> {
+        let _held = self.exclusive()?;
         self.dir.remove_file(&self.child(name))
     }
 }

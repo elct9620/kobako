@@ -19,7 +19,6 @@ impl Tmpfs {
     /// Name `file` `name` in this directory, as `linkat` names a file
     /// `O_TMPFILE` opened; refused when anything stands there.
     pub(crate) fn link(&self, file: &TmpfsFile, name: &str) -> Result<(), FilesystemError> {
-        let _held = self.hold();
         let (dir, name) = self.dir.parent_of(name)?;
         let mut state = dir.state();
         if state.entries.contains_key(name) {
@@ -31,7 +30,6 @@ impl Tmpfs {
 
     /// Set this directory's times, as `utimensat` does.
     pub(crate) fn set_times(&self, accessed: Option<SystemTime>, modified: Option<SystemTime>) {
-        let _held = self.hold();
         self.dir.state().times.set(accessed, modified);
     }
 }
