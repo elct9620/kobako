@@ -4,13 +4,20 @@ require "test_helper"
 
 require_relative "../../tasks/support/release_wiring"
 
-# Unit coverage for the readers behind gate:release:wiring
-# (docs/releasing.md § Adding a crate to the linked group). Both seats the
-# gate holds fail without a symptom: release-please treats a package absent
-# from the manifest as never released, and rewrites a version only on a line
-# carrying the annotation — reporting success either way.
+# Coverage for the release-wiring readers and the repository's own release
+# config (docs/releasing.md § Adding a crate to the linked group). Both
+# seats the manifest and annotations hold fail without a symptom:
+# release-please treats a package absent from the manifest as never
+# released, and rewrites a version only on a line carrying the annotation —
+# reporting success either way.
 class KobakoReleaseWiringTest < Minitest::Test
   Reader = KobakoReleaseWiring
+
+  def test_the_repository_leaves_no_seat_unfilled
+    assert_empty Reader.unfilled_seats(TestPaths::ROOT),
+                 "the repository's release config through .unfilled_seats must leave no seat empty; each one a " \
+                 "crate needs is listed in docs/releasing.md § Adding a crate to the linked group"
+  end
 
   CONFIG = {
     "packages" => {
@@ -116,7 +123,7 @@ class KobakoReleaseWiringTest < Minitest::Test
   end
 end
 
-# The third seat +gate:release:wiring+ holds: release-please rewrites a
+# The third seat the readers hold: release-please rewrites a
 # version in +[dependencies]+ but walks no +[dev-dependencies]+ table, so a
 # version named there stays at the last release while the crate beside it
 # moves on — and the lockfile step is where that surfaces, one release later.

@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
-# Readers behind +rake gate:release:wiring+ (docs/releasing.md § Adding a
-# crate to the linked group): the seats a new crate can leave empty
-# without anything saying so.
+require "json"
+
+# Readers behind the release-wiring test in
+# +test/tasks/test_release_wiring.rb+ (docs/releasing.md § Adding a crate
+# to the linked group): the seats a new crate can leave empty without
+# anything saying so.
 #
 # +release-please+ reads the manifest as its record of what each package
 # last released at, and rewrites a version only on a line carrying the
@@ -16,6 +19,33 @@
 # against a sibling that moved on.
 module KobakoReleaseWiring
   module_function
+
+  # Every unfilled seat in the repository at +root+, one line each.
+  def unfilled_seats(root)
+    config, manifest = %w[release-please-config.json .release-please-manifest.json].map do |path|
+      JSON.parse(read_at(root, path))
+    end
+    files = annotated_files(config).map { |package, path| [package, path, read_at(root, path)] }
+
+    unrecorded_packages(config: config, manifest: manifest)
+      .map { |package| "#{package}: no .release-please-manifest.json entry" } +
+      manifest_pins(root, manifest.keys) + annotation_violations(files: files, manifest: manifest)
+  end
+
+  # +pinned_dev_dependencies+ across each of +packages+' Cargo manifests
+  # under +root+; a package with no Cargo manifest pins nothing.
+  def manifest_pins(root, packages)
+    packages.flat_map do |package|
+      path = File.join(package, "Cargo.toml")
+      (content = read_at(root, path)) ? pinned_dev_dependencies(path, content) : []
+    end
+  end
+
+  # The content of +path+ under +root+, or +nil+ when it does not exist.
+  def read_at(root, path)
+    full = File.join(root, path)
+    File.read(full) if File.exist?(full)
+  end
 
   # Path dev-dependencies in +content+ that also name a version, as
   # violation strings. Cargo strips a version-less path dev-dependency

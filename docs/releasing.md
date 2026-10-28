@@ -124,7 +124,7 @@ The BREAKING CHANGES section is the last point at which a subject-only note can 
 
 ## Adding a crate to the linked group
 
-A crate joins the group by taking every seat below. None fails where it was missed: three fail silently, and `rake gate:release:wiring` holds those three. The loud ones surface at release time, some part-way through a group publish that has already put crates on crates.io.
+A crate joins the group by taking every seat below. None fails where it was missed: three fail silently, and `test/tasks/test_release_wiring.rb` holds those three. The loud ones surface at release time, some part-way through a group publish that has already put crates on crates.io.
 
 | Seat | What it takes | If it is missed |
 |------|---------------|-----------------|
