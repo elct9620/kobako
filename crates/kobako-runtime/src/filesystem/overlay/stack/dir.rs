@@ -113,8 +113,10 @@ impl OverlayFs {
     }
 
     /// What `make` builds at a name in the workdir, exchanged with what
-    /// stands at `name` in `dir`, which then goes, as overlayfs's
-    /// `ovl_create_over_whiteout` and `ovl_clear_empty` exchange theirs.
+    /// stands at `name` in `dir`, as overlayfs's `ovl_create_over_whiteout`
+    /// and `ovl_clear_empty` exchange theirs. What came out goes with its
+    /// whiteouts, and stays in the workdir if another writer put anything
+    /// else in it, as overlayfs leaves a cleanup it cannot finish.
     fn exchange_in<T>(
         &self,
         dir: &OverlayPath,
@@ -146,8 +148,8 @@ impl OverlayFs {
         self.exchange_in_opaque_dir(dir, name)
     }
 
-    /// An empty directory marked opaque, exchanged with what stands at
-    /// `name` in `dir`, which then goes.
+    /// An empty directory marked opaque, exchanged in for what stands at
+    /// `name` in `dir`.
     fn exchange_in_opaque_dir(&self, dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
         self.exchange_in(dir, name, |work, temp| {
             work.create_dir(temp)?;
