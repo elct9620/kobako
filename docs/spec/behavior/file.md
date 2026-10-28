@@ -21,7 +21,7 @@ disable_file flag -> no File constant
 
 ## Includes
 
-- `crates/kobako-wasmtime/tests/guest_file.rs`
+- `crates/kobako-wasmtime/tests/integration/guest_file.rs`
 - `test/parity/test_mount.rb`
 - `test/e2e/test_file_open_matrix.rb`
 

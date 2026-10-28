@@ -4,11 +4,9 @@
 //! each open.
 #![cfg(all(feature = "msgpack", feature = "wasmtime"))]
 
-mod common;
-
 use std::sync::Arc;
 
-use common::real_sandbox;
+use crate::common::real_sandbox;
 use kobako::filesystem::{
     DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename, Tmpfs,
 };

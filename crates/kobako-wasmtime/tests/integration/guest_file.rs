@@ -2,7 +2,7 @@
 //! writes beneath a mounted path, and how it fails where nothing is
 //! mounted, nothing is there, or the Mount only reads.
 
-mod support;
+use crate::support;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

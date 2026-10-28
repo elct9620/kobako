@@ -10,11 +10,9 @@
 // so they stand only in a build that carries one.
 #![cfg(feature = "wasmtime")]
 
-mod common;
-
 use std::sync::Arc;
 
-use common::real_sandbox;
+use crate::common::real_sandbox;
 use kobako::{Error, Extension};
 
 /// A guest idiom declaring a dependency the test never installs.

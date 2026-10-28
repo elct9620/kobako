@@ -27,8 +27,8 @@ A malformed path segment and a bind after the seal both raise rather than answer
 - `test/parity/test_fillable.rb`
 - `crates/kobako/src/dispatch.rs`
 - `crates/kobako/src/catalog.rs`
-- `crates/kobako/tests/fillable.rs`
-- `crates/kobako/tests/overrides.rs`
+- `crates/kobako/tests/integration/fillable.rs`
+- `crates/kobako/tests/integration/overrides.rs`
 
 ## `SV-001` A bound path answers with what was bound to it
 

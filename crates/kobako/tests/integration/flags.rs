@@ -8,9 +8,7 @@
 // so they stand only in a build that carries one.
 #![cfg(feature = "wasmtime")]
 
-mod common;
-
-use common::real_sandbox;
+use crate::common::real_sandbox;
 use kobako::Error;
 
 // @behavior S-183

@@ -3,7 +3,7 @@
 //! frontends never hand the driver either failure, so only a handler
 //! written here reaches them.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

@@ -4,7 +4,7 @@
 //! two compiles of the same Preamble have to agree byte for byte so
 //! either can stand in for the other.
 
-mod support;
+use crate::support;
 
 use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Outcome, Preamble, Snippet, Snippets};

@@ -56,10 +56,10 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-wasmtime/src/preview1/mount_view.rs`
 - `crates/kobako-wasmtime/src/preview1/memory.rs`
 - `crates/kobako-wasmtime/src/preview1/differential.rs`
-- `crates/kobako-wasmtime/tests/compile_posture.rs`
+- `crates/kobako-wasmtime/tests/integration/compile_posture.rs`
 - `crates/kobako-wasmtime/src/exports.rs`
-- `crates/kobako/tests/concurrency.rs`
-- `crates/kobako/tests/runtime_injection.rs`
+- `crates/kobako/tests/integration/concurrency.rs`
+- `crates/kobako/tests/integration/runtime_injection.rs`
 - `crates/kobako-runtime/src/profile.rs`
 
 ## `RT-001` Threads holding their own Sandboxes hold their own guest state

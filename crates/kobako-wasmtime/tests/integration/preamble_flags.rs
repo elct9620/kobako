@@ -2,7 +2,7 @@
 //! path: a critical one must refuse the invocation under
 //! its own class, and an advisory one must leave the run untouched.
 
-mod support;
+use crate::support;
 
 use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Origin, Outcome, Preamble};

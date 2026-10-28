@@ -24,8 +24,8 @@ A host may keep the guest's compiled snippets and replay them in place of the so
 - `test/e2e/json/test_raising_hook.rb`
 - `wasm/kobako-mruby/src/runtime.rs`
 - `wasm/kobako-mruby/src/flows/compile.rs`
-- `crates/kobako-wasmtime/tests/preamble_flags.rs`
-- `crates/kobako-wasmtime/tests/snippet_compile.rs`
+- `crates/kobako-wasmtime/tests/integration/preamble_flags.rs`
+- `crates/kobako-wasmtime/tests/integration/snippet_compile.rs`
 
 ## `MR-001` Two invocations begin from the same state, not merely a clean one
 

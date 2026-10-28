@@ -67,9 +67,9 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `crates/kobako/src/sandbox.rs`
 - `crates/kobako/src/snippet.rs`
 - `crates/kobako/src/catalog.rs`
-- `crates/kobako/tests/flags.rs`
-- `crates/kobako/tests/snippet_compile.rs`
-- `crates/kobako/tests/value_budget.rs`
+- `crates/kobako/tests/integration/flags.rs`
+- `crates/kobako/tests/integration/snippet_compile.rs`
+- `crates/kobako/tests/integration/value_budget.rs`
 
 ## `S-001` A Sandbox names the artifact it was built over
 

@@ -28,7 +28,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 - `test/e2e/test_mount_limit.rb`
 - `test/e2e/test_mount_rename.rb`
 - `test/e2e/test_overlay_threads.rb`
-- `crates/kobako/tests/mount.rs`
+- `crates/kobako/tests/integration/mount.rs`
 - `test/parity/test_mount.rb`
 
 ## `MT-001` A mounted Filesystem is reachable from the guest

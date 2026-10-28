@@ -9,8 +9,6 @@
 // so they stand only in a build that carries one.
 #![cfg(feature = "wasmtime")]
 
-mod common;
-
 use std::sync::Arc;
 use std::thread;
 
@@ -19,7 +17,7 @@ use std::thread;
 // comes from the crate that owns that schema rather than from a feature.
 use kobako_codec::msgpack::codec::{Decoder, Value};
 
-use common::real_sandbox;
+use crate::common::real_sandbox;
 
 /// Read one outcome the way a host owning its own schema does — off the
 /// bytes, with the decoder for the schema the guest speaks.

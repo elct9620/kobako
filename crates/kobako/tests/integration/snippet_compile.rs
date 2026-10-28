@@ -9,7 +9,7 @@
 // others stand in any build, since the engine they drive is the one
 // written here.
 #[cfg(feature = "wasmtime")]
-mod common;
+use crate::common;
 
 use std::sync::{Arc, Mutex};
 

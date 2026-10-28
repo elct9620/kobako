@@ -10,11 +10,9 @@
 //! overlay. The byte-level path they share is walked in `byte_surface.rs`.
 #![cfg(all(feature = "msgpack", feature = "wasmtime"))]
 
-mod common;
-
 use std::sync::Arc;
 
-use common::real_sandbox;
+use crate::common::real_sandbox;
 use kobako::msgpack::{Value, ValueReceiver};
 use kobako::{Backend, Error, Extension, Fault, Handles, Provider, Yielder};
 

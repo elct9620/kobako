@@ -41,9 +41,9 @@ Everything that answers on the fault arm rather than raising is here, since the 
 - `crates/kobako/src/handles.rs`
 - `crates/kobako/src/msgpack/receiver.rs`
 - `crates/kobako/src/msgpack/handles.rs`
-- `crates/kobako/tests/byte_surface.rs`
-- `crates/kobako-wasmtime/tests/unsupported_call.rs`
-- `crates/kobako-wasmtime/tests/unanswered_call.rs`
+- `crates/kobako/tests/integration/byte_surface.rs`
+- `crates/kobako-wasmtime/tests/integration/unsupported_call.rs`
+- `crates/kobako-wasmtime/tests/integration/unanswered_call.rs`
 - `wasm/kobako-core/src/proxy.rs`
 - `wasm/kobako-core/src/abi/downcall.rs`
 

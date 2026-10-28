@@ -32,7 +32,7 @@ The last two exits have no parity scenario, because the frontends close them at 
 - `crates/kobako/src/dispatch.rs`
 - `crates/kobako/src/yielder.rs`
 - `crates/kobako/src/msgpack/yielder.rs`
-- `crates/kobako/tests/byte_surface.rs`
+- `crates/kobako/tests/integration/byte_surface.rs`
 
 ## `T-083` A Service can tell that the guest passed it a block
 

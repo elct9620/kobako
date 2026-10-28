@@ -3,7 +3,7 @@
 //! rather than a broken exchange. The default frontends serve every Call,
 //! so only a handler written here reaches that answer.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

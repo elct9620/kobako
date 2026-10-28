@@ -13,8 +13,6 @@
 // so they stand only in a build that carries one.
 #![cfg(feature = "wasmtime")]
 
-mod common;
-
 use std::sync::{Arc, Mutex};
 
 use kobako::handles::DetachedHandles;
@@ -22,7 +20,7 @@ use kobako::{Fault, FaultKind, Handles, Receiver, RunPayload, Yielder};
 use kobako_codec::msgpack::codec::{Decode, Decoder, Encode, Encoder, Value};
 use kobako_codec::msgpack::payload::Arguments;
 
-use common::real_sandbox;
+use crate::common::real_sandbox;
 
 /// The host's own encode of a `run` payload — one positional argument.
 fn run_args(value: Value) -> Vec<u8> {

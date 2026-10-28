@@ -19,8 +19,8 @@ The `Vfs` idiom the end-to-end witnesses install is an illustrative fixture. kob
 - `test/e2e/test_install_concurrency.rb`
 - `test/parity/test_install.rb`
 - `crates/kobako/src/extension.rs`
-- `crates/kobako/tests/install.rs`
-- `crates/kobako/tests/fillable.rs`
+- `crates/kobako/tests/integration/install.rs`
+- `crates/kobako/tests/integration/fillable.rs`
 
 ## `EX-001` The idiom becomes a snippet under the Extension's name
 
