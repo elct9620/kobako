@@ -262,9 +262,9 @@ mod tests {
         }
     }
 
-    fn by_path(memory: &Arc<Tmpfs>) -> Arc<Filesystem> {
+    fn by_path(tmpfs: &Arc<Tmpfs>) -> Arc<Filesystem> {
         Filesystem::new(Arc::new(ByPath {
-            root: through(memory.clone()),
+            root: through(tmpfs.clone()),
             at: String::new(),
         }))
     }
@@ -291,8 +291,8 @@ mod tests {
     // @behavior RT-159
     #[test]
     fn a_directory_removed_through_the_vfs_makes_nothing_more_whatever_its_filesystem() {
-        let memory: Arc<Tmpfs> = Arc::new([("dir/keep", "x")].into_iter().collect());
-        let root = root_of(&by_path(&memory));
+        let tmpfs: Arc<Tmpfs> = Arc::new([("dir/keep", "x")].into_iter().collect());
+        let root = root_of(&by_path(&tmpfs));
         let dir = open_dir(&root, "dir");
         vfs::remove_file(&root, "dir/keep").expect("the file must go");
         vfs::remove_dir(&root, "dir").expect("the directory must go");
@@ -302,7 +302,7 @@ mod tests {
             (
                 vfs::create_dir(&dir, "made"),
                 dir.entries(),
-                through(memory.clone()).symlink_metadata("dir/made").err()
+                through(tmpfs.clone()).symlink_metadata("dir/made").err()
             ),
             (
                 Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
@@ -318,8 +318,8 @@ mod tests {
     // @behavior RT-160
     #[test]
     fn a_directory_removed_beneath_one_mount_is_removed_beneath_another_of_its_instance() {
-        let memory: Arc<Tmpfs> = Arc::new([("dir/keep", "x")].into_iter().collect());
-        let instance = by_path(&memory);
+        let tmpfs: Arc<Tmpfs> = Arc::new([("dir/keep", "x")].into_iter().collect());
+        let instance = by_path(&tmpfs);
         let (first, second) = (root_of(&instance), root_of(&instance));
         let dir = open_dir(&first, "dir");
         vfs::remove_file(&second, "dir/keep").expect("the file must go");

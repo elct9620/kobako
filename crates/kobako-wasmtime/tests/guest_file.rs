@@ -50,7 +50,7 @@ fn mount(filesystem: Arc<dyn Inode>, access: Access) -> Grant {
     )
 }
 
-fn note_memory() -> Arc<Tmpfs> {
+fn note_tmpfs() -> Arc<Tmpfs> {
     Arc::new([("note.txt", "hello\nworld\n")].into_iter().collect())
 }
 
@@ -78,7 +78,7 @@ fn contents<F: Inode>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
 fn a_script_reads_a_file_beneath_a_mounted_path() {
     let Some(answer) = run(
         r#"print File.read("/data/note.txt")"#,
-        &[mount(note_memory(), Access::Read)],
+        &[mount(note_tmpfs(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -93,10 +93,10 @@ fn a_script_reads_a_file_beneath_a_mounted_path() {
 // @behavior FL-002
 #[test]
 fn a_script_writes_a_file_beneath_a_read_write_mount() {
-    let memory = Arc::new(Tmpfs::new());
+    let tmpfs = Arc::new(Tmpfs::new());
     let Some(answer) = run(
         r#"print File.open("/data/out.txt", "w") { |f| f.write("kept"); :done }"#,
-        &[mount(memory.clone(), Access::ReadWrite)],
+        &[mount(tmpfs.clone(), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
@@ -107,7 +107,7 @@ fn a_script_writes_a_file_beneath_a_read_write_mount() {
         "File.open must answer its block's value"
     );
     assert_eq!(
-        contents(&memory, "out.txt"),
+        contents(&tmpfs, "out.txt"),
         b"kept",
         "a file written in File.open's block through the bundled guest must land in the Tmpfs"
     );
@@ -118,7 +118,7 @@ fn a_script_writes_a_file_beneath_a_read_write_mount() {
 fn a_script_reads_a_file_line_by_line() {
     let Some(answer) = run(
         r#"File.open("/data/note.txt") { |f| f.each_line { |line| print line.upcase } }; nil"#,
-        &[mount(note_memory(), Access::Read)],
+        &[mount(note_tmpfs(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -149,7 +149,7 @@ fn opening_a_file_with_nothing_mounted_is_unimplemented() {
 fn opening_a_missing_file_raises_enoent() {
     let Some(answer) = run(
         r#"File.read("/data/missing.txt")"#,
-        &[mount(note_memory(), Access::Read)],
+        &[mount(note_tmpfs(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -167,7 +167,7 @@ fn opening_a_missing_file_raises_enoent() {
 fn writing_beneath_a_read_only_mount_raises_erofs() {
     let Some(answer) = run(
         r#"File.write("/data/note.txt", "changed")"#,
-        &[mount(note_memory(), Access::Read)],
+        &[mount(note_tmpfs(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -241,7 +241,7 @@ fn a_name_or_path_past_linuxs_limits_raises_enametoolong() {
 fn a_code_the_engine_answers_raises_its_own_errno() {
     let Some(answer) = run(
         r#"File.rename("/data", "/data/moved")"#,
-        &[mount(note_memory(), Access::ReadWrite)],
+        &[mount(note_tmpfs(), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
@@ -289,7 +289,7 @@ fn the_disable_file_flag_removes_file() {
 fn an_io_may_stand_for_a_file_the_guest_opened() {
     let Some(answer) = run(
         r#"File.open("/data/note.txt") { |f| print IO.new(f.fileno, "r").read }; nil"#,
-        &[mount(note_memory(), Access::Read)],
+        &[mount(note_tmpfs(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -306,16 +306,16 @@ fn an_io_may_stand_for_a_file_the_guest_opened() {
 // @behavior FL-024
 #[test]
 fn an_exclusive_create_refuses_a_file_already_there() {
-    let memory = note_memory();
+    let tmpfs = note_tmpfs();
     let Some(answer) = run(
         r#"File.open("/data/note.txt", "wx") { |f| f.write("lost") }"#,
-        &[mount(memory.clone(), Access::ReadWrite)],
+        &[mount(tmpfs.clone(), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
     };
     assert_eq!(
-        (answer, contents(&memory, "note.txt")),
+        (answer, contents(&tmpfs, "note.txt")),
         (Err("Errno::EEXIST".to_string()), b"hello\nworld\n".to_vec()),
         "File.open with wx of a file already there through the bundled guest must raise \
          Errno::EEXIST and leave the file as it was"
@@ -325,16 +325,16 @@ fn an_exclusive_create_refuses_a_file_already_there() {
 // @behavior FL-025
 #[test]
 fn an_exclusive_create_makes_a_file_nothing_is_at() {
-    let memory = Arc::new(Tmpfs::new());
+    let tmpfs = Arc::new(Tmpfs::new());
     let Some(answer) = run(
         r#"File.open("/data/lock", "w+x") { |f| f.write("mine") }; nil"#,
-        &[mount(memory.clone(), Access::ReadWrite)],
+        &[mount(tmpfs.clone(), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
     };
     assert_eq!(
-        (answer, contents(&memory, "lock")),
+        (answer, contents(&tmpfs, "lock")),
         (Ok(String::new()), b"mine".to_vec()),
         "File.open with w+x of a path nothing is at through the bundled guest must create the \
          file with what was written"
@@ -359,7 +359,7 @@ fn an_access_mode_cruby_refuses_raises_argument_error() {
     "#;
     let Some(answer) = run(
         script,
-        &[mount(note_memory(), Access::ReadWrite)],
+        &[mount(note_tmpfs(), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
@@ -379,16 +379,16 @@ fn an_access_mode_cruby_refuses_raises_argument_error() {
 // @behavior FL-027
 #[test]
 fn an_integer_mode_opens_by_its_file_constants_flags() {
-    let memory = note_memory();
+    let tmpfs = note_tmpfs();
     let Some(answer) = run(
         r#"File.open("/data/note.txt", File::WRONLY | File::CREAT | File::EXCL) { }"#,
-        &[mount(memory.clone(), Access::ReadWrite)],
+        &[mount(tmpfs.clone(), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
     };
     assert_eq!(
-        (answer, contents(&memory, "note.txt")),
+        (answer, contents(&tmpfs, "note.txt")),
         (Err("Errno::EEXIST".to_string()), b"hello\nworld\n".to_vec()),
         "File.open with WRONLY | CREAT | EXCL of a file already there through the bundled guest \
          must raise Errno::EEXIST and leave the file as it was"
@@ -400,10 +400,10 @@ fn an_integer_mode_opens_by_its_file_constants_flags() {
 // @behavior FL-028
 #[test]
 fn an_exclusive_open_without_create_makes_no_file() {
-    let memory = Arc::new(Tmpfs::new());
+    let tmpfs = Arc::new(Tmpfs::new());
     let Some(answer) = run(
         r#"File.open("/data/lock", File::RDONLY | File::EXCL) { }"#,
-        &[mount(memory.clone(), Access::ReadWrite)],
+        &[mount(tmpfs.clone(), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
@@ -411,7 +411,7 @@ fn an_exclusive_open_without_create_makes_no_file() {
     assert_eq!(
         (
             answer,
-            vfs::symlink_metadata(&host(&memory), "lock").is_err()
+            vfs::symlink_metadata(&host(&tmpfs), "lock").is_err()
         ),
         (Err("Errno::ENOENT".to_string()), true),
         "File.open with RDONLY | EXCL of a path nothing is at through the bundled guest must \
@@ -438,7 +438,7 @@ fn an_integer_mode_with_a_flag_file_constants_lacks_raises_einval() {
     "#;
     let Some(answer) = run(
         script,
-        &[mount(note_memory(), Access::ReadWrite)],
+        &[mount(note_tmpfs(), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
@@ -455,7 +455,7 @@ fn an_integer_mode_with_a_flag_file_constants_lacks_raises_einval() {
 // @behavior FL-031
 #[test]
 fn rdonly_beside_wronly_opens_to_write_only() {
-    let memory = note_memory();
+    let tmpfs = note_tmpfs();
     let script = r#"
         File.open("/data/note.txt", File::RDONLY | File::WRONLY) do |file|
           file.write("J")
@@ -468,13 +468,13 @@ fn rdonly_beside_wronly_opens_to_write_only() {
     "#;
     let Some(answer) = run(
         script,
-        &[mount(memory.clone(), Access::ReadWrite)],
+        &[mount(tmpfs.clone(), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
     };
     assert_eq!(
-        (answer, contents(&memory, "note.txt")),
+        (answer, contents(&tmpfs, "note.txt")),
         (Ok("IOError".to_string()), b"Jello\nworld\n".to_vec()),
         "File.open with RDONLY | WRONLY through the bundled guest must write and raise IOError \
          on a read"
@@ -487,14 +487,14 @@ fn rdonly_beside_wronly_opens_to_write_only() {
 // @behavior FL-032
 #[test]
 fn an_integer_mode_may_create_or_truncate_without_asking_to_write() {
-    let memory = note_memory();
+    let tmpfs = note_tmpfs();
     let script = r#"
         File.open("/data/lock", File::CREAT | File::EXCL) { }
         File.open("/data/note.txt", File::RDONLY | File::TRUNC) { }
     "#;
     let Some(answer) = run(
         script,
-        &[mount(memory.clone(), Access::ReadWrite)],
+        &[mount(tmpfs.clone(), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
@@ -502,8 +502,8 @@ fn an_integer_mode_may_create_or_truncate_without_asking_to_write() {
     assert_eq!(
         (
             answer,
-            contents(&memory, "lock"),
-            contents(&memory, "note.txt")
+            contents(&tmpfs, "lock"),
+            contents(&tmpfs, "note.txt")
         ),
         (Ok(String::new()), Vec::new(), Vec::new()),
         "File.open with CREAT | EXCL of a new path and with RDONLY | TRUNC of a file through the \
@@ -516,7 +516,7 @@ fn an_integer_mode_may_create_or_truncate_without_asking_to_write() {
 fn a_path_holding_a_nul_byte_raises_argument_error() {
     let Some(answer) = run(
         r#"File.open("/data/note.txt\0x") { }"#,
-        &[mount(note_memory(), Access::ReadWrite)],
+        &[mount(note_tmpfs(), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
@@ -551,14 +551,14 @@ fn file_constants_names_the_flags_an_open_honors() {
 
 /// A Tmpfs whose every open file is handed through `wrap` first.
 struct WrapsFiles<W> {
-    memory: Tmpfs,
+    tmpfs: Tmpfs,
     wrap: W,
 }
 
 impl<W> WrapsFiles<W> {
     fn over_note(contents: &str, wrap: W) -> Arc<Self> {
         Arc::new(Self {
-            memory: [("note.txt", contents)].into_iter().collect(),
+            tmpfs: [("note.txt", contents)].into_iter().collect(),
             wrap,
         })
     }
@@ -574,43 +574,43 @@ where
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        Ok(Box::new((self.wrap)(self.memory.open(dentry, options)?)))
+        Ok(Box::new((self.wrap)(self.tmpfs.open(dentry, options)?)))
     }
 
     fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
-        self.memory.open_dir(dentry)
+        self.tmpfs.open_dir(dentry)
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.memory.metadata()
+        self.tmpfs.metadata()
     }
 
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.memory.symlink_metadata(dentry)
+        self.tmpfs.symlink_metadata(dentry)
     }
 
     fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.memory.stored_name(dentry)
+        self.tmpfs.stored_name(dentry)
     }
 
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.memory.read_link(dentry)
+        self.tmpfs.read_link(dentry)
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.memory.entries()
+        self.tmpfs.entries()
     }
 
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.memory.create_dir(dentry)
+        self.tmpfs.create_dir(dentry)
     }
 
     fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.memory.remove_dir(dentry)
+        self.tmpfs.remove_dir(dentry)
     }
 
     fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.memory.remove_file(dentry)
+        self.tmpfs.remove_file(dentry)
     }
 
     fn rename(
@@ -620,7 +620,7 @@ where
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
-        self.memory.rename(from, &self.memory, to, rename)
+        self.tmpfs.rename(from, &self.tmpfs, to, rename)
     }
 }
 
@@ -806,7 +806,7 @@ fn an_errno_a_script_raises_reads_as_crubys() {
         out << e.class.to_s << e.errno
         print out.inspect
     "#;
-    let Some(answer) = run(script, &[mount(note_memory(), Access::Read)], Vec::new()) else {
+    let Some(answer) = run(script, &[mount(note_tmpfs(), Access::Read)], Vec::new()) else {
         return;
     };
     assert_eq!(
@@ -825,7 +825,7 @@ fn an_errno_a_script_raises_reads_as_crubys() {
 fn a_system_call_error_keeps_a_number_no_class_names() {
     let Some(answer) = run(
         r#"e = SystemCallError.new(9999); print [e.class.to_s, e.message, e.errno].inspect"#,
-        &[mount(note_memory(), Access::Read)],
+        &[mount(note_tmpfs(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -848,7 +848,7 @@ fn a_read_length_past_64_bits_raises_range_error() {
           print e.class.to_s
         end
     "#;
-    let Some(answer) = run(script, &[mount(note_memory(), Access::Read)], Vec::new()) else {
+    let Some(answer) = run(script, &[mount(note_tmpfs(), Access::Read)], Vec::new()) else {
         return;
     };
     assert_eq!(
@@ -872,7 +872,7 @@ fn a_system_call_error_number_past_the_errno_range_raises_range_error() {
         end
         print out.inspect
     "#;
-    let Some(answer) = run(script, &[mount(note_memory(), Access::Read)], Vec::new()) else {
+    let Some(answer) = run(script, &[mount(note_tmpfs(), Access::Read)], Vec::new()) else {
         return;
     };
     assert_eq!(
@@ -897,7 +897,7 @@ fn a_read_or_write_a_stream_was_not_opened_for_raises_ioerror() {
     "#;
     let Some(answer) = run(
         script,
-        &[mount(note_memory(), Access::ReadWrite)],
+        &[mount(note_tmpfs(), Access::ReadWrite)],
         Vec::new(),
     ) else {
         return;
@@ -918,7 +918,7 @@ fn a_read_or_write_a_stream_was_not_opened_for_raises_ioerror() {
 fn a_path_that_is_no_valid_utf8_raises_eilseq() {
     let Some(answer) = run(
         r#"File.read("/data/\xff")"#,
-        &[mount(note_memory(), Access::Read)],
+        &[mount(note_tmpfs(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -1023,7 +1023,7 @@ fn a_position_past_2_gib_is_reported_whole() {
 fn setting_a_files_position_moves_where_the_next_read_starts() {
     let Some(answer) = run(
         r#"File.open("/data/note.txt") { |f| f.pos = 2; print f.read }"#,
-        &[mount(note_memory(), Access::Read)],
+        &[mount(note_tmpfs(), Access::Read)],
         Vec::new(),
     ) else {
         return;
@@ -1053,7 +1053,7 @@ fn a_seek_before_the_start_or_by_an_unknown_whence_raises_einval() {
              end
            end
            nil"#,
-        &[mount(note_memory(), Access::Read)],
+        &[mount(note_tmpfs(), Access::Read)],
         Vec::new(),
     ) else {
         return;

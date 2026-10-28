@@ -1017,7 +1017,7 @@ mod tests {
     /// call through `overlay` on a thread of its own and gives it a while
     /// to finish, recording whether it did before this call returned.
     struct Interleaves {
-        memory: Arc<Tmpfs>,
+        tmpfs: Arc<Tmpfs>,
         overlay: Mutex<Option<Through>>,
         finished_inside: Mutex<Option<bool>>,
         other: Mutex<Option<thread::JoinHandle<()>>>,
@@ -1028,7 +1028,7 @@ mod tests {
         matches_names_exactly!();
 
         fn metadata(&self) -> Result<Metadata, FilesystemError> {
-            self.memory.metadata()
+            self.tmpfs.metadata()
         }
 
         fn open(
@@ -1036,11 +1036,11 @@ mod tests {
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Result<Box<dyn File>, FilesystemError> {
-            self.memory.open(dentry, options)
+            self.tmpfs.open(dentry, options)
         }
 
         fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.memory.symlink_metadata(dentry)
+            self.tmpfs.symlink_metadata(dentry)
         }
 
         fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
@@ -1058,23 +1058,23 @@ mod tests {
                 *self.finished_inside.lock().unwrap() = Some(finished.load(Ordering::SeqCst) == 1);
                 *self.other.lock().unwrap() = Some(handle);
             }
-            self.memory.open_dir(dentry)
+            self.tmpfs.open_dir(dentry)
         }
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.memory.entries()
+            self.tmpfs.entries()
         }
 
         fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.memory.create_dir(dentry)
+            self.tmpfs.create_dir(dentry)
         }
 
         fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.memory.remove_dir(dentry)
+            self.tmpfs.remove_dir(dentry)
         }
 
         fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.memory.remove_file(dentry)
+            self.tmpfs.remove_file(dentry)
         }
 
         fn rename(
@@ -1084,7 +1084,7 @@ mod tests {
             to: &Dentry,
             rename: Rename,
         ) -> Result<(), FilesystemError> {
-            self.memory.rename(from, self.memory.as_ref(), to, rename)
+            self.tmpfs.rename(from, self.tmpfs.as_ref(), to, rename)
         }
     }
 
@@ -1095,12 +1095,12 @@ mod tests {
     #[test]
     fn a_change_through_an_overlay_waits_for_the_one_in_progress() {
         let upper = Arc::new(Interleaves {
-            memory: tmpfs_with("dir/.keep", ""),
+            tmpfs: tmpfs_with("dir/.keep", ""),
             overlay: Mutex::new(None),
             finished_inside: Mutex::new(None),
             other: Mutex::new(None),
         });
-        on(&upper.memory)
+        on(&upper.tmpfs)
             .remove_file("dir/.keep")
             .expect("the seed must go");
         let overlay = at(Overlay::new().layer(Filesystem::new(upper.clone()), Access::ReadWrite));
@@ -1126,7 +1126,7 @@ mod tests {
     #[test]
     fn a_call_through_an_overlay_from_inside_one_answers_a_deadlock() {
         struct Reenters {
-            memory: Tmpfs,
+            tmpfs: Tmpfs,
             overlay: Mutex<Option<Through>>,
             answer: Mutex<Option<Result<Metadata, FilesystemError>>>,
         }
@@ -1140,28 +1140,28 @@ mod tests {
                 dentry: &Dentry,
                 options: &OpenOptions,
             ) -> Result<Box<dyn File>, FilesystemError> {
-                self.memory.open(dentry, options)
+                self.tmpfs.open(dentry, options)
             }
 
             fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
                 if let Some(overlay) = self.overlay.lock().unwrap().take() {
                     *self.answer.lock().unwrap() = Some(overlay.symlink_metadata(&dentry.name()));
                 }
-                self.memory.symlink_metadata(dentry)
+                self.tmpfs.symlink_metadata(dentry)
             }
 
-            opens_directories!(memory);
+            opens_directories!(tmpfs);
 
             fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-                self.memory.create_dir(dentry)
+                self.tmpfs.create_dir(dentry)
             }
 
             fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-                self.memory.remove_dir(dentry)
+                self.tmpfs.remove_dir(dentry)
             }
 
             fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-                self.memory.remove_file(dentry)
+                self.tmpfs.remove_file(dentry)
             }
 
             fn rename(
@@ -1171,12 +1171,12 @@ mod tests {
                 to: &Dentry,
                 rename: Rename,
             ) -> Result<(), FilesystemError> {
-                self.memory.rename(from, &self.memory, to, rename)
+                self.tmpfs.rename(from, &self.tmpfs, to, rename)
             }
         }
 
         let layer = Arc::new(Reenters {
-            memory: [("note", "x")].into_iter().collect(),
+            tmpfs: [("note", "x")].into_iter().collect(),
             overlay: Mutex::new(None),
             answer: Mutex::new(None),
         });
@@ -1508,7 +1508,7 @@ mod tests {
     /// A Tmpfs whose files write at most three bytes per call and, when
     /// `refuses_close`, refuse their close.
     struct Trickles {
-        memory: Arc<dyn Inode>,
+        tmpfs: Arc<dyn Inode>,
         refuses_close: bool,
     }
 
@@ -1556,41 +1556,41 @@ mod tests {
             options: &OpenOptions,
         ) -> Result<Box<dyn File>, FilesystemError> {
             Ok(Box::new(TrickleFile {
-                file: self.memory.open(dentry, options)?,
+                file: self.tmpfs.open(dentry, options)?,
                 refuses_close: self.refuses_close,
             }))
         }
 
         fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.memory.symlink_metadata(dentry)
+            self.tmpfs.symlink_metadata(dentry)
         }
 
         /// Each directory it opens trickles too.
         fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
             Ok(Arc::new(Self {
-                memory: self.memory.open_dir(dentry)?,
+                tmpfs: self.tmpfs.open_dir(dentry)?,
                 refuses_close: self.refuses_close,
             }))
         }
 
         fn metadata(&self) -> Result<Metadata, FilesystemError> {
-            self.memory.metadata()
+            self.tmpfs.metadata()
         }
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.memory.entries()
+            self.tmpfs.entries()
         }
 
         fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.memory.create_dir(dentry)
+            self.tmpfs.create_dir(dentry)
         }
 
         fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.memory.remove_dir(dentry)
+            self.tmpfs.remove_dir(dentry)
         }
 
         fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.memory.remove_file(dentry)
+            self.tmpfs.remove_file(dentry)
         }
 
         fn rename(
@@ -1603,7 +1603,7 @@ mod tests {
             let to_dir = (_to_dir as &dyn Any)
                 .downcast_ref::<Self>()
                 .ok_or(FilesystemError::CrossesDevices)?;
-            self.memory.rename(from, to_dir.memory.as_ref(), to, rename)
+            self.tmpfs.rename(from, to_dir.tmpfs.as_ref(), to, rename)
         }
     }
 
@@ -1750,7 +1750,7 @@ mod tests {
     /// A Tmpfs whose `file` is gone after its first lookup, as a host
     /// directory another process changes mid-call.
     struct Vanishes {
-        memory: Tmpfs,
+        tmpfs: Tmpfs,
         seen: AtomicBool,
     }
 
@@ -1763,28 +1763,28 @@ mod tests {
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Result<Box<dyn File>, FilesystemError> {
-            self.memory.open(dentry, options)
+            self.tmpfs.open(dentry, options)
         }
 
         fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             if dentry.name() == "file" && self.seen.swap(true, Ordering::SeqCst) {
                 return Err(FilesystemError::NotFound);
             }
-            self.memory.symlink_metadata(dentry)
+            self.tmpfs.symlink_metadata(dentry)
         }
 
-        opens_directories!(memory);
+        opens_directories!(tmpfs);
 
         fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.memory.create_dir(dentry)
+            self.tmpfs.create_dir(dentry)
         }
 
         fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.memory.remove_dir(dentry)
+            self.tmpfs.remove_dir(dentry)
         }
 
         fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.memory.remove_file(dentry)
+            self.tmpfs.remove_file(dentry)
         }
 
         fn rename(
@@ -1794,7 +1794,7 @@ mod tests {
             to: &Dentry,
             rename: Rename,
         ) -> Result<(), FilesystemError> {
-            self.memory.rename(from, &self.memory, to, rename)
+            self.tmpfs.rename(from, &self.tmpfs, to, rename)
         }
     }
 
@@ -1807,9 +1807,9 @@ mod tests {
     }
 
     impl FoldsCase {
-        fn new(memory: Tmpfs) -> Self {
+        fn new(tmpfs: Tmpfs) -> Self {
             Self {
-                root: at(memory),
+                root: at(tmpfs),
                 at: String::new(),
             }
         }
@@ -2071,7 +2071,7 @@ mod tests {
     #[test]
     fn a_file_gone_during_a_rename_answers_not_found() {
         let lower = Vanishes {
-            memory: [("file", "lower")].into_iter().collect(),
+            tmpfs: [("file", "lower")].into_iter().collect(),
             seen: AtomicBool::new(false),
         };
         let overlay = at(Overlay::new()
@@ -2140,7 +2140,7 @@ mod tests {
 
     fn trickles(refuses_close: bool) -> Arc<Trickles> {
         Arc::new(Trickles {
-            memory: Arc::new(Tmpfs::new()),
+            tmpfs: Arc::new(Tmpfs::new()),
             refuses_close,
         })
     }
@@ -2232,7 +2232,7 @@ mod tests {
             )
             .expect("the open must copy the lower file up");
         assert_eq!(
-            read(&through(upper.memory.clone()), "dir/file"),
+            read(&through(upper.tmpfs.clone()), "dir/file"),
             b"lower".to_vec(),
             "a write open through Overlay::open must copy the whole lower file up into a Layer \
              whose writes land a few bytes at a time"

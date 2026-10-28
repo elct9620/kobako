@@ -646,10 +646,10 @@ impl Inode for StoresUpperCase {
 // @behavior RT-120
 #[test]
 fn a_policy_judges_a_path_as_its_filesystem_stores_it() {
-    let memory: Tmpfs = [("file.txt", "granted")].into_iter().collect();
+    let tmpfs: Tmpfs = [("file.txt", "granted")].into_iter().collect();
     let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/FILE.TXT"));
     let mut guest = Guest::new(&[grant(
-        Arc::new(StoresUpperCase(memory)),
+        Arc::new(StoresUpperCase(tmpfs)),
         Access::Read,
         Some(policy),
     )]);
@@ -667,10 +667,10 @@ fn a_policy_judges_a_path_as_its_filesystem_stores_it() {
 #[test]
 fn a_policy_judges_a_path_beneath_an_opened_directory_as_its_filesystem_stores_it() {
     const INNER: (i32, i32) = (960, 5);
-    let memory: Tmpfs = [("dir/inner", "x")].into_iter().collect();
+    let tmpfs: Tmpfs = [("dir/inner", "x")].into_iter().collect();
     let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/DIR/inner"));
     let mut guest = Guest::new(&[grant(
-        Arc::new(StoresUpperCase(memory)),
+        Arc::new(StoresUpperCase(tmpfs)),
         Access::Read,
         Some(policy),
     )]);
@@ -708,14 +708,14 @@ fn a_mount_appears_as_a_directory_at_its_path() {
 // @behavior RT-107
 #[test]
 fn a_listing_goes_on_over_the_entries_it_began_with() {
-    let memory = tmpfs_with("a.txt", "");
-    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
+    let tmpfs = tmpfs_with("a.txt", "");
+    let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)]);
     assert_eq!(
         guest.list(0, 51),
         [".", ".."],
         "the first listing must hold the dots"
     );
-    overwrite(&host(&memory), "b.txt");
+    overwrite(&host(&tmpfs), "b.txt");
     assert_eq!(
         guest.list(2, 4096),
         ["a.txt"],
@@ -731,8 +731,8 @@ fn a_listing_goes_on_over_the_entries_it_began_with() {
 // @behavior RT-076
 #[test]
 fn a_guest_reads_a_file_beneath_a_mount() {
-    let memory: Tmpfs = [("file.txt", "granted")].into_iter().collect();
-    let mut guest = Guest::new(&[grant(Arc::new(memory), Access::Read, None)]);
+    let tmpfs: Tmpfs = [("file.txt", "granted")].into_iter().collect();
+    let mut guest = Guest::new(&[grant(Arc::new(tmpfs), Access::Read, None)]);
     assert_eq!(guest.call("read_file", FILE), 0, "the read must succeed");
     assert_eq!(
         guest.read_back(),
@@ -744,11 +744,11 @@ fn a_guest_reads_a_file_beneath_a_mount() {
 // @behavior RT-077
 #[test]
 fn a_guest_writes_a_file_beneath_a_read_write_mount() {
-    let memory = Arc::new(Tmpfs::new());
-    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
+    let tmpfs = Arc::new(Tmpfs::new());
+    let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)]);
     assert_eq!(guest.call("write_file", FILE), 0, "the write must succeed");
     assert_eq!(
-        contents(&host(&memory), "file.txt").as_deref(),
+        contents(&host(&tmpfs), "file.txt").as_deref(),
         Some(&b"hello"[..]),
         "a file written beneath a read-write Mount through preview1 must land in the Tmpfs"
     );
@@ -771,12 +771,12 @@ fn a_change_beneath_a_read_only_mount_is_a_read_only_filesystem() {
 // @behavior RT-078
 #[test]
 fn a_truncating_open_beneath_a_read_only_mount_is_refused() {
-    let memory = tmpfs_with("file.txt", "granted");
-    let mut guest = Guest::new(&[grant(memory.clone(), Access::Read, None)]);
+    let tmpfs = tmpfs_with("file.txt", "granted");
+    let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::Read, None)]);
     assert_eq!(
         (
             guest.call("truncate_file", FILE),
-            contents(&host(&memory), "file.txt")
+            contents(&host(&tmpfs), "file.txt")
         ),
         (ERRNO_ROFS, Some(b"granted".to_vec())),
         "a read-rights open with O_TRUNC beneath a read-only Mount through preview1 must answer \
@@ -787,8 +787,8 @@ fn a_truncating_open_beneath_a_read_only_mount_is_refused() {
 // @behavior RT-079
 #[test]
 fn a_path_above_a_mounts_root_is_refused() {
-    let memory: Tmpfs = [("file.txt", "granted")].into_iter().collect();
-    let mut guest = Guest::new(&[grant(Arc::new(memory), Access::Read, None)]);
+    let tmpfs: Tmpfs = [("file.txt", "granted")].into_iter().collect();
+    let mut guest = Guest::new(&[grant(Arc::new(tmpfs), Access::Read, None)]);
     assert_eq!(
         guest.call("read_file", ABOVE_ROOT),
         ERRNO_NOTCAPABLE,
@@ -801,10 +801,10 @@ fn a_path_above_a_mounts_root_is_refused() {
 // @behavior RT-115
 #[test]
 fn a_path_above_the_directory_it_is_opened_beneath_is_refused() {
-    let memory: Tmpfs = [("file.txt", "granted"), ("dir/inner.txt", "beneath")]
+    let tmpfs: Tmpfs = [("file.txt", "granted"), ("dir/inner.txt", "beneath")]
         .into_iter()
         .collect();
-    let mut guest = Guest::new(&[grant(Arc::new(memory), Access::Read, None)]);
+    let mut guest = Guest::new(&[grant(Arc::new(tmpfs), Access::Read, None)]);
     assert_eq!(
         guest.call("open_beneath_dir", ABOVE_ROOT),
         ERRNO_NOTCAPABLE,
@@ -817,14 +817,14 @@ fn a_path_above_the_directory_it_is_opened_beneath_is_refused() {
 /// `policy`, before `change` runs on the host's root of the Tmpfs
 /// holding it.
 fn stat_after(policy: Option<Arc<dyn Policy>>, change: impl FnOnce(&Path)) -> i32 {
-    let memory = file_and_directory();
-    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, policy)]);
+    let tmpfs = file_and_directory();
+    let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, policy)]);
     assert_eq!(
         guest.call_bare("open_dir"),
         0,
         "dir must open as a directory"
     );
-    change(&host(&memory));
+    change(&host(&tmpfs));
     guest.call_bare("stat_inner")
 }
 
@@ -884,7 +884,7 @@ fn a_directory_moved_while_opened_beneath_a_policy_is_not_reached() {
 /// to the next one made, and by a fresh number once an open `dir` was
 /// removed.
 struct ReusesInodes {
-    memory: Arc<Tmpfs>,
+    tmpfs: Arc<Tmpfs>,
     opened: Mutex<Vec<Weak<dyn Inode>>>,
     removed_while_open: AtomicUsize,
 }
@@ -898,11 +898,11 @@ impl Inode for ReusesInodes {
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        self.memory.open(dentry, options)
+        self.tmpfs.open(dentry, options)
     }
 
     fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
-        let opened = self.memory.open_dir(dentry)?;
+        let opened = self.tmpfs.open_dir(dentry)?;
         if dentry.name() == "dir" {
             self.opened.lock().unwrap().push(Arc::downgrade(&opened));
         }
@@ -910,15 +910,15 @@ impl Inode for ReusesInodes {
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.memory.metadata()
+        self.tmpfs.metadata()
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.memory.entries()
+        self.tmpfs.entries()
     }
 
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        let found = self.memory.symlink_metadata(dentry)?;
+        let found = self.tmpfs.symlink_metadata(dentry)?;
         if dentry.name() != "dir" {
             return Ok(found);
         }
@@ -927,11 +927,11 @@ impl Inode for ReusesInodes {
     }
 
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.memory.create_dir(dentry)
+        self.tmpfs.create_dir(dentry)
     }
 
     fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.memory.remove_dir(dentry)?;
+        self.tmpfs.remove_dir(dentry)?;
         let open = self
             .opened
             .lock()
@@ -945,7 +945,7 @@ impl Inode for ReusesInodes {
     }
 
     fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.memory.remove_file(dentry)
+        self.tmpfs.remove_file(dentry)
     }
 
     fn rename(
@@ -955,7 +955,7 @@ impl Inode for ReusesInodes {
         to: &Dentry,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
-        self.memory.rename(from, self.memory.as_ref(), to, rename)
+        self.tmpfs.rename(from, self.tmpfs.as_ref(), to, rename)
     }
 }
 
@@ -966,9 +966,9 @@ impl Inode for ReusesInodes {
 // @behavior RT-121
 #[test]
 fn a_directory_descriptor_holds_its_directory_while_open() {
-    let memory = file_and_directory();
+    let tmpfs = file_and_directory();
     let reuses = Arc::new(ReusesInodes {
-        memory: memory.clone(),
+        tmpfs: tmpfs.clone(),
         opened: Mutex::new(Vec::new()),
         removed_while_open: AtomicUsize::new(0),
     });
@@ -986,7 +986,7 @@ fn a_directory_descriptor_holds_its_directory_while_open() {
     vfs::remove_file(&outside, "dir/inner").unwrap();
     vfs::remove_dir(&outside, "dir").unwrap();
     vfs::create_dir(&outside, "dir").unwrap();
-    overwrite(&host(&memory), "dir/inner");
+    overwrite(&host(&tmpfs), "dir/inner");
     assert_eq!(
         guest.call_bare("stat_inner"),
         ERRNO_NOENT,
@@ -1122,9 +1122,9 @@ fn a_directory_moved_back_to_its_path_is_reached_through_its_descriptor_again() 
 // @behavior RT-080
 #[test]
 fn a_policy_refusing_an_open_answers_access_denied() {
-    let memory: Tmpfs = [("file.txt", "granted")].into_iter().collect();
+    let tmpfs: Tmpfs = [("file.txt", "granted")].into_iter().collect();
     let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/file.txt"));
-    let mut guest = Guest::new(&[grant(Arc::new(memory), Access::Read, Some(policy))]);
+    let mut guest = Guest::new(&[grant(Arc::new(tmpfs), Access::Read, Some(policy))]);
     assert_eq!(
         guest.call("read_file", FILE),
         ERRNO_ACCES,
@@ -1135,12 +1135,12 @@ fn a_policy_refusing_an_open_answers_access_denied() {
 // @behavior RT-081
 #[test]
 fn a_policy_decides_in_the_place_of_a_mounts_access() {
-    let memory = Arc::new(Tmpfs::new());
+    let tmpfs = Arc::new(Tmpfs::new());
     let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
-    let mut guest = Guest::new(&[grant(memory.clone(), Access::Read, Some(policy))]);
+    let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::Read, Some(policy))]);
     assert_eq!(guest.call("write_file", FILE), 0, "the write must succeed");
     assert_eq!(
-        contents(&host(&memory), "file.txt").as_deref(),
+        contents(&host(&tmpfs), "file.txt").as_deref(),
         Some(&b"hello"[..]),
         "a write a Policy allows beneath a read-only Mount through preview1 must land"
     );
@@ -1149,8 +1149,8 @@ fn a_policy_decides_in_the_place_of_a_mounts_access() {
 // @behavior RT-082
 #[test]
 fn every_invocation_reaches_the_filesystem_its_mount_holds() {
-    let memory = Arc::new(Tmpfs::new());
-    let grants = [grant(memory.clone(), Access::ReadWrite, None)];
+    let tmpfs = Arc::new(Tmpfs::new());
+    let grants = [grant(tmpfs.clone(), Access::ReadWrite, None)];
     assert_eq!(
         Guest::new(&grants).call("write_file", FILE),
         0,
@@ -1163,7 +1163,7 @@ fn every_invocation_reaches_the_filesystem_its_mount_holds() {
          next invocation through preview1"
     );
     assert_eq!(
-        contents(&host(&memory), "file.txt").as_deref(),
+        contents(&host(&tmpfs), "file.txt").as_deref(),
         Some(&b"hello"[..]),
         "the file the next invocation finds must hold what the earlier invocation wrote"
     );
@@ -1172,14 +1172,14 @@ fn every_invocation_reaches_the_filesystem_its_mount_holds() {
 /// A Tmpfs holding `file.txt` that counts every change it is asked for,
 /// so a test can tell the runtime refused before asking it.
 struct ChangeCounter {
-    memory: Tmpfs,
+    tmpfs: Tmpfs,
     changes: AtomicUsize,
 }
 
 impl ChangeCounter {
     fn new() -> Arc<Self> {
         Arc::new(Self {
-            memory: [("file.txt", "granted")].into_iter().collect(),
+            tmpfs: [("file.txt", "granted")].into_iter().collect(),
             changes: AtomicUsize::new(0),
         })
     }
@@ -1198,28 +1198,28 @@ impl Inode for ChangeCounter {
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        self.memory.open(dentry, options)
+        self.tmpfs.open(dentry, options)
     }
 
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.memory.symlink_metadata(dentry)
+        self.tmpfs.symlink_metadata(dentry)
     }
 
-    opens_directories!(memory);
+    opens_directories!(tmpfs);
 
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.change();
-        self.memory.create_dir(dentry)
+        self.tmpfs.create_dir(dentry)
     }
 
     fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.change();
-        self.memory.remove_dir(dentry)
+        self.tmpfs.remove_dir(dentry)
     }
 
     fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.change();
-        self.memory.remove_file(dentry)
+        self.tmpfs.remove_file(dentry)
     }
 
     fn rename(
@@ -1230,7 +1230,7 @@ impl Inode for ChangeCounter {
         rename: Rename,
     ) -> Result<(), FilesystemError> {
         self.change();
-        self.memory.rename(from, &self.memory, to, rename)
+        self.tmpfs.rename(from, &self.tmpfs, to, rename)
     }
 }
 
@@ -1411,13 +1411,13 @@ impl Inode for AppendedMeanwhile {
 // @behavior RT-095
 #[test]
 fn an_append_lands_after_another_writers_append() {
-    let memory = tmpfs_with("file.txt", "granted");
-    let shared = Arc::new(AppendedMeanwhile(memory.clone()));
+    let tmpfs = tmpfs_with("file.txt", "granted");
+    let shared = Arc::new(AppendedMeanwhile(tmpfs.clone()));
     let mut guest = Guest::new(&[grant(shared.clone(), Access::ReadWrite, None)]);
     assert_eq!(
         (
             guest.call("append_file", FILE),
-            contents(&host(&memory), "file.txt")
+            contents(&host(&tmpfs), "file.txt")
         ),
         (0, Some(b"grantedbbbhello".to_vec())),
         "fd_write to a file opened to append beneath a Mount through preview1 must land after \
@@ -1639,11 +1639,11 @@ fn an_unlink_with_a_trailing_slash_answers_for_the_name_itself() {
 // @behavior RT-099
 #[test]
 fn an_allocation_for_a_file_beneath_a_mount_is_unsupported() {
-    let memory = tmpfs_with("file.txt", "granted");
+    let tmpfs = tmpfs_with("file.txt", "granted");
     let answer =
-        Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]).call("allocate_file", FILE);
+        Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)]).call("allocate_file", FILE);
     assert_eq!(
-        (answer, contents(&host(&memory), "file.txt")),
+        (answer, contents(&host(&tmpfs), "file.txt")),
         (ERRNO_NOTSUP, Some(b"granted".to_vec())),
         "fd_allocate of a file beneath a read-write Mount through preview1 must answer ENOTSUP \
          as wasmtime-wasi does, leaving the file as it was"
@@ -1885,8 +1885,8 @@ fn file_and_directory() -> Arc<Tmpfs> {
 // @behavior RT-109
 #[test]
 fn a_path_ending_in_a_dot_makes_nothing_where_no_directory_stands() {
-    let memory = file_and_directory();
-    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
+    let tmpfs = file_and_directory();
+    let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)]);
     let answers = [
         guest.call("make_dir", MISSING_DOT),
         guest.call_flagged(MISSING_DOT, OFLAGS_CREAT, 0),
@@ -1894,7 +1894,7 @@ fn a_path_ending_in_a_dot_makes_nothing_where_no_directory_stands() {
     assert_eq!(
         (
             answers,
-            vfs::symlink_metadata(&host(&memory), "missing").is_err()
+            vfs::symlink_metadata(&host(&tmpfs), "missing").is_err()
         ),
         ([ERRNO_NOENT, ERRNO_NOENT], true),
         "path_create_directory and path_open with O_CREAT of missing/. beneath a Mount through \
@@ -1907,8 +1907,8 @@ fn a_path_ending_in_a_dot_makes_nothing_where_no_directory_stands() {
 // @behavior RT-102
 #[test]
 fn a_path_ending_in_a_dot_is_neither_removed_nor_moved() {
-    let memory = file_and_directory();
-    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
+    let tmpfs = file_and_directory();
+    let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)]);
     let answers = [
         guest.call("remove_path", DIR_DOT),
         guest.call("remove_path", DIR_DOT_DOT),
@@ -1920,7 +1920,7 @@ fn a_path_ending_in_a_dot_is_neither_removed_nor_moved() {
     assert_eq!(
         (
             answers,
-            vfs::symlink_metadata(&host(&memory), "dir/inner").is_ok()
+            vfs::symlink_metadata(&host(&tmpfs), "dir/inner").is_ok()
         ),
         (
             [
@@ -2200,11 +2200,11 @@ const ERRNO_PERM: i32 = 63;
 // @behavior RT-133
 #[test]
 fn a_write_at_the_largest_signed_offset_is_too_large() {
-    let memory = file_and_directory();
-    let answer = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)])
+    let tmpfs = file_and_directory();
+    let answer = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)])
         .call_bare("write_at_the_largest_offset");
     assert_eq!(
-        (answer, contents(&host(&memory), "file.txt")),
+        (answer, contents(&host(&tmpfs), "file.txt")),
         (ERRNO_FBIG, Some(b"granted".to_vec())),
         "fd_write at the largest signed 64-bit offset of a Tmpfs file beneath a Mount through \
          preview1 must answer EFBIG, as Linux does, and leave the file as it was"
@@ -2270,14 +2270,14 @@ fn a_directory_a_guest_opens_carries_no_right_to_write() {
 // @behavior RT-105
 #[test]
 fn a_file_moved_beneath_itself_is_no_directory() {
-    let memory = file_and_directory();
-    let answer = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]).call_pair(
+    let tmpfs = file_and_directory();
+    let answer = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)]).call_pair(
         "rename_paths",
         FILE,
         BENEATH_FILE,
     );
     assert_eq!(
-        (answer, contents(&host(&memory), "file.txt")),
+        (answer, contents(&host(&tmpfs), "file.txt")),
         (ERRNO_NOTDIR, Some(b"granted".to_vec())),
         "path_rename of a file to a path beneath it, beneath a Mount through preview1, must \
          answer ENOTDIR as Linux does and leave the file in place"
@@ -2351,8 +2351,8 @@ fn unlinking_a_mounts_root_answers_that_it_is_a_directory() {
 /// What reading `path` answers beneath a read-only Mount holding
 /// `file.txt`.
 fn read_beneath(path: (i32, i32)) -> i32 {
-    let memory: Tmpfs = [("file.txt", "granted")].into_iter().collect();
-    Guest::new(&[grant(Arc::new(memory), Access::Read, None)]).call("read_file", path)
+    let tmpfs: Tmpfs = [("file.txt", "granted")].into_iter().collect();
+    Guest::new(&[grant(Arc::new(tmpfs), Access::Read, None)]).call("read_file", path)
 }
 
 // @behavior RT-086
@@ -2411,12 +2411,12 @@ fn a_path_ending_in_a_slash_names_only_a_directory() {
 // @behavior RT-093
 #[test]
 fn a_rename_of_a_file_onto_a_path_ending_in_a_slash_is_not_a_directory() {
-    let memory = tmpfs_with("file.txt", "granted");
-    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
+    let tmpfs = tmpfs_with("file.txt", "granted");
+    let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)]);
     assert_eq!(
         (
             guest.call_bare("rename_onto_itself_as_directory"),
-            contents(&host(&memory), "file.txt")
+            contents(&host(&tmpfs), "file.txt")
         ),
         (ERRNO_NOTDIR, Some(b"granted".to_vec())),
         "path_rename of `file.txt` onto `file.txt/` beneath a Mount through preview1 must \
@@ -2427,12 +2427,12 @@ fn a_rename_of_a_file_onto_a_path_ending_in_a_slash_is_not_a_directory() {
 // @behavior RT-090
 #[test]
 fn a_file_created_at_a_path_ending_in_a_slash_is_refused_as_a_directory() {
-    let memory = Arc::new(Tmpfs::new());
-    let mut guest = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)]);
+    let tmpfs = Arc::new(Tmpfs::new());
+    let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)]);
     assert_eq!(
         (
             guest.call("write_file", NEW_AS_DIRECTORY),
-            memory.entries().map(|entries| entries.len())
+            tmpfs.entries().map(|entries| entries.len())
         ),
         (ERRNO_ISDIR, Ok(0)),
         "path_open creating `new.txt/` beneath a Mount through preview1 must answer EISDIR and \
@@ -2451,10 +2451,10 @@ const RIGHTS_FD_READDIR: u64 = 1 << 14;
 /// What opening `path` with `oflags` and `fdflags` answers beneath a
 /// read-write Tmpfs holding `file.txt`, and the paths it holds after.
 fn open_flagged(path: (i32, i32), oflags: i32, fdflags: i32) -> (i32, Vec<String>) {
-    let memory = tmpfs_with("file.txt", "granted");
-    let errno = Guest::new(&[grant(memory.clone(), Access::ReadWrite, None)])
+    let tmpfs = tmpfs_with("file.txt", "granted");
+    let errno = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)])
         .call_flagged(path, oflags, fdflags);
-    let held = memory
+    let held = tmpfs
         .entries()
         .expect("the root must list")
         .into_iter()

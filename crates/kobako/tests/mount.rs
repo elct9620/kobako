@@ -25,7 +25,7 @@ const READ_NOTE: &str = r#"File.read("/data/note.txt")"#;
 const RESCUE_DENIED: &str =
     r#"begin; File.read("/data/note.txt"); rescue Errno::EACCES; "denied"; end"#;
 
-fn memory(contents: &str) -> Arc<Filesystem> {
+fn tmpfs(contents: &str) -> Arc<Filesystem> {
     Filesystem::new(Arc::new(
         [("note.txt", contents)].into_iter().collect::<Tmpfs>(),
     ))
@@ -34,7 +34,7 @@ fn memory(contents: &str) -> Arc<Filesystem> {
 fn sandbox_with_note() -> Option<Sandbox> {
     let mut sandbox = real_sandbox()?;
     sandbox
-        .mount("/data", memory("hello"), Access::Read)
+        .mount("/data", tmpfs("hello"), Access::Read)
         .expect("mount a Tmpfs at /data");
     Some(sandbox)
 }
@@ -99,7 +99,7 @@ fn a_mount_after_the_first_invocation_is_refused() {
 
     assert!(
         matches!(
-            sandbox.mount("/more", memory(""), Access::Read),
+            sandbox.mount("/more", tmpfs(""), Access::Read),
             Err(Error::Sealed(_))
         ),
         "Sandbox::mount after the first invocation must be refused as sealed"
@@ -115,7 +115,7 @@ fn a_mount_path_that_is_not_absolute_is_refused() {
     for at in ["data", "/data/../etc", "/data/", "/a//b"] {
         assert!(
             matches!(
-                sandbox.mount(at, memory(""), Access::Read),
+                sandbox.mount(at, tmpfs(""), Access::Read),
                 Err(Error::Argument(_))
             ),
             "Sandbox::mount at {at:?} must be refused as no absolute guest path"
@@ -131,7 +131,7 @@ fn a_path_mounted_twice_is_refused() {
     };
     assert!(
         matches!(
-            sandbox.mount("/data", memory(""), Access::Read),
+            sandbox.mount("/data", tmpfs(""), Access::Read),
             Err(Error::Argument(_))
         ),
         "Sandbox::mount at a path already mounted must be refused"
@@ -146,7 +146,7 @@ fn a_mount_nested_inside_another_is_refused() {
     };
     assert!(
         matches!(
-            sandbox.mount("/data/inner", memory(""), Access::Read),
+            sandbox.mount("/data/inner", tmpfs(""), Access::Read),
             Err(Error::Argument(_))
         ),
         "Sandbox::mount beneath a mounted path must be refused"
@@ -160,7 +160,7 @@ fn a_runtime_presenting_no_filesystem_refuses_the_mount() {
 
     assert!(
         matches!(
-            sandbox.mount("/data", memory(""), Access::Read),
+            sandbox.mount("/data", tmpfs(""), Access::Read),
             Err(Error::Setup(_))
         ),
         "Sandbox::mount over a runtime supporting no Mount must fail as Setup"
@@ -174,7 +174,7 @@ fn a_policy_refusing_an_open_denies_it_and_the_script_goes_on() {
         return;
     };
     sandbox
-        .mount_with_policy("/data", memory("hello"), Arc::new(Refuses))
+        .mount_with_policy("/data", tmpfs("hello"), Arc::new(Refuses))
         .unwrap();
     let value = sandbox.eval(RESCUE_DENIED).unwrap().value().unwrap();
 
@@ -193,7 +193,7 @@ fn a_context_replaces_a_mount_for_its_invocation_only() {
     };
     let replaced = sandbox
         .eval_with(READ_NOTE, |ctx| {
-            ctx.mount("/data", memory("other"), Access::Read)
+            ctx.mount("/data", tmpfs("other"), Access::Read)
         })
         .unwrap()
         .value()
@@ -333,7 +333,7 @@ fn a_context_cannot_mount_a_path_the_sandbox_never_mounted() {
     let Some(sandbox) = sandbox_with_note() else {
         return;
     };
-    let result = sandbox.eval_with("nil", |ctx| ctx.mount("/other", memory(""), Access::Read));
+    let result = sandbox.eval_with("nil", |ctx| ctx.mount("/other", tmpfs(""), Access::Read));
 
     assert!(
         matches!(result, Err(Error::Argument(_))),

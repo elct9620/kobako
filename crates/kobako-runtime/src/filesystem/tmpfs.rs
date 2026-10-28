@@ -11,7 +11,7 @@ use super::path::{ancestors, components, name, normalize_seed, parent};
 use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename};
 use crate::vfs::Dentry;
 
-/// Files and directories held in memory. Every Invocation it is handed to
+/// Files and directories held in tmpfs. Every Invocation it is handed to
 /// shares it, so what one writes the next reads. What its files hold
 /// together, and how many entries it holds, are bounded as a tmpfs mount
 /// bounds its size and its inodes, so a guest cannot grow it past what
@@ -433,8 +433,8 @@ impl Tmpfs {
         C: Into<Vec<u8>>,
         I: IntoIterator<Item = (P, C)>,
     {
-        let memory = Self::new();
-        let space = &memory.tree.space;
+        let tmpfs = Self::new();
+        let space = &tmpfs.tree.space;
         for (path, contents) in files {
             let path = normalize_seed(path.as_ref());
             if path.is_empty() {
@@ -443,7 +443,7 @@ impl Tmpfs {
             if path.split('/').any(|name| name == "..") {
                 return Err(SeedError::DotDot(path));
             }
-            let mut dir = memory.dir.clone();
+            let mut dir = tmpfs.dir.clone();
             for above in ancestors(&path) {
                 let next = dir
                     .state()
@@ -451,7 +451,7 @@ impl Tmpfs {
                     .entry(name(above).to_string())
                     .or_insert_with(|| {
                         space.inodes.add(1);
-                        Node::Directory(memory.new_directory(&dir))
+                        Node::Directory(tmpfs.new_directory(&dir))
                     })
                     .clone();
                 dir = match next {
@@ -470,7 +470,7 @@ impl Tmpfs {
                 Node::File(Content::seed(contents.into(), space)),
             );
         }
-        Ok(memory)
+        Ok(tmpfs)
     }
 }
 
@@ -724,9 +724,9 @@ mod tests {
     use super::*;
     use crate::vfs::through::{through, Through};
 
-    /// `memory` reached through the VFS.
-    fn at(memory: Tmpfs) -> Through {
-        through(Arc::new(memory))
+    /// `tmpfs` reached through the VFS.
+    fn at(tmpfs: Tmpfs) -> Through {
+        through(Arc::new(tmpfs))
     }
 
     fn read_all(fs: &Through, path: &str) -> Vec<u8> {
@@ -748,9 +748,9 @@ mod tests {
     // @behavior FS-001
     #[test]
     fn a_tmpfs_serves_the_files_it_was_seeded_with() {
-        let memory = at([("/config/app.yml", "name: kobako")].into_iter().collect());
+        let tmpfs = at([("/config/app.yml", "name: kobako")].into_iter().collect());
         assert_eq!(
-            read_all(&memory, "config/app.yml"),
+            read_all(&tmpfs, "config/app.yml"),
             b"name: kobako",
             "a file seeded into Tmpfs through FromIterator must read back its content"
         );
@@ -821,8 +821,8 @@ mod tests {
     // @behavior FS-002
     #[test]
     fn a_tmpfs_keeps_what_was_written() {
-        let memory = at(Tmpfs::new());
-        let mut file = memory
+        let tmpfs = at(Tmpfs::new());
+        let mut file = tmpfs
             .open(
                 "notes.txt",
                 &OpenOptions {
@@ -835,7 +835,7 @@ mod tests {
         file.write_at(b"kept", 0).expect("the write must land");
         drop(file);
         assert_eq!(
-            read_all(&memory, "notes.txt"),
+            read_all(&tmpfs, "notes.txt"),
             b"kept",
             "a file written through Tmpfs::open must read back from the same Tmpfs"
         );
@@ -843,28 +843,28 @@ mod tests {
 
     #[test]
     fn a_directory_with_entries_is_not_removed() {
-        let memory = at([("dir/file", "x")].into_iter().collect());
+        let tmpfs = at([("dir/file", "x")].into_iter().collect());
         assert_eq!(
-            memory.remove_dir("dir"),
+            tmpfs.remove_dir("dir"),
             Err(FilesystemError::DirectoryNotEmpty)
         );
-        assert_eq!(memory.remove_file("dir/file"), Ok(()));
-        assert_eq!(memory.remove_dir("dir"), Ok(()));
+        assert_eq!(tmpfs.remove_file("dir/file"), Ok(()));
+        assert_eq!(tmpfs.remove_dir("dir"), Ok(()));
         assert_eq!(
-            memory.symlink_metadata("dir"),
+            tmpfs.symlink_metadata("dir"),
             Err(FilesystemError::NotFound)
         );
     }
 
     #[test]
     fn a_renamed_directory_carries_its_entries() {
-        let memory = at([("old/inner/file", "x")].into_iter().collect());
-        memory
-            .rename("old", &memory, "new", Rename::Any)
+        let tmpfs = at([("old/inner/file", "x")].into_iter().collect());
+        tmpfs
+            .rename("old", &tmpfs, "new", Rename::Any)
             .expect("the rename must succeed");
-        assert_eq!(read_all(&memory, "new/inner/file"), b"x");
+        assert_eq!(read_all(&tmpfs, "new/inner/file"), b"x");
         assert_eq!(
-            memory.symlink_metadata("old"),
+            tmpfs.symlink_metadata("old"),
             Err(FilesystemError::NotFound)
         );
     }
@@ -884,12 +884,12 @@ mod tests {
     // @behavior FS-022
     #[test]
     fn a_write_past_a_tmpfs_size_is_refused() {
-        let memory: Tmpfs = [("file", "x")].into_iter().collect();
-        let memory = at(memory.with_size(Some(4)));
+        let tmpfs: Tmpfs = [("file", "x")].into_iter().collect();
+        let tmpfs = at(tmpfs.with_size(Some(4)));
         assert_eq!(
             (
-                writable(&memory, "file").write_at(b"four", 1),
-                read_all(&memory, "file")
+                writable(&tmpfs, "file").write_at(b"four", 1),
+                read_all(&tmpfs, "file")
             ),
             (Err(FilesystemError::StorageFull), b"x".to_vec()),
             "a write growing a Tmpfs's files past its limit through TmpfsFile::write_at must \
@@ -900,11 +900,11 @@ mod tests {
     // @behavior FS-096
     #[test]
     fn a_write_of_no_bytes_leaves_a_tmpfs_file_as_it_was() {
-        let memory = at([("file", "")].into_iter().collect());
+        let tmpfs = at([("file", "")].into_iter().collect());
         assert_eq!(
             (
-                writable(&memory, "file").write_at(b"", 1000),
-                read_all(&memory, "file")
+                writable(&tmpfs, "file").write_at(b"", 1000),
+                read_all(&tmpfs, "file")
             ),
             (Ok(0), Vec::new()),
             "an empty write past the end through TmpfsFile::write_at must answer 0 and leave \
@@ -915,8 +915,8 @@ mod tests {
     // @behavior FS-023
     #[test]
     fn a_tmpfs_holds_its_default_size() {
-        let memory = at(Tmpfs::new());
-        let mut file = writable(&memory, "file");
+        let tmpfs = at(Tmpfs::new());
+        let mut file = writable(&tmpfs, "file");
         let mib_64 = 64 * 1024 * 1024;
         assert_eq!(
             (file.set_len(mib_64), file.set_len(mib_64 + 1)),
@@ -928,9 +928,9 @@ mod tests {
     // @behavior FS-024
     #[test]
     fn a_tmpfs_without_a_size_grows_past_the_default() {
-        let memory = at(Tmpfs::new().with_size(None));
+        let tmpfs = at(Tmpfs::new().with_size(None));
         assert_eq!(
-            writable(&memory, "file").set_len(Tmpfs::DEFAULT_SIZE as u64 + 1),
+            writable(&tmpfs, "file").set_len(Tmpfs::DEFAULT_SIZE as u64 + 1),
             Ok(()),
             "a Tmpfs given no limit through Tmpfs::with_size(None) must grow past 64 MiB"
         );
@@ -939,13 +939,13 @@ mod tests {
     // @behavior FS-025
     #[test]
     fn a_removed_file_returns_its_space() {
-        let memory = at(Tmpfs::new().with_size(Some(4)));
-        writable(&memory, "first")
+        let tmpfs = at(Tmpfs::new().with_size(Some(4)));
+        writable(&tmpfs, "first")
             .write_at(b"four", 0)
             .expect("the first file must fit");
-        memory.remove_file("first").expect("the file must remove");
+        tmpfs.remove_file("first").expect("the file must remove");
         assert_eq!(
-            writable(&memory, "second").write_at(b"four", 0),
+            writable(&tmpfs, "second").write_at(b"four", 0),
             Ok(4),
             "the space a file removed through Tmpfs::remove_file held must be free for the next"
         );
@@ -956,15 +956,15 @@ mod tests {
     // @behavior FS-026
     #[test]
     fn a_file_grown_past_what_can_be_allocated_is_refused() {
-        let memory: Tmpfs = [("file", "x")].into_iter().collect();
-        let memory = at(memory.with_size(None));
-        let mut file = writable(&memory, "file");
+        let tmpfs: Tmpfs = [("file", "x")].into_iter().collect();
+        let tmpfs = at(tmpfs.with_size(None));
+        let mut file = writable(&tmpfs, "file");
         let unallocatable = isize::MAX as u64 + 1;
         assert_eq!(
             (
                 file.set_len(unallocatable),
                 file.write_at(b"x", unallocatable),
-                read_all(&memory, "file")
+                read_all(&tmpfs, "file")
             ),
             (
                 Err(FilesystemError::StorageFull),
@@ -978,9 +978,9 @@ mod tests {
 
     #[test]
     fn a_path_beneath_a_file_is_not_a_directory() {
-        let memory = at([("file", "x")].into_iter().collect());
+        let tmpfs = at([("file", "x")].into_iter().collect());
         assert_eq!(
-            memory.symlink_metadata("file/inner"),
+            tmpfs.symlink_metadata("file/inner"),
             Err(FilesystemError::NotADirectory)
         );
     }
@@ -1002,13 +1002,13 @@ mod tests {
     // @behavior FS-030
     #[test]
     fn a_tmpfs_holds_at_most_its_inodes() {
-        let memory = at(Tmpfs::new().with_nr_inodes(Some(3)));
+        let tmpfs = at(Tmpfs::new().with_nr_inodes(Some(3)));
         assert_eq!(
             (
-                create(&memory, "file"),
-                memory.create_dir("dir"),
-                create(&memory, "past"),
-                memory.create_dir("past_dir"),
+                create(&tmpfs, "file"),
+                tmpfs.create_dir("dir"),
+                create(&tmpfs, "past"),
+                tmpfs.create_dir("past_dir"),
             ),
             (
                 Ok(()),
@@ -1024,12 +1024,12 @@ mod tests {
     // @behavior FS-031
     #[test]
     fn a_tmpfs_inodes_follow_its_size() {
-        let memory = at(Tmpfs::new().with_size(Some(2 * 4096)));
+        let tmpfs = at(Tmpfs::new().with_size(Some(2 * 4096)));
         assert_eq!(
             (
-                create(&memory, "a"),
-                create(&memory, "b"),
-                create(&memory, "c")
+                create(&tmpfs, "a"),
+                create(&tmpfs, "b"),
+                create(&tmpfs, "c")
             ),
             (Ok(()), Ok(()), Err(FilesystemError::StorageFull)),
             "a Tmpfs given only a limit through Tmpfs::with_size must hold one entry for each \
@@ -1042,14 +1042,14 @@ mod tests {
     // @behavior FS-036
     #[test]
     fn a_tmpfs_appends_at_the_end_as_it_stands() {
-        let memory = at([("log", "a")].into_iter().collect());
-        let mut first = writable(&memory, "log");
-        let mut second = writable(&memory, "log");
+        let tmpfs = at([("log", "a")].into_iter().collect());
+        let mut first = writable(&tmpfs, "log");
+        let mut second = writable(&tmpfs, "log");
         assert_eq!(
             (
                 first.append(b"bb"),
                 second.append(b"ccc"),
-                read_all(&memory, "log")
+                read_all(&tmpfs, "log")
             ),
             (Ok((1, 2)), Ok((3, 3)), b"abbccc".to_vec()),
             "TmpfsFile::append through two handles on one file must land each at the end as it \
@@ -1060,13 +1060,13 @@ mod tests {
     // @behavior FS-035
     #[test]
     fn a_tmpfs_moves_only_what_a_rename_allows() {
-        let memory = at([("dir/inner", "x"), ("file", "y")].into_iter().collect());
+        let tmpfs = at([("dir/inner", "x"), ("file", "y")].into_iter().collect());
         assert_eq!(
             (
-                memory.rename("dir", &memory, "moved", Rename::File),
-                memory.rename("file", &memory, "moved", Rename::Directory),
-                memory.symlink_metadata("dir/inner").map(|m| m.file_type),
-                memory.symlink_metadata("file").map(|m| m.file_type),
+                tmpfs.rename("dir", &tmpfs, "moved", Rename::File),
+                tmpfs.rename("file", &tmpfs, "moved", Rename::Directory),
+                tmpfs.symlink_metadata("dir/inner").map(|m| m.file_type),
+                tmpfs.symlink_metadata("file").map(|m| m.file_type),
             ),
             (
                 Err(FilesystemError::CrossesDevices),
@@ -1084,20 +1084,18 @@ mod tests {
     // @behavior FS-034
     #[test]
     fn a_removed_directory_gives_its_inode_back() {
-        let memory = at(Tmpfs::new().with_nr_inodes(Some(3)));
-        memory
-            .create_dir("a")
-            .expect("the first directory must fit");
-        memory
+        let tmpfs = at(Tmpfs::new().with_nr_inodes(Some(3)));
+        tmpfs.create_dir("a").expect("the first directory must fit");
+        tmpfs
             .create_dir("b")
             .expect("the second directory must fit");
-        memory.remove_dir("a").expect("the directory must remove");
-        let after_removal = memory.create_dir("c");
-        memory
-            .rename("c", &memory, "b", Rename::Any)
+        tmpfs.remove_dir("a").expect("the directory must remove");
+        let after_removal = tmpfs.create_dir("c");
+        tmpfs
+            .rename("c", &tmpfs, "b", Rename::Any)
             .expect("a directory must replace an empty one");
         assert_eq!(
-            (after_removal, memory.create_dir("d")),
+            (after_removal, tmpfs.create_dir("d")),
             (Ok(()), Ok(())),
             "a directory removed through Tmpfs::remove_dir, or replaced through Tmpfs::rename, \
              must give its inode back"
@@ -1109,13 +1107,13 @@ mod tests {
     // @behavior FS-032
     #[test]
     fn a_removed_file_gives_its_inode_back_once_closed() {
-        let memory = at(Tmpfs::new().with_nr_inodes(Some(2)));
-        let handle = writable(&memory, "first");
-        memory.remove_file("first").expect("the file must remove");
-        let while_open = create(&memory, "second");
+        let tmpfs = at(Tmpfs::new().with_nr_inodes(Some(2)));
+        let handle = writable(&tmpfs, "first");
+        tmpfs.remove_file("first").expect("the file must remove");
+        let while_open = create(&tmpfs, "second");
         drop(handle);
         assert_eq!(
-            (while_open, create(&memory, "second")),
+            (while_open, create(&tmpfs, "second")),
             (Err(FilesystemError::StorageFull), Ok(())),
             "the inode of a file removed through Tmpfs::remove_file must stay taken while a \
              handle holds it, and be free once it closes"
@@ -1128,15 +1126,15 @@ mod tests {
     #[test]
     fn a_device_of_its_own_stands_apart_from_every_other_device() {
         let (first, second) = (Metadata::unique_device(), Metadata::unique_device());
-        let memory = at(Tmpfs::new())
+        let tmpfs = at(Tmpfs::new())
             .metadata()
             .expect("the root must stand")
             .dev;
         assert!(
-            [first, second, memory].iter().all(|dev| dev >> 63 == 1)
+            [first, second, tmpfs].iter().all(|dev| dev >> 63 == 1)
                 && first != second
-                && memory != first
-                && memory != second,
+                && tmpfs != first
+                && tmpfs != second,
             "devices from Metadata::unique_device and a Tmpfs's root must each set the top bit \
              and differ from one another"
         );
@@ -1163,21 +1161,21 @@ mod tests {
     #[test]
     fn a_tmpfs_holds_each_entry_under_its_own_name() {
         let held: Arc<Tmpfs> = Arc::new([("d/f", "x")].into_iter().collect());
-        let memory = through(held.clone());
+        let tmpfs = through(held.clone());
         for _ in 0..64 {
-            memory
+            tmpfs
                 .create_dir("n")
                 .expect("the new directory must be made");
-            memory
-                .rename("d", &memory, "n/d", Rename::Any)
+            tmpfs
+                .rename("d", &tmpfs, "n/d", Rename::Any)
                 .expect("the directory must move into the new one");
-            memory
-                .rename("n", &memory, "d", Rename::Any)
+            tmpfs
+                .rename("n", &tmpfs, "d", Rename::Any)
                 .expect("the new directory must take the old name");
         }
         let held = names(&held.dir);
         assert_eq!(
-            (held, read_all(&memory, &format!("{}f", "d/".repeat(65)))),
+            (held, read_all(&tmpfs, &format!("{}f", "d/".repeat(65)))),
             (
                 std::iter::repeat_n("d".to_string(), 65)
                     .chain(["f".to_string()])
@@ -1192,16 +1190,16 @@ mod tests {
     // @behavior FS-105
     #[test]
     fn a_directory_opened_from_a_tmpfs_follows_it_when_it_moves() {
-        let memory = at([("dir/.keep", "")].into_iter().collect());
-        let dir = memory.open_dir("dir").expect("the directory must open");
-        memory
-            .rename("dir", &memory, "moved", Rename::Any)
+        let tmpfs = at([("dir/.keep", "")].into_iter().collect());
+        let dir = tmpfs.open_dir("dir").expect("the directory must open");
+        tmpfs
+            .rename("dir", &tmpfs, "moved", Rename::Any)
             .expect("the directory must move");
         create(&dir, "made").expect("the file must be made");
         assert_eq!(
             (
-                memory.symlink_metadata("moved/made").map(|m| m.file_type),
-                memory.symlink_metadata("dir/made").map(|m| m.file_type)
+                tmpfs.symlink_metadata("moved/made").map(|m| m.file_type),
+                tmpfs.symlink_metadata("dir/made").map(|m| m.file_type)
             ),
             (Ok(FileType::File), Err(FilesystemError::NotFound)),
             "a file made through a directory Tmpfs::open_dir opened before Tmpfs::rename moved \
@@ -1212,12 +1210,10 @@ mod tests {
     // @behavior FS-106
     #[test]
     fn a_tmpfs_directory_removed_while_opened_makes_nothing_more() {
-        let memory = at(Tmpfs::new());
-        memory
-            .create_dir("dir")
-            .expect("the directory must be made");
-        let dir = memory.open_dir("dir").expect("the directory must open");
-        memory.remove_dir("dir").expect("the directory must remove");
+        let tmpfs = at(Tmpfs::new());
+        tmpfs.create_dir("dir").expect("the directory must be made");
+        let dir = tmpfs.open_dir("dir").expect("the directory must open");
+        tmpfs.remove_dir("dir").expect("the directory must remove");
         assert_eq!(
             (
                 create(&dir, "made"),
@@ -1239,16 +1235,16 @@ mod tests {
     // @behavior FS-107
     #[test]
     fn a_tmpfs_directory_never_moves_beneath_itself() {
-        let memory = at(Tmpfs::new());
-        memory.create_dir("a").expect("the directory must be made");
-        memory
+        let tmpfs = at(Tmpfs::new());
+        tmpfs.create_dir("a").expect("the directory must be made");
+        tmpfs
             .create_dir("a/b")
             .expect("the inner directory must be made");
-        let inner = memory.open_dir("a/b").expect("the directory must open");
+        let inner = tmpfs.open_dir("a/b").expect("the directory must open");
         assert_eq!(
             (
-                memory.rename("a", &inner, "a", Rename::Any),
-                memory.symlink_metadata("a/b").map(|m| m.file_type)
+                tmpfs.rename("a", &inner, "a", Rename::Any),
+                tmpfs.symlink_metadata("a/b").map(|m| m.file_type)
             ),
             (Err(FilesystemError::InvalidInput), Ok(FileType::Directory)),
             "Tmpfs::rename of a directory into one opened beneath it must answer InvalidInput \
@@ -1259,12 +1255,12 @@ mod tests {
     // @behavior FS-109
     #[test]
     fn a_rename_into_a_directory_of_another_tmpfs_crosses_devices() {
-        let memory = at([("file", "x")].into_iter().collect());
+        let tmpfs = at([("file", "x")].into_iter().collect());
         let other = at(Tmpfs::new());
         assert_eq!(
             (
-                memory.rename("file", &other, "file", Rename::Any),
-                read_all(&memory, "file")
+                tmpfs.rename("file", &other, "file", Rename::Any),
+                read_all(&tmpfs, "file")
             ),
             (Err(FilesystemError::CrossesDevices), b"x".to_vec()),
             "Tmpfs::rename into a directory of another Tmpfs must answer CrossesDevices and \
@@ -1277,25 +1273,21 @@ mod tests {
     // @behavior FS-115
     #[test]
     fn a_tmpfs_keeps_a_files_times_as_a_tmpfs_mounted_noatime_does() {
-        let memory = at(Tmpfs::new());
+        let tmpfs = at(Tmpfs::new());
         let options = OpenOptions {
             read: true,
             write: true,
             create: true,
             ..OpenOptions::default()
         };
-        let mut file = memory
-            .open("file", &options)
-            .expect("the file must be made");
+        let mut file = tmpfs.open("file", &options).expect("the file must be made");
         file.write_at(b"ab", 0).expect("the file must take a write");
         let made = file.metadata().expect("the file must report");
         file.read_at(&mut [0; 1], 0).expect("the file must read");
         std::thread::sleep(std::time::Duration::from_millis(10));
         file.write_at(b"c", 0)
             .expect("the file must take a write within its length");
-        let written = memory
-            .symlink_metadata("file")
-            .expect("the file must stand");
+        let written = tmpfs.symlink_metadata("file").expect("the file must stand");
         assert_eq!(
             (
                 written.accessed == made.accessed,
@@ -1311,15 +1303,11 @@ mod tests {
     // @behavior FS-116
     #[test]
     fn a_tmpfs_counts_a_directorys_names_as_a_tmpfs_does() {
-        let memory = at([("dir/file", "x")].into_iter().collect());
-        memory
-            .create_dir("dir/a")
-            .expect("a directory must be made");
-        memory
-            .create_dir("dir/b")
-            .expect("a directory must be made");
+        let tmpfs = at([("dir/file", "x")].into_iter().collect());
+        tmpfs.create_dir("dir/a").expect("a directory must be made");
+        tmpfs.create_dir("dir/b").expect("a directory must be made");
         let nlink = |path| {
-            memory
+            tmpfs
                 .symlink_metadata(path)
                 .expect("the entry must stand")
                 .nlink
@@ -1335,21 +1323,19 @@ mod tests {
     // @behavior FS-070
     #[test]
     fn a_tmpfs_gives_each_directory_it_makes_an_identity_of_its_own() {
-        let memory = at(Tmpfs::new());
-        memory
-            .create_dir("dir")
-            .expect("the directory must be made");
+        let tmpfs = at(Tmpfs::new());
+        tmpfs.create_dir("dir").expect("the directory must be made");
         let identity = |path| {
-            let metadata = memory
+            let metadata = tmpfs
                 .symlink_metadata(path)
                 .expect("the directory must stand");
             (metadata.dev, metadata.ino)
         };
         let before = identity("dir");
-        memory
-            .rename("dir", &memory, "moved", Rename::Any)
+        tmpfs
+            .rename("dir", &tmpfs, "moved", Rename::Any)
             .expect("the directory must move");
-        memory
+        tmpfs
             .create_dir("dir")
             .expect("another directory must be made");
         assert_eq!(

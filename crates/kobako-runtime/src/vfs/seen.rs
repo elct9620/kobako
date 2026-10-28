@@ -76,8 +76,8 @@ mod tests {
     use crate::mount::Mount;
     use crate::vfs::{self, Filesystem, OpenHow, Opened, Path};
 
-    fn path_over(memory: Arc<dyn Inode>, profile: Profile) -> Path {
-        let mount = Mount::new("/data", Filesystem::new(memory), Access::ReadWrite)
+    fn path_over(tmpfs: Arc<dyn Inode>, profile: Profile) -> Path {
+        let mount = Mount::new("/data", Filesystem::new(tmpfs), Access::ReadWrite)
             .expect("/data is a guest path");
         Path::root(mount, profile)
     }
@@ -139,9 +139,9 @@ mod tests {
     // @behavior RT-158
     #[test]
     fn a_time_another_posture_wrote_reaches_the_strongest_posture_as_the_epoch() {
-        let memory: Arc<dyn Inode> = Arc::new(Tmpfs::new());
-        write(&path_over(memory.clone(), Profile::Permissive), "file");
-        let hermetic = path_over(memory, Profile::Hermetic);
+        let tmpfs: Arc<dyn Inode> = Arc::new(Tmpfs::new());
+        write(&path_over(tmpfs.clone(), Profile::Permissive), "file");
+        let hermetic = path_over(tmpfs, Profile::Hermetic);
         assert_eq!(
             times(&vfs::metadata(&hermetic, "file").expect("the file must stand")),
             [Some(UNIX_EPOCH); 3],
