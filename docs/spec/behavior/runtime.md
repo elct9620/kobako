@@ -1018,7 +1018,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | an invocation handed a read-write Mount holding the directory `dir` and the file `file.txt` |
 | When | the guest removes and renames `dir/.`, `dir/..`, and `file.txt/..` |
-| Then | the removals answer EINVAL and the renames EBUSY, except ENOTDIR through the file, and `dir` stays |
+| Then | removing `dir/.` answers EINVAL and `dir/..` ENOTEMPTY, the renames EBUSY, except ENOTDIR through the file, and `dir` stays |
 
 ## `RT-103` A create of what already stands changes nothing
 
@@ -1727,7 +1727,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a read-write Bind Mount holding a directory and a link to it |
 | When | the guest removes and renames the link's path followed by `.` and by `..` |
-| Then | the removals answer EINVAL, the renames EBUSY, and the directory stays |
+| Then | removing with `.` answers EINVAL and with `..` ENOTEMPTY, the renames EBUSY, and the directory stays |
 
 ## `RT-162` A create through a trailing slash answers EISDIR before following a link
 

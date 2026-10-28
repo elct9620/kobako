@@ -82,6 +82,7 @@ const ERRNO_ISDIR: i32 = 31;
 const ERRNO_LOOP: i32 = 32;
 const ERRNO_NOENT: i32 = 44;
 const ERRNO_NOTDIR: i32 = 54;
+const ERRNO_NOTEMPTY: i32 = 55;
 const ERRNO_NOTSUP: i32 = 58;
 const ERRNO_ROFS: i32 = 69;
 const ERRNO_XDEV: i32 = 75;
@@ -1953,7 +1954,7 @@ fn a_path_ending_in_a_dot_is_neither_removed_nor_moved() {
         (
             [
                 ERRNO_INVAL,
-                ERRNO_INVAL,
+                ERRNO_NOTEMPTY,
                 ERRNO_BUSY,
                 ERRNO_BUSY,
                 ERRNO_NOTDIR,
@@ -1962,8 +1963,9 @@ fn a_path_ending_in_a_dot_is_neither_removed_nor_moved() {
             true
         ),
         "path_remove_directory of a path ending in . or .., and path_rename of one, beneath a \
-         Mount through preview1 must answer EINVAL and EBUSY as wasmtime-wasi does, or ENOTDIR \
-         where a file stands before the dot, and leave the directory in place"
+         Mount through preview1 must answer EINVAL for . and ENOTEMPTY for .. and EBUSY, as \
+         Linux does, or ENOTDIR where a file stands before the dot, and leave the directory in \
+         place"
     );
 }
 
@@ -2061,10 +2063,10 @@ fn a_path_ending_in_a_dot_through_a_link_is_neither_removed_nor_moved() {
     ];
     assert_eq!(
         (answers, host.0.join("real/inner").is_dir()),
-        ([ERRNO_INVAL, ERRNO_INVAL, ERRNO_BUSY, ERRNO_BUSY], true),
+        ([ERRNO_INVAL, ERRNO_NOTEMPTY, ERRNO_BUSY, ERRNO_BUSY], true),
         "path_remove_directory and path_rename of dir/. and dir/.., dir a host link to a \
-         directory beneath a Bind Mount, through preview1 must answer EINVAL and EBUSY, as \
-         Linux does, and leave the directory"
+         directory beneath a Bind Mount, through preview1 must answer EINVAL, ENOTEMPTY, and \
+         EBUSY, as Linux does, and leave the directory"
     );
 }
 

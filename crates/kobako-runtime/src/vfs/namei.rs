@@ -585,7 +585,14 @@ pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {
 
 /// Remove the empty directory `path` beneath `start`.
 pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
-    refuse_dot_end(start, path, FilesystemError::InvalidInput)?;
+    refuse_dot_end(
+        start,
+        path,
+        [
+            FilesystemError::InvalidInput,
+            FilesystemError::DirectoryNotEmpty,
+        ],
+    )?;
     let mut nd = filename_lookup(start, path, false, false)?;
     nd.check(Access::ReadWrite)?;
     nd.check_directory()?;
@@ -620,8 +627,9 @@ pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
 /// mounted devices. A directory moves only beneath a Mount that allows it,
 /// the Filesystem checking what it moves as it moves it.
 pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<(), Error> {
-    refuse_dot_end(from, from_path, FilesystemError::ResourceBusy)?;
-    refuse_dot_end(to, to_path, FilesystemError::ResourceBusy)?;
+    let busy = [FilesystemError::ResourceBusy, FilesystemError::ResourceBusy];
+    refuse_dot_end(from, from_path, busy.clone())?;
+    refuse_dot_end(to, to_path, busy)?;
     let mut source = filename_lookup(from, from_path, false, false)?;
     let mut target = filename_lookup(to, to_path, false, false)?;
     refuse_root(&source.name, FilesystemError::ResourceBusy)?;
@@ -770,16 +778,24 @@ pub(crate) fn vfs_unlink(
     inode.remove_file(victim)
 }
 
-/// Refuse a guest path ending in `.` or `..` as `refusal`, since it names
-/// no entry a call may remove or move. Linux looks up what stands before
-/// it first, following a link there as it follows one that is not the
-/// last name, so a missing or non-directory parent answers as itself.
-fn refuse_dot_end(start: &Path, path: &str, refusal: FilesystemError) -> Result<(), Error> {
+/// Refuse a guest path ending in `.` or `..` as the refusal `[dot,
+/// dotdot]` names for it, since it names no entry a call may remove or
+/// move, as Linux answers each by the kind of its last name. Linux looks
+/// up what stands before it first, following a link there as it follows
+/// one that is not the last name, so a missing or non-directory parent
+/// answers as itself.
+fn refuse_dot_end(
+    start: &Path,
+    path: &str,
+    [dot, dotdot]: [FilesystemError; 2],
+) -> Result<(), Error> {
     let trimmed = path.trim_end_matches('/');
     let (parent, last) = trimmed.rsplit_once('/').unwrap_or(("", trimmed));
-    if !matches!(last, "." | "..") {
-        return Ok(());
-    }
+    let refusal = match last {
+        "." => dot,
+        ".." => dotdot,
+        _ => return Ok(()),
+    };
     if !parent.is_empty()
         && filename_lookup(start, parent, true, false)?
             .found()?
