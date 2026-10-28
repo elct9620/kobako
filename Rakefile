@@ -74,17 +74,11 @@ Dir.glob("tasks/**/*.rake").each { |t| load t }
 # this only does real work on a clean clone or when the wasm sources change.
 task test: ["wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode", "wasm:build:json", "wasm:build:full"]
 
-# `gate` is the release gate's verification tier — the one place the
-# gate:* checks are enumerated, so membership stays deliberate (a stray
-# gate:*-named task never joins the release gate by accident). The default
-# and CI reference `gate`, never the list.
-desc "Run every gate:* verification check (the release gate's verification tier)."
-task gate: %w[crates:graph]
-
-# `crates:test` joins the canonical gate because the core envelope's only
-# pin lives there: the envelope has one implementation, so the golden
-# vectors in `crates/kobako-transport` are what the wire's consistency
-# guarantee rests on for that layer, and a default run that skipped them
-# would report green on an unverified wire. The guest crates' own units
-# stay in `wasm:test`, which carries no such claim.
-task default: %i[compile test crates:test rubocop steep gate]
+# `crates:test` joins the default because the core envelope's only pin
+# lives there: the envelope has one implementation, so the golden vectors
+# in `crates/kobako-transport` are what the wire's consistency guarantee
+# rests on for that layer, and a default run that skipped them would
+# report green on an unverified wire. The guest crates' own units stay in
+# `wasm:test`, which carries no such claim. `crates:graph` holds what no
+# test binary can: the build graphs the published crates promise.
+task default: %i[compile test crates:test crates:graph rubocop steep]

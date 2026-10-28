@@ -150,12 +150,12 @@ The gem bundles only the pure default; capability variants are Release assets de
 
 | Part | Rule |
 |---|---|
-| default task | compile, test, `crates:test`, rubocop, steep, `gate` |
-| `gate` | lists every `gate:*` check, in one place |
+| default task | compile, test, `crates:test`, `crates:graph`, rubocop, steep |
 | `crates:test` | in the default; it holds the envelope's only pin |
+| `crates:graph` | in the default; build graphs no test binary can host |
 | `wasm:test` | a separate CI step |
 
-The default task and CI reference `gate`, never its members, so joining it stays deliberate.
+A new check is a test beside what it guards; a task joins the default only when no test can host it.
 
 ### Commands
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop: the full default gate (compile + test + rubocop + steep + gate),
+# Stop: the full default task (`rake -P` lists it),
 # deferred while a benchmark is measuring so its multi-core spike does not
 # contend for cores and skew the run.
 set -euo pipefail
