@@ -6,15 +6,15 @@ require "minitest/test_task"
 Minitest::TestTask.create
 
 # Grouped subsets of the suite the main +test+ task already runs whole:
-# the release-tooling readers and the bench-gate logic, runnable alone
-# without the Guest Binary prerequisites +rake test+ chains.
+# the release tooling and the benchmarks, runnable alone without the Guest
+# Binary prerequisites +rake test+ chains; a test needing one skips.
 namespace :test do
-  desc "Run only the release-tooling unit suites (test/tasks/)."
+  desc "Run only the release-tooling suites (test/tasks/)."
   task :tasks do
     ruby "-Ilib", "-Itest", "-e", %(Dir["test/tasks/test_*.rb"].each { |f| require File.expand_path(f) })
   end
 
-  desc "Run only the bench-gate unit suites (test/bench/)."
+  desc "Run only the benchmark suites (test/bench/)."
   task :bench do
     ruby "-Ilib", "-Itest", "-e", %(Dir["test/bench/test_*.rb"].each { |f| require File.expand_path(f) })
   end

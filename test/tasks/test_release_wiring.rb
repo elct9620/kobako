@@ -49,7 +49,7 @@ class KobakoReleaseWiringTest < Minitest::Test
 
   def test_every_package_recorded_yields_no_violation
     assert_empty Reader.unrecorded_packages(config: CONFIG, manifest: MANIFEST),
-                 "a config whose packages the manifest all record must pass the manifest half of the gate"
+                 "a config whose packages the manifest all record must pass the manifest half of the check"
   end
 
   # ---------- Annotated version files ----------
