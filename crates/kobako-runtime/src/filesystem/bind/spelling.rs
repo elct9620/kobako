@@ -12,8 +12,8 @@ use std::io;
 use cap_std::fs::Dir;
 
 /// The name `parent` stores for the entry `name` reaches, a link reached
-/// as itself, or `None` when nothing is there.
-pub(super) fn stored_name(parent: &Dir, name: &str) -> io::Result<Option<String>> {
+/// as itself; `name` as given when nothing is there.
+pub(super) fn stored_name(parent: &Dir, name: &str) -> io::Result<String> {
     #[cfg(target_os = "macos")]
     {
         macos::stored_name(parent, name)
@@ -22,11 +22,7 @@ pub(super) fn stored_name(parent: &Dir, name: &str) -> io::Result<Option<String>
     {
         #[cfg(target_os = "linux")]
         if linux::matches_exactly(parent) {
-            return match parent.symlink_metadata(name) {
-                Ok(_) => Ok(Some(name.to_string())),
-                Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
-                Err(err) => Err(err),
-            };
+            return Ok(name.to_string());
         }
         stored_name_by_listing(parent, name)
     }
@@ -35,17 +31,17 @@ pub(super) fn stored_name(parent: &Dir, name: &str) -> io::Result<Option<String>
 /// The name a listing of `parent` holds for `name`: itself when listed,
 /// else the entry sharing its inode.
 #[cfg(not(target_os = "macos"))]
-fn stored_name_by_listing(parent: &Dir, name: &str) -> io::Result<Option<String>> {
+fn stored_name_by_listing(parent: &Dir, name: &str) -> io::Result<String> {
     let found = match parent.symlink_metadata(name) {
         Ok(found) => found,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(name.to_string()),
         Err(err) => return Err(err),
     };
     let mut names = Vec::new();
     for entry in parent.entries()? {
         let entry = entry?;
         if entry.file_name() == name {
-            return Ok(Some(name.to_string()));
+            return Ok(name.to_string());
         }
         names.push(entry);
     }
@@ -58,7 +54,6 @@ fn stored_name_by_listing(parent: &Dir, name: &str) -> io::Result<Option<String>
                 return entry
                     .file_name()
                     .into_string()
-                    .map(Some)
                     .map_err(|_| io::ErrorKind::InvalidData.into());
             }
         }
@@ -85,7 +80,7 @@ mod macos {
         data: [u8; 1024],
     }
 
-    pub(super) fn stored_name(parent: &Dir, name: &str) -> io::Result<Option<String>> {
+    pub(super) fn stored_name(parent: &Dir, name: &str) -> io::Result<String> {
         let path = CString::new(name).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
         let mut request = libc::attrlist {
             bitmapcount: libc::ATTR_BIT_MAP_COUNT,
@@ -119,7 +114,7 @@ mod macos {
         if answered != 0 {
             let err = io::Error::last_os_error();
             return match err.kind() {
-                io::ErrorKind::NotFound => Ok(None),
+                io::ErrorKind::NotFound => Ok(name.to_string()),
                 _ => Err(err),
             };
         }
@@ -133,9 +128,7 @@ mod macos {
             .zip(len)
             .and_then(|(start, len)| reply.data.get(start..start.checked_add(len)?))
             .ok_or(io::ErrorKind::InvalidData)?;
-        String::from_utf8(stored.to_vec())
-            .map(Some)
-            .map_err(|_| io::ErrorKind::InvalidData.into())
+        String::from_utf8(stored.to_vec()).map_err(|_| io::ErrorKind::InvalidData.into())
     }
 }
 
@@ -219,9 +212,9 @@ mod linux {
             let _ = std::fs::remove_dir_all(&path);
             assert_eq!(
                 answers,
-                (Some(Some("file".to_string())), Some(None)),
+                (Some("file".to_string()), Some("missing".to_string())),
                 "a name the host holds, spelled by listing its directory, must come back as \
-                 given, and a name it lacks as none"
+                 given, and a name it lacks as given too"
             );
         }
     }

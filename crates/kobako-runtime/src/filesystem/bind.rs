@@ -293,9 +293,7 @@ impl Inode for Bind {
 
     fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         self.at(dentry, |dir, name| {
-            Ok(spelling::stored_name(dir, name)
-                .map_err(to_error)?
-                .unwrap_or_else(|| name.to_string()))
+            spelling::stored_name(dir, name).map_err(to_error)
         })
     }
 
