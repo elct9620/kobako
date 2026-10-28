@@ -731,7 +731,7 @@ mod tests {
                 Err(FilesystemError::AlreadyExists),
                 Err(FilesystemError::AlreadyExists)
             ),
-            "an exclusive create and a create_dir at a dangling link a read-only Bind Layer \
+            "an exclusive create and a create_dir at a dangling link a lower Bind Layer \
              holds, through an Overlay, must find it already there"
         );
     }

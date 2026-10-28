@@ -97,10 +97,10 @@ impl OverlayFs {
         }
     }
 
-    /// What `make` builds at a name in the workdir, exchanged with the
-    /// whiteout at `name` in `dir`, which then goes, as overlayfs's
-    /// `ovl_create_over_whiteout` does.
-    fn over_whiteout<T>(
+    /// What `make` builds at a name in the workdir, exchanged with what
+    /// stands at `name` in `dir`, which then goes, as overlayfs's
+    /// `ovl_create_over_whiteout` and `ovl_clear_empty` exchange theirs.
+    fn exchange_in<T>(
         &self,
         dir: &OverlayPath,
         name: &str,
@@ -128,13 +128,13 @@ impl OverlayFs {
         if cleared.iter().any(|entry| !inner.is_whiteout(&entry.name)) {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
-        self.over_whiteout_dir(dir, name)
+        self.exchange_in_opaque_dir(dir, name)
     }
 
-    /// An empty directory marked opaque, exchanged with the one at `name`
-    /// in `dir`, which then goes.
-    fn over_whiteout_dir(&self, dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
-        self.over_whiteout(dir, name, |work, temp| {
+    /// An empty directory marked opaque, exchanged with what stands at
+    /// `name` in `dir`, which then goes.
+    fn exchange_in_opaque_dir(&self, dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
+        self.exchange_in(dir, name, |work, temp| {
             work.create_dir(temp)?;
             work.open_dir(temp)?.set_opaque()
         })
@@ -210,7 +210,7 @@ impl OverlayFs {
                 if !dir.is_whiteout(name) {
                     return dir.open(name, options);
                 }
-                self.over_whiteout(&dir, name, |work, temp| {
+                self.exchange_in(&dir, name, |work, temp| {
                     work.open(
                         temp,
                         &OpenOptions {
@@ -237,7 +237,7 @@ impl OverlayFs {
         let upper = self.upper()?;
         let dir = self.upper_dir(chain, upper)?;
         match dir.is_whiteout(name) {
-            true => self.over_whiteout_dir(&dir, name),
+            true => self.exchange_in_opaque_dir(&dir, name),
             false => dir.create_dir(name),
         }
     }

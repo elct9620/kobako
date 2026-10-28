@@ -74,11 +74,12 @@ impl OverlayPath {
     }
 
     /// Whether a whiteout stands at `name`; a Layer that is no Tmpfs
-    /// holds none.
+    /// holds none, and one whose directory cannot be held is read as
+    /// holding one, so nothing below shows through it.
     pub(super) fn is_whiteout(&self, name: &str) -> bool {
-        self.tmpfs().is_some_and(|tmpfs| {
-            let _held = self.shared();
-            tmpfs.is_whiteout(name)
+        self.tmpfs().is_some_and(|tmpfs| match self.shared() {
+            Ok(_held) => tmpfs.is_whiteout(name),
+            Err(_) => true,
         })
     }
 
