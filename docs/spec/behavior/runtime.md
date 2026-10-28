@@ -1812,3 +1812,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Bind Mount holding a file, and a link to the directory holding it |
 | When | the guest renames the file through the link onto its own path |
 | Then | the rename succeeds and changes nothing |
+
+## `RT-169` Every spelling of a name holds its one dentry
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-120` |
+| relates | `RT-094` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem storing `DIR/F`, and reaching each name by any case |
+| When | `DIR/F` is removed while a move of `dir/f` is under way |
+| Then | the removal waits for the move, then answers not found |

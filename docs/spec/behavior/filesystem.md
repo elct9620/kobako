@@ -39,7 +39,7 @@ both live in the upper and never show, so no name is reserved
 ## Includes
 
 - `crates/kobako-runtime/src/filesystem/*.rs`
-- `crates/kobako-runtime/src/filesystem/bind/stored_name.rs`
+- `crates/kobako-runtime/src/filesystem/bind/lookup.rs`
 
 ## `FS-001` A Tmpfs serves the files it was seeded with
 
@@ -820,7 +820,7 @@ both live in the upper and never show, so no name is reserved
 | Step | Statement |
 | --- | --- |
 | Given | a Bind over a host directory holding `dir/file` |
-| When | `file`, and a name `dir` lacks, are asked of `dir` for their stored spelling |
+| When | `file`, and a name `dir` lacks, are looked up in `dir` |
 | Then | each comes back as given |
 
 ## `FS-082` A Bind spells a name as a folding host stores it
@@ -832,7 +832,7 @@ both live in the upper and never show, so no name is reserved
 | Step | Statement |
 | --- | --- |
 | Given | a Bind over a macOS host directory folding case and Unicode form |
-| When | names are asked for their stored spelling in another case and form |
+| When | names are looked up in another case and form |
 | Then | each name it holds comes back as the host stores it |
 
 ## `FS-083` An Overlay spells a name as the Layer showing it stores it
@@ -844,7 +844,7 @@ both live in the upper and never show, so no name is reserved
 | Step | Statement |
 | --- | --- |
 | Given | an Overlay whose lower Layer folds case and stores names in lower case |
-| When | names it shows, and a new name beside them, are asked in upper case |
+| When | names it shows, and a new name beside them, are looked up in upper case |
 | Then | the names it holds come back in lower case, and the new name as given |
 
 ## `FS-084` A Bind spells a name as a folding Linux filesystem lists it
@@ -857,7 +857,7 @@ both live in the upper and never show, so no name is reserved
 | Step | Statement |
 | --- | --- |
 | Given | a Bind over a Linux host directory whose filesystem folds names |
-| When | a name is asked for its stored spelling in another case |
+| When | a name is looked up in another case |
 | Then | the name comes back as the directory's listing names it |
 
 ## `FS-085` A Filesystem without a device of its own takes one no other names

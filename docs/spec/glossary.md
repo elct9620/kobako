@@ -361,7 +361,7 @@ One directory a Filesystem holds, answering the calls about the names in it. A F
 
 ### Dentry
 
-One name of a Filesystem and the directory above it, made by the runtime alone. A name moved through the runtime takes its Dentry along, and one removed through it is dead. An Inode reads the name a call is about from its Dentry.
+One name of a Filesystem and the directory above it, made by the runtime alone. It carries the name as the directory stores it, so every spelling of one entry reaches the same Dentry. A name moved through the runtime takes its Dentry along, and one removed through it is dead. An Inode reads the name a call is about from its Dentry.
 
 ### Path
 

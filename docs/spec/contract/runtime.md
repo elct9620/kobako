@@ -617,15 +617,16 @@ pub trait Inode {
 }
 ```
 
-## `Inode::stored_name`
+## `Inode::lookup`
 
-The name a Dentry carries, spelled as this directory stores it, for a Policy
-to judge. A name it does not hold stays as given. A Filesystem matching names
-exactly answers the name itself.
+The name a Dentry carries, spelled as this directory stores it. The runtime
+keeps one Dentry per spelling it answers, so every spelling of one entry shares
+it. A name it does not hold stays as given. A Filesystem matching names exactly
+answers the name itself.
 
 ```rust
 pub trait Inode {
-    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
+    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
 }
 ```
 
