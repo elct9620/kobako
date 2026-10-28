@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::namei::{resolve, Resolved};
 use super::path::{Identity, Path};
-use super::{Error, SuperBlock};
+use super::{Error, Filesystem};
 use crate::filesystem::{
     Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename,
 };
@@ -19,7 +19,7 @@ pub(crate) struct Through(Path);
 
 /// The root of `filesystem`, mounted read-write.
 pub(crate) fn through(filesystem: Arc<dyn Inode>) -> Through {
-    let mount = Mount::new("/data", SuperBlock::new(filesystem), Access::ReadWrite)
+    let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
         .expect("/data is a guest path");
     Through(Path::root(mount, Profile::Permissive))
 }

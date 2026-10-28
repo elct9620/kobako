@@ -1,5 +1,5 @@
 //! One Layer's directory as an Overlay holds it: the directory and its
-//! dentry in the Layer's SuperBlock, as overlayfs holds each layer's
+//! dentry in the Layer's Filesystem, as overlayfs holds each layer's
 //! dentry and looks a name up beneath it with `lookup_one`, so the Layer
 //! is asked about a name through a dentry the VFS made, and a directory
 //! removed or moved through the Overlay is removed or moved in the
@@ -8,28 +8,28 @@
 use std::sync::Arc;
 
 use super::super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename};
-use crate::vfs::{Dentry, SuperBlock};
+use crate::vfs::{Dentry, Filesystem};
 
 #[derive(Clone)]
 pub(super) struct Lower {
-    super_block: Arc<SuperBlock>,
+    filesystem: Arc<Filesystem>,
     dir: Arc<dyn Inode>,
     dentry: Arc<Dentry>,
 }
 
 impl Lower {
-    /// The root of the Layer `super_block` stands for.
-    pub(super) fn root(super_block: &Arc<SuperBlock>) -> Self {
+    /// The root of the Layer `filesystem` stands for.
+    pub(super) fn root(filesystem: &Arc<Filesystem>) -> Self {
         Self {
-            dir: super_block.root().clone(),
-            dentry: super_block.dentries().root(),
-            super_block: super_block.clone(),
+            dir: filesystem.root().clone(),
+            dentry: filesystem.dentries().root(),
+            filesystem: filesystem.clone(),
         }
     }
 
     /// The dentry of `name` in this directory.
     fn child(&self, name: &str) -> Arc<Dentry> {
-        self.super_block.dentries().child(&self.dentry, name)
+        self.filesystem.dentries().child(&self.dentry, name)
     }
 
     pub(super) fn open(
@@ -45,7 +45,7 @@ impl Lower {
         Ok(Self {
             dir: self.dir.open_dir(&dentry)?,
             dentry,
-            super_block: self.super_block.clone(),
+            filesystem: self.filesystem.clone(),
         })
     }
 
@@ -75,7 +75,7 @@ impl Lower {
 
     pub(super) fn remove_dir(&self, name: &str) -> Result<(), FilesystemError> {
         self.dir.remove_dir(&self.child(name))?;
-        self.super_block.dentries().delete(&self.dentry, name);
+        self.filesystem.dentries().delete(&self.dentry, name);
         Ok(())
     }
 
@@ -98,7 +98,7 @@ impl Lower {
             &target.child(to),
             rename,
         )?;
-        let dentries = self.super_block.dentries();
+        let dentries = self.filesystem.dentries();
         dentries.delete(&target.dentry, to);
         dentries.rename(&self.dentry, from, &target.dentry, to);
         Ok(())

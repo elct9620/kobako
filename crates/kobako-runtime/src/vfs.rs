@@ -9,12 +9,12 @@
 
 mod dentry;
 mod entry;
+mod filesystem;
 mod namei;
 mod openat;
 mod path;
 mod seen;
 mod stat;
-mod super_block;
 #[cfg(test)]
 pub(crate) mod through;
 
@@ -23,10 +23,10 @@ use crate::mount::Denial;
 
 pub use dentry::Dentry;
 pub use entry::{create_dir, remove_dir, remove_file, rename};
+pub use filesystem::Filesystem;
 pub use openat::{open, OpenHow, Opened};
 pub use path::Path;
 pub use stat::{metadata, read_link, set_times, symlink_metadata};
-pub use super_block::SuperBlock;
 
 /// Linux's limits on a path, its terminating NUL counted, and on one name
 /// within it.

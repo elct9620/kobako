@@ -14,7 +14,7 @@ use kobako_runtime::filesystem::{
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{self, Dentry, OpenHow, Opened, Path, SuperBlock};
+use kobako_runtime::vfs::{self, Dentry, Filesystem, OpenHow, Opened, Path};
 use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Outcome, Preamble};
 
@@ -46,7 +46,7 @@ fn run(source: &str, grants: &[Grant], flags: Vec<Flag>) -> Option<Result<String
 
 fn mount(filesystem: Arc<dyn Inode>, access: Access) -> Grant {
     Grant::Mount(
-        Mount::new("/data", SuperBlock::new(filesystem), access).expect("/data is a guest path"),
+        Mount::new("/data", Filesystem::new(filesystem), access).expect("/data is a guest path"),
     )
 }
 
@@ -56,7 +56,7 @@ fn note_memory() -> Arc<Tmpfs> {
 
 /// The root of `filesystem` as the host reaches it through the VFS.
 fn host<F: Inode>(filesystem: &Arc<F>) -> Path {
-    let mount = Mount::new("/data", SuperBlock::new(filesystem.clone()), Access::Read)
+    let mount = Mount::new("/data", Filesystem::new(filesystem.clone()), Access::Read)
         .expect("/data is a guest path");
     Path::root(mount, Profile::Permissive)
 }

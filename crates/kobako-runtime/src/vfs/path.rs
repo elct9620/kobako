@@ -42,7 +42,7 @@ pub(crate) struct Step {
 #[derive(Clone)]
 pub struct Path {
     mount: Arc<Mount>,
-    /// Where the directory stands in its SuperBlock, which a Mount with a
+    /// Where the directory stands in its Filesystem, which a Mount with a
     /// Policy reaches it by again, and whether it was removed.
     dentry: Arc<Dentry>,
     /// The directory itself, which a call reaches wherever it moved.
@@ -59,8 +59,8 @@ impl Path {
     /// The root of `mount`, for an invocation running under `profile`.
     pub fn root(mount: Mount, profile: Profile) -> Self {
         Self {
-            dir: mount.super_block().root().clone(),
-            dentry: mount.super_block().dentries().root(),
+            dir: mount.filesystem().root().clone(),
+            dentry: mount.filesystem().dentries().root(),
             mount: Arc::new(mount),
             identity: None,
             profile,
@@ -117,7 +117,7 @@ impl Path {
     }
 
     fn is_root(&self) -> bool {
-        Arc::ptr_eq(&self.dentry, &self.mount.super_block().dentries().root())
+        Arc::ptr_eq(&self.dentry, &self.mount.filesystem().dentries().root())
     }
 
     /// Where a call through the directory starts, with each directory above
@@ -133,15 +133,15 @@ impl Path {
                 dentry: self.dentry.clone(),
             }]);
         }
-        let super_block = self.mount.super_block();
+        let filesystem = self.mount.filesystem();
         let mut chain = vec![Step {
-            dir: super_block.root().clone(),
+            dir: filesystem.root().clone(),
             name: String::new(),
-            dentry: super_block.dentries().root(),
+            dentry: filesystem.dentries().root(),
         }];
         for name in self.dentry.names() {
             let above = chain.last().expect("a chain holds the root");
-            let dentry = super_block.dentries().child(&above.dentry, &name);
+            let dentry = filesystem.dentries().child(&above.dentry, &name);
             let dir = match above.dir.open_dir(&dentry) {
                 Ok(dir) => dir,
                 Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {

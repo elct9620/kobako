@@ -240,7 +240,7 @@ no Guest can name.
 impl Mount {
     pub fn new(
         at: impl Into<String>,
-        super_block: Arc<SuperBlock>,
+        filesystem: Arc<Filesystem>,
         access: Access,
     ) -> Result<Self, MountPathError> {}
 }
@@ -274,48 +274,48 @@ impl Mount {
 }
 ```
 
-## `Mount::super_block`
+## `Mount::filesystem`
 
 The Filesystem instance the Mount places.
 
 ```rust
 impl Mount {
-    pub fn super_block(&self) -> &Arc<SuperBlock> {}
+    pub fn filesystem(&self) -> &Arc<Filesystem> {}
 }
 ```
 
-## `SuperBlock`
+## `Filesystem`
 
 One Filesystem instance. Its Mounts share the directories a Guest reaches
 beneath it, as bind mounts share a super block.
 
 ```rust
-pub struct SuperBlock {}
+pub struct Filesystem {}
 ```
 
-## `SuperBlock::new`
+## `Filesystem::new`
 
 The instance a Filesystem's root answers for.
 
 ```rust
-impl SuperBlock {
+impl Filesystem {
     pub fn new(root: Arc<dyn Inode>) -> Arc<Self> {}
 }
 ```
 
-## `SuperBlock::root`
+## `Filesystem::root`
 
 The Filesystem's root directory.
 
 ```rust
-impl SuperBlock {
+impl Filesystem {
     pub fn root(&self) -> &Arc<dyn Inode> {}
 }
 ```
 
 ## `Dentry`
 
-One name of a SuperBlock, made by the VFS alone. A Filesystem reads the name
+One name of a Filesystem, made by the VFS alone. A Filesystem reads the name
 a call is about from it.
 
 ```rust
@@ -1021,12 +1021,12 @@ impl Overlay {
 
 ## `Overlay::layer`
 
-This Overlay with a SuperBlock as a new Layer beneath the ones already added,
-allowing the given access there.
+This Overlay with a Filesystem instance as a new Layer beneath the ones
+already added, allowing the given access there.
 
 ```rust
 impl Overlay {
-    pub fn layer(self, super_block: Arc<SuperBlock>, access: Access) -> Self {}
+    pub fn layer(self, filesystem: Arc<Filesystem>, access: Access) -> Self {}
 }
 ```
 

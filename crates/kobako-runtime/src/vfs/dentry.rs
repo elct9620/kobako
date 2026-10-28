@@ -1,4 +1,4 @@
-//! The names of one SuperBlock a guest has reached, each kept by the
+//! The names of one Filesystem a guest has reached, each kept by the
 //! directory above it and its name there, as Linux's dcache keeps its
 //! dentries: a directory moved through the VFS takes every one beneath it
 //! along, and one removed or replaced through it is dead.
@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-/// One name of a SuperBlock, and where it stands now. Only the VFS makes
+/// One name of a Filesystem, and where it stands now. Only the VFS makes
 /// one, so a Filesystem reads the name a call is about from it.
 pub struct Dentry {
     state: Mutex<State>,
@@ -41,7 +41,7 @@ impl Dentry {
         self.state().name.clone()
     }
 
-    /// Each name from the SuperBlock's root down to this directory.
+    /// Each name from the Filesystem's root down to this directory.
     pub(crate) fn names(&self) -> Vec<String> {
         let mut names = Vec::new();
         let mut at = {
@@ -64,7 +64,7 @@ impl Dentry {
     }
 }
 
-/// Every directory of one SuperBlock a guest still holds, by the directory
+/// Every directory of one Filesystem a guest still holds, by the directory
 /// above it and its name there.
 pub(crate) struct Dentries {
     root: Arc<Dentry>,
@@ -172,7 +172,7 @@ mod tests {
     use crate::mount::Mount;
     use crate::profile::Profile;
     use crate::vfs::through::{through, Through};
-    use crate::vfs::{self, OpenHow, Opened, Path, SuperBlock};
+    use crate::vfs::{self, Filesystem, OpenHow, Opened, Path};
 
     /// A Filesystem answering each call by the path from its root, as one
     /// written in Ruby does, so a directory it opened reaches whatever
@@ -262,15 +262,15 @@ mod tests {
         }
     }
 
-    fn by_path(memory: &Arc<Tmpfs>) -> Arc<SuperBlock> {
-        SuperBlock::new(Arc::new(ByPath {
+    fn by_path(memory: &Arc<Tmpfs>) -> Arc<Filesystem> {
+        Filesystem::new(Arc::new(ByPath {
             root: through(memory.clone()),
             at: String::new(),
         }))
     }
 
-    fn root_of(super_block: &Arc<SuperBlock>) -> Path {
-        let mount = Mount::new("/data", super_block.clone(), Access::ReadWrite)
+    fn root_of(filesystem: &Arc<Filesystem>) -> Path {
+        let mount = Mount::new("/data", filesystem.clone(), Access::ReadWrite)
             .expect("/data is a guest path");
         Path::root(mount, Profile::Permissive)
     }
@@ -329,7 +329,7 @@ mod tests {
             vfs::create_dir(&dir, "made"),
             Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
             "vfs::create_dir through a directory opened beneath one Mount, once vfs::remove_dir \
-             removed it beneath another Mount of the same SuperBlock, must answer NotFound"
+             removed it beneath another Mount of the same Filesystem, must answer NotFound"
         );
     }
 }

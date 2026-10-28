@@ -12,7 +12,7 @@ use kobako_runtime::filesystem::{
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{self, Dentry, OpenHow, Opened, Path, SuperBlock};
+use kobako_runtime::vfs::{self, Dentry, Filesystem, OpenHow, Opened, Path};
 use wasmtime::{Instance, Module, Store};
 
 use crate::cache::shared_engine;
@@ -64,7 +64,7 @@ macro_rules! opens_directories {
 fn host<F: Inode>(filesystem: &Arc<F>) -> Path {
     let mount = Mount::new(
         "/data",
-        SuperBlock::new(filesystem.clone()),
+        Filesystem::new(filesystem.clone()),
         Access::ReadWrite,
     )
     .expect("/data is a guest path");
@@ -420,7 +420,7 @@ fn build_options(set: impl FnOnce(&mut OpenOptions)) -> OpenOptions {
 
 fn grant(filesystem: Arc<dyn Inode>, access: Access, policy: Option<Arc<dyn Policy>>) -> Grant {
     let mount =
-        Mount::new("/data", SuperBlock::new(filesystem), access).expect("/data is a guest path");
+        Mount::new("/data", Filesystem::new(filesystem), access).expect("/data is a guest path");
     Grant::Mount(match policy {
         Some(policy) => mount.with_policy(policy),
         None => mount,
@@ -1068,8 +1068,8 @@ fn a_directory_without_an_identity_is_not_reached_again_beneath_a_policy() {
 fn an_overlay_directory_takes_one_descriptor_however_many_layers_it_spans() {
     let upper: Arc<dyn Inode> = tmpfs_with("dir/upper", "u");
     let overlay = Overlay::new()
-        .layer(SuperBlock::new(upper), Access::ReadWrite)
-        .layer(SuperBlock::new(file_and_directory()), Access::Read);
+        .layer(Filesystem::new(upper), Access::ReadWrite)
+        .layer(Filesystem::new(file_and_directory()), Access::Read);
     let mut guest = Guest::holding_at_most(
         Some(6),
         &[grant(Arc::new(overlay), Access::ReadWrite, None)],
@@ -1094,8 +1094,8 @@ fn a_directory_two_layers_hold_is_reached_through_its_descriptor() {
     let upper: Arc<dyn Inode> = tmpfs_with("dir/upper", "u");
     let lower: Arc<dyn Inode> = file_and_directory();
     let overlay = Overlay::new()
-        .layer(SuperBlock::new(upper), Access::ReadWrite)
-        .layer(SuperBlock::new(lower), Access::Read);
+        .layer(Filesystem::new(upper), Access::ReadWrite)
+        .layer(Filesystem::new(lower), Access::Read);
     let mut guest = Guest::new(&[grant(Arc::new(overlay), Access::ReadWrite, None)]);
     assert_eq!(
         (guest.call_bare("open_dir"), guest.call_bare("stat_inner")),
@@ -2540,8 +2540,8 @@ impl LinkedBeneath {
         let filesystem: Arc<dyn Inode> = if overlay {
             Arc::new(
                 Overlay::new()
-                    .layer(SuperBlock::new(directory), Access::ReadWrite)
-                    .layer(SuperBlock::new(Arc::new(Tmpfs::new())), Access::Read),
+                    .layer(Filesystem::new(directory), Access::ReadWrite)
+                    .layer(Filesystem::new(Arc::new(Tmpfs::new())), Access::Read),
             )
         } else {
             directory

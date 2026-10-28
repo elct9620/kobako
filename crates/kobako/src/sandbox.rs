@@ -33,7 +33,7 @@ use crate::snippet;
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::grant::GrantKind;
 use kobako_runtime::mount::{Mount, Policy};
-use kobako_runtime::vfs::SuperBlock;
+use kobako_runtime::vfs::Filesystem;
 
 mod context;
 mod options;
@@ -196,7 +196,7 @@ impl Sandbox {
     pub fn mount(
         &mut self,
         at: &str,
-        filesystem: Arc<SuperBlock>,
+        filesystem: Arc<Filesystem>,
         access: Access,
     ) -> Result<(), Error> {
         self.register_mount(Mount::new(at, filesystem, access)?)
@@ -208,7 +208,7 @@ impl Sandbox {
     pub fn mount_with_policy(
         &mut self,
         at: &str,
-        filesystem: Arc<SuperBlock>,
+        filesystem: Arc<Filesystem>,
         policy: Arc<dyn Policy>,
     ) -> Result<(), Error> {
         self.register_mount(Mount::new(at, filesystem, Access::ReadWrite)?.with_policy(policy))

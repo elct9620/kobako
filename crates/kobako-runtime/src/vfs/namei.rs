@@ -37,7 +37,7 @@ pub(crate) fn names_directory(path: &str) -> bool {
 pub(crate) struct Resolved {
     pub(crate) mount: Arc<Mount>,
     pub(crate) base: Arc<dyn Inode>,
-    /// Where `base` stands in its SuperBlock.
+    /// Where `base` stands in its Filesystem.
     pub(crate) dentry: Arc<Dentry>,
     pub(crate) name: String,
     /// The path from the Mount's root, each name as the guest gave it.
@@ -57,7 +57,7 @@ impl Resolved {
     /// a call is about.
     pub(crate) fn child(&self) -> Arc<Dentry> {
         self.mount
-            .super_block()
+            .filesystem()
             .dentries()
             .child(&self.dentry, &self.name)
     }
@@ -156,7 +156,7 @@ impl Walk {
 
     /// The dentry of `name` in the directory the walk stands in.
     fn child(&self, name: &str) -> Arc<Dentry> {
-        self.mount.super_block().dentries().child(
+        self.mount.filesystem().dentries().child(
             &self.frames.last().expect("a walk stands somewhere").dentry,
             name,
         )

@@ -24,7 +24,7 @@ use super::super::path::{beneath_itself, is_beneath, join};
 use super::super::{
     Access, DirEntry, File, FileType, FilesystemError, Metadata, OpenOptions, Rename,
 };
-use crate::vfs::SuperBlock;
+use crate::vfs::Filesystem;
 
 /// The prefix of a whiteout, and of every name reserved for a marker.
 const WHITEOUT: &str = ".wh.";
@@ -33,7 +33,7 @@ const OPAQUE: &str = ".wh..wh..opq";
 
 #[derive(Clone)]
 struct Layer {
-    super_block: Arc<SuperBlock>,
+    filesystem: Arc<Filesystem>,
     access: Access,
 }
 
@@ -250,11 +250,8 @@ impl Stack {
         self.upper().is_ok_and(|upper| level[upper].is_none())
     }
 
-    pub(super) fn push(&mut self, super_block: Arc<SuperBlock>, access: Access) {
-        self.layers.push(Layer {
-            super_block,
-            access,
-        });
+    pub(super) fn push(&mut self, filesystem: Arc<Filesystem>, access: Access) {
+        self.layers.push(Layer { filesystem, access });
     }
 
     /// The chain at the root of the view, every Layer's root merged down to
@@ -266,7 +263,7 @@ impl Stack {
                 level: below_opaque_cut(
                     self.layers
                         .iter()
-                        .map(|layer| Some(Lower::root(&layer.super_block)))
+                        .map(|layer| Some(Lower::root(&layer.filesystem)))
                         .collect(),
                 )?,
             }],

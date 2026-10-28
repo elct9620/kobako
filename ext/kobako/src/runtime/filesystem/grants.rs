@@ -11,7 +11,7 @@ use kobako_runtime::filesystem::Access;
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
 
-use super::{to_access, to_super_block};
+use super::{to_access, to_filesystem};
 use crate::runtime::pinned_value::PinnedValue;
 use crate::runtime::{escape, gvl};
 
@@ -31,7 +31,7 @@ fn to_mount(at: Value, access: Value, filesystem: Value) -> Result<Mount, Magnus
     let ruby = Ruby::get().expect("Ruby thread");
     let at = RString::try_convert(at)?.to_string()?;
     let access = to_access(access)?;
-    Mount::new(at, to_super_block(filesystem)?, access)
+    Mount::new(at, to_filesystem(filesystem)?, access)
         .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))
 }
 

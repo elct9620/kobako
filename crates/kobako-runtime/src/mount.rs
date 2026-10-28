@@ -7,7 +7,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::filesystem::{Access, FilesystemError};
-use crate::vfs::SuperBlock;
+use crate::vfs::Filesystem;
 
 /// The Host App's decision for one path a guest opens or changes, made in
 /// a Mount's access's place.
@@ -32,7 +32,7 @@ pub enum Denial {
 pub struct Mount {
     at: String,
     access: Access,
-    super_block: Arc<SuperBlock>,
+    filesystem: Arc<Filesystem>,
     policy: Option<Arc<dyn Policy>>,
 }
 
@@ -63,11 +63,11 @@ fn is_guest_path(at: &str) -> bool {
 }
 
 impl Mount {
-    /// A Mount of `super_block` at `at`, refused unless `at` is an absolute
+    /// A Mount of `filesystem` at `at`, refused unless `at` is an absolute
     /// guest path, which every path the Mount answers for is built on.
     pub fn new(
         at: impl Into<String>,
-        super_block: Arc<SuperBlock>,
+        filesystem: Arc<Filesystem>,
         access: Access,
     ) -> Result<Self, MountPathError> {
         let at = at.into();
@@ -77,7 +77,7 @@ impl Mount {
         Ok(Self {
             at,
             access,
-            super_block,
+            filesystem,
             policy: None,
         })
     }
@@ -97,8 +97,8 @@ impl Mount {
     }
 
     /// The Filesystem instance this Mount places.
-    pub fn super_block(&self) -> &Arc<SuperBlock> {
-        &self.super_block
+    pub fn filesystem(&self) -> &Arc<Filesystem> {
+        &self.filesystem
     }
 
     /// Whether a change beneath this Mount may be allowed at all: it was made

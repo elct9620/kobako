@@ -329,7 +329,7 @@ open or change at a path ─> Policy ─┬─ allows -> the call proceeds
 
 ### Filesystem
 
-The files and directories behind a Mount. It answers every call the guest makes beneath that Mount's path, and every Invocation reaches the same one. kobako ships three, and a Host App may bring its own or wrap another.
+The files and directories behind a Mount, and the names reached in them. It answers every call the guest makes beneath that Mount's path, and every Invocation reaches the same one. Its Mounts share those names, as Linux's `super_block` does, so a name moved beneath one is moved beneath all. kobako ships three, and a Host App may bring its own or wrap another.
 
 ```
 Bind     -> a host directory; nothing outside it is reachable
@@ -359,17 +359,13 @@ later call -> same identity at its path ─┬─ yes -> proceeds
 
 One file or directory a Filesystem holds, answering the calls about the names in it. A Filesystem is written as its Inodes, as Linux writes one as its `inode_operations`. The runtime asks an Inode about one name at a time.
 
-### SuperBlock
-
-One Filesystem instance and the names reached in it. Every Mount of the instance shares it, so a name moved beneath one is moved beneath all.
-
 ### Dentry
 
-One name of a SuperBlock and the directory above it, made by the runtime alone. A name moved through the runtime takes its Dentry along, and one removed through it is dead. An Inode reads the name a call is about from its Dentry.
+One name of a Filesystem and the directory above it, made by the runtime alone. A name moved through the runtime takes its Dentry along, and one removed through it is dead. An Inode reads the name a call is about from its Dentry.
 
 ### Path
 
-A directory the guest reached beneath a Mount, as the Mount, its SuperBlock, and the Dentry naming it. The runtime walks a guest path from one, one name at a time.
+A directory the guest reached beneath a Mount, as the Mount, its Filesystem, and the Dentry naming it. The runtime walks a guest path from one, one name at a time.
 
 ```
 Path = Mount + Dentry ─▶ Inode ─▶ the next Path

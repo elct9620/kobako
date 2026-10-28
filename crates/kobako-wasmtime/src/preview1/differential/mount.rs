@@ -23,7 +23,7 @@ use kobako_runtime::filesystem::Bind;
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{SuperBlock, PATH_MAX};
+use kobako_runtime::vfs::{Filesystem, PATH_MAX};
 use wasmtime::{Linker, Module, Store};
 use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::{FsPerms, WasiCtxBuilder};
@@ -392,7 +392,7 @@ fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
     };
     let directory = Bind::new(&host.0).expect("the host directory must open");
     let grant = Grant::Mount(
-        Mount::new(AT, SuperBlock::new(Arc::new(directory)), Access::ReadWrite)
+        Mount::new(AT, Filesystem::new(Arc::new(directory)), Access::ReadWrite)
             .expect("AT is a guest path"),
     );
     let wasi = Wasi::for_invocation(&config, &[], &[grant]).expect("WASI context must build");

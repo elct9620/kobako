@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::mount::{Mount, Policy};
-use kobako_runtime::vfs::SuperBlock;
+use kobako_runtime::vfs::Filesystem;
 
 use crate::catalog::Catalog;
 use crate::dispatch::Resolutions;
@@ -52,7 +52,7 @@ impl Context<'_> {
     pub fn mount(
         &mut self,
         at: &str,
-        filesystem: Arc<SuperBlock>,
+        filesystem: Arc<Filesystem>,
         access: Access,
     ) -> Result<(), Error> {
         self.replace_mount(Mount::new(at, filesystem, access)?)
@@ -63,7 +63,7 @@ impl Context<'_> {
     pub fn mount_with_policy(
         &mut self,
         at: &str,
-        filesystem: Arc<SuperBlock>,
+        filesystem: Arc<Filesystem>,
         policy: Arc<dyn Policy>,
     ) -> Result<(), Error> {
         self.replace_mount(Mount::new(at, filesystem, Access::ReadWrite)?.with_policy(policy))
