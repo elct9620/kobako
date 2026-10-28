@@ -20,11 +20,11 @@ pub fn symlink_metadata(start: &Path, path: &str) -> Result<Metadata, Error> {
 }
 
 fn stat(start: &Path, path: &str, follow: bool) -> Result<Metadata, Error> {
-    let mut filename_lookupd = filename_lookup(start, path, follow, false)?;
+    let mut nd = filename_lookup(start, path, follow, false)?;
     // A link the walk did not follow at the end is one swapped in since,
     // so it is reported as itself rather than followed.
-    filename_lookupd.check_directory()?;
-    Ok(mask_times(filename_lookupd.found()?, start.profile()))
+    nd.check_directory()?;
+    Ok(mask_times(nd.found()?, start.profile()))
 }
 
 /// A guest never reads where a link points, so reading one is

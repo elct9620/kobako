@@ -45,14 +45,14 @@ impl KernPath {
         path: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        let resolved = self.lookup(path)?;
-        resolved.base().open(&resolved.child(), options)
+        let nd = self.lookup(path)?;
+        nd.base().open(&nd.child(), options)
     }
 
     pub(crate) fn open_dir(&self, path: &str) -> Result<Self, FilesystemError> {
-        let resolved = self.lookup(path)?;
-        let dentry = resolved.child();
-        let dir = resolved.base().open_dir(&dentry)?;
+        let nd = self.lookup(path)?;
+        let dentry = nd.child();
+        let dir = nd.base().open_dir(&dentry)?;
         let identity = Identity::of(&dir.metadata()?);
         Ok(Self(self.0.with_directory(dir, dentry, identity)))
     }
@@ -68,18 +68,18 @@ impl KernPath {
         if path.is_empty() {
             return self.metadata();
         }
-        let mut resolved = self.lookup(path)?;
-        resolved.found()
+        let mut nd = self.lookup(path)?;
+        nd.found()
     }
 
     pub(crate) fn stored_name(&self, path: &str) -> Result<String, FilesystemError> {
-        let resolved = self.lookup(path)?;
-        resolved.base().stored_name(&resolved.child())
+        let nd = self.lookup(path)?;
+        nd.base().stored_name(&nd.child())
     }
 
     pub(crate) fn read_link(&self, path: &str) -> Result<String, FilesystemError> {
-        let resolved = self.lookup(path)?;
-        resolved.base().read_link(&resolved.child())
+        let nd = self.lookup(path)?;
+        nd.base().read_link(&nd.child())
     }
 
     pub(crate) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -87,18 +87,18 @@ impl KernPath {
     }
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        let resolved = self.lookup(path)?;
-        resolved.base().create_dir(&resolved.child())
+        let nd = self.lookup(path)?;
+        nd.base().create_dir(&nd.child())
     }
 
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        let resolved = self.lookup(path)?;
-        resolved.base().remove_dir(&resolved.child())
+        let nd = self.lookup(path)?;
+        nd.base().remove_dir(&nd.child())
     }
 
     pub(crate) fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        let resolved = self.lookup(path)?;
-        resolved.base().remove_file(&resolved.child())
+        let nd = self.lookup(path)?;
+        nd.base().remove_file(&nd.child())
     }
 
     /// Move `from` beneath this directory to `to` beneath `to_dir`, as
