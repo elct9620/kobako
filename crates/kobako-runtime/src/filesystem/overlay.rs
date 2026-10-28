@@ -1747,6 +1747,56 @@ mod tests {
         }
     }
 
+    /// A Tmpfs answering a lookup of `dir` with an I/O failure, though it
+    /// opens `dir` as any other directory.
+    struct LooksUpNoDir(Tmpfs);
+
+    impl Inode for LooksUpNoDir {
+        holds_no_links!();
+        matches_names_exactly!();
+
+        fn open(
+            &self,
+            dentry: &Dentry,
+            options: &OpenOptions,
+        ) -> Result<Box<dyn File>, FilesystemError> {
+            self.0.open(dentry, options)
+        }
+
+        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            if dentry.name() == "dir" {
+                return Err(FilesystemError::Other(
+                    "dir cannot be looked up".to_string(),
+                ));
+            }
+            self.0.symlink_metadata(dentry)
+        }
+
+        opens_directories!(0);
+
+        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.0.create_dir(dentry)
+        }
+
+        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.0.remove_dir(dentry)
+        }
+
+        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.0.remove_file(dentry)
+        }
+
+        fn rename(
+            &self,
+            from: &Dentry,
+            _to_dir: &dyn Inode,
+            to: &Dentry,
+            rename: Rename,
+        ) -> Result<(), FilesystemError> {
+            self.0.rename(from, &self.0, to, rename)
+        }
+    }
+
     /// A Tmpfs whose `file` is gone after its first lookup, as a host
     /// directory another process changes mid-call.
     struct Vanishes {
@@ -2084,6 +2134,22 @@ mod tests {
             b"lowest",
             "a file read through Overlay::open from a lowest Layer that cannot read its markers \
              must read, since no Layer lies below for a marker to hide"
+        );
+    }
+
+    // A directory only one Layer shows has nothing to merge or hide, so the
+    // walk opens it as that Layer does, as overlayfs leaves it unmerged.
+    // @behavior FS-122
+    #[test]
+    fn a_directory_one_layer_shows_is_walked_without_a_lookup() {
+        let only: Tmpfs = [("dir/file", "only")].into_iter().collect();
+        let overlay =
+            at(Overlay::new().layer(Filesystem::new(Arc::new(LooksUpNoDir(only))), Access::Read));
+        assert_eq!(
+            read(&overlay, "dir/file"),
+            b"only",
+            "a file read through Overlay::open beneath a directory only one Layer shows, that \
+             Layer answering no lookup of the directory, must read its content"
         );
     }
 

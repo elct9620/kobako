@@ -155,6 +155,21 @@ fn shows_below(level: &Level, index: usize) -> bool {
     level[index + 1..].iter().any(Option::is_some)
 }
 
+/// The one Layer showing the directory `level`, if no other does. Nothing
+/// there merges or hides, so the Layer's own directory answers for each
+/// name beneath, opened as that Layer opens one, as overlayfs leaves a
+/// directory only one layer holds unmerged.
+fn only_shown(level: &Level) -> Option<(usize, &Lower)> {
+    let mut shown = level
+        .iter()
+        .enumerate()
+        .filter_map(|(index, dir)| Some((index, dir.as_ref()?)));
+    match (shown.next(), shown.next()) {
+        (Some(only), None) => Some(only),
+        _ => None,
+    }
+}
+
 /// The whiteout hiding `name`, beside it in its directory.
 fn whiteout(name: &str) -> String {
     format!("{WHITEOUT}{name}")
@@ -296,6 +311,15 @@ impl Stack {
     pub(super) fn enter(&self, chain: &mut Chain, name: &str) -> Result<(), FilesystemError> {
         refuse_reserved(name)?;
         let level = chain.level();
+        if let Some((index, dir)) = only_shown(level) {
+            let mut only = vec![None; level.len()];
+            only[index] = Some(dir.open_dir(name)?);
+            chain.steps.push(Step {
+                name: name.to_string(),
+                level: only,
+            });
+            return Ok(());
+        }
         let (index, found) = self.lookup(level, name)?.ok_or(FilesystemError::NotFound)?;
         let step = match found.file_type {
             FileType::Directory => Step {

@@ -1411,3 +1411,16 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | an Overlay whose lowest Layer holds `dir/file`, yet reads no marker |
 | When | `dir/file` is looked up through the Overlay |
 | Then | the file reads, since no Layer lies below for a marker to hide |
+
+## `FS-122` An Overlay walks a directory one Layer shows without looking it up
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-008` |
+| relates | `FS-121` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose only Layer holds `dir/file`, yet answers no lookup of `dir` |
+| When | `dir/file` is read through the Overlay |
+| Then | it reads the file's content |
