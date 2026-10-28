@@ -148,8 +148,8 @@ struct Walk {
     eager: bool,
 }
 
-/// Refuse what a directory just stepped into answers unless it opened as
-/// a directory.
+/// Refuse what a directory just stepped into, or just opened for a
+/// descriptor, answers unless it opened as a directory.
 pub(crate) fn opened_as_directory(dir: &Arc<dyn Inode>) -> Result<(), FilesystemError> {
     match dir.metadata()?.file_type {
         FileType::Directory => Ok(()),
