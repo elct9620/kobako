@@ -1800,3 +1800,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file the guest opens with `O_CREAT` |
 | When | another thread removes the file while the open is judged |
 | Then | the open succeeds |
+
+## `RT-168` A file renamed onto itself through a link stays
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-155` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind Mount holding a file, and a link to the directory holding it |
+| When | the guest renames the file through the link onto its own path |
+| Then | the rename succeeds and changes nothing |
