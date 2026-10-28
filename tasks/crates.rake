@@ -51,8 +51,7 @@ CratesGraphProbe = Struct.new(:crate, :dir, :features, :edges, :denied, :allowed
   end
 end
 
-CRATES_ROOT = File.expand_path("../crates", __dir__)
-GUEST_ROOT = File.expand_path("../wasm", __dir__)
+CRATES_WORKSPACE_DIR = File.dirname(CRATES_MANIFEST)
 # The payload codecs and the MessagePack library beneath them, and the
 # driver and the engine beneath it. Named rather than derived so adding a
 # codec or an engine is a deliberate edit here.
@@ -67,18 +66,21 @@ SHIPPED_EDGES = "normal,no-proc-macro"
 CRATES_GRAPH_PROBES = [
   # A routing-only tier on its default build, the graph a third party gets
   # for naming one; Cargo's default set can be added to but never taken from.
-  *{ "kobako-transport" => CRATES_ROOT, "kobako-core" => GUEST_ROOT, "kobako-mruby" => GUEST_ROOT }.map do |crate, dir|
+  *{ "kobako-transport" => CRATES_WORKSPACE_DIR,
+     "kobako-core" => KobakoWasm::WASM_WORKSPACE_DIR,
+     "kobako-mruby" => KobakoWasm::WASM_WORKSPACE_DIR }.map do |crate, dir|
     CratesGraphProbe.new(crate: crate, dir: dir, edges: SHIPPED_EDGES, allowed: ROUTING_ONLY, built: true)
   end,
   # The SDK an embedder names directly defaults to both, so each claim
   # deselects one. The codec probe keeps the engine, which its integration
   # tests load a Guest Binary with; the engine's own cases drop out
   # through `#![cfg(feature = "wasmtime")]` rather than an exclusion here.
-  CratesGraphProbe.new(crate: "kobako", dir: CRATES_ROOT, features: "--no-default-features --features wasmtime",
+  CratesGraphProbe.new(crate: "kobako", dir: CRATES_WORKSPACE_DIR,
+                       features: "--no-default-features --features wasmtime",
                        edges: SHIPPED_EDGES, denied: CODEC_CRATES, built: true),
-  CratesGraphProbe.new(crate: "kobako", dir: CRATES_ROOT, features: "--no-default-features",
+  CratesGraphProbe.new(crate: "kobako", dir: CRATES_WORKSPACE_DIR, features: "--no-default-features",
                        edges: SHIPPED_EDGES, denied: ENGINE_CRATES, built: true),
-  CratesGraphProbe.new(crate: "kobako-wasmtime", dir: CRATES_ROOT, denied: %w[magnus], built: false)
+  CratesGraphProbe.new(crate: "kobako-wasmtime", dir: CRATES_WORKSPACE_DIR, denied: %w[magnus], built: false)
 ].freeze
 
 # Why +probe+ breaks its promise, or +nil+ when it keeps it.
