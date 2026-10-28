@@ -619,10 +619,8 @@ impl Inode for Tmpfs {
         }
     }
 
-    /// The entry moves under its new name with all it holds, so no name
-    /// beneath it changes. A directory never moves into itself or beneath
-    /// itself, which would cut it off from the root for good, as Linux
-    /// refuses it once it finds the source above the target.
+    /// The move `rename2` makes with no flag, once `rename` allows what
+    /// stands at the source; a move onto its own name changes nothing.
     fn rename(
         &self,
         from: &Dentry,
@@ -632,7 +630,6 @@ impl Inode for Tmpfs {
     ) -> Result<(), FilesystemError> {
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
-            .filter(|target| Arc::ptr_eq(&target.tree, &self.tree))
             .ok_or(FilesystemError::CrossesDevices)?;
         let (from, to) = (&from.name(), &to.name());
         let moving = self.dir.find(from)?;
@@ -642,34 +639,7 @@ impl Inode for Tmpfs {
             return Ok(());
         }
         rename.check(moving.file_type())?;
-        if let Node::Directory(moving) = &moving {
-            if to_dir.within(moving) {
-                return Err(FilesystemError::InvalidInput);
-            }
-        }
-        let replaced = to_dir.state().entries.get(to_name).cloned();
-        match (&moving, &replaced) {
-            (Node::File(_) | Node::Whiteout { .. }, Some(Node::Directory(_))) => {
-                return Err(FilesystemError::IsADirectory)
-            }
-            (Node::Directory(_), Some(Node::File(_) | Node::Whiteout { .. })) => {
-                return Err(FilesystemError::NotADirectory)
-            }
-            (Node::Directory(_), Some(Node::Directory(dir))) if !dir.state().entries.is_empty() => {
-                return Err(FilesystemError::DirectoryNotEmpty)
-            }
-            _ => {}
-        }
-        from_dir.state().remove(from_name);
-        if let Node::Directory(moved) = &moving {
-            moved.state().parent = Arc::downgrade(&to_dir);
-        }
-        to_dir.state().insert(to_name, moving);
-        if let Some(Node::Directory(replaced)) = replaced {
-            replaced.state().removed = true;
-            self.tree.space.inodes.give(1);
-        }
-        Ok(())
+        self.rename2(from, target, to, None)
     }
 }
 
@@ -1089,6 +1059,45 @@ mod tests {
             ),
             "Tmpfs::rename must refuse a directory a file-only rename names as crossing \
              devices, and a file a directory-only rename names as no directory, moving neither"
+        );
+    }
+
+    // The VFS leaves what a move may replace to the Filesystem, so only
+    // the Tmpfs's own rules keep each move from replacing its target.
+    // @behavior FS-133
+    #[test]
+    fn a_tmpfs_replaces_only_what_rename_lets_a_move_replace() {
+        let tmpfs = at([("file", "f"), ("full/inner", "i")].into_iter().collect());
+        tmpfs
+            .create_dir("empty")
+            .expect("the directory must be made");
+        let moves = [
+            ("file", "empty"),
+            ("file", "full"),
+            ("empty", "file"),
+            ("empty", "full"),
+        ]
+        .map(|(from, to)| tmpfs.rename(from, &tmpfs, to, Rename::Any).err());
+        let mut standing: Vec<String> = tmpfs
+            .entries()
+            .expect("the root must list")
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        standing.sort();
+        assert_eq!(
+            (moves, standing),
+            (
+                [
+                    Some(FilesystemError::IsADirectory),
+                    Some(FilesystemError::IsADirectory),
+                    Some(FilesystemError::NotADirectory),
+                    Some(FilesystemError::DirectoryNotEmpty),
+                ],
+                vec!["empty".to_string(), "file".to_string(), "full".to_string()]
+            ),
+            "Tmpfs::rename of a file onto a directory, and of a directory onto a file or a \
+             directory holding entries, must answer EISDIR, ENOTDIR, and ENOTEMPTY, moving nothing"
         );
     }
 

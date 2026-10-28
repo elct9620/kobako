@@ -49,8 +49,13 @@ impl Tmpfs {
         Ok(())
     }
 
-    /// Move `from` to `to` in `target` as `renameat2` does with `flag`.
-    /// Without one, what stands at `to` goes as rename(2) replaces it.
+    /// Move `from` to `to` in `target` as `renameat2` does with `flag`,
+    /// the entry taking all it holds, so no name beneath it changes.
+    /// Without one, what stands at `to` goes as rename(2) replaces it. A
+    /// directory never moves into itself or beneath itself, which would
+    /// cut it off from the root for good, as Linux refuses it once it
+    /// finds the source above the target, or with an exchange the target
+    /// above the source.
     pub(crate) fn rename2(
         &self,
         from: &str,
@@ -70,18 +75,15 @@ impl Tmpfs {
             .cloned()
             .ok_or(FilesystemError::NotFound)?;
         let replaced = to_dir.state().entries.get(to_name).cloned();
-        for (node, dir) in [
-            (&moving, &to_dir),
-            (replaced.as_ref().unwrap_or(&moving), &from_dir),
-        ] {
-            if let Node::Directory(node) = node {
-                if dir.within(node) {
-                    return Err(FilesystemError::InvalidInput);
-                }
-            }
+        let beneath = |node: &Node, dir: &Arc<super::Dir>| matches!(node, Node::Directory(node) if dir.within(node));
+        if beneath(&moving, &to_dir) {
+            return Err(FilesystemError::InvalidInput);
         }
         if flag == Some(RenameFlag::Exchange) {
             let replaced = replaced.ok_or(FilesystemError::NotFound)?;
+            if beneath(&replaced, &from_dir) {
+                return Err(FilesystemError::InvalidInput);
+            }
             Self::reparent(&replaced, &from_dir);
             Self::reparent(&moving, &to_dir);
             from_dir.state().insert(from_name, replaced);

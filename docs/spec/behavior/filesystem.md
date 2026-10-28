@@ -1367,3 +1367,15 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay, and its upper Tmpfs mounted on its own |
 | When | an empty directory is removed through the Overlay, and a directory is made in it through the other Mount |
 | Then | a directory made stays |
+
+## `FS-133` A Tmpfs replaces only what rename(2) lets a move replace
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-035` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs holding a file, an empty directory, and a directory holding a file |
+| When | the file moves onto each directory, and each directory onto the file and onto the other |
+| Then | each is refused as EISDIR, ENOTDIR, or ENOTEMPTY, and nothing moves |
