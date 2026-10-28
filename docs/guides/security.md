@@ -344,7 +344,7 @@ Some risks stay with the host, because kobako cannot see them.
 | a link loop without a block | `Errno::ELOOP` after 40 links, as Linux answers |
 | a `..` out of where a link led | `Errno::ELOOP`, as the guest never learns where it points |
 | a directory the guest lists in steps | its entries held in host memory until the listing ends, once per descriptor |
-| a directory the guest opened, moved out of the Mount by the host | still reached through that descriptor, as Linux reaches it, unless a block guards the Mount |
+| an opened directory moved out of the Mount by the host or another guest | still reached through that descriptor, as Linux reaches it, unless a block guards the Mount |
 | a link below an Overlay's writable Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
 | a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
 | a `\` in a name a Ruby Filesystem receives | the Filesystem's to refuse, as Windows reads it as a separator |
