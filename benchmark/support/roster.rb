@@ -48,17 +48,17 @@ module Kobako
     # one out of the wiring check does not apply.
     SMOKE_CHARACTERIZATION = %w[guest_setup mount].freeze
 
-    # Every probe +gate:bench:smoke+ drives. Derived from RELEASE_BENCHES
-    # so promoting a benchmark into the gate never costs it the cheaper
+    # Every probe the smoke tests run. Derived from RELEASE_BENCHES so
+    # promoting a benchmark into the gate never costs it the cheaper
     # wiring check.
     SMOKE_BENCHES = (RELEASE_BENCHES + SMOKE_CHARACTERIZATION.map { |name| Paths.probe(name) })
                     .uniq.freeze
 
-    # Probes the smoke gate leaves out, each with the reason the gate
-    # prints. A probe belongs here when smoking it would cost minutes or
-    # depend on a build artifact +rake compile+ does not produce — the
-    # gate runs on every default rake, so a slow or artifact-dependent
-    # check is one that gets worked around.
+    # Probes the smoke tests leave out, each with its reason. A probe
+    # belongs here when smoking it would cost minutes or depend on a build
+    # artifact +rake compile+ does not produce — the smoke tests run on
+    # every default rake, so a slow or artifact-dependent check is one
+    # that gets worked around.
     SMOKE_EXCLUSIONS = {
       "memory" => "samples RSS across 10 000 invocations; the workload is fixed in the probe",
       "concurrent/threads" => "wall-clock across Thread counts; the workload is fixed in the probe",

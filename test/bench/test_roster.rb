@@ -7,9 +7,9 @@ require "tmpdir"
 require_relative "../../benchmark/support/roster"
 
 # Unit coverage for the benchmark rosters. The load-bearing one is
-# classification: every probe on disk is either smoked by the release
-# gate or carries a written reason for staying out, so a probe added
-# later cannot slip past the gate unnoticed — which is exactly how
+# classification: every probe on disk is either smoked by
+# test/bench/test_probes.rb or carries a written reason for staying out,
+# so a probe added later cannot go unrun unnoticed — which is exactly how
 # dispatch_glue.rb went twenty commits driving a deleted API.
 class KobakoBenchRosterTest < Minitest::Test
   Bench = Kobako::Bench
@@ -19,7 +19,7 @@ class KobakoBenchRosterTest < Minitest::Test
 
     assert_equal [], probes_on_disk - classified,
                  "a probe added under benchmark/ must be added to SMOKE_BENCHES or to " \
-                 "SMOKE_EXCLUSIONS with its reason — an unclassified probe is one the gate never runs"
+                 "SMOKE_EXCLUSIONS with its reason — an unclassified probe is one no test runs"
   end
 
   def test_every_gated_benchmark_is_also_smoked
@@ -41,7 +41,7 @@ class KobakoBenchRosterTest < Minitest::Test
 
     assert_equal [], Bench::SMOKE_BENCHES & excluded,
                  "a probe listed as a smoke exclusion must not also be smoked — the two rosters " \
-                 "state opposite intents and the gate would report both"
+                 "state opposite intents"
   end
 
   # A probe grouped into a subdirectory of its own must still be seen, or

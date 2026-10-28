@@ -7,11 +7,11 @@ module Kobako
     # A smoke pass answers whether a probe still loads and its case
     # bodies still run — the breakage a probe suffers when the API it
     # drives is renamed or removed — without paying for measurement.
-    # Keeping the seam here is what lets +gate:bench:smoke+ cover every
+    # Keeping the seam here is what lets the smoke tests cover every
     # probe while no probe carries a smoke branch of its own. Relies on
     # the including class for +@results+.
     module Smoke
-      # Environment flag +gate:bench:smoke+ sets on each probe it drives.
+      # Environment flag the smoke tests set on each probe they run.
       ENV_NAME = "KOBAKO_BENCH_SMOKE"
 
       # True when this runner is smoking rather than measuring.

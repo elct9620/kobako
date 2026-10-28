@@ -5,11 +5,11 @@ require "tmpdir"
 
 require_relative "../../benchmark/support/runner"
 
-# Unit coverage for the smoke seam +gate:bench:smoke+ drives every probe
-# through. The seam has to hold two lines at once: under smoke a case
-# body runs exactly once, and outside smoke the measurement loop is
-# untouched — so a leaked flag cannot silently turn the release
-# benchmarks into a single unmeasured iteration.
+# Unit coverage for the smoke seam every probe runs through in
+# test/bench/test_probes.rb. The seam has to hold two lines at once:
+# under smoke a case body runs exactly once, and outside smoke the
+# measurement loop is untouched — so a leaked flag cannot silently turn
+# the release benchmarks into a single unmeasured iteration.
 class KobakoBenchSmokeTest < Minitest::Test
   Runner = Kobako::Bench::Runner
   Results = Kobako::Bench::Results
