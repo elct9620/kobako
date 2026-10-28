@@ -15,6 +15,7 @@ require "rbconfig"
 # the run, and anything else ends it without a word.
 class TestE2EFirstRunInterrupt < Minitest::Test
   include E2eGuestHelper
+  include ChildProcess
 
   DEADLINE = 60
   HAND_OFF = 0.05
@@ -42,7 +43,7 @@ class TestE2EFirstRunInterrupt < Minitest::Test
                         "-e", CHILD, out: writer, err: File::NULL)
     writer.close
     interrupt_once_running(reader, pid)
-    caught = finished_within_deadline?(pid) ? reader.read : :hung
+    caught = finished_within?(pid, DEADLINE) ? reader.read : :hung
 
     assert_equal "Interrupt", caught,
                  "a SIGINT during a process's first Sandbox#eval must raise Interrupt in the Host App"
@@ -57,17 +58,5 @@ class TestE2EFirstRunInterrupt < Minitest::Test
 
     sleep HAND_OFF
     Process.kill(:INT, pid)
-  end
-
-  def finished_within_deadline?(pid)
-    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + DEADLINE
-    until Process.wait(pid, Process::WNOHANG)
-      next sleep(0.05) if Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
-
-      Process.kill(:KILL, pid)
-      Process.wait(pid)
-      return false
-    end
-    true
   end
 end

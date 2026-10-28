@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "rbconfig"
 
 # E2E — one Overlay holding a Filesystem written in Ruby, shared by
 # Sandboxes on several Threads, through the real Guest Binary's File.
@@ -12,6 +11,7 @@ require "rbconfig"
 # timeout, so each run is a child process the test kills past a deadline.
 class TestE2EOverlayThreads < Minitest::Test
   include E2eGuestHelper
+  include ChildProcess
 
   DEADLINE = 30
 
@@ -39,25 +39,7 @@ class TestE2EOverlayThreads < Minitest::Test
 
   # What the child prints, or +:deadlocked+ when it outlives DEADLINE.
   def run_child(*modes)
-    reader, writer = IO.pipe
-    pid = Process.spawn({ "KOBAKO_WASM" => REAL_WASM }, RbConfig.ruby, "-I", TestPaths.source("lib"),
-                        "-e", CHILD, *modes.map(&:to_s), out: writer, err: File::NULL)
-    writer.close
-    finished_within_deadline?(pid) ? reader.read : :deadlocked
-  ensure
-    reader&.close
-  end
-
-  def finished_within_deadline?(pid)
-    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + DEADLINE
-    until Process.wait(pid, Process::WNOHANG)
-      next sleep(0.05) if Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
-
-      Process.kill(:KILL, pid)
-      Process.wait(pid)
-      return false
-    end
-    true
+    run_ruby(CHILD, *modes.map(&:to_s), env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE)
   end
 
   # @behavior MT-019
