@@ -7,7 +7,18 @@ them.
 
 ## Includes
 
-- `crates/kobako-transport/src/**/*.rs`
+- `crates/kobako-transport/src/abi.rs`
+- `crates/kobako-transport/src/envelope.rs`
+- `crates/kobako-transport/src/envelope/call.rs`
+- `crates/kobako-transport/src/envelope/compile_reply.rs`
+- `crates/kobako-transport/src/envelope/error_record.rs`
+- `crates/kobako-transport/src/envelope/fault.rs`
+- `crates/kobako-transport/src/envelope/outcome.rs`
+- `crates/kobako-transport/src/envelope/preamble.rs`
+- `crates/kobako-transport/src/envelope/reply.rs`
+- `crates/kobako-transport/src/envelope/request.rs`
+- `crates/kobako-transport/src/envelope/run.rs`
+- `crates/kobako-transport/src/envelope/unsupported.rs`
 
 ## `ABI_VERSION`
 

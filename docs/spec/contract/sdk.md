@@ -8,7 +8,21 @@ them.
 
 ## Includes
 
-- `crates/kobako/src/**/*.rs`
+- `crates/kobako/src/error.rs`
+- `crates/kobako/src/execution.rs`
+- `crates/kobako/src/extension.rs`
+- `crates/kobako/src/handles.rs`
+- `crates/kobako/src/msgpack/execution.rs`
+- `crates/kobako/src/msgpack/handles.rs`
+- `crates/kobako/src/msgpack/payload.rs`
+- `crates/kobako/src/msgpack/receiver.rs`
+- `crates/kobako/src/msgpack/yielder.rs`
+- `crates/kobako/src/payload.rs`
+- `crates/kobako/src/receiver.rs`
+- `crates/kobako/src/sandbox.rs`
+- `crates/kobako/src/sandbox/context.rs`
+- `crates/kobako/src/sandbox/options.rs`
+- `crates/kobako/src/yielder.rs`
 
 ## `Execution::payload`
 

@@ -6,7 +6,13 @@ MessagePack. It can also build a capability gem whose methods reach the host.
 
 ## Includes
 
-- `wasm/kobako-mruby/src/**/*.rs`
+- `wasm/kobako-mruby/src/call.rs`
+- `wasm/kobako-mruby/src/codec.rs`
+- `wasm/kobako-mruby/src/lib.rs`
+- `wasm/kobako-mruby/src/msgpack.rs`
+- `wasm/kobako-mruby/src/runtime.rs`
+- `wasm/kobako-mruby/src/runtime/bindings.rs`
+- `wasm/kobako-mruby/src/runtime/values.rs`
 
 ## `Kobako`
 

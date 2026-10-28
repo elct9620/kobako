@@ -12,7 +12,16 @@ plainly the code works.
 
 ## Includes
 
-- `lib/**/*.rb`
+- `lib/kobako/context.rb`
+- `lib/kobako/errors.rb`
+- `lib/kobako/execution.rb`
+- `lib/kobako/extension.rb`
+- `lib/kobako/filesystem.rb`
+- `lib/kobako/handle.rb`
+- `lib/kobako/pool.rb`
+- `lib/kobako/sandbox.rb`
+- `lib/kobako/transport/error.rb`
+- `lib/kobako/unresolved.rb`
 
 ## `Kobako::Sandbox`
 

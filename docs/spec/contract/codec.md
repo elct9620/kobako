@@ -7,7 +7,11 @@ Which values both peers carry is the payload peers' to hold.
 
 ## Includes
 
-- `crates/kobako-codec/src/**/*.rs`
+- `crates/kobako-codec/src/msgpack/codec.rs`
+- `crates/kobako-codec/src/msgpack/codec/decoder.rs`
+- `crates/kobako-codec/src/msgpack/codec/encoder.rs`
+- `crates/kobako-codec/src/msgpack/codec/value.rs`
+- `crates/kobako-codec/src/msgpack/payload.rs`
 
 ## `Value`
 

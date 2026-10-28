@@ -12,8 +12,10 @@ them for its own documents.
 
 ## Includes
 
-- `lib/kobako/payload/**/*.rb`
-- `crates/kobako-codec/src/**/*.rs`
+- `crates/kobako-codec/src/msgpack/codec/decoder.rs`
+- `crates/kobako-codec/src/msgpack/codec/encoder.rs`
+- `crates/kobako-codec/src/msgpack/payload.rs`
+- `lib/kobako/payload/arguments.rb`
 
 ## `Kobako::Payload::Arguments#encode`
 

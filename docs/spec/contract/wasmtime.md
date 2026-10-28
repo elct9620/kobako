@@ -6,7 +6,8 @@ by name only how to build one.
 
 ## Includes
 
-- `crates/kobako-wasmtime/src/**/*.rs`
+- `crates/kobako-wasmtime/src/config.rs`
+- `crates/kobako-wasmtime/src/driver.rs`
 
 ## `Config`
 

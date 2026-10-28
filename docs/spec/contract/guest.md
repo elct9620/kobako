@@ -6,7 +6,10 @@ is the trait it drives and what that expansion reaches.
 
 ## Includes
 
-- `wasm/kobako-core/src/**/*.rs`
+- `wasm/kobako-core/src/abi/downcall.rs`
+- `wasm/kobako-core/src/abi/memory.rs`
+- `wasm/kobako-core/src/guest.rs`
+- `wasm/kobako-core/src/proxy.rs`
 
 ## `serve`
 

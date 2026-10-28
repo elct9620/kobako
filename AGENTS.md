@@ -48,7 +48,7 @@ The specification is sumi's corpus under `docs/spec/`. What it cannot hold is co
 
 A behavior is specification only as a scenario, and the design decides which scenarios exist. Prose never restates one. Each scenario owes a test that claims it with `@behavior`, the one traceability link, so a changed scenario drives its tests. One no test can reliably witness carries an `unverifiable` row naming why. Docs, examples, and comments cite no scenario id.
 
-The glossary carries concepts, not their Ruby or Rust spelling. Never rule out a word that also names a concept of ours, such as `Execution` beside `Invocation`. Keep `Includes` off append-only files, whose shifting lines would strand an `ignore`. When the specification is silent, extend it first.
+The glossary carries concepts, not their Ruby or Rust spelling. Never rule out a word that also names a concept of ours, such as `Execution` beside `Invocation`. Keep `Includes` off append-only files, whose shifting lines would strand an `ignore`. A contract's `Includes` lists only the files declaring its interfaces, so an internal name is never judged against a public one. When the specification is silent, extend it first.
 
 ### 2. Structure
 
