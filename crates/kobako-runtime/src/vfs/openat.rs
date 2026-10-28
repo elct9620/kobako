@@ -44,7 +44,7 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<Opene
     }
     // A trailing `/` resolves a link standing there, as Linux's `open` does.
     let follow = how.follow || super::namei::names_directory(path);
-    let resolved = resolve(start, path, follow, how.create)?;
+    let mut resolved = resolve(start, path, follow, how.create)?;
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
     resolved.check_directory()?;

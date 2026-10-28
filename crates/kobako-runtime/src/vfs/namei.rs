@@ -48,9 +48,8 @@ pub(crate) struct Resolved {
     /// Each directory from where the walk can be spelled from, the Mount's
     /// root beneath a Policy, down to `base`.
     frames: Vec<Frame>,
-    /// What stands at `name`, a link reported as itself, as the walk
-    /// completed.
-    found: Result<Metadata, FilesystemError>,
+    /// What stands at `name`, a link reported as itself, once asked.
+    found: Option<Result<Metadata, FilesystemError>>,
 }
 
 impl Resolved {
@@ -66,13 +65,16 @@ impl Resolved {
     /// What stands at the name, a link reported as itself, asked of the
     /// Filesystem once however many checks need it; the directory itself
     /// for the empty name.
-    pub(crate) fn found(&self) -> Result<Metadata, FilesystemError> {
-        self.found.clone()
+    pub(crate) fn found(&mut self) -> Result<Metadata, FilesystemError> {
+        if self.found.is_none() {
+            self.found = Some(look_up(&self.base, &self.child(), &self.name));
+        }
+        self.found.clone().expect("found was just asked")
     }
 
     /// Refuse the name as `NotADirectory` when it must be a directory and
     /// something else stands there.
-    pub(crate) fn check_directory(&self) -> Result<(), Error> {
+    pub(crate) fn check_directory(&mut self) -> Result<(), Error> {
         if self.names_directory {
             match self.found() {
                 Ok(metadata) if metadata.file_type != FileType::Directory => {
@@ -146,6 +148,15 @@ struct Walk {
     /// on the way is found where it stands; otherwise a Filesystem may
     /// open several names in one call when the walk is complete.
     eager: bool,
+}
+
+/// What stands at `name` in `dir`, a link reported as itself; `dir` itself
+/// for the empty name.
+fn look_up(dir: &Arc<dyn Inode>, child: &Dentry, name: &str) -> Result<Metadata, FilesystemError> {
+    match name {
+        "" => dir.metadata(),
+        _ => dir.symlink_metadata(child),
+    }
 }
 
 /// Refuse what a directory just stepped into, or just opened for a
@@ -264,10 +275,15 @@ impl Walk {
         &self,
         found: Result<Metadata, FilesystemError>,
     ) -> Result<Result<Metadata, FilesystemError>, Error> {
-        if found.is_err() && self.frames.len() > self.above + 1 {
+        if found.is_err() && self.descended() {
             opened_as_directory(self.top())?;
         }
         Ok(found)
+    }
+
+    /// Whether the walk stepped into any directory beneath where it began.
+    fn descended(&self) -> bool {
+        self.frames.len() > self.above + 1
     }
 
     /// Walk every pending name but the last, which is left to act on.
@@ -389,13 +405,16 @@ fn path_lookupat(
         last = walk.run(None)?;
     }
     let name = last.map(|part| part.name).unwrap_or_default();
+    // A walk that stepped into directories not yet opened settles its last
+    // name now; one that stepped into none leaves it to the call to ask.
     let found = match found {
-        Some(found) => found,
-        None if name.is_empty() => walk.top().metadata(),
-        None => walk.top().symlink_metadata(&walk.child(&name)),
+        Some(found) => Some(walk.complete(found)?),
+        None if walk.descended() => {
+            Some(walk.complete(look_up(walk.top(), &walk.child(&name), &name))?)
+        }
+        None => None,
     };
-    let found = walk.complete(found)?;
-    if followed && creates && matches!(found, Err(FilesystemError::NotFound)) {
+    if followed && creates && matches!(found, Some(Err(FilesystemError::NotFound))) {
         return Err(FilesystemError::FilesystemLoop.into());
     }
     let judged = start
