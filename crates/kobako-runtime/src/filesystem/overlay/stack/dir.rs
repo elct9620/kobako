@@ -4,7 +4,7 @@
 //! in the workdir and exchanged into place, so it lands whole or not at
 //! all.
 
-use super::super::super::{File, FileType, FilesystemError, OpenOptions, Rename};
+use super::super::super::{File, FileType, FilesystemError, OpenOptions};
 use super::super::path::OverlayPath;
 use super::{
     cleanup, cleanup_whiteouts, entry, holds, layer_dir, opaque_inside, Chain, Level, OverlayFs,
@@ -311,11 +311,9 @@ impl OverlayFs {
         from_name: &str,
         to: &mut Chain,
         to_name: &str,
-        rename: Rename,
     ) -> Result<(), FilesystemError> {
         let from_level = from.level().clone();
         let moving = self.symlink_metadata(&from_level, from_name)?;
-        rename.check(moving.file_type)?;
         let to_level = to.level().clone();
         let replaced = self.lookup(&to_level, to_name)?;
         let is_dir = moving.file_type == FileType::Directory;

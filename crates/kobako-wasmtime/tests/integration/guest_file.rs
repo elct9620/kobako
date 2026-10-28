@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename, Tmpfs,
+    DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
@@ -618,9 +618,8 @@ where
         from: &Dentry,
         _to_dir: &dyn Inode,
         to: &Dentry,
-        rename: Rename,
     ) -> Result<(), FilesystemError> {
-        self.tmpfs.rename(from, &self.tmpfs, to, rename)
+        self.tmpfs.rename(from, &self.tmpfs, to)
     }
 }
 

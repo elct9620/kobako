@@ -18,7 +18,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use super::path::components;
-use super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename, Tmpfs};
+use super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs};
 use crate::vfs::{Blocking, Dentry, Filesystem};
 use inode::OverlayInode;
 use stack::{Chain, OverlayFs};
@@ -185,7 +185,6 @@ impl Inode for Overlay {
         from: &Dentry,
         to_dir: &dyn Inode,
         to: &Dentry,
-        rename: Rename,
     ) -> Result<(), FilesystemError> {
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
@@ -193,8 +192,7 @@ impl Inode for Overlay {
             .ok_or(FilesystemError::CrossesDevices)?;
         let (mut from_chain, from) = (self.chain(true)?, from.name());
         let (mut to_chain, to) = (target.chain(true)?, to.name());
-        self.fs
-            .rename(&mut from_chain, &from, &mut to_chain, &to, rename)?;
+        self.fs.rename(&mut from_chain, &from, &mut to_chain, &to)?;
         self.fs.inodes().forget(&to_chain.path_of(&to));
         Ok(())
     }
@@ -489,7 +487,7 @@ mod tests {
         assert_eq!(
             (
                 write(&overlay, "pipe", b"upper"),
-                overlay.rename("pipe", &overlay, "moved", Rename::File)
+                overlay.rename("pipe", &overlay, "moved")
             ),
             (
                 Err(FilesystemError::PermissionDenied),
@@ -520,8 +518,8 @@ mod tests {
         let file_type = |path| kind(&overlay, path);
         assert_eq!(
             (
-                overlay.rename("pipe", &overlay, "dir", Rename::Any),
-                overlay.rename("made", &overlay, "pipe", Rename::Any),
+                overlay.rename("pipe", &overlay, "dir"),
+                overlay.rename("made", &overlay, "pipe"),
                 file_type("pipe"),
                 file_type("made"),
             ),
@@ -552,7 +550,7 @@ mod tests {
         let refused = [
             write(&overlay, "link", b"upper"),
             overlay.open("dangling", &creates).map(drop),
-            overlay.rename("link", &overlay, "moved", Rename::Any),
+            overlay.rename("link", &overlay, "moved"),
         ];
         assert_eq!(
             (refused, read(&overlay, "target")),
@@ -655,7 +653,7 @@ mod tests {
             .create_dir("new")
             .expect("the directory must be made");
         overwrite(&overlay, "new/made", b"made");
-        let moved = overlay.rename("new", &overlay, "dir", Rename::Directory);
+        let moved = overlay.rename("new", &overlay, "dir");
         assert_eq!(
             (moved, names(&overlay, "dir")),
             (Ok(()), vec!["made".to_string()]),
@@ -679,7 +677,7 @@ mod tests {
         overlay
             .create_dir("dir")
             .expect("the directory must be made again");
-        let moved = overlay.rename("dir", &overlay, "moved", Rename::Directory);
+        let moved = overlay.rename("dir", &overlay, "moved");
         assert_eq!(
             (
                 moved,
@@ -700,7 +698,7 @@ mod tests {
     fn an_overlay_refuses_a_file_moved_beneath_itself_as_no_directory() {
         let (overlay, _) = overlay_on(Arc::new(Tmpfs::new()));
         assert_eq!(
-            overlay.rename("dir/file", &overlay, "dir/file/x", Rename::Any),
+            overlay.rename("dir/file", &overlay, "dir/file/x"),
             Err(FilesystemError::NotADirectory),
             "a file renamed through Overlay::rename to a path beneath itself must be refused as \
              no directory, as rename(2) refuses it"
@@ -1021,7 +1019,7 @@ mod tests {
         let upper = Arc::new(Tmpfs::new());
         let (overlay, lower) = overlay_on(upper.clone());
         overlay
-            .rename("dir/file", &overlay, "dir/moved", Rename::Any)
+            .rename("dir/file", &overlay, "dir/moved")
             .expect("the file must move");
         assert_eq!(
             (
@@ -1113,9 +1111,8 @@ mod tests {
             from: &Dentry,
             _to_dir: &dyn Inode,
             to: &Dentry,
-            rename: Rename,
         ) -> Result<(), FilesystemError> {
-            self.tmpfs.rename(from, self.tmpfs.as_ref(), to, rename)
+            self.tmpfs.rename(from, self.tmpfs.as_ref(), to)
         }
     }
 
@@ -1216,9 +1213,8 @@ mod tests {
                 from: &Dentry,
                 _to_dir: &dyn Inode,
                 to: &Dentry,
-                rename: Rename,
             ) -> Result<(), FilesystemError> {
-                self.tmpfs.rename(from, &self.tmpfs, to, rename)
+                self.tmpfs.rename(from, &self.tmpfs, to)
             }
         }
 
@@ -1310,7 +1306,7 @@ mod tests {
         let (overlay, _) = full_over_lower(&[], 2);
         assert_eq!(
             (
-                overlay.rename("dir/file", &overlay, "dir/moved", Rename::Any),
+                overlay.rename("dir/file", &overlay, "dir/moved"),
                 overlay.symlink_metadata("dir/moved"),
                 read(&overlay, "dir/file")
             ),
@@ -1330,7 +1326,7 @@ mod tests {
         let (overlay, _) = overlay_on(Arc::new(Tmpfs::new()));
         assert_eq!(
             (
-                overlay.rename("dir", &overlay, "moved", Rename::Any),
+                overlay.rename("dir", &overlay, "moved"),
                 overlay.symlink_metadata("moved")
             ),
             (
@@ -1355,8 +1351,8 @@ mod tests {
             .expect("the directory must be made");
         assert_eq!(
             (
-                overlay.rename("note", &overlay, "dir", Rename::Any),
-                overlay.rename("empty", &overlay, "dir", Rename::Any),
+                overlay.rename("note", &overlay, "dir"),
+                overlay.rename("empty", &overlay, "dir"),
                 read(&overlay, "dir/file")
             ),
             (
@@ -1384,7 +1380,7 @@ mod tests {
             .create_dir("made")
             .expect("the directory must be made");
         overlay
-            .rename("made", &overlay, "dir", Rename::Any)
+            .rename("made", &overlay, "dir")
             .expect("the directory must move over the empty one");
         overwrite(&on(&lower), "dir/later", b"lower");
         assert_eq!(
@@ -1677,9 +1673,8 @@ mod tests {
             from: &Dentry,
             _to_dir: &dyn Inode,
             to: &Dentry,
-            rename: Rename,
         ) -> Result<(), FilesystemError> {
-            self.0.rename(from, self.0.as_ref(), to, rename)
+            self.0.rename(from, self.0.as_ref(), to)
         }
     }
 
@@ -1728,9 +1723,8 @@ mod tests {
             from: &Dentry,
             _to_dir: &dyn Inode,
             to: &Dentry,
-            rename: Rename,
         ) -> Result<(), FilesystemError> {
-            self.tmpfs.rename(from, &self.tmpfs, to, rename)
+            self.tmpfs.rename(from, &self.tmpfs, to)
         }
     }
 
@@ -1816,13 +1810,12 @@ mod tests {
             from: &Dentry,
             to_dir: &dyn Inode,
             to: &Dentry,
-            rename: Rename,
         ) -> Result<(), FilesystemError> {
             let target = (to_dir as &dyn Any)
                 .downcast_ref::<Self>()
                 .ok_or(FilesystemError::CrossesDevices)?;
             self.root
-                .rename(&self.path(from), &self.root, &target.path(to), rename)
+                .rename(&self.path(from), &self.root, &target.path(to))
         }
     }
 
@@ -1844,7 +1837,7 @@ mod tests {
         let dir = overlay.open_dir("dir").expect("dir must open");
         let inner = overlay.open_dir("dir/inner").expect("inner must open");
         overlay
-            .rename("dir", &overlay, "moved", Rename::Any)
+            .rename("dir", &overlay, "moved")
             .expect("the directory must move");
         overwrite(&dir, "a", b"x");
         overwrite(&inner, "b", b"x");
@@ -1896,7 +1889,7 @@ mod tests {
         let dir = overlay.open_dir("dir").expect("dir must open");
         let outside = on(&upper);
         outside
-            .rename("upper/dir", &outside, "upper/moved", Rename::Any)
+            .rename("upper/dir", &outside, "upper/moved")
             .expect("the Layer must move it");
         outside
             .create_dir("upper/dir")
@@ -1939,7 +1932,7 @@ mod tests {
         let overlay = at(over(Arc::new(Tmpfs::new()), upper.clone()));
         let dir = overlay.open_dir("dir").expect("dir must open");
         overlay
-            .rename("dir", &overlay, "moved", Rename::Any)
+            .rename("dir", &overlay, "moved")
             .expect("the directory must move");
         assert_eq!(
             (
@@ -2004,7 +1997,7 @@ mod tests {
         };
         let overlay = at(over(Arc::new(lower), Arc::new(Tmpfs::new())));
         assert_eq!(
-            overlay.rename("file", &overlay, "moved", Rename::Any),
+            overlay.rename("file", &overlay, "moved"),
             Err(FilesystemError::NotFound),
             "a file renamed through Overlay::rename that its Layer loses during the call must \
              answer not found"
@@ -2051,7 +2044,7 @@ mod tests {
         let (overlay, _) = overlay_on(Arc::new(Tmpfs::default()));
         let mut reader = open_to_read(&overlay, "dir/file");
         overlay
-            .rename("dir/file", &overlay, "dir/moved", Rename::default())
+            .rename("dir/file", &overlay, "dir/moved")
             .expect("the rename must land");
         overwrite(&overlay, "dir/moved", b"moved");
         assert_eq!(
@@ -2073,7 +2066,7 @@ mod tests {
             .expect("the removal must land");
         overwrite(&overlay, "dir/file", b"fresh");
         overlay
-            .rename("dir/file", &overlay, "dir/moved", Rename::default())
+            .rename("dir/file", &overlay, "dir/moved")
             .expect("the rename must land");
         assert_eq!(
             read_from(reader.as_mut()),
@@ -2136,9 +2129,8 @@ mod tests {
             from: &Dentry,
             _to_dir: &dyn Inode,
             to: &Dentry,
-            rename: Rename,
         ) -> Result<(), FilesystemError> {
-            self.tmpfs.rename(from, self.tmpfs.as_ref(), to, rename)
+            self.tmpfs.rename(from, self.tmpfs.as_ref(), to)
         }
     }
 

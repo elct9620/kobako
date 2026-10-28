@@ -8,9 +8,7 @@ use std::sync::Arc;
 use super::namei::{filename_lookup, Nameidata};
 use super::path::{Identity, Path};
 use super::{Error, Filesystem};
-use crate::filesystem::{
-    Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename,
-};
+use crate::filesystem::{Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions};
 use crate::mount::Mount;
 use crate::profile::Profile;
 
@@ -101,21 +99,16 @@ impl KernPath {
         nd.base().remove_file(&nd.child())
     }
 
-    /// Move `from` beneath this directory to `to` beneath `to_dir`, as
-    /// `rename` allows.
+    /// Move `from` beneath this directory to `to` beneath `to_dir`.
     pub(crate) fn rename(
         &self,
         from: &str,
         to_dir: &Self,
         to: &str,
-        rename: Rename,
     ) -> Result<(), FilesystemError> {
         let (source, target) = (self.lookup(from)?, to_dir.lookup(to)?);
-        source.base().rename(
-            &source.child(),
-            target.base().as_ref(),
-            &target.child(),
-            rename,
-        )
+        source
+            .base()
+            .rename(&source.child(), target.base().as_ref(), &target.child())
     }
 }

@@ -149,26 +149,27 @@ class TestE2ERubyFilesystem < Minitest::Test
                  "IO#write whose Ruby file answers more bytes written than it was handed must raise Errno::EIO"
   end
 
-  # What +directory:+ a Ruby Filesystem's +rename+ is told as the script
-  # renames a file beneath a mount with +block+, or without one.
-  def directory_told_on_rename(&block)
+  # The arguments and keywords a Ruby Filesystem's +rename+ is told as the
+  # script renames a file beneath a mount with a block.
+  def told_on_rename
     told = []
     filesystem = HashFilesystem.new("a" => "x")
-    filesystem.define_singleton_method(:rename) do |from, to, directory:|
-      told << directory
-      files[to] = files.delete(from)
+    filesystem.define_singleton_method(:rename) do |*args, **kwargs|
+      told << [args, kwargs]
+      files[args[1]] = files.delete(args[0])
     end
-    Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", filesystem, access: :read_write, &block)
+    Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", filesystem, access: :read_write) { true }
                    .eval('File.rename("/data/a", "/data/b")')
     told
   end
 
-  # Only a mount with a block asks that what moves be a file.
+  # The runtime refuses what may not move before the object is asked, so
+  # a block's mount tells the object no more than File.rename does.
   # @behavior RF-010
-  def test_a_ruby_filesystems_rename_is_told_what_may_move
-    assert_equal [[nil], [false]], [directory_told_on_rename, directory_told_on_rename { true }],
-                 "a Ruby Filesystem's rename through File.rename must be told directory: false beneath a " \
-                 "Sandbox#mount with a block, and directory: nil without one"
+  def test_a_ruby_filesystems_rename_is_told_the_two_paths_alone
+    assert_equal [[%w[a b], {}]], told_on_rename,
+                 "a Ruby Filesystem's rename through File.rename beneath a Sandbox#mount with a block must " \
+                 "be told the old and new paths alone"
   end
 
   def overlay_of_a_ruby_filesystem

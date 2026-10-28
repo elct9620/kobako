@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::SystemTime;
 
 use super::path::{ancestors, components, name, normalize_seed, parent};
-use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename};
+use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions};
 use crate::vfs::Dentry;
 use whiteout::Whiteout;
 
@@ -619,21 +619,17 @@ impl Inode for Tmpfs {
         }
     }
 
-    /// The move `rename2` makes with no flag, once `rename` allows what
-    /// stands at the source.
+    /// The move `rename2` makes with no flag, as `shmem_rename2` makes it.
     fn rename(
         &self,
         from: &Dentry,
         to_dir: &dyn Inode,
         to: &Dentry,
-        rename: Rename,
     ) -> Result<(), FilesystemError> {
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
             .ok_or(FilesystemError::CrossesDevices)?;
-        let (from, to) = (&from.name(), &to.name());
-        rename.check(self.dir.find(from)?.file_type())?;
-        self.rename2(from, target, to, None)
+        self.rename2(&from.name(), target, &to.name(), None)
     }
 }
 
@@ -837,7 +833,7 @@ mod tests {
     fn a_renamed_directory_carries_its_entries() {
         let tmpfs = at([("old/inner/file", "x")].into_iter().collect());
         tmpfs
-            .rename("old", &tmpfs, "new", Rename::Any)
+            .rename("old", &tmpfs, "new")
             .expect("the rename must succeed");
         assert_eq!(read_all(&tmpfs, "new/inner/file"), b"x");
         assert_eq!(
@@ -1034,28 +1030,6 @@ mod tests {
         );
     }
 
-    // @behavior FS-035
-    #[test]
-    fn a_tmpfs_moves_only_what_a_rename_allows() {
-        let tmpfs = at([("dir/inner", "x"), ("file", "y")].into_iter().collect());
-        assert_eq!(
-            (
-                tmpfs.rename("dir", &tmpfs, "moved", Rename::File),
-                tmpfs.rename("file", &tmpfs, "moved", Rename::Directory),
-                tmpfs.symlink_metadata("dir/inner").map(|m| m.file_type),
-                tmpfs.symlink_metadata("file").map(|m| m.file_type),
-            ),
-            (
-                Err(FilesystemError::CrossesDevices),
-                Err(FilesystemError::NotADirectory),
-                Ok(FileType::File),
-                Ok(FileType::File)
-            ),
-            "Tmpfs::rename must refuse a directory a file-only rename names as crossing \
-             devices, and a file a directory-only rename names as no directory, moving neither"
-        );
-    }
-
     // The VFS leaves what a move may replace to the Filesystem, so only
     // the Tmpfs's own rules keep each move from replacing its target.
     // @behavior FS-133
@@ -1071,7 +1045,7 @@ mod tests {
             ("empty", "file"),
             ("empty", "full"),
         ]
-        .map(|(from, to)| tmpfs.rename(from, &tmpfs, to, Rename::Any).err());
+        .map(|(from, to)| tmpfs.rename(from, &tmpfs, to).err());
         let mut standing: Vec<String> = tmpfs
             .entries()
             .expect("the root must list")
@@ -1108,7 +1082,7 @@ mod tests {
         tmpfs.remove_dir("a").expect("the directory must remove");
         let after_removal = tmpfs.create_dir("c");
         tmpfs
-            .rename("c", &tmpfs, "b", Rename::Any)
+            .rename("c", &tmpfs, "b")
             .expect("a directory must replace an empty one");
         assert_eq!(
             (after_removal, tmpfs.create_dir("d")),
@@ -1183,10 +1157,10 @@ mod tests {
                 .create_dir("n")
                 .expect("the new directory must be made");
             tmpfs
-                .rename("d", &tmpfs, "n/d", Rename::Any)
+                .rename("d", &tmpfs, "n/d")
                 .expect("the directory must move into the new one");
             tmpfs
-                .rename("n", &tmpfs, "d", Rename::Any)
+                .rename("n", &tmpfs, "d")
                 .expect("the new directory must take the old name");
         }
         let held = names(&held.dir);
@@ -1209,7 +1183,7 @@ mod tests {
         let tmpfs = at([("dir/.keep", "")].into_iter().collect());
         let dir = tmpfs.open_dir("dir").expect("the directory must open");
         tmpfs
-            .rename("dir", &tmpfs, "moved", Rename::Any)
+            .rename("dir", &tmpfs, "moved")
             .expect("the directory must move");
         create(&dir, "made").expect("the file must be made");
         assert_eq!(
@@ -1259,7 +1233,7 @@ mod tests {
         let inner = tmpfs.open_dir("a/b").expect("the directory must open");
         assert_eq!(
             (
-                tmpfs.rename("a", &inner, "a", Rename::Any),
+                tmpfs.rename("a", &inner, "a"),
                 tmpfs.symlink_metadata("a/b").map(|m| m.file_type)
             ),
             (Err(FilesystemError::InvalidInput), Ok(FileType::Directory)),
@@ -1275,7 +1249,7 @@ mod tests {
         let other = at(Tmpfs::new());
         assert_eq!(
             (
-                tmpfs.rename("file", &other, "file", Rename::Any),
+                tmpfs.rename("file", &other, "file"),
                 read_all(&tmpfs, "file")
             ),
             (Err(FilesystemError::CrossesDevices), b"x".to_vec()),
@@ -1349,7 +1323,7 @@ mod tests {
         };
         let before = identity("dir");
         tmpfs
-            .rename("dir", &tmpfs, "moved", Rename::Any)
+            .rename("dir", &tmpfs, "moved")
             .expect("the directory must move");
         tmpfs
             .create_dir("dir")

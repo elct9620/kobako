@@ -99,19 +99,14 @@ pub trait Inode: Any + Send + Sync {
 
     fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
 
-    /// Move the entry `from` names to `to` in `to_dir`, refusing one
-    /// `rename` does not allow. A runtime never hands a move onto its own
-    /// name, as Linux's VFS answers one itself, and hands only a `to_dir`
-    /// of the same Mount, so it is of this Filesystem's own type, and one
-    /// that is not answers `CrossesDevices`. The Filesystem checks what stands at `from` as it
-    /// moves it, under the same lock, so nothing replaces it in between.
-    fn rename(
-        &self,
-        from: &Dentry,
-        to_dir: &dyn Inode,
-        to: &Dentry,
-        rename: Rename,
-    ) -> Result<(), FilesystemError>;
+    /// Move the entry `from` names to `to` in `to_dir`, refusing what
+    /// rename(2) refuses at `to`. The runtime has already checked what
+    /// stands at `from` and never hands a move onto its own name, as
+    /// Linux's VFS does before `inode_operations.rename`. It hands only a
+    /// `to_dir` of the same Mount, so it is of this Filesystem's own type,
+    /// and one that is not answers `CrossesDevices`.
+    fn rename(&self, from: &Dentry, to_dir: &dyn Inode, to: &Dentry)
+        -> Result<(), FilesystemError>;
 }
 
 /// One open file. The runtime keeps its position, so every read and write
@@ -160,35 +155,6 @@ pub struct OpenOptions {
     pub create_new: bool,
     /// Empty the file once it is open.
     pub truncate: bool,
-}
-
-/// What `Inode::rename` may move, as `renameat2` flags ask more of
-/// a rename than its two paths.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Rename {
-    /// Whatever stands at the source.
-    #[default]
-    Any,
-    /// Only a file. A directory is refused as `CrossesDevices`, so a
-    /// caller copies what is beneath it one entry at a time instead.
-    File,
-    /// Only a directory, as a trailing `/` asks. A file is refused as
-    /// `NotADirectory`.
-    Directory,
-}
-
-impl Rename {
-    /// Refuse moving an entry of `file_type` this rename may not move.
-    pub fn check(self, file_type: FileType) -> Result<(), FilesystemError> {
-        match (self, file_type) {
-            (Self::File, FileType::Directory) => Err(FilesystemError::CrossesDevices),
-            (Self::Directory, file_type) if file_type != FileType::Directory => {
-                Err(FilesystemError::NotADirectory)
-            }
-            _ => Ok(()),
-        }
-    }
 }
 
 /// What a path names.

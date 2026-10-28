@@ -164,8 +164,7 @@ mod tests {
 
     use super::Dentry;
     use crate::filesystem::{
-        Access, DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename,
-        Tmpfs,
+        Access, DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs,
     };
     use crate::mount::Mount;
     use crate::profile::Profile;
@@ -250,13 +249,12 @@ mod tests {
             from: &Dentry,
             to_dir: &dyn Inode,
             to: &Dentry,
-            rename: Rename,
         ) -> Result<(), FilesystemError> {
             let target = (to_dir as &dyn Any)
                 .downcast_ref::<Self>()
                 .ok_or(FilesystemError::CrossesDevices)?;
             self.root
-                .rename(&self.path(from), &self.root, &target.path(to), rename)
+                .rename(&self.path(from), &self.root, &target.path(to))
         }
     }
 

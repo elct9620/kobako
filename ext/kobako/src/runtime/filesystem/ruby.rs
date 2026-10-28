@@ -9,14 +9,14 @@
 //! that code, and any other `StandardError` reaches the guest as `EIO`.
 
 use magnus::value::{Opaque, ReprValue};
-use magnus::{kwargs, prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, Value};
+use magnus::{prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, Value};
 
 use std::any::Any;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{
-    DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename,
+    DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions,
 };
 use kobako_runtime::vfs::Dentry;
 
@@ -306,37 +306,23 @@ impl Inode for RubyFilesystem {
         )
     }
 
-    /// `rename(from, to, directory:)`: `true` moves only a directory,
-    /// `false` only a file, `nil` either. What stands at `from` meanwhile
-    /// is the object's to keep still. Both directories are of one object,
-    /// which their shared device names.
+    /// `rename(from, to)`, as `File.rename` takes it. What stands at `from`
+    /// after the runtime checked it is the object's to keep still. Both
+    /// directories are of one object, which their shared device names.
     fn rename(
         &self,
         from: &Dentry,
         to_dir: &dyn Inode,
         to: &Dentry,
-        rename: Rename,
     ) -> Result<(), FilesystemError> {
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
             .filter(|target| target.dev == self.dev)
             .ok_or(FilesystemError::CrossesDevices)?;
-        // A move the keyword cannot tell the object is refused rather than
-        // widened into one of either kind.
-        let directory = match rename {
-            Rename::Any => None,
-            Rename::File => Some(false),
-            Rename::Directory => Some(true),
-            _ => return Err(FilesystemError::Unsupported),
-        };
         change(
             self.object,
             "rename",
-            (
-                self.path(from),
-                target.path(to),
-                kwargs!("directory" => directory),
-            ),
+            (self.path(from), target.path(to)),
             FilesystemError::ReadOnlyFilesystem,
         )
     }

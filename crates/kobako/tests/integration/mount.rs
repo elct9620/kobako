@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::common::real_sandbox;
 use kobako::filesystem::{
-    DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename, Tmpfs,
+    DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs,
 };
 use kobako::msgpack::Value;
 use kobako::{Access, Dentry, Error, Filesystem, Policy, Profile, Sandbox};
@@ -313,7 +313,6 @@ impl Inode for OneNote {
         _from: &Dentry,
         _to_dir: &dyn Inode,
         _to: &Dentry,
-        _rename: Rename,
     ) -> Result<(), FilesystemError> {
         Err(FilesystemError::ReadOnlyFilesystem)
     }

@@ -23,7 +23,7 @@ use super::path::{Identity, Path, Step};
 use super::rwsem::RwSemaphoreGuard;
 use super::times::mask_file_times;
 use super::Error;
-use crate::filesystem::{Access, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename};
+use crate::filesystem::{Access, FileType, FilesystemError, Inode, Metadata, OpenOptions};
 use crate::mount::Mount;
 
 use super::{NAME_MAX, PATH_MAX};
@@ -625,7 +625,7 @@ pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
 /// Move `from_path` beneath `from` to `to_path` beneath `to`. A rename
 /// stays within one Mount; across two it crosses devices, as across two
 /// mounted devices. A directory moves only beneath a Mount that allows it,
-/// the Filesystem checking what it moves as it moves it.
+/// as Linux's `security_path_rename` asks before the move.
 pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<(), Error> {
     let busy = [FilesystemError::ResourceBusy, FilesystemError::ResourceBusy];
     refuse_dot_end(from, from_path, busy.clone())?;
@@ -657,33 +657,32 @@ pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<
         source.found()?;
         return Ok(());
     }
-    let rename = match (from.mount().moves_directories(), names_directory) {
-        (false, _) => Rename::File,
-        (true, true) => Rename::Directory,
-        (true, false) => Rename::Any,
-    };
     let (old, new) = (source.child(), target.child());
     let filesystem = from.mount().filesystem();
     let (old_dir, new_dir) = (source.dentry(), target.dentry());
-    // Which directory stands beneath the other holds still once both are
-    // held, so it is asked then, as Linux asks for `lock_rename`'s trap.
+    // What stands at the source, and which directory stands beneath the
+    // other, hold still once both are held, so each is asked then, as
+    // Linux's `do_renameat2` looks the source up under `lock_rename`.
     let _held = lock_rename(filesystem, old_dir, new_dir)?;
+    let is_dir = look_up(source.base(), &old, &source.name)?.file_type == FileType::Directory;
+    if names_directory && !is_dir {
+        return Err(FilesystemError::NotADirectory.into());
+    }
     if new_dir.is_subdir(&old) {
         return Err(FilesystemError::InvalidInput.into());
     }
     if old_dir.is_subdir(&new) {
         return Err(FilesystemError::DirectoryNotEmpty.into());
     }
+    if is_dir && !from.mount().moves_directories() {
+        return Err(FilesystemError::CrossesDevices.into());
+    }
     Ok(vfs_rename(
         filesystem,
         (old_dir, &old),
         (new_dir, &new),
         None,
-        || {
-            source
-                .base()
-                .rename(&old, target.base().as_ref(), &new, rename)
-        },
+        || source.base().rename(&old, target.base().as_ref(), &new),
     )?)
 }
 
@@ -825,7 +824,7 @@ mod tests {
     use std::time::Duration;
 
     use crate::filesystem::{
-        Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename, Tmpfs,
+        Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs,
     };
     use crate::mount::{Mount, Policy};
     use crate::profile::Profile;
@@ -898,10 +897,9 @@ mod tests {
             from: &Dentry,
             to_dir: &dyn Inode,
             to: &Dentry,
-            rename: Rename,
         ) -> Result<(), FilesystemError> {
             self.renames.fetch_add(1, Ordering::SeqCst);
-            self.tmpfs.rename(from, to_dir, to, rename)
+            self.tmpfs.rename(from, to_dir, to)
         }
     }
 

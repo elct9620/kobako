@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    Bind, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Overlay, Rename, Tmpfs,
+    Bind, DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Overlay, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
@@ -216,9 +216,6 @@ const PROBE_WAT: &str = r#"
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $allocate (i32.load (i32.const 128)) (i64.const 0) (i64.const 100)))
 
-  ;; Rename `file.txt` to `new.txt`.
-  (func (export "rename_to_new") (result i32)
-    (call $rename (i32.const 3) (i32.const 700) (i32.const 8) (i32.const 3) (i32.const 840) (i32.const 7)))
   ;; Rename `file.txt` onto `file.txt/`, its own path as a directory.
   (func (export "rename_onto_itself_as_directory") (result i32)
     (call $rename (i32.const 3) (i32.const 700) (i32.const 8) (i32.const 3) (i32.const 800) (i32.const 9)))
@@ -641,9 +638,8 @@ impl Inode for StoresUpperCase {
         from: &Dentry,
         _to_dir: &dyn Inode,
         to: &Dentry,
-        rename: Rename,
     ) -> Result<(), FilesystemError> {
-        self.0.rename(from, &self.0, to, rename)
+        self.0.rename(from, &self.0, to)
     }
 }
 
@@ -983,9 +979,8 @@ impl Inode for ReusesInodes {
         from: &Dentry,
         _to_dir: &dyn Inode,
         to: &Dentry,
-        rename: Rename,
     ) -> Result<(), FilesystemError> {
-        self.tmpfs.rename(from, self.tmpfs.as_ref(), to, rename)
+        self.tmpfs.rename(from, self.tmpfs.as_ref(), to)
     }
 }
 
@@ -1065,9 +1060,8 @@ impl Inode for NamesNoIdentity {
         from: &Dentry,
         _to_dir: &dyn Inode,
         to: &Dentry,
-        rename: Rename,
     ) -> Result<(), FilesystemError> {
-        self.0.rename(from, self.0.as_ref(), to, rename)
+        self.0.rename(from, self.0.as_ref(), to)
     }
 }
 
@@ -1258,90 +1252,28 @@ impl Inode for ChangeCounter {
         from: &Dentry,
         _to_dir: &dyn Inode,
         to: &Dentry,
-        rename: Rename,
     ) -> Result<(), FilesystemError> {
         self.change();
-        self.tmpfs.rename(from, &self.tmpfs, to, rename)
-    }
-}
-
-/// A Tmpfs holding `file.txt` that, as a rename reaches it, replaces the
-/// file with a directory holding `secret`, as another invocation sharing
-/// the Tmpfs could between the runtime's checks and the move.
-struct SwappedForADirectory(Arc<Tmpfs>);
-
-impl SwappedForADirectory {
-    fn new() -> Arc<Self> {
-        Arc::new(Self(Arc::new(
-            [("file.txt", "granted")].into_iter().collect(),
-        )))
-    }
-}
-
-impl Inode for SwappedForADirectory {
-    holds_no_links!();
-    matches_names_exactly!();
-
-    fn open(
-        &self,
-        dentry: &Dentry,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
-        self.0.open(dentry, options)
-    }
-
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.0.symlink_metadata(dentry)
-    }
-
-    opens_directories!(0);
-
-    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.create_dir(dentry)
-    }
-
-    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.remove_dir(dentry)
-    }
-
-    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.remove_file(dentry)
-    }
-
-    fn rename(
-        &self,
-        from: &Dentry,
-        _to_dir: &dyn Inode,
-        to: &Dentry,
-        rename: Rename,
-    ) -> Result<(), FilesystemError> {
-        self.0.remove_file(from)?;
-        self.0.create_dir(from)?;
-        overwrite(&host(&self.0), &format!("{}/secret", from.name()));
-        self.0.rename(from, self.0.as_ref(), to, rename)
+        self.tmpfs.rename(from, &self.tmpfs, to)
     }
 }
 
 // The Policy allows everything, so only the rename's own refusal of a
-// directory, checked as the Filesystem moves it, keeps `secret` from
-// taking a path the Policy never judged.
+// directory keeps `secret` from taking a path the Policy never judged.
 // @behavior RT-094
 #[test]
 fn a_directory_beneath_a_mount_with_a_policy_does_not_move() {
-    let swapped = SwappedForADirectory::new();
+    let tmpfs = Arc::new([("dir/secret", "x")].into_iter().collect::<Tmpfs>());
     let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
-    let mut guest = Guest::new(&[grant(swapped.clone(), Access::ReadWrite, Some(policy))]);
+    let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, Some(policy))]);
     assert_eq!(
         (
-            guest.call_bare("rename_to_new"),
-            vfs::symlink_metadata(&host(&swapped.0), "new.txt/secret")
+            guest.call_pair("rename_paths", DIR, MOVED),
+            vfs::symlink_metadata(&host(&tmpfs), "dir/secret").map(|m| m.file_type)
         ),
-        (
-            ERRNO_XDEV,
-            Err(vfs::Error::Filesystem(FilesystemError::NotFound))
-        ),
-        "path_rename of what is a directory by the time it moves, beneath a Mount with a \
-         Policy, through preview1 must answer EXDEV and move nothing"
+        (ERRNO_XDEV, Ok(FileType::File)),
+        "path_rename of a directory beneath a Mount with a Policy through preview1 must \
+         answer EXDEV and move nothing"
     );
 }
 
@@ -1431,9 +1363,8 @@ impl Inode for AppendedMeanwhile {
         from: &Dentry,
         _to_dir: &dyn Inode,
         to: &Dentry,
-        rename: Rename,
     ) -> Result<(), FilesystemError> {
-        self.0.rename(from, self.0.as_ref(), to, rename)
+        self.0.rename(from, self.0.as_ref(), to)
     }
 }
 
@@ -1872,9 +1803,8 @@ impl Inode for FailsLookingUpDir {
         from: &Dentry,
         _to_dir: &dyn Inode,
         to: &Dentry,
-        rename: Rename,
     ) -> Result<(), FilesystemError> {
-        self.0.rename(from, &self.0, to, rename)
+        self.0.rename(from, &self.0, to)
     }
 }
 

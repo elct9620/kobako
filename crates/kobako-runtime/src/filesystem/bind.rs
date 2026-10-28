@@ -18,7 +18,7 @@ use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
-use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename};
+use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions};
 use crate::vfs::Dentry;
 
 /// A host directory and everything beneath it. What a guest writes lands
@@ -343,8 +343,8 @@ impl Inode for Bind {
         })
     }
 
-    /// A host directory takes no lock a Filesystem could check the source
-    /// under, so another process of the host's changing it in between is
+    /// A host directory takes no lock the runtime's check of the source
+    /// holds, so another process of the host's changing it in between is
     /// the host's to rule out. A link moves as itself, as `rename(2)`
     /// moves one.
     fn rename(
@@ -352,12 +352,10 @@ impl Inode for Bind {
         from: &Dentry,
         to_dir: &dyn Inode,
         to: &Dentry,
-        rename: Rename,
     ) -> Result<(), FilesystemError> {
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
             .ok_or(FilesystemError::CrossesDevices)?;
-        rename.check(self.symlink_metadata(from)?.file_type)?;
         self.at(from, |from_dir, from_name| {
             target.at(to, |to_dir, to_name| {
                 from_dir
