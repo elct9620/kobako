@@ -423,6 +423,7 @@ const ERRNO_LOOP: i32 = 32;
 const ERRNO_NAMETOOLONG: i32 = 37;
 const ERRNO_NOENT: i32 = 44;
 const ERRNO_NOTDIR: i32 = 54;
+const ERRNO_NOTEMPTY: i32 = 55;
 const ERRNO_NOTSUP: i32 = 58;
 const ERRNO_PERM: i32 = 63;
 const ERRNO_NOTCAPABLE: i32 = 76;
@@ -470,7 +471,9 @@ fn escapes(path: &str) -> bool {
 /// which follows a link there, where cap-std's shortcut for one name
 /// drops the `/` and finds the file or the link. A `rmdir` of a link
 /// named with a trailing `/` is `NOTDIR` as Linux answers it, where
-/// cap-std's split turns the `/` into `.` and answers `INVAL`. A `..` or
+/// cap-std's split turns the `/` into `.` and answers `INVAL`. A `rmdir`
+/// of a path ending in `..` is `NOTEMPTY` as Linux answers it, where
+/// cap-std answers `INVAL` as it does for a final `.`. A `..` or
 /// a final `.` after a link is `LOOP` and changes nothing, where cap-std
 /// steps out of where the link points; a call refused before its path
 /// resolves answers alike.
@@ -532,6 +535,12 @@ fn predict(call: Call, path: &str, mut oracle: Observation) -> Observation {
             (Call::Unlink, Err(_)) => oracle.errno = Some(ERRNO_NOENT),
             _ => {}
         }
+    }
+    if matches!(call, Call::Rmdir)
+        && path.trim_end_matches('/').ends_with("..")
+        && oracle.errno == Some(ERRNO_INVAL)
+    {
+        oracle.errno = Some(ERRNO_NOTEMPTY);
     }
     if path.len() >= PATH_MAX {
         oracle.errno = Some(ERRNO_NAMETOOLONG);
