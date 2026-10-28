@@ -589,8 +589,8 @@ where
         self.tmpfs.symlink_metadata(dentry)
     }
 
-    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.tmpfs.stored_name(dentry)
+    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        self.tmpfs.lookup(dentry)
     }
 
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {

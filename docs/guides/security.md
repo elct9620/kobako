@@ -287,7 +287,7 @@ captured once at `bind` would span the Sandbox's lifetime instead.
 A Mount hands the guest a Filesystem at one path. kobako keeps the guest beneath
 that path and holds its access; what the Filesystem holds is yours to choose. A
 Bind opens only files and directories: a FIFO, socket, or device raises
-`Errno::EACCES`.
+`Errno::EACCES`. On Windows, so does a spelling the host lists under no name.
 
 | Choose | Because |
 |---|---|
@@ -308,7 +308,6 @@ foresee. The block judges paths, so nothing may reach a path it never judged:
 | a path through a host link | `Errno::ELOOP` |
 | a link another writer swaps in after the block judges | never followed; the call reaches the directory it walked to |
 | another case or Unicode form of a name | the block judges the spelling the host stores |
-| on Windows, a spelling the host lists under no name | `Errno::EACCES` |
 
 The block does not judge `stat` or a listing, so the guest still sees that a
 refused path exists. An open that what stands at the path refuses, such as

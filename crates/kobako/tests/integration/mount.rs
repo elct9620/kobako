@@ -283,7 +283,7 @@ impl Inode for OneNote {
         }
     }
 
-    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         Ok(dentry.name())
     }
 

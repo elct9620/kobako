@@ -1,6 +1,6 @@
 //! How a host directory spells a name it holds. A host that folds case or
-//! Unicode form reaches one entry by many names, so a Policy judging the
-//! name as asked would see a spelling the host never stored.
+//! Unicode form reaches one entry by many names, so the runtime keeping a
+//! dentry per name as asked would hold one entry under several.
 //!
 //! macOS answers the stored name for any spelling. Elsewhere a listing
 //! finds the entry by its inode, skipped on a Linux filesystem known to
@@ -13,10 +13,10 @@ use cap_std::fs::Dir;
 
 /// The name `parent` stores for the entry `name` reaches, a link reached
 /// as itself; `name` as given when nothing is there.
-pub(super) fn stored_name(parent: &Dir, name: &str) -> io::Result<String> {
+pub(super) fn lookup(parent: &Dir, name: &str) -> io::Result<String> {
     #[cfg(target_os = "macos")]
     {
-        macos::stored_name(parent, name)
+        macos::lookup(parent, name)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -24,14 +24,14 @@ pub(super) fn stored_name(parent: &Dir, name: &str) -> io::Result<String> {
         if linux::matches_exactly(parent) {
             return Ok(name.to_string());
         }
-        stored_name_by_listing(parent, name)
+        lookup_by_listing(parent, name)
     }
 }
 
 /// The name a listing of `parent` holds for `name`: itself when listed,
 /// else the entry sharing its inode.
 #[cfg(not(target_os = "macos"))]
-fn stored_name_by_listing(parent: &Dir, name: &str) -> io::Result<String> {
+fn lookup_by_listing(parent: &Dir, name: &str) -> io::Result<String> {
     let found = match parent.symlink_metadata(name) {
         Ok(found) => found,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(name.to_string()),
@@ -80,7 +80,7 @@ mod macos {
         data: [u8; 1024],
     }
 
-    pub(super) fn stored_name(parent: &Dir, name: &str) -> io::Result<String> {
+    pub(super) fn lookup(parent: &Dir, name: &str) -> io::Result<String> {
         let path = CString::new(name).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
         let mut request = libc::attrlist {
             bitmapcount: libc::ATTR_BIT_MAP_COUNT,
@@ -166,7 +166,7 @@ mod linux {
     mod tests {
         use cap_std::ambient_authority;
 
-        use super::super::stored_name_by_listing;
+        use super::super::lookup_by_listing;
         use super::{fstatfs, matches_exactly, Dir, EXACT};
 
         // A Directory opens its directories as cap-std does, for a path
@@ -206,8 +206,8 @@ mod linux {
             let dir = Dir::open_ambient_dir(&path, ambient_authority())
                 .expect("the host directory must open");
             let answers = (
-                stored_name_by_listing(&dir, "file").ok(),
-                stored_name_by_listing(&dir, "missing").ok(),
+                lookup_by_listing(&dir, "file").ok(),
+                lookup_by_listing(&dir, "missing").ok(),
             );
             let _ = std::fs::remove_dir_all(&path);
             assert_eq!(

@@ -217,7 +217,7 @@ mod tests {
             self.root.symlink_metadata(&self.path(dentry))
         }
 
-        fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
             Ok(dentry.name())
         }
 

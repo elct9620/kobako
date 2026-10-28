@@ -6,7 +6,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::filesystem::{Access, FilesystemError};
+use crate::filesystem::Access;
 use crate::vfs::Filesystem;
 
 /// The Host App's decision for one path a guest opens or changes, made in
@@ -122,17 +122,15 @@ impl Mount {
     /// `access`. A Policy judges the path `dentry_path` answers, relative
     /// to this Mount's root and spelled as the Filesystem stores its names,
     /// so a host folding case or Unicode form cannot hand it one spelling
-    /// of an entry it refuses by another; a path that cannot be spelled is
-    /// refused.
+    /// of an entry it refuses by another.
     pub(crate) fn check(
         &self,
-        dentry_path: impl FnOnce() -> Result<String, FilesystemError>,
+        dentry_path: impl FnOnce() -> String,
         access: Access,
     ) -> Result<(), Denial> {
         match &self.policy {
             Some(policy) => {
-                let stored = dentry_path().map_err(|_| Denial::Refused)?;
-                if policy.allows(&self.guest_path(&stored), access) {
+                if policy.allows(&self.guest_path(&dentry_path()), access) {
                     Ok(())
                 } else {
                     Err(Denial::Refused)

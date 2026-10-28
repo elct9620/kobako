@@ -6,7 +6,7 @@
 //! that would lead out of the directory, so the confinement holds
 //! whatever name a caller hands over.
 
-mod stored_name;
+mod lookup;
 mod walk;
 
 use std::any::Any;
@@ -287,9 +287,9 @@ impl Inode for Bind {
         }))))))
     }
 
-    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         self.at(dentry, |dir, name| {
-            stored_name::stored_name(dir, name).map_err(to_error)
+            lookup::lookup(dir, name).map_err(to_error)
         })
     }
 
@@ -1021,9 +1021,9 @@ mod tests {
             .open_dir("dir")
             .expect("the host directory must open");
         assert_eq!(
-            (dir.stored_name("file"), dir.stored_name("new")),
+            (dir.lookup("file"), dir.lookup("new")),
             (Ok("file".to_string()), Ok("new".to_string())),
-            "a name asked of Bind::stored_name in the spelling its host stores, and one it \
+            "a name asked of Bind::lookup in the spelling its host stores, and one it \
              does not hold, must come back as given"
         );
     }
@@ -1047,16 +1047,16 @@ mod tests {
             .expect("the host directory must open in any case");
         assert_eq!(
             (
-                directory.stored_name("Private"),
-                private.stored_name("CAFE\u{301}"),
-                private.stored_name("missing")
+                directory.lookup("Private"),
+                private.lookup("CAFE\u{301}"),
+                private.lookup("missing")
             ),
             (
                 Ok("private".to_string()),
                 Ok("caf\u{e9}".to_string()),
                 Ok("missing".to_string())
             ),
-            "a name asked of Bind::stored_name in another case and Unicode form on a host \
+            "a name asked of Bind::lookup in another case and Unicode form on a host \
              folding both must come back as the host stores it, one it does not hold as given"
         );
     }

@@ -94,6 +94,23 @@ impl Nameidata {
             .child(self.dentry(), name)
     }
 
+    /// `name` as the directory the walk stands in stores it, and the
+    /// dentry of that spelling, as Linux's `lookup_slow` asks `->lookup`
+    /// and a case-insensitive filesystem answers through `d_add_ci`: every
+    /// spelling reaching one entry shares its dentry, and so its lock. The
+    /// caller holds that directory's lock.
+    fn lookup_slow(&self, name: &str) -> Result<(String, Arc<Dentry>), FilesystemError> {
+        let given = self.child_of(name);
+        let stored = self.base().lookup(&given)?;
+        match stored == name {
+            true => Ok((stored, given)),
+            false => {
+                let dentry = self.child_of(&stored);
+                Ok((stored, dentry))
+            }
+        }
+    }
+
     /// What stands at the name, a link reported as itself, asked of the
     /// Filesystem once however many checks need it; the directory itself
     /// for the empty name.
@@ -123,22 +140,17 @@ impl Nameidata {
         Ok(())
     }
 
-    /// The path from the Mount's root with each name spelled as the
-    /// directory holding it stores it, a name nothing holds kept as given.
-    pub(crate) fn dentry_path(&self) -> Result<String, FilesystemError> {
-        let mut names = Vec::new();
-        for pair in self.frames.windows(2) {
-            names.push(pair[0].dir.stored_name(&pair[1].dentry)?);
-        }
-        if !self.name.is_empty() {
-            names.push(self.base().stored_name(&self.child())?);
-        }
-        Ok(names
+    /// The path from the Mount's root, read from the walk's dentries as
+    /// Linux's `d_path` reads them: each name spelled as the directory
+    /// holding it stores it, a name nothing holds kept as given.
+    pub(crate) fn dentry_path(&self) -> String {
+        self.frames[1..]
             .iter()
+            .map(|frame| frame.dentry.name())
+            .chain(std::iter::once(self.name.clone()))
             .filter(|name| !name.is_empty())
-            .map(String::as_str)
             .collect::<Vec<_>>()
-            .join("/"))
+            .join("/")
     }
 
     /// Ask the Mount whether the guest may reach the path with `access`.
@@ -217,7 +229,7 @@ impl Nameidata {
     fn walk_component(&mut self, part: Part, dot: bool) -> Result<(), Error> {
         let parent = self.dentry().clone();
         let _held = down_read(&self.mount, &parent)?;
-        let dentry = self.child_of(&part.name);
+        let (name, dentry) = self.lookup_slow(&part.name)?;
         let opened = self.base().open_dir(&dentry).and_then(|dir| {
             if self.eager || dot {
                 d_can_lookup(&dir)?;
@@ -228,7 +240,7 @@ impl Nameidata {
             Ok(dir) => {
                 self.frames.push(Frame {
                     dir,
-                    name: part.name,
+                    name,
                     dentry,
                     through_link: part.from_link,
                 });
@@ -293,7 +305,7 @@ impl Nameidata {
         let _held = down_read(&self.mount, self.dentry())?;
         match self
             .base()
-            .symlink_metadata(&self.child_of(name))?
+            .symlink_metadata(&self.lookup_slow(name)?.1)?
             .file_type
         {
             FileType::Directory => Ok(()),
@@ -435,10 +447,11 @@ fn path_lookupat(
     while let Some(name) = last.as_ref().filter(|_| follow) {
         let parent = nd.dentry().clone();
         let held = down_read(&nd.mount, &parent)?;
-        let dentry = nd.child_of(&name.name);
+        let (stored, dentry) = nd.lookup_slow(&name.name)?;
         let looked_up = nd.base().symlink_metadata(&dentry);
         if !matches!(&looked_up, Ok(metadata) if metadata.file_type == FileType::Symlink) {
             found = Some(looked_up);
+            nd.name = stored;
             break;
         }
         nd.pick_link(&dentry)?;
@@ -446,7 +459,13 @@ fn path_lookupat(
         followed = true;
         last = nd.link_path_walk(None)?;
     }
-    nd.name = last.map(|part| part.name).unwrap_or_default();
+    if found.is_none() {
+        if let Some(part) = last {
+            let parent = nd.dentry().clone();
+            let _held = down_read(&nd.mount, &parent)?;
+            nd.name = nd.lookup_slow(&part.name)?.0;
+        }
+    }
     // A walk that stepped into directories not yet opened settles its last
     // name now; one that stepped into none leaves it to the call to ask.
     nd.found = match found {
@@ -828,6 +847,7 @@ mod tests {
     };
     use crate::mount::{Mount, Policy};
     use crate::profile::Profile;
+    use crate::vfs::kern_path::{kern_path, KernPath};
     use crate::vfs::{self, Blocking, Dentry, FileDescription, Filesystem, OpenHow, Path};
 
     type Hook = Box<dyn Fn() -> Result<(), FilesystemError> + Send + Sync>;
@@ -864,8 +884,8 @@ mod tests {
             self.tmpfs.symlink_metadata(dentry)
         }
 
-        fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-            self.tmpfs.stored_name(dentry)
+        fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            self.tmpfs.lookup(dentry)
         }
 
         fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
@@ -900,6 +920,97 @@ mod tests {
         ) -> Result<(), FilesystemError> {
             self.renames.fetch_add(1, Ordering::SeqCst);
             self.tmpfs.rename(from, to_dir, to)
+        }
+    }
+
+    /// A Tmpfs holding only upper-case names and reaching each by any case,
+    /// as a host folding case does, answering each call by the folded path
+    /// from its root; each directory it opens folds too, and `renaming`
+    /// runs as a move reaches any of them.
+    struct FoldsToUpper {
+        root: KernPath,
+        at: String,
+        renaming: Arc<Hook>,
+    }
+
+    impl FoldsToUpper {
+        /// The name `dentry` carries, folded, beneath this directory.
+        fn path(&self, dentry: &Dentry) -> String {
+            let name = dentry.name().to_uppercase();
+            match self.at.as_str() {
+                "" => name,
+                at => format!("{at}/{name}"),
+            }
+        }
+    }
+
+    impl Inode for FoldsToUpper {
+        fn open(
+            &self,
+            dentry: &Dentry,
+            options: &OpenOptions,
+        ) -> Result<Box<dyn File>, FilesystemError> {
+            self.root.open(&self.path(dentry), options)
+        }
+
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+            let at = self.path(dentry);
+            self.root.open_dir(&at)?;
+            Ok(Arc::new(Self {
+                root: self.root.clone(),
+                at,
+                renaming: self.renaming.clone(),
+            }))
+        }
+
+        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+            self.root.symlink_metadata(&self.at)
+        }
+
+        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.root.symlink_metadata(&self.path(dentry))
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            match self.symlink_metadata(dentry) {
+                Ok(_) => Ok(dentry.name().to_uppercase()),
+                Err(FilesystemError::NotFound) => Ok(dentry.name()),
+                Err(err) => Err(err),
+            }
+        }
+
+        fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            self.root.read_link(&self.path(dentry))
+        }
+
+        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.root.open_dir(&self.at)?.entries()
+        }
+
+        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.create_dir(&self.path(dentry))
+        }
+
+        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.remove_dir(&self.path(dentry))
+        }
+
+        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.remove_file(&self.path(dentry))
+        }
+
+        fn rename(
+            &self,
+            from: &Dentry,
+            to_dir: &dyn Inode,
+            to: &Dentry,
+        ) -> Result<(), FilesystemError> {
+            (self.renaming)()?;
+            let target = (to_dir as &dyn std::any::Any)
+                .downcast_ref::<Self>()
+                .ok_or(FilesystemError::CrossesDevices)?;
+            self.root
+                .rename(&self.path(from), &self.root, &target.path(to))
         }
     }
 
@@ -1135,6 +1246,56 @@ mod tests {
             (Ok(()), 1),
             "vfs::create_dir on a directory another thread's vfs::remove_dir holds must wait \
              through the Blocking given by Filesystem::with_blocking, then answer"
+        );
+    }
+
+    // Each spelling of `DIR` kept apart would be a dentry and a lock of its
+    // own, so only the two sharing one makes the removal wait for the move.
+    // @behavior RT-169
+    #[test]
+    fn every_spelling_of_a_name_holds_its_one_dentry_and_lock() {
+        let counts = Arc::new(CountsWaits::default());
+        let (reached, reaching) = mpsc::channel();
+        let renaming: Arc<Hook> = Arc::new(Box::new({
+            let (counts, reached) = (counts.clone(), Mutex::new(reached));
+            move || {
+                reached.lock().expect("unpoisoned").send(()).ok();
+                // Bounded, so a removal that never waits fails the count
+                // rather than hanging the test.
+                for _ in 0..2000 {
+                    if counts.0.load(Ordering::SeqCst) > 0 {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Ok(())
+            }
+        }));
+        let tmpfs: Tmpfs = [("DIR/F", "x")].into_iter().collect();
+        let folds = FoldsToUpper {
+            root: kern_path(Arc::new(tmpfs)),
+            at: String::new(),
+            renaming,
+        };
+        let root = root_of(Filesystem::with_blocking(Arc::new(folds), counts.clone()));
+        let mover = {
+            let root = root.clone();
+            thread::spawn(move || vfs::rename(&root, "dir/f", &root, "dir/g"))
+        };
+        // Bounded, so a move that never reaches the Filesystem fails the
+        // assertion rather than hanging the test.
+        reaching.recv_timeout(Duration::from_secs(5)).ok();
+        let removed = vfs::remove_file(&root, "DIR/F");
+        let moved = mover.join().expect("the mover must not panic");
+        assert_eq!(
+            (moved, removed, counts.0.load(Ordering::SeqCst) > 0),
+            (
+                Ok(()),
+                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
+                true
+            ),
+            "vfs::remove_file of `DIR/F` while vfs::rename moves `dir/f`, over a Filesystem \
+             storing both as `DIR/F`, must wait for the move and then find nothing"
         );
     }
 }

@@ -326,7 +326,7 @@ name in a directory it already opened.
 guest path ─▶ runtime: walk name by name, follow links, check the Policy ─▶ Filesystem
                               ▲                                               │
                               ├── symlink_metadata · open_dir ────────────────┤
-                              └── read_link · stored_name ────────────────────┘
+                              └── read_link · lookup ─────────────────────────┘
 ```
 
 A directory the guest opens is an Inode of its own, from `open_dir`. A
@@ -344,7 +344,7 @@ A method like these joins without a default, a break marked `!`.
 | `symlink_metadata` | a link from being followed but where the runtime follows it | what stands there, as no link does |
 | `open_dir` | the same, for each directory on a path, and its identity held while open | the directory, as no link stands there |
 | `read_link` | a link followed only within the directory a descriptor opened | `InvalidInput` |
-| `stored_name` | a Policy checking the spelling the host stores | the name as given |
+| `lookup` | one dentry and lock per entry, and a Policy checking the stored spelling | the name as given |
 | `File::append` | another writer's append from landing over this one | `Unsupported` |
 
 An Overlay waits for a copy up's lock through `Blocking`. A frontend whose threads share a

@@ -35,7 +35,7 @@ macro_rules! holds_no_links {
 /// The answer of a test Filesystem matching names byte for byte.
 macro_rules! matches_names_exactly {
     () => {
-        fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
             Ok(dentry.name())
         }
     };
@@ -596,9 +596,10 @@ impl Policy for AllowsAll {
     }
 }
 
-/// A Tmpfs storing every name in upper case while it reaches each by
-/// any case, as a host that folds case does.
-struct StoresUpperCase(Tmpfs);
+/// A Tmpfs holding only upper-case names, reaching each by any case, as
+/// a host storing every name in upper case and folding case does; each
+/// directory it opens folds case too.
+struct StoresUpperCase(Arc<dyn Inode>);
 
 impl Inode for StoresUpperCase {
     holds_no_links!();
@@ -615,11 +616,21 @@ impl Inode for StoresUpperCase {
         self.0.symlink_metadata(dentry)
     }
 
-    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         Ok(dentry.name().to_uppercase())
     }
 
-    opens_directories!(0);
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+        Ok(Arc::new(Self(self.0.open_dir(dentry)?)))
+    }
+
+    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        self.0.metadata()
+    }
+
+    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.0.entries()
+    }
 
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.0.create_dir(dentry)
@@ -639,7 +650,7 @@ impl Inode for StoresUpperCase {
         _to_dir: &dyn Inode,
         to: &Dentry,
     ) -> Result<(), FilesystemError> {
-        self.0.rename(from, &self.0, to)
+        self.0.rename(from, self.0.as_ref(), to)
     }
 }
 
@@ -648,10 +659,10 @@ impl Inode for StoresUpperCase {
 // @behavior RT-120
 #[test]
 fn a_policy_judges_a_path_as_its_filesystem_stores_it() {
-    let tmpfs: Tmpfs = [("file.txt", "granted")].into_iter().collect();
+    let tmpfs: Tmpfs = [("FILE.TXT", "granted")].into_iter().collect();
     let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/FILE.TXT"));
     let mut guest = Guest::new(&[grant(
-        Arc::new(StoresUpperCase(tmpfs)),
+        Arc::new(StoresUpperCase(Arc::new(tmpfs))),
         Access::Read,
         Some(policy),
     )]);
@@ -669,10 +680,10 @@ fn a_policy_judges_a_path_as_its_filesystem_stores_it() {
 #[test]
 fn a_policy_judges_a_path_beneath_an_opened_directory_as_its_filesystem_stores_it() {
     const INNER: (i32, i32) = (960, 5);
-    let tmpfs: Tmpfs = [("dir/inner", "x")].into_iter().collect();
-    let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/DIR/inner"));
+    let tmpfs: Tmpfs = [("DIR/INNER", "x")].into_iter().collect();
+    let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/DIR/INNER"));
     let mut guest = Guest::new(&[grant(
-        Arc::new(StoresUpperCase(tmpfs)),
+        Arc::new(StoresUpperCase(Arc::new(tmpfs))),
         Access::Read,
         Some(policy),
     )]);
@@ -680,8 +691,8 @@ fn a_policy_judges_a_path_beneath_an_opened_directory_as_its_filesystem_stores_i
         guest.call("open_beneath_dir", INNER),
         ERRNO_ACCES,
         "path_open of `inner` through `dir` opened beneath a Mount whose Policy refuses \
-         `/data/DIR/inner`, over a Filesystem storing `dir` as `DIR`, through preview1 must \
-         answer EACCES"
+         `/data/DIR/INNER`, over a Filesystem storing both names in upper case, through \
+         preview1 must answer EACCES"
     );
 }
 

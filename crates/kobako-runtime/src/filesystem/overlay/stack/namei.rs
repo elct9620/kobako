@@ -159,18 +159,23 @@ impl OverlayFs {
         self.merge_identity(level, name, index, found)
     }
 
-    /// `name` spelled as the topmost Layer showing it stores it; a name no
-    /// Layer shows keeps its spelling.
-    pub(in super::super) fn stored_name(
+    /// `name` spelled as the topmost Layer showing it stores it, the
+    /// case-exact name `d_add_ci` takes; a name no Layer shows keeps its
+    /// spelling. A directory one Layer alone shows asks that Layer, as it
+    /// walks there.
+    pub(in super::super) fn case_exact_name(
         &self,
         level: &Level,
         name: &str,
     ) -> Result<String, FilesystemError> {
+        if let Some((_, dir)) = sole_layer(level) {
+            return dir.lookup(name);
+        }
         match self.lookup(level, name)? {
             Some((index, _)) => level[index]
                 .as_ref()
                 .ok_or(FilesystemError::NotFound)?
-                .stored_name(name),
+                .lookup(name),
             None => Ok(name.to_string()),
         }
     }

@@ -550,7 +550,7 @@ impl Inode for Tmpfs {
     }
 
     /// A Tmpfs matches names byte for byte.
-    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         Ok(dentry.name())
     }
 

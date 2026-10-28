@@ -253,7 +253,7 @@ impl Inode for RubyFilesystem {
     }
 
     /// A Ruby object matches names exactly, as its contract asks.
-    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         Ok(dentry.name())
     }
 

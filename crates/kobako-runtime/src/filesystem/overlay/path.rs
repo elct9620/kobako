@@ -163,9 +163,9 @@ impl OverlayPath {
         self.dir.symlink_metadata(&self.child(name))
     }
 
-    pub(super) fn stored_name(&self, name: &str) -> Result<String, FilesystemError> {
+    pub(super) fn lookup(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.shared()?;
-        self.dir.stored_name(&self.child(name))
+        self.dir.lookup(&self.child(name))
     }
 
     pub(super) fn read_link(&self, name: &str) -> Result<String, FilesystemError> {

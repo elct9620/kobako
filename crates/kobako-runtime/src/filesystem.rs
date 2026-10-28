@@ -46,8 +46,8 @@ pub enum Access {
 /// guarantee the runtime gives the guest, so each Filesystem answers them
 /// itself and a wrapper forwards them: `open`, `symlink_metadata`,
 /// `open_dir`, and `read_link` keep a link from being followed anywhere but
-/// where the runtime follows it, and `stored_name` keeps a Policy judging the
-/// spelling the host stores. Every Invocation reaches the same Filesystem;
+/// where the runtime follows it, and `lookup` keeps every spelling of one
+/// entry on one dentry. Every Invocation reaches the same Filesystem;
 /// one that should start afresh is handed in its place for that
 /// Invocation.
 pub trait Inode: Any + Send + Sync {
@@ -76,12 +76,14 @@ pub trait Inode: Any + Send + Sync {
     /// to read it.
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
 
-    /// The name `dentry` carries spelled as this directory stores it, so a
-    /// name a host reaches by more than one spelling is judged by one; a
-    /// name it does not hold stays as given. A Filesystem matching names
-    /// exactly answers the name. Only a Policy asks, as an LSM asks a
-    /// filesystem for what it judges by, so no other caller pays for it.
-    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
+    /// The name `dentry` carries spelled as this directory stores it; a
+    /// name it does not hold stays as given. The runtime asks before it
+    /// keeps a dentry for the name, as a case-insensitive filesystem's
+    /// `lookup` hands `d_add_ci` the case-exact name, so a name a host
+    /// reaches by more than one spelling has one dentry, one lock, and one
+    /// spelling a Policy judges. A Filesystem matching names exactly
+    /// answers the name.
+    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
 
     /// Where the link `dentry` names points, as `readlinkat` answers, for
     /// the runtime to follow; a guest never reads it. `InvalidInput` where

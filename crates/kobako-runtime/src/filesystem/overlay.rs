@@ -148,9 +148,9 @@ impl Inode for Overlay {
             .symlink_metadata(self.chain(false)?.level(), &dentry.name())
     }
 
-    fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         self.fs
-            .stored_name(self.chain(false)?.level(), &dentry.name())
+            .case_exact_name(self.chain(false)?.level(), &dentry.name())
     }
 
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
@@ -223,7 +223,7 @@ mod tests {
     /// The answer of a test Filesystem matching names byte for byte.
     macro_rules! matches_names_exactly {
         () => {
-            fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
                 Ok(dentry.name())
             }
         };
@@ -1782,8 +1782,12 @@ mod tests {
             self.root.symlink_metadata(&self.path(dentry))
         }
 
-        fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-            Ok(dentry.name().to_lowercase())
+        fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            match self.symlink_metadata(dentry) {
+                Ok(_) => Ok(dentry.name().to_lowercase()),
+                Err(FilesystemError::NotFound) => Ok(dentry.name()),
+                Err(err) => Err(err),
+            }
         }
 
         fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -1959,16 +1963,16 @@ mod tests {
             .expect("the directory must open in any case");
         assert_eq!(
             (
-                overlay.stored_name("PRIVATE"),
-                private.stored_name("SECRET"),
-                private.stored_name("New")
+                overlay.lookup("PRIVATE"),
+                private.lookup("SECRET"),
+                private.lookup("New")
             ),
             (
                 Ok("private".to_string()),
                 Ok("secret".to_string()),
                 Ok("New".to_string())
             ),
-            "a name asked of Overlay::stored_name in another case, shown by a Layer folding case, \
+            "a name asked of Overlay::lookup in another case, shown by a Layer folding case, \
              must come back as that Layer stores it, a new name kept as given"
         );
     }
