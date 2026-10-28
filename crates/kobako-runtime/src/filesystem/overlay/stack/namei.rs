@@ -2,10 +2,7 @@
 //! a name up in each layer and merges the directories it finds.
 
 use super::super::super::{FileType, FilesystemError, Metadata};
-use super::{
-    entry, hides, holds, layer_dir, refuse_reserved, shows_below, sole_layer, Chain, Level,
-    OverlayFs, Step, OPAQUE,
-};
+use super::{entry, layer_dir, shows_below, sole_layer, Chain, Level, OverlayFs, Step};
 
 impl OverlayFs {
     /// Walk `chain` into each of `names` in turn, each a directory the view
@@ -29,7 +26,6 @@ impl OverlayFs {
         chain: &mut Chain,
         name: &str,
     ) -> Result<(), FilesystemError> {
-        refuse_reserved(name)?;
         let level = chain.level();
         if let Some((index, dir)) = sole_layer(level) {
             let mut only = vec![None; level.len()];
@@ -67,7 +63,7 @@ impl OverlayFs {
             if let Some(found) = entry(dir, name)? {
                 return Ok(Some((index, found)));
             }
-            if shows_below(level, index) && hides(dir, name)? {
+            if shows_below(level, index) && dir.is_whiteout(name) {
                 break;
             }
         }
@@ -98,7 +94,7 @@ impl OverlayFs {
             match standing {
                 Some(metadata) if metadata.file_type == FileType::Directory => {
                     let inner = dir.open_dir(name)?;
-                    let opaque = below && holds(&inner, OPAQUE)?;
+                    let opaque = below && inner.is_opaque();
                     merged[index] = Some(inner);
                     if opaque {
                         break;
@@ -107,7 +103,7 @@ impl OverlayFs {
                 Some(_) => break,
                 None => {}
             }
-            if below && hides(dir, name)? {
+            if below && dir.is_whiteout(name) {
                 break;
             }
         }
@@ -159,7 +155,6 @@ impl OverlayFs {
         level: &Level,
         name: &str,
     ) -> Result<Metadata, FilesystemError> {
-        refuse_reserved(name)?;
         let (index, found) = self.lookup(level, name)?.ok_or(FilesystemError::NotFound)?;
         self.merge_identity(level, name, index, found)
     }
@@ -187,7 +182,6 @@ impl OverlayFs {
         level: &Level,
         name: &str,
     ) -> Result<String, FilesystemError> {
-        refuse_reserved(name)?;
         match self.lookup(level, name)?.ok_or(FilesystemError::NotFound)? {
             (index, found) if found.file_type == FileType::Symlink => {
                 layer_dir(&level[index])?.read_link(name)

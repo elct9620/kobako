@@ -10,6 +10,13 @@ use std::time::SystemTime;
 use super::path::{ancestors, components, name, normalize_seed, parent};
 use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename};
 use crate::vfs::Dentry;
+use whiteout::Whiteout;
+
+pub(crate) use whiteout::RenameFlag;
+
+mod tmpfile;
+mod whiteout;
+mod xattr;
 
 /// Files and directories held in tmpfs. Every Invocation it is handed to
 /// shares it, so what one writes the next reads. What its files hold
@@ -43,6 +50,10 @@ struct Tree {
 enum Node {
     File(Arc<Mutex<Content>>),
     Directory(Arc<Dir>),
+    /// An Overlay's whiteout, as tmpfs holds a character device 0:0.
+    Whiteout {
+        _inode: Arc<Whiteout>,
+    },
 }
 
 impl Node {
@@ -50,6 +61,7 @@ impl Node {
         match self {
             Self::File(_) => FileType::File,
             Self::Directory(_) => FileType::Directory,
+            Self::Whiteout { .. } => FileType::Unknown,
         }
     }
 }
@@ -68,6 +80,9 @@ struct State {
     /// Whether the directory was removed or replaced, so nothing is made
     /// in it any more, as Linux marks such a directory dead.
     removed: bool,
+    /// The directory's extended attributes, as tmpfs keeps the `trusted.*`
+    /// ones an Overlay marks a directory opaque with.
+    xattrs: BTreeMap<String, Vec<u8>>,
     times: Times,
 }
 
@@ -107,6 +122,12 @@ impl Times {
         self.changed = SystemTime::now();
     }
 
+    /// Set either time given, as `utimensat` does.
+    fn set(&mut self, accessed: Option<SystemTime>, modified: Option<SystemTime>) {
+        self.made = accessed.unwrap_or(self.made);
+        self.changed = modified.unwrap_or(self.changed);
+    }
+
     fn report(self, metadata: Metadata) -> Metadata {
         metadata.with_times(Some(self.made), Some(self.changed), Some(self.changed))
     }
@@ -120,6 +141,7 @@ impl Dir {
                 entries: BTreeMap::new(),
                 parent,
                 removed: false,
+                xattrs: BTreeMap::new(),
                 times: Times::now(),
             }),
         })
@@ -160,7 +182,9 @@ impl Dir {
                     .get(name)
                     .cloned()
                     .ok_or(FilesystemError::NotFound)?,
-                Node::File(_) => return Err(FilesystemError::NotADirectory),
+                Node::File(_) | Node::Whiteout { .. } => {
+                    return Err(FilesystemError::NotADirectory)
+                }
             };
         }
         Ok(found)
@@ -170,7 +194,7 @@ impl Dir {
     fn directory(self: &Arc<Self>, path: &str) -> Result<Arc<Self>, FilesystemError> {
         match self.find(path)? {
             Node::Directory(dir) => Ok(dir),
-            Node::File(_) => Err(FilesystemError::NotADirectory),
+            Node::File(_) | Node::Whiteout { .. } => Err(FilesystemError::NotADirectory),
         }
     }
 
@@ -456,13 +480,15 @@ impl Tmpfs {
                     .clone();
                 dir = match next {
                     Node::Directory(inner) => inner,
-                    Node::File(_) => return Err(SeedError::FileAndDirectory(above.to_string())),
+                    Node::File(_) | Node::Whiteout { .. } => {
+                        return Err(SeedError::FileAndDirectory(above.to_string()))
+                    }
                 };
             }
             let mut state = dir.state();
             match state.entries.get(name(&path)) {
                 Some(Node::Directory(_)) => return Err(SeedError::FileAndDirectory(path)),
-                Some(Node::File(_)) => return Err(SeedError::Twice(path)),
+                Some(Node::File(_) | Node::Whiteout { .. }) => return Err(SeedError::Twice(path)),
                 None => {}
             }
             state.entries.insert(
@@ -497,6 +523,8 @@ impl Inode for Tmpfs {
         let _held = self.hold();
         let data = match self.dir.find(path) {
             Ok(Node::Directory(_)) => return Err(FilesystemError::IsADirectory),
+            // A character device 0:0 has no driver to open it.
+            Ok(Node::Whiteout { .. }) => return Err(FilesystemError::Unsupported),
             Ok(Node::File(_)) if options.create_new => return Err(FilesystemError::AlreadyExists),
             Ok(Node::File(data)) => {
                 if options.truncate {
@@ -532,6 +560,7 @@ impl Inode for Tmpfs {
         match self.dir.find(&dentry.name())? {
             Node::File(data) => Ok(lock(&data).metadata()),
             Node::Directory(dir) => Ok(dir.metadata(self.tree.dev)),
+            Node::Whiteout { .. } => Ok(Metadata::new(FileType::Unknown, 0).with_nlink(1)),
         }
     }
 
@@ -578,7 +607,9 @@ impl Inode for Tmpfs {
         let (dir, name) = self.dir.parent_of(path)?;
         let mut state = dir.state();
         let removed = match state.entries.get(name) {
-            Some(Node::File(_)) => return Err(FilesystemError::NotADirectory),
+            Some(Node::File(_) | Node::Whiteout { .. }) => {
+                return Err(FilesystemError::NotADirectory)
+            }
             Some(Node::Directory(removed)) => removed.clone(),
             None => return Err(FilesystemError::NotFound),
         };
@@ -598,7 +629,7 @@ impl Inode for Tmpfs {
         let (dir, name) = self.dir.parent_of(path)?;
         let mut state = dir.state();
         match state.entries.get(name) {
-            Some(Node::File(_)) => {
+            Some(Node::File(_) | Node::Whiteout { .. }) => {
                 state.remove(name);
                 Ok(())
             }
@@ -638,8 +669,10 @@ impl Inode for Tmpfs {
         }
         let replaced = to_dir.state().entries.get(to_name).cloned();
         match (&moving, &replaced) {
-            (Node::File(_), Some(Node::Directory(_))) => return Err(FilesystemError::IsADirectory),
-            (Node::Directory(_), Some(Node::File(_))) => {
+            (Node::File(_) | Node::Whiteout { .. }, Some(Node::Directory(_))) => {
+                return Err(FilesystemError::IsADirectory)
+            }
+            (Node::Directory(_), Some(Node::File(_) | Node::Whiteout { .. })) => {
                 return Err(FilesystemError::NotADirectory)
             }
             (Node::Directory(_), Some(Node::Directory(dir))) if !dir.state().entries.is_empty() => {
@@ -681,7 +714,7 @@ fn write(data: &mut Content, buf: &[u8], start: usize) -> Result<usize, Filesyst
 
 /// An open file of a Tmpfs, sharing its bytes with every other handle on
 /// the same path.
-struct TmpfsFile {
+pub(crate) struct TmpfsFile {
     data: Arc<Mutex<Content>>,
 }
 
@@ -1147,7 +1180,7 @@ mod tests {
             .flat_map(|(name, node)| {
                 let beneath = match node {
                     Node::Directory(inner) => names(inner),
-                    Node::File(_) => Vec::new(),
+                    Node::File(_) | Node::Whiteout { .. } => Vec::new(),
                 };
                 std::iter::once(name.clone()).chain(beneath)
             })

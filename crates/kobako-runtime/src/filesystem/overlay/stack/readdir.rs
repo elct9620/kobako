@@ -3,10 +3,12 @@
 
 use std::collections::HashSet;
 
-use super::super::super::{DirEntry, FilesystemError, Metadata};
-use super::{Level, OverlayFs, OPAQUE, WHITEOUT};
+use super::super::super::{DirEntry, FileType, FilesystemError, Metadata};
+use super::{Level, OverlayFs};
 
 impl OverlayFs {
+    /// Each Layer's entries topmost first, a name a Layer above shows or
+    /// whites out taken once, down to the first directory marked opaque.
     pub(in super::super) fn entries(
         &self,
         level: &Level,
@@ -14,19 +16,15 @@ impl OverlayFs {
         let mut entries: Vec<DirEntry> = Vec::new();
         let mut taken: HashSet<String> = HashSet::new();
         for dir in level.iter().flatten() {
-            let listed = dir.entries()?;
-            for entry in &listed {
-                if !entry.name.starts_with(WHITEOUT) && taken.insert(entry.name.clone()) {
-                    entries.push(entry.clone());
+            for entry in dir.entries()? {
+                // A whiteout lists as a device, as overlayfs's
+                // `ovl_fill_merge` reads `DT_CHR` before asking.
+                let whiteout = entry.file_type == FileType::Unknown && dir.is_whiteout(&entry.name);
+                if taken.insert(entry.name.clone()) && !whiteout {
+                    entries.push(entry);
                 }
             }
-            taken.extend(
-                listed
-                    .iter()
-                    .filter_map(|entry| entry.name.strip_prefix(WHITEOUT))
-                    .map(str::to_string),
-            );
-            if listed.iter().any(|entry| entry.name == OPAQUE) {
+            if dir.is_opaque() {
                 break;
             }
         }

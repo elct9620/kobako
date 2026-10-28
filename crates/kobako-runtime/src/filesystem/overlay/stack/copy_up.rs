@@ -1,9 +1,12 @@
-//! Making what a change needs in the upper from what a lower Layer
-//! shows, as overlayfs's `copy_up.c` copies a file or a directory up.
+//! Making what a change needs in the upper from what a lower Layer shows,
+//! as overlayfs's `copy_up.c` copies a file or a directory up: whole and
+//! with the lower one's times before it is named, and leaving the times
+//! of the directory it lands in as they were.
 
 use super::super::super::{FileType, FilesystemError, OpenOptions};
 use super::super::path::OverlayPath;
 use super::{copy_whole, entry, Chain, OverlayFs};
+use crate::filesystem::tmpfs::RenameFlag;
 
 impl OverlayFs {
     /// The directory `chain` reaches in Layer `into`, made there along
@@ -19,7 +22,9 @@ impl OverlayFs {
 
     /// The directory at `step` of `chain` in Layer `into`, copied up with
     /// each directory above it, as overlayfs's `ovl_copy_up` copies up a
-    /// dentry's parents first.
+    /// dentry's parents first. A directory is made in the workdir with the
+    /// lower one's times and moved into place, as
+    /// `ovl_copy_up_workdir` does.
     fn copy_up(
         &self,
         chain: &mut Chain,
@@ -41,7 +46,25 @@ impl OverlayFs {
             }
             Some(_) => return Err(FilesystemError::NotADirectory),
             None => {
-                parent.create_dir(&name)?;
+                let lower = chain.steps[step]
+                    .level
+                    .iter()
+                    .flatten()
+                    .next()
+                    .ok_or(FilesystemError::NotFound)?
+                    .metadata()?;
+                let (work, temp) = self.temp()?;
+                work.create_dir(&temp)?;
+                let made = work.open_dir(&temp).and_then(|made| made.set_times(&lower));
+                let parent_times = parent.metadata()?;
+                let moved = made.and_then(|()| {
+                    work.rename2(&temp, &parent, &name, Some(RenameFlag::NoReplace))
+                });
+                if let Err(err) = moved {
+                    let _ = work.remove_dir(&temp);
+                    return Err(err);
+                }
+                let _ = parent.set_times(&parent_times);
                 parent.open_dir(&name)?
             }
         };
@@ -50,10 +73,11 @@ impl OverlayFs {
         Ok(dir)
     }
 
-    /// Copy the file `name` from Layer `from` into Layer `into` whole.
-    /// Layer `into` held nothing there, so a copy that fails part way is
-    /// taken away again rather than left to hide the whole file. A link
-    /// is not copied up, as no Layer is handed one to hold.
+    /// Copy the file `name` from Layer `from` into Layer `into`, as
+    /// overlayfs's `ovl_copy_up_tmpfile` does: the copy is made with no
+    /// name, filled, given the lower file's times, and only then named,
+    /// so a copy that fails part way is never seen. A link is not copied
+    /// up, as no Layer is handed one to hold.
     pub(super) fn copy_up_file(
         &self,
         chain: &mut Chain,
@@ -75,20 +99,13 @@ impl OverlayFs {
                 ..OpenOptions::default()
             },
         )?;
-        let mut copy = target_dir.open(
-            name,
-            &OpenOptions {
-                write: true,
-                create: true,
-                truncate: true,
-                ..OpenOptions::default()
-            },
-        )?;
-        let copied = copy_whole(source.as_mut(), copy.as_mut()).and(copy.close());
-        if copied.is_err() {
-            let _ = target_dir.remove_file(name);
-            return copied;
-        }
+        let mut copy = target_dir.tmpfile()?;
+        copy_whole(source.as_mut(), &mut copy)?;
+        let lower = source.metadata()?;
+        copy.set_times(lower.accessed, lower.modified);
+        let parent_times = target_dir.metadata()?;
+        target_dir.link(&copy, name)?;
+        let _ = target_dir.set_times(&parent_times);
         self.readers
             .inode_update(&chain.path_of(name), &target_dir, name)
     }

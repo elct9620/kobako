@@ -1,9 +1,8 @@
 //! The Layers of an Overlay and the rules that make them one view: which
-//! Layer shows a name, how a change lands in the upper, and the markers
-//! that hide what a lower Layer still holds. The calls on the
-//! view are split as overlayfs splits them: finding a name in `namei`,
-//! copying up in `copy_up`, listing in `readdir`, and changing a directory
-//! in `dir`.
+//! Layer shows a name, how a change lands in the upper, and the marks that
+//! hide what a lower Layer still holds. The calls on the view are split
+//! as overlayfs splits them: finding a name in `namei`, copying up in
+//! `copy_up`, listing in `readdir`, and changing a directory in `dir`.
 //!
 //! A path is walked one name at a time from each Layer's root, as
 //! overlayfs looks a name up in each Layer's directory, following no link
@@ -11,16 +10,17 @@
 //! single name in a directory already held. A Layer's directory merges
 //! into the view only beneath a directory it also holds.
 //!
-//! Each change that touches more than one entry writes its marker or its
-//! replacement before it takes the old one away, as overlayfs builds a
-//! copy before it swaps it in, so a change that fails part way leaves the
-//! view as it was or as it was meant to become.
+//! The upper Tmpfs holds the view's changes in `upper` and builds each one
+//! in `work` first, as overlayfs's upperdir and workdir share one mount.
+//! A change that replaces an entry is made whole in `work` and exchanged
+//! into place, so a change that fails part way leaves the view as it was.
 
 mod copy_up;
 mod dir;
 mod namei;
 mod readdir;
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use super::file::Readers;
@@ -28,13 +28,13 @@ use super::inode::Inodes;
 use super::path::OverlayPath;
 
 use super::super::path::join;
-use super::super::{File, FilesystemError, Metadata, OpenOptions};
+use super::super::{File, FileType, FilesystemError, Metadata};
 use crate::vfs::Filesystem;
 
-/// The prefix of a whiteout, and of every name reserved for a marker.
-const WHITEOUT: &str = ".wh.";
-/// The marker hiding every lower Layer's entries of its directory.
-const OPAQUE: &str = ".wh..wh..opq";
+/// The directories of the upper Tmpfs holding the view's changes and the
+/// changes being built, as overlayfs's `upperdir` and `workdir`.
+const UPPERDIR: &str = "upper";
+const WORKDIR: &str = "work";
 
 /// Each Layer's directory at one directory of the view, topmost first;
 /// `None` where that Layer holds no directory the view merges there.
@@ -91,8 +91,12 @@ impl Chain {
     }
 }
 
-/// What `dir` holds at `name`, a link reported as itself.
+/// What `dir` holds at `name`, a link reported as itself and a whiteout
+/// as nothing.
 fn entry(dir: &OverlayPath, name: &str) -> Result<Option<Metadata>, FilesystemError> {
+    if dir.is_whiteout(name) {
+        return Ok(None);
+    }
     match dir.symlink_metadata(name) {
         Ok(metadata) => Ok(Some(metadata)),
         Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => Ok(None),
@@ -101,37 +105,29 @@ fn entry(dir: &OverlayPath, name: &str) -> Result<Option<Metadata>, FilesystemEr
 }
 
 /// Whether `dir` has an entry at `name`, a link pointing at nothing among
-/// them. A Layer that cannot answer fails the call, so a marker it could
-/// not read never lets a lower entry show.
+/// them.
 fn holds(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemError> {
     Ok(entry(dir, name)?.is_some())
 }
 
-/// Whether `dir` hides `name` in every Layer below it with a whiteout. A
-/// directory's opaque marker hides every name at once, so a level never
-/// holds the Layers below one; each name need not ask again.
-fn hides(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemError> {
-    holds(dir, &whiteout(name))
-}
-
 /// `level` without the Layers below the topmost directory marked opaque,
 /// as overlayfs stops looking further down once it finds one.
-fn below_opaque_cut(mut level: Level) -> Result<Level, FilesystemError> {
+fn below_opaque_cut(mut level: Level) -> Level {
     let mut cut = false;
     for index in 0..level.len() {
         if cut {
             level[index] = None;
         } else if let Some(shown) = &level[index] {
-            cut = shows_below(&level, index) && holds(shown, OPAQUE)?;
+            cut = shows_below(&level, index) && shown.is_opaque();
         }
     }
-    Ok(level)
+    level
 }
 
-/// Whether the directory `name` in `dir` holds an opaque marker.
+/// Whether the directory `name` in `dir` is marked opaque.
 fn opaque_inside(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemError> {
     match dir.open_dir(name) {
-        Ok(inner) => holds(&inner, OPAQUE),
+        Ok(inner) => Ok(inner.is_opaque()),
         Err(
             FilesystemError::NotFound
             | FilesystemError::NotADirectory
@@ -142,8 +138,8 @@ fn opaque_inside(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemError>
 }
 
 /// Whether a Layer below `index` shows a directory in `level`, without
-/// which a marker at `index` hides nothing, as overlayfs reads no opaque
-/// marker in its last layer.
+/// which a mark at `index` hides nothing, as overlayfs reads no opaque
+/// mark in its last layer.
 fn shows_below(level: &Level, index: usize) -> bool {
     level[index + 1..].iter().any(Option::is_some)
 }
@@ -161,11 +157,6 @@ fn sole_layer(level: &Level) -> Option<(usize, &OverlayPath)> {
         (Some(only), None) => Some(only),
         _ => None,
     }
-}
-
-/// The whiteout hiding `name`, beside it in its directory.
-fn whiteout(name: &str) -> String {
-    format!("{WHITEOUT}{name}")
 }
 
 fn copy_whole(source: &mut dyn File, target: &mut dyn File) -> Result<(), FilesystemError> {
@@ -191,85 +182,74 @@ fn copy_whole(source: &mut dyn File, target: &mut dyn File) -> Result<(), Filesy
     }
 }
 
-/// Take every marker out of `dir`, the upper's copy of a directory
-/// the view shows empty, for `act` to change it; any other entry there
-/// means it is not. When `act` fails, or a marker will not go, the markers
-/// taken out are put back, so the view stays as it was.
-fn without_markers(
-    dir: &OverlayPath,
-    act: impl FnOnce() -> Result<(), FilesystemError>,
-) -> Result<(), FilesystemError> {
-    let markers: Vec<String> = dir.entries()?.into_iter().map(|entry| entry.name).collect();
-    if markers.iter().any(|name| !name.starts_with(WHITEOUT)) {
-        return Err(FilesystemError::DirectoryNotEmpty);
-    }
-    let mut cleared = Vec::new();
-    let changed = markers
-        .iter()
-        .try_for_each(|name| {
-            dir.remove_file(name)?;
-            cleared.push(name);
-            Ok(())
-        })
-        .and_then(|()| act());
-    if changed.is_err() {
-        for marker in cleared {
-            let _ = put_marker(dir, marker);
-        }
-    }
-    changed
-}
-
-/// An empty file `name` in `dir`, as every marker is.
-fn put_marker(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
-    dir.open(
-        name,
-        &OpenOptions {
-            write: true,
-            create: true,
-            ..OpenOptions::default()
-        },
-    )?
-    .close()
-}
-
 /// The Layer's directory a level holds, which it holds wherever it shows
 /// a name.
 fn layer_dir(dir: &Option<OverlayPath>) -> Result<&OverlayPath, FilesystemError> {
     dir.as_ref().ok_or(FilesystemError::NotFound)
 }
 
-/// Refuse a name reserved for the Overlay's markers, in any case, since a
-/// Layer that folds case would hold `.WH.name` as one.
-pub(super) fn refuse_reserved(name: &str) -> Result<(), FilesystemError> {
-    let reserved = name
-        .get(..WHITEOUT.len())
-        .is_some_and(|start| start.eq_ignore_ascii_case(WHITEOUT));
-    if reserved {
-        return Err(FilesystemError::InvalidInput);
+/// The directory `name` in `root`, made there first if it stands nowhere.
+fn subdir(root: &OverlayPath, name: &str) -> Result<OverlayPath, FilesystemError> {
+    match root.create_dir(name) {
+        Ok(()) | Err(FilesystemError::AlreadyExists) => root.open_dir(name),
+        Err(err) => Err(err),
     }
-    Ok(())
+}
+
+/// Take `name` out of `dir` with all it holds, as overlayfs's
+/// `ovl_cleanup` takes away what a change left in its workdir.
+fn cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
+    if dir.symlink_metadata(name)?.file_type != FileType::Directory {
+        return dir.remove_file(name);
+    }
+    let inner = dir.open_dir(name)?;
+    for entry in inner.entries()? {
+        cleanup(&inner, &entry.name)?;
+    }
+    dir.remove_dir(name)
 }
 
 /// Layers stacked into one view, topmost first, the upper among them on
 /// top, as overlayfs's `ovl_fs` holds a mount's layers.
 #[derive(Clone)]
 pub(super) struct OverlayFs {
-    layers: Vec<Arc<Filesystem>>,
-    /// Whether the first Layer is the upper, where every change lands.
-    has_upper: bool,
+    /// Each Layer's root, topmost first; the upper's is its `upper`.
+    roots: Vec<OverlayPath>,
+    /// Where a change is built before it lands, with an upper only.
+    work: Option<OverlayPath>,
+    /// The next name a change built in `work` takes.
+    temp: Arc<AtomicU64>,
     readers: Arc<Readers>,
     inodes: Arc<Inodes>,
 }
 
 impl OverlayFs {
-    pub(super) fn new(lower: Vec<Arc<Filesystem>>, upper: Option<Arc<Filesystem>>) -> Self {
-        Self {
-            has_upper: upper.is_some(),
-            layers: upper.into_iter().chain(lower).collect(),
+    /// The view of `lower` under `upper`, its `upper` and `work` made where
+    /// they stand nowhere and `work` emptied of what a change left, as
+    /// overlayfs's mount does with its workdir.
+    pub(super) fn new(
+        lower: Vec<Arc<Filesystem>>,
+        upper: Option<Arc<Filesystem>>,
+    ) -> Result<Self, FilesystemError> {
+        let mut roots = Vec::new();
+        let mut work = None;
+        if let Some(upper) = upper {
+            let root = OverlayPath::root(&upper);
+            roots.push(subdir(&root, UPPERDIR)?);
+            let made = subdir(&root, WORKDIR)?;
+            for entry in made.entries()? {
+                cleanup(&made, &entry.name)?;
+            }
+            work = Some(made);
+        }
+        roots.extend(lower.iter().map(OverlayPath::root));
+        Ok(Self {
+            roots,
+            work,
+            temp: Arc::default(),
             readers: Arc::default(),
             inodes: Arc::default(),
-        }
+        })
     }
 
     pub(super) fn inodes(&self) -> &Inodes {
@@ -284,7 +264,7 @@ impl OverlayFs {
     }
 
     fn is_upper(&self, index: usize) -> bool {
-        self.has_upper && index == 0
+        self.work.is_some() && index == 0
     }
 
     /// The chain at the root of the view, every Layer's root merged down to
@@ -293,12 +273,7 @@ impl OverlayFs {
         Ok(Chain {
             steps: vec![Step {
                 name: String::new(),
-                level: below_opaque_cut(
-                    self.layers
-                        .iter()
-                        .map(|layer| Some(OverlayPath::root(layer)))
-                        .collect(),
-                )?,
+                level: below_opaque_cut(self.roots.iter().cloned().map(Some).collect()),
             }],
         })
     }
@@ -306,9 +281,20 @@ impl OverlayFs {
     /// The upper, where every change lands; without one every change is
     /// refused as read-only.
     fn upper(&self) -> Result<usize, FilesystemError> {
-        match self.has_upper {
-            true => Ok(0),
-            false => Err(FilesystemError::ReadOnlyFilesystem),
+        match self.work {
+            Some(_) => Ok(0),
+            None => Err(FilesystemError::ReadOnlyFilesystem),
         }
+    }
+
+    /// The workdir and a name in it no change has taken, as overlayfs's
+    /// `ovl_tempname` names one.
+    fn temp(&self) -> Result<(&OverlayPath, String), FilesystemError> {
+        let work = self
+            .work
+            .as_ref()
+            .ok_or(FilesystemError::ReadOnlyFilesystem)?;
+        let next = self.temp.fetch_add(1, Ordering::Relaxed);
+        Ok((work, format!("#{next:x}")))
     }
 }

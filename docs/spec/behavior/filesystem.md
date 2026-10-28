@@ -30,9 +30,10 @@ create   lands in the upper, as a rename's target does
 remove   leaves the upper; a whiteout hides what a lower layer keeps
 no upper every change is refused as read-only, and two lowers are needed
 
-whiteout          .wh.<name>      beside the hidden entry
-opaque directory  .wh..wh..opq    inside a directory made again where one was removed
-both live in the upper, never show, and no name may claim .wh. in any case
+upper Tmpfs   upper/ holds the changes; work/ builds each before it lands
+whiteout      a device 0:0 at the hidden name, as Linux's
+opaque        trusted.overlay.opaque on a directory made again where one was removed
+both live in the upper and never show, so no name is reserved
 ```
 
 ## Includes
@@ -182,7 +183,7 @@ both live in the upper, never show, and no name may claim .wh. in any case
 | --- | --- |
 | Given | an Overlay whose lower Layer holds a file |
 | When | the file is removed through the Overlay |
-| Then | the upper holds `.wh.` and the file's name beside where it was |
+| Then | the upper holds a whiteout at the file's name |
 
 ## `FS-017` A whiteout lasts as long as the upper
 
@@ -208,7 +209,7 @@ both live in the upper, never show, and no name may claim .wh. in any case
 | When | the directory is created again through the Overlay |
 | Then | listing it finds no entry |
 
-## `FS-019` An Overlay lists none of its markers
+## `FS-019` An Overlay lists none of its whiteouts
 
 | Attribute | Value |
 | --- | --- |
@@ -218,9 +219,9 @@ both live in the upper, never show, and no name may claim .wh. in any case
 | --- | --- |
 | Given | an Overlay whose upper holds a whiteout |
 | When | the whiteout's directory is listed through the Overlay |
-| Then | no entry starting with `.wh.` is listed |
+| Then | the whited-out name is not listed |
 
-## `FS-020` An Overlay refuses a name reserved for its markers
+## `FS-020` A name starting with `.wh.` is an ordinary name
 
 | Attribute | Value |
 | --- | --- |
@@ -228,9 +229,9 @@ both live in the upper, never show, and no name may claim .wh. in any case
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay with an upper |
-| When | a file named `.wh.note` is created through the Overlay |
-| Then | the creation is refused |
+| Given | an Overlay whose lower Layer holds `dir/file` |
+| When | a file named `dir/.wh.file` is created through the Overlay |
+| Then | it is made, and `dir/file` still reads |
 
 ## `FS-021` An Overlay with no upper refuses every change as read-only
 
@@ -448,7 +449,7 @@ both live in the upper, never show, and no name may claim .wh. in any case
 | When | the file is removed |
 | Then | the removal is refused as out of space, and the copy still reads |
 
-## `FS-041` A directory an Overlay cannot mark opaque is not made
+## `FS-041` A directory made over a whiteout without room is not made
 
 | Attribute | Value |
 | --- | --- |
@@ -456,7 +457,7 @@ both live in the upper, never show, and no name may claim .wh. in any case
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay hiding a lower directory, its upper with room for one entry |
+| Given | an Overlay hiding a removed lower directory, its upper with no room left |
 | When | the directory is made again |
 | Then | the creation is refused as out of space, and the directory stays hidden |
 
@@ -505,8 +506,8 @@ both live in the upper, never show, and no name may claim .wh. in any case
 | Step | Statement |
 | --- | --- |
 | Given | an Overlay whose lower Layer holds an empty directory |
-| When | a directory the upper holds is renamed onto it |
-| Then | the moved directory is marked opaque in the upper |
+| When | a directory the upper holds is renamed onto it, and the lower Layer gains a file there |
+| Then | the moved directory lists nothing |
 
 ## `FS-046` A copy up that fails part way leaves nothing behind
 
@@ -606,18 +607,6 @@ both live in the upper, never show, and no name may claim .wh. in any case
 | Given | an Overlay whose upper Bind Layer holds a link to nothing where a lower Layer holds a file |
 | When | the path is opened to read through the Overlay |
 | Then | the open is refused as a link, and the lower file is not reached |
-
-## `FS-056` An Overlay refuses its reserved name in any case
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-020` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay with an upper |
-| When | a file named `.WH.note` is created through the Overlay |
-| Then | the creation is refused |
 
 ## `FS-057` A link a Layer holds hides what the Layers below hold beneath it
 
@@ -813,19 +802,6 @@ both live in the upper, never show, and no name may claim .wh. in any case
 | When | the directory is looked up following a link at its end, and without |
 | Then | both lookups report the same identity |
 
-## `FS-075` A rename through an Overlay that cannot mark its directory opaque moves nothing
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-042` |
-| relates | `FS-041` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay whose full upper holds a directory, over an empty lower one |
-| When | the first directory is renamed onto the second |
-| Then | the rename is refused as out of space, and nothing moves |
-
 ## `FS-078` An Overlay shows a directory over a lower Layer's file on its path
 
 | Attribute | Value |
@@ -837,18 +813,6 @@ both live in the upper, never show, and no name may claim .wh. in any case
 | Given | an Overlay whose upper Layer holds `dir/sub`, over a Layer holding a file `dir` |
 | When | `dir/sub` is looked up through the Overlay |
 | Then | it reads as a directory, as its files open |
-
-## `FS-079` An Overlay fails a lookup when a Layer cannot read its markers
-
-| Attribute | Value |
-| --- | --- |
-| relates | `FS-016` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay whose middle Layer whites out a file below it, yet reads no marker |
-| When | the file is looked up through the Overlay |
-| Then | the lookup fails, and the file never shows |
 
 ## `FS-080` An Overlay rename answers not found for a file its Layer loses
 
@@ -1091,18 +1055,6 @@ both live in the upper, never show, and no name may claim .wh. in any case
 | When | the file is removed, and a new file at its path is renamed away |
 | Then | the open file still reads what it held |
 
-## `FS-104` An opaque marker at a Layer's root hides the Layers below
-
-| Attribute | Value |
-| --- | --- |
-| relates | `FS-013`, `FS-019` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay whose upper Layer holds an opaque marker at its root, over a Layer holding a file |
-| When | the root is listed and the file is looked up |
-| Then | the listing shows only the upper Layer's entries, and the file is not found |
-
 ## `FS-105` A directory opened from a Tmpfs follows it when it moves
 
 | Attribute | Value |
@@ -1283,24 +1235,11 @@ both live in the upper, never show, and no name may claim .wh. in any case
 | When | the directory is moved through the Overlay, then written into through the one opened |
 | Then | the file lands where the directory moved |
 
-## `FS-121` An Overlay never asks its lowest Layer for markers
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-079` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay whose lowest Layer holds `dir/file`, yet reads no marker |
-| When | `dir/file` is looked up through the Overlay |
-| Then | the file reads, since no Layer lies below for a marker to hide |
-
 ## `FS-122` An Overlay walks a directory one Layer shows without looking it up
 
 | Attribute | Value |
 | --- | --- |
 | refines | `FS-008` |
-| relates | `FS-121` |
 
 | Step | Statement |
 | --- | --- |
@@ -1367,3 +1306,39 @@ both live in the upper, never show, and no name may claim .wh. in any case
 | Given | 501 Tmpfs |
 | When | an Overlay is built over all of them |
 | Then | it is refused as invalid input |
+
+## `FS-128` An Overlay keeps its changes in its Tmpfs's `upper`
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-015` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay over a Tmpfs |
+| When | a lower file is changed and then removed through the Overlay |
+| Then | the Tmpfs holds only `upper` and an empty `work` |
+
+## `FS-129` A copy up keeps the lower file's times
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lower Layer holds a file |
+| When | the file is opened to write through the Overlay, and nothing is written |
+| Then | it reports the lower file's modified time |
+
+## `FS-130` A copy up leaves its directory's times as they were
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose upper holds a directory a lower Layer fills |
+| When | another lower file there is copied up |
+| Then | the directory reports the modified time it had |
