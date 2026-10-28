@@ -4,11 +4,14 @@ require "test_helper"
 
 require_relative "../../tasks/support/rbs_orphans"
 
-# Unit coverage for the signature-orphan readers: declarations carry the
-# namespace they resolve under, only the kinds with a runtime counterpart
-# are gathered, and resolution asks whether a definition exists rather
-# than whether it is reachable from outside.
+# Coverage for the signature-orphan readers and the shipped sig/ they
+# read: declarations carry the namespace they resolve under, only the
+# kinds with a runtime counterpart are gathered, and resolution asks
+# whether a definition exists rather than whether it is reachable from
+# outside.
 class KobakoRbsOrphansTest < Minitest::Test
+  include GuestGuard
+
   Orphans = KobakoRbsOrphans
 
   # A namespace holding one of every shape resolution has to answer for:
@@ -149,5 +152,16 @@ class KobakoRbsOrphansTest < Minitest::Test
     assert_equal ["Kobako::Codec::EXT_FAULT", "Kobako::Pool#checkout", "Kobako::Handle.restore"], spelled,
                  "each declaration kind through .spell must read as Ruby writes it, so a reported orphan is " \
                  "searchable in the sources it went missing from"
+  end
+
+  # Resolution needs the ext-defined classes loaded.
+  def test_every_shipped_signature_names_a_live_definition
+    require_native_ext!
+    sources = Dir[TestPaths.source("sig", "kobako", "**", "*.rbs")].to_h { |path| [path, File.read(path)] }
+    orphans = Orphans.orphans(Orphans.declarations(sources))
+
+    assert_empty orphans.map { |orphan| "#{Orphans.spell(orphan)} (#{File.basename(orphan.last)})" },
+                 "every declaration under sig/kobako through .orphans must name something lib/ defines, so a " \
+                 "deleted constant or method takes its signature with it"
   end
 end

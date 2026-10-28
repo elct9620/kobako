@@ -2,8 +2,9 @@
 
 require "rbs"
 
-# Readers behind +rake gate:rbs:orphans+: the declarations in +sig/+ that
-# name nothing in the implementation.
+# Readers behind the signature-orphan test in
+# +test/tasks/test_rbs_orphans.rb+: the declarations in +sig/+ that name
+# nothing in the implementation.
 #
 # Steep checks Ruby against RBS and never the other way, so a declaration
 # left behind by a deletion is invisible to it — the code it described is
