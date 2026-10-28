@@ -1,12 +1,14 @@
 //! The names of one Filesystem a guest has reached, each kept by the
-//! directory above it and its name there, as Linux's dcache keeps its
-//! dentries: a directory moved through the VFS takes every one beneath it
-//! along, and one removed or replaced through it is dead.
+//! directory above it and its name there while something holds it, as
+//! Linux's dentries are: a directory moved through the VFS takes every one
+//! beneath it along, and one removed or replaced through it is dead. What
+//! a Filesystem answers about a name is asked again on every call, so the
+//! table caches no lookup.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::rwsem::RwSemaphore;
+use crate::hashtable::Hashtable;
 
 /// One name of a Filesystem, and where it stands now. Only the VFS makes
 /// one, so a Filesystem reads the name a call is about from it.
@@ -84,21 +86,13 @@ impl Dentry {
     }
 }
 
-/// Every directory of one Filesystem a guest still holds, by the directory
+/// Every name of one Filesystem something still holds, by the directory
 /// above it and its name there.
 pub(crate) struct Dentries {
     root: Arc<Dentry>,
-    hashtable: Mutex<Hashtable>,
-}
-
-/// The directories held by name, as Linux's `dentry_hashtable` keeps them,
-/// and how many entries the table may reach before those no longer held
-/// are swept out: twice what the last sweep left, so each lookup pays a
-/// constant share of the sweeps.
-#[derive(Default)]
-struct Hashtable {
-    entries: HashMap<(usize, String), Weak<Dentry>>,
-    sweep_at: usize,
+    /// The directories held, by the directory above and the name there, as
+    /// Linux's `dentry_hashtable` keeps them.
+    hashtable: Mutex<Hashtable<(usize, String), Dentry>>,
 }
 
 fn key(parent: &Arc<Dentry>, name: &str) -> (usize, String) {
@@ -115,7 +109,7 @@ impl Default for Dentries {
 }
 
 impl Dentries {
-    fn hashtable(&self) -> MutexGuard<'_, Hashtable> {
+    fn hashtable(&self) -> MutexGuard<'_, Hashtable<(usize, String), Dentry>> {
         self.hashtable
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -128,28 +122,15 @@ impl Dentries {
     /// The directory `name` in `parent`, as `d_lookup` finds it, or a new
     /// dentry for it, as `d_alloc` makes one.
     pub(crate) fn child(&self, parent: &Arc<Dentry>, name: &str) -> Arc<Dentry> {
-        let mut table = self.hashtable();
-        if table.entries.len() >= table.sweep_at {
-            table.entries.retain(|_, dentry| dentry.strong_count() > 0);
-            table.sweep_at = (table.entries.len() * 2).max(16);
-        }
-        let key = key(parent, name);
-        if let Some(child) = table.entries.get(&key).and_then(Weak::upgrade) {
-            return child;
-        }
-        let child = Dentry::new(Some(parent.clone()), name);
-        table.entries.insert(key, Arc::downgrade(&child));
-        child
+        self.hashtable().get_or_insert_with(key(parent, name), || {
+            Dentry::new(Some(parent.clone()), name)
+        })
     }
 
     /// The directory `name` in `parent` was removed, or replaced by a
     /// move, as `d_delete` marks it.
     pub(crate) fn delete(&self, parent: &Arc<Dentry>, name: &str) {
-        let removed = self
-            .hashtable()
-            .entries
-            .remove(&key(parent, name))
-            .and_then(|dentry| dentry.upgrade());
+        let removed = self.hashtable().remove(&key(parent, name));
         if let Some(removed) = removed {
             removed.state().dead = true;
         }
@@ -166,16 +147,10 @@ impl Dentries {
         to_name: &str,
     ) {
         let mut table = self.hashtable();
-        let Some(moved) = table
-            .entries
-            .remove(&key(from, from_name))
-            .and_then(|dentry| dentry.upgrade())
-        else {
+        let Some(moved) = table.remove(&key(from, from_name)) else {
             return;
         };
-        table
-            .entries
-            .insert(key(to, to_name), Arc::downgrade(&moved));
+        table.insert(key(to, to_name), &moved);
         let mut state = moved.state();
         state.parent = Some(to.clone());
         state.name = to_name.to_string();

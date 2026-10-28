@@ -10,9 +10,9 @@
 //! across several Layers is never seen half made.
 
 mod exclusive;
-mod lower;
-mod merged;
-mod readers;
+mod file;
+mod inode;
+mod path;
 mod stack;
 
 use std::any::Any;
@@ -22,8 +22,8 @@ use super::path::components;
 use super::{Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename};
 use crate::vfs::{Blocking, Dentry, Filesystem, Inline};
 use exclusive::Exclusive;
-use merged::MergedDir;
-use stack::{Chain, Stack};
+use inode::OverlayInode;
+use stack::{Chain, OverlayFs};
 
 /// Layers stacked into one Filesystem, the first one added on top. Its
 /// clones share its lock; two Overlays sharing a writable Layer are not
@@ -38,10 +38,10 @@ use stack::{Chain, Stack};
 /// it holds.
 #[derive(Clone)]
 pub struct Overlay {
-    stack: Stack,
+    fs: OverlayFs,
     lock: Arc<Exclusive>,
     /// The directory this one stands for, `None` for the root.
-    merged: Option<Arc<MergedDir>>,
+    inode: Option<Arc<OverlayInode>>,
 }
 
 impl Default for Overlay {
@@ -54,9 +54,9 @@ impl Overlay {
     /// An Overlay with no Layer yet.
     pub fn new() -> Self {
         Self {
-            stack: Stack::default(),
+            fs: OverlayFs::default(),
             lock: Arc::new(Exclusive::new(Arc::new(Inline))),
-            merged: None,
+            inode: None,
         }
     }
 
@@ -65,28 +65,28 @@ impl Overlay {
     /// does not hold yet, the chain from the root, so the change can make
     /// it there first. The caller holds the Overlay's lock.
     fn chain(&self, changes: bool) -> Result<Chain, FilesystemError> {
-        let Some(merged) = &self.merged else {
-            return self.stack.root();
+        let Some(inode) = &self.inode else {
+            return self.fs.root();
         };
-        let level = merged.level();
-        if changes && self.stack.misses_writable(&level) {
-            let mut chain = self.stack.root()?;
-            self.stack.descend(&mut chain, components(merged.path()))?;
+        let level = inode.level();
+        if changes && self.fs.misses_writable(&level) {
+            let mut chain = self.fs.root()?;
+            self.fs.descend(&mut chain, components(inode.path()))?;
             return Ok(chain);
         }
-        Ok(Chain::at(merged.path().to_string(), level))
+        Ok(Chain::at(inode.path().to_string(), level))
     }
 
     /// The directory `name` in this one, as an Overlay of its own. The
     /// caller holds the Overlay's lock.
     fn beneath(&self, name: &str) -> Result<Arc<dyn Inode>, FilesystemError> {
         let mut chain = self.chain(false)?;
-        self.stack.enter(&mut chain, name)?;
+        self.fs.enter(&mut chain, name)?;
         let level = chain.level().clone();
-        let shared = self.stack.misses_writable(&level);
-        let merged = self.stack.merged_dirs().at(chain.path(), level, shared);
+        let shared = self.fs.misses_writable(&level);
+        let inode = self.fs.inodes().get_inode(chain.path(), level, shared);
         Ok(Arc::new(Self {
-            merged: Some(merged),
+            inode: Some(inode),
             ..self.clone()
         }))
     }
@@ -97,7 +97,7 @@ impl Overlay {
     /// lookup. It takes a lock of its own, so an Overlay holding the one it
     /// was built from as a Layer does not wait on itself.
     pub fn layer(mut self, filesystem: Arc<Filesystem>, access: Access) -> Self {
-        self.stack.push(filesystem, access);
+        self.fs.push(filesystem, access);
         self.lock = Arc::new(Exclusive::new(self.lock.blocking()));
         self
     }
@@ -120,7 +120,7 @@ impl Inode for Overlay {
         let _held = self.lock.hold()?;
         let changes = options.write || options.truncate || options.create || options.create_new;
         let mut chain = self.chain(changes)?;
-        self.stack.open(&mut chain, &dentry.name(), options)
+        self.fs.open(&mut chain, &dentry.name(), options)
     }
 
     fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
@@ -130,50 +130,48 @@ impl Inode for Overlay {
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.dir_metadata(self.chain(false)?.level())
+        self.fs.dir_metadata(self.chain(false)?.level())
     }
 
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack
+        self.fs
             .symlink_metadata(self.chain(false)?.level(), &dentry.name())
     }
 
     fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack
+        self.fs
             .stored_name(self.chain(false)?.level(), &dentry.name())
     }
 
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack
+        self.fs
             .read_link(self.chain(false)?.level(), &dentry.name())
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack.entries(self.chain(false)?.level())
+        self.fs.entries(self.chain(false)?.level())
     }
 
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack
-            .create_dir(&mut self.chain(true)?, &dentry.name())
+        self.fs.create_dir(&mut self.chain(true)?, &dentry.name())
     }
 
     fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
         let (mut chain, name) = (self.chain(true)?, dentry.name());
-        self.stack.remove_dir(&mut chain, &name)?;
-        self.stack.merged_dirs().forget(&chain.path_of(&name));
+        self.fs.remove_dir(&mut chain, &name)?;
+        self.fs.inodes().forget(&chain.path_of(&name));
         Ok(())
     }
 
     fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         let _held = self.lock.hold()?;
-        self.stack
-            .remove_file(&mut self.chain(true)?, &dentry.name())
+        self.fs.remove_file(&mut self.chain(true)?, &dentry.name())
     }
 
     /// Both directories lie in one Overlay, which holds one lock however
@@ -193,10 +191,10 @@ impl Inode for Overlay {
         let _held = self.lock.hold()?;
         let (mut from_chain, from) = (self.chain(true)?, from.name());
         let (mut to_chain, to) = (target.chain(true)?, to.name());
-        self.stack
+        self.fs
             .rename(&mut from_chain, &from, &mut to_chain, &to, rename)?;
         if from_chain.path_of(&from) != to_chain.path_of(&to) {
-            self.stack.merged_dirs().forget(&to_chain.path_of(&to));
+            self.fs.inodes().forget(&to_chain.path_of(&to));
         }
         Ok(())
     }

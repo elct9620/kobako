@@ -6,8 +6,8 @@
 //! that would lead out of the directory, so the confinement holds
 //! whatever name a caller hands over.
 
-mod beneath;
-mod spelling;
+mod stored_name;
+mod walk;
 
 use std::any::Any;
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -60,7 +60,7 @@ impl Node {
             above = next;
         };
         names.reverse();
-        let dir = Arc::new(beneath::walk(&held, &names)?);
+        let dir = Arc::new(walk::walk(&held, &names)?);
         *self.state() = State::Open(dir.clone());
         Ok(dir)
     }
@@ -293,7 +293,7 @@ impl Inode for Bind {
 
     fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         self.at(dentry, |dir, name| {
-            spelling::stored_name(dir, name).map_err(to_error)
+            stored_name::stored_name(dir, name).map_err(to_error)
         })
     }
 

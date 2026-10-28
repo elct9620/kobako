@@ -1,6 +1,7 @@
 //! One Layer's directory as an Overlay holds it: the directory and its
-//! dentry in the Layer's Filesystem, as overlayfs holds each layer's
-//! dentry and looks a name up beneath it with `lookup_one`, so the Layer
+//! dentry in the Layer's Filesystem, as overlayfs's `ovl_path` pairs a
+//! layer with its dentry and looks a name up beneath it with `lookup_one`,
+//! so the Layer
 //! is asked about a name through a dentry the VFS made, and a directory
 //! removed or moved through the Overlay is removed or moved in the
 //! Layer's dentries too.
@@ -11,13 +12,13 @@ use super::super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions
 use crate::vfs::{Dentry, Filesystem};
 
 #[derive(Clone)]
-pub(super) struct Lower {
+pub(super) struct OverlayPath {
     filesystem: Arc<Filesystem>,
     dir: Arc<dyn Inode>,
     dentry: Arc<Dentry>,
 }
 
-impl Lower {
+impl OverlayPath {
     /// The root of the Layer `filesystem` stands for.
     pub(super) fn root(filesystem: &Arc<Filesystem>) -> Self {
         Self {

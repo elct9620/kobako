@@ -16,9 +16,9 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use super::lower::Lower;
-use super::merged::MergedDirs;
-use super::readers::Readers;
+use super::file::Readers;
+use super::inode::Inodes;
+use super::path::OverlayPath;
 
 use super::super::path::{beneath_itself, is_beneath, join};
 use super::super::{
@@ -45,7 +45,7 @@ impl Layer {
 
 /// Each Layer's directory at one directory of the view, topmost first;
 /// `None` where that Layer holds no directory the view merges there.
-pub(super) type Level = Vec<Option<Lower>>;
+pub(super) type Level = Vec<Option<OverlayPath>>;
 
 /// The directories of the view from the root to one of them.
 #[derive(Clone)]
@@ -99,7 +99,7 @@ impl Chain {
 }
 
 /// What `dir` holds at `name`, a link reported as itself.
-fn entry(dir: &Lower, name: &str) -> Result<Option<Metadata>, FilesystemError> {
+fn entry(dir: &OverlayPath, name: &str) -> Result<Option<Metadata>, FilesystemError> {
     match dir.symlink_metadata(name) {
         Ok(metadata) => Ok(Some(metadata)),
         Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => Ok(None),
@@ -110,14 +110,14 @@ fn entry(dir: &Lower, name: &str) -> Result<Option<Metadata>, FilesystemError> {
 /// Whether `dir` has an entry at `name`, a link pointing at nothing among
 /// them. A Layer that cannot answer fails the call, so a marker it could
 /// not read never lets a lower entry show.
-fn holds(dir: &Lower, name: &str) -> Result<bool, FilesystemError> {
+fn holds(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemError> {
     Ok(entry(dir, name)?.is_some())
 }
 
 /// Whether `dir` hides `name` in every Layer below it with a whiteout. A
 /// directory's opaque marker hides every name at once, so a level never
 /// holds the Layers below one; each name need not ask again.
-fn hides(dir: &Lower, name: &str) -> Result<bool, FilesystemError> {
+fn hides(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemError> {
     holds(dir, &whiteout(name))
 }
 
@@ -136,7 +136,7 @@ fn below_opaque_cut(mut level: Level) -> Result<Level, FilesystemError> {
 }
 
 /// Whether the directory `name` in `dir` holds an opaque marker.
-fn opaque_inside(dir: &Lower, name: &str) -> Result<bool, FilesystemError> {
+fn opaque_inside(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemError> {
     match dir.open_dir(name) {
         Ok(inner) => holds(&inner, OPAQUE),
         Err(
@@ -159,7 +159,7 @@ fn shows_below(level: &Level, index: usize) -> bool {
 /// there merges or hides, so the Layer's own directory answers for each
 /// name beneath, opened as that Layer opens one, as overlayfs leaves a
 /// directory only one layer holds unmerged.
-fn only_shown(level: &Level) -> Option<(usize, &Lower)> {
+fn sole_layer(level: &Level) -> Option<(usize, &OverlayPath)> {
     let mut shown = level
         .iter()
         .enumerate()
@@ -203,7 +203,7 @@ fn copy_whole(source: &mut dyn File, target: &mut dyn File) -> Result<(), Filesy
 /// means it is not. When `act` fails, or a marker will not go, the markers
 /// taken out are put back, so the view stays as it was.
 fn without_markers(
-    dir: &Lower,
+    dir: &OverlayPath,
     act: impl FnOnce() -> Result<(), FilesystemError>,
 ) -> Result<(), FilesystemError> {
     let markers: Vec<String> = dir.entries()?.into_iter().map(|entry| entry.name).collect();
@@ -228,7 +228,7 @@ fn without_markers(
 }
 
 /// An empty file `name` in `dir`, as every marker is.
-fn put_marker(dir: &Lower, name: &str) -> Result<(), FilesystemError> {
+fn put_marker(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
     dir.open(
         name,
         &OpenOptions {
@@ -254,15 +254,15 @@ pub(super) fn refuse_reserved(name: &str) -> Result<(), FilesystemError> {
 
 /// Layers stacked into one view, the first added on top.
 #[derive(Clone, Default)]
-pub(super) struct Stack {
+pub(super) struct OverlayFs {
     layers: Vec<Layer>,
     readers: Arc<Readers>,
-    merged_dirs: Arc<MergedDirs>,
+    inodes: Arc<Inodes>,
 }
 
-impl Stack {
-    pub(super) fn merged_dirs(&self) -> &MergedDirs {
-        &self.merged_dirs
+impl OverlayFs {
+    pub(super) fn inodes(&self) -> &Inodes {
+        &self.inodes
     }
 
     /// Whether the topmost writable Layer, where every copy up lands, holds
@@ -285,7 +285,7 @@ impl Stack {
                 level: below_opaque_cut(
                     self.layers
                         .iter()
-                        .map(|layer| Some(Lower::root(&layer.filesystem)))
+                        .map(|layer| Some(OverlayPath::root(&layer.filesystem)))
                         .collect(),
                 )?,
             }],
@@ -311,7 +311,7 @@ impl Stack {
     pub(super) fn enter(&self, chain: &mut Chain, name: &str) -> Result<(), FilesystemError> {
         refuse_reserved(name)?;
         let level = chain.level();
-        if let Some((index, dir)) = only_shown(level) {
+        if let Some((index, dir)) = sole_layer(level) {
             let mut only = vec![None; level.len()];
             only[index] = Some(dir.open_dir(name)?);
             chain.steps.push(Step {
@@ -324,7 +324,7 @@ impl Stack {
         let step = match found.file_type {
             FileType::Directory => Step {
                 name: name.to_string(),
-                level: self.merged(level, name, (index, found))?,
+                level: self.lookup_layers(level, name, (index, found))?,
             },
             FileType::Symlink => return Err(FilesystemError::FilesystemLoop),
             _ => return Err(FilesystemError::NotADirectory),
@@ -358,7 +358,7 @@ impl Stack {
     /// Layer's own directory there, merged downward until a Layer holds
     /// something else there, hides it, or marks its directory opaque, as
     /// overlayfs merges only directories.
-    fn merged(
+    fn lookup_layers(
         &self,
         level: &Level,
         name: &str,
@@ -426,7 +426,7 @@ impl Stack {
         if found.file_type != FileType::Directory {
             return Ok(found);
         }
-        self.dir_metadata(&self.merged(level, name, (index, found))?)
+        self.dir_metadata(&self.lookup_layers(level, name, (index, found))?)
     }
 
     /// What the Layer showing `name` holds there, a link it holds
@@ -459,7 +459,7 @@ impl Stack {
         refuse_reserved(name)?;
         match self.lookup(level, name)?.ok_or(FilesystemError::NotFound)? {
             (index, found) if found.file_type == FileType::Symlink => {
-                held(&level[index])?.read_link(name)
+                layer_dir(&level[index])?.read_link(name)
             }
             _ => Err(FilesystemError::InvalidInput),
         }
@@ -549,18 +549,23 @@ impl Stack {
     /// The directory `chain` reaches in Layer `into`, made there along
     /// with each directory above it that so far shows only from another
     /// Layer.
-    fn upper_dir(&self, chain: &mut Chain, into: usize) -> Result<Lower, FilesystemError> {
-        self.made(chain, chain.steps.len() - 1, into)
+    fn upper_dir(&self, chain: &mut Chain, into: usize) -> Result<OverlayPath, FilesystemError> {
+        self.copy_up(chain, chain.steps.len() - 1, into)
     }
 
-    fn made(&self, chain: &mut Chain, step: usize, into: usize) -> Result<Lower, FilesystemError> {
+    fn copy_up(
+        &self,
+        chain: &mut Chain,
+        step: usize,
+        into: usize,
+    ) -> Result<OverlayPath, FilesystemError> {
         if let Some(dir) = &chain.steps[step].level[into] {
             return Ok(dir.clone());
         }
         if step == 0 {
             return Err(FilesystemError::CrossesDevices);
         }
-        let parent = self.made(chain, step - 1, into)?;
+        let parent = self.copy_up(chain, step - 1, into)?;
         let name = chain.steps[step].name.clone();
         let dir = match entry(&parent, &name)? {
             Some(found) if found.file_type == FileType::Directory => parent.open_dir(&name)?,
@@ -574,7 +579,7 @@ impl Stack {
             }
         };
         chain.steps[step].level[into] = Some(dir.clone());
-        self.merged_dirs.copied_up(&chain.path_to(step), into, &dir);
+        self.inodes.inode_update(&chain.path_to(step), into, &dir);
         Ok(dir)
     }
 
@@ -618,13 +623,14 @@ impl Stack {
             let _ = target_dir.remove_file(name);
             return copied;
         }
-        self.readers.copied(&chain.path_of(name), &target_dir, name)
+        self.readers
+            .inode_update(&chain.path_of(name), &target_dir, name)
     }
 
     /// Clear the whiteout of `name` in `dir` once an entry has landed
     /// there. A whiteout left beside the entry hides only what lies below,
     /// which the entry replaced, so failing to clear it fails nothing.
-    fn unhide(dir: &Lower, name: &str) {
+    fn unhide(dir: &OverlayPath, name: &str) {
         let _ = dir.remove_file(&whiteout(name));
     }
 
@@ -654,8 +660,8 @@ impl Stack {
         &self,
         chain: &mut Chain,
         name: &str,
-        keeps: impl Fn(&Lower) -> Result<bool, FilesystemError>,
-        remove: impl Fn(&Lower) -> Result<(), FilesystemError>,
+        keeps: impl Fn(&OverlayPath) -> Result<bool, FilesystemError>,
+        remove: impl Fn(&OverlayPath) -> Result<(), FilesystemError>,
     ) -> Result<(), FilesystemError> {
         let level = chain.level().clone();
         let (holders, shadowed) = self.holders(&level, name)?;
@@ -693,11 +699,11 @@ impl Stack {
             }
             Some(_) if options.create_new => Err(FilesystemError::AlreadyExists),
             Some((index, _)) if self.layers[index].writable() => {
-                held(&level[index])?.open(name, options)
+                layer_dir(&level[index])?.open(name, options)
             }
             Some((index, _)) if !changes => {
-                let file = held(&level[index])?.open(name, options)?;
-                Ok(self.readers.reading(&chain.path_of(name), file))
+                let file = layer_dir(&level[index])?.open(name, options)?;
+                Ok(self.readers.open(&chain.path_of(name), file))
             }
             Some((index, _)) => {
                 let into = self.layers[..index]
@@ -705,7 +711,7 @@ impl Stack {
                     .rposition(Layer::writable)
                     .ok_or(FilesystemError::ReadOnlyFilesystem)?;
                 self.copy_up_file(chain, name, index, into)?;
-                held(&chain.level()[into])?.open(name, options)
+                layer_dir(&chain.level()[into])?.open(name, options)
             }
             None if options.create || options.create_new => self.create_file(chain, name, options),
             None => Err(FilesystemError::NotFound),
@@ -727,7 +733,7 @@ impl Stack {
         match self.lookup(&level, name)? {
             Some(_) if options.create_new => Err(FilesystemError::AlreadyExists),
             Some((index, _)) if self.layers[index].writable() => {
-                held(&level[index])?.open(name, options)
+                layer_dir(&level[index])?.open(name, options)
             }
             Some(_) => Err(FilesystemError::CrossesDevices),
             None => {
@@ -771,7 +777,9 @@ impl Stack {
         name: &str,
         found: (usize, Metadata),
     ) -> Result<bool, FilesystemError> {
-        Ok(self.entries(&self.merged(level, name, found)?)?.is_empty())
+        Ok(self
+            .entries(&self.lookup_layers(level, name, found)?)?
+            .is_empty())
     }
 
     /// A directory made where a whiteout hid one is marked opaque before
@@ -966,6 +974,6 @@ impl Stack {
 
 /// The Layer's directory a level holds, which it holds wherever it shows
 /// a name.
-fn held(dir: &Option<Lower>) -> Result<&Lower, FilesystemError> {
+fn layer_dir(dir: &Option<OverlayPath>) -> Result<&OverlayPath, FilesystemError> {
     dir.as_ref().ok_or(FilesystemError::NotFound)
 }

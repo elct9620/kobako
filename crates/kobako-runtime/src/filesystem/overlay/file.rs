@@ -1,21 +1,23 @@
 //! The files a read-only Layer shows that are open to read, so a copy up
-//! moves each of them to the copy, as overlayfs moves an open file to the
-//! upper inode its copy up made.
+//! moves each of them to the copy, as overlayfs's open file reaches the
+//! upper inode its copy up made. overlayfs keeps that inode through its
+//! own inode, even once removed; a Filesystem here hands out no inode of a
+//! file, so the copy is opened as the copy up makes it and held instead.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::super::{File, FilesystemError, Metadata, OpenOptions};
-use super::lower::Lower;
+use super::path::OverlayPath;
+use crate::hashtable::Hashtable;
 
 type Copy = Arc<Mutex<Box<dyn File>>>;
 
 /// The copy a file open to read shows once a copy up made one, or `None`
 /// while the read-only Layer still shows it.
 #[derive(Default)]
-struct Shown(Mutex<Option<Copy>>);
+struct Upper(Mutex<Option<Copy>>);
 
-impl Shown {
+impl Upper {
     fn copy(&self) -> Option<Copy> {
         self.0
             .lock()
@@ -27,39 +29,34 @@ impl Shown {
 /// Every path a read-only Layer's file is open to read at, kept only while
 /// one is open.
 #[derive(Default)]
-pub(super) struct Readers(Mutex<HashMap<String, Weak<Shown>>>);
+pub(super) struct Readers(Mutex<Hashtable<String, Upper>>);
 
 impl Readers {
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, Weak<Shown>>> {
+    fn lock(&self) -> MutexGuard<'_, Hashtable<String, Upper>> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// `file`, opened at `path` in a read-only Layer, as one that reads
-    /// the copy once a copy up makes one.
-    pub(super) fn reading(&self, path: &str, file: Box<dyn File>) -> Box<dyn File> {
-        let mut paths = self.lock();
-        paths.retain(|_, shown| shown.strong_count() > 0);
-        let shown = match paths.get(path).and_then(Weak::upgrade) {
-            Some(shown) => shown,
-            None => {
-                let shown = Arc::new(Shown::default());
-                paths.insert(path.to_string(), Arc::downgrade(&shown));
-                shown
-            }
-        };
-        Box::new(Reading { file, shown })
+    /// the copy once a copy up makes one, as overlayfs's `ovl_open` hands
+    /// out a file over the real one.
+    pub(super) fn open(&self, path: &str, file: Box<dyn File>) -> Box<dyn File> {
+        let upper = self
+            .lock()
+            .get_or_insert_with(path.to_string(), Arc::default);
+        Box::new(OverlayFile { file, upper })
     }
 
     /// `path` was copied up as `name` into `dir`, a writable Layer's
-    /// directory; every file open to read there reads the copy from now
-    /// on, wherever it moves.
-    pub(super) fn copied(
+    /// directory, as overlayfs's `ovl_inode_update` records the upper
+    /// inode; every file open to read there reads the copy from now on,
+    /// wherever it moves.
+    pub(super) fn inode_update(
         &self,
         path: &str,
-        dir: &Lower,
+        dir: &OverlayPath,
         name: &str,
     ) -> Result<(), FilesystemError> {
-        let Some(shown) = self.lock().get(path).and_then(Weak::upgrade) else {
+        let Some(upper) = self.lock().get(&path.to_string()) else {
             return Ok(());
         };
         let copy = dir.open(
@@ -69,22 +66,22 @@ impl Readers {
                 ..OpenOptions::default()
             },
         )?;
-        *shown.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(Mutex::new(copy)));
+        *upper.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(Mutex::new(copy)));
         Ok(())
     }
 }
 
 /// A read-only Layer's file open to read, which reads the copy once a copy
-/// up makes one.
-struct Reading {
+/// up makes one, as overlayfs's `struct ovl_file` does.
+struct OverlayFile {
     file: Box<dyn File>,
-    shown: Arc<Shown>,
+    upper: Arc<Upper>,
 }
 
-impl File for Reading {
+impl File for OverlayFile {
     fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        match self.shown.copy() {
-            Some(shared) => shared
+        match self.upper.copy() {
+            Some(copy) => copy
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .read_at(buf, offset),
@@ -103,8 +100,8 @@ impl File for Reading {
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        match self.shown.copy() {
-            Some(shared) => shared
+        match self.upper.copy() {
+            Some(copy) => copy
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .metadata(),

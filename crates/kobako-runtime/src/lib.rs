@@ -16,6 +16,7 @@ pub mod dispatch;
 pub mod error;
 pub mod filesystem;
 pub mod grant;
+mod hashtable;
 pub mod mount;
 pub mod profile;
 pub mod runtime;
