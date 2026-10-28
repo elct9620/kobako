@@ -3,7 +3,7 @@
 //! upper and lower dentries, so a call through it asks those Layers
 //! directly.
 //!
-//! A directory no writable Layer holds yet is shared by every handle of
+//! A directory the upper does not hold yet is shared by every handle of
 //! it, so a copy up through one is seen through all, as overlayfs sets the
 //! upper dentry on the one inode. Such a directory never moves through the
 //! Overlay, which refuses to move what a lower Layer holds, so it is kept
@@ -20,7 +20,7 @@ use crate::hashtable::Hashtable;
 pub(super) struct OverlayInode {
     level: Mutex<Level>,
     /// Where it stood beneath the Overlay's root when it was opened, by
-    /// which a change through it reaches its writable Layer's directory.
+    /// which a change through it reaches its upper's directory.
     path: String,
 }
 
@@ -45,7 +45,7 @@ impl OverlayInode {
     }
 }
 
-/// Every opened directory of one Overlay that no writable Layer holds yet,
+/// Every opened directory of one Overlay that the upper does not hold yet,
 /// by its path.
 #[derive(Default)]
 pub(super) struct Inodes(Mutex<Hashtable<String, OverlayInode>>);
@@ -57,7 +57,7 @@ impl Inodes {
 
     /// The directory at `path`, standing for `level` as just found, as
     /// overlayfs's `ovl_get_inode` finds one: the one already shared there,
-    /// brought up to date, where a writable Layer is missing from `level`,
+    /// brought up to date, where the upper is missing from `level`,
     /// or one of its own otherwise.
     pub(super) fn get_inode(&self, path: String, level: Level, shared: bool) -> Arc<OverlayInode> {
         if !shared {

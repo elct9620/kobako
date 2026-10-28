@@ -1,6 +1,6 @@
 //! The Layers of an Overlay and the rules that make them one view: which
-//! Layer shows a name, how a change lands in a writable Layer, and the
-//! markers that hide what a read-only Layer still holds. The calls on the
+//! Layer shows a name, how a change lands in the upper, and the markers
+//! that hide what a lower Layer still holds. The calls on the
 //! view are split as overlayfs splits them: finding a name in `namei`,
 //! copying up in `copy_up`, listing in `readdir`, and changing a directory
 //! in `dir`.
@@ -28,25 +28,13 @@ use super::inode::Inodes;
 use super::path::OverlayPath;
 
 use super::super::path::join;
-use super::super::{Access, File, FilesystemError, Metadata, OpenOptions};
+use super::super::{File, FilesystemError, Metadata, OpenOptions};
 use crate::vfs::Filesystem;
 
 /// The prefix of a whiteout, and of every name reserved for a marker.
 const WHITEOUT: &str = ".wh.";
 /// The marker hiding every lower Layer's entries of its directory.
 const OPAQUE: &str = ".wh..wh..opq";
-
-#[derive(Clone)]
-struct Layer {
-    filesystem: Arc<Filesystem>,
-    access: Access,
-}
-
-impl Layer {
-    fn writable(&self) -> bool {
-        self.access == Access::ReadWrite
-    }
-}
 
 /// Each Layer's directory at one directory of the view, topmost first;
 /// `None` where that Layer holds no directory the view merges there.
@@ -203,7 +191,7 @@ fn copy_whole(source: &mut dyn File, target: &mut dyn File) -> Result<(), Filesy
     }
 }
 
-/// Take every marker out of `dir`, a writable Layer's copy of a directory
+/// Take every marker out of `dir`, the upper's copy of a directory
 /// the view shows empty, for `act` to change it; any other entry there
 /// means it is not. When `act` fails, or a marker will not go, the markers
 /// taken out are put back, so the view stays as it was.
@@ -263,29 +251,40 @@ pub(super) fn refuse_reserved(name: &str) -> Result<(), FilesystemError> {
     Ok(())
 }
 
-/// Layers stacked into one view, the first added on top, as overlayfs's
-/// `ovl_fs` holds a mount's layers.
-#[derive(Clone, Default)]
+/// Layers stacked into one view, topmost first, the upper among them on
+/// top, as overlayfs's `ovl_fs` holds a mount's layers.
+#[derive(Clone)]
 pub(super) struct OverlayFs {
-    layers: Vec<Layer>,
+    layers: Vec<Arc<Filesystem>>,
+    /// Whether the first Layer is the upper, where every change lands.
+    has_upper: bool,
     readers: Arc<Readers>,
     inodes: Arc<Inodes>,
 }
 
 impl OverlayFs {
+    pub(super) fn new(lower: Vec<Arc<Filesystem>>, upper: Option<Arc<Filesystem>>) -> Self {
+        Self {
+            has_upper: upper.is_some(),
+            layers: upper.into_iter().chain(lower).collect(),
+            readers: Arc::default(),
+            inodes: Arc::default(),
+        }
+    }
+
     pub(super) fn inodes(&self) -> &Inodes {
         &self.inodes
     }
 
-    /// Whether the topmost writable Layer, where every copy up lands, holds
-    /// no directory in `level`, so a change through it may have to make one
-    /// there first. Only such a directory never moves through the Overlay.
-    pub(super) fn misses_writable(&self, level: &Level) -> bool {
+    /// Whether the upper, where every copy up lands, holds no directory in
+    /// `level`, so a change through it may have to make one there first.
+    /// Only such a directory never moves through the Overlay.
+    pub(super) fn misses_upper(&self, level: &Level) -> bool {
         self.upper().is_ok_and(|upper| level[upper].is_none())
     }
 
-    pub(super) fn push(&mut self, filesystem: Arc<Filesystem>, access: Access) {
-        self.layers.push(Layer { filesystem, access });
+    fn is_upper(&self, index: usize) -> bool {
+        self.has_upper && index == 0
     }
 
     /// The chain at the root of the view, every Layer's root merged down to
@@ -297,19 +296,19 @@ impl OverlayFs {
                 level: below_opaque_cut(
                     self.layers
                         .iter()
-                        .map(|layer| Some(OverlayPath::root(&layer.filesystem)))
+                        .map(|layer| Some(OverlayPath::root(layer)))
                         .collect(),
                 )?,
             }],
         })
     }
 
-    /// The topmost writable Layer, where every change that is not in place
-    /// lands.
+    /// The upper, where every change lands; without one every change is
+    /// refused as read-only.
     fn upper(&self) -> Result<usize, FilesystemError> {
-        self.layers
-            .iter()
-            .position(Layer::writable)
-            .ok_or(FilesystemError::ReadOnlyFilesystem)
+        match self.has_upper {
+            true => Ok(0),
+            false => Err(FilesystemError::ReadOnlyFilesystem),
+        }
     }
 }

@@ -17,24 +17,22 @@ Two properties set the kinds apart: where the content lives, and how long it las
 kind       content lives       lasts
 Tmpfs     in memory           as long as the Host App's object
 Bind  in a host directory as long as the directory
-Overlay    in its layers       as long as its writable layers
+Overlay    in its layers       as long as its upper Tmpfs
 ```
 
-An Overlay stacks Layers, each read-only or writable on its own. The rules follow the union filesystems that allow that, aufs among them. Its markers follow the OCI image layer format, so a Host App reads them as it would a container layer.
+An Overlay follows Linux overlayfs, with the upper restricted as gVisor restricts it. Its lower Layers are read-only, and its upper Layer is a Tmpfs, so the host stays as it was. A Host App that wants a change on the host mounts a Bind beside it.
 
 ```
-the first layer added sits on top
+lower Layers, topmost first; an upper Tmpfs on top of them, or none
 read     the topmost layer holding the path answers, unless a whiteout hides it
-change   a file in a writable layer changes in place
-         a file in a read-only layer is copied up to the nearest writable layer
-create   lands in the topmost writable layer, as a rename's target does
-remove   leaves every writable layer it empties; a whiteout hides what any layer keeps
-nothing writable  every change is refused as read-only
-covered           a change a read-only layer above would hide is refused as read-only
+change   a file in the upper changes in place; a lower file is copied up first
+create   lands in the upper, as a rename's target does
+remove   leaves the upper; a whiteout hides what a lower layer keeps
+no upper every change is refused as read-only, and two lowers are needed
 
 whiteout          .wh.<name>      beside the hidden entry
 opaque directory  .wh..wh..opq    inside a directory made again where one was removed
-both live in the topmost writable layer, never show, and no name may claim .wh. in any case
+both live in the upper, never show, and no name may claim .wh. in any case
 ```
 
 ## Includes
@@ -102,7 +100,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | the file is read through the Overlay |
 | Then | it reads the lower file's content |
 
-## `FS-009` A write to a read-only Layer's file lands in the nearest writable Layer above it
+## `FS-009` A write to a lower Layer's file lands in the upper
 
 | Attribute | Value |
 | --- | --- |
@@ -110,11 +108,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose writable Layer sits over a read-only Layer holding a file |
+| Given | an Overlay whose lower Layer holds a file |
 | When | the file is written through the Overlay |
-| Then | the writable Layer holds what was written |
+| Then | the upper holds what was written |
 
-## `FS-010` An Overlay leaves a read-only Layer as it was
+## `FS-010` An Overlay leaves a lower Layer as it was
 
 | Attribute | Value |
 | --- | --- |
@@ -122,9 +120,9 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Layer holds a file |
+| Given | an Overlay whose lower Layer holds a file |
 | When | the file is written and then removed through the Overlay |
-| Then | the read-only Layer still holds the file as it was |
+| Then | the lower Layer still holds the file as it was |
 
 ## `FS-011` A file removed through an Overlay is gone from its view
 
@@ -134,7 +132,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Layer holds a file |
+| Given | an Overlay whose lower Layer holds a file |
 | When | the file is removed through the Overlay |
 | Then | the Overlay finds no file at that path |
 
@@ -150,7 +148,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | the file is read through the Overlay |
 | Then | it reads the upper Layer's content |
 
-## `FS-014` A write to a writable Layer's file changes it in place
+## `FS-014` A write to the upper's file changes it in place
 
 | Attribute | Value |
 | --- | --- |
@@ -158,11 +156,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay of two writable Layers, the lower one holding a file |
+| Given | an Overlay whose upper holds a file |
 | When | the file is written through the Overlay |
-| Then | the lower Layer holds what was written |
+| Then | the upper's file holds what was written |
 
-## `FS-015` A new file lands in the topmost writable Layer
+## `FS-015` A new file lands in the upper
 
 | Attribute | Value |
 | --- | --- |
@@ -170,11 +168,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay of a read-only Layer over two writable Layers |
+| Given | an Overlay over a lower Layer |
 | When | a new file is created through the Overlay |
-| Then | the upper writable Layer holds it |
+| Then | the upper holds it, and the lower Layer does not |
 
-## `FS-016` A removal leaves a whiteout in the topmost writable Layer
+## `FS-016` A removal leaves a whiteout in the upper
 
 | Attribute | Value |
 | --- | --- |
@@ -182,11 +180,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose writable Layer sits over a read-only Layer holding a file |
+| Given | an Overlay whose lower Layer holds a file |
 | When | the file is removed through the Overlay |
-| Then | the writable Layer holds `.wh.` and the file's name beside where it was |
+| Then | the upper holds `.wh.` and the file's name beside where it was |
 
-## `FS-017` A whiteout lasts as long as its writable Layer
+## `FS-017` A whiteout lasts as long as the upper
 
 | Attribute | Value |
 | --- | --- |
@@ -194,7 +192,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a lower file removed through an Overlay whose writable Layer is a Tmpfs |
+| Given | a lower file removed through an Overlay |
 | When | a new Overlay is built over the same Layers |
 | Then | the new Overlay finds no file at that path |
 
@@ -206,7 +204,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a read-only Layer's directory removed through an Overlay with every file in it |
+| Given | a lower Layer's directory removed through an Overlay with every file in it |
 | When | the directory is created again through the Overlay |
 | Then | listing it finds no entry |
 
@@ -218,7 +216,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose writable Layer holds a whiteout |
+| Given | an Overlay whose upper holds a whiteout |
 | When | the whiteout's directory is listed through the Overlay |
 | Then | no entry starting with `.wh.` is listed |
 
@@ -230,11 +228,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay with a writable Layer |
+| Given | an Overlay with an upper |
 | When | a file named `.wh.note` is created through the Overlay |
 | Then | the creation is refused |
 
-## `FS-021` An Overlay with no writable Layer refuses every change as read-only
+## `FS-021` An Overlay with no upper refuses every change as read-only
 
 | Attribute | Value |
 | --- | --- |
@@ -242,7 +240,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose Layers are all read-only |
+| Given | an Overlay of two lower Layers and no upper |
 | When | a file is written through the Overlay |
 | Then | the write is refused as read-only |
 
@@ -446,7 +444,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose full writable Layer holds a copy of a lower file |
+| Given | an Overlay whose full upper holds a copy of a lower file |
 | When | the file is removed |
 | Then | the removal is refused as out of space, and the copy still reads |
 
@@ -458,7 +456,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay hiding a lower directory, its writable Layer with room for one entry |
+| Given | an Overlay hiding a lower directory, its upper with room for one entry |
 | When | the directory is made again |
 | Then | the creation is refused as out of space, and the directory stays hidden |
 
@@ -470,7 +468,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose writable Layer has room only to copy a lower file up |
+| Given | an Overlay whose upper has room only to copy a lower file up |
 | When | the file is renamed |
 | Then | the rename is refused as out of space, and the file stays where it was |
 
@@ -482,7 +480,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Layer holds a directory |
+| Given | an Overlay whose lower Layer holds a directory |
 | When | the directory is renamed |
 | Then | the rename is refused as crossing devices, and nothing moves |
 
@@ -494,7 +492,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Layer alone shows a directory holding a file |
+| Given | an Overlay whose lower Layer alone shows a directory holding a file |
 | When | a file, then an empty directory, is renamed onto that directory |
 | Then | each is refused as rename(2) refuses it, and the directory stays as it was |
 
@@ -506,9 +504,9 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Layer holds an empty directory |
-| When | a directory the writable Layer holds is renamed onto it |
-| Then | the moved directory is marked opaque in the writable Layer |
+| Given | an Overlay whose lower Layer holds an empty directory |
+| When | a directory the upper holds is renamed onto it |
+| Then | the moved directory is marked opaque in the upper |
 
 ## `FS-046` A copy up that fails part way leaves nothing behind
 
@@ -518,7 +516,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose writable Layer has less room than a lower file holds |
+| Given | an Overlay whose upper has less room than a lower file holds |
 | When | the lower file is written, copying it up |
 | Then | the write is refused as out of space, and the lower file still reads |
 
@@ -554,11 +552,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Layer is a Bind holding a link to a file and one to nothing |
+| Given | an Overlay whose lower Layer is a Bind holding a link to a file and one to nothing |
 | When | each link is looked up through the Overlay, following none |
 | Then | each is reported as a link |
 
-## `FS-050` An Overlay removes a link its read-only Layer holds as itself
+## `FS-050` An Overlay removes a link its lower Layer holds as itself
 
 | Attribute | Value |
 | --- | --- |
@@ -567,11 +565,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Bind Layer holds a link to a directory and one to nothing |
+| Given | an Overlay whose lower Bind Layer holds a link to a directory and one to nothing |
 | When | each link is removed as a directory and then as a file |
 | Then | the first is refused as no directory, the rest leave the view, and the Layer stays as it was |
 
-## `FS-051` An Overlay refuses a change through a link its read-only Layer holds
+## `FS-051` An Overlay refuses a change through a link its lower Layer holds
 
 | Attribute | Value |
 | --- | --- |
@@ -580,7 +578,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Bind Layer holds a link to a file and a link to nothing |
+| Given | an Overlay whose lower Bind Layer holds a link to a file and a link to nothing |
 | When | the guest writes, creates, or renames through one of those links |
 | Then | each change is refused as crossing devices, and the target stays |
 
@@ -592,7 +590,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Bind Layer holds a link to nothing |
+| Given | an Overlay whose lower Bind Layer holds a link to nothing |
 | When | a file is created there exclusively, or a directory is made there |
 | Then | each is refused as already existing |
 
@@ -609,31 +607,6 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | the path is opened to read through the Overlay |
 | Then | the open is refused as a link, and the lower file is not reached |
 
-## `FS-054` A copy up through a Layer writing in parts copies the whole file
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-009` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay whose writable Layer writes a few bytes per call, over a lower file |
-| When | the lower file is opened to write, copying it up |
-| Then | the copy in the writable Layer holds the whole lower file |
-
-## `FS-055` A copy up whose close a Layer refuses leaves nothing behind
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-009` |
-| relates | `FS-046` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay whose writable Layer refuses the close of a file it wrote |
-| When | the lower file is written, copying it up |
-| Then | the write is refused, and the lower file still reads |
-
 ## `FS-056` An Overlay refuses its reserved name in any case
 
 | Attribute | Value |
@@ -642,7 +615,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay with a writable Layer |
+| Given | an Overlay with an upper |
 | When | a file named `.WH.note` is created through the Overlay |
 | Then | the creation is refused |
 
@@ -655,7 +628,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose writable Bind Layer holds `dirlink` as a link to a directory, over a Layer holding `dirlink/x` |
+| Given | an Overlay whose higher Bind Layer holds `dirlink` as a link to a directory, over a Layer holding `dirlink/x` |
 | When | `dirlink` is looked up and opened as a directory through the Overlay |
 | Then | it stands as the link, so nothing of the lower `dirlink` shows |
 
@@ -668,11 +641,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose higher writable Layer holds file `f` over a lower writable Layer's directory `f` |
+| Given | an Overlay whose upper holds file `f` over a lower Layer's directory `f` |
 | When | `f` is removed through the Overlay |
 | Then | `f` is gone from the view, and the lower directory is as it was |
 
-## `FS-059` A directory moves onto one whose writable copy holds only markers
+## `FS-059` A directory moves onto one whose upper copy holds only markers
 
 | Attribute | Value |
 | --- | --- |
@@ -680,11 +653,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose directory `dir` shows empty, its writable copy holding only the whiteout of a removed lower file |
+| Given | an Overlay whose directory `dir` shows empty, its upper copy holding only the whiteout of a removed lower file |
 | When | another directory is renamed onto `dir` through the Overlay |
 | Then | the rename succeeds, and `dir` shows only the moved directory's entries |
 
-## `FS-060` A directory made again moves as the writable Layer's own
+## `FS-060` A directory made again moves as the upper's own
 
 | Attribute | Value |
 | --- | --- |
@@ -692,9 +665,9 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay where a read-only Layer's directory was removed and made again |
+| Given | an Overlay where a lower Layer's directory was removed and made again |
 | When | the directory is renamed through the Overlay |
-| Then | it moves, and nothing of the read-only Layer's directory shows at either path |
+| Then | it moves, and nothing of the lower Layer's directory shows at either path |
 
 ## `FS-061` An Overlay refuses a file moved beneath itself as no directory
 
@@ -719,19 +692,6 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a list naming the root, a file twice, or a file where another path needs a directory |
 | When | a Tmpfs is seeded with it |
 | Then | the seeding panics |
-
-## `FS-063` A refused change leaves what a whiteout hid hidden
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-016` |
-| relates | `FS-059` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay whose writable Layer holds only a whiteout in `dir`, and refuses to move or remove a directory |
-| When | a directory is renamed onto `dir`, and `dir` is removed, through the Overlay |
-| Then | both are refused, and the whited-out file stays hidden |
 
 ## `FS-064` A Bind opens a file already there without writing to create it
 
@@ -837,7 +797,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose directory stands only in a read-only Layer |
+| Given | an Overlay whose directory stands only in a lower Layer |
 | When | a file is made inside it, copying the directory up |
 | Then | the directory keeps the identity it had before |
 
@@ -853,19 +813,6 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | the directory is looked up following a link at its end, and without |
 | Then | both lookups report the same identity |
 
-## `FS-074` An Overlay removes a directory a lower writable Layer still fills behind a whiteout
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-016` |
-| relates | `FS-063` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay whose upper Layer hides a file a lower writable Layer holds in `dir` |
-| When | `dir` is removed through the Overlay |
-| Then | the view no longer holds `dir`, and the lower Layer still holds the file |
-
 ## `FS-075` A rename through an Overlay that cannot mark its directory opaque moves nothing
 
 | Attribute | Value |
@@ -875,35 +822,9 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose full writable Layer holds a directory, over an empty lower one |
+| Given | an Overlay whose full upper holds a directory, over an empty lower one |
 | When | the first directory is renamed onto the second |
 | Then | the rename is refused as out of space, and nothing moves |
-
-## `FS-076` An Overlay refuses a rename a read-only Layer above would cover
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-015` |
-| relates | `FS-010` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay whose writable Layer sits beneath a read-only Layer holding `to` |
-| When | a lower file is renamed onto `to` |
-| Then | the rename is refused as read-only, and both names read as before |
-
-## `FS-077` An Overlay makes nothing a read-only Layer above would hide
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-015` |
-| relates | `FS-076` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay whose writable Layer sits beneath a read-only Layer holding whiteouts |
-| When | a file and a directory are made under the whited-out names |
-| Then | both are refused as read-only, and the writable Layer holds neither |
 
 ## `FS-078` An Overlay shows a directory over a lower Layer's file on its path
 
@@ -921,11 +842,11 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Attribute | Value |
 | --- | --- |
-| relates | `FS-063` |
+| relates | `FS-016` |
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose upper Layer whites out a lower file, yet reads no marker |
+| Given | an Overlay whose middle Layer whites out a file below it, yet reads no marker |
 | When | the file is looked up through the Overlay |
 | Then | the lookup fails, and the file never shows |
 
@@ -1022,32 +943,6 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | a Tmpfs is tried with it |
 | Then | the trial answers the error naming that path |
 
-## `FS-088` An Overlay refuses to move a file a lower writable Layer holds
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-014` |
-| relates | `FS-043` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay of two writable Layers, the lower one holding a file |
-| When | the file is renamed through the Overlay |
-| Then | the rename is refused as crossing devices, and nothing moves |
-
-## `FS-089` An Overlay change that lands succeeds though its whiteout stays
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-016` |
-| relates | `FS-063` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay whose writable Layer refuses to remove its whiteouts |
-| When | a file removed through it is made again |
-| Then | the call succeeds, and the view shows the new file |
-
 ## `FS-090` A Bind opens only a file or a directory
 
 | Attribute | Value |
@@ -1081,7 +976,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a writable Layer over a read-only Bind holding a FIFO |
+| Given | an Overlay over a lower Bind holding a FIFO |
 | When | the FIFO is written or renamed through the Overlay |
 | Then | the write is refused as permission denied, the rename as crossing devices |
 
@@ -1120,7 +1015,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Layer holds a FIFO and a directory, its writable Layer a directory |
+| Given | an Overlay whose lower Layer holds a FIFO and a directory, its upper a directory |
 | When | the FIFO is renamed onto the lower directory, and the upper directory onto the FIFO |
 | Then | the first is refused as a directory, the second as no directory, and both stay |
 
@@ -1168,7 +1063,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Layer's file is open to read |
+| Given | an Overlay whose lower Layer's file is open to read |
 | When | another open writes the file, copying it up |
 | Then | the open file reads what the copy holds |
 
@@ -1180,7 +1075,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose read-only Layer's file is open to read |
+| Given | an Overlay whose lower Layer's file is open to read |
 | When | the file is renamed and the moved copy is written |
 | Then | the open file reads what the moved copy holds |
 
@@ -1364,18 +1259,6 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | the Overlay reads it |
 | Then | it counts one name and reports the upper Layer's times |
 
-## `FS-118` An Overlay makes nothing beneath a read-only Layer's opaque directory
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-077` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a directory a read-only Layer marks opaque, over a writable Layer holding it too |
-| When | a file is made in that directory |
-| Then | the make is refused as read-only, and the writable Layer holds nothing new |
-
 ## `FS-119` A copy up through one Overlay directory is seen through another
 
 | Attribute | Value |
@@ -1384,7 +1267,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a directory only a read-only Layer holds, opened twice beneath an Overlay |
+| Given | a directory only a lower Layer holds, opened twice beneath an Overlay |
 | When | a file is written through the first, copying the directory up |
 | Then | a read through the second reads the file |
 
@@ -1396,7 +1279,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a directory opened beneath an Overlay of two writable Layers, only the upper holding it |
+| Given | a directory opened beneath an Overlay, only the upper holding it |
 | When | the directory is moved through the Overlay, then written into through the one opened |
 | Then | the file lands where the directory moved |
 
@@ -1421,6 +1304,42 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose only Layer holds `dir/file`, yet answers no lookup of `dir` |
-| When | `dir/file` is read through the Overlay |
+| Given | an Overlay whose lower Layer alone holds `top/dir/file`, yet answers no lookup of `dir` |
+| When | `top/dir/file` is read through the Overlay |
 | Then | it reads the file's content |
+
+## `FS-123` An Overlay refuses an upper that is no Tmpfs
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-015` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind and a Tmpfs |
+| When | an Overlay is built with the Bind as its upper over the Tmpfs |
+| Then | it is refused as invalid input |
+
+## `FS-124` An Overlay without an upper needs two lower Layers
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-021` |
+
+| Step | Statement |
+| --- | --- |
+| Given | one Tmpfs |
+| When | an Overlay is built with it as its only Layer |
+| Then | it is refused as invalid input |
+
+## `FS-125` An Overlay needs a lower Layer
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-008` |
+
+| Step | Statement |
+| --- | --- |
+| Given | one Tmpfs |
+| When | an Overlay is built with it as its upper and no lower Layer |
+| Then | it is refused as invalid input |

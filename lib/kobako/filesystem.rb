@@ -14,10 +14,10 @@ module Kobako
   # [<tt>Bind.new(path)</tt>]
   #   A host directory and everything beneath it. Nothing outside it is
   #   reachable, a symbolic link pointing out included.
-  # [<tt>Overlay.new.layer(filesystem, access: :read)</tt>]
-  #   Layers stacked into one view, the first added on top, each +:read+
-  #   or +:read_write+ on its own. A change lands in a writable Layer, and
-  #   a read-only one stays as it was. Each +layer+ answers a new Overlay.
+  # [<tt>Overlay.new(lower: [filesystem, ...], upper: tmpfs)</tt>]
+  #   Read-only lower Layers, topmost first, under an upper Tmpfs that
+  #   takes every change, as Linux's overlayfs stacks them. Without
+  #   +upper+ the view is read-only and needs two lower Layers.
   #
   # A Tmpfs is bounded as a tmpfs mount is: its files hold
   # at most +size+ bytes together, and it holds at most +nr_inodes+ files and

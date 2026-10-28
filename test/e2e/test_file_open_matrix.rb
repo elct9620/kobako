@@ -64,11 +64,11 @@ class TestE2EFileOpenMatrix < Minitest::Test
 
   # @behavior FL-034
   def test_an_overlay_answers_as_cruby_does
-    overlay = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Tmpfs.new, access: :read_write)
-                                         .layer(Kobako::Filesystem::Tmpfs.new(SEED))
+    overlay = Kobako::Filesystem::Overlay.new(lower: [Kobako::Filesystem::Tmpfs.new(SEED)],
+                                              upper: Kobako::Filesystem::Tmpfs.new)
 
     assert_equal READ_WRITE, answers(overlay, access: :read_write),
-                 "File.open and IO.new beneath an Overlay Mount over a read-only Layer through Sandbox#eval " \
+                 "File.open and IO.new beneath an Overlay Mount over a lower Layer through Sandbox#eval " \
                  "must answer as CRuby does over a read-write Linux directory"
   end
 

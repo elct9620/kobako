@@ -203,7 +203,7 @@ sandbox.eval('File.write("/tmp/scratch", "x")') { |ctx| ctx.mount("/tmp", Kobako
 |---|---|
 | `Tmpfs.new(files = {}, size:, nr_inodes:)` | files in memory, shared by every invocation |
 | `Bind.new(path)` | a host directory; nothing outside it is reachable |
-| `Overlay.new.layer(fs, access:)` | Layers stacked into one view, the first added on top |
+| `Overlay.new(lower: [fs, ...], upper: tmpfs)` | read-only Layers under a Tmpfs that takes every change |
 
 Every invocation reaches the same Filesystem, so the last line starts empty with a Tmpfs of its own.
 
@@ -229,16 +229,17 @@ Beneath a mount, `File.open` and `IO.new` answer as CRuby does over a Linux dire
 
 #### Overlays
 
-`layer` adds a Filesystem beneath the Layers already there and answers a new Overlay. Each Layer is `:read`, the default, or `:read_write` on its own.
+An Overlay stacks Layers as Linux's overlayfs does. The lower Layers, topmost first, are never written. The upper must be a Tmpfs, as gVisor requires, so the host stays as it was.
 
 ```ruby
-overlay = Kobako::Filesystem::Overlay.new
-  .layer(Kobako::Filesystem::Tmpfs.new, access: :read_write) # every change lands here
-  .layer(Kobako::Filesystem::Bind.new("app"))             # never written
+overlay = Kobako::Filesystem::Overlay.new(
+  lower: [Kobako::Filesystem::Bind.new("app")], # never written
+  upper: Kobako::Filesystem::Tmpfs.new          # every change lands here
+)
 sandbox.mount("/app", overlay, access: :read_write)
 ```
 
-A change to a file in a writable Layer stays there. A read-only Layer's file is first copied up to the nearest writable Layer above it. A new or renamed file lands in the topmost one. A lower writable Layer's file does not move, raising `Errno::EXDEV`, as across devices. A removal hides what a lower Layer keeps with an [OCI whiteout](https://github.com/opencontainers/image-spec/blob/main/layer.md#whiteouts), `.wh.<name>`, kept in the topmost writable Layer. Names starting with `.wh.`, in any case, are therefore reserved.
+A lower file is copied up into the upper before it changes. A new or renamed file lands in the upper. A removal hides what a lower Layer keeps with an [OCI whiteout](https://github.com/opencontainers/image-spec/blob/main/layer.md#whiteouts), `.wh.<name>`, kept in the upper. Names starting with `.wh.`, in any case, are therefore reserved. Without `upper:`, every change raises `Errno::EROFS`, and two lower Layers are needed.
 
 #### Filesystems in Ruby
 

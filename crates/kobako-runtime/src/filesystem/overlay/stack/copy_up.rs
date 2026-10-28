@@ -1,4 +1,4 @@
-//! Making what a change needs in a writable Layer from what a lower Layer
+//! Making what a change needs in the upper from what a lower Layer
 //! shows, as overlayfs's `copy_up.c` copies a file or a directory up.
 
 use super::super::super::{FileType, FilesystemError, OpenOptions};

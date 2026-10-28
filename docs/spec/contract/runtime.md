@@ -538,8 +538,7 @@ pub const NAME_MAX: usize = 255;
 
 ## `Access`
 
-What the Guest may do beneath a Mount, or an Overlay in a Layer: read, or
-read and write.
+What the Guest may do beneath a Mount: read, or read and write.
 
 ```rust
 pub enum Access {}
@@ -1033,8 +1032,8 @@ impl Bind {
 
 ## `Overlay`
 
-The Filesystem kobako ships that stacks Layers into one view, each read-only or
-writable on its own.
+The Filesystem kobako ships that stacks read-only lower Layers under an
+optional upper Tmpfs into one view.
 
 ```rust
 pub struct Overlay {}
@@ -1042,22 +1041,15 @@ pub struct Overlay {}
 
 ## `Overlay::new`
 
-An Overlay with no Layer yet.
+An Overlay of the given lower Layers, topmost first, under the given upper.
+It is refused unless the upper is a Tmpfs and the Layers make a view.
 
 ```rust
 impl Overlay {
-    pub fn new() -> Self {}
-}
-```
-
-## `Overlay::layer`
-
-This Overlay with a Filesystem instance as a new Layer beneath the ones
-already added, allowing the given access there.
-
-```rust
-impl Overlay {
-    pub fn layer(self, filesystem: Arc<Filesystem>, access: Access) -> Self {}
+    pub fn new(
+        lower: Vec<Arc<Filesystem>>,
+        upper: Option<Arc<Filesystem>>,
+    ) -> Result<Self, FilesystemError> {}
 }
 ```
 

@@ -14,14 +14,13 @@ use std::sync::Arc;
 
 use magnus::value::{Opaque, ReprValue};
 use magnus::{
-    function, gc, method, prelude::*, scan_args::get_kwargs, scan_args::scan_args,
-    DataTypeFunctions, Error as MagnusError, RHash, RModule, RString, Ruby, Symbol, TypedData,
-    Value,
+    function, gc, prelude::*, scan_args::get_kwargs, scan_args::scan_args, DataTypeFunctions,
+    Error as MagnusError, RArray, RHash, RModule, RString, Ruby, Symbol, TypedData, Value,
 };
 
 use ruby::RubyFilesystem;
 
-use kobako_runtime::filesystem::{Access, Bind, Blocking, Inode, Overlay, Tmpfs};
+use kobako_runtime::filesystem::{Bind, Blocking, Inode, Overlay, Tmpfs};
 use kobako_runtime::vfs::Filesystem;
 
 pub(super) use grants::{to_grants, validate_mount};
@@ -39,26 +38,14 @@ macro_rules! filesystem_class {
 filesystem_class!(TmpfsFs, "Kobako::Filesystem::Tmpfs");
 filesystem_class!(BindFs, "Kobako::Filesystem::Bind");
 
-/// The Overlay itself rather than a shared handle, so `layer` can answer a
-/// new one and leave this one as it was. It marks the Ruby object of
+/// The Overlay's one Filesystem instance. It marks the Ruby object of
 /// every Layer, since a Filesystem written in Ruby has nothing else
 /// keeping it alive.
 #[derive(magnus::TypedData)]
 #[magnus(class = "Kobako::Filesystem::Overlay", free_immediately, size, mark)]
 pub(super) struct OverlayFs {
-    overlay: Overlay,
     filesystem: Arc<Filesystem>,
     layers: Vec<Opaque<Value>>,
-}
-
-impl OverlayFs {
-    fn new(overlay: Overlay, layers: Vec<Opaque<Value>>) -> Self {
-        Self {
-            filesystem: new_filesystem(Arc::new(overlay.clone())),
-            overlay,
-            layers,
-        }
-    }
 }
 
 impl DataTypeFunctions for OverlayFs {
@@ -74,8 +61,7 @@ pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     let bind = module.define_class("Bind", ruby.class_object())?;
     bind.define_singleton_method("new", function!(bind_new, 1))?;
     let overlay = module.define_class("Overlay", ruby.class_object())?;
-    overlay.define_singleton_method("new", function!(overlay_new, 0))?;
-    overlay.define_method("layer", method!(overlay_layer, -1))?;
+    overlay.define_singleton_method("new", function!(overlay_new, -1))?;
     TmpfsFs::class(ruby);
     BindFs::class(ruby);
     OverlayFs::class(ruby);
@@ -141,12 +127,47 @@ fn bind_new(path: String) -> Result<BindFs, MagnusError> {
         })
 }
 
-/// `Overlay.new`, with no Layer yet.
-fn overlay_new() -> OverlayFs {
-    OverlayFs::new(
-        Overlay::new().with_blocking(Arc::new(GvlFreeWait)),
-        Vec::new(),
-    )
+/// `Overlay.new(lower:, upper: nil)`: the Filesystems in `lower`, topmost
+/// first, under `upper`, a Tmpfs. Without `upper` it takes two lower
+/// Layers at least.
+fn overlay_new(args: &[Value]) -> Result<OverlayFs, MagnusError> {
+    let ruby = Ruby::get().expect("Ruby thread");
+    let args = scan_args::<(), (), (), (), RHash, ()>(args)?;
+    let kwargs =
+        get_kwargs::<_, (RArray,), (Option<Value>,), ()>(args.keywords, &["lower"], &["upper"])?;
+    let lower = (0..kwargs.required.0.len())
+        .map(|index| kwargs.required.0.entry::<Value>(index as isize))
+        .collect::<Result<Vec<_>, _>>()?;
+    let upper = kwargs.optional.0.filter(|upper| !upper.is_nil());
+    let upper_fs = match upper {
+        Some(upper) => match <&TmpfsFs>::try_convert(upper) {
+            Ok(tmpfs) => Some(tmpfs.0.clone()),
+            Err(_) => {
+                return Err(MagnusError::new(
+                    ruby.exception_type_error(),
+                    format!(
+                        "upper must be a Kobako::Filesystem::Tmpfs, got {}",
+                        upper.class()
+                    ),
+                ))
+            }
+        },
+        None => None,
+    };
+    let lower_fs = lower
+        .iter()
+        .map(|layer| to_filesystem(*layer))
+        .collect::<Result<Vec<_>, _>>()?;
+    let overlay = Overlay::new(lower_fs, upper_fs).map_err(|_| {
+        MagnusError::new(
+            ruby.exception_arg_error(),
+            "an Overlay needs a lower Layer under its upper, or two lower Layers without one",
+        )
+    })?;
+    Ok(OverlayFs {
+        filesystem: new_filesystem(Arc::new(overlay.with_blocking(Arc::new(GvlFreeWait)))),
+        layers: lower.into_iter().chain(upper).map(Opaque::from).collect(),
+    })
 }
 
 /// The Filesystem instance `root` answers for, its calls waiting for a
@@ -162,44 +183,6 @@ struct GvlFreeWait;
 impl Blocking for GvlFreeWait {
     fn wait(&self, wait: &mut dyn FnMut()) {
         super::gvl::region(super::gvl::holds(), wait);
-    }
-}
-
-/// `layer(filesystem, access: :read)`, a new Overlay with `filesystem`
-/// beneath this one's Layers.
-fn overlay_layer(overlay: &OverlayFs, args: &[Value]) -> Result<OverlayFs, MagnusError> {
-    let args = scan_args::<(Value,), (), (), (), RHash, ()>(args)?;
-    let kwargs = get_kwargs::<_, (), (Option<Value>,), ()>(args.keywords, &[], &["access"])?;
-    let (filesystem,) = args.required;
-    let access = match kwargs.optional.0 {
-        Some(access) => to_access(access)?,
-        None => Access::Read,
-    };
-    let mut layers = overlay.layers.clone();
-    layers.push(Opaque::from(filesystem));
-    Ok(OverlayFs::new(
-        overlay
-            .overlay
-            .clone()
-            .layer(to_filesystem(filesystem)?, access),
-        layers,
-    ))
-}
-
-fn to_access(access: Value) -> Result<Access, MagnusError> {
-    let name = Symbol::from_value(access)
-        .map(|symbol| symbol.name())
-        .transpose()?;
-    match name.as_deref() {
-        Some("read") => Ok(Access::Read),
-        Some("read_write") => Ok(Access::ReadWrite),
-        _ => Err(MagnusError::new(
-            Ruby::get().expect("Ruby thread").exception_arg_error(),
-            format!(
-                "access must be :read or :read_write, got {}",
-                access.inspect()
-            ),
-        )),
     }
 }
 

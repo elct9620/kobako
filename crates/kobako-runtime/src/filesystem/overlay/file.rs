@@ -1,4 +1,4 @@
-//! The files a read-only Layer shows that are open to read, so a copy up
+//! The files a lower Layer shows that are open to read, so a copy up
 //! moves each of them to the copy, as overlayfs's open file reaches the
 //! upper inode its copy up made. overlayfs keeps that inode through its
 //! own inode, even once removed; a Filesystem here hands out no inode of a
@@ -13,7 +13,7 @@ use crate::hashtable::Hashtable;
 type Copy = Arc<Mutex<Box<dyn File>>>;
 
 /// The copy a file open to read shows once a copy up made one, or `None`
-/// while the read-only Layer still shows it.
+/// while the lower Layer still shows it.
 #[derive(Default)]
 struct Upper(Mutex<Option<Copy>>);
 
@@ -26,7 +26,7 @@ impl Upper {
     }
 }
 
-/// Every path a read-only Layer's file is open to read at, kept only while
+/// Every path a lower Layer's file is open to read at, kept only while
 /// one is open.
 #[derive(Default)]
 pub(super) struct Readers(Mutex<Hashtable<String, Upper>>);
@@ -36,7 +36,7 @@ impl Readers {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// `file`, opened at `path` in a read-only Layer, as one that reads
+    /// `file`, opened at `path` in a lower Layer, as one that reads
     /// the copy once a copy up makes one, as overlayfs's `ovl_open` hands
     /// out a file over the real one.
     pub(super) fn open(&self, path: &str, file: Box<dyn File>) -> Box<dyn File> {
@@ -46,8 +46,7 @@ impl Readers {
         Box::new(OverlayFile { file, upper })
     }
 
-    /// `path` was copied up as `name` into `dir`, a writable Layer's
-    /// directory, as overlayfs's `ovl_inode_update` records the upper
+    /// `path` was copied up as `name` into `dir`, the upper's directory, as overlayfs's `ovl_inode_update` records the upper
     /// inode; every file open to read there reads the copy from now on,
     /// wherever it moves.
     pub(super) fn inode_update(
@@ -71,7 +70,7 @@ impl Readers {
     }
 }
 
-/// A read-only Layer's file open to read, which reads the copy once a copy
+/// A lower Layer's file open to read, which reads the copy once a copy
 /// up makes one, as overlayfs's `struct ovl_file` does.
 struct OverlayFile {
     file: Box<dyn File>,
@@ -89,7 +88,7 @@ impl File for OverlayFile {
         }
     }
 
-    /// A file open to read takes no write, so the read-only Layer's file
+    /// A file open to read takes no write, so the lower Layer's file
     /// answers it.
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
         self.file.write_at(buf, offset)

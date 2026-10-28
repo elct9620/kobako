@@ -26,10 +26,6 @@ impl Exclusive {
         }
     }
 
-    pub(super) fn blocking(&self) -> Arc<dyn Blocking> {
-        self.blocking.clone()
-    }
-
     fn holder(&self) -> MutexGuard<'_, Option<ThreadId>> {
         self.holder
             .lock()

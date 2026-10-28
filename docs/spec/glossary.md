@@ -334,15 +334,15 @@ The files and directories behind a Mount, and the names reached in them. It answ
 ```
 Bind     -> a host directory; nothing outside it is reachable
 Tmpfs    -> held in memory; lives as long as the Host App's object
-Overlay  -> Layers stacked into one view; changes land in the writable ones
+Overlay  -> Layers stacked into one view; changes land in its upper Tmpfs
 ```
 
 ### Layer
 
-One Filesystem stacked in an Overlay, read-only or writable on its own. An upper Layer hides the same path in a lower one, and a whiteout hides a removed one.
+One Filesystem stacked in an Overlay, as overlayfs stacks its layers. The lower Layers are read-only. The upper Layer, a Tmpfs, takes every change; without one the Overlay is read-only. A Layer hides the same path in the Layers below it, and a whiteout hides a removed one.
 
 ```
-Overlay -> Layer (writable) -> Layer (read-only) -> ...
+Overlay -> upper Layer (a Tmpfs, writable) -> lower Layer (read-only) -> ...
 ```
 
 ### Identity

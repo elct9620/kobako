@@ -172,7 +172,8 @@ class TestE2ERubyFilesystem < Minitest::Test
   end
 
   def overlay_of_a_ruby_filesystem
-    Kobako::Filesystem::Overlay.new.layer(HashFilesystem.new("note.txt" => "hello"))
+    Kobako::Filesystem::Overlay.new(lower: [HashFilesystem.new("note.txt" => "hello")],
+                                    upper: Kobako::Filesystem::Tmpfs.new)
   end
 
   # The Overlay is the only thing referring to its Ruby Layer, so only its

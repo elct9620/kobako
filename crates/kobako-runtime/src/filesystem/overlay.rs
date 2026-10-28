@@ -1,13 +1,13 @@
-//! `Overlay`: Layers stacked into one Filesystem, each read-only or
-//! writable on its own.
+//! `Overlay`: read-only lower Layers under an upper Tmpfs, stacked into
+//! one Filesystem, as Linux overlayfs stacks a mount's layers.
 //!
-//! The rules follow the union filesystems that allow writable Layers
-//! below the top, aufs among them. A removal hides what a read-only Layer
-//! still shows with a whiteout, and a directory made again where one was
-//! removed is marked opaque. Both markers take the OCI image layer
-//! format's names and live in the topmost writable Layer, so they last as
-//! long as it does. Every call holds the Overlay's lock, so a change
-//! across several Layers is never seen half made.
+//! The upper must be a Tmpfs, as gVisor takes only an upper that holds
+//! its markers. A removal hides what a lower Layer still shows with a
+//! whiteout, and a directory made again where one was removed is marked
+//! opaque. Both markers take the OCI image layer format's names and live
+//! in the upper, so they last as long as it does. Every call holds the
+//! Overlay's lock, so a change across several Layers is never seen half
+//! made.
 
 mod exclusive;
 mod file;
@@ -19,16 +19,16 @@ use std::any::Any;
 use std::sync::Arc;
 
 use super::path::components;
-use super::{Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename};
+use super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename, Tmpfs};
 use crate::vfs::{Blocking, Dentry, Filesystem, Inline};
 use exclusive::Exclusive;
 use inode::OverlayInode;
 use stack::{Chain, OverlayFs};
 
-/// Layers stacked into one Filesystem, the first one added on top. Its
-/// clones share its lock; two Overlays sharing a writable Layer are not
-/// serialized against each other, as overlayfs leaves two mounts sharing
-/// an upper directory undefined.
+/// Read-only lower Layers under an upper Tmpfs, stacked into one
+/// Filesystem. Its clones share its lock; two Overlays sharing an upper
+/// are not serialized against each other, as overlayfs leaves two mounts
+/// sharing an upper directory undefined.
 ///
 /// A directory opened beneath it is an Overlay too, holding each Layer's
 /// directory it stands for, so it is reached wherever those directories
@@ -44,32 +44,40 @@ pub struct Overlay {
     inode: Option<Arc<OverlayInode>>,
 }
 
-impl Default for Overlay {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Overlay {
-    /// An Overlay with no Layer yet.
-    pub fn new() -> Self {
-        Self {
-            fs: OverlayFs::default(),
+    /// An Overlay of `lower`, topmost first, under `upper`. Each Layer is
+    /// asked through that Filesystem's dentries, as overlayfs asks each
+    /// layer by its own lookup. As overlayfs's mount does, it refuses no
+    /// lower Layer, and a read-only view of fewer than two; as gVisor's
+    /// does, it refuses an upper that is no Tmpfs.
+    pub fn new(
+        lower: Vec<Arc<Filesystem>>,
+        upper: Option<Arc<Filesystem>>,
+    ) -> Result<Self, FilesystemError> {
+        let too_few = if upper.is_some() { 1 } else { 2 };
+        let upper_tmpfs = upper
+            .as_ref()
+            .is_none_or(|upper| (upper.root().as_ref() as &dyn Any).is::<Tmpfs>());
+        if lower.len() < too_few || !upper_tmpfs {
+            return Err(FilesystemError::InvalidInput);
+        }
+        Ok(Self {
+            fs: OverlayFs::new(lower, upper),
             lock: Arc::new(Exclusive::new(Arc::new(Inline))),
             inode: None,
-        }
+        })
     }
 
     /// The chain to this directory: its Layers' directories as it holds
-    /// them, or, for a change through a directory some writable Layer
-    /// does not hold yet, the chain from the root, so the change can make
-    /// it there first. The caller holds the Overlay's lock.
+    /// them, or, for a change through a directory the upper does not hold
+    /// yet, the chain from the root, so the change can make it there
+    /// first. The caller holds the Overlay's lock.
     fn chain(&self, changes: bool) -> Result<Chain, FilesystemError> {
         let Some(inode) = &self.inode else {
             return self.fs.root();
         };
         let level = inode.level();
-        if changes && self.fs.misses_writable(&level) {
+        if changes && self.fs.misses_upper(&level) {
             let mut chain = self.fs.root()?;
             self.fs.descend(&mut chain, components(inode.path()))?;
             return Ok(chain);
@@ -83,23 +91,12 @@ impl Overlay {
         let mut chain = self.chain(false)?;
         self.fs.enter(&mut chain, name)?;
         let level = chain.level().clone();
-        let shared = self.fs.misses_writable(&level);
+        let shared = self.fs.misses_upper(&level);
         let inode = self.fs.inodes().get_inode(chain.path(), level, shared);
         Ok(Arc::new(Self {
             inode: Some(inode),
             ..self.clone()
         }))
-    }
-
-    /// This Overlay with `filesystem` as a new Layer beneath the ones
-    /// already added, allowing `access` there. The Layer is asked through
-    /// that Filesystem's dentries, as overlayfs asks each layer by its own
-    /// lookup. It takes a lock of its own, so an Overlay holding the one it
-    /// was built from as a Layer does not wait on itself.
-    pub fn layer(mut self, filesystem: Arc<Filesystem>, access: Access) -> Self {
-        self.fs.push(filesystem, access);
-        self.lock = Arc::new(Exclusive::new(self.lock.blocking()));
-        self
     }
 
     /// This Overlay waiting for its lock through `blocking`.
@@ -317,14 +314,22 @@ mod tests {
         Arc::new([(path, contents)].into_iter().collect())
     }
 
-    /// A writable `upper` over a read-only Tmpfs holding `dir/file` =
-    /// "lower".
-    fn overlay_on(upper: Arc<dyn Inode>) -> (KernPath, Arc<Tmpfs>) {
+    /// `upper` over the one lower Layer `lower`.
+    fn over(lower: Arc<dyn Inode>, upper: Arc<Tmpfs>) -> Overlay {
+        Overlay::new(vec![Filesystem::new(lower)], Some(Filesystem::new(upper)))
+            .expect("an upper over a lower Layer must make a view")
+    }
+
+    /// The lower Layers `top` over `bottom`, with no upper.
+    fn lowers(top: Arc<dyn Inode>, bottom: Arc<dyn Inode>) -> Overlay {
+        Overlay::new(vec![Filesystem::new(top), Filesystem::new(bottom)], None)
+            .expect("two lower Layers must make a view")
+    }
+
+    /// `upper` over a lower Tmpfs holding `dir/file` = "lower".
+    fn overlay_on(upper: Arc<Tmpfs>) -> (KernPath, Arc<Tmpfs>) {
         let lower = tmpfs_with("dir/file", "lower");
-        let overlay = Overlay::new()
-            .layer(Filesystem::new(upper), Access::ReadWrite)
-            .layer(Filesystem::new(lower.clone()), Access::Read);
-        (at(overlay), lower)
+        (at(over(lower.clone(), upper)), lower)
     }
 
     /// A host directory holding `target`, `dir/inner`, and the links `link`
@@ -352,17 +357,18 @@ mod tests {
             Self(path)
         }
 
-        /// A writable Tmpfs over the host directory as a read-only Layer.
+        /// An empty upper over the host directory as the lower Layer.
         fn overlay(&self) -> KernPath {
             self.under(Arc::new(Tmpfs::new()))
         }
 
-        /// The host directory as a read-only Layer beneath `upper`.
-        fn under(&self, upper: Arc<dyn Inode>) -> KernPath {
-            let lower = super::super::Bind::new(&self.0).expect("the host directory must open");
-            at(Overlay::new()
-                .layer(Filesystem::new(upper), Access::ReadWrite)
-                .layer(Filesystem::new(Arc::new(lower)), Access::Read))
+        /// The host directory as the lower Layer beneath `upper`.
+        fn under(&self, upper: Arc<Tmpfs>) -> KernPath {
+            at(over(Arc::new(self.bind()), upper))
+        }
+
+        fn bind(&self) -> super::super::Bind {
+            super::super::Bind::new(&self.0).expect("the host directory must open")
         }
     }
 
@@ -569,13 +575,10 @@ mod tests {
     #[test]
     fn a_link_a_layer_holds_hides_what_the_layers_below_hold_there() {
         let host = LinkTree::new("shadow");
-        let upper = super::super::Bind::new(&host.0).expect("the host directory must open");
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(Arc::new(upper)), Access::ReadWrite)
-            .layer(
-                Filesystem::new(tmpfs_with("dangling", "lower")),
-                Access::Read,
-            ));
+        let overlay = at(lowers(
+            Arc::new(host.bind()),
+            tmpfs_with("dangling", "lower"),
+        ));
         assert_eq!(
             overlay
                 .open(
@@ -599,13 +602,10 @@ mod tests {
     #[test]
     fn a_link_a_layer_holds_hides_what_the_layers_below_hold_beneath_it() {
         let host = LinkTree::new("shadow-beneath");
-        let upper = super::super::Bind::new(&host.0).expect("the host directory must open");
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(Arc::new(upper)), Access::ReadWrite)
-            .layer(
-                Filesystem::new(tmpfs_with("dirlink/x", "lower")),
-                Access::Read,
-            ));
+        let overlay = at(lowers(
+            Arc::new(host.bind()),
+            tmpfs_with("dirlink/x", "lower"),
+        ));
         assert_eq!(
             (
                 overlay
@@ -619,15 +619,13 @@ mod tests {
         );
     }
 
-    // The lower directory sits in a writable Layer, so only the whiteout,
-    // not a removal that cannot take a directory, keeps the view whole.
+    // The lower directory stays in its Layer, so only the whiteout keeps
+    // it from showing once the upper file goes.
     // @behavior FS-058
     #[test]
     fn removing_a_file_over_a_lower_directory_leaves_it_hidden() {
         let lower = tmpfs_with("f/g", "lower");
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(tmpfs_with("f", "upper")), Access::ReadWrite)
-            .layer(Filesystem::new(lower.clone()), Access::ReadWrite));
+        let overlay = at(over(lower.clone(), tmpfs_with("f", "upper")));
         let removed = overlay.remove_file("f");
         assert_eq!(
             (
@@ -642,7 +640,7 @@ mod tests {
         );
     }
 
-    // The writable Layer's `dir` holds only the whiteout hiding `file`, so
+    // The upper's `dir` holds only the whiteout hiding `file`, so
     // only judging the view, not that copy, lets the move go.
     // @behavior FS-059
     #[test]
@@ -660,15 +658,15 @@ mod tests {
             (moved, names(&overlay, "dir")),
             (Ok(()), vec!["made".to_string()]),
             "a directory renamed through Overlay::rename onto one the view shows empty, whose \
-             writable copy holds only a whiteout, must take its place and show only its own entries"
+             upper copy holds only a whiteout, must take its place and show only its own entries"
         );
     }
 
-    // The directory made again is marked opaque in the writable Layer, so
-    // only that mark tells it apart from one the read-only Layer still holds.
+    // The directory made again is marked opaque in the upper, so only that
+    // mark tells it apart from one the lower Layer still holds.
     // @behavior FS-060
     #[test]
-    fn a_directory_made_again_moves_as_the_writable_layers_own() {
+    fn a_directory_made_again_moves_as_the_uppers_own() {
         let (overlay, _) = overlay_on(Arc::new(Tmpfs::new()));
         overlay
             .remove_file("dir/file")
@@ -690,7 +688,7 @@ mod tests {
                     .map(|entries| entries.len())
             ),
             (Ok(()), Some(FilesystemError::NotFound), Ok(0)),
-            "a directory made again through an Overlay where a read-only Layer's one was removed, \
+            "a directory made again through an Overlay where a lower Layer's one was removed, \
              renamed through Overlay::rename, must move and leave nothing of the lower one behind"
         );
     }
@@ -747,20 +745,20 @@ mod tests {
 
     // @behavior FS-009
     #[test]
-    fn a_write_to_a_read_only_layers_file_lands_in_the_nearest_writable_layer_above_it() {
+    fn a_write_to_a_lower_layers_file_lands_in_the_upper() {
         let upper = Arc::new(Tmpfs::new());
         let (overlay, _) = overlay_on(upper.clone());
         overwrite(&overlay, "dir/file", b"upper");
         assert_eq!(
             read(&on(&upper), "dir/file"),
             b"upper",
-            "a read-only Layer's file written through Overlay::open must land in the writable Layer above it"
+            "a lower Layer's file written through Overlay::open must land in the upper"
         );
     }
 
     // @behavior FS-010
     #[test]
-    fn an_overlay_leaves_a_read_only_layer_as_it_was() {
+    fn an_overlay_leaves_a_lower_layer_as_it_was() {
         let (overlay, lower) = overlay_on(Arc::new(Tmpfs::new()));
         overwrite(&overlay, "dir/file", b"upper");
         overlay
@@ -769,7 +767,7 @@ mod tests {
         assert_eq!(
             read(&on(&lower), "dir/file"),
             b"lower",
-            "a read-only Layer's file written and removed through an Overlay must stay as it was"
+            "a lower Layer's file written and removed through an Overlay must stay as it was"
         );
     }
 
@@ -790,9 +788,10 @@ mod tests {
     // @behavior FS-013
     #[test]
     fn an_upper_layer_hides_the_same_path_in_a_lower_one() {
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(tmpfs_with("note", "upper")), Access::Read)
-            .layer(Filesystem::new(tmpfs_with("note", "lower")), Access::Read));
+        let overlay = at(lowers(
+            tmpfs_with("note", "upper"),
+            tmpfs_with("note", "lower"),
+        ));
         assert_eq!(
             read(&overlay, "note"),
             b"upper",
@@ -802,83 +801,34 @@ mod tests {
 
     // @behavior FS-014
     #[test]
-    fn a_write_to_a_writable_layers_file_changes_it_in_place() {
-        let upper = Arc::new(Tmpfs::new());
-        let lower = tmpfs_with("note", "lower");
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(upper.clone()), Access::ReadWrite)
-            .layer(Filesystem::new(lower.clone()), Access::ReadWrite));
+    fn a_write_to_the_uppers_file_changes_it_in_place() {
+        let upper = tmpfs_with("note", "upper");
+        let overlay = at(over(tmpfs_with("note", "lower"), upper.clone()));
         overwrite(&overlay, "note", b"changed");
         assert_eq!(
-            (read(&on(&lower), "note"), on(&upper).symlink_metadata("note")),
-            (b"changed".to_vec(), Err(FilesystemError::NotFound)),
-            "a writable lower Layer's file written through Overlay::open must change in that Layer alone"
-        );
-    }
-
-    // The lower Layer is writable, so only the refusal itself keeps the
-    // move from landing in two Layers.
-    // @behavior FS-088
-    #[test]
-    fn an_overlay_refuses_to_move_a_file_a_lower_writable_layer_holds() {
-        let upper = Arc::new(Tmpfs::new());
-        let lower = tmpfs_with("note", "lower");
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(upper.clone()), Access::ReadWrite)
-            .layer(Filesystem::new(lower.clone()), Access::ReadWrite));
-        assert_eq!(
-            (
-                overlay.rename("note", &overlay, "moved", Rename::File),
-                read(&on(&lower), "note"),
-                on(&upper).entries().map(|entries| entries.len())
-            ),
-            (Err(FilesystemError::CrossesDevices), b"lower".to_vec(), Ok(0)),
-            "a file a lower writable Layer holds, renamed through Overlay::rename, must be refused \
-             as crossing devices with nothing moved or copied"
-        );
-    }
-
-    // The writable Layer keeps the whiteout the removal left, so only a
-    // call that answers by what landed rather than by the clean-up after
-    // it succeeds.
-    // @behavior FS-089
-    #[test]
-    fn an_overlay_change_that_lands_succeeds_though_its_whiteout_stays() {
-        let (overlay, _) = overlay_on(Arc::new(KeepsWhiteouts(Tmpfs::new())));
-        overlay
-            .remove_file("dir/file")
-            .expect("the file must be removed");
-        assert_eq!(
-            write(&overlay, "dir/file", b"again").map(|()| read(&overlay, "dir/file")),
-            Ok(b"again".to_vec()),
-            "a file made again through Overlay::open where it was removed, while the writable \
-             Layer refuses to remove the whiteout, must succeed and show the new file"
+            read(&on(&upper), "note"),
+            b"changed",
+            "the upper's file written through Overlay::open must change in place"
         );
     }
 
     // @behavior FS-015
     #[test]
-    fn a_new_file_lands_in_the_topmost_writable_layer() {
-        let first = Arc::new(Tmpfs::new());
-        let second = Arc::new(Tmpfs::new());
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(Arc::new(Tmpfs::new())), Access::Read)
-            .layer(Filesystem::new(first.clone()), Access::ReadWrite)
-            .layer(Filesystem::new(second.clone()), Access::ReadWrite));
+    fn a_new_file_lands_in_the_upper() {
+        let upper = Arc::new(Tmpfs::new());
+        let lower = Arc::new(Tmpfs::new());
+        let overlay = at(over(lower.clone(), upper.clone()));
         overwrite(&overlay, "new", b"made");
         assert_eq!(
-            (
-                read(&on(&first), "new"),
-                on(&second).symlink_metadata("new")
-            ),
+            (read(&on(&upper), "new"), on(&lower).symlink_metadata("new")),
             (b"made".to_vec(), Err(FilesystemError::NotFound)),
-            "a file created through Overlay::open must land in the topmost writable Layer"
+            "a file created through Overlay::open must land in the upper alone"
         );
     }
 
     // @behavior FS-016
     #[test]
-    fn a_removal_leaves_a_whiteout_in_the_topmost_writable_layer() {
+    fn a_removal_leaves_a_whiteout_in_the_upper() {
         let upper = Arc::new(Tmpfs::new());
         let (overlay, _) = overlay_on(upper.clone());
         overlay
@@ -887,21 +837,19 @@ mod tests {
         assert_eq!(
             on(&upper).symlink_metadata("dir/.wh.file").map(|metadata| metadata.file_type),
             Ok(FileType::File),
-            "a read-only Layer's file removed through Overlay::remove_file must leave .wh.file beside it in the writable Layer"
+            "a lower Layer's file removed through Overlay::remove_file must leave .wh.file beside it in the upper"
         );
     }
 
     // @behavior FS-017
     #[test]
-    fn a_whiteout_lasts_as_long_as_its_writable_layer() {
+    fn a_whiteout_lasts_as_long_as_the_upper() {
         let upper = Arc::new(Tmpfs::new());
         let (overlay, lower) = overlay_on(upper.clone());
         overlay
             .remove_file("dir/file")
             .expect("the file must be removed");
-        let rebuilt = at(Overlay::new()
-            .layer(Filesystem::new(upper), Access::ReadWrite)
-            .layer(Filesystem::new(lower), Access::Read));
+        let rebuilt = at(over(lower, upper));
         assert_eq!(
             rebuilt.symlink_metadata("dir/file"),
             Err(FilesystemError::NotFound),
@@ -925,7 +873,7 @@ mod tests {
         assert_eq!(
             names(&overlay, "dir"),
             Vec::<String>::new(),
-            "a directory made again through Overlay::create_dir must list nothing from the read-only Layer"
+            "a directory made again through Overlay::create_dir must list nothing from the lower Layer"
         );
     }
 
@@ -969,15 +917,59 @@ mod tests {
 
     // @behavior FS-021
     #[test]
-    fn an_overlay_with_no_writable_layer_refuses_every_change_as_read_only() {
-        let overlay = at(Overlay::new().layer(
-            Filesystem::new(tmpfs_with("dir/file", "lower")),
-            Access::Read,
+    fn an_overlay_with_no_upper_refuses_every_change_as_read_only() {
+        let overlay = at(lowers(
+            tmpfs_with("dir/file", "lower"),
+            Arc::new(Tmpfs::new()),
         ));
         assert_eq!(
             write(&overlay, "dir/file", b"x"),
             Err(FilesystemError::ReadOnlyFilesystem),
-            "a file written through an Overlay of read-only Layers must be refused as read-only"
+            "a file written through an Overlay with no upper must be refused as read-only"
+        );
+    }
+
+    /// An Overlay built over `lower` under `upper`, as `Overlay::new`
+    /// answers.
+    fn built(lower: Vec<Arc<dyn Inode>>, upper: Option<Arc<dyn Inode>>) -> Option<FilesystemError> {
+        Overlay::new(
+            lower.into_iter().map(Filesystem::new).collect(),
+            upper.map(Filesystem::new),
+        )
+        .err()
+    }
+
+    // gVisor takes only an upper that holds its markers, and only a
+    // Tmpfs does here.
+    // @behavior FS-123
+    #[test]
+    fn an_overlay_refuses_an_upper_that_is_no_tmpfs() {
+        let host = std::env::temp_dir();
+        let bind = super::super::Bind::new(&host).expect("the host directory must open");
+        assert_eq!(
+            built(vec![Arc::new(Tmpfs::new())], Some(Arc::new(bind))),
+            Some(FilesystemError::InvalidInput),
+            "Overlay::new with a Bind as its upper must be refused as invalid input"
+        );
+    }
+
+    // @behavior FS-124
+    #[test]
+    fn an_overlay_without_an_upper_needs_two_lower_layers() {
+        assert_eq!(
+            built(vec![Arc::new(Tmpfs::new())], None),
+            Some(FilesystemError::InvalidInput),
+            "Overlay::new with one lower Layer and no upper must be refused as invalid input"
+        );
+    }
+
+    // @behavior FS-125
+    #[test]
+    fn an_overlay_needs_a_lower_layer() {
+        assert_eq!(
+            built(Vec::new(), Some(Arc::new(Tmpfs::new()))),
+            Some(FilesystemError::InvalidInput),
+            "Overlay::new with an upper and no lower Layer must be refused as invalid input"
         );
     }
 
@@ -989,7 +981,7 @@ mod tests {
     }
 
     #[test]
-    fn a_lower_file_renamed_through_an_overlay_moves_into_the_writable_layer() {
+    fn a_lower_file_renamed_through_an_overlay_moves_into_the_upper() {
         let upper = Arc::new(Tmpfs::new());
         let (overlay, lower) = overlay_on(upper.clone());
         overlay
@@ -1090,19 +1082,19 @@ mod tests {
     // @behavior FS-037
     #[test]
     fn a_change_through_an_overlay_waits_for_the_one_in_progress() {
-        let upper = Arc::new(Interleaves {
+        let lower = Arc::new(Interleaves {
             tmpfs: tmpfs_with("dir/.keep", ""),
             overlay: Mutex::new(None),
             finished_inside: Mutex::new(None),
             other: Mutex::new(None),
         });
-        on(&upper.tmpfs)
+        on(&lower.tmpfs)
             .remove_file("dir/.keep")
             .expect("the seed must go");
-        let overlay = at(Overlay::new().layer(Filesystem::new(upper.clone()), Access::ReadWrite));
-        *upper.overlay.lock().unwrap() = Some(overlay.clone());
+        let overlay = at(over(lower.clone(), Arc::new(Tmpfs::new())));
+        *lower.overlay.lock().unwrap() = Some(overlay.clone());
         let removed = overlay.remove_dir("dir");
-        upper
+        lower
             .other
             .lock()
             .unwrap()
@@ -1111,7 +1103,7 @@ mod tests {
             .join()
             .expect("the other call must not panic");
         assert_eq!(
-            (removed, *upper.finished_inside.lock().unwrap(), overlay.symlink_metadata("dir/new").is_ok()),
+            (removed, *lower.finished_inside.lock().unwrap(), overlay.symlink_metadata("dir/new").is_ok()),
             (Ok(()), Some(false), false),
             "a change through Overlay::open started while Overlay::remove_dir runs must wait for it, \
              failing rather than landing in the directory being removed"
@@ -1176,7 +1168,7 @@ mod tests {
             overlay: Mutex::new(None),
             answer: Mutex::new(None),
         });
-        let overlay = at(Overlay::new().layer(Filesystem::new(layer.clone()), Access::Read));
+        let overlay = at(lowers(layer.clone(), Arc::new(Tmpfs::new())));
         *layer.overlay.lock().unwrap() = Some(overlay.clone());
         overlay
             .symlink_metadata("note")
@@ -1189,18 +1181,15 @@ mod tests {
         );
     }
 
-    /// A writable Tmpfs seeded with `files` and room for `inodes`, over a
-    /// read-only one holding `dir/file` = "lower".
+    /// An upper seeded with `files` and room for `inodes`, over a lower
+    /// Tmpfs holding `dir/file` = "lower".
     fn full_over_lower(files: &[(&str, &str)], inodes: usize) -> (KernPath, Arc<Tmpfs>) {
         let upper = Tmpfs::from_iter(files.iter().copied()).with_nr_inodes(Some(inodes));
         let upper = Arc::new(upper);
-        let overlay = Overlay::new()
-            .layer(Filesystem::new(upper.clone()), Access::ReadWrite)
-            .layer(
-                Filesystem::new(tmpfs_with("dir/file", "lower")),
-                Access::Read,
-            );
-        (at(overlay), upper)
+        (
+            at(over(tmpfs_with("dir/file", "lower"), upper.clone())),
+            upper,
+        )
     }
 
     // The upper copy is all the room there is, so the whiteout cannot be
@@ -1259,33 +1248,7 @@ mod tests {
         );
     }
 
-    // The lower writable copy still holds the file the upper whiteout
-    // hides, so it cannot be removed; removing the upper copy first would
-    // show the file again.
-    // @behavior FS-074
-    #[test]
-    fn a_directory_a_lower_writable_layer_still_fills_is_removed_behind_a_whiteout() {
-        let lower = tmpfs_with("dir/file", "lower");
-        let overlay = at(Overlay::new()
-            .layer(
-                Filesystem::new(tmpfs_with("dir/.wh.file", "")),
-                Access::ReadWrite,
-            )
-            .layer(Filesystem::new(lower.clone()), Access::ReadWrite));
-        assert_eq!(
-            (
-                overlay.remove_dir("dir"),
-                overlay.symlink_metadata("dir").err(),
-                read(&on(&lower), "dir/file")
-            ),
-            (Ok(()), Some(FilesystemError::NotFound), b"lower".to_vec()),
-            "a directory the view shows empty, removed through Overlay::remove_dir while a lower \
-             writable Layer still holds a whited-out file in it, must leave the view and stay \
-             below unseen"
-        );
-    }
-
-    // The marker is the one entry past the room the upper Layer has, so
+    // The marker is the one entry past the room the upper has, so
     // marking after the move would leave the directory moved.
     // @behavior FS-075
     #[test]
@@ -1298,9 +1261,7 @@ mod tests {
         on(&lower)
             .create_dir("dir")
             .expect("the directory must be made");
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(upper.clone()), Access::ReadWrite)
-            .layer(Filesystem::new(lower), Access::Read));
+        let overlay = at(over(lower, upper.clone()));
         assert_eq!(
             (
                 overlay.rename("moving", &overlay, "dir", Rename::Directory),
@@ -1319,91 +1280,6 @@ mod tests {
         );
     }
 
-    // The writable Layer sits between two read-only ones, so a rename
-    // landing in it beneath the top Layer's `to` would vanish from view.
-    // @behavior FS-076
-    #[test]
-    fn a_rename_a_read_only_layer_above_would_cover_is_refused() {
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(tmpfs_with("to", "top")), Access::Read)
-            .layer(Filesystem::new(Arc::new(Tmpfs::new())), Access::ReadWrite)
-            .layer(Filesystem::new(tmpfs_with("from", "moved")), Access::Read));
-        assert_eq!(
-            (
-                overlay.rename("from", &overlay, "to", Rename::Any),
-                read(&overlay, "from"),
-                read(&overlay, "to")
-            ),
-            (
-                Err(FilesystemError::ReadOnlyFilesystem),
-                b"moved".to_vec(),
-                b"top".to_vec()
-            ),
-            "a file renamed through Overlay::rename onto a name a read-only Layer above the \
-             writable one holds must be refused as read-only and move nothing"
-        );
-    }
-
-    // @behavior FS-077
-    #[test]
-    fn a_name_a_read_only_layer_above_hides_is_not_made() {
-        let upper = Arc::new(Tmpfs::new());
-        let overlay = at(Overlay::new()
-            .layer(
-                Filesystem::new(Arc::new(
-                    [(".wh.file", ""), (".wh.dir", "")]
-                        .into_iter()
-                        .collect::<Tmpfs>(),
-                )),
-                Access::Read,
-            )
-            .layer(Filesystem::new(upper.clone()), Access::ReadWrite));
-        assert_eq!(
-            (
-                write(&overlay, "file", b"new"),
-                overlay.create_dir("dir"),
-                on(&upper).symlink_metadata("file").err(),
-                on(&upper).symlink_metadata("dir").err()
-            ),
-            (
-                Err(FilesystemError::ReadOnlyFilesystem),
-                Err(FilesystemError::ReadOnlyFilesystem),
-                Some(FilesystemError::NotFound),
-                Some(FilesystemError::NotFound)
-            ),
-            "a file and a directory made through an Overlay where a read-only Layer above the \
-             writable one holds their whiteouts must be refused as read-only and not made"
-        );
-    }
-
-    // The opaque marker hides the writable Layer's directory from the view,
-    // so a file landing there would succeed out of sight.
-    // @behavior FS-118
-    #[test]
-    fn a_file_beneath_a_read_only_layers_opaque_directory_is_not_made() {
-        let lower: Arc<Tmpfs> = Arc::new([("dir/a.txt", "a")].into_iter().collect());
-        let overlay = at(Overlay::new()
-            .layer(
-                Filesystem::new(Arc::new(
-                    [("dir/.wh..wh..opq", "")].into_iter().collect::<Tmpfs>(),
-                )),
-                Access::Read,
-            )
-            .layer(Filesystem::new(lower.clone()), Access::ReadWrite));
-        assert_eq!(
-            (
-                write(&overlay, "dir/new.txt", b"new"),
-                on(&lower).symlink_metadata("dir/new.txt").err()
-            ),
-            (
-                Err(FilesystemError::ReadOnlyFilesystem),
-                Some(FilesystemError::NotFound)
-            ),
-            "a file made through an Overlay in a directory a read-only Layer marks opaque, over a \
-             writable Layer holding it, must be refused as read-only and not made"
-        );
-    }
-
     // @behavior FS-043
     #[test]
     fn a_directory_a_lower_layer_holds_does_not_move_through_an_overlay() {
@@ -1417,12 +1293,12 @@ mod tests {
                 Err(FilesystemError::CrossesDevices),
                 Err(FilesystemError::NotFound)
             ),
-            "a directory a read-only Layer holds renamed through Overlay::rename must be refused \
+            "a directory a lower Layer holds renamed through Overlay::rename must be refused \
              as crossing devices, as overlayfs refuses it"
         );
     }
 
-    // The directory shows only from the read-only Layer, so only a check of
+    // The directory shows only from the lower Layer, so only a check of
     // the whole view finds it in the way.
     // @behavior FS-044
     #[test]
@@ -1444,7 +1320,7 @@ mod tests {
                 Err(FilesystemError::DirectoryNotEmpty),
                 b"lower".to_vec()
             ),
-            "a rename through Overlay::rename onto a directory only a read-only Layer shows must \
+            "a rename through Overlay::rename onto a directory only a lower Layer shows must \
              be refused as rename(2) refuses it, leaving that directory as it was"
         );
     }
@@ -1459,9 +1335,7 @@ mod tests {
         on(&lower)
             .remove_file("dir/.keep")
             .expect("the seed must go");
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(upper.clone()), Access::ReadWrite)
-            .layer(Filesystem::new(lower.clone()), Access::Read));
+        let overlay = at(over(lower.clone(), upper.clone()));
         overlay
             .create_dir("made")
             .expect("the directory must be made");
@@ -1473,12 +1347,12 @@ mod tests {
                 .symlink_metadata("dir/.wh..wh..opq")
                 .map(|metadata| metadata.file_type),
             Ok(FileType::File),
-            "a directory moved through Overlay::rename over one a read-only Layer holds must be \
-             marked opaque in the writable Layer"
+            "a directory moved through Overlay::rename over one a lower Layer holds must be \
+             marked opaque in the upper"
         );
     }
 
-    // The writable Layer has room for the copy's entry but for less than
+    // The upper has room for the copy's entry but for less than
     // the lower file's bytes, so the copy fails part way.
     // @behavior FS-046
     #[test]
@@ -1499,199 +1373,6 @@ mod tests {
             "a write through Overlay::open whose copy up runs out of room must leave no partial \
              copy hiding the lower file"
         );
-    }
-
-    /// A Tmpfs whose files write at most three bytes per call and, when
-    /// `refuses_close`, refuse their close.
-    struct Trickles {
-        tmpfs: Arc<dyn Inode>,
-        refuses_close: bool,
-    }
-
-    struct TrickleFile {
-        file: Box<dyn File>,
-        refuses_close: bool,
-    }
-
-    impl File for TrickleFile {
-        fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-            self.file.read_at(buf, offset)
-        }
-
-        fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-            self.file.write_at(&buf[..buf.len().min(3)], offset)
-        }
-
-        fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
-            self.file.append(&buf[..buf.len().min(3)])
-        }
-
-        fn metadata(&self) -> Result<Metadata, FilesystemError> {
-            self.file.metadata()
-        }
-
-        fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
-            self.file.set_len(len)
-        }
-
-        fn close(self: Box<Self>) -> Result<(), FilesystemError> {
-            if self.refuses_close {
-                return Err(FilesystemError::PermissionDenied);
-            }
-            self.file.close()
-        }
-    }
-
-    impl Inode for Trickles {
-        holds_no_links!();
-        matches_names_exactly!();
-
-        fn open(
-            &self,
-            dentry: &Dentry,
-            options: &OpenOptions,
-        ) -> Result<Box<dyn File>, FilesystemError> {
-            Ok(Box::new(TrickleFile {
-                file: self.tmpfs.open(dentry, options)?,
-                refuses_close: self.refuses_close,
-            }))
-        }
-
-        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.tmpfs.symlink_metadata(dentry)
-        }
-
-        /// Each directory it opens trickles too.
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
-            Ok(Arc::new(Self {
-                tmpfs: self.tmpfs.open_dir(dentry)?,
-                refuses_close: self.refuses_close,
-            }))
-        }
-
-        fn metadata(&self) -> Result<Metadata, FilesystemError> {
-            self.tmpfs.metadata()
-        }
-
-        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.tmpfs.entries()
-        }
-
-        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.create_dir(dentry)
-        }
-
-        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.remove_dir(dentry)
-        }
-
-        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.remove_file(dentry)
-        }
-
-        fn rename(
-            &self,
-            from: &Dentry,
-            _to_dir: &dyn Inode,
-            to: &Dentry,
-            rename: Rename,
-        ) -> Result<(), FilesystemError> {
-            let to_dir = (_to_dir as &dyn Any)
-                .downcast_ref::<Self>()
-                .ok_or(FilesystemError::CrossesDevices)?;
-            self.tmpfs.rename(from, to_dir.tmpfs.as_ref(), to, rename)
-        }
-    }
-
-    /// A Tmpfs refusing to move or remove a directory.
-    struct HoldsDirectories(Tmpfs);
-
-    impl Inode for HoldsDirectories {
-        holds_no_links!();
-        matches_names_exactly!();
-
-        fn open(
-            &self,
-            dentry: &Dentry,
-            options: &OpenOptions,
-        ) -> Result<Box<dyn File>, FilesystemError> {
-            self.0.open(dentry, options)
-        }
-
-        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.0.symlink_metadata(dentry)
-        }
-
-        opens_directories!(0);
-
-        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.0.create_dir(dentry)
-        }
-
-        fn remove_dir(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
-            Err(FilesystemError::PermissionDenied)
-        }
-
-        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.0.remove_file(dentry)
-        }
-
-        fn rename(
-            &self,
-            _from: &Dentry,
-            _to_dir: &dyn Inode,
-            _to: &Dentry,
-            _rename: Rename,
-        ) -> Result<(), FilesystemError> {
-            Err(FilesystemError::PermissionDenied)
-        }
-    }
-
-    /// A Tmpfs refusing to remove a whiteout.
-    struct KeepsWhiteouts(Tmpfs);
-
-    impl Inode for KeepsWhiteouts {
-        holds_no_links!();
-        matches_names_exactly!();
-
-        fn open(
-            &self,
-            dentry: &Dentry,
-            options: &OpenOptions,
-        ) -> Result<Box<dyn File>, FilesystemError> {
-            self.0.open(dentry, options)
-        }
-
-        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.0.symlink_metadata(dentry)
-        }
-
-        opens_directories!(0);
-
-        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.0.create_dir(dentry)
-        }
-
-        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.0.remove_dir(dentry)
-        }
-
-        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            if dentry.name().starts_with(".wh.") {
-                return Err(FilesystemError::PermissionDenied);
-            }
-            self.0.remove_file(dentry)
-        }
-
-        fn rename(
-            &self,
-            from: &Dentry,
-            _to_dir: &dyn Inode,
-            to: &Dentry,
-            rename: Rename,
-        ) -> Result<(), FilesystemError> {
-            self.0.rename(from, &self.0, to, rename)
-        }
     }
 
     /// A Tmpfs answering a lookup of any marker name with an I/O failure.
@@ -1743,9 +1424,9 @@ mod tests {
         }
     }
 
-    /// A Tmpfs answering a lookup of `dir` with an I/O failure, though it
-    /// opens `dir` as any other directory.
-    struct LooksUpNoDir(Tmpfs);
+    /// A Tmpfs answering a lookup of `dir` at any depth with an I/O
+    /// failure, though it opens `dir` as any other directory.
+    struct LooksUpNoDir(Arc<dyn Inode>);
 
     impl Inode for LooksUpNoDir {
         holds_no_links!();
@@ -1768,7 +1449,17 @@ mod tests {
             self.0.symlink_metadata(dentry)
         }
 
-        opens_directories!(0);
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+            Ok(Arc::new(Self(self.0.open_dir(dentry)?)))
+        }
+
+        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+            self.0.metadata()
+        }
+
+        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.0.entries()
+        }
 
         fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
             self.0.create_dir(dentry)
@@ -1789,7 +1480,7 @@ mod tests {
             to: &Dentry,
             rename: Rename,
         ) -> Result<(), FilesystemError> {
-            self.0.rename(from, &self.0, to, rename)
+            self.0.rename(from, self.0.as_ref(), to, rename)
         }
     }
 
@@ -1948,7 +1639,7 @@ mod tests {
     #[test]
     fn a_directory_opened_from_an_overlay_follows_it_when_it_moves() {
         let upper = Arc::new(Tmpfs::new());
-        let overlay = at(Overlay::new().layer(Filesystem::new(upper.clone()), Access::ReadWrite));
+        let overlay = at(over(Arc::new(Tmpfs::new()), upper.clone()));
         overlay.create_dir("dir").expect("dir must be made");
         overlay.create_dir("dir/inner").expect("inner must be made");
         let dir = overlay.open_dir("dir").expect("dir must open");
@@ -1977,8 +1668,7 @@ mod tests {
     // @behavior FS-111
     #[test]
     fn an_overlay_directory_removed_while_opened_makes_nothing_more() {
-        let overlay =
-            at(Overlay::new().layer(Filesystem::new(Arc::new(Tmpfs::new())), Access::ReadWrite));
+        let overlay = at(over(Arc::new(Tmpfs::new()), Arc::new(Tmpfs::new())));
         overlay.create_dir("dir").expect("dir must be made");
         let dir = overlay.open_dir("dir").expect("dir must open");
         overlay.remove_dir("dir").expect("dir must remove");
@@ -2003,7 +1693,7 @@ mod tests {
     #[test]
     fn an_overlay_directory_keeps_its_layers_directory_through_a_change_outside_it() {
         let upper = tmpfs_with("dir/file", "x");
-        let overlay = at(Overlay::new().layer(Filesystem::new(upper.clone()), Access::ReadWrite));
+        let overlay = at(over(Arc::new(Tmpfs::new()), upper.clone()));
         let dir = overlay.open_dir("dir").expect("dir must open");
         let outside = on(&upper);
         outside
@@ -2029,9 +1719,7 @@ mod tests {
     #[test]
     fn a_copy_up_through_one_overlay_directory_is_seen_through_another() {
         let lower: Arc<dyn Inode> = tmpfs_with("dir/a.txt", "a");
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(Arc::new(Tmpfs::new())), Access::ReadWrite)
-            .layer(Filesystem::new(lower), Access::Read));
+        let overlay = at(over(lower, Arc::new(Tmpfs::new())));
         let first = overlay.open_dir("dir").expect("dir must open");
         let second = overlay.open_dir("dir").expect("dir must open again");
         write(&first, "b.txt", b"b").expect("the write must copy dir up");
@@ -2043,15 +1731,13 @@ mod tests {
         );
     }
 
-    // The writable Layer below holds no `dir`, so reaching it again by the
-    // path it was opened at would miss where it moved.
+    // The lower Layer holds no `dir`, so reaching it again by the path it
+    // was opened at would miss where it moved.
     // @behavior FS-120
     #[test]
     fn a_write_through_a_moved_overlay_directory_lands_where_it_went() {
         let upper = tmpfs_with("dir/a.txt", "a");
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(upper.clone()), Access::ReadWrite)
-            .layer(Filesystem::new(Arc::new(Tmpfs::new())), Access::ReadWrite));
+        let overlay = at(over(Arc::new(Tmpfs::new()), upper.clone()));
         let dir = overlay.open_dir("dir").expect("dir must open");
         overlay
             .rename("dir", &overlay, "moved", Rename::Any)
@@ -2060,21 +1746,19 @@ mod tests {
             (write(&dir, "b.txt", b"b"), read(&on(&upper), "moved/b.txt")),
             (Ok(()), b"b".to_vec()),
             "a write through a directory Overlay::open_dir opened, once Overlay::rename moved it \
-             over a second writable Layer, must land where it moved"
+             over a lower Layer, must land where it moved"
         );
     }
 
     // @behavior FS-083
     #[test]
     fn an_overlay_spells_a_path_as_the_layer_showing_it_stores_it() {
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(Arc::new(Tmpfs::new())), Access::ReadWrite)
-            .layer(
-                Filesystem::new(Arc::new(FoldsCase::new(
-                    [("private/secret", "x")].into_iter().collect(),
-                ))),
-                Access::Read,
-            ));
+        let overlay = at(over(
+            Arc::new(FoldsCase::new(
+                [("private/secret", "x")].into_iter().collect(),
+            )),
+            Arc::new(Tmpfs::new()),
+        ));
         let private = overlay
             .open_dir("PRIVATE")
             .expect("the directory must open in any case");
@@ -2100,9 +1784,10 @@ mod tests {
     #[test]
     fn a_layer_that_cannot_read_its_markers_fails_the_lookup() {
         let top: Tmpfs = [(".wh.file", "")].into_iter().collect();
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(Arc::new(ReadsNoMarker(top))), Access::Read)
-            .layer(Filesystem::new(tmpfs_with("file", "hidden")), Access::Read));
+        let overlay = at(lowers(
+            Arc::new(ReadsNoMarker(top)),
+            tmpfs_with("file", "hidden"),
+        ));
         assert!(
             matches!(
                 overlay.symlink_metadata("file"),
@@ -2119,12 +1804,10 @@ mod tests {
     #[test]
     fn the_lowest_layer_is_never_asked_for_markers() {
         let lowest: Tmpfs = [("dir/file", "lowest")].into_iter().collect();
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(Arc::new(Tmpfs::new())), Access::ReadWrite)
-            .layer(
-                Filesystem::new(Arc::new(ReadsNoMarker(lowest))),
-                Access::Read,
-            ));
+        let overlay = at(over(
+            Arc::new(ReadsNoMarker(lowest)),
+            Arc::new(Tmpfs::new()),
+        ));
         assert_eq!(
             read(&overlay, "dir/file"),
             b"lowest",
@@ -2138,14 +1821,13 @@ mod tests {
     // @behavior FS-122
     #[test]
     fn a_directory_one_layer_shows_is_walked_without_a_lookup() {
-        let only: Tmpfs = [("dir/file", "only")].into_iter().collect();
-        let overlay =
-            at(Overlay::new().layer(Filesystem::new(Arc::new(LooksUpNoDir(only))), Access::Read));
+        let only: Arc<dyn Inode> = tmpfs_with("top/dir/file", "only");
+        let overlay = at(over(Arc::new(LooksUpNoDir(only)), Arc::new(Tmpfs::new())));
         assert_eq!(
-            read(&overlay, "dir/file"),
+            read(&overlay, "top/dir/file"),
             b"only",
-            "a file read through Overlay::open beneath a directory only one Layer shows, that \
-             Layer answering no lookup of the directory, must read its content"
+            "a file read through Overlay::open beneath a directory only the lower Layer shows, \
+             that Layer answering no lookup of the directory, must read its content"
         );
     }
 
@@ -2156,9 +1838,7 @@ mod tests {
             tmpfs: [("file", "lower")].into_iter().collect(),
             seen: AtomicBool::new(false),
         };
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(Arc::new(Tmpfs::new())), Access::ReadWrite)
-            .layer(Filesystem::new(Arc::new(lower)), Access::Read));
+        let overlay = at(over(Arc::new(lower), Arc::new(Tmpfs::new())));
         assert_eq!(
             overlay.rename("file", &overlay, "moved", Rename::Any),
             Err(FilesystemError::NotFound),
@@ -2172,12 +1852,10 @@ mod tests {
     // @behavior FS-078
     #[test]
     fn a_directory_over_a_lower_file_on_its_way_reads_as_a_directory() {
-        let overlay = at(Overlay::new()
-            .layer(
-                Filesystem::new(tmpfs_with("dir/sub/file", "upper")),
-                Access::ReadWrite,
-            )
-            .layer(Filesystem::new(tmpfs_with("dir", "lower")), Access::Read));
+        let overlay = at(over(
+            tmpfs_with("dir", "lower"),
+            tmpfs_with("dir/sub/file", "upper"),
+        ));
         assert_eq!(
             (
                 overlay.symlink_metadata("dir/sub").map(|metadata| metadata.file_type),
@@ -2187,44 +1865,6 @@ mod tests {
             "a directory looked up through Overlay::metadata above a lower Layer holding a file on \
              its path must read as a directory, as its files open"
         );
-    }
-
-    // The writable Layer refuses each change only after the Overlay has
-    // cleared the whiteout from `dir`, so only putting it back keeps the
-    // read-only Layer's `dir/file` hidden.
-    // @behavior FS-063
-    #[test]
-    fn a_refused_change_leaves_what_a_whiteout_hid_hidden() {
-        let (overlay, _) = overlay_on(Arc::new(HoldsDirectories(Tmpfs::new())));
-        overlay
-            .remove_file("dir/file")
-            .expect("the file must be removed");
-        overlay
-            .create_dir("new")
-            .expect("the directory must be made");
-        let refused = (
-            overlay.rename("new", &overlay, "dir", Rename::Directory),
-            overlay.remove_dir("dir"),
-        );
-        assert_eq!(
-            (refused, overlay.symlink_metadata("dir/file").err()),
-            (
-                (
-                    Err(FilesystemError::PermissionDenied),
-                    Err(FilesystemError::PermissionDenied)
-                ),
-                Some(FilesystemError::NotFound)
-            ),
-            "a rename onto and a removal of a directory whose writable copy holds only a whiteout, \
-             refused by the Layer through an Overlay, must leave the whited-out file hidden"
-        );
-    }
-
-    fn trickles(refuses_close: bool) -> Arc<Trickles> {
-        Arc::new(Trickles {
-            tmpfs: Arc::new(Tmpfs::new()),
-            refuses_close,
-        })
     }
 
     // @behavior FS-101
@@ -2266,14 +1906,12 @@ mod tests {
         let upper: Tmpfs = [(".wh..wh..opq", ""), ("kept", "upper")]
             .into_iter()
             .collect();
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(Arc::new(upper)), Access::ReadWrite)
-            .layer(Filesystem::new(tmpfs_with("hidden", "lower")), Access::Read));
+        let overlay = at(over(tmpfs_with("hidden", "lower"), Arc::new(upper)));
         assert_eq!(
             (names(&overlay, ""), overlay.symlink_metadata("hidden")),
             (vec!["kept".to_string()], Err(FilesystemError::NotFound)),
-            "an Overlay whose upper Layer holds an opaque marker at its root must list only that \
-             Layer's entries through Overlay::read_dir and find no lower file through \
+            "an Overlay whose upper holds an opaque marker at its root must list only the \
+             upper's entries through Overlay::read_dir and find no lower file through \
              Overlay::metadata"
         );
     }
@@ -2299,49 +1937,6 @@ mod tests {
         );
     }
 
-    // @behavior FS-054
-    #[test]
-    fn a_copy_up_through_a_layer_writing_in_parts_copies_the_whole_file() {
-        let upper = trickles(false);
-        let (overlay, _) = overlay_on(upper.clone());
-        overlay
-            .open(
-                "dir/file",
-                &OpenOptions {
-                    write: true,
-                    ..OpenOptions::default()
-                },
-            )
-            .expect("the open must copy the lower file up");
-        assert_eq!(
-            read(&kern_path(upper.tmpfs.clone()), "dir/file"),
-            b"lower".to_vec(),
-            "a write open through Overlay::open must copy the whole lower file up into a Layer \
-             whose writes land a few bytes at a time"
-        );
-    }
-
-    // @behavior FS-055
-    #[test]
-    fn a_copy_up_whose_close_a_layer_refuses_leaves_nothing_behind() {
-        let upper = trickles(true);
-        let (overlay, _) = overlay_on(upper.clone());
-        assert_eq!(
-            (
-                write(&overlay, "dir/file", b"x"),
-                on(&upper).symlink_metadata("dir/file"),
-                read(&overlay, "dir/file")
-            ),
-            (
-                Err(FilesystemError::PermissionDenied),
-                Err(FilesystemError::NotFound),
-                b"lower".to_vec()
-            ),
-            "a write through Overlay::open whose copy up the writable Layer refuses to close must \
-             leave no copy hiding the lower file"
-        );
-    }
-
     /// Counts each wait its Overlay's lock makes through it.
     struct CountsWaits(AtomicUsize);
 
@@ -2356,9 +1951,8 @@ mod tests {
     #[test]
     fn a_contended_overlay_waits_through_its_blocking() {
         let counts = Arc::new(CountsWaits(AtomicUsize::new(0)));
-        let overlay = Overlay::new()
-            .layer(Filesystem::new(tmpfs_with("note", "x")), Access::Read)
-            .with_blocking(counts.clone());
+        let overlay =
+            lowers(tmpfs_with("note", "x"), Arc::new(Tmpfs::new())).with_blocking(counts.clone());
         let held = overlay.lock.hold().expect("the lock must be free");
         let other = at(overlay.clone());
         let waiter = thread::spawn(move || other.symlink_metadata("note").map(|m| m.file_type));
@@ -2377,15 +1971,13 @@ mod tests {
         );
     }
 
-    // Copying up makes the directory in the writable Layer, whose own
-    // identity differs, so only reporting the lower Layer's keeps it.
+    // Copying up makes the directory in the upper, whose own identity
+    // differs, so only reporting the lower Layer's keeps it.
     // @behavior FS-072
     #[test]
     fn an_overlay_keeps_a_directorys_identity_when_a_write_copies_it_up() {
         let lower: Arc<dyn Inode> = Arc::new([("dir/a.txt", "a")].into_iter().collect::<Tmpfs>());
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(Arc::new(Tmpfs::new())), Access::ReadWrite)
-            .layer(Filesystem::new(lower), Access::Read));
+        let overlay = at(over(lower, Arc::new(Tmpfs::new())));
         let identity = |overlay: &KernPath| {
             let metadata = overlay
                 .symlink_metadata("dir")
@@ -2397,7 +1989,7 @@ mod tests {
         assert_eq!(
             (identity(&overlay) == before, before.1 != 0),
             (true, true),
-            "a directory of a read-only Layer copied up by a write through an Overlay's open must \
+            "a directory of a lower Layer copied up by a write through an Overlay's open must \
              keep the identity Overlay::metadata reported before"
         );
     }
@@ -2414,9 +2006,7 @@ mod tests {
             .expect("the directory must be made");
         std::thread::sleep(std::time::Duration::from_millis(10));
         write(&on(&upper), "dir/b.txt", b"b").expect("the upper Layer must take a write");
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(upper.clone()), Access::ReadWrite)
-            .layer(Filesystem::new(lower.clone()), Access::Read));
+        let overlay = at(over(lower.clone(), upper.clone()));
         let merged = overlay
             .symlink_metadata("dir")
             .expect("the directory must stand");
@@ -2441,16 +2031,14 @@ mod tests {
     // @behavior FS-073
     #[test]
     fn an_overlay_names_a_directory_alike_whether_a_link_at_its_end_is_followed() {
-        let layer = |name: &str| -> Arc<dyn Inode> {
+        let layer = |name: &str| -> Arc<Tmpfs> {
             Arc::new(
                 [(format!("dir/{name}"), "x")]
                     .into_iter()
                     .collect::<Tmpfs>(),
             )
         };
-        let overlay = at(Overlay::new()
-            .layer(Filesystem::new(layer("upper")), Access::ReadWrite)
-            .layer(Filesystem::new(layer("lower")), Access::Read));
+        let overlay = at(over(layer("lower"), layer("upper")));
         let identity = |metadata: Result<Metadata, FilesystemError>| {
             let metadata = metadata.expect("the directory must stand");
             (metadata.dev, metadata.ino)

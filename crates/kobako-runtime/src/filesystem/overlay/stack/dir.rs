@@ -7,7 +7,7 @@ use super::super::super::{File, FileType, FilesystemError, OpenOptions, Rename};
 use super::super::path::OverlayPath;
 use super::{
     entry, hides, holds, layer_dir, opaque_inside, put_marker, refuse_reserved, whiteout,
-    without_markers, Chain, Layer, Level, OverlayFs, OPAQUE, WHITEOUT,
+    without_markers, Chain, Level, OverlayFs, OPAQUE, WHITEOUT,
 };
 
 impl OverlayFs {
@@ -66,23 +66,6 @@ impl OverlayFs {
         Ok(None)
     }
 
-    /// Refuse as read-only a change landing at `name` in Layer `into` that
-    /// a read-only Layer above it would cover, holding or hiding `name` or
-    /// marking its directory opaque, so no change succeeds out of sight.
-    fn refuse_covered(
-        &self,
-        level: &Level,
-        name: &str,
-        into: usize,
-    ) -> Result<(), FilesystemError> {
-        for dir in level[..into].iter().flatten() {
-            if holds(dir, name)? || hides(dir, name)? || holds(dir, OPAQUE)? {
-                return Err(FilesystemError::ReadOnlyFilesystem);
-            }
-        }
-        Ok(())
-    }
-
     /// Clear the whiteout of `name` in `dir` once an entry has landed
     /// there. A whiteout left beside the entry hides only what lies below,
     /// which the entry replaced, so failing to clear it fails nothing.
@@ -95,8 +78,8 @@ impl OverlayFs {
     }
 
     /// The Layer a whiteout over the Layer at `shown` lands in, or `None`
-    /// when nothing below needs one; refused as read-only when no writable
-    /// Layer sits above it.
+    /// when nothing below needs one; refused as read-only without an
+    /// upper above it.
     fn whiteout_layer(&self, shown: Option<usize>) -> Result<Option<usize>, FilesystemError> {
         match shown {
             Some(shown) => match self.upper()? {
@@ -108,10 +91,9 @@ impl OverlayFs {
     }
 
     /// Take `name` out of the view: a whiteout over any Layer that keeps it
-    /// first, then out of every other Layer holding it. A read-only Layer
-    /// keeps it, and so does a writable one `keeps` answers for, so no
-    /// Layer changes before each is known to go; `remove` takes it out of
-    /// one Layer's directory.
+    /// first, then out of the upper. A lower Layer keeps it, and so does
+    /// the upper where `keeps` answers for it, so no Layer changes before
+    /// each is known to go; `remove` takes it out of one Layer's directory.
     fn withdraw(
         &self,
         chain: &mut Chain,
@@ -124,7 +106,7 @@ impl OverlayFs {
         let mut kept = Vec::new();
         for &index in &holders {
             let dir = level[index].as_ref().ok_or(FilesystemError::NotFound)?;
-            if !self.layers[index].writable() || keeps(dir)? {
+            if !self.is_upper(index) || keeps(dir)? {
                 kept.push(index);
             }
         }
@@ -154,7 +136,7 @@ impl OverlayFs {
                 Err(FilesystemError::IsADirectory)
             }
             Some(_) if options.create_new => Err(FilesystemError::AlreadyExists),
-            Some((index, _)) if self.layers[index].writable() => {
+            Some((index, _)) if self.is_upper(index) => {
                 layer_dir(&level[index])?.open(name, options)
             }
             Some((index, _)) if !changes => {
@@ -162,12 +144,9 @@ impl OverlayFs {
                 Ok(self.readers.open(&chain.path_of(name), file))
             }
             Some((index, _)) => {
-                let into = self.layers[..index]
-                    .iter()
-                    .rposition(Layer::writable)
-                    .ok_or(FilesystemError::ReadOnlyFilesystem)?;
-                self.copy_up_file(chain, name, index, into)?;
-                layer_dir(&chain.level()[into])?.open(name, options)
+                let upper = self.upper()?;
+                self.copy_up_file(chain, name, index, upper)?;
+                layer_dir(&chain.level()[upper])?.open(name, options)
             }
             None if options.create || options.create_new => self.create_file(chain, name, options),
             None => Err(FilesystemError::NotFound),
@@ -188,13 +167,12 @@ impl OverlayFs {
         let level = chain.level().clone();
         match self.lookup(&level, name)? {
             Some(_) if options.create_new => Err(FilesystemError::AlreadyExists),
-            Some((index, _)) if self.layers[index].writable() => {
+            Some((index, _)) if self.is_upper(index) => {
                 layer_dir(&level[index])?.open(name, options)
             }
             Some(_) => Err(FilesystemError::CrossesDevices),
             None => {
                 let upper = self.upper()?;
-                self.refuse_covered(&level, name, upper)?;
                 let dir = self.upper_dir(chain, upper)?;
                 let file = dir.open(name, options)?;
                 Self::unhide(&dir, name);
@@ -216,7 +194,6 @@ impl OverlayFs {
             return Err(FilesystemError::AlreadyExists);
         }
         let upper = self.upper()?;
-        self.refuse_covered(&level, name, upper)?;
         let dir = self.upper_dir(chain, upper)?;
         let hid = holds(&dir, &whiteout(name))?;
         dir.create_dir(name)?;
@@ -233,10 +210,8 @@ impl OverlayFs {
         Ok(())
     }
 
-    /// A writable Layer's copy of the directory may hold only markers; any
-    /// other entry there means the view is not what was found empty. A
-    /// copy still holding what a Layer above hides stays, beneath the
-    /// whiteout.
+    /// The upper's copy of the directory may hold only markers; any other
+    /// entry there means the view is not what was found empty.
     pub(in super::super) fn remove_dir(
         &self,
         chain: &mut Chain,
@@ -282,18 +257,15 @@ impl OverlayFs {
         self.withdraw(chain, name, |_| Ok(false), |dir| dir.remove_file(name))
     }
 
-    /// A directory moves only when the topmost writable Layer alone holds
-    /// it; moving one out of another would mean copying up everything
+    /// A directory moves only when the upper alone holds it; moving one
+    /// out of a lower Layer would mean copying up everything
     /// beneath it, so it is refused as crossing devices, as overlayfs
     /// refuses it without `redirect_dir`; so is a link or another kind a
     /// lower Layer holds, which no copy up can make. What the view holds
     /// at `to` is checked as rename(2) checks it, and a directory moved
     /// over one a lower Layer holds is marked opaque before it moves, so
     /// it never lands without the marker. The source is whited out before
-    /// it moves, so it never shows from a read-only Layer once moved. What
-    /// a lower writable Layer holds is refused as crossing devices, as
-    /// unionfs-fuse refuses a rename across writable branches, since moving
-    /// it would change two Layers that could fail apart.
+    /// it moves, so it never shows from a lower Layer once moved.
     pub(in super::super) fn rename(
         &self,
         from: &mut Chain,
@@ -332,7 +304,6 @@ impl OverlayFs {
             _ => {}
         }
         let upper = self.upper()?;
-        self.refuse_covered(&to_level, to_name, upper)?;
         let mut replaces_below = false;
         if moving.file_type == FileType::Directory {
             for (index, dir) in to_level.iter().enumerate() {
@@ -342,17 +313,8 @@ impl OverlayFs {
             }
         }
         let (holders, shadowed) = self.holders(&from_level, from_name)?;
-        if holders
-            .iter()
-            .any(|&index| index != upper && self.layers[index].writable())
-        {
-            return Err(FilesystemError::CrossesDevices);
-        }
-        let read_only = holders
-            .iter()
-            .copied()
-            .find(|&index| !self.layers[index].writable());
-        let shown_below = self.whiteout_layer(read_only.into_iter().chain(shadowed).min())?;
+        let lower = holders.iter().copied().find(|&index| index != upper);
+        let shown_below = self.whiteout_layer(lower.into_iter().chain(shadowed).min())?;
         match moving.file_type {
             FileType::Directory if holders != [upper] => {
                 return Err(FilesystemError::CrossesDevices)

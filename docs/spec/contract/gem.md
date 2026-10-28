@@ -113,7 +113,8 @@ end
 
 ## `Kobako::Filesystem::Overlay.new`
 
-A Filesystem stacking Layers into one view, empty until a Layer is added.
+A Filesystem stacking read-only lower Layers, topmost first, under an
+optional upper Tmpfs into one view.
 
 | Attribute | Value |
 | --- | --- |
@@ -123,26 +124,7 @@ A Filesystem stacking Layers into one view, empty until a Layer is added.
 module Kobako
   module Filesystem
     class Overlay
-      def self.new
-      end
-    end
-  end
-end
-```
-
-## `Kobako::Filesystem::Overlay#layer`
-
-Add a Filesystem below the Layers so far, with its own access.
-
-| Attribute | Value |
-| --- | --- |
-| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
-
-```ruby
-module Kobako
-  module Filesystem
-    class Overlay
-      def layer(filesystem, access: :read)
+      def self.new(lower:, upper: nil)
       end
     end
   end

@@ -5,13 +5,13 @@
 use std::sync::Arc;
 
 use magnus::value::{Opaque, ReprValue};
-use magnus::{prelude::*, Error as MagnusError, RArray, RString, Ruby, Value};
+use magnus::{prelude::*, Error as MagnusError, RArray, RString, Ruby, Symbol, Value};
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
 
-use super::{to_access, to_filesystem};
+use super::to_filesystem;
 use crate::runtime::pinned_value::PinnedValue;
 use crate::runtime::{escape, gvl};
 
@@ -33,6 +33,23 @@ fn to_mount(at: Value, access: Value, filesystem: Value) -> Result<Mount, Magnus
     let access = to_access(access)?;
     Mount::new(at, to_filesystem(filesystem)?, access)
         .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))
+}
+
+fn to_access(access: Value) -> Result<Access, MagnusError> {
+    let name = Symbol::from_value(access)
+        .map(|symbol| symbol.name())
+        .transpose()?;
+    match name.as_deref() {
+        Some("read") => Ok(Access::Read),
+        Some("read_write") => Ok(Access::ReadWrite),
+        _ => Err(MagnusError::new(
+            Ruby::get().expect("Ruby thread").exception_arg_error(),
+            format!(
+                "access must be :read or :read_write, got {}",
+                access.inspect()
+            ),
+        )),
+    }
 }
 
 /// A mount's block, asked in its access's place. A block raising a

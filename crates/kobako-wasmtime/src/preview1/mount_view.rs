@@ -1093,10 +1093,11 @@ fn a_directory_without_an_identity_is_not_reached_again_beneath_a_policy() {
 // @behavior RT-152
 #[test]
 fn an_overlay_directory_takes_one_descriptor_however_many_layers_it_spans() {
-    let upper: Arc<dyn Inode> = tmpfs_with("dir/upper", "u");
-    let overlay = Overlay::new()
-        .layer(Filesystem::new(upper), Access::ReadWrite)
-        .layer(Filesystem::new(file_and_directory()), Access::Read);
+    let overlay = Overlay::new(
+        vec![Filesystem::new(file_and_directory())],
+        Some(Filesystem::new(tmpfs_with("dir/upper", "u"))),
+    )
+    .expect("an upper over a lower Layer must make a view");
     let mut guest = Guest::with_open_file_limit(
         Some(6),
         &[grant(Arc::new(overlay), Access::ReadWrite, None)],
@@ -1118,11 +1119,11 @@ fn an_overlay_directory_takes_one_descriptor_however_many_layers_it_spans() {
 // call compares it with the Overlay's stat.
 #[test]
 fn a_directory_two_layers_hold_is_reached_through_its_descriptor() {
-    let upper: Arc<dyn Inode> = tmpfs_with("dir/upper", "u");
-    let lower: Arc<dyn Inode> = file_and_directory();
-    let overlay = Overlay::new()
-        .layer(Filesystem::new(upper), Access::ReadWrite)
-        .layer(Filesystem::new(lower), Access::Read);
+    let overlay = Overlay::new(
+        vec![Filesystem::new(file_and_directory())],
+        Some(Filesystem::new(tmpfs_with("dir/upper", "u"))),
+    )
+    .expect("an upper over a lower Layer must make a view");
     let mut guest = Guest::new(&[grant(Arc::new(overlay), Access::ReadWrite, None)]);
     assert_eq!(
         (guest.call_bare("open_dir"), guest.call_bare("stat_inner")),
@@ -2632,14 +2633,16 @@ impl LinkedBeneath {
     }
 
     /// A guest over this host directory as a Bind Mount, or as an
-    /// Overlay's writable Bind Layer above an empty Tmpfs.
+    /// Overlay's lower Bind Layer beneath an empty upper.
     fn guest(&self, overlay: bool) -> Guest {
         let directory = Arc::new(Bind::new(&self.0).expect("the host directory must open"));
         let filesystem: Arc<dyn Inode> = if overlay {
             Arc::new(
-                Overlay::new()
-                    .layer(Filesystem::new(directory), Access::ReadWrite)
-                    .layer(Filesystem::new(Arc::new(Tmpfs::new())), Access::Read),
+                Overlay::new(
+                    vec![Filesystem::new(directory)],
+                    Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+                )
+                .expect("an upper over a lower Layer must make a view"),
             )
         } else {
             directory

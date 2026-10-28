@@ -345,10 +345,10 @@ Some risks stay with the host, because kobako cannot see them.
 | a `..` out of where a link led | `Errno::ELOOP`, as the guest never learns where it points |
 | a directory the guest lists in steps | its entries held in host memory until the listing ends, once per descriptor |
 | an opened directory moved out of the Mount by the host or another guest | still reached through that descriptor, as Linux reaches it, unless a block guards the Mount |
-| a link below an Overlay's writable Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
+| a link in an Overlay's lower Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
 | a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
 | a `\` in a name a Ruby Filesystem receives | the Filesystem's to refuse, as Windows reads it as a separator |
-| one Overlay's writable Layer shared by another | the two are not serialized against each other |
+| one Overlay's upper shared by another | the two are not serialized against each other |
 | one Overlay mounted in invocations that run at once | each waits for the other's call, and the wait runs past `timeout:` |
 
 ### Opened Directories

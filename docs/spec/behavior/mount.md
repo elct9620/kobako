@@ -148,7 +148,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | When | an invocation's Context mounts a Filesystem at `/other` |
 | Then | the override is refused before the guest runs |
 
-## `MT-011` An Overlay built Layer by Layer reaches the guest as one view
+## `MT-011` An Overlay reaches the guest as one view
 
 | Attribute | Value |
 | --- | --- |
@@ -156,21 +156,9 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox mounting an Overlay of a writable Tmpfs over a read-only Tmpfs holding a file |
+| Given | a Sandbox mounting an Overlay of an upper Tmpfs over a lower Tmpfs holding a file |
 | When | the script overwrites that file and reads it back |
-| Then | it reads what it wrote, and the Tmpfs still holds the file as it was |
-
-## `MT-012` Adding a Layer leaves the Overlay it was added to as it was
-
-| Attribute | Value |
-| --- | --- |
-| relates | `MT-011` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an Overlay with one Layer |
-| When | a second Layer is added to it |
-| Then | the guest reaches only the first Layer through a mount of the original Overlay |
+| Then | it reads what it wrote, and the lower Tmpfs still holds the file as it was |
 
 ## `MT-013` A Tmpfs's size given in Ruby bounds what the guest writes
 
@@ -242,7 +230,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | two Threads, each with a Sandbox mounting one Overlay over a Ruby Layer |
+| Given | two Threads, each with a Sandbox mounting one Overlay of an upper Tmpfs over a Ruby Layer |
 | When | both evaluate scripts reaching the Overlay at once, whichever GVL mode each takes |
 | Then | both finish |
 
@@ -254,7 +242,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose Ruby Layer evaluates a script through that Overlay |
+| Given | an Overlay whose lower Ruby Layer evaluates a script through that Overlay |
 | When | the inner script reads a file there |
 | Then | it raises `Errno::EDEADLK` |
 
@@ -327,6 +315,6 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | one Overlay over a writable Ruby Layer whose open sleeps, shared by two Threads |
+| Given | one Overlay over a Ruby Layer that sleeps while asked, shared by two Threads |
 | When | one Sandbox creates a file while the other, holding the GVL, looks in that directory |
 | Then | both finish |

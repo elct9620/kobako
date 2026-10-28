@@ -46,13 +46,14 @@ class TestE2EMount < Minitest::Test
     end
   end
 
-  # The Overlay's own +layer+ refuses the same object, so both entries a
-  # Filesystem is handed through answer alike.
+  # An Overlay refuses the same object as a Layer, so every entry a
+  # Filesystem is handed through answers alike.
   # @behavior MT-022
   def test_what_is_no_filesystem_is_refused_as_the_wrong_type
+    tmpfs = Kobako::Filesystem::Tmpfs.new
     refused = [-> { Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", Object.new) },
-               -> { Kobako::Filesystem::Overlay.new.layer(Object.new) }].map do |call|
-      assert_raises(TypeError, "Sandbox#mount and Overlay#layer of no Filesystem must raise TypeError", &call)
+               -> { Kobako::Filesystem::Overlay.new(lower: [Object.new], upper: tmpfs) }].map do |call|
+      assert_raises(TypeError, "Sandbox#mount and Overlay.new of no Filesystem must raise TypeError", &call)
     end
 
     assert_equal 2, refused.size
@@ -134,23 +135,14 @@ class TestE2EMount < Minitest::Test
   end
 
   # @behavior MT-011
-  def test_an_overlay_built_layer_by_layer_reaches_the_guest_as_one_view
+  def test_an_overlay_reaches_the_guest_as_one_view
     lower = Kobako::Filesystem::Tmpfs.new("note.txt" => "hello")
-    overlay = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Tmpfs.new, access: :read_write).layer(lower)
+    overlay = Kobako::Filesystem::Overlay.new(lower: [lower], upper: Kobako::Filesystem::Tmpfs.new)
     script = 'File.write("/data/note.txt", "changed"); File.read("/data/note.txt")'
 
     assert_equal "changed", run_beneath(overlay, script, access: :read_write),
-                 "a file overwritten through an Overlay built with Overlay#layer must read back what was written"
+                 "a file overwritten through an Overlay.new mount must read back what was written"
     assert_equal "hello", run_beneath(lower, 'File.read("/data/note.txt")'),
-                 "the read-only Tmpfs beneath an Overlay built with Overlay#layer must still hold the file as it was"
-  end
-
-  # @behavior MT-012
-  def test_adding_a_layer_leaves_the_overlay_it_was_added_to_as_it_was
-    first = Kobako::Filesystem::Overlay.new.layer(Kobako::Filesystem::Tmpfs.new("a.txt" => "a"))
-    first.layer(Kobako::Filesystem::Tmpfs.new("b.txt" => "b"))
-
-    assert_equal [true, false], run_beneath(first, '[File.exist?("/data/a.txt"), File.exist?("/data/b.txt")]'),
-                 "an Overlay mounted after Overlay#layer added to it must reach only its own Layer"
+                 "the lower Tmpfs beneath an Overlay.new mount must still hold the file as it was"
   end
 end

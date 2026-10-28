@@ -27,7 +27,7 @@ class TestE2EOverlayThreads < Minitest::Test
       sleep 0.001
       path == "note" || path.empty? ? Stat.new(path.empty?, 0, path.empty? ? 1 : 2) : raise(Errno::ENOENT, path)
     end
-    overlay = Kobako::Filesystem::Overlay.new.layer(layer)
+    overlay = Kobako::Filesystem::Overlay.new(lower: [layer], upper: Kobako::Filesystem::Tmpfs.new)
     threads = ARGV.map do |gvl|
       Thread.new do
         sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: gvl.to_sym).mount("/data", overlay)
@@ -73,7 +73,8 @@ class TestE2EOverlayThreads < Minitest::Test
   def test_a_sandbox_reaching_an_overlay_from_inside_its_own_call_raises_edeadlk
     answers = []
     overlay = nil
-    overlay = Kobako::Filesystem::Overlay.new.layer(reentering_layer(answers) { read_through(overlay) })
+    overlay = Kobako::Filesystem::Overlay.new(lower: [reentering_layer(answers) { read_through(overlay) }],
+                                              upper: Kobako::Filesystem::Tmpfs.new)
     read_through(overlay)
 
     assert_equal [:deadlock], answers,

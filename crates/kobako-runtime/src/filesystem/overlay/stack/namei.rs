@@ -116,7 +116,7 @@ impl OverlayFs {
 
     /// What the view reports for the directory `level`, as overlayfs
     /// reports a merged directory: the identity of the lowest Layer showing
-    /// it, so copying it up into a writable Layer leaves the identity as it
+    /// it, so copying it up into the upper leaves the identity as it
     /// was, the times of the topmost, and one name where more than one
     /// Layer shows it.
     pub(in super::super) fn dir_metadata(
