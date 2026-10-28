@@ -683,13 +683,13 @@ pub trait Inode {
 ## `Inode::rename`
 
 Move what one Dentry names to another in a target directory, refusing what
-the given Rename does not allow. The target is a directory of the same Mount,
-so one of another type crosses devices. What stands at the source is checked
-as it moves.
+rename(2) refuses at the target. The runtime has already checked the source
+and never hands a move onto its own name. The target is a directory of the
+same Mount, so one of another type crosses devices.
 
 ```rust
 pub trait Inode {
-    fn rename(&self, from: &Dentry, to_dir: &dyn Inode, to: &Dentry, rename: Rename) -> Result<(), FilesystemError>;
+    fn rename(&self, from: &Dentry, to_dir: &dyn Inode, to: &Dentry) -> Result<(), FilesystemError>;
 }
 ```
 
@@ -781,25 +781,6 @@ How a file is opened: for reading, writing, creating, or truncating.
 
 ```rust
 pub struct OpenOptions {}
-```
-
-## `Rename`
-
-What a rename may move: whatever stands at the source, only a file, or only
-a directory.
-
-```rust
-pub enum Rename {}
-```
-
-## `Rename::check`
-
-Refuse moving an entry of a file type the rename may not move.
-
-```rust
-impl Rename {
-    pub fn check(self, file_type: FileType) -> Result<(), FilesystemError> {}
-}
 ```
 
 ## `FileType`

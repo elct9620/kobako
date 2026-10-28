@@ -377,18 +377,6 @@ both live in the upper and never show, so no name is reserved
 | When | a directory is removed, or replaced by renaming another onto it |
 | Then | a directory created afterwards lands |
 
-## `FS-035` A Tmpfs moves only what a rename allows
-
-| Attribute | Value |
-| --- | --- |
-| relates | `RT-094` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Tmpfs holding a directory and a file |
-| When | the directory is renamed as a file only, and the file as a directory only |
-| Then | each is refused, as crossing devices and as no directory, and neither moves |
-
 ## `FS-036` A Tmpfs appends at its file's end as it stands
 
 | Attribute | Value |
@@ -976,7 +964,7 @@ both live in the upper and never show, so no name is reserved
 | Attribute | Value |
 | --- | --- |
 | refines | `FS-092` |
-| relates | `FS-035` |
+| relates | `FS-133` |
 
 | Step | Statement |
 | --- | --- |
@@ -1108,7 +1096,7 @@ both live in the upper and never show, so no name is reserved
 
 | Attribute | Value |
 | --- | --- |
-| relates | `FS-035` |
+| relates | `FS-133` |
 
 | Step | Statement |
 | --- | --- |
@@ -1372,7 +1360,7 @@ both live in the upper and never show, so no name is reserved
 
 | Attribute | Value |
 | --- | --- |
-| relates | `FS-035` |
+| relates | `RT-093` |
 
 | Step | Statement |
 | --- | --- |

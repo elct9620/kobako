@@ -918,8 +918,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Mount with a Policy, whose file becomes a directory as it moves |
-| When | the guest renames that file |
+| Given | a Mount with a Policy, holding a directory with a file in it |
+| When | the guest renames that directory |
 | Then | the rename answers that it crosses devices, and nothing moves |
 
 ## `RT-095` An append lands after another writer's append

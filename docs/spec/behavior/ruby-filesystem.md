@@ -141,17 +141,17 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | When | the host compacts its heap between two reads of a file there |
 | Then | the second read answers as the first did |
 
-## `RF-010` A Ruby Filesystem's rename is told what may move
+## `RF-010` A Ruby Filesystem's rename is told the two paths alone
 
 | Attribute | Value |
 | --- | --- |
-| refines | `MT-018` |
+| relates | `MT-018` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a Ruby Filesystem answering `rename`, mounted with a block and without one |
-| When | the script renames a file beneath each mount |
-| Then | `rename` is told `directory: false` beneath the block and `directory: nil` elsewhere |
+| Given | a Ruby Filesystem answering `rename`, mounted with a block |
+| When | the script renames a file beneath the mount |
+| Then | `rename` is told the file's old and new paths, and nothing else |
 
 ## `RF-011` A Ruby Filesystem's open is told to follow no link
 
