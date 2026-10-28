@@ -500,6 +500,19 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileD
     // A trailing `/` resolves a link standing there, as Linux's `open` does.
     let follow = how.follow || names_directory(path);
     let mut nd = filename_lookup(start, path, follow, how.create)?;
+    // A create finds what stands at the name under the directory's lock it
+    // creates under, and holds it until the file is open, as Linux's
+    // `lookup_open` does, so nothing made or removed in between changes
+    // what the open decided.
+    let parent = nd.dentry().clone();
+    let _held = match how.create {
+        true => {
+            let held = down_write(&nd.mount, &parent)?;
+            nd.found = Some(look_up(nd.base(), &nd.child(), &nd.name));
+            Some(held)
+        }
+        false => None,
+    };
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
     nd.check_directory()?;
@@ -531,12 +544,6 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileD
                 create: how.create && existing.is_none(),
                 create_new: how.create && how.exclusive,
                 truncate: how.truncate,
-            };
-            let parent = nd.dentry().clone();
-            // A file made holds the directory, as Linux's `O_CREAT` does.
-            let _held = match options.create {
-                true => Some(down_write(&nd.mount, &parent)?),
-                false => None,
             };
             let file = nd.base().open(&nd.child(), &options)?;
             Ok(FileDescription::File(mask_file_times(
@@ -795,7 +802,7 @@ fn refuse_root(name: &str, refusal: FilesystemError) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::mpsc;
     use std::sync::{Arc, Mutex, OnceLock};
     use std::thread;
@@ -804,7 +811,7 @@ mod tests {
     use crate::filesystem::{
         Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename, Tmpfs,
     };
-    use crate::mount::Mount;
+    use crate::mount::{Mount, Policy};
     use crate::profile::Profile;
     use crate::vfs::{self, Blocking, Dentry, FileDescription, Filesystem, OpenHow, Path};
 
@@ -951,6 +958,76 @@ mod tests {
             Ok(()),
             "vfs::create_dir through a directory vfs::create_dir made while vfs::remove_dir \
              removed the one in its place must make into the directory made"
+        );
+    }
+
+    /// A Policy allowing everything that holds its first answer until the
+    /// test lets it go, or a short while passes.
+    struct PausesFirst {
+        answered: AtomicBool,
+        reached: Mutex<mpsc::Sender<()>>,
+        resume: Mutex<mpsc::Receiver<()>>,
+    }
+
+    impl Policy for PausesFirst {
+        fn allows(&self, _path: &str, _access: Access) -> bool {
+            if !self.answered.swap(true, Ordering::SeqCst) {
+                self.reached.lock().expect("unpoisoned").send(()).ok();
+                let _ = self
+                    .resume
+                    .lock()
+                    .expect("unpoisoned")
+                    .recv_timeout(Duration::from_millis(200));
+            }
+            true
+        }
+    }
+
+    // The Policy judges the open after it finds the file and before it
+    // opens it, so only the open holding its directory throughout keeps
+    // the removal from landing in between.
+    // @behavior RT-167
+    #[test]
+    fn a_create_opens_the_file_it_finds_or_makes_one() {
+        let (reached, reaching) = mpsc::channel();
+        let (removed, resume) = mpsc::channel();
+        let policy = PausesFirst {
+            answered: AtomicBool::new(false),
+            reached: Mutex::new(reached),
+            resume: Mutex::new(resume),
+        };
+        let tmpfs: Tmpfs = [("f", "x")].into_iter().collect();
+        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
+            .expect("/data is a guest path")
+            .with_policy(Arc::new(policy));
+        let root = Path::root(mount, Profile::Permissive);
+        let opener = {
+            let root = root.clone();
+            thread::spawn(move || {
+                let how = OpenHow {
+                    write: true,
+                    create: true,
+                    ..OpenHow::default()
+                };
+                vfs::open(&root, "f", &how, true).map(drop)
+            })
+        };
+        reaching.recv().expect("the open must reach the Policy");
+        let remover = thread::spawn(move || {
+            let answer = vfs::remove_file(&root, "f");
+            removed.send(()).ok();
+            answer
+        });
+        let opened = opener.join().expect("the open must not panic");
+        remover
+            .join()
+            .expect("the removal must not panic")
+            .expect("the removal must land");
+        assert_eq!(
+            opened,
+            Ok(()),
+            "vfs::open with create of a file vfs::remove_file removes while the open is judged \
+             must open it or make it, never answer NotFound"
         );
     }
 

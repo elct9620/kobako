@@ -1788,3 +1788,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem instance given a Blocking, one thread changing a directory |
 | When | another thread makes a call on the same directory |
 | Then | the call waits through that Blocking, then answers |
+
+## `RT-167` A create opens the file it finds, or makes one
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-103` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file the guest opens with `O_CREAT` |
+| When | another thread removes the file while the open is judged |
+| Then | the open succeeds |
