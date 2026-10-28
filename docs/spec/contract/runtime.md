@@ -428,12 +428,12 @@ How to open a path, as `openat2` takes its flags.
 pub struct OpenHow {}
 ```
 
-## `Opened`
+## `FileDescription`
 
 What an open reached: a directory or a file.
 
 ```rust
-pub enum Opened {}
+pub enum FileDescription {}
 ```
 
 ## `open`
@@ -442,7 +442,7 @@ Open a path beneath a directory, answering too many open files where the
 caller has no descriptor left.
 
 ```rust
-pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<Opened, Error> {}
+pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileDescription, Error> {}
 ```
 
 ## `create_dir`

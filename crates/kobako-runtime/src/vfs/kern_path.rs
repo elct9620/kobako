@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use super::namei::{resolve, Nameidata};
+use super::namei::{filename_lookup, Nameidata};
 use super::path::{Identity, Path};
 use super::{Error, Filesystem};
 use crate::filesystem::{
@@ -36,8 +36,8 @@ fn to_filesystem_error(error: Error) -> FilesystemError {
 impl KernPath {
     /// `path` resolved beneath this directory, a link at its end left as
     /// it stands.
-    fn resolve(&self, path: &str) -> Result<Nameidata, FilesystemError> {
-        resolve(&self.0, path, false, false).map_err(to_filesystem_error)
+    fn lookup(&self, path: &str) -> Result<Nameidata, FilesystemError> {
+        filename_lookup(&self.0, path, false, false).map_err(to_filesystem_error)
     }
 
     pub(crate) fn open(
@@ -45,16 +45,16 @@ impl KernPath {
         path: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        let resolved = self.resolve(path)?;
+        let resolved = self.lookup(path)?;
         resolved.base().open(&resolved.child(), options)
     }
 
     pub(crate) fn open_dir(&self, path: &str) -> Result<Self, FilesystemError> {
-        let resolved = self.resolve(path)?;
+        let resolved = self.lookup(path)?;
         let dentry = resolved.child();
         let dir = resolved.base().open_dir(&dentry)?;
         let identity = Identity::of(&dir.metadata()?);
-        Ok(Self(self.0.opened(dir, dentry, identity)))
+        Ok(Self(self.0.with_directory(dir, dentry, identity)))
     }
 
     /// What the directory reports of itself.
@@ -68,17 +68,17 @@ impl KernPath {
         if path.is_empty() {
             return self.metadata();
         }
-        let mut resolved = self.resolve(path)?;
+        let mut resolved = self.lookup(path)?;
         resolved.found()
     }
 
     pub(crate) fn stored_name(&self, path: &str) -> Result<String, FilesystemError> {
-        let resolved = self.resolve(path)?;
+        let resolved = self.lookup(path)?;
         resolved.base().stored_name(&resolved.child())
     }
 
     pub(crate) fn read_link(&self, path: &str) -> Result<String, FilesystemError> {
-        let resolved = self.resolve(path)?;
+        let resolved = self.lookup(path)?;
         resolved.base().read_link(&resolved.child())
     }
 
@@ -87,17 +87,17 @@ impl KernPath {
     }
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        let resolved = self.resolve(path)?;
+        let resolved = self.lookup(path)?;
         resolved.base().create_dir(&resolved.child())
     }
 
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        let resolved = self.resolve(path)?;
+        let resolved = self.lookup(path)?;
         resolved.base().remove_dir(&resolved.child())
     }
 
     pub(crate) fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        let resolved = self.resolve(path)?;
+        let resolved = self.lookup(path)?;
         resolved.base().remove_file(&resolved.child())
     }
 
@@ -110,7 +110,7 @@ impl KernPath {
         to: &str,
         rename: Rename,
     ) -> Result<(), FilesystemError> {
-        let (source, target) = (self.resolve(from)?, to_dir.resolve(to)?);
+        let (source, target) = (self.lookup(from)?, to_dir.lookup(to)?);
         source.base().rename(
             &source.child(),
             target.base().as_ref(),

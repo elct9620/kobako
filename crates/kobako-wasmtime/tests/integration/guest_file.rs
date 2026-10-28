@@ -14,7 +14,7 @@ use kobako_runtime::filesystem::{
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{self, Dentry, Filesystem, OpenHow, Opened, Path};
+use kobako_runtime::vfs::{self, Dentry, FileDescription, Filesystem, OpenHow, Path};
 use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Outcome, Preamble};
 
@@ -64,7 +64,7 @@ fn host<F: Inode>(filesystem: &Arc<F>) -> Path {
 fn contents<F: Inode>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
     let mut how = OpenHow::default();
     how.read = true;
-    let Ok(Opened::File(mut file)) = vfs::open(&host(filesystem), path, &how, true) else {
+    let Ok(FileDescription::File(mut file)) = vfs::open(&host(filesystem), path, &how, true) else {
         panic!("the file must exist");
     };
     let mut buf = vec![0; 64];

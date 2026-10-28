@@ -68,14 +68,15 @@ impl Dentry {
 /// above it and its name there.
 pub(crate) struct Dentries {
     root: Arc<Dentry>,
-    hashed: Mutex<Hashed>,
+    hashtable: Mutex<Hashtable>,
 }
 
-/// The hashed directories, and how many entries the table may reach before
-/// those no longer held are swept out: twice what the last sweep left, so
-/// each lookup pays a constant share of the sweeps.
+/// The directories held by name, as Linux's `dentry_hashtable` keeps them,
+/// and how many entries the table may reach before those no longer held
+/// are swept out: twice what the last sweep left, so each lookup pays a
+/// constant share of the sweeps.
 #[derive(Default)]
-struct Hashed {
+struct Hashtable {
     entries: HashMap<(usize, String), Weak<Dentry>>,
     sweep_at: usize,
 }
@@ -88,14 +89,16 @@ impl Default for Dentries {
     fn default() -> Self {
         Self {
             root: Dentry::new(None, ""),
-            hashed: Mutex::default(),
+            hashtable: Mutex::default(),
         }
     }
 }
 
 impl Dentries {
-    fn hashed(&self) -> MutexGuard<'_, Hashed> {
-        self.hashed.lock().unwrap_or_else(PoisonError::into_inner)
+    fn hashtable(&self) -> MutexGuard<'_, Hashtable> {
+        self.hashtable
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     pub(crate) fn root(&self) -> Arc<Dentry> {
@@ -105,17 +108,17 @@ impl Dentries {
     /// The directory `name` in `parent`, as `d_lookup` finds it, or a new
     /// dentry for it, as `d_alloc` makes one.
     pub(crate) fn child(&self, parent: &Arc<Dentry>, name: &str) -> Arc<Dentry> {
-        let mut hashed = self.hashed();
-        if hashed.entries.len() >= hashed.sweep_at {
-            hashed.entries.retain(|_, dentry| dentry.strong_count() > 0);
-            hashed.sweep_at = (hashed.entries.len() * 2).max(16);
+        let mut table = self.hashtable();
+        if table.entries.len() >= table.sweep_at {
+            table.entries.retain(|_, dentry| dentry.strong_count() > 0);
+            table.sweep_at = (table.entries.len() * 2).max(16);
         }
         let key = key(parent, name);
-        if let Some(child) = hashed.entries.get(&key).and_then(Weak::upgrade) {
+        if let Some(child) = table.entries.get(&key).and_then(Weak::upgrade) {
             return child;
         }
         let child = Dentry::new(Some(parent.clone()), name);
-        hashed.entries.insert(key, Arc::downgrade(&child));
+        table.entries.insert(key, Arc::downgrade(&child));
         child
     }
 
@@ -123,7 +126,7 @@ impl Dentries {
     /// move, as `d_delete` marks it.
     pub(crate) fn delete(&self, parent: &Arc<Dentry>, name: &str) {
         let removed = self
-            .hashed()
+            .hashtable()
             .entries
             .remove(&key(parent, name))
             .and_then(|dentry| dentry.upgrade());
@@ -134,23 +137,23 @@ impl Dentries {
 
     /// The entry `from_name` in `from` moved to `to_name` in `to`, taking
     /// the directory held there, and every one beneath it, along, as
-    /// `d_move` does.
-    pub(crate) fn rename(
+    /// Linux's does.
+    pub(crate) fn d_move(
         &self,
         from: &Arc<Dentry>,
         from_name: &str,
         to: &Arc<Dentry>,
         to_name: &str,
     ) {
-        let mut hashed = self.hashed();
-        let Some(moved) = hashed
+        let mut table = self.hashtable();
+        let Some(moved) = table
             .entries
             .remove(&key(from, from_name))
             .and_then(|dentry| dentry.upgrade())
         else {
             return;
         };
-        hashed
+        table
             .entries
             .insert(key(to, to_name), Arc::downgrade(&moved));
         let mut state = moved.state();
@@ -172,7 +175,7 @@ mod tests {
     use crate::mount::Mount;
     use crate::profile::Profile;
     use crate::vfs::kern_path::{kern_path, KernPath};
-    use crate::vfs::{self, Filesystem, OpenHow, Opened, Path};
+    use crate::vfs::{self, FileDescription, Filesystem, OpenHow, Path};
 
     /// A Filesystem answering each call by the path from its root, as one
     /// written in Ruby does, so a directory it opened reaches whatever
@@ -281,7 +284,7 @@ mod tests {
             ..OpenHow::default()
         };
         match vfs::open(start, path, &how, true) {
-            Ok(Opened::Directory(dir)) => dir,
+            Ok(FileDescription::Directory(dir)) => dir,
             _ => panic!("{path} must open as a directory"),
         }
     }

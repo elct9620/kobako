@@ -12,7 +12,7 @@ use kobako_runtime::filesystem::{
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{self, Dentry, Filesystem, OpenHow, Opened, Path};
+use kobako_runtime::vfs::{self, Dentry, FileDescription, Filesystem, OpenHow, Path};
 use wasmtime::{Instance, Module, Store};
 
 use crate::cache::shared_engine;
@@ -558,7 +558,7 @@ impl Guest {
 fn contents(root: &Path, path: &str) -> Option<Vec<u8>> {
     let mut how = OpenHow::default();
     how.read = true;
-    let Ok(Opened::File(mut file)) = vfs::open(root, path, &how, true) else {
+    let Ok(FileDescription::File(mut file)) = vfs::open(root, path, &how, true) else {
         return None;
     };
     let mut buf = vec![0; 64];
@@ -572,7 +572,10 @@ fn overwrite(root: &Path, path: &str) {
     let mut how = OpenHow::default();
     (how.write, how.create) = (true, true);
     assert!(
-        matches!(vfs::open(root, path, &how, true), Ok(Opened::File(_))),
+        matches!(
+            vfs::open(root, path, &how, true),
+            Ok(FileDescription::File(_))
+        ),
         "the file must be made"
     );
 }

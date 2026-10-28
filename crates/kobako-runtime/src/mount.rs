@@ -119,19 +119,19 @@ impl Mount {
     }
 
     /// Whether the guest may reach a path beneath this Mount with
-    /// `access`. A Policy judges the path `spelled` answers, relative to
-    /// this Mount's root and spelled as the Filesystem stores its names, so
-    /// a host folding case or Unicode form cannot hand it one spelling of
-    /// an entry it refuses by another; a path that cannot be spelled is
+    /// `access`. A Policy judges the path `dentry_path` answers, relative
+    /// to this Mount's root and spelled as the Filesystem stores its names,
+    /// so a host folding case or Unicode form cannot hand it one spelling
+    /// of an entry it refuses by another; a path that cannot be spelled is
     /// refused.
     pub(crate) fn check(
         &self,
-        spelled: impl FnOnce() -> Result<String, FilesystemError>,
+        dentry_path: impl FnOnce() -> Result<String, FilesystemError>,
         access: Access,
     ) -> Result<(), Denial> {
         match &self.policy {
             Some(policy) => {
-                let stored = spelled().map_err(|_| Denial::Refused)?;
+                let stored = dentry_path().map_err(|_| Denial::Refused)?;
                 if policy.allows(&self.guest_path(&stored), access) {
                     Ok(())
                 } else {

@@ -24,7 +24,7 @@ use crate::mount::Denial;
 pub use dentry::Dentry;
 pub use filesystem::Filesystem;
 pub use namei::{create_dir, open, remove_dir, remove_file, rename};
-pub use openat2::{OpenHow, Opened};
+pub use openat2::{FileDescription, OpenHow};
 pub use path::Path;
 pub use stat::{metadata, read_link, symlink_metadata};
 pub use utimes::set_times;

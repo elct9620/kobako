@@ -67,8 +67,8 @@ impl Path {
         }
     }
 
-    /// The directory `dir`, opened beneath this one as `dentry`.
-    pub(crate) fn opened(
+    /// This Path standing in `dir`, opened beneath it as `dentry`.
+    pub(crate) fn with_directory(
         &self,
         dir: Arc<dyn Inode>,
         dentry: Arc<Dentry>,

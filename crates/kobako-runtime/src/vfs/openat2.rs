@@ -1,7 +1,7 @@
 //! What an open asks for and what it reaches, as Linux's `openat2` takes
 //! an `open_how` and `vfs_open` holds what the walk opened.
 
-use super::namei::{opened_as_directory, Nameidata};
+use super::namei::{d_can_lookup, Nameidata};
 use super::path::{Identity, Path};
 use super::Error;
 use crate::filesystem::File;
@@ -25,8 +25,9 @@ pub struct OpenHow {
     pub follow: bool,
 }
 
-/// What an open reached.
-pub enum Opened {
+/// What an open reached, as POSIX calls the open file description a
+/// descriptor refers to.
+pub enum FileDescription {
     Directory(Path),
     File(Box<dyn File>),
 }
@@ -37,15 +38,17 @@ pub(crate) fn vfs_open(
     start: &Path,
     nd: Nameidata,
     identity: Option<Identity>,
-) -> Result<Opened, Error> {
+) -> Result<FileDescription, Error> {
     let (dir, dentry) = match nd.name.as_str() {
         "" => (nd.base().clone(), nd.dentry().clone()),
         _ => {
             let dentry = nd.child();
             let dir = nd.base().open_dir(&dentry)?;
-            opened_as_directory(&dir)?;
+            d_can_lookup(&dir)?;
             (dir, dentry)
         }
     };
-    Ok(Opened::Directory(start.opened(dir, dentry, identity)))
+    Ok(FileDescription::Directory(
+        start.with_directory(dir, dentry, identity),
+    ))
 }

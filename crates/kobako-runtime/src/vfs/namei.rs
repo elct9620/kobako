@@ -17,7 +17,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use super::dentry::Dentry;
-use super::openat2::{vfs_open, OpenHow, Opened};
+use super::openat2::{vfs_open, FileDescription, OpenHow};
 use super::path::{Identity, Path, Step};
 use super::times::mask_file_times;
 use super::Error;
@@ -26,8 +26,8 @@ use crate::mount::Mount;
 
 use super::{NAME_MAX, PATH_MAX};
 
-/// The most links one walk follows, as Linux's `MAXSYMLINKS`.
-const MAX_LINKS: usize = 40;
+/// The most links one walk follows, as Linux's.
+const MAXSYMLINKS: usize = 40;
 
 /// Whether a guest path asks for a directory, ending in `/` or `/.`.
 pub(crate) fn names_directory(path: &str) -> bool {
@@ -119,7 +119,7 @@ impl Nameidata {
 
     /// The path from the Mount's root with each name spelled as the
     /// directory holding it stores it, a name nothing holds kept as given.
-    pub(crate) fn spelled(&self) -> Result<String, FilesystemError> {
+    pub(crate) fn dentry_path(&self) -> Result<String, FilesystemError> {
         let mut names = Vec::new();
         for pair in self.frames.windows(2) {
             names.push(pair[0].dir.stored_name(&pair[1].dentry)?);
@@ -137,7 +137,7 @@ impl Nameidata {
 
     /// Ask the Mount whether the guest may reach the path with `access`.
     pub(crate) fn check(&self, access: Access) -> Result<(), Error> {
-        Ok(self.mount.check(|| self.spelled(), access)?)
+        Ok(self.mount.check(|| self.dentry_path(), access)?)
     }
 }
 
@@ -176,7 +176,7 @@ fn look_up(dir: &Arc<dyn Inode>, child: &Dentry, name: &str) -> Result<Metadata,
 
 /// Refuse what a directory just stepped into, or just opened for a
 /// descriptor, answers unless it opened as a directory.
-pub(crate) fn opened_as_directory(dir: &Arc<dyn Inode>) -> Result<(), FilesystemError> {
+pub(crate) fn d_can_lookup(dir: &Arc<dyn Inode>) -> Result<(), FilesystemError> {
     match dir.metadata()?.file_type {
         FileType::Directory => Ok(()),
         _ => Err(FilesystemError::NotADirectory),
@@ -189,11 +189,11 @@ impl Nameidata {
     /// so the directory opens at once there. The directory is opened
     /// first, a link standing there refused, so only a name that opens as
     /// none is asked what it is.
-    fn descend(&mut self, part: Part, dot: bool) -> Result<(), Error> {
+    fn walk_component(&mut self, part: Part, dot: bool) -> Result<(), Error> {
         let dentry = self.child_of(&part.name);
         let opened = self.base().open_dir(&dentry).and_then(|dir| {
             if self.eager || dot {
-                opened_as_directory(&dir)?;
+                d_can_lookup(&dir)?;
             }
             Ok(dir)
         });
@@ -210,7 +210,7 @@ impl Nameidata {
             Err(FilesystemError::FilesystemLoop) => {
                 match self.base().symlink_metadata(&dentry)?.file_type {
                     FileType::Symlink if dot => Err(FilesystemError::FilesystemLoop.into()),
-                    FileType::Symlink => self.follow(&dentry),
+                    FileType::Symlink => self.pick_link(&dentry),
                     _ => Err(FilesystemError::FilesystemLoop.into()),
                 }
             }
@@ -220,12 +220,12 @@ impl Nameidata {
 
     /// Walk on through where the link `dentry` names points, before
     /// whatever is left of the path.
-    fn follow(&mut self, dentry: &Dentry) -> Result<(), Error> {
+    fn pick_link(&mut self, dentry: &Dentry) -> Result<(), Error> {
         if !self.follows_links {
             return Err(FilesystemError::FilesystemLoop.into());
         }
         self.links += 1;
-        if self.links > MAX_LINKS {
+        if self.links > MAXSYMLINKS {
             return Err(FilesystemError::FilesystemLoop.into());
         }
         let target = self.base().read_link(dentry)?;
@@ -245,7 +245,7 @@ impl Nameidata {
     /// walk started from, a guest's `..` is no capability it holds and a
     /// link's is one leading out; out of one a link led to, a guest's `..`
     /// would tell where the link points.
-    fn step_out(&mut self, from_link: bool) -> Result<(), Error> {
+    fn follow_dotdot(&mut self, from_link: bool) -> Result<(), Error> {
         if self.frames.len() == self.above + 1 {
             return Err(if from_link {
                 FilesystemError::NotPermitted.into()
@@ -278,12 +278,12 @@ impl Nameidata {
     /// `complete_walk` settles a lazy walk: a failure there may belong to
     /// a directory stepped into but not yet opened, so that directory is
     /// opened now, and its own failure answers the walk instead.
-    fn complete(
+    fn complete_walk(
         &self,
         found: Result<Metadata, FilesystemError>,
     ) -> Result<Result<Metadata, FilesystemError>, Error> {
         if found.is_err() && self.descended() {
-            opened_as_directory(self.base())?;
+            d_can_lookup(self.base())?;
         }
         Ok(found)
     }
@@ -294,7 +294,7 @@ impl Nameidata {
     }
 
     /// Walk every pending name but the last, which is left to act on.
-    fn run(&mut self, mut last: Option<Part>) -> Result<Option<Part>, Error> {
+    fn link_path_walk(&mut self, mut last: Option<Part>) -> Result<Option<Part>, Error> {
         while let Some(part) = self.pending.pop_front() {
             if part.name.len() > NAME_MAX {
                 return Err(FilesystemError::InvalidFilename.into());
@@ -314,17 +314,17 @@ impl Nameidata {
                     if let Some(name) = last.take() {
                         let dot = !part.name.is_empty();
                         self.pending.push_front(part);
-                        self.descend(name, dot)?;
+                        self.walk_component(name, dot)?;
                         continue;
                     }
                     if part.name == ".." {
-                        self.step_out(part.from_link)?;
+                        self.follow_dotdot(part.from_link)?;
                     }
                 }
                 _ => {
                     if let Some(name) = last.take() {
                         self.pending.push_front(part);
-                        self.descend(name, false)?;
+                        self.walk_component(name, false)?;
                         continue;
                     }
                     last = Some(part);
@@ -348,7 +348,7 @@ impl Nameidata {
 /// together, as the last is first asked about. A link on the way then
 /// answers as a loop, and where links are followed the walk starts over,
 /// opening each directory as it steps in, to find the link and follow it.
-pub(crate) fn resolve(
+pub(crate) fn filename_lookup(
     start: &Path,
     path: &str,
     follow: bool,
@@ -401,7 +401,7 @@ fn path_lookupat(
         names_directory: names_directory(path),
         found: None,
     };
-    let mut last = nd.run(None)?;
+    let mut last = nd.link_path_walk(None)?;
     let mut found = None;
     let mut followed = false;
     while let Some(name) = last.as_ref().filter(|_| follow) {
@@ -411,16 +411,18 @@ fn path_lookupat(
             found = Some(looked_up);
             break;
         }
-        nd.follow(&dentry)?;
+        nd.pick_link(&dentry)?;
         followed = true;
-        last = nd.run(None)?;
+        last = nd.link_path_walk(None)?;
     }
     nd.name = last.map(|part| part.name).unwrap_or_default();
     // A walk that stepped into directories not yet opened settles its last
     // name now; one that stepped into none leaves it to the call to ask.
     nd.found = match found {
-        Some(found) => Some(nd.complete(found)?),
-        None if nd.descended() => Some(nd.complete(look_up(nd.base(), &nd.child(), &nd.name))?),
+        Some(found) => Some(nd.complete_walk(found)?),
+        None if nd.descended() => {
+            Some(nd.complete_walk(look_up(nd.base(), &nd.child(), &nd.name))?)
+        }
         None => None,
     };
     if followed && creates && matches!(nd.found, Some(Err(FilesystemError::NotFound))) {
@@ -455,17 +457,17 @@ fn path_lookupat(
 /// walks to the last name and `do_open` opens it. `room` says whether the
 /// caller has a descriptor left to hand the guest; without one the open
 /// answers `TooManyOpenFiles` once the path is known to stand.
-pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<Opened, Error> {
+pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileDescription, Error> {
     // A path ending in `/` asks for a directory, which cannot be created
     // as a file. Linux answers it once the names before the last are
     // walked, before it would follow a link standing at the last.
     if path.ends_with('/') && how.create {
-        resolve(start, path, false, how.create)?;
+        filename_lookup(start, path, false, how.create)?;
         return Err(FilesystemError::IsADirectory.into());
     }
     // A trailing `/` resolves a link standing there, as Linux's `open` does.
     let follow = how.follow || names_directory(path);
-    let mut nd = resolve(start, path, follow, how.create)?;
+    let mut nd = filename_lookup(start, path, follow, how.create)?;
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
     nd.check_directory()?;
@@ -500,7 +502,10 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<Opene
                 nofollow: true,
             };
             let file = nd.base().open(&nd.child(), &options)?;
-            Ok(Opened::File(mask_file_times(file, start.profile())))
+            Ok(FileDescription::File(mask_file_times(
+                file,
+                start.profile(),
+            )))
         }
     }
 }
@@ -527,7 +532,7 @@ fn refuse_what_stands(existing: Option<FileType>, how: &OpenHow) -> Result<(), E
 /// Make the directory `path` beneath `start`. A trailing `/` asks for the
 /// directory being made, so it is no refusal here, as `mkdir(2)` takes it.
 pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {
-    let nd = resolve(start, path, false, false)?;
+    let nd = filename_lookup(start, path, false, false)?;
     nd.check(Access::ReadWrite)?;
     refuse_root(&nd.name, FilesystemError::AlreadyExists)?;
     Ok(nd.base().create_dir(&nd.child())?)
@@ -536,7 +541,7 @@ pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {
 /// Remove the empty directory `path` beneath `start`.
 pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
     refuse_dot_end(start, path, FilesystemError::InvalidInput)?;
-    let mut nd = resolve(start, path, false, false)?;
+    let mut nd = filename_lookup(start, path, false, false)?;
     nd.check(Access::ReadWrite)?;
     nd.check_directory()?;
     refuse_root(&nd.name, FilesystemError::InvalidInput)?;
@@ -552,7 +557,7 @@ pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
 /// link at the end, so a trailing `/` is answered by the name itself: no
 /// file removes as a directory.
 pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
-    let mut nd = resolve(start, path, false, false)?;
+    let mut nd = filename_lookup(start, path, false, false)?;
     nd.check(Access::ReadWrite)?;
     nd.check_directory()?;
     refuse_root(&nd.name, FilesystemError::IsADirectory)?;
@@ -566,8 +571,8 @@ pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
 pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<(), Error> {
     refuse_dot_end(from, from_path, FilesystemError::ResourceBusy)?;
     refuse_dot_end(to, to_path, FilesystemError::ResourceBusy)?;
-    let mut source = resolve(from, from_path, false, false)?;
-    let mut target = resolve(to, to_path, false, false)?;
+    let mut source = filename_lookup(from, from_path, false, false)?;
+    let mut target = filename_lookup(to, to_path, false, false)?;
     refuse_root(&source.name, FilesystemError::ResourceBusy)?;
     refuse_root(&target.name, FilesystemError::ResourceBusy)?;
     // A trailing `/` on either side asks that the source be a directory,
@@ -608,7 +613,7 @@ pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<
     // one moved from the source is reached where it went.
     let dentries = source.mount.filesystem().dentries();
     dentries.delete(target.dentry(), &target.name);
-    dentries.rename(source.dentry(), &source.name, target.dentry(), &target.name);
+    dentries.d_move(source.dentry(), &source.name, target.dentry(), &target.name);
     Ok(())
 }
 
@@ -623,7 +628,10 @@ fn refuse_dot_end(start: &Path, path: &str, refusal: FilesystemError) -> Result<
         return Ok(());
     }
     if !parent.is_empty()
-        && resolve(start, parent, true, false)?.found()?.file_type != FileType::Directory
+        && filename_lookup(start, parent, true, false)?
+            .found()?
+            .file_type
+            != FileType::Directory
     {
         return Err(FilesystemError::NotADirectory.into());
     }

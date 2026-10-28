@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use kobako_runtime::vfs::{self, OpenHow, Opened};
+use kobako_runtime::vfs::{self, FileDescription, OpenHow};
 
 use super::args::{
     self, FDFLAGS_APPEND, FDFLAGS_NONBLOCK, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
@@ -141,12 +141,12 @@ pub(crate) fn open(
     how.follow = flags.dirflags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0;
     let mount = Arc::clone(dir.mount());
     let descriptor = match vfs::open(dir, &path, &how, !table.is_full())? {
-        Opened::Directory(path) => Descriptor::Directory(OpenDirectory {
+        FileDescription::Directory(path) => Descriptor::Directory(OpenDirectory {
             path,
             preopen: false,
             listing: None,
         }),
-        Opened::File(file) => Descriptor::File(OpenFile {
+        FileDescription::File(file) => Descriptor::File(OpenFile {
             file,
             position: 0,
             append: flags.fdflags & FDFLAGS_APPEND != 0,

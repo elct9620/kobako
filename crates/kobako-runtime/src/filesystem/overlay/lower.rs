@@ -100,7 +100,7 @@ impl Lower {
         )?;
         let dentries = self.filesystem.dentries();
         dentries.delete(&target.dentry, to);
-        dentries.rename(&self.dentry, from, &target.dentry, to);
+        dentries.d_move(&self.dentry, from, &target.dentry, to);
         Ok(())
     }
 }
