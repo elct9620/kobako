@@ -147,6 +147,8 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 1160) "in/inner/../../sub/y")
   (data (i32.const 1184) "loop")
   (data (i32.const 1190) "dir/sub")
+  (data (i32.const 1400) "dir/in/y")
+  (data (i32.const 1420) "dir/sub/y")
   ;; An iovec naming 16 bytes past the one page of memory.
   (data (i32.const 1140) "\00\00\02\00\10\00\00\00")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
@@ -2600,6 +2602,8 @@ const NOWHERE: (i32, i32) = (1130, 7);
 const OUT_OF_IN: (i32, i32) = (1160, 20);
 const LOOP: (i32, i32) = (1184, 4);
 const DIR_SUB: (i32, i32) = (1190, 7);
+const DIR_IN_Y: (i32, i32) = (1400, 8);
+const DIR_SUB_Y: (i32, i32) = (1420, 9);
 
 /// A host directory whose `dir` holds links staying within it (`in`,
 /// `twisty`), links leading out of it (`up`, `updir`), links pointing at
@@ -2730,6 +2734,25 @@ fn a_directory_renamed_onto_its_own_path_beneath_a_policy_stays() {
         (0, true),
         "path_rename of `dir/sub` onto itself beneath a Bind Mount with a Policy through \
          preview1 must change nothing and succeed, as rename(2) does"
+    );
+}
+
+// The two paths differ, so only the walk ending on one dentry tells the
+// rename it is onto itself; otherwise it waits on that name's lock twice.
+// @behavior RT-168
+#[cfg(unix)]
+#[test]
+fn a_file_renamed_onto_itself_through_a_link_stays() {
+    let host = LinkedBeneath::new("onto-itself-linked");
+    let mut guest = host.guest(false);
+    assert_eq!(
+        (
+            guest.call_pair("rename_paths", DIR_IN_Y, DIR_SUB_Y),
+            host.0.join("dir/sub/y").is_file()
+        ),
+        (0, true),
+        "path_rename of `dir/in/y` onto `dir/sub/y`, where `in` links to `sub`, beneath a Bind \
+         Mount through preview1 must change nothing and succeed, as rename(2) does"
     );
 }
 
