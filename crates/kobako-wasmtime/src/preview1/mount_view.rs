@@ -435,11 +435,11 @@ struct Guest {
 
 impl Guest {
     fn new(grants: &[Grant]) -> Self {
-        Self::holding_at_most(None, grants)
+        Self::with_open_file_limit(None, grants)
     }
 
     /// A guest holding at most `open_file_limit` descriptors at once.
-    fn holding_at_most(open_file_limit: Option<usize>, grants: &[Grant]) -> Self {
+    fn with_open_file_limit(open_file_limit: Option<usize>, grants: &[Grant]) -> Self {
         let engine = shared_engine().expect("shared engine must be constructible");
         let config = Config {
             timeout: None,
@@ -1097,7 +1097,7 @@ fn an_overlay_directory_takes_one_descriptor_however_many_layers_it_spans() {
     let overlay = Overlay::new()
         .layer(Filesystem::new(upper), Access::ReadWrite)
         .layer(Filesystem::new(file_and_directory()), Access::Read);
-    let mut guest = Guest::holding_at_most(
+    let mut guest = Guest::with_open_file_limit(
         Some(6),
         &[grant(Arc::new(overlay), Access::ReadWrite, None)],
     );
@@ -1461,13 +1461,13 @@ const FILETYPE_SYMBOLIC_LINK: u8 = 7;
 /// made by `make_target`, and a guest handed it as a read-only Bind
 /// Mount.
 #[cfg(unix)]
-fn linked(name: &str, make_target: fn(&std::path::Path)) -> (std::path::PathBuf, Guest) {
-    linked_under(name, make_target, Access::Read, None)
+fn mount_link(name: &str, make_target: fn(&std::path::Path)) -> (std::path::PathBuf, Guest) {
+    mount_link_under(name, make_target, Access::Read, None)
 }
 
 /// As `linked`, the Mount taking `access` and `policy`.
 #[cfg(unix)]
-fn linked_under(
+fn mount_link_under(
     name: &str,
     make_target: fn(&std::path::Path),
     access: Access,
@@ -1492,7 +1492,7 @@ fn stat_link(
     make_target: fn(&std::path::Path),
     stats: &[((i32, i32), i32)],
 ) -> Vec<(i32, u8)> {
-    let (host, mut guest) = linked(name, make_target);
+    let (host, mut guest) = mount_link(name, make_target);
     let answers = stats
         .iter()
         .map(|&(path, flags)| {
@@ -1597,7 +1597,7 @@ fn a_stat_of_a_link_named_with_a_trailing_slash_reports_its_directory() {
 /// its own.
 #[cfg(unix)]
 fn change_link_named_as_directory(name: &str, policy: Option<Arc<dyn Policy>>) -> ([i32; 2], bool) {
-    let (host, mut guest) = linked_under(name, directory_with_key, Access::ReadWrite, policy);
+    let (host, mut guest) = mount_link_under(name, directory_with_key, Access::ReadWrite, policy);
     let answers = [
         guest.call("unlink_path", FILE_AS_DIRECTORY),
         guest.call_pair("rename_paths", FILE_AS_DIRECTORY, MOVED),
@@ -1683,7 +1683,7 @@ fn an_allocation_for_a_file_beneath_a_mount_is_unsupported() {
 #[cfg(unix)]
 #[test]
 fn an_open_following_no_link_refuses_a_link_to_a_directory() {
-    let (host, mut guest) = linked("open-nofollow", |target| {
+    let (host, mut guest) = mount_link("open-nofollow", |target| {
         std::fs::create_dir(target).expect("the host directory must be created")
     });
     let answers = [
@@ -1713,7 +1713,7 @@ fn directory_with_key(target: &std::path::Path) {
 #[test]
 fn a_path_through_a_link_beneath_a_mount_with_a_policy_answers_eloop() {
     let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
-    let (host, mut guest) = linked_under(
+    let (host, mut guest) = mount_link_under(
         "policy-link",
         directory_with_key,
         Access::ReadWrite,
@@ -1726,7 +1726,7 @@ fn a_path_through_a_link_beneath_a_mount_with_a_policy_answers_eloop() {
     ];
     let kept = host.join("target/key").exists();
     let _ = std::fs::remove_dir_all(&host);
-    let (host, mut guest) = linked_under("plain-link", directory_with_key, Access::Read, None);
+    let (host, mut guest) = mount_link_under("plain-link", directory_with_key, Access::Read, None);
     let followed = [
         guest.call("read_file", THROUGH_FILE),
         guest.call("open_following", FILE),
@@ -2388,7 +2388,7 @@ fn a_file_moved_beneath_itself_is_no_directory() {
 #[cfg(unix)]
 #[test]
 fn an_open_following_no_link_finds_a_dangling_link_as_itself() {
-    let (host, mut guest) = linked_under("dangling", |_| {}, Access::ReadWrite, None);
+    let (host, mut guest) = mount_link_under("dangling", |_| {}, Access::ReadWrite, None);
     let answers = [
         guest.call_flagged(FILE, 0, 0),
         guest.call_flagged(FILE, OFLAGS_CREAT | OFLAGS_EXCL, 0),

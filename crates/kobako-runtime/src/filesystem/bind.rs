@@ -799,7 +799,7 @@ mod tests {
     /// A host directory holding `dir/sub/y` and `secret`, with `dir/in`
     /// linking to `sub` and `dir/up` to `../secret`.
     #[cfg(unix)]
-    fn linked_beneath(name: &str) -> HostDir {
+    fn make_links(name: &str) -> HostDir {
         let host = HostDir::new(name);
         fs::create_dir_all(host.0.join("dir/sub")).expect("the host directory must be created");
         fs::write(host.0.join("dir/sub/y"), "inner").expect("the inner file must be written");
@@ -816,7 +816,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_directory_opens_no_link_as_a_directory_where_asked_not_to_follow() {
-        let host = linked_beneath("open-dir-nofollow");
+        let host = make_links("open-dir-nofollow");
         let directory = opened(&host.0);
         let dir = directory.open_dir("dir").expect("the directory must open");
         assert_eq!(
@@ -830,7 +830,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_directory_reads_where_a_link_points() {
-        let host = linked_beneath("read-link");
+        let host = make_links("read-link");
         let directory = opened(&host.0);
         let dir = directory.open_dir("dir").expect("the directory must open");
         assert_eq!(

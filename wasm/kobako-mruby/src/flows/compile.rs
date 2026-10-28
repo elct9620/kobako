@@ -76,13 +76,13 @@ mod tests {
 
     /// A fresh VM per call, so a test compiles in one interpreter and
     /// replays in another, as a host does.
-    fn compiled(snippets: &[Snippet]) -> Result<Vec<Vec<u8>>, Panic> {
+    fn compile_fresh(snippets: &[Snippet]) -> Result<Vec<Vec<u8>>, Panic> {
         let mrb = Mrb::open().expect("the interpreter must open");
         let kobako = Kobako::init::<BridgeOnly>(&mrb).expect("a bridge-only shell must boot");
         compile_sources(&kobako, snippets)
     }
 
-    fn replayed(bytecodes: &[Vec<u8>], script: &str) -> Result<String, String> {
+    fn replay(bytecodes: &[Vec<u8>], script: &str) -> Result<String, String> {
         let mrb = Mrb::open().expect("the interpreter must open");
         for bytecode in bytecodes {
             // SAFETY: each blob is `compile_sources`' unmodified dump from
@@ -95,14 +95,14 @@ mod tests {
     // @behavior MR-019
     #[test]
     fn compiled_snippets_replay_what_their_source_defines() {
-        let bytecodes = compiled(&[
+        let bytecodes = compile_fresh(&[
             source("Greeter", "module Greeter; def self.hi = 'hi'; end"),
             source("Shout", "module Shout; def self.of(s) = s.upcase; end"),
         ])
         .expect("snippets that parse must compile");
 
         assert_eq!(
-            replayed(&bytecodes, "Shout.of(Greeter.hi)"),
+            replay(&bytecodes, "Shout.of(Greeter.hi)"),
             Ok("HI".to_string()),
             "source snippets through compile must come back as bytecode that, replayed in \
              order in another interpreter, defines what the source defined"
@@ -112,10 +112,10 @@ mod tests {
     // @behavior MR-020
     #[test]
     fn compiled_snippets_keep_their_name_in_backtraces() {
-        let bytecodes = compiled(&[source("Boom", "def boom\n  raise 'x'\nend")])
+        let bytecodes = compile_fresh(&[source("Boom", "def boom\n  raise 'x'\nend")])
             .expect("a snippet that parses must compile");
 
-        let backtrace = replayed(
+        let backtrace = replay(
             &bytecodes,
             "begin; boom; rescue => e; e.backtrace.first; end",
         );
@@ -132,7 +132,7 @@ mod tests {
     // @behavior MR-021
     #[test]
     fn compiling_runs_nothing_in_the_snippet() {
-        let bytecodes = compiled(&[source("Raises", "raise 'ran at compile'")]);
+        let bytecodes = compile_fresh(&[source("Raises", "raise 'ran at compile'")]);
 
         assert!(
             bytecodes.is_ok(),
@@ -144,7 +144,7 @@ mod tests {
     // @behavior MR-022
     #[test]
     fn one_snippet_that_does_not_compile_fails_the_whole_compile() {
-        let failed = compiled(&[source("Fine", "1"), source("Broken", "def (")])
+        let failed = compile_fresh(&[source("Fine", "1"), source("Broken", "def (")])
             .expect_err("a snippet that does not parse must fail the compile");
 
         assert_eq!(
@@ -168,8 +168,8 @@ mod tests {
         )];
 
         assert_eq!(
-            compiled(&snippets),
-            compiled(&snippets),
+            compile_fresh(&snippets),
+            compile_fresh(&snippets),
             "the same snippets compiled in two fresh interpreters must yield byte-identical \
              bytecode"
         );
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn bytecode_snippets_are_left_out() {
-        let bytecodes = compiled(&[
+        let bytecodes = compile_fresh(&[
             Snippet::Bytecode {
                 body: vec![0x52, 0x49, 0x54, 0x45],
             },

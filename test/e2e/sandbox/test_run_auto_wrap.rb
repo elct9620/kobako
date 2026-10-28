@@ -99,7 +99,7 @@ class TestSandboxRunAutoWrap < Minitest::Test
     sandbox.preload(code: MEASURE, name: :Measure)
     deepest = Kobako::Codec::MAX_NESTING_DEPTH - PAYLOAD_LEVELS
 
-    depth = sandbox.run(:Measure, nested(deepest)).value
+    depth = sandbox.run(:Measure, nest(deepest)).value
 
     assert_equal deepest, depth,
                  "a #run argument nested so the Run payload reaches the wire bound must arrive " \
@@ -108,7 +108,7 @@ class TestSandboxRunAutoWrap < Minitest::Test
 
   # @behavior T-219
   def test_argument_a_level_past_the_payload_bound_is_refused_by_the_host
-    too_deep = nested(Kobako::Codec::MAX_NESTING_DEPTH - PAYLOAD_LEVELS + 1)
+    too_deep = nest(Kobako::Codec::MAX_NESTING_DEPTH - PAYLOAD_LEVELS + 1)
 
     err = assert_raises(Kobako::SandboxError) { entry_sandbox.run(:App, too_deep) }
 
@@ -119,7 +119,7 @@ class TestSandboxRunAutoWrap < Minitest::Test
 
   # @behavior T-219
   def test_keyword_value_a_level_past_the_payload_bound_is_refused_by_the_host
-    too_deep = nested(Kobako::Codec::MAX_NESTING_DEPTH - PAYLOAD_LEVELS + 1)
+    too_deep = nest(Kobako::Codec::MAX_NESTING_DEPTH - PAYLOAD_LEVELS + 1)
 
     err = assert_raises(Kobako::SandboxError) { entry_sandbox.run(:App, value: too_deep) }
 
@@ -150,7 +150,7 @@ class TestSandboxRunAutoWrap < Minitest::Test
   private
 
   # A list nesting +depth+ levels around an empty one.
-  def nested(depth)
+  def nest(depth)
     (1..depth).reduce([]) { |inner, _| [inner] }
   end
 

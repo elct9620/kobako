@@ -18,7 +18,7 @@ module Kobako
 
       def self.authored_for?: (untyped target, Symbol name, UnboundMethod method, Module klass) -> bool
 
-      def self.refused: (Symbol name) -> String
+      def self.service_refusal: (Symbol name) -> String
 
       def self.owner_refusal: (untyped target, Symbol name, Module owner) -> String?
 

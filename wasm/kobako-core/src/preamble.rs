@@ -56,7 +56,7 @@ mod tests {
     use super::*;
     use kobako_transport::envelope::Bindings;
 
-    fn framed(payload: &[u8]) -> std::io::Cursor<Vec<u8>> {
+    fn frame_payload(payload: &[u8]) -> std::io::Cursor<Vec<u8>> {
         let mut bytes = (payload.len() as u32).to_be_bytes().to_vec();
         bytes.extend_from_slice(payload);
         std::io::Cursor::new(bytes)
@@ -75,7 +75,7 @@ mod tests {
     // @behavior WE-066
     #[test]
     fn read_framed_round_trips_a_prefixed_payload() {
-        let mut cursor = framed(b"hello");
+        let mut cursor = frame_payload(b"hello");
         assert_eq!(
             read_framed(&mut cursor),
             Some(b"hello".to_vec()),
@@ -103,7 +103,7 @@ mod tests {
         preamble.bindings = Bindings {
             paths: vec!["A".into()],
         };
-        let mut input = framed(&preamble.encode());
+        let mut input = frame_payload(&preamble.encode());
 
         assert_eq!(
             read_preamble_from(&mut input),
@@ -128,7 +128,7 @@ mod tests {
     // @behavior OC-043
     #[test]
     fn an_undecodable_preamble_answers_as_a_boot_failure() {
-        let mut input = framed(&[0xff]);
+        let mut input = frame_payload(&[0xff]);
 
         assert!(
             boot_message(read_preamble_from(&mut input).unwrap_err())
@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn a_critical_record_this_guest_does_not_know_answers_as_a_boot_failure() {
         // One critical record of the unassigned kind 0x7e, with an empty body.
-        let mut input = framed(&[0, 0, 0, 1, 1, 0x7e, 0, 0, 0, 0]);
+        let mut input = frame_payload(&[0, 0, 0, 1, 1, 0x7e, 0, 0, 0, 0]);
 
         assert!(
             boot_message(read_preamble_from(&mut input).unwrap_err()).contains("critical record"),

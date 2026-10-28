@@ -158,7 +158,7 @@ fn sce_errno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 pub(crate) fn type_error(mrb: &Mrb, value: Value) -> Error {
-    raised(
+    to_error(
         mrb,
         mrb.exception_type_error(),
         &format!(
@@ -172,7 +172,7 @@ fn errno_class(mrb: &Mrb, name: &core::ffi::CStr) -> Result<ExceptionClass, Erro
     mrb.module_get(c"Errno")?.const_get(mrb, name)
 }
 
-fn raised(mrb: &Mrb, class: Result<ExceptionClass, Error>, message: &str) -> Error {
+fn to_error(mrb: &Mrb, class: Result<ExceptionClass, Error>, message: &str) -> Error {
     match class {
         Ok(class) => Error::new(mrb, class, message),
         Err(err) => err,
@@ -180,11 +180,11 @@ fn raised(mrb: &Mrb, class: Result<ExceptionClass, Error>, message: &str) -> Err
 }
 
 pub(crate) fn io_error(mrb: &Mrb, message: &str) -> Error {
-    raised(mrb, mrb.exc_get(c"IOError"), message)
+    to_error(mrb, mrb.exc_get(c"IOError"), message)
 }
 
 pub(crate) fn not_implemented(mrb: &Mrb, message: &str) -> Error {
-    raised(mrb, mrb.exception_not_imp_error(), message)
+    to_error(mrb, mrb.exception_not_imp_error(), message)
 }
 
 /// WASI's `EBADF` on a file this guest opened: the file was not opened
@@ -236,5 +236,5 @@ pub(crate) fn error_by_name(mrb: &Mrb, name: &core::ffi::CStr, path: &str) -> Er
         .iter()
         .find(|code| code.name == name)
         .map_or("unknown error", |code| code.message);
-    raised(mrb, errno_class(mrb, name), &format!("{message} - {path}"))
+    to_error(mrb, errno_class(mrb, name), &format!("{message} - {path}"))
 }

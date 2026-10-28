@@ -225,7 +225,7 @@ mod tests {
     }
 
     // Install each into a scratch Catalog, the way a Sandbox does.
-    fn installed(extensions: impl IntoIterator<Item = Arc<dyn Extension>>) -> Extensions {
+    fn install_all(extensions: impl IntoIterator<Item = Arc<dyn Extension>>) -> Extensions {
         let mut catalog = Catalog::default();
         let mut registry = Extensions::default();
         for extension in extensions {
@@ -239,14 +239,14 @@ mod tests {
     // @behavior EX-023
     #[test]
     fn assert_dependencies_accepts_a_satisfied_set() {
-        let extensions = installed([ext("Errno", &[]), ext("File", &["Errno"])]);
+        let extensions = install_all([ext("Errno", &[]), ext("File", &["Errno"])]);
         assert!(extensions.assert_dependencies().is_ok());
     }
 
     // @behavior EX-031
     #[test]
     fn assert_dependencies_re_asserts_after_a_failed_seal() {
-        let extensions = installed([ext("File", &["Errno"])]);
+        let extensions = install_all([ext("File", &["Errno"])]);
         assert!(extensions.assert_dependencies().is_err());
         assert!(
             extensions.assert_dependencies().is_err(),
@@ -257,7 +257,7 @@ mod tests {
     // @behavior EX-025
     #[test]
     fn assert_dependencies_permits_cycles() {
-        let extensions = installed([ext("A", &["B"]), ext("B", &["A"])]);
+        let extensions = install_all([ext("A", &["B"]), ext("B", &["A"])]);
         assert!(extensions.assert_dependencies().is_ok());
     }
 
@@ -308,7 +308,7 @@ mod tests {
                 })
             }
         }
-        installed(specs.iter().map(|(path, provider)| {
+        install_all(specs.iter().map(|(path, provider)| {
             Arc::new(BackendExt {
                 path,
                 provider: provider.clone(),

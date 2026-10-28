@@ -62,7 +62,7 @@ mod tests {
         }
     }
 
-    fn scripted(replies: Vec<YieldReply>) -> ScriptedYielder {
+    fn script(replies: Vec<YieldReply>) -> ScriptedYielder {
         ScriptedYielder {
             replies: replies.into_iter().map(Ok).collect(),
             sent: Vec::new(),
@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn call_ships_the_args_as_one_msgpack_array() {
         let reply = YieldReply::Ok(Encoder::encode(&Value::Int(42)).unwrap());
-        let mut raw = scripted(vec![reply]);
+        let mut raw = script(vec![reply]);
 
         Yielder::new(&mut raw)
             .call_values(&[Value::Int(21)])
@@ -91,7 +91,7 @@ mod tests {
     #[test]
     fn call_reads_the_answer_back() {
         let reply = YieldReply::Ok(Encoder::encode(&Value::Int(42)).unwrap());
-        let mut raw = scripted(vec![reply]);
+        let mut raw = script(vec![reply]);
 
         let answer = Yielder::new(&mut raw)
             .call_values(&[Value::Int(21)])
@@ -108,7 +108,7 @@ mod tests {
     // @behavior T-289
     #[test]
     fn an_answer_past_the_value_budget_never_reaches_the_receiver() {
-        let mut raw = scripted(vec![YieldReply::Ok(vec![0x93, 0x01, 0x02, 0x03])]);
+        let mut raw = script(vec![YieldReply::Ok(vec![0x93, 0x01, 0x02, 0x03])]);
 
         let answer =
             crate::msgpack::budget::within(Some(3), || Yielder::new(&mut raw).call_values(&[]));
@@ -128,7 +128,7 @@ mod tests {
     // @behavior T-166
     #[test]
     fn an_ok_arm_this_schema_cannot_read_aborts() {
-        let mut raw = scripted(vec![YieldReply::Ok(vec![0xc1])]);
+        let mut raw = script(vec![YieldReply::Ok(vec![0xc1])]);
 
         let answer = Yielder::new(&mut raw).call_values(&[]);
 

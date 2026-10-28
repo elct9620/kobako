@@ -53,7 +53,7 @@ class TestE2ERubyFilesystemAppend < Minitest::Test
 
   APPEND = 'File.open("/data/note.txt", "a") { |f| f.write(" world") }'
 
-  def appended(filesystem, script)
+  def run_script(filesystem, script)
     Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", filesystem, access: :read_write).eval(script).value
   end
 
@@ -63,7 +63,7 @@ class TestE2ERubyFilesystemAppend < Minitest::Test
   def test_a_script_appends_through_a_ruby_filesystems_file
     AppendingFile.appends = []
     filesystem = NoteFilesystem.new(AppendingFile)
-    appended(filesystem, APPEND)
+    run_script(filesystem, APPEND)
 
     assert_equal ["hello world", [" world"]], [filesystem.note, AppendingFile.appends],
                  "IO#write to a file opened to append through a Ruby Filesystem must land at its end " \
@@ -73,7 +73,7 @@ class TestE2ERubyFilesystemAppend < Minitest::Test
   # @behavior RF-019
   def test_a_ruby_filesystems_file_without_append_refuses_an_append
     filesystem = NoteFilesystem.new(NoteFile)
-    answer = appended(filesystem, "begin; #{APPEND}; rescue Errno::ENOTSUP; \"refused\"; end")
+    answer = run_script(filesystem, "begin; #{APPEND}; rescue Errno::ENOTSUP; \"refused\"; end")
 
     assert_equal %w[refused hello], [answer, filesystem.note],
                  "IO#write to a file opened to append through a Ruby Filesystem whose file answers no append " \

@@ -18,15 +18,15 @@ use kobako::{Error, Options, Profile, RunPayload, Sandbox};
 
 /// A runtime that runs no wasm: it answers every invocation with one
 /// canned outcome and records the bound paths it was driven with.
-struct Canned {
+struct CannedRuntime {
     payload: Vec<u8>,
     profile: Profile,
     bound: Arc<Mutex<Vec<Vec<String>>>>,
 }
 
-impl Canned {
+impl CannedRuntime {
     fn new(payload: Vec<u8>, profile: Profile) -> Self {
-        Canned {
+        CannedRuntime {
             payload,
             profile,
             bound: Arc::new(Mutex::new(Vec::new())),
@@ -34,7 +34,7 @@ impl Canned {
     }
 }
 
-impl Runtime for Canned {
+impl Runtime for CannedRuntime {
     fn invoke(
         &self,
         _entry: Entry<'_>,
@@ -62,7 +62,7 @@ impl Runtime for Canned {
 // @behavior RT-052
 #[test]
 fn an_injected_runtime_drives_an_invocation_the_sandbox_set_up() {
-    let engine = Canned::new(vec![0x2a], Profile::Hermetic);
+    let engine = CannedRuntime::new(vec![0x2a], Profile::Hermetic);
     let bound = engine.bound.clone();
     let mut sandbox = Sandbox::with_runtime(engine, Profile::Hermetic)
         .expect("a hermetic engine meets the floor");
@@ -81,7 +81,7 @@ fn an_injected_runtime_drives_an_invocation_the_sandbox_set_up() {
 // @behavior RT-053
 #[test]
 fn an_injected_runtime_carries_the_registrations_the_sandbox_sealed() {
-    let engine = Canned::new(Vec::new(), Profile::Hermetic);
+    let engine = CannedRuntime::new(Vec::new(), Profile::Hermetic);
     let bound = engine.bound.clone();
     let mut sandbox = Sandbox::with_runtime(engine, Profile::Hermetic).unwrap();
     sandbox.bind_fillable("MyService::KV").unwrap();
@@ -99,7 +99,7 @@ fn an_injected_runtime_carries_the_registrations_the_sandbox_sealed() {
 // @behavior RT-012
 #[test]
 fn a_runtime_declaring_less_than_the_requested_floor_is_refused() {
-    let engine = Canned::new(Vec::new(), Profile::Permissive);
+    let engine = CannedRuntime::new(Vec::new(), Profile::Permissive);
 
     let refusal = Sandbox::with_runtime(engine, Profile::Hermetic);
 
@@ -113,7 +113,7 @@ fn a_runtime_declaring_less_than_the_requested_floor_is_refused() {
 // @behavior RT-014
 #[test]
 fn a_runtime_declaring_more_than_the_requested_floor_is_accepted() {
-    let engine = Canned::new(Vec::new(), Profile::Hermetic);
+    let engine = CannedRuntime::new(Vec::new(), Profile::Hermetic);
 
     assert!(
         Sandbox::with_runtime(engine, Profile::Permissive).is_ok(),

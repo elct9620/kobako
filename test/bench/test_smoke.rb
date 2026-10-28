@@ -17,7 +17,7 @@ class KobakoBenchSmokeTest < Minitest::Test
 
   def test_a_case_under_smoke_runs_its_body_exactly_once
     calls = 0
-    smoking { Runner.new("t").case("a") { calls += 1 } }
+    within_smoke { Runner.new("t").case("a") { calls += 1 } }
 
     assert_equal 1, calls,
                  "a probe case under KOBAKO_BENCH_SMOKE must execute its body exactly once — " \
@@ -34,7 +34,7 @@ class KobakoBenchSmokeTest < Minitest::Test
   end
 
   def test_a_smoked_case_records_a_row_for_later_annotation
-    runner = smoking { Runner.new("t").tap { |r| r.case("a") { nil } } }
+    runner = within_smoke { Runner.new("t").tap { |r| r.case("a") { nil } } }
 
     assert_equal ["a"], runner.results.map { |row| row[:label] },
                  "a smoked case must still record its row so a probe's follow-on " \
@@ -43,7 +43,7 @@ class KobakoBenchSmokeTest < Minitest::Test
 
   def test_case_with_usage_under_smoke_does_not_drive_the_sampling_loop
     calls = 0
-    smoking { Runner.new("t").case_with_usage("a") { calls += 1 } }
+    within_smoke { Runner.new("t").case_with_usage("a") { calls += 1 } }
 
     assert_equal 1, calls,
                  "case_with_usage under KOBAKO_BENCH_SMOKE must skip the usage sampling loop — " \
@@ -52,7 +52,7 @@ class KobakoBenchSmokeTest < Minitest::Test
 
   def test_a_one_shot_median_under_smoke_prepares_and_runs_once
     setups = calls = 0
-    runner = smoking do
+    runner = within_smoke do
       Runner.new("t").tap do |r|
         r.one_shot_median("a", rounds: 5, setup: -> { setups += 1 }) { calls += 1 }
       end
@@ -77,7 +77,7 @@ class KobakoBenchSmokeTest < Minitest::Test
   end
 
   def test_a_one_shot_under_smoke_records_no_measurement
-    runner = smoking { Runner.new("t").tap { |r| r.one_shot("a") { nil } } }
+    runner = within_smoke { Runner.new("t").tap { |r| r.one_shot("a") { nil } } }
 
     assert_nil runner.results.last[:seconds],
                "a one_shot under KOBAKO_BENCH_SMOKE must record no seconds, so a smoked row cannot " \
@@ -102,14 +102,14 @@ class KobakoBenchSmokeTest < Minitest::Test
   def smoked_write_into(dir)
     prior = ENV.fetch(Results::RESULTS_DIR_ENV, nil)
     ENV[Results::RESULTS_DIR_ENV] = dir
-    smoking { Runner.new("t").tap { |runner| runner.case("a") { nil } }.write! }
+    within_smoke { Runner.new("t").tap { |runner| runner.case("a") { nil } }.write! }
   ensure
     ENV[Results::RESULTS_DIR_ENV] = prior
   end
 
   # Run the block with the smoke flag set, restoring the prior value so
   # one test cannot leak the mode into the next.
-  def smoking(&block)
+  def within_smoke(&block)
     prior = ENV.fetch(Smoke::ENV_NAME, nil)
     ENV[Smoke::ENV_NAME] = "1"
     silently(&block)

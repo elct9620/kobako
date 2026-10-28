@@ -66,7 +66,7 @@ pub(crate) fn str_match(
 ) -> Result<Value, Error> {
     let block = crate::args::block(mrb)?;
     let re = regexp::spelled_regexp(mrb, pattern)?;
-    let md = re.funcall(mrb, c"match", forwarded(self_, pos).as_slice())?;
+    let md = re.funcall(mrb, c"match", to_args(self_, pos).as_slice())?;
     regexp::yield_match(mrb, md, block)
 }
 
@@ -77,12 +77,12 @@ pub(crate) fn str_match_p(
     pos: Option<Value>,
 ) -> Result<Value, Error> {
     let re = regexp::spelled_regexp(mrb, pattern)?;
-    re.funcall(mrb, c"match?", forwarded(self_, pos).as_slice())
+    re.funcall(mrb, c"match?", to_args(self_, pos).as_slice())
 }
 
 /// The subject, then the position only when the caller gave one, so the
 /// pattern's own method sees the same argument count.
-fn forwarded(subject: Value, pos: Option<Value>) -> Vec<Value> {
+fn to_args(subject: Value, pos: Option<Value>) -> Vec<Value> {
     core::iter::once(subject).chain(pos).collect()
 }
 

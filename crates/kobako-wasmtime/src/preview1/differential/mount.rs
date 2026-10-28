@@ -474,7 +474,7 @@ fn escapes(path: &str) -> bool {
 /// a final `.` after a link is `LOOP` and changes nothing, where cap-std
 /// steps out of where the link points; a call refused before its path
 /// resolves answers alike.
-fn expected(call: Call, path: &str, mut oracle: Observation) -> Observation {
+fn predict(call: Call, path: &str, mut oracle: Observation) -> Observation {
     let refused = |errno| Observation {
         errno: Some(errno),
         opened: [0; 4],
@@ -555,7 +555,7 @@ fn every_path_call_beneath_a_mount_answers_as_a_wasmtime_wasi_preopen() {
         .flat_map(|&call| paths.iter().map(move |path| (call, path.as_str())))
         .filter_map(|(call, path)| {
             let kobako = through_kobako(call, path);
-            let oracle = expected(call, path, through_wasmtime_wasi(call, path));
+            let oracle = predict(call, path, through_wasmtime_wasi(call, path));
             (kobako != oracle).then(|| format!("{call:?} {path:?}: {kobako:?} != {oracle:?}"))
         })
         .collect();

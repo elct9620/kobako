@@ -24,17 +24,17 @@ use kobako::{Profile, Sandbox};
 /// Answers each compile with `answer`, or panics when `panics` is set, and
 /// records what every request and every invocation was handed.
 #[derive(Default)]
-struct Compiling {
+struct Compiler {
     answer: Option<Vec<Vec<u8>>>,
     panics: bool,
     compiles: Arc<Mutex<usize>>,
-    replayed: Replayed,
+    replayed: Replays,
 }
 
 /// The snippet table each invocation was handed, in invocation order.
-type Replayed = Arc<Mutex<Vec<Vec<Snippet>>>>;
+type Replays = Arc<Mutex<Vec<Vec<Snippet>>>>;
 
-impl Runtime for Compiling {
+impl Runtime for Compiler {
     fn invoke(
         &self,
         _entry: Entry<'_>,
@@ -67,7 +67,7 @@ impl Runtime for Compiling {
 
 /// A Sandbox over `engine` preloading one source snippet, with the
 /// counters the engine shares.
-fn preload_snippet(engine: Compiling) -> (Sandbox, Arc<Mutex<usize>>, Replayed) {
+fn preload_snippet(engine: Compiler) -> (Sandbox, Arc<Mutex<usize>>, Replays) {
     let (compiles, replayed) = (engine.compiles.clone(), engine.replayed.clone());
     let mut sandbox = Sandbox::with_runtime(engine, Profile::Hermetic).unwrap();
     sandbox.preload("Alpha", "A = 1").unwrap();
@@ -77,9 +77,9 @@ fn preload_snippet(engine: Compiling) -> (Sandbox, Arc<Mutex<usize>>, Replayed) 
 /// Two invocations of a Sandbox preloading one source snippet: how many
 /// compiles it asked for, and the snippet table each invocation replayed.
 fn invoked_twice(answer: Option<Vec<Vec<u8>>>) -> (usize, Vec<Vec<Snippet>>) {
-    let (sandbox, compiles, replayed) = preload_snippet(Compiling {
+    let (sandbox, compiles, replayed) = preload_snippet(Compiler {
         answer,
-        ..Compiling::default()
+        ..Compiler::default()
     });
 
     sandbox.eval("A").unwrap();
@@ -130,9 +130,9 @@ fn source_nothing_compiled_keeps_replaying_and_is_not_compiled_again() {
 // @behavior S-195
 #[test]
 fn a_compile_that_panics_leaves_the_source_replaying() {
-    let (sandbox, _, replayed) = preload_snippet(Compiling {
+    let (sandbox, _, replayed) = preload_snippet(Compiler {
         panics: true,
-        ..Compiling::default()
+        ..Compiler::default()
     });
 
     let first = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sandbox.eval("A")));
@@ -170,7 +170,7 @@ impl kobako::Extension for NeedsErrno {
 // @behavior S-196
 #[test]
 fn an_unmet_dependency_is_refused_before_any_compile() {
-    let (mut sandbox, compiles, _) = preload_snippet(Compiling::default());
+    let (mut sandbox, compiles, _) = preload_snippet(Compiler::default());
     sandbox.install(Arc::new(NeedsErrno)).unwrap();
 
     let refused = sandbox.eval("A").is_err();

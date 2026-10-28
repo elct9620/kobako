@@ -77,12 +77,12 @@ module Kobako
         # A name with no method never reaches +instance_method+, which would
         # keep a guest-chosen name as a Symbol for the life of the process.
         def ambient_refusal(target, name)
-          return refused(name) if name == :method_missing
+          return service_refusal(name) if name == :method_missing
 
           klass = lookup_class(target)
           return defined_refusal(target, name, klass) if klass.public_method_defined?(name)
           return "no public method #{name.inspect} on target" unless target.respond_to?(name)
-          return refused(name) if klass.method_defined?(name) || klass.private_method_defined?(name)
+          return service_refusal(name) if klass.method_defined?(name) || klass.private_method_defined?(name)
 
           owner_refusal(target, name, klass)
         end
@@ -90,7 +90,7 @@ module Kobako
         def defined_refusal(target, name, klass)
           method = klass.instance_method(name)
           owner_refusal(target, name, method.owner) ||
-            (authored_for?(target, name, method, klass) ? nil : refused(name))
+            (authored_for?(target, name, method, klass) ? nil : service_refusal(name))
         end
 
         # A bound callable keeps its callable names and a record its member
@@ -102,7 +102,7 @@ module Kobako
           (klass <= Struct || klass <= Data) && target.members.include?(name)
         end
 
-        def refused(name)
+        def service_refusal(name)
           "method #{name.inspect} is not a Service method"
         end
 
@@ -110,7 +110,7 @@ module Kobako
           return nil unless ambient_owner?(owner, target)
           return nil if GADGET_OWNERS.include?(owner) && CALLABLE_ALLOW.include?(name)
 
-          refused(name)
+          service_refusal(name)
         end
 
         # The class a method lookup on +target+ starts at. A plain object's
