@@ -215,7 +215,7 @@ impl OverlayFs {
                         temp,
                         &OpenOptions {
                             create_new: true,
-                            ..options.clone()
+                            ..*options
                         },
                     )
                 })
