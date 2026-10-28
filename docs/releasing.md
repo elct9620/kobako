@@ -122,7 +122,7 @@ A wrong version usually means the gem jumped to `1.0.0` or one track inherited t
 
 The BREAKING CHANGES section is the last point at which a subject-only note can get its migration text. Rewriting it in the PR is safe while nothing else lands, since `release-please` regenerates the branch on every push.
 
-## Adding a crate to the linked group
+## Linked Group Seats
 
 A crate joins the group by taking every seat below. None fails where it was missed: three fail silently, and `test/tasks/test_release_wiring.rb` holds those three. The loud ones surface at release time, some part-way through a group publish that has already put crates on crates.io.
 

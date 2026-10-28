@@ -3,9 +3,9 @@
 require "json"
 
 # Readers behind the release-wiring test in
-# +test/tasks/test_release_wiring.rb+ (docs/releasing.md § Adding a crate
-# to the linked group): the seats a new crate can leave empty without
-# anything saying so.
+# +test/tasks/test_release_wiring.rb+ (docs/releasing.md § Linked Group
+# Seats): the seats a new crate can leave empty without anything saying
+# so.
 #
 # +release-please+ reads the manifest as its record of what each package
 # last released at, and rewrites a version only on a line carrying the
