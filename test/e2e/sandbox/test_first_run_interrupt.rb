@@ -9,22 +9,29 @@ require "rbconfig"
 # The guest never checks for a Ruby interrupt, so the signal waits until the
 # run hands its result back. The first result a process wraps is the one that
 # first meets that waiting signal, so only a child process that has run
-# nothing before can witness it. The child rescues the run and prints what it
-# caught; anything else ends it without a word.
+# nothing before can witness it. The child says when its run is about to
+# start and the test signals it then; the guest loop only has to outlast that
+# hand-off. The child prints what it caught, "late" when the signal missed
+# the run, and anything else ends it without a word.
 class TestE2EFirstRunInterrupt < Minitest::Test
   include E2eGuestHelper
 
   DEADLINE = 60
+  HAND_OFF = 0.05
 
   CHILD = <<~RUBY
     require "kobako"
     sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"))
-    Process.spawn("sleep 0.5 && kill -INT \#{Process.pid}")
+    returned = false
     begin
-      sandbox.eval("i = 0; while i < 100_000_000; i += 1; end; i")
+      $stdout.write("ready\\n")
+      $stdout.flush
+      sandbox.eval("i = 0; while i < 10_000_000; i += 1; end; i")
+      returned = true
+      sleep 1
       print "returned"
     rescue Interrupt
-      print "Interrupt"
+      print(returned ? "late" : "Interrupt")
     end
   RUBY
 
@@ -34,6 +41,7 @@ class TestE2EFirstRunInterrupt < Minitest::Test
     pid = Process.spawn({ "KOBAKO_WASM" => REAL_WASM }, RbConfig.ruby, "-I", TestPaths.source("lib"),
                         "-e", CHILD, out: writer, err: File::NULL)
     writer.close
+    interrupt_once_running(reader, pid)
     caught = finished_within_deadline?(pid) ? reader.read : :hung
 
     assert_equal "Interrupt", caught,
@@ -43,6 +51,13 @@ class TestE2EFirstRunInterrupt < Minitest::Test
   end
 
   private
+
+  def interrupt_once_running(reader, pid)
+    return unless reader.wait_readable(DEADLINE) && reader.gets == "ready\n"
+
+    sleep HAND_OFF
+    Process.kill(:INT, pid)
+  end
 
   def finished_within_deadline?(pid)
     deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + DEADLINE
