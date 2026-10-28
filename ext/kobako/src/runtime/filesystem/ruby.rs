@@ -234,10 +234,10 @@ impl Inode for RubyFilesystem {
     }
 
     /// A Ruby object answers `stat` alone, so it holds no links to refuse.
+    /// The directory is not asked about until a call needs it, so a walk
+    /// through several names asks the object once, by the whole path, as
+    /// 9p walks to a dentry's fid only when a call needs one.
     fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
-        if self.symlink_metadata(dentry)?.file_type != FileType::Directory {
-            return Err(FilesystemError::NotADirectory);
-        }
         Ok(Arc::new(Self {
             object: self.object,
             dev: self.dev,

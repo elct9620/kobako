@@ -41,11 +41,13 @@ cap-fs-ext = "4.0.3"
 
 # rustix switches a Bind's file to append mode for one write, so the
 # host places it at the file's end in one step; std cannot set file flags.
+# It also opens a Bind's directory several names deep with Linux's
+# openat2, and reads which macOS release confines such an open.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.4", features = ["fs"] }
+rustix = { version = "1.1.4", features = ["fs", "system"] }
 
 # libc asks macOS for the name a directory stores, which a Mount's Policy
-# judges in place of a spelling the host folds; rustix has no
-# getattrlist.
+# judges in place of a spelling the host folds, and opens a directory
+# beneath another with O_NOFOLLOW_ANY; rustix has neither.
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2.191"

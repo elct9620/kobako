@@ -1,16 +1,18 @@
 //! `Bind`: a Filesystem over a host directory, from which nothing
 //! outside it is reachable.
 //!
-//! Every name resolves through `cap_std::fs::Dir`, which refuses a `..`
-//! or a symbolic link that would lead out of the directory, so the
-//! confinement holds whatever name a caller hands over.
+//! Every name resolves through `cap_std::fs::Dir`, or the host's kernel
+//! where it confines a path itself, refusing a `..` or a symbolic link
+//! that would lead out of the directory, so the confinement holds
+//! whatever name a caller hands over.
 
+mod beneath;
 mod spelling;
 
 use std::any::Any;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::ambient_authority;
@@ -21,8 +23,47 @@ use crate::vfs::Dentry;
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
-pub struct Bind {
-    dir: Arc<Dir>,
+pub struct Bind(Arc<Node>);
+
+/// One directory of a Bind: held open, or named beneath its parent and
+/// opened when first asked, as Linux's 9p walks to a dentry's fid only
+/// when a call needs one. A walk through several names then opens the
+/// last of them in one call, and only a directory asked about holds a
+/// host descriptor.
+struct Node(Mutex<State>);
+
+enum State {
+    Open(Arc<Dir>),
+    Named { parent: Arc<Node>, name: String },
+}
+
+impl Node {
+    fn state(&self) -> MutexGuard<'_, State> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The host directory, opened beneath the nearest one held open by the
+    /// names in between, and held from then on.
+    fn dir(&self) -> Result<Arc<Dir>, FilesystemError> {
+        let (mut names, mut above) = match &*self.state() {
+            State::Open(dir) => return Ok(dir.clone()),
+            State::Named { parent, name } => (vec![name.clone()], parent.clone()),
+        };
+        let held = loop {
+            let next = match &*above.state() {
+                State::Open(dir) => break dir.clone(),
+                State::Named { parent, name } => {
+                    names.push(name.clone());
+                    parent.clone()
+                }
+            };
+            above = next;
+        };
+        names.reverse();
+        let dir = Arc::new(beneath::walk(&held, &names)?);
+        *self.state() = State::Open(dir.clone());
+        Ok(dir)
+    }
 }
 
 impl Bind {
@@ -42,12 +83,13 @@ impl Bind {
         dentry: &Dentry,
         call: impl FnOnce(&Dir, &str) -> Result<T, FilesystemError>,
     ) -> Result<T, FilesystemError> {
-        call(&self.dir, to_host_name(&dentry.name())?)
+        let dir = self.0.dir()?;
+        call(&dir, to_host_name(&dentry.name())?)
     }
 
     /// `dir`, opened beneath a Bind, as a Bind of its own.
     fn beneath(dir: Dir) -> Self {
-        Self { dir: Arc::new(dir) }
+        Self(Arc::new(Node(Mutex::new(State::Open(Arc::new(dir))))))
     }
 }
 
@@ -229,7 +271,7 @@ impl Inode for Bind {
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        Ok(to_metadata(self.dir.dir_metadata().map_err(to_error)?))
+        Ok(to_metadata(self.0.dir()?.dir_metadata().map_err(to_error)?))
     }
 
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -238,11 +280,15 @@ impl Inode for Bind {
         })
     }
 
-    /// The host directory's own descriptor, so its inode stays taken while
+    /// The directory named, opened when first asked; from then on it holds
+    /// the host directory's own descriptor, so its inode stays taken while
     /// it is open.
     fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
-        let dir = self.at(dentry, open_dir_nofollow)?;
-        Ok(Arc::new(Self::beneath(dir)))
+        let name = to_host_name(&dentry.name())?.to_string();
+        Ok(Arc::new(Self(Arc::new(Node(Mutex::new(State::Named {
+            parent: self.0.clone(),
+            name,
+        }))))))
     }
 
     fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
@@ -266,7 +312,8 @@ impl Inode for Bind {
     }
 
     fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.dir
+        self.0
+            .dir()?
             .entries()
             .map_err(to_error)?
             .map(|entry| {
@@ -316,7 +363,7 @@ impl Inode for Bind {
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
             .ok_or(FilesystemError::CrossesDevices)?;
-        if !(Arc::ptr_eq(&self.dir, &target.dir) && from.name() == to.name()) {
+        if !(Arc::ptr_eq(&self.0.dir()?, &target.0.dir()?) && from.name() == to.name()) {
             rename.check(self.symlink_metadata(from)?.file_type)?;
         }
         self.at(from, |from_dir, from_name| {

@@ -147,6 +147,19 @@ struct Walk {
     pending: VecDeque<Part>,
     follows_links: bool,
     links: usize,
+    /// Whether each directory stepped into is opened at once, so a link
+    /// on the way is found where it stands; otherwise a Filesystem may
+    /// open several names in one call when the walk is complete.
+    eager: bool,
+}
+
+/// Refuse what a directory just stepped into answers unless it opened as
+/// a directory.
+fn opened_as_directory(dir: &Arc<dyn Inode>) -> Result<(), FilesystemError> {
+    match dir.metadata()?.file_type {
+        FileType::Directory => Ok(()),
+        _ => Err(FilesystemError::NotADirectory),
+    }
 }
 
 impl Walk {
@@ -163,12 +176,19 @@ impl Walk {
     }
 
     /// Step into the directory `part` names, or follow the link standing
-    /// there; `dot` is a `.` or `..` right after it, which no link takes.
-    /// The directory is opened first, a link standing there refused, so
-    /// only a name that opens as none is asked what it is.
+    /// there; `dot` is a `.` or `..` right after it, which no link takes,
+    /// so the directory opens at once there. The directory is opened
+    /// first, a link standing there refused, so only a name that opens as
+    /// none is asked what it is.
     fn descend(&mut self, part: Part, dot: bool) -> Result<(), Error> {
         let dentry = self.child(&part.name);
-        match self.top().open_dir(&dentry) {
+        let opened = self.top().open_dir(&dentry).and_then(|dir| {
+            if self.eager || dot {
+                opened_as_directory(&dir)?;
+            }
+            Ok(dir)
+        });
+        match opened {
             Ok(dir) => {
                 self.frames.push(Frame {
                     dir,
@@ -241,6 +261,20 @@ impl Walk {
         }
     }
 
+    /// Settle what the walk found at its last name, as Linux's
+    /// `complete_walk` settles a lazy walk: a failure there may belong to
+    /// a directory stepped into but not yet opened, so that directory is
+    /// opened now, and its own failure answers the walk instead.
+    fn complete(
+        &self,
+        found: Result<Metadata, FilesystemError>,
+    ) -> Result<Result<Metadata, FilesystemError>, Error> {
+        if found.is_err() && self.frames.len() > self.above + 1 {
+            opened_as_directory(self.top())?;
+        }
+        Ok(found)
+    }
+
     /// Walk every pending name but the last, which is left to act on.
     fn run(&mut self, mut last: Option<Part>) -> Result<Option<Part>, Error> {
         while let Some(part) = self.pending.pop_front() {
@@ -291,11 +325,35 @@ impl Walk {
 /// is `InvalidFilename`. Where `follow` asks, a link at the end is followed
 /// too; one pointing at nothing is `FilesystemLoop` to a call that
 /// `creates`, since what it would create could lie outside `start`.
+///
+/// The walk first lets a Filesystem open the directories it steps through
+/// together, as the last is first asked about. A link on the way then
+/// answers as a loop, and where links are followed the walk starts over,
+/// opening each directory as it steps in, to find the link and follow it.
 pub(crate) fn resolve(
     start: &Path,
     path: &str,
     follow: bool,
     creates: bool,
+) -> Result<Resolved, Error> {
+    match path_lookupat(start, path, follow, creates, false) {
+        Err(Error::Filesystem(FilesystemError::FilesystemLoop))
+            if start.mount().follows_links() =>
+        {
+            path_lookupat(start, path, follow, creates, true)
+        }
+        resolved => resolved,
+    }
+}
+
+/// One walk of `path`, as Linux's `path_lookupat` is one attempt that
+/// `filename_lookup` repeats.
+fn path_lookupat(
+    start: &Path,
+    path: &str,
+    follow: bool,
+    creates: bool,
+    eager: bool,
 ) -> Result<Resolved, Error> {
     let chain = start.reach()?;
     if path.is_empty() {
@@ -319,6 +377,7 @@ pub(crate) fn resolve(
         pending: parts(path, false),
         follows_links: start.mount().follows_links(),
         links: 0,
+        eager,
     };
     let mut last = walk.run(None)?;
     let mut found = None;
@@ -334,10 +393,16 @@ pub(crate) fn resolve(
         followed = true;
         last = walk.run(None)?;
     }
-    if followed && creates && matches!(found, Some(Err(FilesystemError::NotFound))) {
+    let name = last.map(|part| part.name).unwrap_or_default();
+    let found = match found {
+        Some(found) => found,
+        None if name.is_empty() => walk.top().metadata(),
+        None => walk.top().symlink_metadata(&walk.child(&name)),
+    };
+    let found = walk.complete(found)?;
+    if followed && creates && matches!(found, Err(FilesystemError::NotFound)) {
         return Err(FilesystemError::FilesystemLoop.into());
     }
-    let name = last.map(|part| part.name).unwrap_or_default();
     let judged = start
         .dentry()
         .names()
@@ -370,6 +435,6 @@ pub(crate) fn resolve(
         judged,
         names_directory: names_directory(path),
         frames: walk.frames,
-        found,
+        found: Some(found),
     })
 }

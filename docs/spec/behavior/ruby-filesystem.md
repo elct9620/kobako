@@ -30,6 +30,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 - `test/e2e/test_ruby_filesystem_errno.rb`
 - `test/e2e/test_ruby_filesystem_append.rb`
 - `test/e2e/test_ruby_filesystem_sync.rb`
+- `test/e2e/test_ruby_filesystem_walk.rb`
 
 ## `RF-001` A Ruby object answering open and stat mounts as a Filesystem
 
@@ -288,3 +289,15 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a guest holding a Ruby file whose `fsync` raises `Errno::ENOTSUP`, and one lacking `fsync` |
 | When | the guest syncs each file |
 | Then | the first sync answers ENOTSUP, and the second succeeds |
+
+## `RF-022` A path through a Ruby Filesystem's directories asks stat once
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem holding a file three directories deep |
+| When | the script reads that file |
+| Then | the object's `stat` is asked about the file alone, by its whole path |
