@@ -348,7 +348,7 @@ Some risks stay with the host, because kobako cannot see them.
 | a link in an Overlay's lower Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
 | a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
 | a `\` in a name a Ruby Filesystem receives | the Filesystem's to refuse, as Windows reads it as a separator |
-| one Overlay's upper shared by another | the two are not serialized against each other |
+| one Overlay's upper shared by another, or mounted on its own | undefined, as overlayfs leaves it; no crash or deadlock |
 | one Overlay mounted in invocations that run at once | each waits for the other's call, and the wait runs past `timeout:` |
 
 ### Opened Directories

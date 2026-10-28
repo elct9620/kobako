@@ -17,7 +17,8 @@ module Kobako
   # [<tt>Overlay.new(lower: [filesystem, ...], upper: tmpfs)</tt>]
   #   Read-only lower Layers, topmost first, under an upper Tmpfs that
   #   takes every change, as Linux's overlayfs stacks them. Without
-  #   +upper+ the view is read-only and needs two lower Layers.
+  #   +upper+ the view is read-only and needs two lower Layers. It takes
+  #   at most 500 lower Layers and stacks at most two Overlays deep.
   #
   # A Tmpfs is bounded as a tmpfs mount is: its files hold
   # at most +size+ bytes together, and it holds at most +nr_inodes+ files and

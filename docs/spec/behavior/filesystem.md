@@ -1343,3 +1343,27 @@ both live in the upper, never show, and no name may claim .wh. in any case
 | Given | one Tmpfs |
 | When | an Overlay is built with it as its upper and no lower Layer |
 | Then | it is refused as invalid input |
+
+## `FS-126` An Overlay stacks at most two deep
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-008` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lower Layer is an Overlay |
+| When | another Overlay is built over it |
+| Then | it is refused as invalid input |
+
+## `FS-127` An Overlay takes at most 500 lower Layers
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-008` |
+
+| Step | Statement |
+| --- | --- |
+| Given | 501 Tmpfs |
+| When | an Overlay is built over all of them |
+| Then | it is refused as invalid input |

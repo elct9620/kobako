@@ -42,14 +42,25 @@ pub struct Overlay {
     lock: Arc<Exclusive>,
     /// The directory this one stands for, `None` for the root.
     inode: Option<Arc<OverlayInode>>,
+    /// How many Overlays stack here, itself among them, as Linux counts
+    /// a super block's `s_stack_depth`.
+    stack_depth: usize,
 }
+
+/// The deepest Overlays may stack, as Linux's `FILESYSTEM_MAX_STACK_DEPTH`
+/// bounds it, so a call through them cannot run out of stack.
+const MAX_STACK_DEPTH: usize = 2;
+
+/// The most lower Layers an Overlay takes, as overlayfs's `OVL_MAX_STACK`.
+const MAX_LOWER_LAYERS: usize = 500;
 
 impl Overlay {
     /// An Overlay of `lower`, topmost first, under `upper`. Each Layer is
     /// asked through that Filesystem's dentries, as overlayfs asks each
     /// layer by its own lookup. As overlayfs's mount does, it refuses no
-    /// lower Layer, and a read-only view of fewer than two; as gVisor's
-    /// does, it refuses an upper that is no Tmpfs.
+    /// lower Layer, a read-only view of fewer than two, too many lower
+    /// Layers, and a stack too deep; as gVisor's does, it refuses an
+    /// upper that is no Tmpfs.
     pub fn new(
         lower: Vec<Arc<Filesystem>>,
         upper: Option<Arc<Filesystem>>,
@@ -58,13 +69,23 @@ impl Overlay {
         let upper_tmpfs = upper
             .as_ref()
             .is_none_or(|upper| (upper.root().as_ref() as &dyn Any).is::<Tmpfs>());
-        if lower.len() < too_few || !upper_tmpfs {
+        let stack_depth = 1 + lower
+            .iter()
+            .filter_map(|layer| (layer.root().as_ref() as &dyn Any).downcast_ref::<Self>())
+            .map(|overlay| overlay.stack_depth)
+            .max()
+            .unwrap_or(0);
+        if !(too_few..=MAX_LOWER_LAYERS).contains(&lower.len())
+            || !upper_tmpfs
+            || stack_depth > MAX_STACK_DEPTH
+        {
             return Err(FilesystemError::InvalidInput);
         }
         Ok(Self {
             fs: OverlayFs::new(lower, upper),
             lock: Arc::new(Exclusive::new(Arc::new(Inline))),
             inode: None,
+            stack_depth,
         })
     }
 
@@ -962,6 +983,39 @@ mod tests {
             refusal(vec![Arc::new(Tmpfs::new())], None),
             Some(FilesystemError::InvalidInput),
             "Overlay::new with one lower Layer and no upper must be refused as invalid input"
+        );
+    }
+
+    // Two Overlays deep is what Linux allows, so only a third is refused.
+    // @behavior FS-126
+    #[test]
+    fn an_overlay_stacks_at_most_two_deep() {
+        let first: Arc<dyn Inode> =
+            Arc::new(lowers(Arc::new(Tmpfs::new()), Arc::new(Tmpfs::new())));
+        let second: Arc<dyn Inode> = Arc::new(over(first.clone(), Arc::new(Tmpfs::new())));
+        assert_eq!(
+            (
+                refusal(vec![first], Some(Arc::new(Tmpfs::new()))),
+                refusal(vec![second], Some(Arc::new(Tmpfs::new())))
+            ),
+            (None, Some(FilesystemError::InvalidInput)),
+            "Overlay::new over an Overlay must make a view, and over an Overlay over an Overlay \
+             must be refused as invalid input"
+        );
+    }
+
+    // @behavior FS-127
+    #[test]
+    fn an_overlay_takes_at_most_five_hundred_lower_layers() {
+        let layers = |count: usize| -> Vec<Arc<dyn Inode>> {
+            (0..count)
+                .map(|_| Arc::new(Tmpfs::new()) as Arc<dyn Inode>)
+                .collect()
+        };
+        assert_eq!(
+            (refusal(layers(500), None), refusal(layers(501), None)),
+            (None, Some(FilesystemError::InvalidInput)),
+            "Overlay::new must take 500 lower Layers and refuse 501 as invalid input"
         );
     }
 

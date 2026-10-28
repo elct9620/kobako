@@ -246,7 +246,7 @@ overlay = Kobako::Filesystem::Overlay.new(
 sandbox.mount("/app", overlay, access: :read_write)
 ```
 
-A lower file is copied up into the upper before it changes. A new or renamed file lands in the upper. A removal hides what a lower Layer keeps with an [OCI whiteout](https://github.com/opencontainers/image-spec/blob/main/layer.md#whiteouts), `.wh.<name>`, kept in the upper. Names starting with `.wh.`, in any case, are therefore reserved. Without `upper:`, every change raises `Errno::EROFS`, and two lower Layers are needed.
+A lower file is copied up into the upper before it changes. A new or renamed file lands in the upper. A removal hides what a lower Layer keeps with an [OCI whiteout](https://github.com/opencontainers/image-spec/blob/main/layer.md#whiteouts), `.wh.<name>`, kept in the upper. Names starting with `.wh.`, in any case, are therefore reserved. Without `upper:`, every change raises `Errno::EROFS`, and two lower Layers are needed. As in Linux, an Overlay takes at most 500 lower Layers and stacks at most two deep.
 
 #### Filesystems in Ruby
 
