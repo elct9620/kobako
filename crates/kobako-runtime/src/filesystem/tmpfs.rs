@@ -620,7 +620,7 @@ impl Inode for Tmpfs {
     }
 
     /// The move `rename2` makes with no flag, once `rename` allows what
-    /// stands at the source; a move onto its own name changes nothing.
+    /// stands at the source.
     fn rename(
         &self,
         from: &Dentry,
@@ -632,13 +632,7 @@ impl Inode for Tmpfs {
             .downcast_ref::<Self>()
             .ok_or(FilesystemError::CrossesDevices)?;
         let (from, to) = (&from.name(), &to.name());
-        let moving = self.dir.find(from)?;
-        let (from_dir, from_name) = self.dir.parent_of(from)?;
-        let (to_dir, to_name) = target.dir.parent_of(to)?;
-        if Arc::ptr_eq(&from_dir, &to_dir) && from_name == to_name {
-            return Ok(());
-        }
-        rename.check(moving.file_type())?;
+        rename.check(self.dir.find(from)?.file_type())?;
         self.rename2(from, target, to, None)
     }
 }

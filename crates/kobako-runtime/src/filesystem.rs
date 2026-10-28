@@ -100,10 +100,10 @@ pub trait Inode: Any + Send + Sync {
     fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
 
     /// Move the entry `from` names to `to` in `to_dir`, refusing one
-    /// `rename` does not allow; a move onto its own name changes nothing
-    /// and is allowed. A runtime hands only a `to_dir` of the same Mount,
-    /// so it is of this Filesystem's own type, and one that is not answers
-    /// `CrossesDevices`. The Filesystem checks what stands at `from` as it
+    /// `rename` does not allow. A runtime never hands a move onto its own
+    /// name, as Linux's VFS answers one itself, and hands only a `to_dir`
+    /// of the same Mount, so it is of this Filesystem's own type, and one
+    /// that is not answers `CrossesDevices`. The Filesystem checks what stands at `from` as it
     /// moves it, under the same lock, so nothing replaces it in between.
     fn rename(
         &self,

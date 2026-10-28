@@ -357,9 +357,7 @@ impl Inode for Bind {
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
             .ok_or(FilesystemError::CrossesDevices)?;
-        if !(Arc::ptr_eq(&self.0.dir()?, &target.0.dir()?) && from.name() == to.name()) {
-            rename.check(self.symlink_metadata(from)?.file_type)?;
-        }
+        rename.check(self.symlink_metadata(from)?.file_type)?;
         self.at(from, |from_dir, from_name| {
             target.at(to, |to_dir, to_name| {
                 from_dir

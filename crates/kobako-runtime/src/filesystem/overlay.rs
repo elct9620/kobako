@@ -195,9 +195,7 @@ impl Inode for Overlay {
         let (mut to_chain, to) = (target.chain(true)?, to.name());
         self.fs
             .rename(&mut from_chain, &from, &mut to_chain, &to, rename)?;
-        if from_chain.path_of(&from) != to_chain.path_of(&to) {
-            self.fs.inodes().forget(&to_chain.path_of(&to));
-        }
+        self.fs.inodes().forget(&to_chain.path_of(&to));
         Ok(())
     }
 }
