@@ -47,7 +47,7 @@ struct Holders {
 }
 
 /// The semaphore while one call holds it, freed as the call returns.
-pub(crate) struct Held<'a> {
+pub(crate) struct RwSemaphoreGuard<'a> {
     semaphore: &'a RwSemaphore,
     holder: ThreadId,
     exclusive: bool,
@@ -67,7 +67,10 @@ impl RwSemaphore {
     }
 
     /// Hold it shared, waiting through `blocking` while a writer holds it.
-    pub(crate) fn down_read(&self, blocking: &dyn Blocking) -> Result<Held<'_>, FilesystemError> {
+    pub(crate) fn down_read(
+        &self,
+        blocking: &dyn Blocking,
+    ) -> Result<RwSemaphoreGuard<'_>, FilesystemError> {
         let me = me();
         self.down(blocking, me, false, |holders| match holders.writer {
             Some(writer) if writer == me => Err(FilesystemError::Deadlock),
@@ -80,7 +83,10 @@ impl RwSemaphore {
     }
 
     /// Hold it exclusive, waiting through `blocking` while anyone holds it.
-    pub(crate) fn down_write(&self, blocking: &dyn Blocking) -> Result<Held<'_>, FilesystemError> {
+    pub(crate) fn down_write(
+        &self,
+        blocking: &dyn Blocking,
+    ) -> Result<RwSemaphoreGuard<'_>, FilesystemError> {
         let me = me();
         self.down(blocking, me, true, |holders| {
             if holders.writer == Some(me) || holders.readers.contains(&me) {
@@ -101,7 +107,7 @@ impl RwSemaphore {
         holder: ThreadId,
         exclusive: bool,
         mut take: impl FnMut(&mut Holders) -> Result<bool, FilesystemError>,
-    ) -> Result<Held<'_>, FilesystemError> {
+    ) -> Result<RwSemaphoreGuard<'_>, FilesystemError> {
         let mut holders = self.holders();
         if !take(&mut holders)? {
             drop(holders);
@@ -128,7 +134,7 @@ impl RwSemaphore {
             });
             taken?;
         }
-        Ok(Held {
+        Ok(RwSemaphoreGuard {
             semaphore: self,
             holder,
             exclusive,
@@ -136,7 +142,7 @@ impl RwSemaphore {
     }
 }
 
-impl Drop for Held<'_> {
+impl Drop for RwSemaphoreGuard<'_> {
     fn drop(&mut self) {
         let mut holders = self.semaphore.holders();
         if self.exclusive {

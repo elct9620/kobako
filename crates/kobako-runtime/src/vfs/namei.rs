@@ -19,7 +19,7 @@ use std::sync::Arc;
 use super::dentry::Dentry;
 use super::openat2::{vfs_open, FileDescription, OpenHow};
 use super::path::{Identity, Path, Step};
-use super::rwsem::Held;
+use super::rwsem::RwSemaphoreGuard;
 use super::times::mask_file_times;
 use super::Error;
 use crate::filesystem::{Access, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename};
@@ -185,13 +185,16 @@ fn look_up(dir: &Arc<dyn Inode>, child: &Dentry, name: &str) -> Result<Metadata,
 pub(crate) fn down_read<'a>(
     mount: &Mount,
     dentry: &'a Dentry,
-) -> Result<Held<'a>, FilesystemError> {
+) -> Result<RwSemaphoreGuard<'a>, FilesystemError> {
     dentry.rwsem.down_read(mount.filesystem().blocking())
 }
 
 /// Hold `dentry`'s directory lock exclusive, as Linux holds a directory
 /// while a name in it is made, removed, or moved.
-fn down_write<'a>(mount: &Mount, dentry: &'a Dentry) -> Result<Held<'a>, FilesystemError> {
+fn down_write<'a>(
+    mount: &Mount,
+    dentry: &'a Dentry,
+) -> Result<RwSemaphoreGuard<'a>, FilesystemError> {
     dentry.rwsem.down_write(mount.filesystem().blocking())
 }
 
@@ -686,7 +689,7 @@ fn lock_parents<'a>(
     mount: &Mount,
     old_dir: &'a Arc<Dentry>,
     new_dir: &'a Arc<Dentry>,
-) -> Result<Vec<Held<'a>>, FilesystemError> {
+) -> Result<Vec<RwSemaphoreGuard<'a>>, FilesystemError> {
     if Arc::ptr_eq(old_dir, new_dir) {
         return Ok(vec![down_write(mount, old_dir)?]);
     }
@@ -751,14 +754,14 @@ mod tests {
     /// place of making one, and as it moves an entry. A directory it opens
     /// is the Tmpfs's own, so only calls on the root are stepped into.
     #[derive(Default)]
-    struct Hooked {
+    struct HookedTmpfs {
         tmpfs: Tmpfs,
         removed: Option<Hook>,
         making: Option<Hook>,
         renames: AtomicUsize,
     }
 
-    impl Inode for Hooked {
+    impl Inode for HookedTmpfs {
         fn open(
             &self,
             dentry: &Dentry,
@@ -856,7 +859,7 @@ mod tests {
         let (removed, removing) = mpsc::channel();
         let (made, making) = mpsc::channel::<()>();
         let (removed, making) = (Mutex::new(removed), Mutex::new(making));
-        let hooked = Hooked {
+        let hooked = HookedTmpfs {
             removed: Some(Box::new(move || {
                 removed.lock().expect("unpoisoned").send(()).ok();
                 let _ = making
@@ -865,7 +868,7 @@ mod tests {
                     .recv_timeout(Duration::from_millis(200));
                 Ok(())
             })),
-            ..Hooked::default()
+            ..HookedTmpfs::default()
         };
         let root = root_of(Filesystem::new(Arc::new(hooked)));
         vfs::create_dir(&root, "d").expect("the directory must be made");
@@ -896,7 +899,7 @@ mod tests {
     // @behavior RT-164
     #[test]
     fn a_directory_moved_beneath_itself_is_refused_whatever_its_filesystem() {
-        let hooked = Arc::new(Hooked::default());
+        let hooked = Arc::new(HookedTmpfs::default());
         let root = root_of(Filesystem::new(hooked.clone()));
         vfs::create_dir(&root, "a").expect("the directory must be made");
         vfs::create_dir(&root, "a/b").expect("the directory beneath it must be made");
@@ -918,7 +921,7 @@ mod tests {
     #[test]
     fn a_filesystem_changing_the_directory_its_own_change_holds_answers_a_deadlock() {
         let root = Arc::new(OnceLock::<Path>::new());
-        let hooked = Hooked {
+        let hooked = HookedTmpfs {
             making: Some(Box::new({
                 let root = root.clone();
                 move || match vfs::create_dir(root.get().expect("the root is set"), "other") {
@@ -926,7 +929,7 @@ mod tests {
                     _ => Ok(()),
                 }
             })),
-            ..Hooked::default()
+            ..HookedTmpfs::default()
         };
         let path = root_of(Filesystem::new(Arc::new(hooked)));
         root.set(path.clone()).ok();
@@ -944,7 +947,7 @@ mod tests {
         let counts = Arc::new(CountsWaits::default());
         let (removed, removing) = mpsc::channel();
         let removed = Mutex::new(removed);
-        let hooked = Hooked {
+        let hooked = HookedTmpfs {
             removed: Some(Box::new({
                 let counts = counts.clone();
                 move || {
@@ -960,7 +963,7 @@ mod tests {
                     Ok(())
                 }
             })),
-            ..Hooked::default()
+            ..HookedTmpfs::default()
         };
         let root = root_of(Filesystem::with_blocking(Arc::new(hooked), counts.clone()));
         vfs::create_dir(&root, "d").expect("the directory must be made");

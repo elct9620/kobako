@@ -36,7 +36,7 @@ impl Exclusive {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    pub(super) fn hold(&self) -> Result<Held<'_>, FilesystemError> {
+    pub(super) fn hold(&self) -> Result<ExclusiveGuard<'_>, FilesystemError> {
         let me = thread::current().id();
         let mut holder = self.holder();
         match *holder {
@@ -56,14 +56,14 @@ impl Exclusive {
             }
             None => *holder = Some(me),
         }
-        Ok(Held(self))
+        Ok(ExclusiveGuard(self))
     }
 }
 
 /// The lock while one call holds it, freed as the call returns.
-pub(super) struct Held<'a>(&'a Exclusive);
+pub(super) struct ExclusiveGuard<'a>(&'a Exclusive);
 
-impl Drop for Held<'_> {
+impl Drop for ExclusiveGuard<'_> {
     fn drop(&mut self) {
         *self.0.holder() = None;
         self.0.freed.notify_one();
