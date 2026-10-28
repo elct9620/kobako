@@ -1,6 +1,7 @@
-//! A test's way to ask a Filesystem about a path: the VFS resolves the
-//! path to a dentry, as it does for every call, and the Filesystem is
-//! asked about that dentry, so a test sees the Filesystem's own answer.
+//! A test's way to ask a Filesystem about a path, as kernel code reaches a
+//! file by name through `kern_path`: the VFS resolves the path to a
+//! dentry, as it does for every call, and the Filesystem is asked about
+//! that dentry, so a test sees the Filesystem's own answer.
 
 use std::sync::Arc;
 
@@ -15,13 +16,13 @@ use crate::profile::Profile;
 
 /// A directory of a Filesystem reached through the VFS.
 #[derive(Clone)]
-pub(crate) struct Through(Path);
+pub(crate) struct KernPath(Path);
 
 /// The root of `filesystem`, mounted read-write.
-pub(crate) fn through(filesystem: Arc<dyn Inode>) -> Through {
+pub(crate) fn kern_path(filesystem: Arc<dyn Inode>) -> KernPath {
     let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
         .expect("/data is a guest path");
-    Through(Path::root(mount, Profile::Permissive))
+    KernPath(Path::root(mount, Profile::Permissive))
 }
 
 fn to_filesystem_error(error: Error) -> FilesystemError {
@@ -32,7 +33,7 @@ fn to_filesystem_error(error: Error) -> FilesystemError {
     }
 }
 
-impl Through {
+impl KernPath {
     /// `path` resolved beneath this directory, a link at its end left as
     /// it stands.
     fn resolve(&self, path: &str) -> Result<Nameidata, FilesystemError> {

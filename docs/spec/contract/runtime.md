@@ -20,11 +20,12 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/snapshot.rs`
 - `crates/kobako-runtime/src/vfs.rs`
 - `crates/kobako-runtime/src/vfs/dentry.rs`
-- `crates/kobako-runtime/src/vfs/entry.rs`
 - `crates/kobako-runtime/src/vfs/filesystem.rs`
-- `crates/kobako-runtime/src/vfs/openat.rs`
+- `crates/kobako-runtime/src/vfs/namei.rs`
+- `crates/kobako-runtime/src/vfs/openat2.rs`
 - `crates/kobako-runtime/src/vfs/path.rs`
 - `crates/kobako-runtime/src/vfs/stat.rs`
+- `crates/kobako-runtime/src/vfs/utimes.rs`
 - `crates/kobako-runtime/src/yielder.rs`
 
 ## `Runtime`

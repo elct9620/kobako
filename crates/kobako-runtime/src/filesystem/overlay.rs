@@ -214,7 +214,7 @@ mod tests {
     use super::super::tmpfs::Tmpfs;
     use super::super::FileType;
     use super::*;
-    use crate::vfs::through::{through, Through};
+    use crate::vfs::kern_path::{kern_path, KernPath};
 
     /// The answer of a test Filesystem holding no links.
     macro_rules! holds_no_links {
@@ -254,16 +254,16 @@ mod tests {
     }
 
     /// `filesystem` reached through the VFS.
-    fn at(filesystem: impl Inode) -> Through {
-        through(Arc::new(filesystem))
+    fn at(filesystem: impl Inode) -> KernPath {
+        kern_path(Arc::new(filesystem))
     }
 
     /// The Filesystem `filesystem` holds, reached through the VFS.
-    fn on<F: Inode>(filesystem: &Arc<F>) -> Through {
-        through(filesystem.clone())
+    fn on<F: Inode>(filesystem: &Arc<F>) -> KernPath {
+        kern_path(filesystem.clone())
     }
 
-    fn open_to_read(fs: &Through, path: &str) -> Box<dyn File> {
+    fn open_to_read(fs: &KernPath, path: &str) -> Box<dyn File> {
         fs.open(
             path,
             &OpenOptions {
@@ -281,11 +281,11 @@ mod tests {
         buf
     }
 
-    fn read(fs: &Through, path: &str) -> Vec<u8> {
+    fn read(fs: &KernPath, path: &str) -> Vec<u8> {
         read_from(open_to_read(fs, path).as_mut())
     }
 
-    fn write(fs: &Through, path: &str, contents: &[u8]) -> Result<(), FilesystemError> {
+    fn write(fs: &KernPath, path: &str, contents: &[u8]) -> Result<(), FilesystemError> {
         fs.open(
             path,
             &OpenOptions {
@@ -299,11 +299,11 @@ mod tests {
         .map(drop)
     }
 
-    fn overwrite(fs: &Through, path: &str, contents: &[u8]) {
+    fn overwrite(fs: &KernPath, path: &str, contents: &[u8]) {
         write(fs, path, contents).expect("the write must land");
     }
 
-    fn names(fs: &Through, path: &str) -> Vec<String> {
+    fn names(fs: &KernPath, path: &str) -> Vec<String> {
         let listed = match path {
             "" => fs.entries(),
             path => fs.open_dir(path).and_then(|dir| dir.entries()),
@@ -323,7 +323,7 @@ mod tests {
 
     /// A writable `upper` over a read-only Tmpfs holding `dir/file` =
     /// "lower".
-    fn overlay_on(upper: Arc<dyn Inode>) -> (Through, Arc<Tmpfs>) {
+    fn overlay_on(upper: Arc<dyn Inode>) -> (KernPath, Arc<Tmpfs>) {
         let lower = tmpfs_with("dir/file", "lower");
         let overlay = Overlay::new()
             .layer(Filesystem::new(upper), Access::ReadWrite)
@@ -357,12 +357,12 @@ mod tests {
         }
 
         /// A writable Tmpfs over the host directory as a read-only Layer.
-        fn overlay(&self) -> Through {
+        fn overlay(&self) -> KernPath {
             self.under(Arc::new(Tmpfs::new()))
         }
 
         /// The host directory as a read-only Layer beneath `upper`.
-        fn under(&self, upper: Arc<dyn Inode>) -> Through {
+        fn under(&self, upper: Arc<dyn Inode>) -> KernPath {
             let lower = super::super::Bind::new(&self.0).expect("the host directory must open");
             at(Overlay::new()
                 .layer(Filesystem::new(upper), Access::ReadWrite)
@@ -1018,7 +1018,7 @@ mod tests {
     /// to finish, recording whether it did before this call returned.
     struct Interleaves {
         tmpfs: Arc<Tmpfs>,
-        overlay: Mutex<Option<Through>>,
+        overlay: Mutex<Option<KernPath>>,
         finished_inside: Mutex<Option<bool>>,
         other: Mutex<Option<thread::JoinHandle<()>>>,
     }
@@ -1127,7 +1127,7 @@ mod tests {
     fn a_call_through_an_overlay_from_inside_one_answers_a_deadlock() {
         struct Reenters {
             tmpfs: Tmpfs,
-            overlay: Mutex<Option<Through>>,
+            overlay: Mutex<Option<KernPath>>,
             answer: Mutex<Option<Result<Metadata, FilesystemError>>>,
         }
 
@@ -1195,7 +1195,7 @@ mod tests {
 
     /// A writable Tmpfs seeded with `files` and room for `inodes`, over a
     /// read-only one holding `dir/file` = "lower".
-    fn full_over_lower(files: &[(&str, &str)], inodes: usize) -> (Through, Arc<Tmpfs>) {
+    fn full_over_lower(files: &[(&str, &str)], inodes: usize) -> (KernPath, Arc<Tmpfs>) {
         let upper = Tmpfs::from_iter(files.iter().copied()).with_nr_inodes(Some(inodes));
         let upper = Arc::new(upper);
         let overlay = Overlay::new()
@@ -1852,7 +1852,7 @@ mod tests {
     /// case, as a host that folds case does, answering each call by the
     /// folded path from its root; each directory it opens folds case too.
     struct FoldsCase {
-        root: Through,
+        root: KernPath,
         at: String,
     }
 
@@ -1941,7 +1941,7 @@ mod tests {
     }
 
     /// What `path` names through `fs`, or why it names nothing.
-    fn kind(fs: &Through, path: &str) -> Result<FileType, FilesystemError> {
+    fn kind(fs: &KernPath, path: &str) -> Result<FileType, FilesystemError> {
         fs.symlink_metadata(path).map(|metadata| metadata.file_type)
     }
 
@@ -2318,7 +2318,7 @@ mod tests {
             )
             .expect("the open must copy the lower file up");
         assert_eq!(
-            read(&through(upper.tmpfs.clone()), "dir/file"),
+            read(&kern_path(upper.tmpfs.clone()), "dir/file"),
             b"lower".to_vec(),
             "a write open through Overlay::open must copy the whole lower file up into a Layer \
              whose writes land a few bytes at a time"
@@ -2390,7 +2390,7 @@ mod tests {
         let overlay = at(Overlay::new()
             .layer(Filesystem::new(Arc::new(Tmpfs::new())), Access::ReadWrite)
             .layer(Filesystem::new(lower), Access::Read));
-        let identity = |overlay: &Through| {
+        let identity = |overlay: &KernPath| {
             let metadata = overlay
                 .symlink_metadata("dir")
                 .expect("the directory must stand");

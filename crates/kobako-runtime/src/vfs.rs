@@ -8,25 +8,26 @@
 //! checks neither.
 
 mod dentry;
-mod entry;
 mod filesystem;
-mod namei;
-mod openat;
-mod path;
-mod seen;
-mod stat;
 #[cfg(test)]
-pub(crate) mod through;
+pub(crate) mod kern_path;
+mod namei;
+mod openat2;
+mod path;
+mod stat;
+mod times;
+mod utimes;
 
 use crate::filesystem::FilesystemError;
 use crate::mount::Denial;
 
 pub use dentry::Dentry;
-pub use entry::{create_dir, remove_dir, remove_file, rename};
 pub use filesystem::Filesystem;
-pub use openat::{open, OpenHow, Opened};
+pub use namei::{create_dir, open, remove_dir, remove_file, rename};
+pub use openat2::{OpenHow, Opened};
 pub use path::Path;
-pub use stat::{metadata, read_link, set_times, symlink_metadata};
+pub use stat::{metadata, read_link, symlink_metadata};
+pub use utimes::set_times;
 
 /// Linux's limits on a path, its terminating NUL counted, and on one name
 /// within it.

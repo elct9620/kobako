@@ -12,7 +12,7 @@ use crate::filesystem::{File, FilesystemError, Metadata};
 use crate::profile::Profile;
 
 /// `metadata` as an invocation running under `profile` sees it.
-pub(crate) fn seen(metadata: Metadata, profile: Profile) -> Metadata {
+pub(crate) fn mask_times(metadata: Metadata, profile: Profile) -> Metadata {
     match profile {
         Profile::Permissive => metadata,
         Profile::Hermetic => {
@@ -27,7 +27,7 @@ pub(crate) fn seen(metadata: Metadata, profile: Profile) -> Metadata {
 }
 
 /// `file` as an invocation running under `profile` sees it.
-pub(crate) fn seen_file(file: Box<dyn File>, profile: Profile) -> Box<dyn File> {
+pub(crate) fn mask_file_times(file: Box<dyn File>, profile: Profile) -> Box<dyn File> {
     match profile {
         Profile::Permissive => file,
         Profile::Hermetic => Box::new(Hermetic(file)),
@@ -51,7 +51,7 @@ impl File for Hermetic {
     }
 
     fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        Ok(seen(self.0.metadata()?, Profile::Hermetic))
+        Ok(mask_times(self.0.metadata()?, Profile::Hermetic))
     }
 
     fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {

@@ -722,14 +722,14 @@ impl File for TmpfsFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vfs::through::{through, Through};
+    use crate::vfs::kern_path::{kern_path, KernPath};
 
     /// `tmpfs` reached through the VFS.
-    fn at(tmpfs: Tmpfs) -> Through {
-        through(Arc::new(tmpfs))
+    fn at(tmpfs: Tmpfs) -> KernPath {
+        kern_path(Arc::new(tmpfs))
     }
 
-    fn read_all(fs: &Through, path: &str) -> Vec<u8> {
+    fn read_all(fs: &KernPath, path: &str) -> Vec<u8> {
         let mut file = fs
             .open(
                 path,
@@ -869,7 +869,7 @@ mod tests {
         );
     }
 
-    fn writable(fs: &Through, path: &str) -> Box<dyn File> {
+    fn writable(fs: &KernPath, path: &str) -> Box<dyn File> {
         fs.open(
             path,
             &OpenOptions {
@@ -985,7 +985,7 @@ mod tests {
         );
     }
 
-    fn create(fs: &Through, path: &str) -> Result<(), FilesystemError> {
+    fn create(fs: &KernPath, path: &str) -> Result<(), FilesystemError> {
         fs.open(
             path,
             &OpenOptions {
@@ -1161,7 +1161,7 @@ mod tests {
     #[test]
     fn a_tmpfs_holds_each_entry_under_its_own_name() {
         let held: Arc<Tmpfs> = Arc::new([("d/f", "x")].into_iter().collect());
-        let tmpfs = through(held.clone());
+        let tmpfs = kern_path(held.clone());
         for _ in 0..64 {
             tmpfs
                 .create_dir("n")

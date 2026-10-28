@@ -1,5 +1,6 @@
-//! Resolving a guest path beneath a directory, one name at a time, as
-//! Linux's namei walks a path.
+//! Resolving a guest path beneath a directory, one name at a time, and the
+//! calls that act on the name it ends at: opening it, making it, removing
+//! it, and moving it, as Linux's `namei.c` holds both.
 //!
 //! Each step hands a Filesystem one name in a directory already held,
 //! opened without following a link there, so nothing another writer swaps
@@ -16,9 +17,11 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use super::dentry::Dentry;
-use super::path::{Path, Step};
+use super::openat2::{vfs_open, OpenHow, Opened};
+use super::path::{Identity, Path, Step};
+use super::times::mask_file_times;
 use super::Error;
-use crate::filesystem::{Access, FileType, FilesystemError, Inode, Metadata};
+use crate::filesystem::{Access, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename};
 use crate::mount::Mount;
 
 use super::{NAME_MAX, PATH_MAX};
@@ -446,4 +449,192 @@ fn path_lookupat(
         return Err(FilesystemError::NotFound.into());
     }
     Ok(nd)
+}
+
+/// Open `path` beneath `start` as `how` asks, as Linux's `path_openat`
+/// walks to the last name and `do_open` opens it. `room` says whether the
+/// caller has a descriptor left to hand the guest; without one the open
+/// answers `TooManyOpenFiles` once the path is known to stand.
+pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<Opened, Error> {
+    // A path ending in `/` asks for a directory, which cannot be created
+    // as a file. Linux answers it once the names before the last are
+    // walked, before it would follow a link standing at the last.
+    if path.ends_with('/') && how.create {
+        resolve(start, path, false, how.create)?;
+        return Err(FilesystemError::IsADirectory.into());
+    }
+    // A trailing `/` resolves a link standing there, as Linux's `open` does.
+    let follow = how.follow || names_directory(path);
+    let mut nd = resolve(start, path, follow, how.create)?;
+    // The walk followed every link the call asked it to, so a link at the
+    // end now is one swapped in since, and is opened as itself.
+    nd.check_directory()?;
+    if !room {
+        return Err(FilesystemError::TooManyOpenFiles.into());
+    }
+    let (existing, identity) = match nd.found() {
+        Ok(metadata) => (Some(metadata.file_type), Identity::of(&metadata)),
+        Err(FilesystemError::NotFound) => (None, None),
+        Err(err) => return Err(err.into()),
+    };
+    refuse_what_stands(existing, how)?;
+    // Creating changes the Mount only where nothing stands yet, so the
+    // Mount judges the open once, knowing what it does.
+    let changes = how.write || how.truncate || (how.create && existing.is_none());
+    nd.check(if changes {
+        Access::ReadWrite
+    } else {
+        Access::Read
+    })?;
+    match existing {
+        Some(FileType::Directory) => vfs_open(start, nd, identity),
+        Some(_) | None => {
+            let options = OpenOptions {
+                read: how.read,
+                write: how.write,
+                // A file already there is opened as it is, so a host that
+                // opens only to create never asks for more than the guest.
+                create: how.create && existing.is_none(),
+                create_new: how.create && how.exclusive,
+                truncate: how.truncate,
+                nofollow: true,
+            };
+            let file = nd.base().open(&nd.child(), &options)?;
+            Ok(Opened::File(mask_file_times(file, start.profile())))
+        }
+    }
+}
+
+/// What stands at the path answers before any access is judged, as Linux's
+/// `open` does on a read-only mount.
+fn refuse_what_stands(existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
+    let refusal = match existing {
+        None if !how.create => Some(FilesystemError::NotFound),
+        Some(_) if how.create && how.exclusive => Some(FilesystemError::AlreadyExists),
+        Some(FileType::Directory) if how.write || how.truncate || how.create => {
+            Some(FilesystemError::IsADirectory)
+        }
+        Some(FileType::Directory) | None => None,
+        Some(_) if how.directory => Some(FilesystemError::NotADirectory),
+        Some(_) => None,
+    };
+    match refusal {
+        Some(error) => Err(error.into()),
+        None => Ok(()),
+    }
+}
+
+/// Make the directory `path` beneath `start`. A trailing `/` asks for the
+/// directory being made, so it is no refusal here, as `mkdir(2)` takes it.
+pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {
+    let nd = resolve(start, path, false, false)?;
+    nd.check(Access::ReadWrite)?;
+    refuse_root(&nd.name, FilesystemError::AlreadyExists)?;
+    Ok(nd.base().create_dir(&nd.child())?)
+}
+
+/// Remove the empty directory `path` beneath `start`.
+pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
+    refuse_dot_end(start, path, FilesystemError::InvalidInput)?;
+    let mut nd = resolve(start, path, false, false)?;
+    nd.check(Access::ReadWrite)?;
+    nd.check_directory()?;
+    refuse_root(&nd.name, FilesystemError::InvalidInput)?;
+    nd.base().remove_dir(&nd.child())?;
+    nd.mount
+        .filesystem()
+        .dentries()
+        .delete(nd.dentry(), &nd.name);
+    Ok(())
+}
+
+/// Remove the file `path` beneath `start`. Linux's `unlink` follows no
+/// link at the end, so a trailing `/` is answered by the name itself: no
+/// file removes as a directory.
+pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
+    let mut nd = resolve(start, path, false, false)?;
+    nd.check(Access::ReadWrite)?;
+    nd.check_directory()?;
+    refuse_root(&nd.name, FilesystemError::IsADirectory)?;
+    Ok(nd.base().remove_file(&nd.child())?)
+}
+
+/// Move `from_path` beneath `from` to `to_path` beneath `to`. A rename
+/// stays within one Mount; across two it crosses devices, as across two
+/// mounted devices. A directory moves only beneath a Mount that allows it,
+/// the Filesystem checking what it moves as it moves it.
+pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<(), Error> {
+    refuse_dot_end(from, from_path, FilesystemError::ResourceBusy)?;
+    refuse_dot_end(to, to_path, FilesystemError::ResourceBusy)?;
+    let mut source = resolve(from, from_path, false, false)?;
+    let mut target = resolve(to, to_path, false, false)?;
+    refuse_root(&source.name, FilesystemError::ResourceBusy)?;
+    refuse_root(&target.name, FilesystemError::ResourceBusy)?;
+    // A trailing `/` on either side asks that the source be a directory,
+    // which `rename(2)` checks before it finds a rename onto its own path
+    // leaves everything as it was. A rename moves a link rather than what
+    // it points at, so each side is checked as it stands.
+    let names_directory = source.names_directory || target.names_directory;
+    let onto_itself = target.judged == source.judged;
+    source.names_directory = names_directory;
+    source.check_directory()?;
+    if !onto_itself {
+        target.check_directory()?;
+    }
+    if !Arc::ptr_eq(from.mount(), to.mount()) {
+        return Err(FilesystemError::CrossesDevices.into());
+    }
+    source.check(Access::ReadWrite)?;
+    target.check(Access::ReadWrite)?;
+    // Each side was walked on its own, so a rename onto its own path is
+    // known by the path rather than by the directories each walk opened;
+    // it changes nothing once the source stands, as `rename(2)` answers.
+    if onto_itself {
+        source.found()?;
+        return Ok(());
+    }
+    let rename = match (from.mount().moves_directories(), names_directory) {
+        (false, _) => Rename::File,
+        (true, true) => Rename::Directory,
+        (true, false) => Rename::Any,
+    };
+    source.base().rename(
+        &source.child(),
+        target.base().as_ref(),
+        &target.child(),
+        rename,
+    )?;
+    // A directory replaced at the target is gone for whoever holds it, and
+    // one moved from the source is reached where it went.
+    let dentries = source.mount.filesystem().dentries();
+    dentries.delete(target.dentry(), &target.name);
+    dentries.rename(source.dentry(), &source.name, target.dentry(), &target.name);
+    Ok(())
+}
+
+/// Refuse a guest path ending in `.` or `..` as `refusal`, since it names
+/// no entry a call may remove or move. Linux looks up what stands before
+/// it first, following a link there as it follows one that is not the
+/// last name, so a missing or non-directory parent answers as itself.
+fn refuse_dot_end(start: &Path, path: &str, refusal: FilesystemError) -> Result<(), Error> {
+    let trimmed = path.trim_end_matches('/');
+    let (parent, last) = trimmed.rsplit_once('/').unwrap_or(("", trimmed));
+    if !matches!(last, "." | "..") {
+        return Ok(());
+    }
+    if !parent.is_empty()
+        && resolve(start, parent, true, false)?.found()?.file_type != FileType::Directory
+    {
+        return Err(FilesystemError::NotADirectory.into());
+    }
+    Err(refusal.into())
+}
+
+/// A Mount's root is where the guest stands, not a directory it may
+/// remove or move; each call refuses it as Linux refuses its own root.
+fn refuse_root(name: &str, refusal: FilesystemError) -> Result<(), Error> {
+    if name.is_empty() {
+        return Err(refusal.into());
+    }
+    Ok(())
 }

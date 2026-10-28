@@ -171,14 +171,14 @@ mod tests {
     };
     use crate::mount::Mount;
     use crate::profile::Profile;
-    use crate::vfs::through::{through, Through};
+    use crate::vfs::kern_path::{kern_path, KernPath};
     use crate::vfs::{self, Filesystem, OpenHow, Opened, Path};
 
     /// A Filesystem answering each call by the path from its root, as one
     /// written in Ruby does, so a directory it opened reaches whatever
     /// stands at that path later and keeps no death of its own.
     struct ByPath {
-        root: Through,
+        root: KernPath,
         at: String,
     }
 
@@ -264,7 +264,7 @@ mod tests {
 
     fn by_path(tmpfs: &Arc<Tmpfs>) -> Arc<Filesystem> {
         Filesystem::new(Arc::new(ByPath {
-            root: through(tmpfs.clone()),
+            root: kern_path(tmpfs.clone()),
             at: String::new(),
         }))
     }
@@ -302,7 +302,7 @@ mod tests {
             (
                 vfs::create_dir(&dir, "made"),
                 dir.entries(),
-                through(tmpfs.clone()).symlink_metadata("dir/made").err()
+                kern_path(tmpfs.clone()).symlink_metadata("dir/made").err()
             ),
             (
                 Err(vfs::Error::Filesystem(FilesystemError::NotFound)),

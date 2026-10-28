@@ -440,12 +440,12 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::vfs::through::{through, Through};
+    use crate::vfs::kern_path::{kern_path, KernPath};
 
     /// The host directory at `path` as a Bind, reached through the
     /// VFS.
-    fn opened(path: impl AsRef<Path>) -> Through {
-        through(Arc::new(
+    fn opened(path: impl AsRef<Path>) -> KernPath {
+        kern_path(Arc::new(
             Bind::new(path).expect("the host directory must open"),
         ))
     }

@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use super::dentry::Dentry;
-use super::seen::seen;
+use super::times::mask_times;
 use super::Error;
 use crate::filesystem::{DirEntry, FilesystemError, Inode, Metadata};
 use crate::mount::Mount;
@@ -98,7 +98,7 @@ impl Path {
 
     /// What the directory reports of itself.
     pub fn metadata(&self) -> Result<Metadata, Error> {
-        Ok(seen(self.reach_dir()?.metadata()?, self.profile))
+        Ok(mask_times(self.reach_dir()?.metadata()?, self.profile))
     }
 
     /// The entries of the directory, without `.` or `..`; none once it was
