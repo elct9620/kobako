@@ -44,7 +44,7 @@ kobako-wasmtime = { path = "../kobako-wasmtime", version = "0.19.0", optional = 
 # whatever this crate is built with, so a test that drives it needs to
 # read that schema even when the SDK carries no codec of its own. A
 # dev-dependency is absent from the shipped graph, so this leaves the
-# codec-free claim `gate:payload:optional` checks untouched.
+# codec-free claim `crates:graph` checks untouched.
 #
 # Path only, deliberately. Cargo strips a version-less path dev-dependency
 # when packaging, which costs nothing here: every test reaching for it also

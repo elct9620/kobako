@@ -162,7 +162,7 @@ A shell naming its own `MrbGuest::Codec` never asks for `msgpack`. The SDK defau
 to a codec because an embedder names it directly; with the feature off it reaches no
 payload codec.
 
-`gate:payload:optional` builds each tier on every release and checks that no codec
+`crates:graph` builds each tier on every release and checks that no codec
 appears in the graph. Each build includes the tier's tests, since a library whose
 tests still need a codec has not moved it out of the code. A `[dev-dependencies]`
 codec is allowed, because no consumer installs it.
@@ -308,7 +308,7 @@ As with the codec, the engine's replaceability is a property of the dependency g
 | `wasmtime` feature on (default) | `Sandbox::new` or `Sandbox::with_runtime` |
 | `wasmtime` feature off | `Sandbox::with_runtime` only; no engine reached |
 
-`gate:engine:optional` builds the SDK that way on every release and checks that no
+`crates:graph` builds the SDK that way on every release and checks that no
 engine appears in the graph.
 
 The Ruby frontend takes no such seam. `Kobako::Runtime` is pinned to the wasmtime

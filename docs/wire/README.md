@@ -29,7 +29,7 @@ Every message is a core envelope around an opaque payload. The envelope carries 
 | Core envelope | routing, ok-versus-fault, attribution | every side | `kobako-transport`, shared |
 | Payload codec | what the resolved method consumes | the two endpoints | `lib/kobako/` ↔ `kobako-codec` |
 
-The codec is therefore replaceable, and a routing-only endpoint needs none. MessagePack is the default, not the only one; a codec swap changes neither the ABI nor the envelope. `rake gate:payload:optional` checks that each codec-free tier builds without one. What a replacement codec owes is in [`customization.md`](../guides/customization.md) § Codec Obligations.
+The codec is therefore replaceable, and a routing-only endpoint needs none. MessagePack is the default, not the only one; a codec swap changes neither the ABI nor the envelope. `rake crates:graph` checks that each codec-free tier builds without one. What a replacement codec owes is in [`customization.md`](../guides/customization.md) § Codec Obligations.
 
 ---
 
