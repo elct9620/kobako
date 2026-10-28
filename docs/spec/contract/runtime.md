@@ -11,7 +11,6 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/filesystem.rs`
 - `crates/kobako-runtime/src/filesystem/bind.rs`
 - `crates/kobako-runtime/src/filesystem/overlay.rs`
-- `crates/kobako-runtime/src/filesystem/overlay/exclusive.rs`
 - `crates/kobako-runtime/src/filesystem/tmpfs.rs`
 - `crates/kobako-runtime/src/grant.rs`
 - `crates/kobako-runtime/src/mount.rs`
@@ -24,6 +23,7 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/vfs/namei.rs`
 - `crates/kobako-runtime/src/vfs/openat2.rs`
 - `crates/kobako-runtime/src/vfs/path.rs`
+- `crates/kobako-runtime/src/vfs/rwsem.rs`
 - `crates/kobako-runtime/src/vfs/stat.rs`
 - `crates/kobako-runtime/src/vfs/utimes.rs`
 - `crates/kobako-runtime/src/yielder.rs`
@@ -320,6 +320,17 @@ The instance a Filesystem's root answers for.
 ```rust
 impl Filesystem {
     pub fn new(root: Arc<dyn Inode>) -> Arc<Self> {}
+}
+```
+
+## `Filesystem::with_blocking`
+
+The instance a Filesystem's root answers for, each call waiting for a
+directory's lock through the given Blocking.
+
+```rust
+impl Filesystem {
+    pub fn with_blocking(root: Arc<dyn Inode>, blocking: Arc<dyn Blocking>) -> Arc<Self> {}
 }
 ```
 
@@ -1062,8 +1073,9 @@ impl Overlay {
 
 ## `Blocking`
 
-How a thread waits for an Overlay's lock another thread holds. A frontend
-whose threads share a lock of their own gives it up for the wait.
+How a thread waits for a lock another thread holds: a directory's, or an
+Overlay's. A frontend whose threads share a lock of their own gives it up
+for the wait.
 
 ```rust
 pub trait Blocking: Send + Sync {}

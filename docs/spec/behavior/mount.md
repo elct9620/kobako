@@ -28,6 +28,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 - `test/e2e/test_mount_limit.rb`
 - `test/e2e/test_mount_rename.rb`
 - `test/e2e/test_overlay_threads.rb`
+- `test/e2e/test_directory_lock_threads.rb`
 - `crates/kobako/tests/integration/mount.rs`
 - `test/parity/test_mount.rb`
 
@@ -316,3 +317,16 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Sandbox whose mount's block records each access it is asked |
 | When | the script reads a file beneath the mount |
 | Then | the block was asked once, for `:read` |
+
+## `MT-026` A Sandbox waiting on a directory another Thread changes lets the change finish
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-166` |
+| relates | `MT-019` |
+
+| Step | Statement |
+| --- | --- |
+| Given | one Overlay over a writable Ruby Layer whose open sleeps, shared by two Threads |
+| When | one Sandbox creates a file while the other, holding the GVL, looks in that directory |
+| Then | both finish |

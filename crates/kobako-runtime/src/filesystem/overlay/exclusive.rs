@@ -6,24 +6,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, ThreadId};
 
 use super::super::FilesystemError;
-
-/// How a thread waits for a lock another thread holds. A frontend whose
-/// threads share a lock of their own, as Ruby's threads share the GVL,
-/// gives that lock up for the wait, or a holder that needs it to finish
-/// never could.
-pub trait Blocking: Send + Sync {
-    /// Run `wait`, which returns once the lock is taken.
-    fn wait(&self, wait: &mut dyn FnMut());
-}
-
-/// Waiting with nothing else to give up.
-pub(super) struct Inline;
-
-impl Blocking for Inline {
-    fn wait(&self, wait: &mut dyn FnMut()) {
-        wait();
-    }
-}
+use crate::vfs::Blocking;
 
 /// Held by one thread at a time. The thread holding it asking again is
 /// refused as a deadlock, as `fcntl` refuses a lock that could never be

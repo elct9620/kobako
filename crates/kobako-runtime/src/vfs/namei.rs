@@ -19,6 +19,7 @@ use std::sync::Arc;
 use super::dentry::Dentry;
 use super::openat2::{vfs_open, FileDescription, OpenHow};
 use super::path::{Identity, Path, Step};
+use super::rwsem::Held;
 use super::times::mask_file_times;
 use super::Error;
 use crate::filesystem::{Access, FileType, FilesystemError, Inode, Metadata, OpenOptions, Rename};
@@ -97,7 +98,11 @@ impl Nameidata {
     /// for the empty name.
     pub(crate) fn found(&mut self) -> Result<Metadata, FilesystemError> {
         if self.found.is_none() {
-            self.found = Some(look_up(self.base(), &self.child(), &self.name));
+            let parent = self.dentry().clone();
+            self.found = Some(
+                down_read(&self.mount, &parent)
+                    .and_then(|_held| look_up(self.base(), &self.child(), &self.name)),
+            );
         }
         self.found.clone().expect("found was just asked")
     }
@@ -174,6 +179,22 @@ fn look_up(dir: &Arc<dyn Inode>, child: &Dentry, name: &str) -> Result<Metadata,
     }
 }
 
+/// Hold `dentry`'s directory lock shared, as Linux's lookup holds the
+/// directory it looks a name up in, so no change through the VFS lands
+/// between the name's dentry and what the Filesystem answers for it.
+pub(crate) fn down_read<'a>(
+    mount: &Mount,
+    dentry: &'a Dentry,
+) -> Result<Held<'a>, FilesystemError> {
+    dentry.rwsem.down_read(mount.filesystem().blocking())
+}
+
+/// Hold `dentry`'s directory lock exclusive, as Linux holds a directory
+/// while a name in it is made, removed, or moved.
+fn down_write<'a>(mount: &Mount, dentry: &'a Dentry) -> Result<Held<'a>, FilesystemError> {
+    dentry.rwsem.down_write(mount.filesystem().blocking())
+}
+
 /// Refuse what a directory just stepped into, or just opened for a
 /// descriptor, answers unless it opened as a directory.
 pub(crate) fn d_can_lookup(dir: &Arc<dyn Inode>) -> Result<(), FilesystemError> {
@@ -190,6 +211,8 @@ impl Nameidata {
     /// first, a link standing there refused, so only a name that opens as
     /// none is asked what it is.
     fn walk_component(&mut self, part: Part, dot: bool) -> Result<(), Error> {
+        let parent = self.dentry().clone();
+        let _held = down_read(&self.mount, &parent)?;
         let dentry = self.child_of(&part.name);
         let opened = self.base().open_dir(&dentry).and_then(|dir| {
             if self.eager || dot {
@@ -263,6 +286,7 @@ impl Nameidata {
     /// A final `.` after `name` stands in it, which must be a directory
     /// and no link.
     fn stays_in(&self, name: &str) -> Result<(), Error> {
+        let _held = down_read(&self.mount, self.dentry())?;
         match self
             .base()
             .symlink_metadata(&self.child_of(name))?
@@ -405,6 +429,8 @@ fn path_lookupat(
     let mut found = None;
     let mut followed = false;
     while let Some(name) = last.as_ref().filter(|_| follow) {
+        let parent = nd.dentry().clone();
+        let held = down_read(&nd.mount, &parent)?;
         let dentry = nd.child_of(&name.name);
         let looked_up = nd.base().symlink_metadata(&dentry);
         if !matches!(&looked_up, Ok(metadata) if metadata.file_type == FileType::Symlink) {
@@ -412,6 +438,7 @@ fn path_lookupat(
             break;
         }
         nd.pick_link(&dentry)?;
+        drop(held);
         followed = true;
         last = nd.link_path_walk(None)?;
     }
@@ -421,7 +448,8 @@ fn path_lookupat(
     nd.found = match found {
         Some(found) => Some(nd.complete_walk(found)?),
         None if nd.descended() => {
-            Some(nd.complete_walk(look_up(nd.base(), &nd.child(), &nd.name))?)
+            let looked_up = nd.found();
+            Some(nd.complete_walk(looked_up)?)
         }
         None => None,
     };
@@ -501,6 +529,12 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileD
                 truncate: how.truncate,
                 nofollow: true,
             };
+            let parent = nd.dentry().clone();
+            // A file made holds the directory, as Linux's `O_CREAT` does.
+            let _held = match options.create {
+                true => Some(down_write(&nd.mount, &parent)?),
+                false => None,
+            };
             let file = nd.base().open(&nd.child(), &options)?;
             Ok(FileDescription::File(mask_file_times(
                 file,
@@ -535,6 +569,7 @@ pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {
     let nd = filename_lookup(start, path, false, false)?;
     nd.check(Access::ReadWrite)?;
     refuse_root(&nd.name, FilesystemError::AlreadyExists)?;
+    let _held = down_write(&nd.mount, nd.dentry())?;
     Ok(nd.base().create_dir(&nd.child())?)
 }
 
@@ -545,7 +580,12 @@ pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
     nd.check(Access::ReadWrite)?;
     nd.check_directory()?;
     refuse_root(&nd.name, FilesystemError::InvalidInput)?;
-    nd.base().remove_dir(&nd.child())?;
+    // The directory and the one it removes are held until its dentry is
+    // dead, so no lookup in between finds the dentry still alive.
+    let victim = nd.child();
+    let _parent = down_write(&nd.mount, nd.dentry())?;
+    let _victim = down_write(&nd.mount, &victim)?;
+    nd.base().remove_dir(&victim)?;
     nd.mount
         .filesystem()
         .dentries()
@@ -561,7 +601,10 @@ pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
     nd.check(Access::ReadWrite)?;
     nd.check_directory()?;
     refuse_root(&nd.name, FilesystemError::IsADirectory)?;
-    Ok(nd.base().remove_file(&nd.child())?)
+    let victim = nd.child();
+    let _parent = down_write(&nd.mount, nd.dentry())?;
+    let _victim = down_write(&nd.mount, &victim)?;
+    Ok(nd.base().remove_file(&victim)?)
 }
 
 /// Move `from_path` beneath `from` to `to_path` beneath `to`. A rename
@@ -603,18 +646,59 @@ pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<
         (true, true) => Rename::Directory,
         (true, false) => Rename::Any,
     };
-    source.base().rename(
-        &source.child(),
-        target.base().as_ref(),
-        &target.child(),
-        rename,
-    )?;
+    let (old, new) = (source.child(), target.child());
+    let filesystem = from.mount().filesystem();
+    let (old_dir, new_dir) = (source.dentry(), target.dentry());
+    let blocking = filesystem.blocking();
+    // A move between two directories holds the Filesystem's rename lock,
+    // so which stands beneath the other holds still while it is asked, as
+    // Linux's `lock_rename` asks before it locks either.
+    let _rename = match Arc::ptr_eq(old_dir, new_dir) {
+        true => None,
+        false => {
+            let held = filesystem.rename_mutex().down_write(blocking)?;
+            if new_dir.is_subdir(&old) {
+                return Err(FilesystemError::InvalidInput.into());
+            }
+            if old_dir.is_subdir(&new) {
+                return Err(FilesystemError::DirectoryNotEmpty.into());
+            }
+            Some(held)
+        }
+    };
+    let _parents = lock_parents(&source.mount, old_dir, new_dir)?;
+    let _old = down_write(&source.mount, &old)?;
+    let _new = down_write(&source.mount, &new)?;
+    source
+        .base()
+        .rename(&old, target.base().as_ref(), &new, rename)?;
     // A directory replaced at the target is gone for whoever holds it, and
     // one moved from the source is reached where it went.
     let dentries = source.mount.filesystem().dentries();
     dentries.delete(target.dentry(), &target.name);
     dentries.d_move(source.dentry(), &source.name, target.dentry(), &target.name);
     Ok(())
+}
+
+/// Hold both directories a move changes exclusive, the one above the other
+/// first and otherwise in a fixed order, as Linux locks a rename's parents
+/// ancestors first, so two moves never wait on each other.
+fn lock_parents<'a>(
+    mount: &Mount,
+    old_dir: &'a Arc<Dentry>,
+    new_dir: &'a Arc<Dentry>,
+) -> Result<Vec<Held<'a>>, FilesystemError> {
+    if Arc::ptr_eq(old_dir, new_dir) {
+        return Ok(vec![down_write(mount, old_dir)?]);
+    }
+    let old_first = new_dir.is_subdir(old_dir)
+        || (!old_dir.is_subdir(new_dir) && Arc::as_ptr(old_dir) < Arc::as_ptr(new_dir));
+    let (first, second) = match old_first {
+        true => (old_dir, new_dir),
+        false => (new_dir, old_dir),
+    };
+    let first = down_write(mount, first)?;
+    Ok(vec![first, down_write(mount, second)?])
 }
 
 /// Refuse a guest path ending in `.` or `..` as `refusal`, since it names
@@ -645,4 +729,259 @@ fn refuse_root(name: &str, refusal: FilesystemError) -> Result<(), Error> {
         return Err(refusal.into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
+    use std::sync::{Arc, Mutex, OnceLock};
+    use std::thread;
+    use std::time::Duration;
+
+    use crate::filesystem::{
+        Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename, Tmpfs,
+    };
+    use crate::mount::Mount;
+    use crate::profile::Profile;
+    use crate::vfs::{self, Blocking, Dentry, FileDescription, Filesystem, OpenHow, Path};
+
+    type Hook = Box<dyn Fn() -> Result<(), FilesystemError> + Send + Sync>;
+
+    /// A Tmpfs root a test steps into: after it removes a directory, in
+    /// place of making one, and as it moves an entry. A directory it opens
+    /// is the Tmpfs's own, so only calls on the root are stepped into.
+    #[derive(Default)]
+    struct Hooked {
+        tmpfs: Tmpfs,
+        removed: Option<Hook>,
+        making: Option<Hook>,
+        renames: AtomicUsize,
+    }
+
+    impl Inode for Hooked {
+        fn open(
+            &self,
+            dentry: &Dentry,
+            options: &OpenOptions,
+        ) -> Result<Box<dyn File>, FilesystemError> {
+            self.tmpfs.open(dentry, options)
+        }
+
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+            self.tmpfs.open_dir(dentry)
+        }
+
+        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+            self.tmpfs.metadata()
+        }
+
+        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.tmpfs.symlink_metadata(dentry)
+        }
+
+        fn stored_name(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            self.tmpfs.stored_name(dentry)
+        }
+
+        fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            self.tmpfs.read_link(dentry)
+        }
+
+        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.tmpfs.entries()
+        }
+
+        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            match &self.making {
+                Some(making) => making(),
+                None => self.tmpfs.create_dir(dentry),
+            }
+        }
+
+        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.tmpfs.remove_dir(dentry)?;
+            self.removed.as_ref().map_or(Ok(()), |removed| removed())
+        }
+
+        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.tmpfs.remove_file(dentry)
+        }
+
+        fn rename(
+            &self,
+            from: &Dentry,
+            to_dir: &dyn Inode,
+            to: &Dentry,
+            rename: Rename,
+        ) -> Result<(), FilesystemError> {
+            self.renames.fetch_add(1, Ordering::SeqCst);
+            self.tmpfs.rename(from, to_dir, to, rename)
+        }
+    }
+
+    /// Counts each wait a Filesystem's directory locks make through it.
+    #[derive(Default)]
+    struct CountsWaits(AtomicUsize);
+
+    impl Blocking for CountsWaits {
+        fn wait(&self, wait: &mut dyn FnMut()) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            wait();
+        }
+    }
+
+    fn root_of(filesystem: Arc<Filesystem>) -> Path {
+        let mount =
+            Mount::new("/data", filesystem, Access::ReadWrite).expect("/data is a guest path");
+        Path::root(mount, Profile::Permissive)
+    }
+
+    fn open_dir(start: &Path, path: &str) -> Path {
+        let how = OpenHow {
+            directory: true,
+            ..OpenHow::default()
+        };
+        match vfs::open(start, path, &how, true) {
+            Ok(FileDescription::Directory(dir)) => dir,
+            _ => panic!("{path} must open as a directory"),
+        }
+    }
+
+    // The removal pauses between the Filesystem removing the directory and
+    // the VFS marking its dentry dead, which is where a make and an open of
+    // the same name would take the dentry about to die.
+    // @behavior RT-163
+    #[test]
+    fn a_directory_made_while_another_is_removed_in_its_place_stays_alive() {
+        let (removed, removing) = mpsc::channel();
+        let (made, making) = mpsc::channel::<()>();
+        let (removed, making) = (Mutex::new(removed), Mutex::new(making));
+        let hooked = Hooked {
+            removed: Some(Box::new(move || {
+                removed.lock().expect("unpoisoned").send(()).ok();
+                let _ = making
+                    .lock()
+                    .expect("unpoisoned")
+                    .recv_timeout(Duration::from_millis(200));
+                Ok(())
+            })),
+            ..Hooked::default()
+        };
+        let root = root_of(Filesystem::new(Arc::new(hooked)));
+        vfs::create_dir(&root, "d").expect("the directory must be made");
+        let remover = {
+            let root = root.clone();
+            thread::spawn(move || vfs::remove_dir(&root, "d"))
+        };
+        removing
+            .recv()
+            .expect("the removal must reach the Filesystem");
+        vfs::create_dir(&root, "d").expect("another directory must be made in its place");
+        let dir = open_dir(&root, "d");
+        made.send(()).ok();
+        remover
+            .join()
+            .expect("the remover must not panic")
+            .expect("the removal must succeed");
+        assert_eq!(
+            vfs::create_dir(&dir, "inner"),
+            Ok(()),
+            "vfs::create_dir through a directory vfs::create_dir made while vfs::remove_dir \
+             removed the one in its place must make into the directory made"
+        );
+    }
+
+    // The Filesystem answers a move as its Tmpfs would, so only a count of
+    // zero shows the VFS refused it before asking.
+    // @behavior RT-164
+    #[test]
+    fn a_directory_moved_beneath_itself_is_refused_whatever_its_filesystem() {
+        let hooked = Arc::new(Hooked::default());
+        let root = root_of(Filesystem::new(hooked.clone()));
+        vfs::create_dir(&root, "a").expect("the directory must be made");
+        vfs::create_dir(&root, "a/b").expect("the directory beneath it must be made");
+        assert_eq!(
+            (
+                vfs::rename(&root, "a", &root, "a/b/a"),
+                hooked.renames.load(Ordering::SeqCst)
+            ),
+            (
+                Err(vfs::Error::Filesystem(FilesystemError::InvalidInput)),
+                0
+            ),
+            "vfs::rename of a directory into a directory beneath it must answer InvalidInput \
+             without asking the Filesystem"
+        );
+    }
+
+    // @behavior RT-165
+    #[test]
+    fn a_filesystem_changing_the_directory_its_own_change_holds_answers_a_deadlock() {
+        let root = Arc::new(OnceLock::<Path>::new());
+        let hooked = Hooked {
+            making: Some(Box::new({
+                let root = root.clone();
+                move || match vfs::create_dir(root.get().expect("the root is set"), "other") {
+                    Err(vfs::Error::Filesystem(err)) => Err(err),
+                    _ => Ok(()),
+                }
+            })),
+            ..Hooked::default()
+        };
+        let path = root_of(Filesystem::new(Arc::new(hooked)));
+        root.set(path.clone()).ok();
+        assert_eq!(
+            vfs::create_dir(&path, "made"),
+            Err(vfs::Error::Filesystem(FilesystemError::Deadlock)),
+            "vfs::create_dir called by a Filesystem's own create_dir on the directory the outer \
+             vfs::create_dir holds must answer Deadlock"
+        );
+    }
+
+    // @behavior RT-166
+    #[test]
+    fn a_call_waiting_for_a_directorys_lock_waits_through_its_filesystems_blocking() {
+        let counts = Arc::new(CountsWaits::default());
+        let (removed, removing) = mpsc::channel();
+        let removed = Mutex::new(removed);
+        let hooked = Hooked {
+            removed: Some(Box::new({
+                let counts = counts.clone();
+                move || {
+                    removed.lock().expect("unpoisoned").send(()).ok();
+                    // Bounded, so a call that never waits fails the count
+                    // rather than hanging the test.
+                    for _ in 0..2000 {
+                        if counts.0.load(Ordering::SeqCst) > 0 {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    Ok(())
+                }
+            })),
+            ..Hooked::default()
+        };
+        let root = root_of(Filesystem::with_blocking(Arc::new(hooked), counts.clone()));
+        vfs::create_dir(&root, "d").expect("the directory must be made");
+        let remover = {
+            let root = root.clone();
+            thread::spawn(move || vfs::remove_dir(&root, "d"))
+        };
+        removing
+            .recv()
+            .expect("the removal must reach the Filesystem");
+        let made = vfs::create_dir(&root, "e");
+        remover
+            .join()
+            .expect("the remover must not panic")
+            .expect("the removal must succeed");
+        assert_eq!(
+            (made, counts.0.load(Ordering::SeqCst)),
+            (Ok(()), 1),
+            "vfs::create_dir on a directory another thread's vfs::remove_dir holds must wait \
+             through the Blocking given by Filesystem::with_blocking, then answer"
+        );
+    }
 }

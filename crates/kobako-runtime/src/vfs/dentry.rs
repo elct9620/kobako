@@ -6,10 +6,16 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
+use super::rwsem::RwSemaphore;
+
 /// One name of a Filesystem, and where it stands now. Only the VFS makes
 /// one, so a Filesystem reads the name a call is about from it.
 pub struct Dentry {
     state: Mutex<State>,
+    /// The lock calls on the names in this directory run under. Linux
+    /// keeps it on the directory's inode; the VFS owns no inode of its
+    /// own, and a directory has one dentry, so it is kept here.
+    pub(crate) rwsem: RwSemaphore,
 }
 
 struct State {
@@ -29,6 +35,7 @@ impl Dentry {
                 name: name.to_string(),
                 dead: false,
             }),
+            rwsem: RwSemaphore::default(),
         })
     }
 
@@ -61,6 +68,19 @@ impl Dentry {
 
     pub(crate) fn is_dead(&self) -> bool {
         self.state().dead
+    }
+
+    /// Whether this dentry is `ancestor` or stands beneath it, as Linux's
+    /// `is_subdir` answers.
+    pub(crate) fn is_subdir(self: &Arc<Self>, ancestor: &Arc<Dentry>) -> bool {
+        let mut at = Some(self.clone());
+        while let Some(dentry) = at {
+            if Arc::ptr_eq(&dentry, ancestor) {
+                return true;
+            }
+            at = dentry.state().parent.clone();
+        }
+        false
     }
 }
 

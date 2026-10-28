@@ -14,6 +14,7 @@ pub(crate) mod kern_path;
 mod namei;
 mod openat2;
 mod path;
+mod rwsem;
 mod stat;
 mod times;
 mod utimes;
@@ -21,11 +22,14 @@ mod utimes;
 use crate::filesystem::FilesystemError;
 use crate::mount::Denial;
 
+pub(crate) use rwsem::Inline;
+
 pub use dentry::Dentry;
 pub use filesystem::Filesystem;
 pub use namei::{create_dir, open, remove_dir, remove_file, rename};
 pub use openat2::{FileDescription, OpenHow};
 pub use path::Path;
+pub use rwsem::Blocking;
 pub use stat::{metadata, read_link, symlink_metadata};
 pub use utimes::set_times;
 

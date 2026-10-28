@@ -18,12 +18,10 @@ mod stack;
 use std::any::Any;
 use std::sync::Arc;
 
-pub use exclusive::Blocking;
-
 use super::path::components;
 use super::{Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Rename};
-use crate::vfs::{Dentry, Filesystem};
-use exclusive::{Exclusive, Inline};
+use crate::vfs::{Blocking, Dentry, Filesystem, Inline};
+use exclusive::Exclusive;
 use merged::MergedDir;
 use stack::{Chain, Stack};
 

@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use super::dentry::Dentry;
+use super::namei::down_read;
 use super::times::mask_times;
 use super::Error;
 use crate::filesystem::{DirEntry, FilesystemError, Inode, Metadata};
@@ -105,6 +106,9 @@ impl Path {
     /// removed, as Linux lists a dead directory.
     pub fn entries(&self) -> Result<Vec<DirEntry>, Error> {
         let dir = self.reach_dir()?;
+        // A listing holds the directory shared, as Linux's `iterate_dir`
+        // does, so a removal through the VFS lands before or after it.
+        let _held = down_read(&self.mount, &self.dentry)?;
         if self.dentry.is_dead() {
             return Ok(Vec::new());
         }
@@ -141,8 +145,10 @@ impl Path {
         }];
         for name in self.dentry.names() {
             let above = chain.last().expect("a chain holds the root");
-            let dentry = filesystem.dentries().child(&above.dentry, &name);
-            let dir = match above.dir.open_dir(&dentry) {
+            let (above_dir, above_dentry) = (above.dir.clone(), above.dentry.clone());
+            let _held = down_read(&self.mount, &above_dentry)?;
+            let dentry = filesystem.dentries().child(&above_dentry, &name);
+            let dir = match above_dir.open_dir(&dentry) {
                 Ok(dir) => dir,
                 Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {
                     return Err(FilesystemError::NotFound.into())

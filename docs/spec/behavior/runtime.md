@@ -46,6 +46,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `test/parity/test_hermetic.rb`
 - `test/e2e/test_mount_spelling.rb`
 - `crates/kobako-runtime/src/vfs/times.rs`
+- `crates/kobako-runtime/src/vfs/namei.rs`
 - `crates/kobako-runtime/src/vfs/dentry.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/cache.rs`
@@ -1739,3 +1740,51 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a read-write Bind Mount holding a link to nothing |
 | When | the guest opens the link's name with a trailing slash and `O_CREAT` |
 | Then | the open answers EISDIR, and nothing is made |
+
+## `RT-163` A directory made while another is removed in its place stays alive
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-159` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory being removed through the runtime by one thread |
+| When | another thread makes one in its place, opens it, and makes into it |
+| Then | the make succeeds in the directory made in its place |
+
+## `RT-164` A directory moved beneath itself is refused whatever its Filesystem
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-107` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem that checks nothing about where a directory moves |
+| When | a directory is moved through the runtime into a directory beneath it |
+| Then | the move answers EINVAL, and the Filesystem is not asked |
+
+## `RT-165` A Filesystem changing the directory its own change holds answers a deadlock
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-163` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose make calls the runtime to make in the same directory |
+| When | a directory is made through the runtime |
+| Then | the inner make answers EDEADLK |
+
+## `RT-166` A call waiting for a directory's lock waits through its Filesystem's Blocking
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-039` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem instance given a Blocking, one thread changing a directory |
+| When | another thread makes a call on the same directory |
+| Then | the call waits through that Blocking, then answers |

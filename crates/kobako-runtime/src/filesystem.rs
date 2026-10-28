@@ -18,8 +18,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
 
+pub use crate::vfs::Blocking;
 pub use bind::Bind;
-pub use overlay::{Blocking, Overlay};
+pub use overlay::Overlay;
 pub use tmpfs::{SeedError, Tmpfs};
 
 use crate::vfs::Dentry;

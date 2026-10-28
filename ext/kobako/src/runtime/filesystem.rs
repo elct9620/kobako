@@ -21,7 +21,7 @@ use magnus::{
 
 use ruby::RubyFilesystem;
 
-use kobako_runtime::filesystem::{Access, Bind, Blocking, Overlay, Tmpfs};
+use kobako_runtime::filesystem::{Access, Bind, Blocking, Inode, Overlay, Tmpfs};
 use kobako_runtime::vfs::Filesystem;
 
 pub(super) use grants::{to_grants, validate_mount};
@@ -54,7 +54,7 @@ pub(super) struct OverlayFs {
 impl OverlayFs {
     fn new(overlay: Overlay, layers: Vec<Opaque<Value>>) -> Self {
         Self {
-            filesystem: Filesystem::new(Arc::new(overlay.clone())),
+            filesystem: new_filesystem(Arc::new(overlay.clone())),
             overlay,
             layers,
         }
@@ -118,7 +118,7 @@ fn tmpfs_new(args: &[Value]) -> Result<TmpfsFs, MagnusError> {
     let tmpfs = Tmpfs::try_from_iter(files)
         .map_err(|error| MagnusError::new(ruby.exception_arg_error(), error.to_string()))?
         .with_size(size);
-    Ok(TmpfsFs(Filesystem::new(Arc::new(match nr_inodes {
+    Ok(TmpfsFs(new_filesystem(Arc::new(match nr_inodes {
         Some(nr_inodes) => tmpfs.with_nr_inodes(nr_inodes),
         None => tmpfs,
     }))))
@@ -132,7 +132,7 @@ fn to_count(count: Value) -> Result<Option<usize>, MagnusError> {
 fn bind_new(path: String) -> Result<BindFs, MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
     Bind::new(&path)
-        .map(|directory| BindFs(Filesystem::new(Arc::new(directory))))
+        .map(|directory| BindFs(new_filesystem(Arc::new(directory))))
         .map_err(|err| {
             MagnusError::new(
                 ruby.exception_arg_error(),
@@ -149,8 +149,14 @@ fn overlay_new() -> OverlayFs {
     )
 }
 
-/// An Overlay's thread waits for its lock without the GVL, so a holder
-/// asking a Layer written in Ruby can take the GVL and finish.
+/// The Filesystem instance `root` answers for, its calls waiting for a
+/// directory's lock without the GVL.
+fn new_filesystem(root: Arc<dyn Inode>) -> Arc<Filesystem> {
+    Filesystem::with_blocking(root, Arc::new(GvlFreeWait))
+}
+
+/// A thread waits for a lock without the GVL, so a holder asking a
+/// Filesystem written in Ruby can take the GVL and finish.
 struct GvlFreeWait;
 
 impl Blocking for GvlFreeWait {
@@ -211,7 +217,7 @@ fn to_filesystem(value: Value) -> Result<Arc<Filesystem>, MagnusError> {
         return Ok(fs.filesystem.clone());
     }
     if let Some(fs) = RubyFilesystem::from_value(value) {
-        return Ok(Filesystem::new(Arc::new(fs)));
+        return Ok(new_filesystem(Arc::new(fs)));
     }
     let ruby = Ruby::get().expect("Ruby thread");
     Err(MagnusError::new(
