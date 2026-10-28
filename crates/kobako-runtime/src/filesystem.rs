@@ -34,7 +34,7 @@ pub enum Access {
 
 /// The files and directories beneath one directory, as the `*at` calls
 /// reach them from a directory descriptor: a Mount's root, or a directory
-/// opened beneath it, which answers as a Filesystem of its own. One may
+/// opened beneath it, which answers as an Inode of its own. One may
 /// wrap another and answer by delegating, so it sees every call on the
 /// way through, and wraps each directory it opens as well. A directory it
 /// opens keeps its identity its own while it is open, as an open

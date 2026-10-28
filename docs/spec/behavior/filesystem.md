@@ -1064,7 +1064,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | a Tmpfs directory opened as a Filesystem of its own |
+| Given | a Tmpfs directory opened as an Inode |
 | When | the directory is renamed, and a file is made through the opened one |
 | Then | the file stands beneath the directory's new path |
 
@@ -1076,7 +1076,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | a Tmpfs directory opened as a Filesystem of its own |
+| Given | a Tmpfs directory opened as an Inode |
 | When | the directory is removed, then made into, listed, and looked up through the opened one |
 | Then | the make is not found, the listing is empty, and the lookup finds a directory |
 
@@ -1088,7 +1088,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | a Tmpfs directory, and a directory beneath it opened as a Filesystem of its own |
+| Given | a Tmpfs directory, and a directory beneath it opened as an Inode |
 | When | the outer directory is renamed into the opened one |
 | Then | the rename answers invalid input, and both stay where they were |
 
@@ -1100,7 +1100,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind's host directory opened as a Filesystem of its own |
+| Given | a Bind's host directory opened as an Inode |
 | When | the host renames the directory, and a file is made through the opened one |
 | Then | the file stands beneath the directory's new host path |
 
@@ -1124,7 +1124,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay directory, and one beneath it, each opened as a Filesystem of its own |
+| Given | an Overlay directory, and one beneath it, each opened as an Inode |
 | When | the outer directory is renamed through the Overlay, and files are made through both |
 | Then | each file stands beneath the outer directory's new path |
 
@@ -1136,7 +1136,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay directory opened as a Filesystem of its own |
+| Given | an Overlay directory opened as an Inode |
 | When | the directory is removed and another made at its path, then made into and listed |
 | Then | the make is not found, the listing is empty, and the new directory stays empty |
 
@@ -1148,7 +1148,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay directory opened as a Filesystem of its own |
+| Given | an Overlay directory opened as an Inode |
 | When | its Layer moves the directory away and makes another in its place, outside the Overlay |
 | Then | a read through the opened directory reads the directory it opened |
 

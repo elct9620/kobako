@@ -316,7 +316,8 @@ driver, so choosing an engine there means choosing a different frontend.
 
 ## Filesystem
 
-A Mount hands the guest any `impl Inode`, and an Overlay stacks them as Layers.
+A Mount hands the guest a Filesystem made from any `impl Inode`, and an Overlay
+stacks Filesystems as Layers.
 The runtime walks each guest path one name at a time and checks it before the
 Filesystem acts on it. It follows a link itself, so a Filesystem only answers one
 name in a directory it already opened.
@@ -328,7 +329,7 @@ guest path ─▶ runtime: walk name by name, follow links, check the Policy ─
                               └── read_link · stored_name ────────────────────┘
 ```
 
-A directory the guest opens is a Filesystem of its own, from `open_dir`. A
+A directory the guest opens is an Inode of its own, from `open_dir`. A
 wrapper wraps each directory it opens too, so it still sees every call beneath it.
 
 ### Filesystem Obligations

@@ -588,7 +588,7 @@ pub trait Inode {
 
 ## `Inode::open_dir`
 
-The directory a Dentry names in this one, as a Filesystem of its own.
+The directory a Dentry names in this one, as an Inode of its own.
 Anything else standing there is refused, a link among them.
 
 ```rust
