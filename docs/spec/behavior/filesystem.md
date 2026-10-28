@@ -1379,3 +1379,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs holding a file, an empty directory, and a directory holding a file |
 | When | the file moves onto each directory, and each directory onto the file and onto the other |
 | Then | each is refused as EISDIR, ENOTDIR, or ENOTEMPTY, and nothing moves |
+
+## `FS-134` A directory removed through an Overlay leaves nothing in `work`
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-128` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay over a Tmpfs, its lower Layer holding a directory with one file |
+| When | the file and then the directory are removed through the Overlay |
+| Then | the directory is gone, and the Tmpfs's `work` is empty |

@@ -1419,6 +1419,27 @@ mod tests {
         );
     }
 
+    // The upper's `dir` holds the whiteout the file's removal left, so only
+    // clearing it before the removal lets what is exchanged out go.
+    // @behavior FS-134
+    #[test]
+    fn a_directory_removed_through_an_overlay_leaves_nothing_in_its_workdir() {
+        let upper = Arc::new(Tmpfs::new());
+        let (overlay, _) = overlay_on(upper.clone());
+        overlay
+            .remove_file("dir/file")
+            .expect("the file must be removed");
+        overlay
+            .remove_dir("dir")
+            .expect("the emptied directory must be removed");
+        assert_eq!(
+            (names(&on(&upper), "work"), kind(&overlay, "dir")),
+            (Vec::<String>::new(), Err(FilesystemError::NotFound)),
+            "Overlay::remove_dir of a lower directory whose file Overlay::remove_file removed \
+             must leave the upper Tmpfs's work empty and the directory gone"
+        );
+    }
+
     // The open writes nothing, so only the copy taking the lower file's
     // times, rather than the time it was made, keeps them.
     // @behavior FS-129
