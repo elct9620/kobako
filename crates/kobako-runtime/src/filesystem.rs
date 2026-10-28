@@ -25,8 +25,7 @@ pub use tmpfs::{SeedError, Tmpfs};
 
 use crate::vfs::Dentry;
 
-/// What the guest may do beneath a Mount, or an Overlay in one of its
-/// Layers.
+/// What the guest may do beneath a Mount.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Access {
     Read,

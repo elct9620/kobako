@@ -514,7 +514,7 @@ mod tests {
         let overlay = host.overlay();
         overlay
             .create_dir("made")
-            .expect("a directory must be made in the writable Layer");
+            .expect("a directory must be made in the upper");
         let file_type = |path| kind(&overlay, path);
         assert_eq!(
             (
@@ -929,9 +929,11 @@ mod tests {
         );
     }
 
-    /// An Overlay built over `lower` under `upper`, as `Overlay::new`
-    /// answers.
-    fn built(lower: Vec<Arc<dyn Inode>>, upper: Option<Arc<dyn Inode>>) -> Option<FilesystemError> {
+    /// Why `Overlay::new` refuses `lower` under `upper`, or `None`.
+    fn refusal(
+        lower: Vec<Arc<dyn Inode>>,
+        upper: Option<Arc<dyn Inode>>,
+    ) -> Option<FilesystemError> {
         Overlay::new(
             lower.into_iter().map(Filesystem::new).collect(),
             upper.map(Filesystem::new),
@@ -947,7 +949,7 @@ mod tests {
         let host = std::env::temp_dir();
         let bind = super::super::Bind::new(&host).expect("the host directory must open");
         assert_eq!(
-            built(vec![Arc::new(Tmpfs::new())], Some(Arc::new(bind))),
+            refusal(vec![Arc::new(Tmpfs::new())], Some(Arc::new(bind))),
             Some(FilesystemError::InvalidInput),
             "Overlay::new with a Bind as its upper must be refused as invalid input"
         );
@@ -957,7 +959,7 @@ mod tests {
     #[test]
     fn an_overlay_without_an_upper_needs_two_lower_layers() {
         assert_eq!(
-            built(vec![Arc::new(Tmpfs::new())], None),
+            refusal(vec![Arc::new(Tmpfs::new())], None),
             Some(FilesystemError::InvalidInput),
             "Overlay::new with one lower Layer and no upper must be refused as invalid input"
         );
@@ -967,7 +969,7 @@ mod tests {
     #[test]
     fn an_overlay_needs_a_lower_layer() {
         assert_eq!(
-            built(Vec::new(), Some(Arc::new(Tmpfs::new()))),
+            refusal(Vec::new(), Some(Arc::new(Tmpfs::new()))),
             Some(FilesystemError::InvalidInput),
             "Overlay::new with an upper and no lower Layer must be refused as invalid input"
         );
