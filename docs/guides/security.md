@@ -325,6 +325,7 @@ kobako defends a Mount against the guest and against another Sandbox's guest wri
 |---|---|
 | the guest itself | kept beneath its Mount, its access held |
 | another Sandbox's guest sharing a backend | neither guest reaches what its Mount or block refuses |
+| a guest of another Mount of the same Filesystem | only that Mount's block judges it; a block guards its own Mount's paths |
 | the host, or a change to a Layer outside its Overlay | no crash or deadlock; the rest is the host's |
 
 ### Host Side
