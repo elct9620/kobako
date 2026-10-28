@@ -54,7 +54,7 @@ Gem::Specification.new do |spec|
     ls.readlines("\x0", chomp: true).reject do |f|
       (f == gemspec) ||
         (f.start_with?("crates/") && !f.start_with?(*ext_crates)) ||
-        f.start_with?(*%w[bin/ Gemfile Gemfile.lock .gitignore test/ .github/ .rubocop.yml
+        f.start_with?(*%w[bin/ Gemfile Gemfile.lock .gitignore test/ .github/ .cargo/ .rubocop.yml
                           tasks/ build_config/ wasm/ docs/ benchmark/ examples/ .powerloop/
                           .spec/ .sumi.json .claude/ AGENTS.md CLAUDE.md Rakefile Steepfile
                           rbs_collection.yaml rbs_collection.lock.yaml sig/_external/ data/.keep

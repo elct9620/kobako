@@ -1,0 +1,11 @@
+# Dev builds for every workspace under this repository. Debug info keeps only
+# what a panic backtrace needs, and dependencies carry none, which keeps the
+# target directories small. Incremental compilation stays off so a macOS build
+# does not leave behind object files that no binary links: each one a test
+# binary's directory holds makes that binary slower to start.
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.dev.package."*"]
+debug = false
