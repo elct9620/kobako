@@ -7,7 +7,7 @@
 # a frontend hands each invocation, the Mount and the Filesystems it
 # places. Engine implementations (`kobako-wasmtime`) and host frontends
 # (the Ruby ext) meet on this surface, so the engine stays swappable.
-# `cap-std` confines the Directory Filesystem to its host directory.
+# `cap-std` confines a Bind to its host directory.
 #
 # Self-contained by design: the Ruby gem ships this crate without the
 # `crates/` workspace manifest, so no `workspace = true` inheritance
@@ -30,16 +30,16 @@ categories = ["wasm", "virtualization"]
 # locally.
 [dependencies]
 kobako-transport = { version = "0.19.0", path = "../kobako-transport" }
-# cap-std resolves every path of the Directory Filesystem beneath its host
-# directory, refusing a `..` or a symbolic link that would lead out of it.
+# cap-std resolves each name a Bind is asked beneath its host directory,
+# refusing a `..` or a symbolic link that would lead out of it.
 # 4.0.3 is the first release whose trailing-slash lookup keeps that
 # refusal (GHSA-hp8f-xmx4-4qrg).
 cap-std = "4.0.3"
-# cap-fs-ext opens a Directory's path one directory at a time without
-# following a link, so a Mount's Policy judges the path its call reaches.
+# cap-fs-ext opens a Bind's directory by name without following a link,
+# so a Mount's Policy judges the path its call reaches.
 cap-fs-ext = "4.0.3"
 
-# rustix switches a Directory file to append mode for one write, so the
+# rustix switches a Bind's file to append mode for one write, so the
 # host places it at the file's end in one step; std cannot set file flags.
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", features = ["fs"] }

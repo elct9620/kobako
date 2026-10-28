@@ -1,9 +1,9 @@
 //! `Bind`: a Filesystem over a host directory, from which nothing
 //! outside it is reachable.
 //!
-//! Every path resolves through `cap_std::fs::Dir`, which refuses a `..`
+//! Every name resolves through `cap_std::fs::Dir`, which refuses a `..`
 //! or a symbolic link that would lead out of the directory, so the
-//! confinement holds whatever path a caller hands over.
+//! confinement holds whatever name a caller hands over.
 
 mod spelling;
 
