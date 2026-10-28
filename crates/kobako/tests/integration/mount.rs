@@ -136,18 +136,34 @@ fn a_path_mounted_twice_is_refused() {
     );
 }
 
+// The outer Tmpfs holds its own `inner/note.txt`, so only the innermost
+// Mount answering keeps the read from reaching it.
 // @behavior MT-005
 #[test]
-fn a_mount_nested_inside_another_is_refused() {
-    let Some(mut sandbox) = sandbox_with_note() else {
+fn a_mount_nested_inside_another_reaches_its_own_filesystem() {
+    let Some(mut sandbox) = real_sandbox() else {
         return;
     };
-    assert!(
-        matches!(
-            sandbox.mount("/data/inner", tmpfs(""), Access::Read),
-            Err(Error::Argument(_))
-        ),
-        "Sandbox::mount beneath a mounted path must be refused"
+    let outer = Filesystem::new(Arc::new(
+        [("inner/note.txt", "outer")].into_iter().collect::<Tmpfs>(),
+    ));
+    sandbox
+        .mount("/data", outer, Access::Read)
+        .expect("mount a Tmpfs at /data");
+    sandbox
+        .mount("/data/inner", tmpfs("inner"), Access::Read)
+        .expect("mount a Tmpfs beneath /data");
+    let value = sandbox
+        .eval(r#"File.read("/data/inner/note.txt")"#)
+        .unwrap()
+        .value()
+        .unwrap();
+
+    assert_eq!(
+        text(value),
+        "inner",
+        "a file read beneath a Sandbox::mount nested inside another must come from the inner \
+         Filesystem"
     );
 }
 

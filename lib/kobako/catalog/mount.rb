@@ -7,21 +7,13 @@ module Kobako
       def key = at
 
       # Why +other+ cannot be mounted beside this Mount, or +nil+: a path
-      # means one Mount, and never sits inside another.
+      # means one Mount, as Docker refuses a duplicate mount point.
       def conflict(other)
-        return "path #{at.inspect} is already mounted" if other.at == at
-
-        "path #{at.inspect} nests with the mounted path #{other.at.inspect}" if nested?(other.at)
+        "path #{at.inspect} is already mounted" if other.at == at
       end
 
       # The Mount as the native side reads it.
       def to_native = [at, access, filesystem, policy]
-
-      private
-
-      def nested?(other)
-        [at, other].include?("/") || at.start_with?("#{other}/") || other.start_with?("#{at}/")
-      end
     end
   end
 end

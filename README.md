@@ -207,9 +207,16 @@ sandbox.eval('File.write("/tmp/scratch", "x")') { |ctx| ctx.mount("/tmp", Kobako
 
 Every invocation reaches the same Filesystem, so the last line starts empty with a Tmpfs of its own.
 
-A Tmpfs is bounded as a tmpfs mount is. Its files hold 64 MiB unless `size:` gives another size in bytes. It holds one file or directory for each 4 KiB of that size, and its root, unless `nr_inodes:` gives another count. `nil` lifts either bound, and the guest raises `Errno::ENOSPC` past one.
+A block decides each open and each change that reaches the Mount in the access's place, asked at most once for each. A falsy answer or a `StandardError` fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run. A mount may sit inside another, and the guest reaches the innermost one.
 
-A block decides each open and each change that reaches the Mount in the access's place, asked at most once for each. A falsy answer or a `StandardError` fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run.
+#### Tmpfs Bounds
+
+A Tmpfs is bounded as a tmpfs mount is, and the guest raises `Errno::ENOSPC` past either bound.
+
+| Bound | Unless given | `nil` |
+|---|---|---|
+| `size:` | 64 MiB of file bytes | no bound |
+| `nr_inodes:` | one entry per 4 KiB of `size`, and the root | no bound |
 
 #### Guest File
 

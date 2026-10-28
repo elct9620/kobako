@@ -6,13 +6,6 @@ use kobako_runtime::mount::Mount;
 
 use crate::error::Error;
 
-fn nests(path: &str, other: &str) -> bool {
-    path == "/"
-        || other == "/"
-        || path.starts_with(&format!("{other}/"))
-        || other.starts_with(&format!("{path}/"))
-}
-
 fn to_mount_path(grant: &Grant) -> Option<&str> {
     match grant {
         Grant::Mount(mount) => Some(mount.at()),
@@ -26,17 +19,12 @@ pub(crate) struct Grants {
 }
 
 impl Grants {
-    /// A path already mounted, or one beneath or above another Mount, is
-    /// refused, as a bind is.
+    /// A path already mounted is refused, as Docker refuses a duplicate
+    /// mount point; one beneath another Mount is not.
     pub(crate) fn mount(&mut self, mount: Mount) -> Result<(), Error> {
         let at = mount.at();
         if self.is_mounted(at) {
             return Err(Error::Argument(format!("path {at:?} is already mounted")));
-        }
-        if let Some(other) = self.mounts().find(|other| nests(at, other)) {
-            return Err(Error::Argument(format!(
-                "path {at:?} nests with the mounted path {other:?}"
-            )));
         }
         self.entries.push(Grant::Mount(mount));
         Ok(())

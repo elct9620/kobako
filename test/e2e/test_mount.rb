@@ -66,11 +66,16 @@ class TestE2EMount < Minitest::Test
     end
   end
 
+  # The outer Tmpfs holds its own +inner/note.txt+, so only the innermost
+  # mount answering keeps the read from reaching it.
   # @behavior MT-005
-  def test_a_mount_nested_inside_another_is_refused
-    assert_raises(ArgumentError, "Sandbox#mount beneath a mounted path must be refused") do
-      sandbox_with_note.mount("/data/inner", Kobako::Filesystem::Tmpfs.new)
-    end
+  def test_a_mount_nested_inside_another_reaches_its_own_filesystem
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                             .mount("/data", Kobako::Filesystem::Tmpfs.new("inner/note.txt" => "outer"))
+                             .mount("/data/inner", Kobako::Filesystem::Tmpfs.new("note.txt" => "inner"))
+
+    assert_equal "inner", sandbox.eval('File.read("/data/inner/note.txt")').value,
+                 "a file read beneath a Sandbox#mount nested inside another must come from the inner Filesystem"
   end
 
   # @behavior MT-007

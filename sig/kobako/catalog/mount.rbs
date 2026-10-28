@@ -19,10 +19,6 @@ module Kobako
       def conflict: (Mount other) -> String?
 
       def to_native: () -> tuple
-
-      private
-
-      def nested?: (String other) -> bool
     end
   end
 end

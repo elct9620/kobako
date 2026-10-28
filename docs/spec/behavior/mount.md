@@ -10,7 +10,7 @@ each invocation ─ Grants ─> runtime ─ preopen ─> guest File
 
 ### Why these scenarios
 
-A mount is a registration, like a bind, so it follows the same rules. It is refused once the Sandbox is sealed, a path means one mount, and a path never sits inside another. A Context replaces a mount but never adds one.
+A mount is a registration, so it is refused once the Sandbox is sealed. A path means one mount, as Docker refuses a duplicate mount point. A mount may sit inside another, and the guest reaches the innermost one. A Context replaces a mount but never adds one.
 
 A mount's block decides in the access's place, at most once per open or change. Its refusal reaches the guest as a denied call and leaves the run going. A block raising a StandardError refuses the same way. Anything else it raises belongs to the host.
 
@@ -76,7 +76,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | When | another Filesystem is mounted at `/data` |
 | Then | the mount is refused |
 
-## `MT-005` A mount nested inside another is refused
+## `MT-005` A mount nested inside another reaches its own Filesystem
 
 | Attribute | Value |
 | --- | --- |
@@ -84,9 +84,9 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a Filesystem mounted at `/data` |
-| When | another Filesystem is mounted at `/data/inner` |
-| Then | the mount is refused |
+| Given | a Sandbox with a Filesystem holding `inner/note` at `/data`, and another holding `note` at `/data/inner` |
+| When | the script reads `/data/inner/note` |
+| Then | it reads the inner Filesystem's note |
 
 ## `MT-006` A runtime presenting no Mount refuses the mount
 
@@ -318,3 +318,16 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | one Overlay over a Ruby Layer that sleeps while asked, shared by two Threads |
 | When | one Sandbox creates a file while the other, holding the GVL, looks in that directory |
 | Then | both finish |
+
+## `MT-027` A rename from one mount into another raises EXDEV
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-109` |
+| relates | `MT-005` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a writable Tmpfs at `/data`, and another nested at `/data/inner` |
+| When | the script renames `/data/inner/note` to `/data/note` |
+| Then | it raises `Errno::EXDEV`, and the note stays where it was |

@@ -91,9 +91,12 @@ module Kobako
     # or a StandardError, fails that call as <tt>Errno::EACCES</tt> in the
     # guest and leaves the script running.
     #
+    # A path may sit beneath another mount, and the guest reaches the
+    # innermost one.
+    #
     # Raises TypeError for a path that is no String or something other than
-    # a Filesystem, and ArgumentError for a malformed, duplicate, or nested
-    # path, an unknown access, or a call after the first invocation.
+    # a Filesystem, and ArgumentError for a malformed or duplicate path, an
+    # unknown access, or a call after the first invocation.
     def mount(at, filesystem, access: :read, &policy)
       refuse_once_invoked!("mount")
       Runtime.validate_mount!(at, access, filesystem)

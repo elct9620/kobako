@@ -31,6 +31,23 @@ class TestE2EMountRename < Minitest::Test
                  "and leave what the block refuses unreachable"
   end
 
+  # Each mount is a Filesystem of its own, so a rename between them would
+  # cross devices, as Linux refuses it.
+  # @behavior MT-027
+  def test_a_rename_from_one_mount_into_another_raises_exdev
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                             .mount("/data", Kobako::Filesystem::Tmpfs.new, access: :read_write)
+                             .mount("/data/inner", Kobako::Filesystem::Tmpfs.new("note" => "x"), access: :read_write)
+    script = <<~RUBY
+      moved = begin; File.rename("/data/inner/note", "/data/note"); :moved; rescue Errno::EXDEV; :refused; end
+      [moved, File.exist?("/data/inner/note"), File.exist?("/data/note")]
+    RUBY
+
+    assert_equal [:refused, true, false], sandbox.eval(script).value,
+                 "File.rename from a Sandbox#mount into the one it is nested in must raise Errno::EXDEV " \
+                 "and leave the file where it was"
+  end
+
   # Without a block the move judges no path the block could have refused.
   def test_a_directory_beneath_a_mount_without_a_block_moves
     secrets = Kobako::Filesystem::Tmpfs.new("app/.env" => "secret")
