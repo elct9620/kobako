@@ -1715,3 +1715,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | one Filesystem instance mounted twice, a directory opened beneath the first |
 | When | the directory is removed beneath the second, then made into through the first |
 | Then | the make answers not found |
+
+## `RT-161` A path ending in a dot through a link is neither removed nor moved
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-102` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-write Bind Mount holding a directory and a link to it |
+| When | the guest removes and renames the link's path followed by `.` and by `..` |
+| Then | the removals answer EINVAL, the renames EBUSY, and the directory stays |
+
+## `RT-162` A create through a trailing slash answers EISDIR before following a link
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-103` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-write Bind Mount holding a link to nothing |
+| When | the guest opens the link's name with a trailing slash and `O_CREAT` |
+| Then | the open answers EISDIR, and nothing is made |

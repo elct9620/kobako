@@ -99,7 +99,8 @@ pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<
 
 /// Refuse a guest path ending in `.` or `..` as `refusal`, since it names
 /// no entry a call may remove or move. Linux looks up what stands before
-/// it first, so a missing or non-directory parent answers as itself.
+/// it first, following a link there as it follows one that is not the
+/// last name, so a missing or non-directory parent answers as itself.
 fn refuse_dot_end(start: &Path, path: &str, refusal: FilesystemError) -> Result<(), Error> {
     let trimmed = path.trim_end_matches('/');
     let (parent, last) = trimmed.rsplit_once('/').unwrap_or(("", trimmed));
@@ -107,7 +108,7 @@ fn refuse_dot_end(start: &Path, path: &str, refusal: FilesystemError) -> Result<
         return Ok(());
     }
     if !parent.is_empty()
-        && resolve(start, parent, false, false)?.found()?.file_type != FileType::Directory
+        && resolve(start, parent, true, false)?.found()?.file_type != FileType::Directory
     {
         return Err(FilesystemError::NotADirectory.into());
     }

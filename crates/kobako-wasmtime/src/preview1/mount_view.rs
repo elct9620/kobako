@@ -1987,6 +1987,77 @@ fn a_create_of_a_host_file_that_only_reads_opens_it() {
     );
 }
 
+/// A host directory of the test's own beneath a read-write Bind Mount,
+/// `dir` a link to the directory `real` and `gone` a link to nothing,
+/// removed when it drops.
+#[cfg(unix)]
+struct LinkedHost(std::path::PathBuf);
+
+#[cfg(unix)]
+impl LinkedHost {
+    fn new(name: &str) -> Self {
+        let host = std::env::temp_dir().join(format!("kobako-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&host);
+        std::fs::create_dir_all(host.join("real/inner")).expect("the host tree must be made");
+        std::os::unix::fs::symlink("real", host.join("dir")).expect("the link must be made");
+        std::os::unix::fs::symlink("nowhere", host.join("gone")).expect("the link must be made");
+        Self(host)
+    }
+
+    fn guest(&self) -> Guest {
+        let directory = Bind::new(&self.0).expect("the host directory must open");
+        Guest::new(&[grant(Arc::new(directory), Access::ReadWrite, None)])
+    }
+}
+
+#[cfg(unix)]
+impl Drop for LinkedHost {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+// The link stands before the dot, so it is followed as Linux follows a
+// link that is not the last name, and the dot answers as RT-102's does.
+// @behavior RT-161
+#[cfg(unix)]
+#[test]
+fn a_path_ending_in_a_dot_through_a_link_is_neither_removed_nor_moved() {
+    let host = LinkedHost::new("dot-link");
+    let mut guest = host.guest();
+    let answers = [
+        guest.call("remove_path", DIR_DOT),
+        guest.call("remove_path", DIR_DOT_DOT),
+        guest.call_pair("rename_paths", DIR_DOT, MOVED),
+        guest.call_pair("rename_paths", DIR_DOT_DOT, MOVED),
+    ];
+    assert_eq!(
+        (answers, host.0.join("real/inner").is_dir()),
+        ([ERRNO_INVAL, ERRNO_INVAL, ERRNO_BUSY, ERRNO_BUSY], true),
+        "path_remove_directory and path_rename of dir/. and dir/.., dir a host link to a \
+         directory beneath a Bind Mount, through preview1 must answer EINVAL and EBUSY, as \
+         Linux does, and leave the directory"
+    );
+}
+
+// Linux answers the trailing slash of a create before it would follow the
+// link, which points at nothing a create could make.
+// @behavior RT-162
+#[cfg(unix)]
+#[test]
+fn a_create_through_a_trailing_slash_answers_eisdir_before_following_a_link() {
+    let host = LinkedHost::new("slash-link");
+    let answer = host
+        .guest()
+        .call_flagged(GONE_AS_DIRECTORY, OFLAGS_CREAT, 0);
+    assert_eq!(
+        (answer, host.0.join("nowhere").exists()),
+        (ERRNO_ISDIR, false),
+        "path_open with O_CREAT of gone/, gone a host link to nothing beneath a Bind Mount, \
+         through preview1 must answer EISDIR, as Linux does, and make nothing"
+    );
+}
+
 // The second seek would land past what a signed offset holds, so only
 // the cap keeps the position from reaching it.
 // @behavior RT-104

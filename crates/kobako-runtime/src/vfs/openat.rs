@@ -35,14 +35,16 @@ pub enum Opened {
 /// caller has a descriptor left to hand the guest; without one the open
 /// answers `TooManyOpenFiles` once the path is known to stand.
 pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<Opened, Error> {
+    // A path ending in `/` asks for a directory, which cannot be created
+    // as a file. Linux answers it once the names before the last are
+    // walked, before it would follow a link standing at the last.
+    if path.ends_with('/') && how.create {
+        resolve(start, path, false, how.create)?;
+        return Err(FilesystemError::IsADirectory.into());
+    }
     // A trailing `/` resolves a link standing there, as Linux's `open` does.
     let follow = how.follow || super::namei::names_directory(path);
     let mut resolved = resolve(start, path, follow, how.create)?;
-    // A path ending in `/` asks for a directory, which cannot be created
-    // as a file.
-    if path.ends_with('/') && how.create {
-        return Err(FilesystemError::IsADirectory.into());
-    }
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
     resolved.check_directory()?;
