@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use super::super::FilesystemError;
 use super::{Node, Space, Tmpfs};
+use crate::vfs::RenameFlag;
 
 /// A whiteout, counting one inode for as long as it stands, as the
 /// character device tmpfs makes for one does.
@@ -18,17 +19,6 @@ impl Drop for Whiteout {
     fn drop(&mut self) {
         self.space.inodes.give(1);
     }
-}
-
-/// How a move treats what stands at its target, as `renameat2`'s flags.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RenameFlag {
-    /// Refuse the move when anything stands at the target.
-    NoReplace,
-    /// Swap the source and the target, both of which must stand.
-    Exchange,
-    /// Leave a whiteout where the source stood.
-    Whiteout,
 }
 
 impl Tmpfs {

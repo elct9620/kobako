@@ -17,6 +17,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use super::dentry::Dentry;
+use super::filesystem::Filesystem;
 use super::openat2::{vfs_open, FileDescription, OpenHow};
 use super::path::{Identity, Path, Step};
 use super::rwsem::RwSemaphoreGuard;
@@ -582,17 +583,13 @@ pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
     nd.check(Access::ReadWrite)?;
     nd.check_directory()?;
     refuse_root(&nd.name, FilesystemError::InvalidInput)?;
-    // The directory and the one it removes are held until its dentry is
-    // dead, so no lookup in between finds the dentry still alive.
-    let victim = nd.child();
     let _parent = down_write(&nd.mount, nd.dentry())?;
-    let _victim = down_write(&nd.mount, &victim)?;
-    nd.base().remove_dir(&victim)?;
-    nd.mount
-        .filesystem()
-        .dentries()
-        .delete(nd.dentry(), &nd.name);
-    Ok(())
+    Ok(vfs_rmdir(
+        nd.mount.filesystem(),
+        nd.base().as_ref(),
+        nd.dentry(),
+        &nd.child(),
+    )?)
 }
 
 /// Remove the file `path` beneath `start`. Linux's `unlink` follows no
@@ -603,10 +600,12 @@ pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
     nd.check(Access::ReadWrite)?;
     nd.check_directory()?;
     refuse_root(&nd.name, FilesystemError::IsADirectory)?;
-    let victim = nd.child();
     let _parent = down_write(&nd.mount, nd.dentry())?;
-    let _victim = down_write(&nd.mount, &victim)?;
-    Ok(nd.base().remove_file(&victim)?)
+    Ok(vfs_unlink(
+        nd.mount.filesystem(),
+        nd.base().as_ref(),
+        &nd.child(),
+    )?)
 }
 
 /// Move `from_path` beneath `from` to `to_path` beneath `to`. A rename
@@ -651,56 +650,117 @@ pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<
     let (old, new) = (source.child(), target.child());
     let filesystem = from.mount().filesystem();
     let (old_dir, new_dir) = (source.dentry(), target.dentry());
-    let blocking = filesystem.blocking();
-    // A move between two directories holds the Filesystem's rename lock,
-    // so which stands beneath the other holds still while it is asked, as
-    // Linux's `lock_rename` asks before it locks either.
-    let _rename = match Arc::ptr_eq(old_dir, new_dir) {
-        true => None,
-        false => {
-            let held = filesystem.rename_mutex().down_write(blocking)?;
-            if new_dir.is_subdir(&old) {
-                return Err(FilesystemError::InvalidInput.into());
-            }
-            if old_dir.is_subdir(&new) {
-                return Err(FilesystemError::DirectoryNotEmpty.into());
-            }
-            Some(held)
-        }
-    };
-    let _parents = lock_parents(&source.mount, old_dir, new_dir)?;
-    let _old = down_write(&source.mount, &old)?;
-    let _new = down_write(&source.mount, &new)?;
-    source
-        .base()
-        .rename(&old, target.base().as_ref(), &new, rename)?;
-    // A directory replaced at the target is gone for whoever holds it, and
-    // one moved from the source is reached where it went.
-    let dentries = source.mount.filesystem().dentries();
-    dentries.delete(target.dentry(), &target.name);
-    dentries.d_move(source.dentry(), &source.name, target.dentry(), &target.name);
-    Ok(())
+    // Which directory stands beneath the other holds still once both are
+    // held, so it is asked then, as Linux asks for `lock_rename`'s trap.
+    let _held = lock_rename(filesystem, old_dir, new_dir)?;
+    if new_dir.is_subdir(&old) {
+        return Err(FilesystemError::InvalidInput.into());
+    }
+    if old_dir.is_subdir(&new) {
+        return Err(FilesystemError::DirectoryNotEmpty.into());
+    }
+    Ok(vfs_rename(
+        filesystem,
+        (old_dir, &old),
+        (new_dir, &new),
+        None,
+        || {
+            source
+                .base()
+                .rename(&old, target.base().as_ref(), &new, rename)
+        },
+    )?)
 }
 
-/// Hold both directories a move changes exclusive, the one above the other
-/// first and otherwise in a fixed order, as Linux locks a rename's parents
-/// ancestors first, so two moves never wait on each other.
-fn lock_parents<'a>(
-    mount: &Mount,
+/// What a move asks of its target, as `renameat2`'s flags.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RenameFlag {
+    /// Refuse the move when anything stands at the target.
+    NoReplace,
+    /// Swap the source and the target, both of which must stand.
+    Exchange,
+    /// Leave a whiteout where the source stood.
+    Whiteout,
+}
+
+/// Hold both directories a move between them changes exclusive, as Linux's
+/// `lock_rename` does: the Filesystem's rename lock first where they
+/// differ, so no other such move changes which stands beneath the other,
+/// then the one above the other before it, as a removal holds the
+/// directory above the one it removes first, and otherwise in a fixed
+/// order.
+pub(crate) fn lock_rename<'a>(
+    filesystem: &'a Filesystem,
     old_dir: &'a Arc<Dentry>,
     new_dir: &'a Arc<Dentry>,
 ) -> Result<Vec<RwSemaphoreGuard<'a>>, FilesystemError> {
+    let blocking = filesystem.blocking();
     if Arc::ptr_eq(old_dir, new_dir) {
-        return Ok(vec![down_write(mount, old_dir)?]);
+        return Ok(vec![old_dir.rwsem.down_write(blocking)?]);
     }
+    let rename = filesystem.rename_mutex().down_write(blocking)?;
     let old_first = new_dir.is_subdir(old_dir)
         || (!old_dir.is_subdir(new_dir) && Arc::as_ptr(old_dir) < Arc::as_ptr(new_dir));
     let (first, second) = match old_first {
         true => (old_dir, new_dir),
         false => (new_dir, old_dir),
     };
-    let first = down_write(mount, first)?;
-    Ok(vec![first, down_write(mount, second)?])
+    let first = first.rwsem.down_write(blocking)?;
+    Ok(vec![rename, first, second.rwsem.down_write(blocking)?])
+}
+
+/// Move `old` in its directory to `new` in its own through `rename`, the
+/// Filesystem's call, as Linux's `vfs_rename` does once `lock_rename`
+/// holds both directories: each name held while it moves, and its dentry
+/// following it. A directory replaced at `new` is gone for whoever holds
+/// it, and an exchange leaves neither name's dentry reached again.
+pub(crate) fn vfs_rename(
+    filesystem: &Filesystem,
+    (old_dir, old): (&Arc<Dentry>, &Arc<Dentry>),
+    (new_dir, new): (&Arc<Dentry>, &Arc<Dentry>),
+    flag: Option<RenameFlag>,
+    rename: impl FnOnce() -> Result<(), FilesystemError>,
+) -> Result<(), FilesystemError> {
+    let blocking = filesystem.blocking();
+    let _old = old.rwsem.down_write(blocking)?;
+    let _new = new.rwsem.down_write(blocking)?;
+    rename()?;
+    let (old_name, new_name) = (old.name(), new.name());
+    let dentries = filesystem.dentries();
+    dentries.delete(new_dir, &new_name);
+    match flag {
+        Some(RenameFlag::Exchange) => dentries.delete(old_dir, &old_name),
+        _ => dentries.d_move(old_dir, &old_name, new_dir, &new_name),
+    }
+    Ok(())
+}
+
+/// Remove the empty directory `victim` in `dir` through `inode`, the
+/// directory holding it, as Linux's `vfs_rmdir` does once its caller holds
+/// `dir`: the directory removed is held too, so nothing is made in it
+/// meanwhile, and its dentry dies before either is let go.
+pub(crate) fn vfs_rmdir(
+    filesystem: &Filesystem,
+    inode: &dyn Inode,
+    dir: &Arc<Dentry>,
+    victim: &Arc<Dentry>,
+) -> Result<(), FilesystemError> {
+    let _victim = victim.rwsem.down_write(filesystem.blocking())?;
+    inode.remove_dir(victim)?;
+    filesystem.dentries().delete(dir, &victim.name());
+    Ok(())
+}
+
+/// Remove the file `victim` through `inode`, the directory holding it, as
+/// Linux's `vfs_unlink` does once its caller holds that directory, the
+/// name itself held too.
+pub(crate) fn vfs_unlink(
+    filesystem: &Filesystem,
+    inode: &dyn Inode,
+    victim: &Arc<Dentry>,
+) -> Result<(), FilesystemError> {
+    let _victim = victim.rwsem.down_write(filesystem.blocking())?;
+    inode.remove_file(victim)
 }
 
 /// Refuse a guest path ending in `.` or `..` as `refusal`, since it names

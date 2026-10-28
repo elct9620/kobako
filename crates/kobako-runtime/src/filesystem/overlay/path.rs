@@ -4,15 +4,19 @@
 //! VFS helpers overlayfs calls do: shared while a name is looked up, as
 //! `lookup_one_unlocked`, and exclusive while one is made, removed, or
 //! moved, as `start_creating`, `start_removing`, and `lock_rename`. A
-//! directory removed or moved through the Overlay is removed or moved in
-//! the Layer's dentries too.
+//! removal or a move goes through the VFS's own `vfs_rmdir`,
+//! `vfs_unlink`, and `vfs_rename`, as overlayfs's do, so it holds what it
+//! removes or moves and the Layer's dentries follow it.
 
 use std::any::Any;
 use std::sync::Arc;
 
-use super::super::tmpfs::{RenameFlag, TmpfsFile};
+use super::super::tmpfs::TmpfsFile;
 use super::super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs};
-use crate::vfs::{Dentry, Filesystem, RwSemaphoreGuard};
+use crate::vfs::{
+    lock_rename, vfs_rename, vfs_rmdir, vfs_unlink, Dentry, Filesystem, RenameFlag,
+    RwSemaphoreGuard,
+};
 
 /// The attribute marking a directory opaque, and its value, as
 /// overlayfs's `OVL_XATTR_OPAQUE`.
@@ -47,20 +51,6 @@ impl OverlayPath {
 
     fn exclusive(&self) -> Result<RwSemaphoreGuard<'_>, FilesystemError> {
         self.dentry.rwsem.down_write(self.filesystem.blocking())
-    }
-
-    /// Hold this directory and `target` for a move between them, as
-    /// `lock_rename` holds the Layer's rename mutex first when they differ.
-    fn lock_rename<'a>(
-        &'a self,
-        target: &'a Self,
-    ) -> Result<Vec<RwSemaphoreGuard<'a>>, FilesystemError> {
-        if Arc::ptr_eq(&self.dentry, &target.dentry) {
-            return Ok(vec![self.exclusive()?]);
-        }
-        let blocking = self.filesystem.blocking();
-        let rename = self.filesystem.rename_mutex().down_write(blocking)?;
-        Ok(vec![rename, self.exclusive()?, target.exclusive()?])
     }
 
     /// This directory as a Tmpfs, the one kind holding an Overlay's marks.
@@ -115,15 +105,14 @@ impl OverlayPath {
         to: &str,
         flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
-        let _held = self.lock_rename(target)?;
-        self.upper()?.rename2(from, target.upper()?, to, flag)?;
-        let dentries = self.filesystem.dentries();
-        dentries.delete(&target.dentry, to);
-        match flag {
-            Some(RenameFlag::Exchange) => dentries.delete(&self.dentry, from),
-            _ => dentries.d_move(&self.dentry, from, &target.dentry, to),
-        }
-        Ok(())
+        let _held = lock_rename(&self.filesystem, &self.dentry, &target.dentry)?;
+        vfs_rename(
+            &self.filesystem,
+            (&self.dentry, &self.child(from)),
+            (&target.dentry, &target.child(to)),
+            flag,
+            || self.upper()?.rename2(from, target.upper()?, to, flag),
+        )
     }
 
     pub(super) fn tmpfile(&self) -> Result<TmpfsFile, FilesystemError> {
@@ -196,13 +185,16 @@ impl OverlayPath {
 
     pub(super) fn remove_dir(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.exclusive()?;
-        self.dir.remove_dir(&self.child(name))?;
-        self.filesystem.dentries().delete(&self.dentry, name);
-        Ok(())
+        vfs_rmdir(
+            &self.filesystem,
+            self.dir.as_ref(),
+            &self.dentry,
+            &self.child(name),
+        )
     }
 
     pub(super) fn remove_file(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.exclusive()?;
-        self.dir.remove_file(&self.child(name))
+        vfs_unlink(&self.filesystem, self.dir.as_ref(), &self.child(name))
     }
 }

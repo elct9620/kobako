@@ -196,15 +196,42 @@ fn subdir(root: &OverlayPath, name: &str) -> Result<OverlayPath, FilesystemError
     }
 }
 
-/// Take `name` out of `dir` with all it holds, as overlayfs's
-/// `ovl_cleanup` takes away what a change left in its workdir.
+/// Take `name` out of `dir`, a directory only once it is empty, as
+/// overlayfs's `ovl_cleanup` takes away what a change left in its
+/// workdir, so whatever another writer made in it meanwhile stays.
 fn cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
+    match dir.symlink_metadata(name)?.file_type {
+        FileType::Directory => dir.remove_dir(name),
+        _ => dir.remove_file(name),
+    }
+}
+
+/// Take the whiteouts out of the directory `name` in `dir`, and nothing
+/// else, as overlayfs's `ovl_cleanup_whiteouts` does before it removes
+/// one; anything else stands there leaves it holding that.
+fn cleanup_whiteouts(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
+    let inner = match dir.open_dir(name) {
+        Ok(inner) => inner,
+        Err(FilesystemError::NotADirectory) => return Ok(()),
+        Err(err) => return Err(err),
+    };
+    for entry in inner.entries()? {
+        if inner.is_whiteout(&entry.name) {
+            inner.remove_file(&entry.name)?;
+        }
+    }
+    Ok(())
+}
+
+/// Take `name` out of the workdir with all it holds, as overlayfs's
+/// `ovl_workdir_cleanup` empties it of what an earlier mount left.
+fn workdir_cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
     if dir.symlink_metadata(name)?.file_type != FileType::Directory {
         return dir.remove_file(name);
     }
     let inner = dir.open_dir(name)?;
     for entry in inner.entries()? {
-        cleanup(&inner, &entry.name)?;
+        workdir_cleanup(&inner, &entry.name)?;
     }
     dir.remove_dir(name)
 }
@@ -241,7 +268,7 @@ impl OverlayFs {
             roots.push(subdir(&root, UPPERDIR)?);
             let made = subdir(&root, WORKDIR)?;
             for entry in made.entries()? {
-                cleanup(&made, &entry.name)?;
+                workdir_cleanup(&made, &entry.name)?;
             }
             work = Some(made);
         }

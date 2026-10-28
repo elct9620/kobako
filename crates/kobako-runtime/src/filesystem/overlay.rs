@@ -1481,6 +1481,106 @@ mod tests {
         );
     }
 
+    /// An Overlay over an empty lower Layer under the Tmpfs `upper`, and
+    /// that same Tmpfs mounted on its own, each reached through the VFS.
+    fn beside_its_upper(upper: Tmpfs) -> (crate::vfs::Path, crate::vfs::Path) {
+        let upper = Filesystem::new(Arc::new(upper));
+        let overlay = Overlay::new(
+            vec![Filesystem::new(Arc::new(Tmpfs::new()))],
+            Some(upper.clone()),
+        )
+        .expect("an upper over a lower Layer must make a view");
+        let root = |filesystem| {
+            let mount =
+                crate::mount::Mount::new("/data", filesystem, super::super::Access::ReadWrite)
+                    .expect("/data is a guest path");
+            crate::vfs::Path::root(mount, crate::profile::Profile::Permissive)
+        };
+        (root(Filesystem::new(Arc::new(overlay))), root(upper))
+    }
+
+    // The move holds the directory it leaves and the one above it, and the
+    // removal holds the same two, so only taking the one above first in
+    // both keeps them from waiting on each other; unordered, they wait
+    // within a few moves.
+    // @behavior FS-131
+    #[test]
+    fn an_overlay_and_a_mount_of_its_upper_never_wait_on_each_other() {
+        let (overlay, upper) = beside_its_upper(
+            [("upper/a/b/c", "c"), ("upper/a/b/keep", "")]
+                .into_iter()
+                .collect(),
+        );
+        let moved = Arc::new(AtomicBool::new(false));
+        let removing = {
+            let moved = moved.clone();
+            thread::spawn(move || {
+                while !moved.load(Ordering::SeqCst) {
+                    let _ = crate::vfs::remove_dir(&upper, "upper/a/b");
+                }
+            })
+        };
+        let (done, finished) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            for _ in 0..500 {
+                crate::vfs::rename(&overlay, "a/b/c", &overlay, "a/c")
+                    .expect("the file must move up");
+                crate::vfs::rename(&overlay, "a/c", &overlay, "a/b/c")
+                    .expect("the file must move back");
+            }
+            let _ = done.send(());
+        });
+        let returned = finished.recv_timeout(Duration::from_secs(10)).is_ok();
+        moved.store(true, Ordering::SeqCst);
+        if returned {
+            removing.join().expect("the removal must not panic");
+        }
+        assert!(
+            returned,
+            "vfs::rename of a file up one directory through an Overlay, while vfs::remove_dir \
+             removes that directory through a Mount of its upper Tmpfs, must return"
+        );
+    }
+
+    // The make holds only the directory it makes in, so only the removal
+    // holding that directory too, and removing it only once empty, keeps
+    // what the make made from going with it. The two land in the same
+    // instant only a few times in this many tries.
+    // @behavior FS-132
+    #[test]
+    fn a_removal_through_an_overlay_waits_for_a_change_in_that_directory() {
+        let (overlay, upper) = beside_its_upper([("upper/a/.keep", "")].into_iter().collect());
+        let stop = Arc::new(AtomicBool::new(false));
+        let churning = {
+            let stop = stop.clone();
+            thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    let _ = crate::vfs::create_dir(&overlay, "a/b");
+                    let _ = crate::vfs::remove_dir(&overlay, "a/b");
+                }
+            })
+        };
+        let mut lost = 0;
+        for _ in 0..100_000 {
+            if crate::vfs::create_dir(&upper, "upper/a/b/made").is_ok() {
+                match crate::vfs::symlink_metadata(&upper, "upper/a/b/made") {
+                    Ok(_) => {
+                        let _ = crate::vfs::remove_dir(&upper, "upper/a/b/made");
+                    }
+                    Err(_) => lost += 1,
+                }
+            }
+        }
+        stop.store(true, Ordering::SeqCst);
+        churning.join().expect("the Overlay's calls must not panic");
+        assert_eq!(
+            lost, 0,
+            "vfs::create_dir in a directory through a Mount of an Overlay's upper Tmpfs, while \
+             vfs::remove_dir removes that directory through the Overlay, must leave every \
+             directory it made standing"
+        );
+    }
+
     // The upper has room for the copy's entry but for less than
     // the lower file's bytes, so the copy fails part way.
     // @behavior FS-046

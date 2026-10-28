@@ -12,8 +12,6 @@ use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOpti
 use crate::vfs::Dentry;
 use whiteout::Whiteout;
 
-pub(crate) use whiteout::RenameFlag;
-
 mod tmpfile;
 mod whiteout;
 mod xattr;

@@ -1343,3 +1343,27 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay whose upper holds a directory a lower Layer fills |
 | When | another lower file there is copied up |
 | Then | the directory reports the modified time it had |
+
+## `FS-131` An Overlay and a Mount of its upper never wait on each other
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-037` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay, and its upper Tmpfs mounted on its own |
+| When | a file moves up one directory through the Overlay, and that directory is removed through the other Mount |
+| Then | each call returns |
+
+## `FS-132` A removal through an Overlay waits for a change in that directory
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-037` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay, and its upper Tmpfs mounted on its own |
+| When | an empty directory is removed through the Overlay, and a directory is made in it through the other Mount |
+| Then | a directory made stays |

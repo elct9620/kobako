@@ -22,6 +22,7 @@ mod utimes;
 use crate::filesystem::FilesystemError;
 use crate::mount::Denial;
 
+pub(crate) use namei::{lock_rename, vfs_rename, vfs_rmdir, vfs_unlink, RenameFlag};
 pub(crate) use rwsem::{Inline, RwSemaphore, RwSemaphoreGuard};
 
 pub use dentry::Dentry;

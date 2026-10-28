@@ -6,7 +6,7 @@
 use super::super::super::{FileType, FilesystemError, OpenOptions};
 use super::super::path::OverlayPath;
 use super::{copy_whole, entry, holds, Chain, OverlayFs};
-use crate::filesystem::tmpfs::RenameFlag;
+use crate::vfs::RenameFlag;
 
 impl OverlayFs {
     /// The directory `chain` reaches in Layer `into`, made there along

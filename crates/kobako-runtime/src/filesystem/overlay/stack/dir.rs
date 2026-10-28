@@ -7,8 +7,23 @@
 use super::super::super::path::{beneath_itself, is_beneath};
 use super::super::super::{File, FileType, FilesystemError, OpenOptions, Rename};
 use super::super::path::OverlayPath;
-use super::{cleanup, entry, holds, layer_dir, opaque_inside, Chain, Level, OverlayFs};
-use crate::filesystem::tmpfs::RenameFlag;
+use super::{
+    cleanup, cleanup_whiteouts, entry, holds, layer_dir, opaque_inside, Chain, Level, OverlayFs,
+};
+use crate::vfs::RenameFlag;
+
+/// Whether the directory `name` in `dir` holds a whiteout, which
+/// overlayfs's `ovl_check_empty_dir` lists for `ovl_clear_empty`.
+fn holds_whiteouts(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemError> {
+    match dir.open_dir(name) {
+        Ok(inner) => Ok(inner
+            .entries()?
+            .iter()
+            .any(|entry| inner.is_whiteout(&entry.name))),
+        Err(FilesystemError::NotADirectory) => Ok(false),
+        Err(err) => Err(err),
+    }
+}
 
 impl OverlayFs {
     /// Every Layer still showing `name` in `level`, topmost first, and the
@@ -91,10 +106,10 @@ impl OverlayFs {
             let _ = work.remove_file(&temp);
             return Err(err);
         }
-        match holds {
-            true => cleanup(work, &temp),
-            false => Ok(()),
+        if holds {
+            let _ = cleanup(work, &temp);
         }
+        Ok(())
     }
 
     /// What `make` builds at a name in the workdir, exchanged with what
@@ -115,7 +130,7 @@ impl OverlayFs {
             .inspect_err(|_| {
                 let _ = cleanup(work, &temp);
             })?;
-        let _ = cleanup(work, &temp);
+        let _ = cleanup_whiteouts(work, &temp).and_then(|()| cleanup(work, &temp));
         Ok(made)
     }
 
@@ -148,7 +163,15 @@ impl OverlayFs {
         let (holders, shadowed) = self.holders(&level, name)?;
         let lower = holders.iter().copied().find(|&index| !self.is_upper(index));
         let upper_holds = holders.first().is_some_and(|&index| self.is_upper(index));
-        match self.whiteout_layer(lower.into_iter().chain(shadowed).min())? {
+        let whiteout_into = self.whiteout_layer(lower.into_iter().chain(shadowed).min())?;
+        // A directory the upper holds with whiteouts in it is first
+        // replaced by an empty one, as overlayfs's `ovl_clear_empty` does,
+        // so it removes as an empty directory, and anything another writer
+        // made in it meanwhile refuses the removal.
+        if upper_holds && holds_whiteouts(layer_dir(&level[0])?, name)? {
+            self.clear_empty(layer_dir(&level[0])?, name)?;
+        }
+        match whiteout_into {
             Some(upper) => {
                 let dir = self.upper_dir(chain, upper)?;
                 self.whiteout(&dir, name, upper_holds)
