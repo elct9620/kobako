@@ -522,7 +522,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | When | the lower file is written, copying it up |
 | Then | the write is refused as out of space, and the lower file still reads |
 
-## `FS-047` A Bind opens no link an open asks not to follow
+## `FS-047` A Bind opens no link
 
 | Attribute | Value |
 | --- | --- |
@@ -531,8 +531,8 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Step | Statement |
 | --- | --- |
 | Given | a Bind whose host directory holds a link to a file beside it |
-| When | the link is opened asking to follow none, and then asking to follow it |
-| Then | the first open is refused as a link and the second reaches the file |
+| When | the link is opened |
+| Then | the open is refused as a link, and the file is not reached |
 
 ## `FS-048` A Bind reports a link a lookup does not follow as a link
 
@@ -607,7 +607,7 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | --- | --- |
 | Given | an Overlay whose upper Bind Layer holds a link to nothing where a lower Layer holds a file |
 | When | the path is opened to read through the Overlay |
-| Then | it is not found |
+| Then | the open is refused as a link, and the lower file is not reached |
 
 ## `FS-054` A copy up through a Layer writing in parts copies the whole file
 

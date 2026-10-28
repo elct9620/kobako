@@ -586,9 +586,9 @@ mod tests {
                     }
                 )
                 .map(drop),
-            Err(FilesystemError::NotFound),
+            Err(FilesystemError::FilesystemLoop),
             "a lower file beneath a dangling link a higher Bind Layer holds at its path, \
-             opened through Overlay::open, must not be found"
+             opened through Overlay::open, must be refused as the link, the file unreached"
         );
     }
 

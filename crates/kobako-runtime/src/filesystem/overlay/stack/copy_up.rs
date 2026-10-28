@@ -72,7 +72,6 @@ impl OverlayFs {
             name,
             &OpenOptions {
                 read: true,
-                nofollow: true,
                 ..OpenOptions::default()
             },
         )?;

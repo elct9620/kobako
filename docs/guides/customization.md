@@ -333,12 +333,13 @@ wrapper wraps each directory it opens too, so it still sees every call beneath i
 
 ### Filesystem Obligations
 
-Five methods carry a guarantee the runtime gives the guest. None has a default, so
+Six methods carry a guarantee the runtime gives the guest. None has a default, so
 each Filesystem and its `File` answer them, and one wrapping another forwards them.
 A method like these joins without a default, a break marked `!`.
 
 | Method | Keeps | An implementor without it answers |
 |---|---|---|
+| `open` | no link opened as the file at a name | the file, as no link stands there |
 | `symlink_metadata` | a link from being followed but where the runtime follows it | what stands there, as no link does |
 | `open_dir` | the same, for each directory on a path, and its identity held while open | the directory, as no link stands there |
 | `read_link` | a link followed only within the directory a descriptor opened | `InvalidInput` |

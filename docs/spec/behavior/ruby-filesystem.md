@@ -153,18 +153,17 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | When | the script renames a file beneath each mount |
 | Then | `rename` is told `directory: false` beneath the block and `directory: nil` elsewhere |
 
-## `RF-011` A Ruby Filesystem's open is told to follow no link when the guest asks
+## `RF-011` A Ruby Filesystem's open is told to follow no link
 
 | Attribute | Value |
 | --- | --- |
 | relates | `FS-047` |
-| unverifiable | the default Guest Binary's File always asks to follow a link |
 
 | Step | Statement |
 | --- | --- |
-| Given | a Ruby Filesystem mounted for a guest |
-| When | the guest opens a path asking to follow no link at its end |
-| Then | `open` is handed `File::NOFOLLOW` among its flags |
+| Given | a Ruby Filesystem opening real host files, its directory holding a link to a file |
+| When | the guest reads the link |
+| Then | `open` is handed `File::NOFOLLOW`, so the read raises ELOOP and the file is not reached |
 
 ## `RF-012` A write a Ruby Filesystem overclaims raises EIO
 

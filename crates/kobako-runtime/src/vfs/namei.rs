@@ -527,7 +527,6 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileD
                 create: how.create && existing.is_none(),
                 create_new: how.create && how.exclusive,
                 truncate: how.truncate,
-                nofollow: true,
             };
             let parent = nd.dentry().clone();
             // A file made holds the directory, as Linux's `O_CREAT` does.

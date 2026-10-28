@@ -43,17 +43,19 @@ pub enum Access {
 ///
 /// The runtime walks a guest's path one name at a time and follows a link
 /// itself, as the VFS above a filesystem does, so a link never leads a
-/// call out of the directory a descriptor opened. Four methods keep a
+/// call out of the directory a descriptor opened. Five methods keep a
 /// guarantee the runtime gives the guest, so each Filesystem answers them
-/// itself and a wrapper forwards them: `symlink_metadata`, `open_dir`, and
-/// `read_link` keep a link from being followed anywhere but where the
-/// runtime follows it, and `stored_name` keeps a Policy judging the
+/// itself and a wrapper forwards them: `open`, `symlink_metadata`,
+/// `open_dir`, and `read_link` keep a link from being followed anywhere but
+/// where the runtime follows it, and `stored_name` keeps a Policy judging the
 /// spelling the host stores. Every Invocation reaches the same Filesystem;
 /// one that should start afresh is handed in its place for that
 /// Invocation.
 pub trait Inode: Any + Send + Sync {
     /// Open the file `dentry` names as `options` asks, creating or
-    /// truncating it where they say to.
+    /// truncating it where they say to; `FilesystemLoop` for a link
+    /// standing there, as `O_NOFOLLOW` refuses one, since the runtime
+    /// follows a link itself.
     fn open(
         &self,
         dentry: &Dentry,
@@ -159,9 +161,6 @@ pub struct OpenOptions {
     pub create_new: bool,
     /// Empty the file once it is open.
     pub truncate: bool,
-    /// Refuse a symbolic link standing at the path, as `O_NOFOLLOW` does;
-    /// a Filesystem holding no links has none to refuse.
-    pub nofollow: bool,
 }
 
 /// What `Inode::rename` may move, as `renameat2` flags ask more of

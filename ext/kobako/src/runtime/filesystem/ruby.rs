@@ -187,10 +187,8 @@ fn to_flags(ruby: &Ruby, options: &OpenOptions) -> Result<i64, MagnusError> {
     if options.truncate {
         flags |= flag("TRUNC")?;
     }
-    if options.nofollow {
-        flags |= flag("NOFOLLOW")?;
-    }
-    Ok(flags)
+    // The runtime follows a link itself, so no open follows one.
+    Ok(flags | flag("NOFOLLOW")?)
 }
 
 /// The `Time` a stat answers to `name`, as `File::Stat#mtime` gives one;

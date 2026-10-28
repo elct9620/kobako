@@ -222,13 +222,9 @@ fn open_in(dir: &Dir, name: &str, options: &OpenOptions) -> Result<Box<dyn File>
     // and a device would act on being opened. The host could swap an
     // entry in between, so what opened is checked again before its
     // first use, the open itself never waiting for a peer, nor following
-    // a link swapped in where none was asked to be followed.
-    let found = if options.nofollow {
-        open.follow(FollowSymlinks::No);
-        dir.symlink_metadata(name)
-    } else {
-        dir.metadata(name)
-    };
+    // a link swapped in, since the runtime follows a link itself.
+    open.follow(FollowSymlinks::No);
+    let found = dir.symlink_metadata(name);
     match found.map(|metadata| to_file_type(metadata.file_type())) {
         Ok(FileType::Symlink) => return Err(FilesystemError::FilesystemLoop),
         Ok(FileType::Unknown) => return Err(FilesystemError::PermissionDenied),
@@ -742,28 +738,23 @@ mod tests {
     // @behavior FS-047
     #[cfg(unix)]
     #[test]
-    fn a_directory_opens_no_link_an_open_asks_not_to_follow() {
+    fn a_directory_opens_no_link() {
         let host = HostDir::new("nofollow");
         fs::write(host.0.join("target"), "x").expect("the host file must be written");
         std::os::unix::fs::symlink("target", host.0.join("link")).expect("the link must be made");
-        let directory = opened(&host.0);
-        let open = |nofollow| {
-            directory
-                .open(
-                    "link",
-                    &OpenOptions {
-                        read: true,
-                        nofollow,
-                        ..OpenOptions::default()
-                    },
-                )
-                .map(drop)
-        };
+        let opened = opened(&host.0)
+            .open(
+                "link",
+                &OpenOptions {
+                    read: true,
+                    ..OpenOptions::default()
+                },
+            )
+            .map(drop);
         assert_eq!(
-            (open(true), open(false)),
-            (Err(FilesystemError::FilesystemLoop), Ok(())),
-            "a host link opened through a Bind must be refused when the open asks to follow \
-             none, and reached when it does not"
+            opened,
+            Err(FilesystemError::FilesystemLoop),
+            "a host link opened through a Bind must be refused as a link, its target unreached"
         );
     }
 
@@ -862,23 +853,8 @@ mod tests {
         let host = HostDir::new("confined");
         std::os::unix::fs::symlink(outside.0.join("secret"), host.0.join("escape"))
             .expect("the link must be created");
-        fs::write(host.0.join("inside"), "guest").expect("the inside file must be written");
-        std::os::unix::fs::symlink("inside", host.0.join("alias"))
-            .expect("the inside link must be created");
 
         let directory = opened(&host.0);
-        assert!(
-            directory
-                .open(
-                    "alias",
-                    &OpenOptions {
-                        read: true,
-                        ..OpenOptions::default()
-                    }
-                )
-                .is_ok(),
-            "a link that stays inside the host directory must still open through a Bind's open"
-        );
         assert!(
             directory
                 .open(
