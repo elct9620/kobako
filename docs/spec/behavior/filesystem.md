@@ -1399,3 +1399,15 @@ both live in the topmost writable layer, never show, and no name may claim .wh. 
 | Given | a directory opened beneath an Overlay of two writable Layers, only the upper holding it |
 | When | the directory is moved through the Overlay, then written into through the one opened |
 | Then | the file lands where the directory moved |
+
+## `FS-121` An Overlay never asks its lowest Layer for markers
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-079` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lowest Layer holds `dir/file`, yet reads no marker |
+| When | `dir/file` is looked up through the Overlay |
+| Then | the file reads, since no Layer lies below for a marker to hide |

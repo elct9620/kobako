@@ -2067,6 +2067,26 @@ mod tests {
         );
     }
 
+    // A marker in the lowest Layer hides nothing, as overlayfs reads no
+    // opaque marker in its last layer.
+    // @behavior FS-121
+    #[test]
+    fn the_lowest_layer_is_never_asked_for_markers() {
+        let lowest: Tmpfs = [("dir/file", "lowest")].into_iter().collect();
+        let overlay = at(Overlay::new()
+            .layer(Filesystem::new(Arc::new(Tmpfs::new())), Access::ReadWrite)
+            .layer(
+                Filesystem::new(Arc::new(ReadsNoMarker(lowest))),
+                Access::Read,
+            ));
+        assert_eq!(
+            read(&overlay, "dir/file"),
+            b"lowest",
+            "a file read through Overlay::open from a lowest Layer that cannot read its markers \
+             must read, since no Layer lies below for a marker to hide"
+        );
+    }
+
     // @behavior FS-080
     #[test]
     fn a_file_gone_during_a_rename_answers_not_found() {

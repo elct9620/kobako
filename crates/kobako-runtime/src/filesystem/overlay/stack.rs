@@ -125,11 +125,11 @@ fn hides(dir: &Lower, name: &str) -> Result<bool, FilesystemError> {
 /// as overlayfs stops looking further down once it finds one.
 fn below_opaque_cut(mut level: Level) -> Result<Level, FilesystemError> {
     let mut cut = false;
-    for dir in &mut level {
+    for index in 0..level.len() {
         if cut {
-            *dir = None;
-        } else if let Some(shown) = dir {
-            cut = holds(shown, OPAQUE)?;
+            level[index] = None;
+        } else if let Some(shown) = &level[index] {
+            cut = shows_below(&level, index) && holds(shown, OPAQUE)?;
         }
     }
     Ok(level)
@@ -146,6 +146,13 @@ fn opaque_inside(dir: &Lower, name: &str) -> Result<bool, FilesystemError> {
         ) => Ok(false),
         Err(err) => Err(err),
     }
+}
+
+/// Whether a Layer below `index` shows a directory in `level`, without
+/// which a marker at `index` hides nothing, as overlayfs reads no opaque
+/// marker in its last layer.
+fn shows_below(level: &Level, index: usize) -> bool {
+    level[index + 1..].iter().any(Option::is_some)
 }
 
 /// The whiteout hiding `name`, beside it in its directory.
@@ -316,7 +323,7 @@ impl Stack {
             if let Some(found) = entry(dir, name)? {
                 return Ok(Some((index, found)));
             }
-            if hides(dir, name)? {
+            if shows_below(level, index) && hides(dir, name)? {
                 break;
             }
         }
@@ -338,6 +345,7 @@ impl Stack {
             let Some(dir) = dir else {
                 continue;
             };
+            let below = shows_below(level, index);
             let standing = if index == found.0 {
                 Some(found.1)
             } else {
@@ -346,7 +354,7 @@ impl Stack {
             match standing {
                 Some(metadata) if metadata.file_type == FileType::Directory => {
                     let inner = dir.open_dir(name)?;
-                    let opaque = holds(&inner, OPAQUE)?;
+                    let opaque = below && holds(&inner, OPAQUE)?;
                     merged[index] = Some(inner);
                     if opaque {
                         break;
@@ -355,7 +363,7 @@ impl Stack {
                 Some(_) => break,
                 None => {}
             }
-            if hides(dir, name)? {
+            if below && hides(dir, name)? {
                 break;
             }
         }
