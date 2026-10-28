@@ -440,7 +440,7 @@ mod tests {
 
     /// The host directory at `path` as a Bind, reached through the
     /// VFS.
-    fn opened(path: impl AsRef<Path>) -> KernPath {
+    fn bind_host(path: impl AsRef<Path>) -> KernPath {
         kern_path(Arc::new(
             Bind::new(path).expect("the host directory must open"),
         ))
@@ -485,8 +485,8 @@ mod tests {
     #[test]
     fn a_directory_opens_only_a_file_or_a_directory() {
         let host = make_fifo_host("fifo-open");
-        let fifo = opened(&host.0);
-        let devices = opened("/dev");
+        let fifo = bind_host(&host.0);
+        let devices = bind_host("/dev");
         let (sender, answered) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let read = OpenOptions {
@@ -514,7 +514,7 @@ mod tests {
     #[test]
     fn a_directory_reports_a_fifo_as_of_an_unknown_type() {
         let host = make_fifo_host("fifo-type");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         let listed: Vec<_> = directory
             .entries()
             .expect("the directory must list")
@@ -547,7 +547,7 @@ mod tests {
         let host = HostDir::new("serves");
         fs::write(host.0.join("data.csv"), "a,b").expect("the host file must be written");
 
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         let mut file = directory
             .open(
                 "data.csv",
@@ -570,7 +570,7 @@ mod tests {
     fn an_open_for_neither_reading_nor_writing_still_opens() {
         let host = HostDir::new("lookup");
         fs::write(host.0.join("seen"), "x").expect("the host file must be written");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         assert!(directory.open("seen", &OpenOptions::default()).is_ok());
     }
 
@@ -578,7 +578,7 @@ mod tests {
     #[test]
     fn a_directory_writes_into_its_host_directory() {
         let host = HostDir::new("writes");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         directory
             .open(
                 "out.txt",
@@ -606,7 +606,7 @@ mod tests {
     fn a_directory_on_windows_refuses_to_append() {
         let host = HostDir::new("append");
         fs::write(host.0.join("f"), "x").expect("the host file must be written");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         let mut file = directory
             .open(
                 "f",
@@ -636,7 +636,7 @@ mod tests {
         let host = HostDir::new("backslash");
         fs::create_dir_all(host.0.join("d")).expect("the host directory must be created");
         fs::write(host.0.join("d").join("f"), "x").expect("the host file must be written");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         assert!(
             matches!(
                 directory.open(r"d\f", &OpenOptions::default()),
@@ -653,7 +653,7 @@ mod tests {
     #[test]
     fn a_directory_answers_a_host_failure_as_the_error_naming_it() {
         let host = HostDir::new("names");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         let created = directory.open(
             &"x".repeat(300),
             &OpenOptions {
@@ -695,7 +695,7 @@ mod tests {
         let host = HostDir::new("ilseq");
         fs::write(host.0.join(std::ffi::OsStr::from_bytes(b"\xff")), "")
             .expect("the host file must be written");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         assert_eq!(
             directory.entries().map(drop),
             Err(FilesystemError::IllegalSequence),
@@ -715,7 +715,7 @@ mod tests {
         fs::write(host.0.join("note"), "x").expect("the host file must be written");
         fs::set_permissions(host.0.join("note"), fs::Permissions::from_mode(0o444))
             .expect("the host file must become read-only");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         let creates = OpenOptions {
             read: true,
             create: true,
@@ -742,7 +742,7 @@ mod tests {
         let host = HostDir::new("nofollow");
         fs::write(host.0.join("target"), "x").expect("the host file must be written");
         std::os::unix::fs::symlink("target", host.0.join("link")).expect("the link must be made");
-        let opened = opened(&host.0)
+        let opened = bind_host(&host.0)
             .open(
                 "link",
                 &OpenOptions {
@@ -767,7 +767,7 @@ mod tests {
         let host = HostDir::new("lstat");
         fs::write(host.0.join("target"), "hello").expect("the host file must be written");
         std::os::unix::fs::symlink("target", host.0.join("link")).expect("the link must be made");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         let listed = directory
             .entries()
             .expect("the host directory must list")
@@ -788,7 +788,7 @@ mod tests {
     fn a_directory_refuses_to_remove_a_directory_as_a_file() {
         let host = HostDir::new("unlink-dir");
         fs::create_dir(host.0.join("sub")).expect("the host directory must be created");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         assert_eq!(
             directory.remove_file("sub"),
             Err(FilesystemError::IsADirectory),
@@ -817,7 +817,7 @@ mod tests {
     #[test]
     fn a_directory_opens_no_link_as_a_directory_where_asked_not_to_follow() {
         let host = make_links("open-dir-nofollow");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         let dir = directory.open_dir("dir").expect("the directory must open");
         assert_eq!(
             dir.open_dir("in").map(drop),
@@ -831,7 +831,7 @@ mod tests {
     #[test]
     fn a_directory_reads_where_a_link_points() {
         let host = make_links("read-link");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         let dir = directory.open_dir("dir").expect("the directory must open");
         assert_eq!(
             (dir.read_link("up"), dir.read_link("sub")),
@@ -854,7 +854,7 @@ mod tests {
         std::os::unix::fs::symlink(outside.0.join("secret"), host.0.join("escape"))
             .expect("the link must be created");
 
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         assert!(
             directory
                 .open(
@@ -878,7 +878,7 @@ mod tests {
         let host = HostDir::new("identity");
         fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
         let expected = fs::metadata(host.0.join("dir")).expect("the host must stat it");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         let reported = directory
             .symlink_metadata("dir")
             .expect("the directory must stand");
@@ -899,7 +899,7 @@ mod tests {
     fn a_directory_appends_at_its_host_files_end_in_one_step() {
         let host = HostDir::new("append");
         fs::write(host.0.join("log.txt"), "").expect("the host file must be written");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
 
         let writers: Vec<_> = [b"a", b"b"]
             .into_iter()
@@ -958,7 +958,7 @@ mod tests {
         fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
         let reuses = ino("dir") == first;
         let first = ino("dir");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         let opened = directory.open_dir("dir").expect("the directory must open");
         fs::remove_dir(host.0.join("dir")).expect("the host directory must go");
         let removed = format!("{} (deleted)", host.0.join("dir").display());
@@ -989,7 +989,7 @@ mod tests {
     fn a_directory_opened_from_a_directory_follows_it_when_the_host_moves_it() {
         let host = HostDir::new("opened-moves");
         fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         let dir = directory
             .open_dir("dir")
             .expect("the host directory must open");
@@ -1020,7 +1020,7 @@ mod tests {
         let host = HostDir::new("spelled");
         fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
         fs::write(host.0.join("dir/file"), "x").expect("the host file must be written");
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         let dir = directory
             .open_dir("dir")
             .expect("the host directory must open");
@@ -1045,7 +1045,7 @@ mod tests {
             eprintln!("the host volume matches names exactly; nothing folds to witness");
             return;
         }
-        let directory = opened(&host.0);
+        let directory = bind_host(&host.0);
         let private = directory
             .open_dir("PRIVATE")
             .expect("the host directory must open in any case");
