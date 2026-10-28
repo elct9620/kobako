@@ -52,8 +52,10 @@ crate-type = ["cdylib"]
 [dependencies]
 kobako-mruby = { version = "0.19.0", features = ["msgpack"] } # x-release-please-version
 kobako-core = "0.19.0" # x-release-please-version
-beni = "0.25"
 ```
+
+The shell brings its own `beni`, on the series `kobako-mruby` depends on,
+since the hooks take its `Mrb` and `Error` types.
 
 ```rust
 use beni::{Error, Mrb};
