@@ -214,6 +214,18 @@ impl Dentries {
         self.d_drop(dentry);
     }
 
+    /// Whether `dentry` was taken out of the table, as Linux's
+    /// `d_unlinked` answers for one no longer reached by its name.
+    pub(crate) fn d_unlinked(&self, dentry: &Arc<Dentry>) -> bool {
+        let Some(parent) = dentry.dget_parent() else {
+            return false;
+        };
+        !self
+            .hashtable()
+            .get(&key(&parent, &dentry.name()))
+            .is_some_and(|held| Arc::ptr_eq(&held, dentry))
+    }
+
     /// Take `dentry` out of the table, so the next lookup of its name
     /// makes another, as Linux's `d_drop` unhashes one.
     pub(crate) fn d_drop(&self, dentry: &Arc<Dentry>) {

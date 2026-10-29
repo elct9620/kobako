@@ -925,8 +925,8 @@ fn a_host_directory_moved_while_opened_is_reached_through_its_descriptor() {
 }
 
 // The move goes through another Filesystem instance, which the guest's
-// dentries never see, so the descriptor reaches its directory from the
-// Mount's root again and finds another one standing there.
+// dentries never see, so only the Tmpfs answering the descriptor's dentry
+// stale, once another directory stands at its path, refuses the call.
 // @behavior RT-150
 #[test]
 fn a_directory_moved_while_opened_beneath_a_policy_is_not_reached() {

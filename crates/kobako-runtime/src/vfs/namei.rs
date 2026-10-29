@@ -19,7 +19,7 @@ use std::sync::Arc;
 use super::dentry::{Dentry, Identity};
 use super::filesystem::Filesystem;
 use super::openat2::{vfs_open, FileDescription, OpenHow};
-use super::path::{Path, Step};
+use super::path::Path;
 use super::rwsem::RwSemaphoreGuard;
 use super::times::mask_file_times;
 use super::Error;
@@ -42,12 +42,9 @@ pub(crate) fn names_directory(path: &str) -> bool {
 /// the directory itself, left for the call to act on.
 pub(crate) struct Nameidata {
     pub(crate) mount: Arc<Mount>,
-    /// Each directory from where the walk can be spelled from, the Mount's
-    /// root beneath a Policy, down to the one it stands in.
+    /// Each directory from the one the walk started from, which no `..`
+    /// climbs above, down to the one it stands in.
     frames: Vec<Frame>,
-    /// How many frames stand above the directory the walk started from,
-    /// which no `..` climbs into.
-    above: usize,
     pending: VecDeque<Part>,
     follows_links: bool,
     links: usize,
@@ -151,17 +148,15 @@ impl Nameidata {
         Ok(())
     }
 
-    /// The path from the Mount's root, read from the walk's dentries as
-    /// Linux's `d_path` reads them: each name spelled as the directory
-    /// holding it stores it, a name nothing holds kept as given.
+    /// The path from the Mount's root, read from the dentry the walk stands
+    /// in as Linux's `d_path` reads one: each name spelled as the directory
+    /// holding it stores it, the last name kept as given where nothing
+    /// holds it.
     pub(crate) fn dentry_path(&self) -> String {
-        self.frames[1..]
-            .iter()
-            .map(|frame| frame.dentry.name())
-            .chain(std::iter::once(self.name.clone()))
-            .filter(|name| !name.is_empty())
-            .collect::<Vec<_>>()
-            .join("/")
+        let mut names = self.dentry().names();
+        names.push(self.name.clone());
+        names.retain(|name| !name.is_empty());
+        names.join("/")
     }
 
     /// Ask the Mount whether the guest may reach the path with `access`.
@@ -307,7 +302,7 @@ impl Nameidata {
     /// link's is one leading out; out of one a link led to, a guest's `..`
     /// would tell where the link points.
     fn follow_dotdot(&mut self, from_link: bool) -> Result<(), Error> {
-        if self.frames.len() == self.above + 1 {
+        if self.frames.len() == 1 {
             return Err(if from_link {
                 FilesystemError::NotPermitted.into()
             } else {
@@ -352,7 +347,7 @@ impl Nameidata {
 
     /// Whether the walk stepped into any directory beneath where it began.
     fn descended(&self) -> bool {
-        self.frames.len() > self.above + 1
+        self.frames.len() > 1
     }
 
     /// Walk every pending name but the last, which is left to act on.
@@ -435,7 +430,7 @@ fn path_lookupat(
     creates: bool,
     eager: bool,
 ) -> Result<Nameidata, Error> {
-    let chain = start.reach()?;
+    start.revalidate_path()?;
     if path.is_empty() {
         return Err(FilesystemError::NotFound.into());
     }
@@ -444,16 +439,12 @@ fn path_lookupat(
     }
     let mut nd = Nameidata {
         mount: start.mount().clone(),
-        above: chain.len() - 1,
-        frames: chain
-            .into_iter()
-            .map(|Step { dir, name, dentry }| Frame {
-                dir,
-                name,
-                dentry,
-                through_link: false,
-            })
-            .collect(),
+        frames: vec![Frame {
+            dir: start.dir().clone(),
+            name: String::new(),
+            dentry: start.dentry().clone(),
+            through_link: false,
+        }],
         pending: parts(path, false),
         follows_links: start.mount().follows_links(),
         links: 0,
@@ -506,11 +497,7 @@ fn path_lookupat(
         .names()
         .iter()
         .map(String::as_str)
-        .chain(
-            nd.frames[nd.above + 1..]
-                .iter()
-                .map(|frame| frame.name.as_str()),
-        )
+        .chain(nd.frames[1..].iter().map(|frame| frame.name.as_str()))
         .chain(std::iter::once(nd.name.as_str()))
         .filter(|name| !name.is_empty())
         .collect::<Vec<_>>()

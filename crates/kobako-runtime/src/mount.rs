@@ -143,6 +143,13 @@ impl Mount {
         }
     }
 
+    /// Whether a Policy judges paths beneath this Mount, so a call through
+    /// a directory opened beneath it first confirms the directory still
+    /// stands at the path the Policy would judge.
+    pub(crate) fn judges_paths(&self) -> bool {
+        self.policy.is_some()
+    }
+
     /// Whether a directory may move beneath this Mount. Under a Policy it
     /// may not: everything beneath it would take paths the Policy never
     /// judged, so a move is refused as one across devices and the guest
@@ -157,12 +164,5 @@ impl Mount {
     /// too many links.
     pub(crate) fn follows_links(&self) -> bool {
         self.policy.is_none()
-    }
-
-    /// Whether a call through a directory opened beneath this Mount walks to
-    /// it again from the root. Under a Policy it does, so the Policy judges
-    /// the path the directory stands at now.
-    pub(crate) fn rewalks_directories(&self) -> bool {
-        self.policy.is_some()
     }
 }

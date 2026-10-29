@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use super::dentry::{Dentry, Identity};
+use super::dentry::Dentry;
 use super::namei::down_read;
 use super::times::mask_times;
 use super::Error;
@@ -11,21 +11,13 @@ use crate::filesystem::{DirEntry, FilesystemError, Inode, Metadata};
 use crate::mount::Mount;
 use crate::profile::Profile;
 
-/// One directory on the way to another, the name it was entered by, and
-/// its dentry.
-pub(crate) struct Step {
-    pub(crate) dir: Arc<dyn Inode>,
-    pub(crate) name: String,
-    pub(crate) dentry: Arc<Dentry>,
-}
-
 /// A directory beneath a Mount, as a directory descriptor holds one: the
 /// Mount's root, or a directory opened beneath it.
 #[derive(Clone)]
 pub struct Path {
     mount: Arc<Mount>,
-    /// Where the directory stands in its Filesystem, which a Mount with a
-    /// Policy reaches it by again, and whether it was removed.
+    /// Where the directory stands in its Filesystem, and whether it was
+    /// removed.
     dentry: Arc<Dentry>,
     /// The directory itself, which a call reaches wherever it moved.
     dir: Arc<dyn Inode>,
@@ -68,88 +60,73 @@ impl Path {
         &self.dentry
     }
 
-    /// What the directory reports of itself.
-    pub fn metadata(&self) -> Result<Metadata, Error> {
-        Ok(mask_times(
-            self.reach_dir()?.metadata(&self.dentry)?,
-            self.profile,
-        ))
+    /// The directory itself, where a call through it starts.
+    pub(crate) fn dir(&self) -> &Arc<dyn Inode> {
+        &self.dir
     }
 
-    /// The entries of the directory, without `.` or `..`; none once it was
-    /// removed, as Linux lists a dead directory.
-    pub fn entries(&self) -> Result<Vec<DirEntry>, Error> {
-        let dir = self.reach_dir()?;
-        // A listing holds the directory shared, as Linux's `iterate_dir`
-        // does, so a removal through the VFS lands before or after it.
-        let _held = down_read(&self.mount, &self.dentry)?;
-        if self.dentry.is_dead() {
-            return Ok(Vec::new());
-        }
-        Ok(dir.entries(&self.dentry)?)
-    }
-
-    fn reach_dir(&self) -> Result<Arc<dyn Inode>, Error> {
-        let mut chain = self.reach()?;
-        Ok(chain.pop().expect("a chain reaches its directory").dir)
-    }
-
-    fn is_root(&self) -> bool {
-        Arc::ptr_eq(&self.dentry, &self.mount.filesystem().dentries().root())
-    }
-
-    /// Where a call through the directory starts, with each directory above
-    /// it: the directory alone, or, beneath a Mount that rewalks
-    /// directories, every directory from the Mount's root down to it.
-    pub(crate) fn reach(&self) -> Result<Vec<Step>, Error> {
-        if !self.mount.rewalks_directories() {
-            return Ok(vec![Step {
-                dir: self.dir.clone(),
-                name: String::new(),
-                dentry: self.dentry.clone(),
-            }]);
+    /// Refuse a call through the directory, beneath a Mount whose Policy
+    /// judges paths, unless its dentry still names what the runtime opened
+    /// there, so the Policy judges the path the directory stands at. A
+    /// dentry dropped or removed is refused as Linux's AppArmor refuses an
+    /// unlinked one; one held is asked of the directory above through
+    /// `d_revalidate`, walking there from the Mount's root as gVisor's
+    /// `revalidatePath` walks; and one whose identity the runtime never
+    /// learned cannot be told from another, so it is refused too. Linux
+    /// asks nothing of the dentry a walk starts from; kobako adds this so a
+    /// host or another Filesystem instance moving a directory behind the
+    /// runtime's back never has a Policy judge a path it no longer stands at.
+    pub(crate) fn revalidate_path(&self) -> Result<(), Error> {
+        let Some(parent) = self.dentry.dget_parent() else {
+            return Ok(());
+        };
+        if !self.mount.judges_paths() {
+            return Ok(());
         }
         let filesystem = self.mount.filesystem();
-        let mut chain = vec![Step {
-            dir: filesystem.root().clone(),
-            name: String::new(),
-            dentry: filesystem.dentries().root(),
-        }];
-        for name in self.dentry.names() {
-            let above = chain.last().expect("a chain holds the root");
-            let (above_dir, above_dentry) = (above.dir.clone(), above.dentry.clone());
-            let _held = down_read(&self.mount, &above_dentry)?;
-            let dentry = filesystem.dentries().child(&above_dentry, &name);
-            let dir = match above_dir.open_dir(&dentry) {
+        let dentries = filesystem.dentries();
+        if dentries.d_unlinked(&self.dentry) || self.dentry.identity().is_none() {
+            return Err(FilesystemError::NotFound.into());
+        }
+        let mut above = Vec::new();
+        let mut at = Some(parent);
+        while let Some(next) = at {
+            at = next.dget_parent();
+            above.push(next);
+        }
+        let mut dir = filesystem.root().clone();
+        for ancestor in above.iter().rev().skip(1) {
+            dir = match dir.open_dir(ancestor) {
                 Ok(dir) => dir,
                 Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {
                     return Err(FilesystemError::NotFound.into())
                 }
                 Err(err) => return Err(err.into()),
             };
-            chain.push(Step { dir, name, dentry });
         }
-        self.confirm(chain.last().expect("a chain holds the root").dir.as_ref())?;
-        Ok(chain)
-    }
-
-    /// `found`, the directory reached where this one stands, is still the
-    /// one opened, as a POSIX descriptor never reaches another directory. A
-    /// Mount's root never moves; any other directory opened with no
-    /// identity cannot be told from another, so it is reached no more.
-    fn confirm(&self, found: &dyn Inode) -> Result<(), Error> {
-        if self.is_root() {
+        if dir.d_revalidate(&self.dentry)? {
             return Ok(());
         }
-        let Some(identity) = self.dentry.identity() else {
-            return Err(FilesystemError::NotFound.into());
-        };
-        match found.metadata(&self.dentry) {
-            Ok(found) if Identity::of(&found) == Some(identity) => Ok(()),
-            Ok(_) | Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {
-                Err(FilesystemError::NotFound.into())
-            }
-            Err(err) => Err(err.into()),
+        dentries.d_invalidate(&self.dentry);
+        Err(FilesystemError::NotFound.into())
+    }
+
+    /// What the directory reports of itself.
+    pub fn metadata(&self) -> Result<Metadata, Error> {
+        self.revalidate_path()?;
+        Ok(mask_times(self.dir.metadata(&self.dentry)?, self.profile))
+    }
+
+    /// The entries of the directory, without `.` or `..`; none once it was
+    /// removed, as Linux lists a dead directory.
+    pub fn entries(&self) -> Result<Vec<DirEntry>, Error> {
+        self.revalidate_path()?;
+        // A listing holds the directory shared, as Linux's `iterate_dir`
+        // does, so a removal through the VFS lands before or after it.
+        let _held = down_read(&self.mount, &self.dentry)?;
+        if self.dentry.is_dead() {
+            return Ok(Vec::new());
         }
+        Ok(self.dir.entries(&self.dentry)?)
     }
 }

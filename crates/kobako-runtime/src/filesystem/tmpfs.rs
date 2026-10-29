@@ -9,7 +9,7 @@ use std::time::SystemTime;
 
 use super::path::{ancestors, name, normalize_seed};
 use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions};
-use crate::vfs::Dentry;
+use crate::vfs::{Dentry, Identity};
 use whiteout::Whiteout;
 
 mod tmpfile;
@@ -505,9 +505,21 @@ impl Inode for Tmpfs {
         Ok(dentry.name())
     }
 
-    /// A Tmpfs changes only through the runtime.
-    fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
-        Ok(true)
+    /// A Tmpfs handed to more than one Filesystem instance changes through
+    /// each, behind the others' dentries, so a dentry whose identity the
+    /// runtime learned is valid only while that directory stands at its
+    /// name here, as NFS compares the handle a fresh lookup finds. One the
+    /// runtime learned nothing of has nothing to compare.
+    fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
+        let Some(identity) = dentry.identity() else {
+            return Ok(true);
+        };
+        Ok(match self.dir.get(&dentry.name()) {
+            Ok(Node::Directory(dir)) => {
+                Identity::of(&dir.metadata(self.tree.dev)) == Some(identity)
+            }
+            Ok(_) | Err(_) => false,
+        })
     }
 
     /// A Tmpfs holds no links.
