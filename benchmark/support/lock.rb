@@ -46,9 +46,12 @@ module Kobako
       end
 
       # The process start time exactly as +ps+ reports it, matched verbatim
-      # by the guard's own +ps -o lstart=+ so a reused pid fails the check.
+      # by the guard's own +ps -o lstart=+ so a reused pid fails the check;
+      # "" on a host whose +ps+ reports none, such as Windows.
       def process_start
-        `ps -p #{Process.pid} -o lstart=`.strip
+        IO.popen(["ps", "-p", Process.pid.to_s, "-o", "lstart="], err: File::NULL, &:read).strip
+      rescue Errno::ENOENT
+        ""
       end
     end
   end

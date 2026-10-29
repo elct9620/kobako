@@ -54,7 +54,7 @@ module Kobako
       # "unknown" outside a git checkout — benchmarks must remain
       # runnable from an unpacked gem.
       def git_sha
-        sha = `git rev-parse --short HEAD 2>/dev/null`.strip
+        sha = capture("git", "rev-parse", "--short", "HEAD").strip
         sha.empty? ? "unknown" : sha
       end
 
@@ -64,7 +64,7 @@ module Kobako
       def load_avg
         return File.read("/proc/loadavg").split.first.to_f if File.readable?("/proc/loadavg")
 
-        avg = `sysctl -n vm.loadavg 2>/dev/null`[/[\d.]+/]
+        avg = capture("sysctl", "-n", "vm.loadavg")[/[\d.]+/]
         avg ? avg.to_f : "unknown"
       end
 
@@ -72,10 +72,18 @@ module Kobako
       # Battery-powered runs throttle differently and should not be
       # compared against AC baselines.
       def power_source
-        out = `pmset -g batt 2>/dev/null`
+        out = capture("pmset", "-g", "batt")
         return "unknown" if out.empty?
 
         out.include?("AC Power") ? "ac" : "battery"
+      end
+
+      # What +command+ prints, run without a shell so it reads alike on
+      # every host; "" where the host lacks the command.
+      def capture(*command)
+        IO.popen(command, err: File::NULL, &:read)
+      rescue Errno::ENOENT
+        ""
       end
 
       # Spread between two back-to-back runs of a fixed pure-CPU probe,
