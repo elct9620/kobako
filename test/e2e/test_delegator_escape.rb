@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "delegate"
+require "rbconfig"
 
 # E2E — sandbox-escape regression for GHSA-5jxx-2336-22p8,
 # driven through the real mruby guest (`data/kobako.wasm`).
@@ -40,6 +41,13 @@ class TestE2EDelegatorEscape < Minitest::Test
     FileUtils.remove_entry(dir) if dir
   end
 
+  # The arguments of a +system+ call writing +marker+, as guest source. It
+  # runs the host's own Ruby, which every host the gem runs on has, so the
+  # marker would appear on Windows too if the command ever ran.
+  def touch_command(marker)
+    [RbConfig.ruby, "-e", "File.write(ARGV[0], '')", marker].map(&:inspect).join(", ")
+  end
+
   # --- a forwarder answered or passed never crosses as a reference ---
 
   # @behavior T-206
@@ -70,7 +78,7 @@ class TestE2EDelegatorEscape < Minitest::Test
     with_marker_path do |marker|
       sandbox = real_sandbox
       sandbox.bind("App::Store", WrapService.new)
-      script = %(App::Store.wrapped.method_missing(:method_missing, :system, "/bin/sh", "-c", "touch #{marker}"))
+      script = %(App::Store.wrapped.method_missing(:method_missing, :system, #{touch_command(marker)}))
       assert_raises(Kobako::ServiceError) { sandbox.eval(script).value }
       refute_path_exists(marker,
                          "a method_missing chain through a returned forwarder must run no host command")
@@ -84,7 +92,7 @@ class TestE2EDelegatorEscape < Minitest::Test
     with_marker_path do |marker|
       sandbox = real_sandbox
       sandbox.bind("App::Wrap", SimpleDelegator.new(Object.new))
-      script = %(App::Wrap.method_missing(:method_missing, :system, "/bin/sh", "-c", "touch #{marker}"))
+      script = %(App::Wrap.method_missing(:method_missing, :system, #{touch_command(marker)}))
       assert_raises(Kobako::ServiceError) { sandbox.eval(script).value }
       refute_path_exists(marker,
                          "an explicit method_missing on a directly-bound forwarder must run no host command")
