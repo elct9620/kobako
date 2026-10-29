@@ -6,8 +6,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use kobako_runtime::filesystem::Access;
+#[cfg(unix)]
+use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::{
-    Bind, DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Overlay, Tmpfs,
+    DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Overlay, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
@@ -79,6 +81,7 @@ const ERRNO_FBIG: i32 = 22;
 const ERRNO_INVAL: i32 = 28;
 const ERRNO_IO: i32 = 29;
 const ERRNO_ISDIR: i32 = 31;
+#[cfg(unix)]
 const ERRNO_LOOP: i32 = 32;
 const ERRNO_NOENT: i32 = 44;
 const ERRNO_NOTDIR: i32 = 54;
@@ -398,6 +401,7 @@ const THROUGH_MISSING: (i32, i32) = (760, 19);
 const OUT_OF_FILE: (i32, i32) = (780, 11);
 const FILE_AS_DIRECTORY: (i32, i32) = (800, 9);
 const NEW_AS_DIRECTORY: (i32, i32) = (820, 8);
+#[cfg(unix)]
 const THROUGH_FILE: (i32, i32) = (860, 12);
 const DIR_DOT: (i32, i32) = (880, 5);
 const DIR_DOT_DOT: (i32, i32) = (890, 6);
@@ -405,11 +409,15 @@ const BENEATH_FILE: (i32, i32) = (900, 10);
 const MOVED: (i32, i32) = (920, 5);
 const DIR: (i32, i32) = (930, 3);
 const MISSING_DOT: (i32, i32) = (940, 9);
+#[cfg(unix)]
 const LINK_DOT: (i32, i32) = (970, 10);
+#[cfg(unix)]
 const OUT_OF_LINK: (i32, i32) = (990, 20);
 const HOLDING_NUL: (i32, i32) = (1010, 9);
 const DIR_FILE: (i32, i32) = (1030, 12);
+#[cfg(unix)]
 const DIR_AS_DIRECTORY: (i32, i32) = (1050, 4);
+#[cfg(unix)]
 const GONE_AS_DIRECTORY: (i32, i32) = (1060, 5);
 const ERRNO_OVERFLOW: i32 = 61;
 const ERRNO_EXIST: i32 = 20;
@@ -1432,9 +1440,13 @@ fn an_append_lands_after_another_writers_append() {
     );
 }
 
+#[cfg(unix)]
 const FILETYPE_UNKNOWN: u8 = 0;
+#[cfg(unix)]
 const FILETYPE_DIRECTORY: u8 = 3;
+#[cfg(unix)]
 const FILETYPE_REGULAR_FILE: u8 = 4;
+#[cfg(unix)]
 const FILETYPE_SYMBOLIC_LINK: u8 = 7;
 
 /// A host directory of its own holding `file.txt` as a link to `target`,
@@ -2567,17 +2579,29 @@ fn an_open_of_a_directory_that_creates_or_truncates_is_invalid() {
     );
 }
 
+#[cfg(unix)]
 const UP: (i32, i32) = (1070, 2);
+#[cfg(unix)]
 const THROUGH_UPDIR: (i32, i32) = (1080, 7);
+#[cfg(unix)]
 const IN_LINKED: (i32, i32) = (1090, 4);
+#[cfg(unix)]
 const TWISTY: (i32, i32) = (1100, 6);
+#[cfg(unix)]
 const DANGLE: (i32, i32) = (1110, 6);
+#[cfg(unix)]
 const DIR_UP: (i32, i32) = (1120, 6);
+#[cfg(unix)]
 const NOWHERE: (i32, i32) = (1130, 7);
+#[cfg(unix)]
 const OUT_OF_IN: (i32, i32) = (1160, 20);
+#[cfg(unix)]
 const LOOP: (i32, i32) = (1184, 4);
+#[cfg(unix)]
 const DIR_SUB: (i32, i32) = (1190, 7);
+#[cfg(unix)]
 const DIR_IN_Y: (i32, i32) = (1400, 8);
+#[cfg(unix)]
 const DIR_SUB_Y: (i32, i32) = (1420, 9);
 
 /// A host directory whose `dir` holds links staying within it (`in`,
@@ -2831,6 +2855,7 @@ fn a_buffer_outside_memory_is_bounded_before_a_files_access_is_checked() {
     );
 }
 
+#[cfg(unix)]
 const PUB_X: (i32, i32) = (1150, 5);
 
 /// A Policy allowing `/data/pub/` alone, which swaps `pub` for a link to
