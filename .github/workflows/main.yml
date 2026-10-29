@@ -38,8 +38,8 @@ jobs:
 
   # A Guest Binary is the same wasm whichever host builds it, so one job
   # runs the guest's checks, building every variant as a release does,
-  # and every build job tests that one. It is cached by what the build
-  # reads, and the guest's checks run only when it is built again.
+  # and every build job tests that one. Cargo decides what recompiles,
+  # with its dependencies restored from the cache.
   wasm:
     runs-on: ubuntu-latest
     name: Guest Binary
@@ -53,42 +53,26 @@ jobs:
           ruby-version: '4.0'
           bundler-cache: true
           rubygems: '3.6.9'
-      # The sources come from the build's own list, which names what stages
-      # the mruby archive too, so the key and the build agree on staleness.
-      - name: Key the Guest Binaries by their sources
-        id: sources
-        run: echo "hash=$(bundle exec rake wasm:sources | xargs sha256sum | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - name: Restore the Guest Binaries
-        id: guests
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: data/*.wasm
-          key: guests-${{ steps.sources.outputs.hash }}
       - name: Set up Rust toolchain
-        if: steps.guests.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-rust
         with:
           components: clippy
           targets: wasm32-wasip1
       - name: Cache cargo
-        if: steps.guests.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
             wasm
             wasm/kobako-baker
       - name: Run the guest's checks
-        if: steps.guests.outputs.cache-hit != 'true'
         run: bundle exec rake check:guest
       - name: cargo clippy (wasm/ and the baker, host target)
-        if: steps.guests.outputs.cache-hit != 'true'
         env:
           BENI_VENDOR_DIR: ${{ github.workspace }}/vendor
         run: |
           cargo clippy --manifest-path wasm/Cargo.toml --workspace --all-targets -- -D warnings
           cargo clippy --manifest-path wasm/kobako-baker/Cargo.toml --all-targets -- -D warnings
       - name: cargo clippy (wasm/, wasm32-wasip1)
-        if: steps.guests.outputs.cache-hit != 'true'
         # beni-sys requires the mruby archive paths explicitly on cross
         # targets; the guest's checks above staged them.
         env:
@@ -96,7 +80,6 @@ jobs:
           WASI_SDK_PATH: ${{ github.workspace }}/vendor/wasi-sdk
         run: cargo clippy --manifest-path wasm/Cargo.toml --workspace --target wasm32-wasip1 -- -D warnings
       - name: cargo doc (wasm/ and the baker, private items)
-        if: steps.guests.outputs.cache-hit != 'true'
         env:
           RUSTDOCFLAGS: -D warnings
           BENI_VENDOR_DIR: ${{ github.workspace }}/vendor
