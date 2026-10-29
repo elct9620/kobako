@@ -31,6 +31,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 - `test/e2e/test_ruby_filesystem_append.rb`
 - `test/e2e/test_ruby_filesystem_sync.rb`
 - `test/e2e/test_ruby_filesystem_walk.rb`
+- `test/e2e/test_ruby_filesystem_moved_directory.rb`
 
 ## `RF-001` A Ruby object answering open and stat mounts as a Filesystem
 

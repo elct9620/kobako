@@ -158,6 +158,15 @@ Hand-written text-format module that syncs a file of a Mount and answers the err
 |---|---|
 | any | opens `note.txt` beneath the first preopen, syncs it, and answers the errno as an Integer |
 
+## `minimal_moved_directory.wat`
+
+Hand-written text-format module that looks up through a directory it holds open after the directory moved. The real Guest Binary holds no directory open, so no script can. Every downcall runs these steps beneath the first preopen.
+
+1. Open `dir` as a directory.
+2. Rename `dir` to `moved`.
+3. Make another `dir`.
+4. Stat `inner` through the descriptor from step 1, and answer its errno as an Integer.
+
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 
 Each fixture exercises one bytecode-preload path of [`sandbox.md`](../../docs/spec/behavior/sandbox.md) through the real `data/kobako.wasm`.

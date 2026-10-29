@@ -26,16 +26,14 @@ use crate::runtime::{escape, gvl};
 /// The Ruby object behind a Mount or a Layer. Whatever holds it on the
 /// Ruby side keeps it alive and in place: the invocation pinning its
 /// Mounts, or the Overlay marking its Layers. The object answers by path,
-/// so a directory opened beneath it is the same object asked by the path
-/// that directory had when it was opened.
+/// so each call asks it by the path the dentry stands at now, as CIFS
+/// builds one from the dentry, and a directory opened beneath it is the
+/// same object.
 pub(crate) struct RubyFilesystem {
     object: Opaque<Value>,
     /// The device a stat without a `dev` names, the object's own, shared by
     /// every directory opened beneath it.
     dev: u64,
-    /// Where this directory lies beneath the object's root, the empty path
-    /// being the root itself.
-    at: String,
 }
 
 impl RubyFilesystem {
@@ -45,14 +43,7 @@ impl RubyFilesystem {
         (answers("open") && answers("stat")).then(|| Self {
             object: Opaque::from(value),
             dev: Metadata::unique_device(),
-            at: String::new(),
         })
-    }
-
-    /// The name `dentry` carries beneath this directory, as the object is
-    /// asked it.
-    fn path(&self, dentry: &Dentry) -> String {
-        join(&self.at, &dentry.name())
     }
 
     /// What the object's `stat` answers for `path`.
@@ -223,7 +214,7 @@ impl Inode for RubyFilesystem {
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        let path = self.path(dentry);
+        let path = dentry.path_raw();
         ask(
             self.object,
             "open",
@@ -239,21 +230,20 @@ impl Inode for RubyFilesystem {
     /// The directory is not asked about until a call needs it, so a walk
     /// through several names asks the object once, by the whole path, as
     /// 9p walks to a dentry's fid only when a call needs one.
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+    fn open_dir(&self, _dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
         Ok(Arc::new(Self {
             object: self.object,
             dev: self.dev,
-            at: self.path(dentry),
         }))
     }
 
-    fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.stat(self.at.clone())
+    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.stat(dentry.path_raw())
     }
 
     /// A Ruby object answers `stat` alone, so it holds no links.
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.stat(self.path(dentry))
+        self.stat(dentry.path_raw())
     }
 
     /// A Ruby object matches names exactly, as its contract asks.
@@ -267,17 +257,18 @@ impl Inode for RubyFilesystem {
         Err(FilesystemError::InvalidInput)
     }
 
-    fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        let at = dentry.path_raw();
         let names: Vec<String> = ask(
             self.object,
             "children",
             FilesystemError::Unsupported,
-            |_, fs| fs.funcall("children", (self.at.as_str(),)),
+            |_, fs| fs.funcall("children", (at.as_str(),)),
         )?;
         names
             .into_iter()
             .map(|name| {
-                let file_type = self.stat(join(&self.at, &name))?.file_type;
+                let file_type = self.stat(join(&at, &name))?.file_type;
                 Ok(DirEntry::new(name, file_type))
             })
             .collect()
@@ -287,7 +278,7 @@ impl Inode for RubyFilesystem {
         change(
             self.object,
             "mkdir",
-            (self.path(dentry),),
+            (dentry.path_raw(),),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
@@ -296,7 +287,7 @@ impl Inode for RubyFilesystem {
         change(
             self.object,
             "rmdir",
-            (self.path(dentry),),
+            (dentry.path_raw(),),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
@@ -305,7 +296,7 @@ impl Inode for RubyFilesystem {
         change(
             self.object,
             "unlink",
-            (self.path(dentry),),
+            (dentry.path_raw(),),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
@@ -319,14 +310,14 @@ impl Inode for RubyFilesystem {
         to_dir: &dyn Inode,
         to: &Dentry,
     ) -> Result<(), FilesystemError> {
-        let target = (to_dir as &dyn Any)
+        (to_dir as &dyn Any)
             .downcast_ref::<Self>()
             .filter(|target| target.dev == self.dev)
             .ok_or(FilesystemError::CrossesDevices)?;
         change(
             self.object,
             "rename",
-            (self.path(from), target.path(to)),
+            (from.path_raw(), to.path_raw()),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
