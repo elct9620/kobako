@@ -52,6 +52,40 @@ module KobakoWasm
       bake_into_data_dir
     end
 
+    # Whether +libmruby.a+ must be staged before #build. It need not when
+    # the Guest Binary is current and no archive is on disk to judge it
+    # by, as for one restored from another machine's build; staging one
+    # then would only make the restored binary look stale.
+    def needs_archive?
+      archive_on_disk? || !up_to_date?
+    end
+
+    # Every source file a Guest Binary is built from, +libmruby.a+ aside,
+    # so a build restored from elsewhere can be keyed by them.
+    # Every workspace member feeds the cdylib (kobako-wasm links
+    # kobako-core as a path dependency), so the input glob spans all
+    # member crates, not just the shell — plus the cross-workspace
+    # `crates/kobako-transport` and `crates/kobako-codec` the guest
+    # crates build on.
+    # mrblib/*.rb is precompiled by build.rs via mrbc and counts as an
+    # input too. Crates.io dependency bumps surface through Cargo.toml
+    # or, when the pin is a range, through the lockfiles alone — the
+    # baker lock counts because the bake runs inside Stage C.
+    def self.sources
+      member_inputs = "{src/**/*.{rs,rb,c,h},build.rs,Cargo.toml,mrblib/*.rb}"
+      files = Dir.glob(File.join(WASM_WORKSPACE_DIR, "*", member_inputs))
+      # The two cross-workspace path dependencies the guest compiles in.
+      # `kobako-transport` matters most: it carries the ABI version and
+      # every envelope layout, so a guest built before an edit there
+      # reports a version and speaks a wire the host no longer accepts.
+      %w[kobako-transport kobako-codec].each do |crate|
+        files.concat(Dir.glob(File.join(ROOT, "crates", crate, member_inputs)))
+      end
+      files << File.join(WASM_WORKSPACE_DIR, "Cargo.toml")
+      files << File.join(WASM_WORKSPACE_DIR, "Cargo.lock")
+      files << File.join(WASM_WORKSPACE_DIR, "kobako-baker", "Cargo.lock")
+    end
+
     private
 
     # True when +data/kobako.wasm+ exists and is newer than every input
@@ -70,37 +104,21 @@ module KobakoWasm
       input_files.map { |f| File.mtime(f) }.max
     end
 
-    # Every workspace member feeds the cdylib (kobako-wasm links
-    # kobako-core as a path dependency), so the input glob spans all
-    # member crates, not just the shell — plus the cross-workspace
-    # `crates/kobako-transport` and `crates/kobako-codec` the guest
-    # crates build on.
-    # mrblib/*.rb is precompiled by build.rs via mrbc and counts as an
-    # input too. Crates.io dependency bumps surface through Cargo.toml
-    # or, when the pin is a range, through the lockfiles alone — the
-    # baker lock counts because the bake runs inside Stage C.
     def input_files
-      member_inputs = "{src/**/*.{rs,rb,c,h},build.rs,Cargo.toml,mrblib/*.rb}"
-      files = Dir.glob(File.join(WASM_WORKSPACE_DIR, "*", member_inputs))
-      # The two cross-workspace path dependencies the guest compiles in.
-      # `kobako-transport` matters most: it carries the ABI version and
-      # every envelope layout, so a guest built before an edit there
-      # reports a version and speaks a wire the host no longer accepts.
-      %w[kobako-transport kobako-codec].each do |crate|
-        files.concat(Dir.glob(File.join(ROOT, "crates", crate, member_inputs)))
-      end
-      files << File.join(WASM_WORKSPACE_DIR, "Cargo.toml")
-      files << File.join(WASM_WORKSPACE_DIR, "Cargo.lock")
-      files << File.join(WASM_WORKSPACE_DIR, "kobako-baker", "Cargo.lock")
-      files << LIBMRUBY_PATH if File.exist?(LIBMRUBY_PATH)
+      files = self.class.sources
+      files << LIBMRUBY_PATH if archive_on_disk?
       files
+    end
+
+    def archive_on_disk?
+      File.exist?(LIBMRUBY_PATH)
     end
 
     # Stage B sentinel check. Stage C cannot link without +libmruby.a+,
     # so we assert it explicitly with a message that points at the rake
     # task that produces it.
     def ensure_libmruby_present
-      return if File.exist?(LIBMRUBY_PATH)
+      return if archive_on_disk?
 
       raise "[wasm:build] expected libmruby.a at #{LIBMRUBY_PATH}; " \
             "run `rake beni:build` (Stage B) first"
