@@ -1,5 +1,6 @@
-//! Paths as a Filesystem receives them: relative to its root, components
-//! joined by `/`, the empty path being the root.
+//! Paths beneath a Filesystem's root, components joined by `/` and the
+//! empty path being the root: the files a Host App seeds a Tmpfs with,
+//! and the positions an Overlay keeps its own records by.
 
 /// The directory holding `path`; the root holds every top-level entry.
 pub(crate) fn parent(path: &str) -> &str {
