@@ -1008,15 +1008,112 @@ mod tests {
         );
     }
 
-    /// A Tmpfs that, the first time it opens a directory, starts another
-    /// call through the VFS at `overlay` on a thread of its own and gives
-    /// it a while to finish, recording whether it did before this call
-    /// returned.
-    struct Interleaves {
-        tmpfs: Arc<Tmpfs>,
+    /// Another call through the VFS at `overlay`, started once on a thread
+    /// of its own and given a while to finish, recording whether it did
+    /// before the call starting it went on.
+    #[derive(Default)]
+    struct Interleave {
         overlay: Mutex<Option<crate::vfs::Path>>,
         finished_inside: Mutex<Option<bool>>,
         other: Mutex<Option<thread::JoinHandle<()>>>,
+    }
+
+    impl Interleave {
+        fn start(&self) {
+            let Some(overlay) = self.overlay.lock().unwrap().take() else {
+                return;
+            };
+            let finished = Arc::new(AtomicUsize::new(0));
+            let marker = finished.clone();
+            let handle = thread::spawn(move || {
+                let how = crate::vfs::OpenHow {
+                    write: true,
+                    create: true,
+                    ..crate::vfs::OpenHow::default()
+                };
+                let _ = crate::vfs::open(&overlay, "dir/new", &how, true);
+                marker.store(1, Ordering::SeqCst);
+            });
+            let deadline = Instant::now() + Duration::from_millis(200);
+            while finished.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(5));
+            }
+            *self.finished_inside.lock().unwrap() = Some(finished.load(Ordering::SeqCst) == 1);
+            *self.other.lock().unwrap() = Some(handle);
+        }
+    }
+
+    /// A Tmpfs whose directory starts `interleave` the first time one is
+    /// listed, as a removal's emptiness check lists it.
+    struct Interleaves {
+        tmpfs: Arc<Tmpfs>,
+        interleave: Arc<Interleave>,
+    }
+
+    /// A directory an Interleaves opened, starting its call when listed.
+    struct Lists {
+        dir: Arc<dyn Inode>,
+        interleave: Arc<Interleave>,
+    }
+
+    impl Inode for Lists {
+        fn open(
+            &self,
+            dentry: &Dentry,
+            options: &OpenOptions,
+        ) -> Result<Box<dyn File>, FilesystemError> {
+            self.dir.open(dentry, options)
+        }
+
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+            self.dir.open_dir(dentry)
+        }
+
+        fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.dir.metadata(dentry)
+        }
+
+        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.dir.symlink_metadata(dentry)
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            self.dir.lookup(dentry)
+        }
+
+        fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
+            self.dir.d_revalidate(dentry)
+        }
+
+        fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            self.dir.read_link(dentry)
+        }
+
+        fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.interleave.start();
+            self.dir.entries(dentry)
+        }
+
+        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.dir.create_dir(dentry)
+        }
+
+        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.dir.remove_dir(dentry)
+        }
+
+        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.dir.remove_file(dentry)
+        }
+
+        fn rename(
+            &self,
+            from: &Dentry,
+            to_dir: &dyn Inode,
+            to: &Dentry,
+        ) -> Result<(), FilesystemError> {
+            self.dir.rename(from, to_dir, to)
+        }
     }
 
     impl Inode for Interleaves {
@@ -1040,27 +1137,10 @@ mod tests {
         }
 
         fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
-            let interleaving = self.overlay.lock().unwrap().take();
-            if let Some(overlay) = interleaving {
-                let finished = Arc::new(AtomicUsize::new(0));
-                let marker = finished.clone();
-                let handle = thread::spawn(move || {
-                    let how = crate::vfs::OpenHow {
-                        write: true,
-                        create: true,
-                        ..crate::vfs::OpenHow::default()
-                    };
-                    let _ = crate::vfs::open(&overlay, "dir/new", &how, true);
-                    marker.store(1, Ordering::SeqCst);
-                });
-                let deadline = Instant::now() + Duration::from_millis(200);
-                while finished.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
-                    thread::sleep(Duration::from_millis(5));
-                }
-                *self.finished_inside.lock().unwrap() = Some(finished.load(Ordering::SeqCst) == 1);
-                *self.other.lock().unwrap() = Some(handle);
-            }
-            self.tmpfs.open_dir(dentry)
+            Ok(Arc::new(Lists {
+                dir: self.tmpfs.open_dir(dentry)?,
+                interleave: self.interleave.clone(),
+            }))
         }
 
         fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -1097,9 +1177,7 @@ mod tests {
     fn a_change_through_an_overlay_waits_for_the_one_in_progress() {
         let lower = Arc::new(Interleaves {
             tmpfs: tmpfs_with("dir/.keep", ""),
-            overlay: Mutex::new(None),
-            finished_inside: Mutex::new(None),
-            other: Mutex::new(None),
+            interleave: Arc::default(),
         });
         on(&lower.tmpfs)
             .remove_file("dir/.keep")
@@ -1111,9 +1189,10 @@ mod tests {
         )
         .expect("/data is a guest path");
         let root = crate::vfs::Path::root(mount, crate::profile::Profile::Permissive);
-        *lower.overlay.lock().unwrap() = Some(root.clone());
+        *lower.interleave.overlay.lock().unwrap() = Some(root.clone());
         let removed = crate::vfs::remove_dir(&root, "dir").is_ok();
         lower
+            .interleave
             .other
             .lock()
             .unwrap()
@@ -1124,7 +1203,7 @@ mod tests {
         assert_eq!(
             (
                 removed,
-                *lower.finished_inside.lock().unwrap(),
+                *lower.interleave.finished_inside.lock().unwrap(),
                 crate::vfs::symlink_metadata(&root, "dir/new").is_ok()
             ),
             (true, Some(false), false),

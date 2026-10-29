@@ -313,28 +313,36 @@ impl Inode for Bind {
     }
 
     /// The host may move or remake what a dentry names behind the runtime's
-    /// back, so a dentry the runtime learned the identity of is walked to
-    /// again from the root by the names it stands at, and is valid only
-    /// while the same directory stands there, as NFS compares the handle a
-    /// fresh lookup finds. One the runtime learned nothing of has nothing
-    /// to compare.
+    /// back, so a dentry the runtime learned the identity of is looked up
+    /// again in the directory its path stands for, walked to from the root
+    /// by the names it stands at, and is valid only while the same entry
+    /// stands there, as NFS compares the handle a fresh lookup finds. One
+    /// the runtime learned nothing of has nothing to compare.
     fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
         let Some(identity) = dentry.identity() else {
             return Ok(true);
         };
         let path = dentry.path_raw();
         let names: Vec<String> = path.split('/').map(String::from).collect();
-        match walk::walk(&self.root, &names) {
-            Ok(found) => {
-                let found = to_metadata(found.dir_metadata().map_err(to_error)?);
-                Ok(Identity::of(&found) == Some(identity))
-            }
-            Err(
-                FilesystemError::NotFound
-                | FilesystemError::NotADirectory
-                | FilesystemError::FilesystemLoop,
-            ) => Ok(false),
-            Err(err) => Err(err),
+        let Some((name, above)) = names.split_last() else {
+            return Ok(true);
+        };
+        let gone = |err: FilesystemError| match err {
+            FilesystemError::NotFound
+            | FilesystemError::NotADirectory
+            | FilesystemError::FilesystemLoop => Ok(false),
+            err => Err(err),
+        };
+        let parent = match above {
+            [] => self.root.clone(),
+            above => match walk::walk(&self.root, above) {
+                Ok(parent) => Arc::new(parent),
+                Err(err) => return gone(err),
+            },
+        };
+        match parent.symlink_metadata(name).map_err(to_error) {
+            Ok(found) => Ok(Identity::of(&to_metadata(found)) == Some(identity)),
+            Err(err) => gone(err),
         }
     }
 
@@ -541,6 +549,59 @@ mod tests {
             (Ok(()), true),
             "vfs::create_dir through a Bind directory the host moved away, once vfs::remove_dir \
              removed the one remade at its path, must make the directory in the moved one"
+        );
+    }
+
+    /// A Policy refusing everything beneath `/data/refused`.
+    struct RefusesRefused;
+
+    impl crate::mount::Policy for RefusesRefused {
+        fn allows(&self, path: &str, _access: super::super::Access) -> bool {
+            !path.starts_with("/data/refused")
+        }
+    }
+
+    // The guest's descriptor of `a/d` keeps `a`'s dentry, and the host
+    // directory a walk opened for it, so only a dentry the Bind answers
+    // stale once the host moved `a` keeps a later walk through `a` from
+    // reaching the moved directory while the Policy judges `a`.
+    // @behavior FS-136
+    #[cfg(unix)]
+    #[test]
+    fn a_walk_through_a_held_directory_the_host_moved_reaches_nothing_the_policy_refuses() {
+        use crate::mount::Mount;
+        use crate::profile::Profile;
+        use crate::vfs::{self, FileDescription, OpenHow};
+        let host = HostDir::new("held-ancestor");
+        fs::create_dir_all(host.0.join("a/d")).expect("the host tree must be made");
+        fs::create_dir_all(host.0.join("refused")).expect("the host tree must be made");
+        fs::write(host.0.join("a/d/secret"), "s").expect("the host file must be written");
+        let filesystem = crate::vfs::Filesystem::new(Arc::new(
+            Bind::new(&host.0).expect("the host directory must open"),
+        ));
+        let mount = Mount::new("/data", filesystem, super::super::Access::Read)
+            .expect("/data is a guest path")
+            .with_policy(Arc::new(RefusesRefused));
+        let root = vfs::Path::root(mount, Profile::Permissive);
+        let directory = OpenHow {
+            directory: true,
+            ..OpenHow::default()
+        };
+        let Ok(FileDescription::Directory(_held)) = vfs::open(&root, "a/d", &directory, true)
+        else {
+            panic!("a/d must open");
+        };
+        fs::rename(host.0.join("a"), host.0.join("refused/a")).expect("the host must move a");
+        fs::create_dir(host.0.join("a")).expect("the host must remake a");
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        assert_eq!(
+            vfs::open(&root, "a/d/secret", &read, true).err(),
+            Some(vfs::Error::Filesystem(FilesystemError::NotFound)),
+            "vfs::open beneath a Bind Mount with a Policy, through a directory the host moved \
+             beneath a refused path while a descriptor beneath it was held, must answer NotFound"
         );
     }
 

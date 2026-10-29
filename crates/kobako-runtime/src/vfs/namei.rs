@@ -168,7 +168,10 @@ impl Nameidata {
 /// The dentry of `name` in `parent`, whose directory `inode` is, as
 /// Linux's `lookup_one` finds one: a dentry already held is asked whether
 /// it still names what stands there, as `lookup_fast` asks
-/// `d_revalidate`, and dropped for a new one where it does not.
+/// `d_revalidate`, and dropped for a new one where it does not. One that
+/// names something whose identity the runtime has not learned learns it
+/// now, as `->lookup` hands `d_add` the inode it found, so every dentry
+/// held later can be asked again.
 pub(crate) fn lookup_one(
     filesystem: &Filesystem,
     inode: &dyn Inode,
@@ -176,13 +179,20 @@ pub(crate) fn lookup_one(
     name: &str,
 ) -> Result<Arc<Dentry>, FilesystemError> {
     let dentries = filesystem.dentries();
-    if let Some(held) = dentries.d_lookup(parent, name) {
-        if inode.d_revalidate(&held)? {
-            return Ok(held);
+    let dentry = match dentries.d_lookup(parent, name) {
+        Some(held) if inode.d_revalidate(&held)? => held,
+        Some(held) => {
+            dentries.d_invalidate(&held);
+            dentries.child(parent, name)
         }
-        dentries.d_invalidate(&held);
+        None => dentries.child(parent, name),
+    };
+    if dentry.identity().is_none() {
+        if let Ok(found) = inode.symlink_metadata(&dentry) {
+            dentry.d_instantiate(Identity::of(&found));
+        }
     }
-    Ok(dentries.child(parent, name))
+    Ok(dentry)
 }
 
 /// One name of a path still to walk, and whether a link's target named it.
