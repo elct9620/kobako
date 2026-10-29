@@ -349,6 +349,7 @@ Some risks stay with the host, because kobako cannot see them.
 | a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
 | a `\` in a name a Ruby Filesystem receives | the Filesystem's to refuse, as Windows reads it as a separator |
 | a host link a Ruby Filesystem's open meets on Windows | the Filesystem's to refuse, as Windows' Ruby has no `File::NOFOLLOW` |
+| a directory a Bind holds open on Windows | the host cannot move or remove it until the Bind is collected |
 | one Overlay's upper shared by another, or mounted on its own | undefined, as overlayfs leaves it; no crash or deadlock |
 | one Overlay mounted in invocations that run at once | a change in one directory or file waits for the other, past `timeout:` |
 
