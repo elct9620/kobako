@@ -23,7 +23,7 @@ pub(super) fn reader(
     Ok(Box::new(OverlayFile {
         file,
         _dentry: dentry.dget(),
-        inode,
+        inode: Reading(inode),
     }))
 }
 
@@ -34,7 +34,25 @@ struct OverlayFile {
     /// file` holds its `f_path`, so a copy up of the entry finds the state
     /// this file reads.
     _dentry: Arc<Dentry>,
-    inode: Arc<OverlayInode>,
+    inode: Reading,
+}
+
+/// The entry a file open to read reads, counted as one reader there until
+/// the file is let go.
+struct Reading(Arc<OverlayInode>);
+
+impl std::ops::Deref for Reading {
+    type Target = OverlayInode;
+
+    fn deref(&self) -> &OverlayInode {
+        &self.0
+    }
+}
+
+impl Drop for Reading {
+    fn drop(&mut self) {
+        self.0.closed_to_read();
+    }
 }
 
 impl File for OverlayFile {

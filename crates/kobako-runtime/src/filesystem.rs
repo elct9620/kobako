@@ -42,12 +42,13 @@ pub enum Access {
 ///
 /// The runtime walks a guest's path one name at a time and follows a link
 /// itself, as the VFS above a filesystem does, so a link never leads a
-/// call out of the directory a descriptor opened. Five methods keep a
+/// call out of the directory a descriptor opened. Six methods keep a
 /// guarantee the runtime gives the guest, so each Filesystem answers them
 /// itself and a wrapper forwards them: `open`, `symlink_metadata`,
 /// `open_dir`, and `read_link` keep a link from being followed anywhere but
-/// where the runtime follows it, and `lookup` keeps every spelling of one
-/// entry on one dentry. Every Invocation reaches the same Filesystem;
+/// where the runtime follows it, `lookup` keeps every spelling of one
+/// entry on one dentry, and `d_revalidate` drops a dentry whose name came
+/// to stand for another entry. Every Invocation reaches the same Filesystem;
 /// one that should start afresh is handed in its place for that
 /// Invocation.
 pub trait Inode: Any + Send + Sync {
