@@ -140,7 +140,9 @@ The Guest Binary is gitignored and built in three stages.
 
 1. Run `rake beni:build` for Stages A and B, driven by `build_config/wasi.rb`.
 2. Run `rake wasm:build` for Stage C, which ends with the `kobako-baker` bake.
-3. Run `rake compile` from a clean clone to walk the chain and build the native ext.
+3. Run `rake compile` to build the native ext, which bundles the Guest Binary built above.
+
+From a clean clone, `bundle exec rake` walks the whole chain, as `check:guest` runs before `check:host`.
 
 The gem bundles only the pure default; capability variants are Release assets described in `docs/guides/variants.md`.
 
