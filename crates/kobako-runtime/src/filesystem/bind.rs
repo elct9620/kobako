@@ -1,10 +1,12 @@
 //! `Bind`: a Filesystem over a host directory, from which nothing
 //! outside it is reachable.
 //!
-//! Every name resolves through `cap_std::fs::Dir`, or the host's kernel
-//! where it confines a path itself, refusing a `..` or a symbolic link
-//! that would lead out of the directory, so the confinement holds
-//! whatever name a caller hands over.
+//! The runtime hands a Bind one name at a time and follows every link
+//! itself, so the VFS keeps the guest inside. Each name still resolves
+//! through `cap_std::fs::Dir`, or the host's kernel where it confines a
+//! path itself, which refuses a `..` or a link leading out of the
+//! directory whatever a caller hands over, and answers alike on every
+//! host, Windows among them.
 
 mod lookup;
 mod walk;

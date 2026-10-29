@@ -31,12 +31,13 @@ categories = ["wasm", "virtualization"]
 [dependencies]
 kobako-transport = { version = "0.19.0", path = "../kobako-transport" }
 # cap-std resolves each name a Bind is asked beneath its host directory,
-# refusing a `..` or a symbolic link that would lead out of it.
-# 4.0.3 is the first release whose trailing-slash lookup keeps that
-# refusal (GHSA-hp8f-xmx4-4qrg).
+# on every host Windows included. The VFS already hands one name and
+# follows links itself; cap-std still refuses a `..` or a symbolic link
+# leading out, should anything else hand one. 4.0.3 is the first release
+# whose trailing-slash lookup keeps that refusal (GHSA-hp8f-xmx4-4qrg).
 cap-std = "4.0.3"
 # cap-fs-ext opens a Bind's directory by name without following a link,
-# so a Mount's Policy judges the path its call reaches.
+# as no Filesystem follows one the runtime has not.
 cap-fs-ext = "4.0.3"
 
 # rustix switches a Bind's file to append mode for one write, so the
