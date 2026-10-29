@@ -1391,3 +1391,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a guest holding a directory it opened beneath a Bind Mount |
 | When | the host moves it away and makes another at its path, and the guest removes the new one |
 | Then | a make through the descriptor lands in the moved directory |
+
+## `FS-136` A walk through a directory a Bind's host moved reaches nothing a Policy refuses
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-135`, `RT-150` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory beneath another, beneath a Bind Mount with a Policy |
+| When | the host moves the outer one beneath a refused path, and the guest opens a file at the old path |
+| Then | the open answers ENOENT |
