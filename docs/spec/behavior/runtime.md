@@ -1850,3 +1850,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a host that reports no directory's owner, as Windows |
 | When | a runtime is built over a Guest Binary |
 | Then | it is built by compiling, and no compiled artifact is written to disk |
+
+## `RT-172` A path asked while directories above it move names one that stood
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-149` |
+| relates | `RF-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory whose ancestors move again and again through the runtime |
+| When | its path is asked at the same time |
+| Then | each path answered is one the directory stood at |
