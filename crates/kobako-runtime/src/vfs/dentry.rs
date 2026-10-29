@@ -5,7 +5,8 @@
 //! a Filesystem answers about a name is asked again on every call, so the
 //! table caches no lookup.
 
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::any::Any;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 
 use super::rwsem::RwSemaphore;
 use super::seqlock::SeqLock;
@@ -44,6 +45,12 @@ pub struct Dentry {
     /// keeps it on the directory's inode; the VFS owns no inode of its
     /// own, and a directory has one dentry, so it is kept here.
     pub(crate) rwsem: RwSemaphore,
+    /// This dentry, for whoever is handed it to keep, as Linux's `dget`
+    /// takes a reference to any dentry it is handed.
+    this: Weak<Dentry>,
+    /// What the Filesystem keeps on the name, set once, as Linux's
+    /// `d_fsdata` holds a filesystem's own state for a dentry.
+    pub(crate) d_fsdata: OnceLock<Arc<dyn Any + Send + Sync>>,
 }
 
 struct State {
@@ -59,7 +66,7 @@ struct State {
 
 impl Dentry {
     fn new(parent: Option<Arc<Dentry>>, name: &str) -> Arc<Self> {
-        Arc::new(Self {
+        Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 parent,
                 name: name.to_string(),
@@ -67,7 +74,23 @@ impl Dentry {
                 identity: None,
             }),
             rwsem: RwSemaphore::default(),
+            this: this.clone(),
+            d_fsdata: OnceLock::new(),
         })
+    }
+
+    /// The directory above, `None` for the root, as Linux's `dget_parent`
+    /// takes it.
+    pub(crate) fn dget_parent(&self) -> Option<Arc<Dentry>> {
+        self.state().parent.clone()
+    }
+
+    /// This dentry, kept for as long as the caller holds it, as Linux's
+    /// `dget` does.
+    pub(crate) fn dget(&self) -> Arc<Dentry> {
+        self.this
+            .upgrade()
+            .expect("a dentry handed out is held by whoever handed it")
     }
 
     fn state(&self) -> MutexGuard<'_, State> {

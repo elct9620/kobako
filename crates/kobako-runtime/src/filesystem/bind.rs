@@ -14,7 +14,7 @@ mod walk;
 use std::any::Any;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::ambient_authority;
@@ -25,57 +25,80 @@ use crate::vfs::Dentry;
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
-pub struct Bind(Arc<Node>);
-
-/// One directory of a Bind: held open, or named beneath its parent and
-/// opened when first asked, as Linux's 9p walks to a dentry's fid only
-/// when a call needs one. A walk through several names then opens the
-/// last of them in one call, and only a directory asked about holds a
-/// host descriptor.
-struct Node(Mutex<State>);
-
-enum State {
-    Open(Arc<Dir>),
-    Named { parent: Arc<Node>, name: String },
-}
-
-impl Node {
-    fn state(&self) -> MutexGuard<'_, State> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// The host directory, opened beneath the nearest one held open by the
-    /// names in between, and held from then on.
-    fn dir(&self) -> Result<Arc<Dir>, FilesystemError> {
-        let (mut names, mut above) = match &*self.state() {
-            State::Open(dir) => return Ok(dir.clone()),
-            State::Named { parent, name } => (vec![name.clone()], parent.clone()),
-        };
-        let held = loop {
-            let next = match &*above.state() {
-                State::Open(dir) => break dir.clone(),
-                State::Named { parent, name } => {
-                    names.push(name.clone());
-                    parent.clone()
-                }
-            };
-            above = next;
-        };
-        names.reverse();
-        let dir = Arc::new(walk::walk(&held, &names)?);
-        *self.state() = State::Open(dir.clone());
-        Ok(dir)
-    }
+///
+/// A directory opened beneath it is a Bind too, named by its dentry and
+/// opened on the host when first asked, as Linux's 9p walks to a dentry's
+/// fid only when a call needs one, and keeps the host directory on the
+/// dentry, as 9p keeps its fid in `d_fsdata`. Only a directory asked about,
+/// or one above it, holds a host descriptor.
+pub struct Bind {
+    /// The host directory the Bind was made at.
+    root: Arc<Dir>,
+    /// The dentry naming this directory, `None` for the root.
+    dentry: Option<Arc<Dentry>>,
 }
 
 impl Bind {
     /// Open the host directory at `path`, the one place this Filesystem
     /// reaches outside itself.
     pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {
-        Ok(Self::beneath(Dir::open_ambient_dir(
-            path,
-            ambient_authority(),
-        )?))
+        Ok(Self {
+            root: Arc::new(Dir::open_ambient_dir(path, ambient_authority())?),
+            dentry: None,
+        })
+    }
+
+    /// The host directory `dentry` names, as 9p's `v9fs_fid_lookup` finds
+    /// a fid: the one already on the dentry, one name walked from the
+    /// directory held on its parent, or every name walked from the root,
+    /// read from the dentry as `build_path_from_dentry` reads them. 9p
+    /// holds the rename lock through a walk; a one-name walk here is
+    /// checked afterwards instead, and walked again from the root when the
+    /// dentry moved meanwhile.
+    fn fid(&self, dentry: &Dentry) -> Result<Arc<Dir>, FilesystemError> {
+        if let Some(held) = held_dir(dentry) {
+            return Ok(held);
+        }
+        let Some(parent) = dentry.dget_parent() else {
+            return Ok(self.root.clone());
+        };
+        let name = dentry.name();
+        let above = match parent.dget_parent() {
+            None => Some(self.root.clone()),
+            Some(_) => held_dir(&parent),
+        };
+        let walked = match above {
+            Some(above) => {
+                let walked = walk::walk(&above, std::slice::from_ref(&name))?;
+                let moved = !dentry
+                    .dget_parent()
+                    .is_some_and(|now| Arc::ptr_eq(&now, &parent))
+                    || dentry.name() != name;
+                (!moved).then_some(walked)
+            }
+            None => None,
+        };
+        let dir = match walked {
+            Some(dir) => dir,
+            None => {
+                let path = dentry.path_raw();
+                let names: Vec<String> = path.split('/').map(String::from).collect();
+                walk::walk(&self.root, &names)?
+            }
+        };
+        let fid: Arc<dyn Any + Send + Sync> = Arc::new(dir);
+        let kept = dentry.d_fsdata.get_or_init(|| fid).clone();
+        Ok(kept
+            .downcast::<Dir>()
+            .expect("a Bind's dentry keeps a host directory"))
+    }
+
+    /// The host directory, opened when first asked.
+    fn dir(&self) -> Result<Arc<Dir>, FilesystemError> {
+        match &self.dentry {
+            Some(dentry) => self.fid(dentry),
+            None => Ok(self.root.clone()),
+        }
     }
 
     /// Answer `call` with this directory and the name `dentry` carries as
@@ -85,14 +108,14 @@ impl Bind {
         dentry: &Dentry,
         call: impl FnOnce(&Dir, &str) -> Result<T, FilesystemError>,
     ) -> Result<T, FilesystemError> {
-        let dir = self.0.dir()?;
+        let dir = self.dir()?;
         call(&dir, to_host_name(&dentry.name())?)
     }
+}
 
-    /// `dir`, opened beneath a Bind, as a Bind of its own.
-    fn beneath(dir: Dir) -> Self {
-        Self(Arc::new(Node(Mutex::new(State::Open(Arc::new(dir))))))
-    }
+/// The host directory a Bind keeps on `dentry`, once one was opened.
+fn held_dir(dentry: &Dentry) -> Option<Arc<Dir>> {
+    dentry.d_fsdata.get()?.clone().downcast::<Dir>().ok()
 }
 
 /// The directory `name` in `dir`, a link there refused as a loop, as
@@ -269,7 +292,7 @@ impl Inode for Bind {
     }
 
     fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        Ok(to_metadata(self.0.dir()?.dir_metadata().map_err(to_error)?))
+        Ok(to_metadata(self.dir()?.dir_metadata().map_err(to_error)?))
     }
 
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -282,11 +305,11 @@ impl Inode for Bind {
     /// the host directory's own descriptor, so its inode stays taken while
     /// it is open.
     fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
-        let name = to_host_name(&dentry.name())?.to_string();
-        Ok(Arc::new(Self(Arc::new(Node(Mutex::new(State::Named {
-            parent: self.0.clone(),
-            name,
-        }))))))
+        to_host_name(&dentry.name())?;
+        Ok(Arc::new(Self {
+            root: self.root.clone(),
+            dentry: Some(dentry.dget()),
+        }))
     }
 
     fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
@@ -310,8 +333,7 @@ impl Inode for Bind {
     }
 
     fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.0
-            .dir()?
+        self.dir()?
             .entries()
             .map_err(to_error)?
             .map(|entry| {
@@ -463,6 +485,35 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    // A directory a Bind has named but not opened yet is walked to by the
+    // names its dentry stands at when first asked, so a move the dentry
+    // followed meanwhile leads to it, as 9p's walk reads them then.
+    #[test]
+    fn a_directory_named_before_a_move_opens_where_its_dentry_went() {
+        let host = HostDir::new("named-then-moved");
+        fs::create_dir_all(host.0.join("a")).expect("the host directory must be made");
+        fs::write(host.0.join("a/note"), "n").expect("the host file must be written");
+        let filesystem = crate::vfs::Filesystem::new(Arc::new(
+            Bind::new(&host.0).expect("the host directory must open"),
+        ));
+        let dentries = filesystem.dentries();
+        let root = dentries.root();
+        let a = dentries.child(&root, "a");
+        let named = filesystem
+            .root()
+            .open_dir(&a)
+            .expect("the directory must be named");
+        fs::rename(host.0.join("a"), host.0.join("x")).expect("the host must move it");
+        dentries.d_move(&root, "a", &root, "x");
+        let note = dentries.child(&a, "note");
+        assert_eq!(
+            named.symlink_metadata(&note).map(|found| found.file_type),
+            Ok(FileType::File),
+            "a directory Bind::open_dir named, once its dentry moved with it, must be opened \
+             where the dentry stands"
+        );
     }
 
     /// A host directory of the test's own holding the FIFO `pipe`.
