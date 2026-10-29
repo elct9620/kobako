@@ -9,6 +9,8 @@ require_relative "../../benchmark/support/lock"
 # CPU-heavy work while a benchmark measures. Exercised against a tmp path
 # so the suite never disturbs the real tmp/.bench.lock.
 class KobakoBenchLockTest < Minitest::Test
+  include GuestGuard
+
   def setup
     @dir = Dir.mktmpdir
     @path = File.join(@dir, ".bench.lock")
@@ -27,6 +29,7 @@ class KobakoBenchLockTest < Minitest::Test
   end
 
   def test_the_lock_names_the_running_process
+    require_ps!
     Kobako::Bench::Lock.hold(@path) do
       pid_line, start_line = File.read(@path).lines.map(&:strip)
 

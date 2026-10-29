@@ -55,4 +55,11 @@ module GuestGuard
   def require_child_sigint!
     skip "Windows sends SIGINT to the whole console, not one child process" if Gem.win_platform?
   end
+
+  # A host whose +ps+ reports when a process started, which the bench lock
+  # records so the Stop hook's guard can tell a reused pid. Windows has no
+  # +ps+, so a test needing it skips there.
+  def require_ps!
+    skip "Windows has no ps to report a process's start time" if Gem.win_platform?
+  end
 end
