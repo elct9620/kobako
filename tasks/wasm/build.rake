@@ -44,6 +44,12 @@ namespace :wasm do
     end
   end
 
+  # The sources every Guest Binary is built from, one path per line, so a
+  # CI cache of the built binaries is keyed by what the build reads.
+  task :sources do
+    puts KobakoWasm::GuestBuilder.sources.map { |path| path.delete_prefix("#{KobakoWasm::ROOT}/") }.sort
+  end
+
   desc "Remove every Guest Binary variant and the wasm crate target/ cache"
   task :clean do
     KobakoWasm::GUEST_BINARIES.each { |wasm| FileUtils.rm_f(wasm) }
