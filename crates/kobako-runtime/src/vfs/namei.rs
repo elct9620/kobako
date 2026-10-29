@@ -809,7 +809,8 @@ pub(crate) fn vfs_rename(
     let moving = kind_at(old_inode, old)?;
     let is_dir = moving == Some(FileType::Directory);
     may_delete_dentry(old_dir, moving, is_dir)?;
-    match (kind_at(new_inode, new)?, flag) {
+    let target = kind_at(new_inode, new)?;
+    match (target, flag) {
         (None, Some(RenameFlag::Exchange)) => return Err(FilesystemError::NotFound),
         (None, _) => may_create_dentry(new_dir, None)?,
         (Some(_), Some(RenameFlag::NoReplace)) => return Err(FilesystemError::AlreadyExists),
@@ -824,8 +825,11 @@ pub(crate) fn vfs_rename(
         dentries.d_exchange(old, new);
         return Ok(());
     }
+    if target == Some(FileType::Directory) {
+        new.mark_dead();
+    }
+    dentries.d_delete(new);
     let (old_name, new_name) = (old.name(), new.name());
-    dentries.delete(new_dir, &new_name);
     dentries.d_move(old_dir, &old_name, new_dir, &new_name);
     Ok(())
 }
@@ -843,7 +847,8 @@ pub(crate) fn vfs_rmdir(
     let _victim = victim.rwsem.down_write(filesystem.blocking())?;
     may_delete_dentry(dir, kind_at(inode, victim)?, true)?;
     inode.remove_dir(victim)?;
-    filesystem.dentries().delete(dir, &victim.name());
+    victim.mark_dead();
+    filesystem.dentries().d_delete(victim);
     Ok(())
 }
 
@@ -860,7 +865,7 @@ pub(crate) fn vfs_unlink(
     let _victim = victim.rwsem.down_write(filesystem.blocking())?;
     may_delete_dentry(dir, kind_at(inode, victim)?, false)?;
     inode.remove_file(victim)?;
-    filesystem.dentries().d_drop(victim);
+    filesystem.dentries().d_delete(victim);
     Ok(())
 }
 

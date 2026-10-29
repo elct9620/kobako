@@ -132,6 +132,12 @@ impl Dentry {
         self.state().dead
     }
 
+    /// The directory was removed or replaced, so nothing is made in it any
+    /// more, as Linux sets `S_DEAD` on such a directory's inode.
+    pub(crate) fn mark_dead(&self) {
+        self.state().dead = true;
+    }
+
     /// What the name stands for, once the VFS learned it.
     pub(crate) fn identity(&self) -> Option<Identity> {
         self.state().identity
@@ -242,13 +248,11 @@ impl Dentries {
         }
     }
 
-    /// The directory `name` in `parent` was removed, or replaced by a
-    /// move, as `d_delete` marks it.
-    pub(crate) fn delete(&self, parent: &Arc<Dentry>, name: &str) {
-        let removed = self.hashtable().remove(&key(parent, name));
-        if let Some(removed) = removed {
-            removed.state().dead = true;
-        }
+    /// The entry `dentry` names was removed, as Linux's `d_delete` leaves a
+    /// dentry still in use unhashed; every dentry the table holds is in
+    /// use.
+    pub(crate) fn d_delete(&self, dentry: &Arc<Dentry>) {
+        self.d_drop(dentry);
     }
 
     /// The entry `from_name` in `from` moved to `to_name` in `to`, taking
