@@ -170,10 +170,54 @@ jobs:
           path: ${{ steps.cross-gem.outputs.gem-path }}
           if-no-files-found: error
 
+  # Each native gem installed on the host it ships for runs one guest, so a
+  # gem whose ext fails to load there, or that lacks the Guest Binary, never
+  # publishes. A platform no runner hosts, such as musl, goes untried.
+  smoke-test:
+    name: Smoke test native gem for ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    needs: [ci-data, native-gem]
+    env:
+      BUILT: ${{ contains(fromJSON(needs.ci-data.outputs.result).supported-ruby-platforms, matrix.platform) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: x86_64-linux
+            os: ubuntu-latest
+          - platform: aarch64-linux
+            os: ubuntu-24.04-arm
+          - platform: x64-mingw-ucrt
+            os: windows-latest
+          - platform: arm64-darwin
+            os: macos-26
+          - platform: x86_64-darwin
+            os: macos-15-intel
+    steps:
+      - name: Skip a platform this release does not build
+        if: env.BUILT != 'true'
+        run: echo "::notice::${{ matrix.platform }} is not built for this release, skipping"
+      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
+        if: env.BUILT == 'true'
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: env.BUILT == 'true'
+        with:
+          name: native-gem-${{ matrix.platform }}
+          path: pkg/
+      - name: Install the gem and run one guest
+        if: env.BUILT == 'true'
+        shell: bash
+        run: |
+          gem install pkg/kobako-*.gem
+          ruby -rkobako -e 'abort "the guest answered wrongly" unless Kobako::Sandbox.new.eval("1 + 2").value == 3'
+
   publish:
     name: Publish gems to RubyGems
     runs-on: ubuntu-latest
-    needs: [plain-gem, native-gem]
+    needs: [plain-gem, smoke-test]
     if: github.event_name == 'release' || inputs.push
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
