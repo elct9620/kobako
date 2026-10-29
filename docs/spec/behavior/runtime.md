@@ -1594,7 +1594,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a guest holding a directory it opened beneath a Mount with a Policy |
-| When | the directory moves away and another is made at its path |
+| When | the directory moves away outside the runtime, and another is made at its path |
 | Then | a lookup through the descriptor answers ENOENT |
 
 ## `RT-151` A directory without an identity is not reached again beneath a Policy
@@ -1825,3 +1825,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem storing `DIR/F`, and reaching each name by any case |
 | When | `DIR/F` is removed while a move of `dir/f` is under way |
 | Then | the removal waits for the move, then answers not found |
+
+## `RT-170` A directory moved beneath another Mount of its instance is reached beneath a Policy
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-150` |
+| relates | `RT-160`, `RT-149` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount with a Policy |
+| When | the directory moves beneath another Mount of the same Filesystem instance |
+| Then | a lookup through the descriptor reaches it, as the Policy allows the path it moved to |
