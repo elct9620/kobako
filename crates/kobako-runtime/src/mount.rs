@@ -158,4 +158,11 @@ impl Mount {
     pub(crate) fn follows_links(&self) -> bool {
         self.policy.is_none()
     }
+
+    /// Whether a call through a directory opened beneath this Mount walks to
+    /// it again from the root. Under a Policy it does, so the Policy judges
+    /// the path the directory stands at now.
+    pub(crate) fn rewalks_directories(&self) -> bool {
+        self.policy.is_some()
+    }
 }

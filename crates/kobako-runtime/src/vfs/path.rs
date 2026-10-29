@@ -125,12 +125,10 @@ impl Path {
     }
 
     /// Where a call through the directory starts, with each directory above
-    /// it: the directory alone, or, beneath a Mount following no link,
-    /// which is one with a Policy, every directory from the Mount's root
-    /// down to it, found again so the Policy judges the path it stands at
-    /// now.
+    /// it: the directory alone, or, beneath a Mount that rewalks
+    /// directories, every directory from the Mount's root down to it.
     pub(crate) fn reach(&self) -> Result<Vec<Step>, Error> {
-        if self.mount.follows_links() {
+        if !self.mount.rewalks_directories() {
             return Ok(vec![Step {
                 dir: self.dir.clone(),
                 name: String::new(),
