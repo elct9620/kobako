@@ -37,9 +37,9 @@ jobs:
         run: sumi fmt --check
 
   # A Guest Binary is the same wasm whichever host builds it, so one job
-  # builds every variant, as a release does, and every build job tests
-  # that one. It is cached by what the build reads, and the guest crates'
-  # own checks run only when it is built again.
+  # runs the guest's checks, building every variant as a release does,
+  # and every build job tests that one. It is cached by what the build
+  # reads, and the guest's checks run only when it is built again.
   wasm:
     runs-on: ubuntu-latest
     name: Guest Binary
@@ -77,12 +77,9 @@ jobs:
           workspaces: |
             wasm
             wasm/kobako-baker
-      - name: Build every Guest Binary variant
+      - name: Run the guest's checks
         if: steps.guests.outputs.cache-hit != 'true'
-        run: bundle exec rake wasm:build wasm:build:regexp wasm:build:regexp_unicode wasm:build:json wasm:build:full
-      - name: Rust unit tests (wasm/, host target)
-        if: steps.guests.outputs.cache-hit != 'true'
-        run: bundle exec rake wasm:test
+        run: bundle exec rake check:guest
       - name: cargo clippy (wasm/ and the baker, host target)
         if: steps.guests.outputs.cache-hit != 'true'
         env:
@@ -93,7 +90,7 @@ jobs:
       - name: cargo clippy (wasm/, wasm32-wasip1)
         if: steps.guests.outputs.cache-hit != 'true'
         # beni-sys requires the mruby archive paths explicitly on cross
-        # targets; building the Guest Binaries above staged them.
+        # targets; the guest's checks above staged them.
         env:
           MRUBY_LIB_DIR: ${{ github.workspace }}/vendor/mruby/build/wasi/lib
           WASI_SDK_PATH: ${{ github.workspace }}/vendor/wasi-sdk
@@ -167,26 +164,13 @@ jobs:
           workspaces: |
             .
             crates
-            wasm
-      # Fetched after the checkout, so each is newer than its sources and
-      # the default task tests it rather than building it again.
       - name: Fetch the Guest Binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: kobako-wasm
           path: data/
-      - name: Run the default task
-        if: runner.os != 'Windows'
-        run: bundle exec rake
-      # mruby picks its visualcpp toolchain from the environment vcvars sets,
-      # and beni-sys links the host archive through the same one, so the
-      # default task runs inside it.
-      - name: Run the default task (MSVC)
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvarsall.bat" x64
-          bundle exec rake
+      - name: Run the host's checks
+        run: bundle exec rake check:host
       - name: cargo fmt --check (every workspace)
         if: matrix.os == 'ubuntu-latest' && matrix.ruby == '4.0'
         run: |
