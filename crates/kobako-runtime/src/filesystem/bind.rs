@@ -290,9 +290,7 @@ impl Inode for Bind {
     }
 
     fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.at(dentry, |dir, name| {
-            lookup::lookup(dir, name).map_err(to_error)
-        })
+        self.at(dentry, lookup::lookup)
     }
 
     /// A target that is no valid UTF-8 answers `IllegalSequence`, as a

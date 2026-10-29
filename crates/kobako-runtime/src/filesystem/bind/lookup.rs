@@ -7,16 +7,19 @@
 //! match names exactly; without an inode, a spelling the listing lacks is
 //! refused.
 
+#[cfg(not(target_os = "macos"))]
 use std::io;
 
 use cap_std::fs::Dir;
 
+use super::{to_error, FilesystemError};
+
 /// The name `parent` stores for the entry `name` reaches, a link reached
 /// as itself; `name` as given when nothing is there.
-pub(super) fn lookup(parent: &Dir, name: &str) -> io::Result<String> {
+pub(super) fn lookup(parent: &Dir, name: &str) -> Result<String, FilesystemError> {
     #[cfg(target_os = "macos")]
     {
-        macos::lookup(parent, name)
+        macos::lookup(parent, name).map_err(to_error)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -29,17 +32,18 @@ pub(super) fn lookup(parent: &Dir, name: &str) -> io::Result<String> {
 }
 
 /// The name a listing of `parent` holds for `name`: itself when listed,
-/// else the entry sharing its inode.
+/// else the entry sharing its inode. A spelling the listing lacks and no
+/// inode ties to a listed name is refused as `EACCES`.
 #[cfg(not(target_os = "macos"))]
-fn lookup_by_listing(parent: &Dir, name: &str) -> io::Result<String> {
+fn lookup_by_listing(parent: &Dir, name: &str) -> Result<String, FilesystemError> {
     let found = match parent.symlink_metadata(name) {
         Ok(found) => found,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(name.to_string()),
-        Err(err) => return Err(err),
+        Err(err) => return Err(to_error(err)),
     };
     let mut names = Vec::new();
-    for entry in parent.entries()? {
-        let entry = entry?;
+    for entry in parent.entries().map_err(to_error)? {
+        let entry = entry.map_err(to_error)?;
         if entry.file_name() == name {
             return Ok(name.to_string());
         }
@@ -54,13 +58,13 @@ fn lookup_by_listing(parent: &Dir, name: &str) -> io::Result<String> {
                 return entry
                     .file_name()
                     .into_string()
-                    .map_err(|_| io::ErrorKind::InvalidData.into());
+                    .map_err(|_| to_error(io::ErrorKind::InvalidData.into()));
             }
         }
     }
     #[cfg(not(unix))]
     let _ = (found, names);
-    Err(io::ErrorKind::PermissionDenied.into())
+    Err(FilesystemError::PermissionDenied)
 }
 
 #[cfg(target_os = "macos")]
