@@ -7,8 +7,7 @@
 use std::sync::{Arc, PoisonError};
 
 use super::super::{File, FilesystemError, Metadata};
-use super::inode::ovl_inode;
-use super::inode::OverlayInode;
+use super::inode::{ovl_inode, ReaderGuard};
 use crate::vfs::Dentry;
 
 /// `file`, opened in a lower Layer for the entry `dentry` names, as one
@@ -19,11 +18,10 @@ pub(super) fn reader(
     dentry: &Dentry,
 ) -> Result<Box<dyn File>, FilesystemError> {
     let inode = ovl_inode(dentry, || Ok(Vec::new()))?;
-    inode.opened_to_read();
     Ok(Box::new(OverlayFile {
         file,
         _dentry: dentry.dget(),
-        inode: Reading(inode),
+        inode: inode.hold_reader(),
     }))
 }
 
@@ -34,25 +32,8 @@ struct OverlayFile {
     /// file` holds its `f_path`, so a copy up of the entry finds the state
     /// this file reads.
     _dentry: Arc<Dentry>,
-    inode: Reading,
-}
-
-/// The entry a file open to read reads, counted as one reader there until
-/// the file is let go.
-struct Reading(Arc<OverlayInode>);
-
-impl std::ops::Deref for Reading {
-    type Target = OverlayInode;
-
-    fn deref(&self) -> &OverlayInode {
-        &self.0
-    }
-}
-
-impl Drop for Reading {
-    fn drop(&mut self) {
-        self.0.closed_to_read();
-    }
+    /// The entry this file reads, counting it as a reader while it is open.
+    inode: ReaderGuard,
 }
 
 impl File for OverlayFile {

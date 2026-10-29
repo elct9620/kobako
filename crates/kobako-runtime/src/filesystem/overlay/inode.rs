@@ -54,14 +54,11 @@ impl OverlayInode {
         lock(&self.copy).clone()
     }
 
-    /// A file of a lower Layer was opened to read here.
-    pub(super) fn opened_to_read(&self) {
+    /// Count a file of a lower Layer open to read here until the guard is
+    /// dropped.
+    pub(super) fn hold_reader(self: &Arc<Self>) -> ReaderGuard {
         self.readers.fetch_add(1, Ordering::SeqCst);
-    }
-
-    /// A file of a lower Layer open to read here was let go.
-    pub(super) fn closed_to_read(&self) {
-        self.readers.fetch_sub(1, Ordering::SeqCst);
+        ReaderGuard(self.clone())
     }
 
     /// This file was copied up as `name` into `dir`, the upper's
@@ -80,6 +77,24 @@ impl OverlayInode {
         )?;
         *lock(&self.copy) = Some(Arc::new(Mutex::new(copy)));
         Ok(())
+    }
+}
+
+/// One file of a lower Layer counted as open to read at an entry, until it
+/// is dropped.
+pub(super) struct ReaderGuard(Arc<OverlayInode>);
+
+impl std::ops::Deref for ReaderGuard {
+    type Target = OverlayInode;
+
+    fn deref(&self) -> &OverlayInode {
+        &self.0
+    }
+}
+
+impl Drop for ReaderGuard {
+    fn drop(&mut self) {
+        self.0.readers.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
