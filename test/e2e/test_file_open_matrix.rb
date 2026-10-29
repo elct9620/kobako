@@ -43,7 +43,7 @@ class TestE2EFileOpenMatrix < Minitest::Test
 
   def teardown
     super
-    @roots&.each { |root| FileUtils.remove_entry(root) }
+    @roots&.each { |root| TestPaths.remove_host_directory(root) }
   end
 
   def directory = Kobako::Filesystem::Bind.new(seeded_root)

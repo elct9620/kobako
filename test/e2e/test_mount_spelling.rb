@@ -13,7 +13,7 @@ class TestE2EMountSpelling < Minitest::Test
   # guest and the file, so only judging that spelling refuses the read.
   # @behavior RT-120
   def test_a_block_judges_a_folded_spelling_as_the_host_stores_it
-    Dir.mktmpdir do |host|
+    TestPaths.host_directory do |host|
       FileUtils.mkdir_p(File.join(host, "private"))
       File.write(File.join(host, "private/secret"), "hidden")
       skip "the host directory matches names exactly" unless File.exist?(File.join(host, "PRIVATE"))
