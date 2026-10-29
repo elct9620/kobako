@@ -172,6 +172,24 @@ impl Dentries {
             state.name = to_name.to_string();
         });
     }
+
+    /// `first` and `second` trade the names they stand at, as Linux's
+    /// `d_exchange` follows an exchange, so whoever holds either reaches
+    /// it where it went.
+    pub(crate) fn d_exchange(&self, first: &Arc<Dentry>, second: &Arc<Dentry>) {
+        let mut table = self.hashtable();
+        RENAME_LOCK.write(|| {
+            let (mut one, mut other) = (first.state(), second.state());
+            std::mem::swap(&mut one.parent, &mut other.parent);
+            std::mem::swap(&mut one.name, &mut other.name);
+        });
+        for dentry in [first, second] {
+            let state = dentry.state();
+            if let Some(parent) = &state.parent {
+                table.insert(key(parent, &state.name), dentry);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -330,6 +348,26 @@ mod tests {
             Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
             "vfs::create_dir through a directory opened beneath one Mount, once vfs::remove_dir \
              removed it beneath another Mount of the same Filesystem, must answer NotFound"
+        );
+    }
+
+    #[test]
+    fn an_exchange_swaps_two_dentries_and_kills_neither() {
+        let dentries = super::Dentries::default();
+        let root = dentries.root();
+        let a = dentries.child(&root, "a");
+        let b = dentries.child(&dentries.child(&root, "d"), "b");
+        dentries.d_exchange(&a, &b);
+        assert_eq!(
+            (
+                a.path_raw(),
+                b.path_raw(),
+                a.is_dead() || b.is_dead(),
+                Arc::ptr_eq(&dentries.child(&root, "a"), &b)
+            ),
+            ("d/b".to_string(), "a".to_string(), false, true),
+            "Dentries::d_exchange must hand each dentry the other's name, keep both alive, and \
+             find each by its new name"
         );
     }
 

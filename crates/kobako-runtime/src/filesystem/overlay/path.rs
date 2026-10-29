@@ -97,7 +97,7 @@ impl OverlayPath {
     }
 
     /// Move `from` here to `to` in `target` as `renameat2` does with
-    /// `flag`. An exchanged directory is reached again by its new path.
+    /// `flag`.
     pub(super) fn rename2(
         &self,
         from: &str,

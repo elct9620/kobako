@@ -744,7 +744,7 @@ pub(crate) fn lock_rename<'a>(
 /// Filesystem's call, as Linux's `vfs_rename` does once `lock_rename`
 /// holds both directories: each name held while it moves, and its dentry
 /// following it. A directory replaced at `new` is gone for whoever holds
-/// it, and an exchange leaves neither name's dentry reached again.
+/// it, and an exchange swaps the two names' dentries, as `d_exchange` does.
 pub(crate) fn vfs_rename(
     filesystem: &Filesystem,
     (old_dir, old): (&Arc<Dentry>, &Arc<Dentry>),
@@ -756,13 +756,14 @@ pub(crate) fn vfs_rename(
     let _old = old.rwsem.down_write(blocking)?;
     let _new = new.rwsem.down_write(blocking)?;
     rename()?;
-    let (old_name, new_name) = (old.name(), new.name());
     let dentries = filesystem.dentries();
-    dentries.delete(new_dir, &new_name);
-    match flag {
-        Some(RenameFlag::Exchange) => dentries.delete(old_dir, &old_name),
-        _ => dentries.d_move(old_dir, &old_name, new_dir, &new_name),
+    if flag == Some(RenameFlag::Exchange) {
+        dentries.d_exchange(old, new);
+        return Ok(());
     }
+    let (old_name, new_name) = (old.name(), new.name());
+    dentries.delete(new_dir, &new_name);
+    dentries.d_move(old_dir, &old_name, new_dir, &new_name);
     Ok(())
 }
 
