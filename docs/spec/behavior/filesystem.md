@@ -1379,3 +1379,15 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay over a Tmpfs, its lower Layer holding a directory with one file |
 | When | the file and then the directory are removed through the Overlay |
 | Then | the directory is gone, and the Tmpfs's `work` is empty |
+
+## `FS-135` A directory a Bind's host remakes leaves the moved one's descriptor alive
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-149`, `RT-159` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Bind Mount |
+| When | the host moves it away and makes another at its path, and the guest removes the new one |
+| Then | a make through the descriptor lands in the moved directory |
