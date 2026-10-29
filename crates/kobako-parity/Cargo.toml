@@ -3,7 +3,10 @@
 # Repo-internal tooling, never published: keeping the runner out of
 # the `kobako` SDK crate keeps the published library free of harness
 # source and JSON dependencies. `test/parity/` builds and drives the
-# `parity_runner` bin through the CargoOracle framed protocol.
+# `parity_runner` bin through the CargoOracle framed protocol, and the
+# codec tests drive `payload_oracle` and `roundtrip_oracle` the same way.
+# None links mruby, so the host's checks build them without the archive
+# the guest crates need.
 
 [package]
 name = "kobako-parity"
@@ -24,6 +27,9 @@ kobako = { path = "../kobako" }
 # The payload codec a stub speaks when it reaches another Receiver
 # through the opaque `Receiver::call` seam.
 kobako-codec = { path = "../kobako-codec" }
+
+# The ABI's frame length prefix the oracles frame their stdio with.
+kobako-transport = { path = "../kobako-transport" }
 
 # Scenario / observable JSON.
 serde_json = "1.0.150"

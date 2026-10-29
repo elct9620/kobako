@@ -23,7 +23,7 @@ require "test_helper"
 class TestPayloadOracle < Minitest::Test
   include GuestGuard
 
-  CRATE_DIR = TestPaths.source("wasm", "kobako-wasm")
+  CRATE_DIR = TestPaths.source("crates", "kobako-parity")
   ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "payload_oracle")
 
   def setup

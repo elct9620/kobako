@@ -46,7 +46,7 @@ require "test_helper"
 class TestCodecRoundtripFuzz < Minitest::Test
   include GuestGuard
 
-  CRATE_DIR = TestPaths.source("wasm", "kobako-wasm")
+  CRATE_DIR = TestPaths.source("crates", "kobako-parity")
   ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "roundtrip_oracle")
 
   Encoder = Kobako::Codec::Encoder

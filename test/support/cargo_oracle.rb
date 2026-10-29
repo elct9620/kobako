@@ -7,7 +7,7 @@ require "open3"
 #
 # The oracle pattern:
 #
-#   1. Build a Rust binary in +wasm/kobako-wasm/target/release/+ via
+#   1. Build a Rust binary of +crates/kobako-parity+ via
 #      +cargo build --release --manifest-path ...+. The build result is
 #      memoised per binary name so a slow cargo invocation happens once
 #      even when multiple tests share the helper.
@@ -82,13 +82,10 @@ class CargoOracle
 
   private
 
-  # A guest-crate oracle links mruby through +beni-sys+, which finds the
-  # host archive through the vendor tree +rake beni:build+ stages.
   def cargo_build
     return BuildResult.new(status: :no_cargo, error: nil) unless cargo_on_path?
 
     out, status = Open3.capture2e(
-      { "BENI_VENDOR_DIR" => ENV.fetch("BENI_VENDOR_DIR", TestPaths.source("vendor")) },
       "cargo", "build", "--release",
       "--manifest-path", manifest_path,
       "--bin", @bin_name
