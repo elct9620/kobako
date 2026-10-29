@@ -980,7 +980,10 @@ mod tests {
         );
     }
 
+    // Windows refuses to move a directory a handle holds open, so the host
+    // cannot make the move this witnesses there.
     // @behavior FS-108
+    #[cfg(unix)]
     #[test]
     fn a_directory_opened_from_a_directory_follows_it_when_the_host_moves_it() {
         let host = HostDir::new("opened-moves");
