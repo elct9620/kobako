@@ -27,7 +27,7 @@ The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby an
 | What | Which versions | When you need it |
 |---|---|---|
 | Ruby | ≥ 3.3.0 | always |
-| Platform | Linux or macOS | always — Windows is not supported |
+| Platform | Linux, macOS, or Windows | always — on Windows, behaviour its tests do not cover is fixed last |
 | Rust / Cargo | current stable | only where no prebuilt gem matches your platform; otherwise the native extension installs ready-built |
 | WASI toolchain | vendored by the build | only when building the gem from a source checkout — see [Development](#development) |
 
