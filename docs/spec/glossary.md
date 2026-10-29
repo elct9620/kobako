@@ -363,6 +363,8 @@ One directory a Filesystem holds, answering the calls about the names in it. A F
 
 One name of a Filesystem and the directory above it, made by the runtime alone. It carries the name as the directory stores it, so every spelling of one entry reaches the same Dentry. A name moved through the runtime takes its Dentry along, and one removed through it is dead. An Inode reads the name a call is about from its Dentry.
 
+A Dentry carries the Identity of what it names once the runtime learns it. A Filesystem may answer that a held Dentry no longer names it. The runtime then drops that Dentry for the next lookup, and its holders keep it alive.
+
 ### Path
 
 A directory the guest reached beneath a Mount, as the Mount, its Filesystem, and the Dentry naming it. The runtime walks a guest path from one, one name at a time.

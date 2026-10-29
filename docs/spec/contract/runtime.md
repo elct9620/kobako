@@ -640,6 +640,18 @@ pub trait Inode {
 }
 ```
 
+## `Inode::d_revalidate`
+
+Whether a Dentry the runtime still holds names what it named when the runtime
+took it. A false answer has the runtime drop the Dentry and take the name
+afresh. A Filesystem changed only through the runtime answers true.
+
+```rust
+pub trait Inode {
+    fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError>;
+}
+```
+
 ## `Inode::read_link`
 
 Where a link a Dentry names points, for the runtime to follow. Anything else
