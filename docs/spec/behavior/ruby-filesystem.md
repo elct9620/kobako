@@ -312,3 +312,16 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem holding a file, on a host whose Ruby defines no `File::NOFOLLOW`, as on Windows |
 | When | the script reads the file |
 | Then | `open` is handed no such flag, and the read answers the file's contents |
+
+## `RF-024` A directory opened from a Ruby Filesystem follows it when it moves
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-149` |
+| relates | `FS-105`, `RT-117` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened from a Ruby Filesystem |
+| When | the guest renames the directory, and makes another at its path |
+| Then | a lookup through the descriptor asks the object about the new path |
