@@ -9,9 +9,8 @@ module KobakoWasm
   #
   # The caller (+rake wasm:build+) is responsible for guarding
   # +KobakoWasm.cargo_available?+ before constructing the builder;
-  # everything else — the mtime-based up-to-date check, the Stage B
-  # pre-condition, the cargo env bundle, and the artefact copy — is
-  # encapsulated here.
+  # everything else — the Stage B pre-condition, the cargo env bundle,
+  # and the artefact copy — is encapsulated here.
   #
   # ## Linker choice: rust-lld (not wasi-sdk clang)
   #
@@ -36,81 +35,19 @@ module KobakoWasm
       @output = output
     end
 
-    # Build the configured Guest Binary if its mtime is older than any input source.
-    # Short-circuits to a no-op (with a diagnostic +puts+) when the artefact
-    # is already up to date. Raises with a Stage B hint when +libmruby.a+ is
-    # missing, and raises again if cargo succeeds but the expected output
-    # file is absent.
+    # Build the configured Guest Binary and bake it into +@output+. Cargo
+    # decides what to recompile from what it tracks — the sources, features,
+    # lockfiles, and the mruby archive's flags sidecar beni-sys declares —
+    # so an unchanged tree costs only its fingerprint check and the bake.
+    # Raises with a Stage B hint when +libmruby.a+ is missing, and raises
+    # again if cargo succeeds but the expected output file is absent.
     def build
-      if up_to_date?
-        puts "[wasm:build] #{@output} is up to date — skipping"
-        return
-      end
-
       ensure_libmruby_present
       run_cargo_release_build
       bake_into_data_dir
     end
 
-    # Every source file a Guest Binary is built from, so a build restored
-    # from elsewhere can be keyed by them.
-    def self.sources
-      crate_sources + pins
-    end
-
-    # Every workspace member feeds the cdylib (kobako-wasm links
-    # kobako-core as a path dependency), so the input glob spans all
-    # member crates, not just the shell — plus the cross-workspace
-    # `crates/kobako-transport` and `crates/kobako-codec` the guest
-    # crates build on.
-    # mrblib/*.rb is precompiled by build.rs via mrbc and counts as an
-    # input too.
-    def self.crate_sources
-      member_inputs = "{src/**/*.{rs,rb,c,h},build.rs,Cargo.toml,mrblib/*.rb}"
-      files = Dir.glob(File.join(WASM_WORKSPACE_DIR, "*", member_inputs))
-      # The two cross-workspace path dependencies the guest compiles in.
-      # `kobako-transport` matters most: it carries the ABI version and
-      # every envelope layout, so a guest built before an edit there
-      # reports a version and speaks a wire the host no longer accepts.
-      %w[kobako-transport kobako-codec].each do |crate|
-        files.concat(Dir.glob(File.join(ROOT, "crates", crate, member_inputs)))
-      end
-      files
-    end
-
-    # What pins everything else a build reads. Crates.io dependency bumps
-    # surface through Cargo.toml or, when the pin is a range, through the
-    # lockfiles alone — the baker lock counts because the bake runs inside
-    # Stage C. The mruby archive counts through what stages it, its build
-    # config and the beni version Gemfile.lock pins, rather than its own
-    # mtime, so staging one never makes a current Guest Binary look stale.
-    def self.pins
-      [File.join(WASM_WORKSPACE_DIR, "Cargo.toml"),
-       File.join(WASM_WORKSPACE_DIR, "Cargo.lock"),
-       File.join(WASM_WORKSPACE_DIR, "kobako-baker", "Cargo.lock"),
-       *Dir.glob(File.join(ROOT, "build_config", "**", "*.rb")),
-       File.join(ROOT, "Gemfile.lock"),
-       File.join(ROOT, "rust-toolchain.toml")]
-    end
-    private_class_method :crate_sources, :pins
-
     private
-
-    # True when +data/kobako.wasm+ exists and is newer than every input
-    # file the build would consume — lets a second +wasm:build+ skip the
-    # cargo invocation when nothing under the crate has changed.
-    def up_to_date?
-      return false unless File.exist?(@output)
-
-      src_mtime = newest_source_mtime
-      return false if src_mtime.nil?
-
-      File.mtime(@output) >= src_mtime
-    end
-
-    def newest_source_mtime
-      self.class.sources.map { |f| File.mtime(f) }.max
-    end
 
     # Stage B sentinel check. Stage C cannot link without +libmruby.a+,
     # so we assert it explicitly with a message that points at the rake

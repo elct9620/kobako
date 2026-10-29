@@ -33,8 +33,8 @@ require "rb_sys/extensiontask"
 # `bundler/gem_tasks` exposes `rake build` (and therefore `rake release`,
 # which depends on it). `data/kobako.wasm` is gitignored, so we chain
 # `wasm:build` here to guarantee the Guest Binary is present and fresh
-# before the gem is packaged. `wasm:build` is mtime-idempotent, so this
-# is free when the source tree hasn't changed.
+# before the gem is packaged. Cargo recompiles only what changed, so this
+# costs little when the source tree hasn't.
 task build: %i[compile wasm:build]
 
 GEMSPEC = Gem::Specification.load("kobako.gemspec")
@@ -78,8 +78,8 @@ namespace :check do
   # (test/e2e/test_journeys.rb) drive the pure data/kobako.wasm, the
   # focused regexp suite (test/e2e/regexp/) the regexp variants and the
   # full one, and the json suite (test/e2e/json/) the json variant —
-  # omitting one leaves its tests to fail under CI. All are mtime-idempotent,
-  # so this only does real work on a clean clone or when a source changes.
+  # omitting one leaves its tests to fail under CI. Cargo recompiles only
+  # what changed, so an unchanged tree costs a fingerprint check and a bake.
   desc "Build every Guest Binary and check the guest crates"
   task guest: ["wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode", "wasm:build:json",
                "wasm:build:full", "wasm:test", "wasm:graph"]

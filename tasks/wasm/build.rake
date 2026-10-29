@@ -14,7 +14,7 @@
 # The pure default and the two regexp variants share one GuestBuilder,
 # parameterised by cargo features and output path. The host test and
 # coverage tasks live in tasks/wasm/check.rake; shared helpers (paths,
-# mtime idempotency, cargo env) in tasks/support/wasm.rb.
+# cargo env) in tasks/support/wasm.rb.
 
 require_relative "../support/wasm"
 
@@ -34,12 +34,6 @@ namespace :wasm do
       KobakoWasm.ensure_cargo!
       KobakoWasm::GuestBuilder.new(features: features, output: output).build
     end
-  end
-
-  # The sources every Guest Binary is built from, one path per line, so a
-  # CI cache of the built binaries is keyed by what the build reads.
-  task :sources do
-    puts KobakoWasm::GuestBuilder.sources.map { |path| path.delete_prefix("#{KobakoWasm::ROOT}/") }.sort
   end
 
   desc "Remove every Guest Binary variant and the wasm crate target/ cache"
