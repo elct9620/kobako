@@ -118,6 +118,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: Ruby ${{ matrix.ruby }}${{ matrix.suffix }}
     needs: wasm
+    # The ext a test loads only needs to work, so the release profile builds
+    # it without LTO and in more codegen units, as wasmtime-rb's CI does;
+    # the shipped gems are built by the release workflow.
+    env:
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
     strategy:
       fail-fast: false
       matrix:
@@ -148,16 +154,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
+      - name: Read Rust channel from rust-toolchain.toml
+        id: rust
+        shell: bash
+        run: echo "channel=$(grep '^channel' rust-toolchain.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+      # Installs the Rust toolchain matching the Ruby's ABI, so on Windows
+      # the GNU one RubyInstaller's MinGW Ruby links against.
+      - name: Set up Ruby and Rust
+        uses: oxidize-rb/actions/setup-ruby-and-rust@ec90b4aa48795518d79be3f5cc478d1d7ccd02a8 # v1
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
           rubygems: '3.6.9'
-      - name: Set up Rust toolchain
-        uses: ./.github/actions/setup-rust
-        with:
-          components: clippy, rustfmt
+          rustup-toolchain: ${{ steps.rust.outputs.channel }}
+          cargo-cache: 'false'
+      # rust-toolchain.toml names a channel, which rustup completes with the
+      # runner's MSVC host; RUSTUP_TOOLCHAIN outranks the file, so cargo stays
+      # on the GNU toolchain installed above.
+      - name: Keep cargo on the GNU toolchain
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "RUSTUP_TOOLCHAIN=${{ steps.rust.outputs.channel }}-x86_64-pc-windows-gnu" >> "$GITHUB_ENV"
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
