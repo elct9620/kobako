@@ -21,7 +21,7 @@ use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
 use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions};
-use crate::vfs::Dentry;
+use crate::vfs::{Dentry, Identity};
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
@@ -312,8 +312,30 @@ impl Inode for Bind {
         self.at(dentry, lookup::lookup)
     }
 
-    fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
-        Ok(true)
+    /// The host may move or remake what a dentry names behind the runtime's
+    /// back, so a dentry the runtime learned the identity of is walked to
+    /// again from the root by the names it stands at, and is valid only
+    /// while the same directory stands there, as NFS compares the handle a
+    /// fresh lookup finds. One the runtime learned nothing of has nothing
+    /// to compare.
+    fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
+        let Some(identity) = dentry.identity() else {
+            return Ok(true);
+        };
+        let path = dentry.path_raw();
+        let names: Vec<String> = path.split('/').map(String::from).collect();
+        match walk::walk(&self.root, &names) {
+            Ok(found) => {
+                let found = to_metadata(found.dir_metadata().map_err(to_error)?);
+                Ok(Identity::of(&found) == Some(identity))
+            }
+            Err(
+                FilesystemError::NotFound
+                | FilesystemError::NotADirectory
+                | FilesystemError::FilesystemLoop,
+            ) => Ok(false),
+            Err(err) => Err(err),
+        }
     }
 
     /// A target that is no valid UTF-8 answers `IllegalSequence`, as a
@@ -481,6 +503,45 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    // The dentry the descriptor holds names the moved directory, so only a
+    // Bind answering it stale keeps the removal of the new one from
+    // killing it.
+    // @behavior FS-135
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_remade_by_the_host_leaves_the_moved_ones_descriptor_alive() {
+        use crate::mount::Mount;
+        use crate::profile::Profile;
+        use crate::vfs::{self, FileDescription, OpenHow};
+        let host = HostDir::new("remade");
+        fs::create_dir_all(host.0.join("a")).expect("the host directory must be made");
+        let filesystem = crate::vfs::Filesystem::new(Arc::new(
+            Bind::new(&host.0).expect("the host directory must open"),
+        ));
+        let mount = Mount::new("/data", filesystem, super::super::Access::ReadWrite)
+            .expect("/data is a guest path");
+        let root = vfs::Path::root(mount, Profile::Permissive);
+        let how = OpenHow {
+            directory: true,
+            ..OpenHow::default()
+        };
+        let Ok(FileDescription::Directory(held)) = vfs::open(&root, "a", &how, true) else {
+            panic!("the directory must open");
+        };
+        fs::rename(host.0.join("a"), host.0.join("moved")).expect("the host must move it");
+        fs::create_dir(host.0.join("a")).expect("the host must remake it");
+        vfs::remove_dir(&root, "a").expect("the new directory must go");
+        assert_eq!(
+            (
+                vfs::create_dir(&held, "made"),
+                host.0.join("moved/made").is_dir()
+            ),
+            (Ok(()), true),
+            "vfs::create_dir through a Bind directory the host moved away, once vfs::remove_dir \
+             removed the one remade at its path, must make the directory in the moved one"
+        );
     }
 
     // A directory a Bind has named but not opened yet is walked to by the
