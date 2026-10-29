@@ -53,12 +53,16 @@ require "beni/tasks"
 # build_config/wasi.rb, producing vendor/mruby/build/wasi/lib/libmruby.a
 # (+ its libmruby.flags.mak sidecar) for the Guest Binary, and the host
 # archive the guest crates' host-target unit tests link against.
+# Windows builds no Guest Binary, so it vendors no wasi-sdk and stages the
+# host archive alone; CI hands it the Guest Binaries another host built.
 Beni::Tasks.new do
   build_config "build_config/wasi.rb"
 
   target :host
-  target :wasi do
-    toolchain "wasi-sdk"
+  unless Gem.win_platform?
+    target :wasi do
+      toolchain "wasi-sdk"
+    end
   end
 end
 

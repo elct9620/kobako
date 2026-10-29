@@ -176,7 +176,17 @@ jobs:
           name: kobako-wasm
           path: data/
       - name: Run the default task
+        if: runner.os != 'Windows'
         run: bundle exec rake
+      # mruby picks its visualcpp toolchain from the environment vcvars sets,
+      # and beni-sys links the host archive through the same one, so the
+      # default task runs inside it.
+      - name: Run the default task (MSVC)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvarsall.bat" x64
+          bundle exec rake
       - name: cargo fmt --check (every workspace)
         if: matrix.os == 'ubuntu-latest' && matrix.ruby == '4.0'
         run: |
