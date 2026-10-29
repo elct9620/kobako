@@ -177,22 +177,12 @@ mod tests {
     use crate::vfs::kern_path::{kern_path, KernPath};
     use crate::vfs::{self, FileDescription, Filesystem, OpenHow, Path};
 
-    /// A Filesystem answering each call by the path from its root, as one
-    /// written in Ruby does, so a directory it opened reaches whatever
-    /// stands at that path later and keeps no death of its own.
+    /// A Filesystem answering each call by the path its dentry stands at,
+    /// as one written in Ruby does, so a removed directory it opened
+    /// reaches whatever stands at that path later and keeps no death of
+    /// its own.
     struct ByPath {
         root: KernPath,
-        at: String,
-    }
-
-    impl ByPath {
-        fn path(&self, dentry: &Dentry) -> String {
-            [self.at.as_str(), &dentry.name()]
-                .into_iter()
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<_>>()
-                .join("/")
-        }
     }
 
     impl Inode for ByPath {
@@ -201,26 +191,24 @@ mod tests {
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Result<Box<dyn File>, FilesystemError> {
-            self.root.open(&self.path(dentry), options)
+            self.root.open(&dentry.path_raw(), options)
         }
 
         fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
-            let at = self.path(dentry);
-            if self.root.symlink_metadata(&at)?.file_type != FileType::Directory {
+            if self.root.symlink_metadata(&dentry.path_raw())?.file_type != FileType::Directory {
                 return Err(FilesystemError::NotADirectory);
             }
             Ok(Arc::new(Self {
                 root: self.root.clone(),
-                at,
             }))
         }
 
-        fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.root.symlink_metadata(&self.at)
+        fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.root.symlink_metadata(&dentry.path_raw())
         }
 
         fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.root.symlink_metadata(&self.path(dentry))
+            self.root.symlink_metadata(&dentry.path_raw())
         }
 
         fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
@@ -231,23 +219,23 @@ mod tests {
             Err(FilesystemError::InvalidInput)
         }
 
-        fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-            match self.at.as_str() {
+        fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+            match dentry.path_raw().as_str() {
                 "" => self.root.entries(),
                 at => self.root.open_dir(at)?.entries(),
             }
         }
 
         fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.create_dir(&self.path(dentry))
+            self.root.create_dir(&dentry.path_raw())
         }
 
         fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_dir(&self.path(dentry))
+            self.root.remove_dir(&dentry.path_raw())
         }
 
         fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_file(&self.path(dentry))
+            self.root.remove_file(&dentry.path_raw())
         }
 
         fn rename(
@@ -256,18 +244,17 @@ mod tests {
             to_dir: &dyn Inode,
             to: &Dentry,
         ) -> Result<(), FilesystemError> {
-            let target = (to_dir as &dyn Any)
+            (to_dir as &dyn Any)
                 .downcast_ref::<Self>()
                 .ok_or(FilesystemError::CrossesDevices)?;
             self.root
-                .rename(&self.path(from), &self.root, &target.path(to))
+                .rename(&from.path_raw(), &self.root, &to.path_raw())
         }
     }
 
     fn by_path(tmpfs: &Arc<Tmpfs>) -> Arc<Filesystem> {
         Filesystem::new(Arc::new(ByPath {
             root: kern_path(tmpfs.clone()),
-            at: String::new(),
         }))
     }
 
