@@ -62,4 +62,11 @@ module GuestGuard
   def require_ps!
     skip "Windows has no ps to report a process's start time" if Gem.win_platform?
   end
+
+  # A host whose Ruby defines +File::NOFOLLOW+, which a Ruby Filesystem's
+  # open is handed so it follows no link. Windows defines none, so a test
+  # needing the flag skips there.
+  def require_nofollow!
+    skip "this host's Ruby defines no File::NOFOLLOW" unless File::Constants.const_defined?(:NOFOLLOW)
+  end
 end
