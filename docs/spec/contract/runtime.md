@@ -363,6 +363,16 @@ impl Dentry {
 }
 ```
 
+## `Dentry::path_raw`
+
+Where the name stands now beneath the Filesystem's root, empty for the root.
+
+```rust
+impl Dentry {
+    pub fn path_raw(&self) -> String {}
+}
+```
+
 ## `Mount::allows_writes`
 
 Whether a change beneath the Mount may be allowed at all, without asking
@@ -599,11 +609,11 @@ pub trait Inode {
 
 ## `Inode::metadata`
 
-What the directory reports of itself.
+What the directory a Dentry names reports of itself.
 
 ```rust
 pub trait Inode {
-    fn metadata(&self) -> Result<Metadata, FilesystemError>;
+    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
 }
 ```
 
@@ -643,11 +653,11 @@ pub trait Inode {
 
 ## `Inode::entries`
 
-The entries of this directory.
+The entries of the directory a Dentry names.
 
 ```rust
 pub trait Inode {
-    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError>;
+    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError>;
 }
 ```
 

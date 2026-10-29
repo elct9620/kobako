@@ -331,6 +331,9 @@ guest path ─▶ runtime: walk name by name, follow links, check the Policy ─
 
 A directory the guest opens is an Inode of its own, from `open_dir`. A
 wrapper wraps each directory it opens too, so it still sees every call beneath it.
+Every call hands the Dentry it is about. A Filesystem answering by path reads it
+from `Dentry::path_raw`, so a directory moved through the runtime is asked at its
+new path.
 
 ### Filesystem Obligations
 

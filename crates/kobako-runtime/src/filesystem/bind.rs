@@ -268,7 +268,7 @@ impl Inode for Bind {
         self.at(dentry, |dir, name| open_in(dir, name, options))
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+    fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         Ok(to_metadata(self.0.dir()?.dir_metadata().map_err(to_error)?))
     }
 
@@ -305,7 +305,7 @@ impl Inode for Bind {
         })
     }
 
-    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+    fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
         self.0
             .dir()?
             .entries()

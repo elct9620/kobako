@@ -51,7 +51,7 @@ impl KernPath {
         let nd = self.resolve(path)?;
         let dentry = nd.child();
         let dir = nd.base().open_dir(&dentry)?;
-        let identity = Identity::of(&dir.metadata()?);
+        let identity = Identity::of(&dir.metadata(&dentry)?);
         Ok(Self(self.0.with_directory(dir, dentry, identity)))
     }
 

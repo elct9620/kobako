@@ -45,7 +45,7 @@ pub(crate) fn vfs_open(
             let _held = down_read(&nd.mount, nd.dentry())?;
             let dentry = nd.child();
             let dir = nd.base().open_dir(&dentry)?;
-            d_can_lookup(&dir)?;
+            d_can_lookup(&dir, &dentry)?;
             (dir, dentry)
         }
     };

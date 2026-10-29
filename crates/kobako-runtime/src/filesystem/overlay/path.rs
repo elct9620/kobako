@@ -155,7 +155,7 @@ impl OverlayPath {
     }
 
     pub(super) fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.dir.metadata()
+        self.dir.metadata(&self.dentry)
     }
 
     pub(super) fn symlink_metadata(&self, name: &str) -> Result<Metadata, FilesystemError> {
@@ -175,7 +175,7 @@ impl OverlayPath {
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.shared()?;
-        self.dir.entries()
+        self.dir.entries(&self.dentry)
     }
 
     pub(super) fn create_dir(&self, name: &str) -> Result<(), FilesystemError> {

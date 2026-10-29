@@ -67,8 +67,9 @@ pub trait Inode: Any + Send + Sync {
     /// one, since the runtime follows a link itself.
     fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError>;
 
-    /// What this directory reports of itself, as `fstat` answers.
-    fn metadata(&self) -> Result<Metadata, FilesystemError>;
+    /// What this directory, which `dentry` names, reports of itself, as
+    /// `getattr` is handed the path it answers for.
+    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
 
     /// What `dentry` names without following a link standing there, as
     /// `lstat` answers, since the runtime follows a link itself. A link is
@@ -91,8 +92,9 @@ pub trait Inode: Any + Send + Sync {
     /// Filesystem holding no links's answer for every name it holds.
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
 
-    /// The entries of this directory, without `.` or `..`.
-    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError>;
+    /// The entries of this directory, which `dentry` names, without `.`
+    /// or `..`, as `iterate_shared` is handed the file it lists.
+    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError>;
 
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
 

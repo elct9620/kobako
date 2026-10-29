@@ -139,7 +139,7 @@ impl Inode for Overlay {
         self.beneath(&dentry.name())
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+    fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         self.fs.dir_metadata(self.chain(false)?.level())
     }
 
@@ -158,7 +158,7 @@ impl Inode for Overlay {
             .read_link(self.chain(false)?.level(), &dentry.name())
     }
 
-    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+    fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
         self.fs.entries(self.chain(false)?.level())
     }
 
@@ -237,12 +237,12 @@ mod tests {
                 self.$inner.open_dir(dentry)
             }
 
-            fn metadata(&self) -> Result<Metadata, FilesystemError> {
-                self.$inner.metadata()
+            fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+                self.$inner.metadata(dentry)
             }
 
-            fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-                self.$inner.entries()
+            fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+                self.$inner.entries(dentry)
             }
         };
     }
@@ -1050,8 +1050,8 @@ mod tests {
         holds_no_links!();
         matches_names_exactly!();
 
-        fn metadata(&self) -> Result<Metadata, FilesystemError> {
-            self.tmpfs.metadata()
+        fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.tmpfs.metadata(dentry)
         }
 
         fn open(
@@ -1090,8 +1090,8 @@ mod tests {
             self.tmpfs.open_dir(dentry)
         }
 
-        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.tmpfs.entries()
+        fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.tmpfs.entries(dentry)
         }
 
         fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -1648,12 +1648,12 @@ mod tests {
             Ok(Arc::new(Self(self.0.open_dir(dentry)?)))
         }
 
-        fn metadata(&self) -> Result<Metadata, FilesystemError> {
-            self.0.metadata()
+        fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.0.metadata(dentry)
         }
 
-        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.0.entries()
+        fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.0.entries(dentry)
         }
 
         fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -1774,7 +1774,7 @@ mod tests {
             }))
         }
 
-        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             self.root.symlink_metadata(&self.at)
         }
 
@@ -1790,7 +1790,7 @@ mod tests {
             }
         }
 
-        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+        fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
             match self.at.as_str() {
                 "" => self.root.entries(),
                 at => self.root.open_dir(at)?.entries(),

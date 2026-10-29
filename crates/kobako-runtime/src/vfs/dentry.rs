@@ -50,6 +50,12 @@ impl Dentry {
         self.state().name.clone()
     }
 
+    /// Where this name stands now beneath the Filesystem's root, empty for
+    /// the root, as Linux's `dentry_path_raw` answers.
+    pub fn path_raw(&self) -> String {
+        self.names().join("/")
+    }
+
     /// Each name from the Filesystem's root down to this directory.
     pub(crate) fn names(&self) -> Vec<String> {
         let mut names = Vec::new();
@@ -209,7 +215,7 @@ mod tests {
             }))
         }
 
-        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             self.root.symlink_metadata(&self.at)
         }
 
@@ -225,7 +231,7 @@ mod tests {
             Err(FilesystemError::InvalidInput)
         }
 
-        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+        fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
             match self.at.as_str() {
                 "" => self.root.entries(),
                 at => self.root.open_dir(at)?.entries(),

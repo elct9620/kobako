@@ -581,8 +581,8 @@ where
         self.tmpfs.open_dir(dentry)
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.tmpfs.metadata()
+    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.tmpfs.metadata(dentry)
     }
 
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -597,8 +597,8 @@ where
         self.tmpfs.read_link(dentry)
     }
 
-    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.tmpfs.entries()
+    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.tmpfs.entries(dentry)
     }
 
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {

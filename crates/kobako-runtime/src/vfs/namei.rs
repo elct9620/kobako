@@ -117,12 +117,19 @@ impl Nameidata {
     pub(crate) fn found(&mut self) -> Result<Metadata, FilesystemError> {
         if self.found.is_none() {
             let parent = self.dentry().clone();
-            self.found = Some(
-                down_read(&self.mount, &parent)
-                    .and_then(|_held| look_up(self.base(), &self.child(), &self.name)),
-            );
+            self.found =
+                Some(down_read(&self.mount, &parent).and_then(|_held| self.look_up(&self.child())));
         }
         self.found.clone().expect("found was just asked")
+    }
+
+    /// What stands at the name, whose dentry is `child`, a link reported
+    /// as itself; the directory itself for the empty name.
+    fn look_up(&self, child: &Dentry) -> Result<Metadata, FilesystemError> {
+        match self.name.as_str() {
+            "" => self.base().metadata(self.dentry()),
+            _ => self.base().symlink_metadata(child),
+        }
     }
 
     /// Refuse the name as `NotADirectory` when it must be a directory and
@@ -183,15 +190,6 @@ struct Frame {
     through_link: bool,
 }
 
-/// What stands at `name` in `dir`, a link reported as itself; `dir` itself
-/// for the empty name.
-fn look_up(dir: &Arc<dyn Inode>, child: &Dentry, name: &str) -> Result<Metadata, FilesystemError> {
-    match name {
-        "" => dir.metadata(),
-        _ => dir.symlink_metadata(child),
-    }
-}
-
 /// Hold `dentry`'s directory lock shared, as Linux's lookup holds the
 /// directory it looks a name up in, so no change through the VFS lands
 /// between the name's dentry and what the Filesystem answers for it.
@@ -213,8 +211,8 @@ fn down_write<'a>(
 
 /// Refuse what a directory just stepped into, or just opened for a
 /// descriptor, answers unless it opened as a directory.
-pub(crate) fn d_can_lookup(dir: &Arc<dyn Inode>) -> Result<(), FilesystemError> {
-    match dir.metadata()?.file_type {
+pub(crate) fn d_can_lookup(dir: &Arc<dyn Inode>, dentry: &Dentry) -> Result<(), FilesystemError> {
+    match dir.metadata(dentry)?.file_type {
         FileType::Directory => Ok(()),
         _ => Err(FilesystemError::NotADirectory),
     }
@@ -232,7 +230,7 @@ impl Nameidata {
         let (name, dentry) = self.lookup_slow(&part.name)?;
         let opened = self.base().open_dir(&dentry).and_then(|dir| {
             if self.eager || dot {
-                d_can_lookup(&dir)?;
+                d_can_lookup(&dir, &dentry)?;
             }
             Ok(dir)
         });
@@ -323,7 +321,7 @@ impl Nameidata {
         found: Result<Metadata, FilesystemError>,
     ) -> Result<Result<Metadata, FilesystemError>, Error> {
         if found.is_err() && self.descended() {
-            d_can_lookup(self.base())?;
+            d_can_lookup(self.base(), self.dentry())?;
         }
         Ok(found)
     }
@@ -527,7 +525,7 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileD
     let _held = match how.create {
         true => {
             let held = down_write(&nd.mount, &parent)?;
-            nd.found = Some(look_up(nd.base(), &nd.child(), &nd.name));
+            nd.found = Some(nd.look_up(&nd.child()));
             Some(held)
         }
         false => None,
@@ -683,7 +681,7 @@ pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<
     // other, hold still once both are held, so each is asked then, as
     // Linux's `do_renameat2` looks the source up under `lock_rename`.
     let _held = lock_rename(filesystem, old_dir, new_dir)?;
-    let is_dir = look_up(source.base(), &old, &source.name)?.file_type == FileType::Directory;
+    let is_dir = source.look_up(&old)?.file_type == FileType::Directory;
     if names_directory && !is_dir {
         return Err(FilesystemError::NotADirectory.into());
     }
@@ -876,8 +874,8 @@ mod tests {
             self.tmpfs.open_dir(dentry)
         }
 
-        fn metadata(&self) -> Result<Metadata, FilesystemError> {
-            self.tmpfs.metadata()
+        fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.tmpfs.metadata(dentry)
         }
 
         fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -892,8 +890,8 @@ mod tests {
             self.tmpfs.read_link(dentry)
         }
 
-        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.tmpfs.entries()
+        fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.tmpfs.entries(dentry)
         }
 
         fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -963,7 +961,7 @@ mod tests {
             }))
         }
 
-        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             self.root.symlink_metadata(&self.at)
         }
 
@@ -983,7 +981,7 @@ mod tests {
             self.root.read_link(&self.path(dentry))
         }
 
-        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+        fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
             self.root.open_dir(&self.at)?.entries()
         }
 

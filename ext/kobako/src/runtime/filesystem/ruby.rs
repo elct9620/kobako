@@ -247,7 +247,7 @@ impl Inode for RubyFilesystem {
         }))
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+    fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         self.stat(self.at.clone())
     }
 
@@ -267,7 +267,7 @@ impl Inode for RubyFilesystem {
         Err(FilesystemError::InvalidInput)
     }
 
-    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+    fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
         let names: Vec<String> = ask(
             self.object,
             "children",

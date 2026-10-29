@@ -51,12 +51,12 @@ macro_rules! opens_directories {
             self.$inner.open_dir(dentry)
         }
 
-        fn metadata(&self) -> Result<Metadata, FilesystemError> {
-            self.$inner.metadata()
+        fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.$inner.metadata(dentry)
         }
 
-        fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.$inner.entries()
+        fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+            self.$inner.entries(dentry)
         }
     };
 }
@@ -636,12 +636,12 @@ impl Inode for StoresUpperCase {
         Ok(Arc::new(Self(self.0.open_dir(dentry)?)))
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.0.metadata()
+    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.0.metadata(dentry)
     }
 
-    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.0.entries()
+    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.0.entries(dentry)
     }
 
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -988,12 +988,12 @@ impl Inode for ReusesInodes {
         Ok(opened)
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.tmpfs.metadata()
+    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.tmpfs.metadata(dentry)
     }
 
-    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.tmpfs.entries()
+    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.tmpfs.entries(dentry)
     }
 
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -1835,12 +1835,12 @@ impl Inode for FailsLookingUpDir {
         }
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.0.metadata()
+    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.0.metadata(dentry)
     }
 
-    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.0.entries()
+    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.0.entries(dentry)
     }
 
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -2522,7 +2522,7 @@ fn a_file_created_at_a_path_ending_in_a_slash_is_refused_as_a_directory() {
     assert_eq!(
         (
             guest.call("write_file", NEW_AS_DIRECTORY),
-            tmpfs.entries().map(|entries| entries.len())
+            host(&tmpfs).entries().map(|entries| entries.len())
         ),
         (ERRNO_ISDIR, Ok(0)),
         "path_open creating `new.txt/` beneath a Mount through preview1 must answer EISDIR and \
@@ -2544,7 +2544,7 @@ fn open_flagged(path: (i32, i32), oflags: i32, fdflags: i32) -> (i32, Vec<String
     let tmpfs = tmpfs_with("file.txt", "granted");
     let errno = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)])
         .call_flagged(path, oflags, fdflags);
-    let held = tmpfs
+    let held = host(&tmpfs)
         .entries()
         .expect("the root must list")
         .into_iter()

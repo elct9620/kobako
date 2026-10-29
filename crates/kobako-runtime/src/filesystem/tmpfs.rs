@@ -536,7 +536,7 @@ impl Inode for Tmpfs {
         Ok(Arc::new(self.beneath(self.dir.directory(&dentry.name())?)))
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+    fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         Ok(self.dir.metadata(self.tree.dev))
     }
 
@@ -560,7 +560,7 @@ impl Inode for Tmpfs {
         Err(FilesystemError::InvalidInput)
     }
 
-    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+    fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
         Ok(self
             .dir
             .state()

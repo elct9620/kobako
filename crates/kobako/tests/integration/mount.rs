@@ -265,7 +265,7 @@ impl Inode for OneNote {
         }
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+    fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         Ok(Metadata::new(FileType::Directory, 0))
     }
 
@@ -292,7 +292,7 @@ impl Inode for OneNote {
         Err(FilesystemError::InvalidInput)
     }
 
-    fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+    fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
         Ok(vec![DirEntry::new("note.txt", FileType::File)])
     }
 
