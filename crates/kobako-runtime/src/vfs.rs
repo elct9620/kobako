@@ -15,6 +15,7 @@ mod namei;
 mod openat2;
 mod path;
 mod rwsem;
+mod seqlock;
 mod stat;
 mod times;
 mod utimes;

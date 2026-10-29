@@ -8,7 +8,12 @@
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::rwsem::RwSemaphore;
+use super::seqlock::SeqLock;
 use crate::hashtable::Hashtable;
+
+/// Every move of a dentry, as Linux's `rename_lock`, so a walk up its
+/// parents answers where the dentry stood at one instant.
+static RENAME_LOCK: SeqLock = SeqLock::new();
 
 /// One name of a Filesystem, and where it stands now. Only the VFS makes
 /// one, so a Filesystem reads the name a call is about from it.
@@ -58,20 +63,22 @@ impl Dentry {
 
     /// Each name from the Filesystem's root down to this directory.
     pub(crate) fn names(&self) -> Vec<String> {
-        let mut names = Vec::new();
-        let mut at = {
-            let state = self.state();
-            names.push(state.name.clone());
-            state.parent.clone()
-        };
-        while let Some(dentry) = at {
-            let state = dentry.state();
-            names.push(state.name.clone());
-            at = state.parent.clone();
-        }
-        names.reverse();
-        names.retain(|name| !name.is_empty());
-        names
+        RENAME_LOCK.read(|| {
+            let mut names = Vec::new();
+            let mut at = {
+                let state = self.state();
+                names.push(state.name.clone());
+                state.parent.clone()
+            };
+            while let Some(dentry) = at {
+                let state = dentry.state();
+                names.push(state.name.clone());
+                at = state.parent.clone();
+            }
+            names.reverse();
+            names.retain(|name| !name.is_empty());
+            names
+        })
     }
 
     pub(crate) fn is_dead(&self) -> bool {
@@ -81,14 +88,16 @@ impl Dentry {
     /// Whether this dentry is `ancestor` or stands beneath it, as Linux's
     /// `is_subdir` answers.
     pub(crate) fn is_subdir(self: &Arc<Self>, ancestor: &Arc<Dentry>) -> bool {
-        let mut at = Some(self.clone());
-        while let Some(dentry) = at {
-            if Arc::ptr_eq(&dentry, ancestor) {
-                return true;
+        RENAME_LOCK.read(|| {
+            let mut at = Some(self.clone());
+            while let Some(dentry) = at {
+                if Arc::ptr_eq(&dentry, ancestor) {
+                    return true;
+                }
+                at = dentry.state().parent.clone();
             }
-            at = dentry.state().parent.clone();
-        }
-        false
+            false
+        })
     }
 }
 
@@ -157,9 +166,11 @@ impl Dentries {
             return;
         };
         table.insert(key(to, to_name), &moved);
-        let mut state = moved.state();
-        state.parent = Some(to.clone());
-        state.name = to_name.to_string();
+        RENAME_LOCK.write(|| {
+            let mut state = moved.state();
+            state.parent = Some(to.clone());
+            state.name = to_name.to_string();
+        });
     }
 }
 
@@ -320,5 +331,52 @@ mod tests {
             "vfs::create_dir through a directory opened beneath one Mount, once vfs::remove_dir \
              removed it beneath another Mount of the same Filesystem, must answer NotFound"
         );
+    }
+
+    /// Witnesses of a race, each run only by `rake crates:stress`: the race
+    /// lands a few times in many tries, and only an optimized build makes
+    /// that many in seconds.
+    mod stress {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use std::thread;
+
+        use super::super::Dentries;
+
+        // `x` is named `z` only while `b` stands beneath `y`, so `z/b/leaf`
+        // is a path `leaf` never stood at: only a read taking `b`'s parent
+        // before the moves and `x`'s name after them answers it.
+        // @behavior RT-172
+        #[test]
+        #[ignore = "a stress witness; run by rake crates:stress"]
+        fn a_path_asked_while_directories_above_it_move_names_one_that_stood() {
+            let dentries = Arc::new(Dentries::default());
+            let root = dentries.root();
+            let (x, y) = (dentries.child(&root, "x"), dentries.child(&root, "y"));
+            let leaf = dentries.child(&dentries.child(&x, "b"), "leaf");
+            let stop = Arc::new(AtomicBool::new(false));
+            let moving = {
+                let (dentries, stop) = (dentries.clone(), stop.clone());
+                thread::spawn(move || {
+                    let root = dentries.root();
+                    while !stop.load(Ordering::SeqCst) {
+                        dentries.d_move(&x, "b", &y, "b");
+                        dentries.d_move(&root, "x", &root, "z");
+                        dentries.d_move(&root, "z", &root, "x");
+                        dentries.d_move(&y, "b", &x, "b");
+                    }
+                })
+            };
+            let torn = (0..5_000_000)
+                .filter(|_| leaf.path_raw().starts_with("z/"))
+                .count();
+            stop.store(true, Ordering::SeqCst);
+            moving.join().expect("the moves must not panic");
+            assert_eq!(
+                torn, 0,
+                "Dentry::path_raw while Dentries::d_move moves the directories above it must \
+                 answer only a path the dentry stood at"
+            );
+        }
     }
 }
