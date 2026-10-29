@@ -5,8 +5,9 @@
 
 use std::sync::Arc;
 
+use super::dentry::Identity;
 use super::namei::{filename_lookup, Nameidata};
-use super::path::{Identity, Path};
+use super::path::Path;
 use super::{Error, Filesystem};
 use crate::filesystem::{Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions};
 use crate::mount::Mount;
@@ -44,15 +45,16 @@ impl KernPath {
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
         let nd = self.resolve(path)?;
-        nd.base().open(&nd.child(), options)
+        let child = nd.child()?;
+        nd.base().open(&child, options)
     }
 
     pub(crate) fn open_dir(&self, path: &str) -> Result<Self, FilesystemError> {
         let nd = self.resolve(path)?;
-        let dentry = nd.child();
+        let dentry = nd.child()?;
         let dir = nd.base().open_dir(&dentry)?;
-        let identity = Identity::of(&dir.metadata(&dentry)?);
-        Ok(Self(self.0.with_directory(dir, dentry, identity)))
+        dentry.d_instantiate(Identity::of(&dir.metadata(&dentry)?));
+        Ok(Self(self.0.with_directory(dir, dentry)))
     }
 
     /// What the directory reports of itself.
@@ -72,12 +74,14 @@ impl KernPath {
 
     pub(crate) fn lookup(&self, path: &str) -> Result<String, FilesystemError> {
         let nd = self.resolve(path)?;
-        nd.base().lookup(&nd.child())
+        let child = nd.child()?;
+        nd.base().lookup(&child)
     }
 
     pub(crate) fn read_link(&self, path: &str) -> Result<String, FilesystemError> {
         let nd = self.resolve(path)?;
-        nd.base().read_link(&nd.child())
+        let child = nd.child()?;
+        nd.base().read_link(&child)
     }
 
     pub(crate) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -86,17 +90,20 @@ impl KernPath {
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let nd = self.resolve(path)?;
-        nd.base().create_dir(&nd.child())
+        let child = nd.child()?;
+        nd.base().create_dir(&child)
     }
 
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let nd = self.resolve(path)?;
-        nd.base().remove_dir(&nd.child())
+        let child = nd.child()?;
+        nd.base().remove_dir(&child)
     }
 
     pub(crate) fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
         let nd = self.resolve(path)?;
-        nd.base().remove_file(&nd.child())
+        let child = nd.child()?;
+        nd.base().remove_file(&child)
     }
 
     /// Move `from` beneath this directory to `to` beneath `to_dir`.
@@ -107,8 +114,7 @@ impl KernPath {
         to: &str,
     ) -> Result<(), FilesystemError> {
         let (source, target) = (self.resolve(from)?, to_dir.resolve(to)?);
-        source
-            .base()
-            .rename(&source.child(), target.base().as_ref(), &target.child())
+        let (from, to) = (source.child()?, target.child()?);
+        source.base().rename(&from, target.base().as_ref(), &to)
     }
 }

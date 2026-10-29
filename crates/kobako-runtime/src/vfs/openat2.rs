@@ -1,8 +1,9 @@
 //! What an open asks for and what it reaches, as Linux's `openat2` takes
 //! an `open_how` and `vfs_open` holds what the walk opened.
 
+use super::dentry::Identity;
 use super::namei::{d_can_lookup, down_read, Nameidata};
-use super::path::{Identity, Path};
+use super::path::Path;
 use super::Error;
 use crate::filesystem::File;
 
@@ -43,13 +44,14 @@ pub(crate) fn vfs_open(
         "" => (nd.base().clone(), nd.dentry().clone()),
         _ => {
             let _held = down_read(&nd.mount, nd.dentry())?;
-            let dentry = nd.child();
+            let dentry = nd.child()?;
             let dir = nd.base().open_dir(&dentry)?;
             d_can_lookup(&dir, &dentry)?;
             (dir, dentry)
         }
     };
+    dentry.d_instantiate(identity);
     Ok(FileDescription::Directory(
-        start.with_directory(dir, dentry, identity),
+        start.with_directory(dir, dentry),
     ))
 }

@@ -287,6 +287,10 @@ impl Inode for OneNote {
         Ok(dentry.name())
     }
 
+    fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
+        Ok(true)
+    }
+
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         self.symlink_metadata(dentry)?;
         Err(FilesystemError::InvalidInput)

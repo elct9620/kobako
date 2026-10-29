@@ -153,6 +153,12 @@ impl Inode for Overlay {
             .case_exact_name(self.chain(false)?.level(), &dentry.name())
     }
 
+    /// A change made to a Layer outside the Overlay is undefined, as
+    /// overlayfs leaves it, so a name the runtime holds stays valid.
+    fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
+        Ok(true)
+    }
+
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         self.fs
             .read_link(self.chain(false)?.level(), &dentry.name())
@@ -220,11 +226,16 @@ mod tests {
         };
     }
 
-    /// The answer of a test Filesystem matching names byte for byte.
+    /// The answers of a test Filesystem matching names byte for byte and
+    /// changed only through the runtime.
     macro_rules! matches_names_exactly {
         () => {
             fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
                 Ok(dentry.name())
+            }
+
+            fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
+                Ok(true)
             }
         };
     }
@@ -1788,6 +1799,10 @@ mod tests {
                 Err(FilesystemError::NotFound) => Ok(dentry.name()),
                 Err(err) => Err(err),
             }
+        }
+
+        fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
+            Ok(true)
         }
 
         fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {

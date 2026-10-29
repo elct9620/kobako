@@ -593,6 +593,10 @@ where
         self.tmpfs.lookup(dentry)
     }
 
+    fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
+        self.tmpfs.d_revalidate(dentry)
+    }
+
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         self.tmpfs.read_link(dentry)
     }

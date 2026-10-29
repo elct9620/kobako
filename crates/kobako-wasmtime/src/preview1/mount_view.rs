@@ -34,11 +34,16 @@ macro_rules! holds_no_links {
     };
 }
 
-/// The answer of a test Filesystem matching names byte for byte.
+/// The answers of a test Filesystem matching names byte for byte and
+/// changed only through the runtime.
 macro_rules! matches_names_exactly {
     () => {
         fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
             Ok(dentry.name())
+        }
+
+        fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
+            Ok(true)
         }
     };
 }
@@ -630,6 +635,10 @@ impl Inode for StoresUpperCase {
 
     fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         Ok(dentry.name().to_uppercase())
+    }
+
+    fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
+        Ok(true)
     }
 
     fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {

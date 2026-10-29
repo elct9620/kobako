@@ -337,7 +337,7 @@ new path.
 
 ### Filesystem Obligations
 
-Six methods carry a guarantee the runtime gives the guest. None has a default, so
+Seven methods carry a guarantee the runtime gives the guest. None has a default, so
 each Filesystem and its `File` answer them, and one wrapping another forwards them.
 A method like these joins without a default, a break marked `!`.
 
@@ -348,6 +348,7 @@ A method like these joins without a default, a break marked `!`.
 | `open_dir` | the same, for each directory on a path, and its identity held while open | the directory, as no link stands there |
 | `read_link` | a link followed only within the directory a descriptor opened | `InvalidInput` |
 | `lookup` | one dentry and lock per entry, and a Policy checking the stored spelling | the name as given |
+| `d_revalidate` | a held dentry dropped once its name stands for another entry | `true`, as nothing changes it outside the runtime |
 | `File::append` | another writer's append from landing over this one | `Unsupported` |
 
 An Overlay waits for a copy up's lock through `Blocking`. A frontend whose threads share a

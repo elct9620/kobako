@@ -16,10 +16,10 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use super::dentry::Dentry;
+use super::dentry::{Dentry, Identity};
 use super::filesystem::Filesystem;
 use super::openat2::{vfs_open, FileDescription, OpenHow};
-use super::path::{Identity, Path, Step};
+use super::path::{Path, Step};
 use super::rwsem::RwSemaphoreGuard;
 use super::times::mask_file_times;
 use super::Error;
@@ -82,16 +82,23 @@ impl Nameidata {
 
     /// The dentry of the last name in `base`, as `d_alloc` makes one for a
     /// name a call is about.
-    pub(crate) fn child(&self) -> Arc<Dentry> {
+    pub(crate) fn child(&self) -> Result<Arc<Dentry>, FilesystemError> {
         self.child_of(&self.name)
     }
 
-    /// The dentry of `name` in the directory the walk stands in.
-    fn child_of(&self, name: &str) -> Arc<Dentry> {
-        self.mount
-            .filesystem()
-            .dentries()
-            .child(self.dentry(), name)
+    /// The dentry of `name` in the directory the walk stands in. One
+    /// already held is asked whether it still names what stands there, as
+    /// Linux's `lookup_fast` asks `d_revalidate`, and dropped for a new one
+    /// where it does not.
+    fn child_of(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
+        let dentries = self.mount.filesystem().dentries();
+        if let Some(held) = dentries.d_lookup(self.dentry(), name) {
+            if self.base().d_revalidate(&held)? {
+                return Ok(held);
+            }
+            dentries.d_invalidate(&held);
+        }
+        Ok(dentries.child(self.dentry(), name))
     }
 
     /// `name` as the directory the walk stands in stores it, and the
@@ -100,12 +107,12 @@ impl Nameidata {
     /// spelling reaching one entry shares its dentry, and so its lock. The
     /// caller holds that directory's lock.
     fn lookup_slow(&self, name: &str) -> Result<(String, Arc<Dentry>), FilesystemError> {
-        let given = self.child_of(name);
+        let given = self.child_of(name)?;
         let stored = self.base().lookup(&given)?;
         match stored == name {
             true => Ok((stored, given)),
             false => {
-                let dentry = self.child_of(&stored);
+                let dentry = self.child_of(&stored)?;
                 Ok((stored, dentry))
             }
         }
@@ -117,8 +124,10 @@ impl Nameidata {
     pub(crate) fn found(&mut self) -> Result<Metadata, FilesystemError> {
         if self.found.is_none() {
             let parent = self.dentry().clone();
-            self.found =
-                Some(down_read(&self.mount, &parent).and_then(|_held| self.look_up(&self.child())));
+            self.found = Some(down_read(&self.mount, &parent).and_then(|_held| {
+                let child = self.child()?;
+                self.look_up(&child)
+            }));
         }
         self.found.clone().expect("found was just asked")
     }
@@ -525,7 +534,7 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileD
     let _held = match how.create {
         true => {
             let held = down_write(&nd.mount, &parent)?;
-            nd.found = Some(nd.look_up(&nd.child()));
+            nd.found = Some(nd.child().and_then(|child| nd.look_up(&child)));
             Some(held)
         }
         false => None,
@@ -562,7 +571,8 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileD
                 create_new: how.create && how.exclusive,
                 truncate: how.truncate,
             };
-            let file = nd.base().open(&nd.child(), &options)?;
+            let child = nd.child()?;
+            let file = nd.base().open(&child, &options)?;
             Ok(FileDescription::File(mask_file_times(
                 file,
                 start.profile(),
@@ -597,7 +607,8 @@ pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {
     nd.check(Access::ReadWrite)?;
     refuse_root(&nd.name, FilesystemError::AlreadyExists)?;
     let _held = down_write(&nd.mount, nd.dentry())?;
-    Ok(nd.base().create_dir(&nd.child())?)
+    let child = nd.child()?;
+    Ok(nd.base().create_dir(&child)?)
 }
 
 /// Remove the empty directory `path` beneath `start`.
@@ -619,7 +630,7 @@ pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
         nd.mount.filesystem(),
         nd.base().as_ref(),
         nd.dentry(),
-        &nd.child(),
+        &nd.child()?,
     )?)
 }
 
@@ -635,7 +646,7 @@ pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
     Ok(vfs_unlink(
         nd.mount.filesystem(),
         nd.base().as_ref(),
-        &nd.child(),
+        &nd.child()?,
     )?)
 }
 
@@ -674,7 +685,7 @@ pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<
         source.found()?;
         return Ok(());
     }
-    let (old, new) = (source.child(), target.child());
+    let (old, new) = (source.child()?, target.child()?);
     let filesystem = from.mount().filesystem();
     let (old_dir, new_dir) = (source.dentry(), target.dentry());
     // What stands at the source, and which directory stands beneath the
@@ -852,14 +863,17 @@ mod tests {
     type Hook = Box<dyn Fn() -> Result<(), FilesystemError> + Send + Sync>;
 
     /// A Tmpfs root a test steps into: after it removes a directory, in
-    /// place of making one, and as it moves an entry. A directory it opens
-    /// is the Tmpfs's own, so only calls on the root are stepped into.
+    /// place of making one, as it moves an entry, and, once `stale` is set,
+    /// answering each name it holds as changed outside the runtime. A
+    /// directory it opens is the Tmpfs's own, so only calls on the root
+    /// are stepped into.
     #[derive(Default)]
     struct HookedTmpfs {
         tmpfs: Tmpfs,
         removed: Option<Hook>,
         making: Option<Hook>,
         renames: AtomicUsize,
+        stale: AtomicBool,
     }
 
     impl Inode for HookedTmpfs {
@@ -885,6 +899,10 @@ mod tests {
 
         fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
             self.tmpfs.lookup(dentry)
+        }
+
+        fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
+            Ok(!self.stale.load(Ordering::SeqCst) && self.tmpfs.d_revalidate(dentry)?)
         }
 
         fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
@@ -978,6 +996,10 @@ mod tests {
             }
         }
 
+        fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
+            Ok(true)
+        }
+
         fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
             self.root.read_link(&self.path(dentry))
         }
@@ -1045,6 +1067,27 @@ mod tests {
     // the VFS marking its dentry dead, which is where a make and an open of
     // the same name would take the dentry about to die.
     // @behavior RT-163
+    // A held name its Filesystem answers as changed outside the runtime no
+    // longer stands for what is at the name now, so the removal reaches a
+    // dentry of its own and the directory a descriptor holds stays alive.
+    #[test]
+    fn a_dentry_its_filesystem_answers_stale_is_dropped_without_dying() {
+        let hooked = Arc::new(HookedTmpfs {
+            tmpfs: [("d/keep", "x")].into_iter().collect(),
+            ..HookedTmpfs::default()
+        });
+        let root = root_of(Filesystem::new(hooked.clone()));
+        let held = open_dir(&root, "d");
+        hooked.stale.store(true, Ordering::SeqCst);
+        vfs::remove_file(&root, "d/keep").expect("the file must go");
+        vfs::remove_dir(&root, "d").expect("the directory must go");
+        assert!(
+            !held.dentry().is_dead(),
+            "vfs::remove_dir of a name whose held dentry Inode::d_revalidate answers stale must \
+             leave that dentry alive"
+        );
+    }
+
     #[test]
     fn a_directory_made_while_another_is_removed_in_its_place_stays_alive() {
         let (removed, removing) = mpsc::channel();

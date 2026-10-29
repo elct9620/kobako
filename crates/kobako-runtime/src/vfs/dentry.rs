@@ -9,7 +9,28 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::rwsem::RwSemaphore;
 use super::seqlock::SeqLock;
+use crate::filesystem::Metadata;
 use crate::hashtable::Hashtable;
+
+/// What a directory is, apart from where it stands: the device and inode
+/// numbers its Filesystem names it by, as Linux reads them from the inode
+/// a dentry is instantiated with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Identity {
+    dev: u64,
+    ino: u64,
+}
+
+impl Identity {
+    /// The identity `metadata` names, or `None` where its inode of zero
+    /// reports none.
+    pub(crate) fn of(metadata: &Metadata) -> Option<Self> {
+        (metadata.ino != 0).then_some(Self {
+            dev: metadata.dev,
+            ino: metadata.ino,
+        })
+    }
+}
 
 /// Every move of a dentry, as Linux's `rename_lock`, so a walk up its
 /// parents answers where the dentry stood at one instant.
@@ -32,6 +53,8 @@ struct State {
     /// Whether the directory was removed or replaced through the VFS, as
     /// Linux marks such a directory dead.
     dead: bool,
+    /// What the name stood for when the VFS first learned it.
+    identity: Option<Identity>,
 }
 
 impl Dentry {
@@ -41,6 +64,7 @@ impl Dentry {
                 parent,
                 name: name.to_string(),
                 dead: false,
+                identity: None,
             }),
             rwsem: RwSemaphore::default(),
         })
@@ -83,6 +107,19 @@ impl Dentry {
 
     pub(crate) fn is_dead(&self) -> bool {
         self.state().dead
+    }
+
+    /// What the name stands for, once the VFS learned it.
+    pub(crate) fn identity(&self) -> Option<Identity> {
+        self.state().identity
+    }
+
+    /// Record `identity` as what the name stands for, as Linux's
+    /// `d_instantiate` attaches an inode once: a dentry that already names
+    /// something keeps it.
+    pub(crate) fn d_instantiate(&self, identity: Option<Identity>) {
+        let mut state = self.state();
+        state.identity = state.identity.or(identity);
     }
 
     /// Whether this dentry is `ancestor` or stands beneath it, as Linux's
@@ -140,6 +177,28 @@ impl Dentries {
         self.hashtable().get_or_insert_with(key(parent, name), || {
             Dentry::new(Some(parent.clone()), name)
         })
+    }
+
+    /// The dentry held for `name` in `parent`, as `d_lookup` finds one.
+    pub(crate) fn d_lookup(&self, parent: &Arc<Dentry>, name: &str) -> Option<Arc<Dentry>> {
+        self.hashtable().get(&key(parent, name))
+    }
+
+    /// `dentry` no longer names what stands at its name, as Linux's
+    /// `d_invalidate` drops it: the next lookup makes another, and
+    /// whoever holds this one keeps it, neither dead nor reached by name.
+    pub(crate) fn d_invalidate(&self, dentry: &Arc<Dentry>) {
+        let mut table = self.hashtable();
+        let Some(parent) = dentry.state().parent.clone() else {
+            return;
+        };
+        let at = key(&parent, &dentry.name());
+        if table
+            .get(&at)
+            .is_some_and(|held| Arc::ptr_eq(&held, dentry))
+        {
+            table.remove(&at);
+        }
     }
 
     /// The directory `name` in `parent` was removed, or replaced by a
@@ -242,6 +301,10 @@ mod tests {
 
         fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
             Ok(dentry.name())
+        }
+
+        fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
+            Ok(true)
         }
 
         fn read_link(&self, _dentry: &Dentry) -> Result<String, FilesystemError> {

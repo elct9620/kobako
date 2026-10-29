@@ -554,6 +554,11 @@ impl Inode for Tmpfs {
         Ok(dentry.name())
     }
 
+    /// A Tmpfs changes only through the runtime.
+    fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
+        Ok(true)
+    }
+
     /// A Tmpfs holds no links.
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         self.symlink_metadata(dentry)?;

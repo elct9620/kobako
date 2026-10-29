@@ -3,32 +3,13 @@
 
 use std::sync::Arc;
 
-use super::dentry::Dentry;
+use super::dentry::{Dentry, Identity};
 use super::namei::down_read;
 use super::times::mask_times;
 use super::Error;
 use crate::filesystem::{DirEntry, FilesystemError, Inode, Metadata};
 use crate::mount::Mount;
 use crate::profile::Profile;
-
-/// What a directory is, apart from where it stands: the device and inode
-/// numbers its Filesystem names it by.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Identity {
-    dev: u64,
-    ino: u64,
-}
-
-impl Identity {
-    /// The identity `metadata` names, or `None` where its inode of zero
-    /// reports none.
-    pub(crate) fn of(metadata: &Metadata) -> Option<Self> {
-        (metadata.ino != 0).then_some(Self {
-            dev: metadata.dev,
-            ino: metadata.ino,
-        })
-    }
-}
 
 /// One directory on the way to another, the name it was entered by, and
 /// its dentry.
@@ -48,9 +29,6 @@ pub struct Path {
     dentry: Arc<Dentry>,
     /// The directory itself, which a call reaches wherever it moved.
     dir: Arc<dyn Inode>,
-    /// Its identity when it was opened, so another standing where it
-    /// stands later is not taken for it.
-    identity: Option<Identity>,
     /// The isolation the invocation holding it runs under, which decides
     /// whether the times a Filesystem reports reach the guest.
     profile: Profile,
@@ -63,23 +41,16 @@ impl Path {
             dir: mount.filesystem().root().clone(),
             dentry: mount.filesystem().dentries().root(),
             mount: Arc::new(mount),
-            identity: None,
             profile,
         }
     }
 
     /// This Path standing in `dir`, opened beneath it as `dentry`.
-    pub(crate) fn with_directory(
-        &self,
-        dir: Arc<dyn Inode>,
-        dentry: Arc<Dentry>,
-        identity: Option<Identity>,
-    ) -> Self {
+    pub(crate) fn with_directory(&self, dir: Arc<dyn Inode>, dentry: Arc<Dentry>) -> Self {
         Self {
             mount: self.mount.clone(),
             dentry,
             dir,
-            identity,
             profile: self.profile,
         }
     }
@@ -170,7 +141,7 @@ impl Path {
         if self.is_root() {
             return Ok(());
         }
-        let Some(identity) = self.identity else {
+        let Some(identity) = self.dentry.identity() else {
             return Err(FilesystemError::NotFound.into());
         };
         match found.metadata(&self.dentry) {

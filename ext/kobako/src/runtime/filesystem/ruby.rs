@@ -251,6 +251,12 @@ impl Inode for RubyFilesystem {
         Ok(dentry.name())
     }
 
+    /// A Ruby object names nothing the runtime could compare, so each name
+    /// it holds stays valid.
+    fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
+        Ok(true)
+    }
+
     /// A Ruby object answers `stat` alone, so it holds no links.
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         self.symlink_metadata(dentry)?;

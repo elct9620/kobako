@@ -86,6 +86,12 @@ pub trait Inode: Any + Send + Sync {
     /// answers the name.
     fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
 
+    /// Whether `dentry`, a name in this directory the runtime still holds,
+    /// names what it named when the runtime took it, as `d_revalidate`
+    /// answers; `false` has the runtime drop it and take the name afresh.
+    /// A Filesystem changed only through the runtime answers `true`.
+    fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError>;
+
     /// Where the link `dentry` names points, as `readlinkat` answers, for
     /// the runtime to follow; a guest never reads it. `InvalidInput` where
     /// anything else stands, as `readlinkat` refuses one, which is a

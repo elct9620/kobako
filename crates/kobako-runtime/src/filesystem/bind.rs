@@ -293,6 +293,10 @@ impl Inode for Bind {
         self.at(dentry, lookup::lookup)
     }
 
+    fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
+        Ok(true)
+    }
+
     /// A target that is no valid UTF-8 answers `IllegalSequence`, as a
     /// guest path is one.
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
