@@ -6,8 +6,8 @@ require "minitest/test_task"
 Minitest::TestTask.create
 
 # Grouped subsets of the suite the main +test+ task already runs whole:
-# the release tooling and the benchmarks, runnable alone without the Guest
-# Binary prerequisites +rake test+ chains; a test needing one skips.
+# the release tooling and the benchmarks, runnable alone; a test needing a
+# Guest Binary skips.
 namespace :test do
   desc "Run only the release-tooling suites (test/tasks/)."
   task :tasks do
@@ -70,22 +70,27 @@ end
 # is self-contained; see tasks/wasm/ for the Guest Binary flow.
 Dir.glob("tasks/**/*.rake").each { |t| load t }
 
-# Every variant a suite drives is a test prerequisite: the journey tests
-# (test/e2e/test_journeys.rb) drive the pure data/kobako.wasm, the focused
-# regexp suite (test/e2e/regexp/) the regexp variants and the full one, and
-# the json suite (test/e2e/json/) the json variant — omitting one lets its
-# tests skip silently under CI. All are gitignored and mtime-idempotent, so
-# this only does real work on a clean clone or when the wasm sources change.
-# The oracle tests build guest crates on the host, linking the mruby archive
-# beni:build stages.
-task test: ["beni:build", "wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode", "wasm:build:json",
-            "wasm:build:full"]
+# The checks split as the build does: the guest's need the mruby archive
+# beni stages, the host's need only the Guest Binaries, so a host given
+# them by another, as CI's build jobs are, never stages the archive.
+namespace :check do
+  # Every variant a suite drives is built: the journey tests
+  # (test/e2e/test_journeys.rb) drive the pure data/kobako.wasm, the
+  # focused regexp suite (test/e2e/regexp/) the regexp variants and the
+  # full one, and the json suite (test/e2e/json/) the json variant —
+  # omitting one leaves its tests to fail under CI. All are mtime-idempotent,
+  # so this only does real work on a clean clone or when a source changes.
+  desc "Build every Guest Binary and check the guest crates"
+  task guest: ["wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode", "wasm:build:json",
+               "wasm:build:full", "wasm:test", "wasm:graph"]
 
-# `crates:test` joins the default because the core envelope's only pin
-# lives there: the envelope has one implementation, so the golden vectors
-# in `crates/kobako-transport` are what the wire's consistency guarantee
-# rests on for that layer, and a default run that skipped them would
-# report green on an unverified wire. The guest crates' own units stay in
-# `wasm:test`, which carries no such claim. `crates:graph` and `wasm:graph`
-# hold what no test binary can: the build graphs the published crates promise.
-task default: %i[compile test crates:test crates:graph wasm:graph rubocop steep]
+  # `crates:test` belongs here because the core envelope's only pin lives
+  # there: the envelope has one implementation, so the golden vectors in
+  # `crates/kobako-transport` are what the wire's consistency guarantee
+  # rests on for that layer. `crates:graph` holds what no test binary can:
+  # the build graphs the published host crates promise.
+  desc "Check the host against the Guest Binaries already built"
+  task host: %i[compile test crates:test crates:graph rubocop steep]
+end
+
+task default: %w[check:guest check:host]
