@@ -2,11 +2,6 @@
 //! empty path being the root: the files a Host App seeds a Tmpfs with,
 //! and the positions an Overlay keeps its own records by.
 
-/// The directory holding `path`; the root holds every top-level entry.
-pub(crate) fn parent(path: &str) -> &str {
-    path.rsplit_once('/').map_or("", |(parent, _)| parent)
-}
-
 /// The last name of `path`, within its parent.
 pub(crate) fn name(path: &str) -> &str {
     path.rsplit_once('/').map_or(path, |(_, name)| name)

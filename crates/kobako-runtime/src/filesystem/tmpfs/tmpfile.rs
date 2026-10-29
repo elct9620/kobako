@@ -16,15 +16,10 @@ impl Tmpfs {
         })
     }
 
-    /// Name `file` `name` in this directory, as `linkat` names a file
-    /// `O_TMPFILE` opened; refused when anything stands there.
+    /// Name `file` `name` in this directory, as `simple_link` names a file
+    /// `O_TMPFILE` opened once `vfs_link` found the name free.
     pub(crate) fn link(&self, file: &TmpfsFile, name: &str) -> Result<(), FilesystemError> {
-        let (dir, name) = self.dir.parent_of(name)?;
-        let mut state = dir.state();
-        if state.entries.contains_key(name) {
-            return Err(FilesystemError::AlreadyExists);
-        }
-        state.insert(name, Node::File(file.data.clone()));
+        self.dir.state().insert(name, Node::File(file.data.clone()));
         Ok(())
     }
 

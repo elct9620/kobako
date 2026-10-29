@@ -15,8 +15,8 @@ use std::sync::Arc;
 use super::super::tmpfs::TmpfsFile;
 use super::super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs};
 use crate::vfs::{
-    lookup_one, start_renaming, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Dentry,
-    Filesystem, RenameFlag, RwSemaphoreGuard,
+    lookup_one, start_renaming, vfs_create, vfs_link, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink,
+    vfs_whiteout, Dentry, Filesystem, RenameFlag, RwSemaphoreGuard,
 };
 
 /// The attribute marking a directory opaque, and its value, as
@@ -94,7 +94,10 @@ impl OverlayPath {
 
     pub(super) fn whiteout(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.exclusive()?;
-        self.upper()?.whiteout(name)
+        let child = self.child(name)?;
+        vfs_whiteout(self.dir.as_ref(), &self.dentry, &child, || {
+            self.upper()?.whiteout(name)
+        })
     }
 
     /// Move `from` here to `to` in `target` as `renameat2` does with
@@ -128,7 +131,10 @@ impl OverlayPath {
 
     pub(super) fn link(&self, file: &TmpfsFile, name: &str) -> Result<(), FilesystemError> {
         let _held = self.exclusive()?;
-        self.upper()?.link(file, name)
+        let child = self.child(name)?;
+        vfs_link(self.dir.as_ref(), &self.dentry, &child, || {
+            self.upper()?.link(file, name)
+        })
     }
 
     pub(super) fn set_times(&self, metadata: &Metadata) -> Result<(), FilesystemError> {

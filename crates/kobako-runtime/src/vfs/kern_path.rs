@@ -1,12 +1,17 @@
 //! A test's way to ask a Filesystem about a path, as kernel code reaches a
 //! file by name through `kern_path`: the VFS resolves the path to a
 //! dentry, as it does for every call, and the Filesystem is asked about
-//! that dentry, so a test sees the Filesystem's own answer.
+//! that dentry, a change going through the VFS's own `vfs_*` helpers as
+//! kernel code's does, so a test sees what the Filesystem answers beneath
+//! the VFS. It takes no directory's lock, so a test holding one can
+//! still reach the Filesystem through it.
 
 use std::sync::Arc;
 
 use super::dentry::Identity;
-use super::namei::{filename_lookup, Nameidata};
+use super::namei::{
+    filename_lookup, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Nameidata,
+};
 use super::path::Path;
 use super::{Error, Filesystem};
 use crate::filesystem::{Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions};
@@ -44,9 +49,14 @@ impl KernPath {
         path: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        let nd = self.resolve(path)?;
+        let mut nd = self.resolve(path)?;
         let child = nd.child()?;
-        nd.base().open(&child, options)
+        match nd.found() {
+            Err(FilesystemError::NotFound) if options.create || options.create_new => {
+                vfs_create(nd.base().as_ref(), nd.dentry(), &child, options)
+            }
+            _ => nd.base().open(&child, options),
+        }
     }
 
     pub(crate) fn open_dir(&self, path: &str) -> Result<Self, FilesystemError> {
@@ -91,22 +101,34 @@ impl KernPath {
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let nd = self.resolve(path)?;
         let child = nd.child()?;
-        nd.base().create_dir(&child)
+        vfs_mkdir(nd.base().as_ref(), nd.dentry(), &child)
     }
 
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let nd = self.resolve(path)?;
         let child = nd.child()?;
-        nd.base().remove_dir(&child)
+        vfs_rmdir(
+            nd.mount.filesystem(),
+            nd.base().as_ref(),
+            nd.dentry(),
+            &child,
+        )
     }
 
     pub(crate) fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
         let nd = self.resolve(path)?;
         let child = nd.child()?;
-        nd.base().remove_file(&child)
+        vfs_unlink(
+            nd.mount.filesystem(),
+            nd.base().as_ref(),
+            nd.dentry(),
+            &child,
+        )
     }
 
-    /// Move `from` beneath this directory to `to` beneath `to_dir`.
+    /// Move `from` beneath this directory to `to` beneath `to_dir`,
+    /// refused where the source stands above the target's directory, as
+    /// `start_renaming` refuses it.
     pub(crate) fn rename(
         &self,
         from: &str,
@@ -114,7 +136,20 @@ impl KernPath {
         to: &str,
     ) -> Result<(), FilesystemError> {
         let (source, target) = (self.resolve(from)?, to_dir.resolve(to)?);
-        let (from, to) = (source.child()?, target.child()?);
-        source.base().rename(&from, target.base().as_ref(), &to)
+        let (old, new) = (source.child()?, target.child()?);
+        if target.dentry().is_subdir(&old) {
+            return Err(FilesystemError::InvalidInput);
+        }
+        if source.dentry().is_subdir(&new) {
+            return Err(FilesystemError::DirectoryNotEmpty);
+        }
+        let (old_inode, new_inode) = (source.base().as_ref(), target.base().as_ref());
+        vfs_rename(
+            source.mount.filesystem(),
+            (old_inode, source.dentry(), &old),
+            (new_inode, target.dentry(), &new),
+            None,
+            || old_inode.rename(&old, new_inode, &new),
+        )
     }
 }

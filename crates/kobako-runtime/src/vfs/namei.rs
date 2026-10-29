@@ -890,6 +890,30 @@ pub(crate) fn vfs_create(
     inode.open(child, &options)
 }
 
+/// Make a whiteout at `child` in `dir` through `make`, the Filesystem's
+/// call, as Linux's `vfs_whiteout` does once its caller holds `dir`.
+pub(crate) fn vfs_whiteout(
+    inode: &dyn Inode,
+    dir: &Dentry,
+    child: &Dentry,
+    make: impl FnOnce() -> Result<(), FilesystemError>,
+) -> Result<(), FilesystemError> {
+    may_create_dentry(dir, kind_at(inode, child)?)?;
+    make()
+}
+
+/// Name a file `child` in `dir` through `link`, the Filesystem's call, as
+/// Linux's `vfs_link` does once its caller holds `dir`.
+pub(crate) fn vfs_link(
+    inode: &dyn Inode,
+    dir: &Dentry,
+    child: &Dentry,
+    link: impl FnOnce() -> Result<(), FilesystemError>,
+) -> Result<(), FilesystemError> {
+    may_create_dentry(dir, kind_at(inode, child)?)?;
+    link()
+}
+
 /// What stands at `dentry` in the directory `inode` is, a link reported
 /// as itself, or `None` where nothing does, as a dentry is negative.
 fn kind_at(inode: &dyn Inode, dentry: &Dentry) -> Result<Option<FileType>, FilesystemError> {

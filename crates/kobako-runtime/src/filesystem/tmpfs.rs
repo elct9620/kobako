@@ -4,10 +4,10 @@
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::SystemTime;
 
-use super::path::{ancestors, components, name, normalize_seed, parent};
+use super::path::{ancestors, name, normalize_seed};
 use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions};
 use crate::vfs::Dentry;
 use whiteout::Whiteout;
@@ -73,10 +73,6 @@ struct Dir {
 
 struct State {
     entries: BTreeMap<String, Node>,
-    parent: Weak<Dir>,
-    /// Whether the directory was removed or replaced, so nothing is made
-    /// in it any more, as Linux marks such a directory dead.
-    removed: bool,
     /// The directory's extended attributes, as tmpfs keeps the `trusted.*`
     /// ones an Overlay marks a directory opaque with.
     xattrs: BTreeMap<String, Vec<u8>>,
@@ -131,13 +127,11 @@ impl Times {
 }
 
 impl Dir {
-    fn new(ino: u64, parent: Weak<Dir>) -> Arc<Self> {
+    fn new(ino: u64) -> Arc<Self> {
         Arc::new(Self {
             ino,
             state: Mutex::new(State {
                 entries: BTreeMap::new(),
-                parent,
-                removed: false,
                 xattrs: BTreeMap::new(),
                 times: Times::now(),
             }),
@@ -166,58 +160,21 @@ impl Dir {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// What `path` names beneath this directory, or why it names nothing:
-    /// a file standing where a directory above it should be, or simply no
-    /// entry.
-    fn find(self: &Arc<Self>, path: &str) -> Result<Node, FilesystemError> {
-        let mut found = Node::Directory(self.clone());
-        for name in components(path) {
-            found = match found {
-                Node::Directory(dir) => dir
-                    .state()
-                    .entries
-                    .get(name)
-                    .cloned()
-                    .ok_or(FilesystemError::NotFound)?,
-                Node::File(_) | Node::Whiteout { .. } => {
-                    return Err(FilesystemError::NotADirectory)
-                }
-            };
-        }
-        Ok(found)
+    /// What stands at `name` in this directory.
+    fn get(&self, name: &str) -> Result<Node, FilesystemError> {
+        self.state()
+            .entries
+            .get(name)
+            .cloned()
+            .ok_or(FilesystemError::NotFound)
     }
 
-    /// The directory `path` names beneath this one.
-    fn directory(self: &Arc<Self>, path: &str) -> Result<Arc<Self>, FilesystemError> {
-        match self.find(path)? {
+    /// The directory standing at `name` in this one.
+    fn directory(&self, name: &str) -> Result<Arc<Self>, FilesystemError> {
+        match self.get(name)? {
             Node::Directory(dir) => Ok(dir),
             Node::File(_) | Node::Whiteout { .. } => Err(FilesystemError::NotADirectory),
         }
-    }
-
-    /// The directory a new entry at `path` goes into, which must stand and
-    /// not have been removed, and the entry's name there.
-    fn parent_of<'a>(
-        self: &Arc<Self>,
-        path: &'a str,
-    ) -> Result<(Arc<Self>, &'a str), FilesystemError> {
-        let dir = self.directory(parent(path))?;
-        if dir.state().removed {
-            return Err(FilesystemError::NotFound);
-        }
-        Ok((dir, name(path)))
-    }
-
-    /// Whether this directory is `dir` or lies beneath it.
-    fn within(self: &Arc<Self>, dir: &Arc<Self>) -> bool {
-        let mut at = Some(self.clone());
-        while let Some(current) = at {
-            if Arc::ptr_eq(&current, dir) {
-                return true;
-            }
-            at = current.state().parent.upgrade();
-        }
-        false
     }
 }
 
@@ -355,17 +312,13 @@ impl Tmpfs {
                 dev: Metadata::unique_device(),
                 next_ino: AtomicU64::new(2),
             }),
-            dir: Dir::new(1, Weak::new()),
+            dir: Dir::new(1),
         }
     }
 
-    /// A directory in `parent` with an inode number no directory of this
-    /// Tmpfs had.
-    fn new_directory(&self, parent: &Arc<Dir>) -> Arc<Dir> {
-        Dir::new(
-            self.tree.next_ino.fetch_add(1, Ordering::Relaxed),
-            Arc::downgrade(parent),
-        )
+    /// A directory with an inode number no directory of this Tmpfs had.
+    fn new_directory(&self) -> Arc<Dir> {
+        Dir::new(self.tree.next_ino.fetch_add(1, Ordering::Relaxed))
     }
 
     /// This Tmpfs with its files holding at most `size` bytes together,
@@ -464,7 +417,7 @@ impl Tmpfs {
                     .entry(name(above).to_string())
                     .or_insert_with(|| {
                         space.inodes.add(1);
-                        Node::Directory(tmpfs.new_directory(&dir))
+                        Node::Directory(tmpfs.new_directory())
                     })
                     .clone();
                 dir = match next {
@@ -508,12 +461,11 @@ impl Inode for Tmpfs {
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        let path = &dentry.name();
-        let data = match self.dir.find(path) {
+        let name = &dentry.name();
+        let data = match self.dir.get(name) {
             Ok(Node::Directory(_)) => return Err(FilesystemError::IsADirectory),
             // A character device 0:0 has no driver to open it.
             Ok(Node::Whiteout { .. }) => return Err(FilesystemError::Unsupported),
-            Ok(Node::File(_)) if options.create_new => return Err(FilesystemError::AlreadyExists),
             Ok(Node::File(data)) => {
                 if options.truncate {
                     lock(&data).resize(0)?;
@@ -521,9 +473,8 @@ impl Inode for Tmpfs {
                 data
             }
             Err(FilesystemError::NotFound) if options.create || options.create_new => {
-                let (dir, name) = self.dir.parent_of(path)?;
                 let data = Content::create(&self.tree.space)?;
-                dir.state().insert(name, Node::File(data.clone()));
+                self.dir.state().insert(name, Node::File(data.clone()));
                 data
             }
             Err(error) => return Err(error),
@@ -542,7 +493,7 @@ impl Inode for Tmpfs {
 
     /// A Tmpfs holds no links.
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        match self.dir.find(&dentry.name())? {
+        match self.dir.get(&dentry.name())? {
             Node::File(data) => Ok(lock(&data).metadata()),
             Node::Directory(dir) => Ok(dir.metadata(self.tree.dev)),
             Node::Whiteout { .. } => Ok(Metadata::new(FileType::Unknown, 0).with_nlink(1)),
@@ -576,23 +527,15 @@ impl Inode for Tmpfs {
     }
 
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        let path = &dentry.name();
-        if self.dir.find(path).is_ok() {
-            return Err(FilesystemError::AlreadyExists);
-        }
-        let (dir, name) = self.dir.parent_of(path)?;
         self.tree.space.inodes.take(1)?;
-        let made = Node::Directory(self.new_directory(&dir));
-        dir.state().insert(name, made);
+        let made = Node::Directory(self.new_directory());
+        self.dir.state().insert(&dentry.name(), made);
         Ok(())
     }
 
-    /// A directory removed while opened is marked so, and nothing is made
-    /// in it any more.
     fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        let path = &dentry.name();
-        let (dir, name) = self.dir.parent_of(path)?;
-        let mut state = dir.state();
+        let name = &dentry.name();
+        let mut state = self.dir.state();
         let removed = match state.entries.get(name) {
             Some(Node::File(_) | Node::Whiteout { .. }) => {
                 return Err(FilesystemError::NotADirectory)
@@ -600,20 +543,17 @@ impl Inode for Tmpfs {
             Some(Node::Directory(removed)) => removed.clone(),
             None => return Err(FilesystemError::NotFound),
         };
-        let mut removed_state = removed.state();
-        if !removed_state.entries.is_empty() {
+        if !removed.state().entries.is_empty() {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
-        removed_state.removed = true;
         state.remove(name);
         self.tree.space.inodes.give(1);
         Ok(())
     }
 
     fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        let path = &dentry.name();
-        let (dir, name) = self.dir.parent_of(path)?;
-        let mut state = dir.state();
+        let name = &dentry.name();
+        let mut state = self.dir.state();
         match state.entries.get(name) {
             Some(Node::File(_) | Node::Whiteout { .. }) => {
                 state.remove(name);
@@ -1035,8 +975,10 @@ mod tests {
         );
     }
 
-    // The VFS leaves what a move may replace to the Filesystem, so only
-    // the Tmpfs's own rules keep each move from replacing its target.
+    // The VFS refuses a move onto an entry of another kind, as
+    // `may_delete_dentry` does, and the Tmpfs a directory still holding
+    // entries, as `shmem_rename2` does, so the two keep each move here
+    // from replacing its target.
     // @behavior FS-133
     #[test]
     fn a_tmpfs_replaces_only_what_rename_lets_a_move_replace() {
