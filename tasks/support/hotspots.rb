@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "pathname"
+
 require_relative "rust_source"
 
 # Churn × size scorer backing +tasks/hotspots.rake+, with fan-in as a
@@ -28,7 +30,7 @@ module KobakoHotspots
     counts = sources.keys.to_h { |path| [path, 0] }
     sources.each do |path, text|
       text.scan(/require_relative "([^"]+)"/).flatten.each do |rel|
-        target = File.expand_path("#{rel}.rb", "/#{File.dirname(path)}").delete_prefix("/")
+        target = Pathname(File.dirname(path)).join("#{rel}.rb").cleanpath.to_s
         counts[target] = counts.fetch(target, 0) + 1
       end
     end
