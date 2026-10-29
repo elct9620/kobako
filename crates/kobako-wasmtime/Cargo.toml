@@ -42,7 +42,7 @@ kobako-transport = { version = "0.19.0", path = "../kobako-transport" }
 # kobako runs short-lived synchronous sandboxes. `component-model` and
 # `async` still arrive through wasmtime-wasi's `p1`, which builds on `p2`;
 # kobako loads only core Modules, so none of that code is reached.
-wasmtime = { version = "49.0.4", default-features = false, features = [
+wasmtime = { version = "50.0.0", default-features = false, features = [
     "cranelift",
     "runtime",
     "gc",
@@ -56,7 +56,7 @@ wasmtime = { version = "49.0.4", default-features = false, features = [
 # capture channels write into; kobako answers every call that reads its
 # own descriptor table. `p1` is the only feature kobako asks for; it
 # enables `p2` itself, while `p0` and `p3` stay off.
-wasmtime-wasi = { version = "49.0.4", default-features = false, features = ["p1"] }
+wasmtime-wasi = { version = "50.0.0", default-features = false, features = ["p1"] }
 # bytes is the buffer type wasmtime-wasi's stream traits take, for the
 # capture pipes kobako's own preview1 imports write into.
 bytes = "1.11"

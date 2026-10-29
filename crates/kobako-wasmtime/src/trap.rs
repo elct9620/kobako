@@ -9,7 +9,7 @@
 
 use std::time::{Duration, Instant};
 
-use wasmtime::{Store, StoreContextMut, UpdateDeadline};
+use wasmtime::{Store, StoreHookState, UpdateDeadline};
 
 use crate::invocation::Invocation;
 use crate::limiter::MemoryLimitTrap;
@@ -41,7 +41,7 @@ pub(crate) const NO_TIMEOUT_EPOCH_DELTA: u64 = u64::MAX / 2;
 /// firing; returning the same long extension keeps it inert as a defence
 /// in depth.
 pub(crate) fn epoch_deadline_callback(
-    ctx: StoreContextMut<'_, Invocation>,
+    ctx: StoreHookState<'_, Invocation>,
 ) -> wasmtime::Result<UpdateDeadline> {
     match ctx.data().deadline() {
         Some(deadline) if Instant::now() >= deadline => Err(wasmtime::Error::new(TimeoutTrap)),
