@@ -368,18 +368,19 @@ what the guest may reach.
 
 #### Beneath a Block
 
-Each call reaches the directory again from the Mount's root, by the names its
-Filesystem last saw. The block then judges where the directory stands now.
+Each call first asks the directory's Filesystem whether the directory still
+stands where the runtime last saw it. The block then judges where it stands now.
 
 | How it moved | A call through it |
 |---|---|
 | through any Mount of the same Filesystem | reaches it where it went, judged there |
 | by the host, or through another Filesystem | raises `Errno::ENOENT` |
 
-A move the Filesystem never saw leaves another directory there, or none, and the
-identity comparison refuses it. A Bind holds the host directory open meanwhile,
-so the host never hands its inode number to the next one made. The comparison
-and the call are two steps, so a swap between them is the host's race.
+A move the Filesystem never saw leaves another directory there, or none. The
+Filesystem compares what stands there with the identity the directory opened
+with, and refuses it. A Bind holds the host directory open meanwhile, so the
+host never hands its inode number to the next one made. The comparison and the
+call are two steps, so a swap between them is the host's race.
 On Windows a Bind reports no identity. It refuses a
 path holding a backslash there, so a block never judges one name while the host
 walks two.

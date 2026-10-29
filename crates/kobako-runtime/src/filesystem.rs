@@ -186,8 +186,9 @@ pub struct Metadata {
     /// The length in bytes; zero for a directory.
     pub len: u64,
     /// The device and inode numbers naming what the path holds, as
-    /// `st_dev` and `st_ino` do. An `ino` of zero reports none, so a
-    /// descriptor of such a directory follows its path alone.
+    /// `st_dev` and `st_ino` do. An `ino` of zero reports none, so such a
+    /// directory cannot be told from one made in its place, and beneath a
+    /// Policy a descriptor of it reaches nothing.
     pub dev: u64,
     pub ino: u64,
     /// How many names the entry has, as `st_nlink` counts; `None` where

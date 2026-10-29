@@ -197,6 +197,41 @@ A Frontend hands every context's words to the Host App, and an ABI endpoint read
 
 A new kind of Grant joins as a context beside Filesystem. It conforms to the same contract and brings its own words.
 
+### Filesystem Layers
+
+The Filesystem context follows Linux's three layers: the syscall layer, the VFS, and the drivers. A Policy and a driver's operations are hooks the VFS calls at fixed points, not layers of their own.
+
+```
+┌───────────────────────────────────────────┐
+│ syscall    kobako-wasmtime                │
+│ decode · errno · fd table                 │
+└─────────────────────┬─────────────────────┘
+                      ▼
+┌───────────────────────────────────────────┐
+│ VFS        kobako-runtime::vfs            │
+│ namei · dentries · locks · mount flags    │
+│                                           │
+│   ┌─────────────┐      ┌─────────────┐    │
+│   │ hook: check │      │ hook: d_op  │    │
+│   └──────┬──────┘      └──────┬──────┘    │
+└──────────┼────────────────────┼───────────┘
+           ▼                    ▼
+┌─────────────────────┐ ┌─────────────────────┐
+│ Security Module     │ │ driver              │
+│ Policy              │ │ Tmpfs · Bind        │
+│                     │ │ Overlay · Ruby      │
+└─────────────────────┘ └─────────────────────┘
+```
+
+Each role keeps to its own work, so a change that crosses roles is a change in the wrong place. A VFS name follows Linux's once it is checked there.
+
+| Role | Owns |
+|---|---|
+| syscall | decoding, errno, the fd table |
+| VFS | the walk, dentries, locks, mount flags, calling each hook |
+| Security Module | whether a path may be reached |
+| driver | one name in one directory, and its own state on a dentry |
+
 ## Build Rules
 
 Two structural facts no part's own code states.
