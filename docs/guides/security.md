@@ -344,7 +344,7 @@ Some risks stay with the host, because kobako cannot see them.
 | a link loop without a block | `Errno::ELOOP` after 40 links, as Linux answers |
 | a `..` out of where a link led | `Errno::ELOOP`, as the guest never learns where it points |
 | a directory the guest lists in steps | its entries held in host memory until the listing ends, once per descriptor |
-| an opened directory moved out of the Mount by the host or another guest | still reached through that descriptor, as Linux reaches it, unless a block guards the Mount |
+| an opened directory moved by the host or another guest | still reached through that descriptor, as Linux reaches it, unless a block refuses |
 | a link in an Overlay's lower Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
 | a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
 | a `\` in a name a Ruby Filesystem receives | the Filesystem's to refuse, as Windows reads it as a separator |
@@ -360,14 +360,24 @@ What happens to it later decides what a call through it reaches.
 |---|---|
 | it moves | reaches it where it went |
 | it is removed | makes nothing more |
-| it moves beneath a Mount with a block | raises `Errno::ENOENT` |
 
-Beneath a block, each call reaches the directory again from the Mount's root.
-It compares the identity there, so the block judges where the directory stands
-now. A Bind holds the host directory open meanwhile, so the host never
-hands its inode number to the next one made. The comparison and the call are two
-steps, so a swap between them is the host's race.
 A path resolved through it stays beneath it, as a descriptor only ever narrows
-what the guest may reach. On Windows a Bind reports no identity. It refuses a
+what the guest may reach.
+
+#### Beneath a Block
+
+Each call reaches the directory again from the Mount's root, by the names its
+Filesystem last saw. The block then judges where the directory stands now.
+
+| How it moved | A call through it |
+|---|---|
+| through any Mount of the same Filesystem | reaches it where it went, judged there |
+| by the host, or through another Filesystem | raises `Errno::ENOENT` |
+
+A move the Filesystem never saw leaves another directory there, or none, and the
+identity comparison refuses it. A Bind holds the host directory open meanwhile,
+so the host never hands its inode number to the next one made. The comparison
+and the call are two steps, so a swap between them is the host's race.
+On Windows a Bind reports no identity. It refuses a
 path holding a backslash there, so a block never judges one name while the host
 walks two.
