@@ -2,6 +2,7 @@
 
 require "json"
 require "open3"
+require "rbconfig"
 
 # Test helper for driving a Rust "oracle" subprocess from a Minitest test.
 #
@@ -52,8 +53,10 @@ class CargoOracle
   # Lazily-resolved absolute path to the oracle binary. The lookup
   # delegates to +cargo metadata+ so workspace members emit into the
   # workspace-shared +target/+ directory rather than the per-crate one.
+  # The host's executable suffix follows the name, so on Windows it is
+  # the +.exe+ cargo wrote.
   def binary_path
-    @binary_path ||= File.join(target_directory, "release", @bin_name)
+    @binary_path ||= File.join(target_directory, "release", "#{@bin_name}#{RbConfig::CONFIG["EXEEXT"]}")
   end
 
   # Memoised build of the oracle binary. Returns a +BuildResult+. Safe
