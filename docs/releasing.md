@@ -118,6 +118,8 @@ Check these in the release PR before merging, since the merge cannot be undone.
 
 A wrong version usually means the gem jumped to `1.0.0` or one track inherited the other's `Release-As`.
 
+After the merge, each native gem is installed on its own host and runs one guest before publishing. A gem that fails there stops the release before RubyGems.
+
 `examples/` pin released versions: the Ruby examples pin the gem (`"~> 0.26.0"`) and the Rust examples pin crates (`"0.16"`). Switching them to a new idiom before that version publishes breaks them, so update `examples/` after the release and then bump their pins.
 
 The BREAKING CHANGES section is the last point at which a subject-only note can get its migration text. Rewriting it in the PR is safe while nothing else lands, since `release-please` regenerates the branch on every push.
