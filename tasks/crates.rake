@@ -7,6 +7,11 @@
 #                               including the core envelope's golden
 #                               vectors. All members compile host-native,
 #                               so no cross toolchain is involved.
+#   * `rake crates:stress`    — the stress witnesses, each in a `stress`
+#                               test module and skipped by `crates:test`,
+#                               in an optimized build, where a race lands
+#                               often enough to be caught in seconds. Not
+#                               in the release gate.
 #   * `rake coverage:crates`  — the same suite under `cargo llvm-cov`. Lives
 #                               in the `coverage:` namespace with the other
 #                               line-coverage reports, but here beside the
@@ -117,6 +122,12 @@ namespace :crates do
   task :test do
     abort "cargo not on PATH; install Rust toolchain to run crates:test" unless KobakoWasm.cargo_available?
     sh "cargo", "test", "--manifest-path", CRATES_MANIFEST, "--workspace"
+  end
+
+  desc "cargo test the crates/ stress witnesses in an optimized build (not in release gate)"
+  task :stress do
+    abort "cargo not on PATH; install Rust toolchain to run crates:stress" unless KobakoWasm.cargo_available?
+    sh "cargo", "test", "--manifest-path", CRATES_MANIFEST, "--workspace", "--release", "--", "--ignored", "stress::"
   end
 
   desc "Check each published host crate's build graph leaves out what its seam promises to"
