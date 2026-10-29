@@ -2,51 +2,24 @@
 //! a name up in each layer and merges the directories it finds.
 
 use super::super::super::{FileType, FilesystemError, Metadata};
-use super::{entry, layer_dir, shows_below, sole_layer, Chain, Level, OverlayFs, Step};
+use super::{entry, layer_dir, shows_below, sole_layer, Level, OverlayFs};
 
 impl OverlayFs {
-    /// Walk `chain` into each of `names` in turn, each a directory the view
-    /// shows.
-    pub(in super::super) fn descend<'a>(
-        &self,
-        chain: &mut Chain,
-        names: impl IntoIterator<Item = &'a str>,
-    ) -> Result<(), FilesystemError> {
-        for name in names {
-            self.enter(chain, name)?;
-        }
-        Ok(())
-    }
-
-    /// Step `chain` into the directory `name`, refusing a link standing
-    /// there as a loop, since the runtime follows a link itself, in the
-    /// view.
-    pub(in super::super) fn enter(
-        &self,
-        chain: &mut Chain,
-        name: &str,
-    ) -> Result<(), FilesystemError> {
-        let level = chain.level();
+    /// Each Layer's directory the directory `name` in `level` stands for,
+    /// refusing a link standing there as a loop, since the runtime follows
+    /// a link itself, in the view.
+    pub(super) fn enter(&self, level: &Level, name: &str) -> Result<Level, FilesystemError> {
         if let Some((index, dir)) = sole_layer(level) {
             let mut only = vec![None; level.len()];
             only[index] = Some(dir.open_dir(name)?);
-            chain.steps.push(Step {
-                name: name.to_string(),
-                level: only,
-            });
-            return Ok(());
+            return Ok(only);
         }
         let (index, found) = self.lookup(level, name)?.ok_or(FilesystemError::NotFound)?;
-        let step = match found.file_type {
-            FileType::Directory => Step {
-                name: name.to_string(),
-                level: self.lookup_layers(level, name, (index, found))?,
-            },
-            FileType::Symlink => return Err(FilesystemError::FilesystemLoop),
-            _ => return Err(FilesystemError::NotADirectory),
-        };
-        chain.steps.push(step);
-        Ok(())
+        match found.file_type {
+            FileType::Directory => self.lookup_layers(level, name, (index, found)),
+            FileType::Symlink => Err(FilesystemError::FilesystemLoop),
+            _ => Err(FilesystemError::NotADirectory),
+        }
     }
 
     /// The topmost Layer holding an entry at `name` in the directory

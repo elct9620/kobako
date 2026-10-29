@@ -23,13 +23,11 @@ mod readdir;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use super::file::Readers;
-use super::inode::{InodeLocks, Inodes};
+use super::inode::{ovl_inode, OverlayInode};
 use super::path::OverlayPath;
 
-use super::super::path::join;
 use super::super::{File, FileType, FilesystemError, Metadata};
-use crate::vfs::{Blocking, Filesystem, Inline};
+use crate::vfs::{Blocking, Dentry, Filesystem, Inline};
 
 /// The directories of the upper Tmpfs holding the view's changes and the
 /// changes being built, as overlayfs's `upperdir` and `workdir`.
@@ -40,54 +38,19 @@ const WORKDIR: &str = "work";
 /// `None` where that Layer holds no directory the view merges there.
 pub(super) type Level = Vec<Option<OverlayPath>>;
 
-/// The directories of the view from the root to one of them.
+/// One directory of the view: the dentry the runtime holds for it and the
+/// state kept there, as overlayfs reaches a directory by its dentry and
+/// the `ovl_inode` behind it.
 #[derive(Clone)]
-pub(super) struct Chain {
-    steps: Vec<Step>,
+pub(super) struct ViewDir {
+    dentry: Arc<Dentry>,
+    inode: Arc<OverlayInode>,
 }
 
-#[derive(Clone)]
-struct Step {
-    name: String,
-    level: Level,
-}
-
-impl Chain {
-    /// A chain starting at the directory at `path` beneath the root, which
-    /// `level` stands for.
-    pub(super) fn at(path: String, level: Level) -> Self {
-        Self {
-            steps: vec![Step { name: path, level }],
-        }
-    }
-
-    /// The directory the chain reaches.
-    pub(super) fn level(&self) -> &Level {
-        &self.last().level
-    }
-
-    /// Where the directory at `step` stands beneath the root.
-    fn path_to(&self, step: usize) -> String {
-        self.steps[..=step]
-            .iter()
-            .map(|step| step.name.as_str())
-            .filter(|name| !name.is_empty())
-            .collect::<Vec<_>>()
-            .join("/")
-    }
-
-    fn last(&self) -> &Step {
-        self.steps.last().expect("a chain holds the root")
-    }
-
-    /// Where the directory the chain reaches stands beneath the root.
-    pub(super) fn path(&self) -> String {
-        self.path_to(self.steps.len() - 1)
-    }
-
-    /// The path of `name` in the directory the chain reaches.
-    pub(super) fn path_of(&self, name: &str) -> String {
-        join(&self.path(), name)
+impl ViewDir {
+    /// Each Layer's directory this one stands for.
+    pub(super) fn level(&self) -> Level {
+        self.inode.level()
     }
 }
 
@@ -246,9 +209,6 @@ pub(super) struct OverlayFs {
     work: Option<OverlayPath>,
     /// The next name a change built in `work` takes.
     temp: Arc<AtomicU64>,
-    readers: Arc<Readers>,
-    inodes: Arc<Inodes>,
-    locks: Arc<InodeLocks>,
     /// What a copy up waiting for another's lock gives up meanwhile.
     blocking: Arc<dyn Blocking>,
 }
@@ -277,9 +237,6 @@ impl OverlayFs {
             roots,
             work,
             temp: Arc::default(),
-            readers: Arc::default(),
-            inodes: Arc::default(),
-            locks: Arc::default(),
             blocking: Arc::new(Inline),
         })
     }
@@ -291,33 +248,36 @@ impl OverlayFs {
 
     /// Whether `other` is this view, reached through another directory.
     pub(super) fn is(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.inodes, &other.inodes)
-    }
-
-    pub(super) fn inodes(&self) -> &Inodes {
-        &self.inodes
-    }
-
-    /// Whether the upper, where every copy up lands, holds no directory in
-    /// `level`, so a change through it may have to make one there first.
-    /// Only such a directory never moves through the Overlay.
-    pub(super) fn misses_upper(&self, level: &Level) -> bool {
-        self.upper().is_ok_and(|upper| level[upper].is_none())
+        Arc::ptr_eq(&self.temp, &other.temp)
     }
 
     fn is_upper(&self, index: usize) -> bool {
         self.work.is_some() && index == 0
     }
 
-    /// The chain at the root of the view, every Layer's root merged down to
-    /// the first marked opaque.
-    pub(super) fn root(&self) -> Result<Chain, FilesystemError> {
-        Ok(Chain {
-            steps: vec![Step {
-                name: String::new(),
-                level: below_opaque_cut(self.roots.iter().cloned().map(Some).collect()),
-            }],
+    /// The directory of the view `dentry` names, its state found on the
+    /// dentry or, the first time it is reached, looked up beneath its
+    /// parent: the root's every Layer's root merged down to the first
+    /// marked opaque.
+    pub(super) fn dir(&self, dentry: &Dentry) -> Result<ViewDir, FilesystemError> {
+        let inode = ovl_inode(dentry, || match dentry.dget_parent() {
+            None => Ok(below_opaque_cut(
+                self.roots.iter().cloned().map(Some).collect(),
+            )),
+            Some(parent) => self.enter(&self.dir(&parent)?.level(), &dentry.name()),
+        })?;
+        Ok(ViewDir {
+            dentry: dentry.dget(),
+            inode,
         })
+    }
+
+    /// The directory holding the entry `dentry` names.
+    pub(super) fn parent(&self, dentry: &Dentry) -> Result<ViewDir, FilesystemError> {
+        let parent = dentry
+            .dget_parent()
+            .expect("an entry the runtime names stands in a directory");
+        self.dir(&parent)
     }
 
     /// The upper, where every change lands; without one every change is

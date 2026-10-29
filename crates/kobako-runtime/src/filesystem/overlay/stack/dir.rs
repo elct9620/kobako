@@ -5,11 +5,12 @@
 //! all.
 
 use super::super::super::{File, FileType, FilesystemError, OpenOptions};
+use super::super::file::reader;
 use super::super::path::OverlayPath;
 use super::{
-    cleanup, cleanup_whiteouts, entry, holds, layer_dir, opaque_inside, Chain, Level, OverlayFs,
+    cleanup, cleanup_whiteouts, entry, holds, layer_dir, opaque_inside, Level, OverlayFs, ViewDir,
 };
-use crate::vfs::RenameFlag;
+use crate::vfs::{Dentry, RenameFlag};
 
 /// Whether the directory `name` in `dir` holds a whiteout, which
 /// overlayfs's `ovl_check_empty_dir` lists for `ovl_clear_empty`.
@@ -159,8 +160,8 @@ impl OverlayFs {
     /// Take `name` out of the view: a whiteout over any Layer that keeps
     /// it, which also takes the upper's own entry away, or else only the
     /// upper's entry, as overlayfs's `ovl_do_remove` chooses.
-    fn withdraw(&self, chain: &mut Chain, name: &str) -> Result<(), FilesystemError> {
-        let level = chain.level().clone();
+    fn withdraw(&self, dir: &ViewDir, name: &str) -> Result<(), FilesystemError> {
+        let level = dir.level();
         let (holders, shadowed) = self.holders(&level, name)?;
         let lower = holders.iter().copied().find(|&index| !self.is_upper(index));
         let upper_holds = holders.first().is_some_and(|&index| self.is_upper(index));
@@ -174,22 +175,25 @@ impl OverlayFs {
         }
         match whiteout_into {
             Some(upper) => {
-                let dir = self.upper_dir(chain, upper)?;
-                self.whiteout(&dir, name, upper_holds)
+                let upper_dir = self.upper_dir(dir, upper)?;
+                self.whiteout(&upper_dir, name, upper_holds)
             }
             None if upper_holds => cleanup(layer_dir(&level[0])?, name),
             None => Err(FilesystemError::NotFound),
         }
     }
 
+    /// Open the file `child` names in `dir`. A lower Layer's file opened to
+    /// read reads the copy once a copy up makes one.
     pub(in super::super) fn open(
         &self,
-        chain: &mut Chain,
-        name: &str,
+        dir: &ViewDir,
+        child: &Dentry,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
+        let name = &child.name();
         let changes = options.write || options.truncate;
-        let level = chain.level().clone();
+        let level = dir.level();
         match self.lookup(&level, name)? {
             Some((_, found)) if found.file_type == FileType::Directory => {
                 Err(FilesystemError::IsADirectory)
@@ -200,14 +204,14 @@ impl OverlayFs {
             }
             Some((index, _)) if !changes => {
                 let file = layer_dir(&level[index])?.open(name, options)?;
-                Ok(self.readers.open(&chain.path_of(name), file))
+                reader(file, child)
             }
             Some((index, _)) => {
                 let upper = self.upper()?;
-                self.copy_up_file(chain, name, index, upper)?;
-                layer_dir(&chain.level()[upper])?.open(name, options)
+                self.copy_up_file(dir, child, index, upper)?;
+                layer_dir(&dir.level()[upper])?.open(name, options)
             }
-            None if options.create || options.create_new => self.create_file(chain, name, options),
+            None if options.create || options.create_new => self.create_file(dir, name, options),
             None => Err(FilesystemError::NotFound),
         }
     }
@@ -217,11 +221,11 @@ impl OverlayFs {
     /// only the Layer holding the link may answer.
     fn create_file(
         &self,
-        chain: &mut Chain,
+        dir: &ViewDir,
         name: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        let level = chain.level().clone();
+        let level = dir.level();
         match self.lookup(&level, name)? {
             Some(_) if options.create_new => Err(FilesystemError::AlreadyExists),
             Some((index, _)) if self.is_upper(index) => {
@@ -230,11 +234,11 @@ impl OverlayFs {
             Some(_) => Err(FilesystemError::CrossesDevices),
             None => {
                 let upper = self.upper()?;
-                let dir = self.upper_dir(chain, upper)?;
-                if !dir.is_whiteout(name) {
-                    return dir.create(name, options);
+                let upper_dir = self.upper_dir(dir, upper)?;
+                if !upper_dir.is_whiteout(name) {
+                    return upper_dir.create(name, options);
                 }
-                self.exchange_in(&dir, name, |work, temp| work.create(temp, options))
+                self.exchange_in(&upper_dir, name, |work, temp| work.create(temp, options))
             }
         }
     }
@@ -243,27 +247,26 @@ impl OverlayFs {
     /// lower Layers' entries never show in it.
     pub(in super::super) fn create_dir(
         &self,
-        chain: &mut Chain,
+        dir: &ViewDir,
         name: &str,
     ) -> Result<(), FilesystemError> {
-        let level = chain.level().clone();
-        if self.lookup(&level, name)?.is_some() {
+        if self.lookup(&dir.level(), name)?.is_some() {
             return Err(FilesystemError::AlreadyExists);
         }
         let upper = self.upper()?;
-        let dir = self.upper_dir(chain, upper)?;
-        match dir.is_whiteout(name) {
-            true => self.exchange_in_opaque_dir(&dir, name),
-            false => dir.create_dir(name),
+        let upper_dir = self.upper_dir(dir, upper)?;
+        match upper_dir.is_whiteout(name) {
+            true => self.exchange_in_opaque_dir(&upper_dir, name),
+            false => upper_dir.create_dir(name),
         }
     }
 
     pub(in super::super) fn remove_dir(
         &self,
-        chain: &mut Chain,
+        dir: &ViewDir,
         name: &str,
     ) -> Result<(), FilesystemError> {
-        let level = chain.level().clone();
+        let level = dir.level();
         let (index, found) = self
             .lookup(&level, name)?
             .ok_or(FilesystemError::NotFound)?;
@@ -273,19 +276,19 @@ impl OverlayFs {
         if !self.is_empty(&level, name, (index, found))? {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
-        self.withdraw(chain, name)
+        self.withdraw(dir, name)
     }
 
     /// A link is removed as itself, wherever it points.
     pub(in super::super) fn remove_file(
         &self,
-        chain: &mut Chain,
+        dir: &ViewDir,
         name: &str,
     ) -> Result<(), FilesystemError> {
-        if self.symlink_metadata(chain.level(), name)?.file_type == FileType::Directory {
+        if self.symlink_metadata(&dir.level(), name)?.file_type == FileType::Directory {
             return Err(FilesystemError::IsADirectory);
         }
-        self.withdraw(chain, name)
+        self.withdraw(dir, name)
     }
 
     /// A directory moves only when the upper alone holds it; moving one
@@ -299,14 +302,15 @@ impl OverlayFs {
     /// overlayfs's `ovl_rename` does.
     pub(in super::super) fn rename(
         &self,
-        from: &mut Chain,
-        from_name: &str,
-        to: &mut Chain,
+        from: &ViewDir,
+        moved: &Dentry,
+        to: &ViewDir,
         to_name: &str,
     ) -> Result<(), FilesystemError> {
-        let from_level = from.level().clone();
+        let from_name = &moved.name();
+        let from_level = from.level();
         let moving = self.symlink_metadata(&from_level, from_name)?;
-        let to_level = to.level().clone();
+        let to_level = to.level();
         let replaced = self.lookup(&to_level, to_name)?;
         let is_dir = moving.file_type == FileType::Directory;
         // Only a directory replaces a directory, and only an empty one.
@@ -345,7 +349,7 @@ impl OverlayFs {
             }
             FileType::File if holders.first() != Some(&upper) => {
                 let shown = *holders.first().ok_or(FilesystemError::NotFound)?;
-                self.copy_up_file(from, from_name, shown, upper)?
+                self.copy_up_file(from, moved, shown, upper)?
             }
             FileType::Symlink | FileType::Unknown if holders.first() != Some(&upper) => {
                 return Err(FilesystemError::CrossesDevices)

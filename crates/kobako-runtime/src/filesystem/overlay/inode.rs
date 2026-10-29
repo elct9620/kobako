@@ -1,106 +1,102 @@
-//! The directories of an Overlay opened as Filesystems of their own, each
-//! holding its Layers' directories as overlayfs's `ovl_inode` holds its
-//! upper and lower dentries, so a call through it asks those Layers
-//! directly.
+//! The entries of an Overlay's view as it keeps them on their dentries,
+//! as overlayfs keeps an `ovl_inode` for each: a directory's Layers'
+//! directories, the lock a copy up of the entry holds, and the copy a file
+//! open to read reads once a copy up made one.
 //!
-//! A directory the upper does not hold yet is shared by every handle of
-//! it, so a copy up through one is seen through all, as overlayfs sets the
-//! upper dentry on the one inode. Such a directory never moves through the
-//! Overlay, which refuses to move what a lower Layer holds, so it is kept
-//! by its path; a removal or a replacement through the Overlay forgets it.
+//! The runtime holds one dentry for each entry it reaches, so every handle
+//! of an entry reaches the same state, and a removal or a replacement
+//! through the runtime leaves the next lookup a dentry, and so a state, of
+//! its own.
 
+use std::any::Any;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use super::super::path::is_beneath;
+use super::super::{File, FilesystemError, OpenOptions};
 use super::path::OverlayPath;
 use super::stack::Level;
-use crate::hashtable::Hashtable;
-use crate::vfs::RwSemaphore;
+use crate::vfs::{Dentry, RwSemaphore};
 
-/// The lock a copy up of each path of the view holds, as overlayfs's
-/// `ovl_inode` holds `lock` across `ovl_copy_up_start`, so two calls never
-/// copy one file or directory up at once.
-#[derive(Default)]
-pub(super) struct InodeLocks(Mutex<Hashtable<String, RwSemaphore>>);
+/// A copy a file open to read reads once a copy up made it.
+pub(super) type Copy = Arc<Mutex<Box<dyn File>>>;
 
-impl InodeLocks {
-    /// The lock of `path`, kept while a call holds it.
-    pub(super) fn get(&self, path: &str) -> Arc<RwSemaphore> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get_or_insert_with(path.to_string(), Arc::default)
-    }
+/// One entry of the view.
+pub(super) struct OverlayInode {
+    /// Each Layer's directory a directory stands for; empty for a file.
+    level: Mutex<Level>,
+    /// The lock a copy up of the entry holds, as overlayfs's
+    /// `ovl_inode_lock`, so two calls never copy one entry up at once.
+    pub(super) lock: RwSemaphore,
+    /// Whether a file of a lower Layer was opened to read here, so a copy
+    /// up opens its copy for such a file to read.
+    read: AtomicBool,
+    copy: Mutex<Option<Copy>>,
 }
 
-/// One directory of the view and the Layers' directories it stands for.
-pub(super) struct OverlayInode {
-    level: Mutex<Level>,
-    /// Where it stood beneath the Overlay's root when it was opened, by
-    /// which a change through it reaches its upper's directory.
-    path: String,
+fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {
+    held.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl OverlayInode {
-    pub(super) fn new(level: Level, path: String) -> Arc<Self> {
-        Arc::new(Self {
-            level: Mutex::new(level),
-            path,
-        })
-    }
-
     pub(super) fn level(&self) -> Level {
-        self.lock().clone()
+        lock(&self.level).clone()
     }
 
-    fn lock(&self) -> MutexGuard<'_, Level> {
-        self.level.lock().unwrap_or_else(PoisonError::into_inner)
+    /// Layer `into` now holds `dir` as this directory, made or found there
+    /// by a copy up, as overlayfs's `ovl_inode_update` records the upper
+    /// dentry, so every handle of it asks that Layer too.
+    pub(super) fn inode_update(&self, into: usize, dir: &OverlayPath) {
+        lock(&self.level)[into] = Some(dir.clone());
     }
 
-    pub(super) fn path(&self) -> &str {
-        &self.path
+    /// The copy a copy up made, once one did for a file read here.
+    pub(super) fn copy(&self) -> Option<Copy> {
+        lock(&self.copy).clone()
+    }
+
+    /// A file of a lower Layer was opened to read here.
+    pub(super) fn opened_to_read(&self) {
+        self.read.store(true, Ordering::SeqCst);
+    }
+
+    /// This file was copied up as `name` into `dir`, the upper's
+    /// directory; a file opened to read here reads the copy from now on,
+    /// as overlayfs's open file reaches the upper inode.
+    pub(super) fn copied_up(&self, dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
+        if !self.read.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let copy = dir.open(
+            name,
+            &OpenOptions {
+                read: true,
+                ..OpenOptions::default()
+            },
+        )?;
+        *lock(&self.copy) = Some(Arc::new(Mutex::new(copy)));
+        Ok(())
     }
 }
 
-/// Every opened directory of one Overlay that the upper does not hold yet,
-/// by its path.
-#[derive(Default)]
-pub(super) struct Inodes(Mutex<Hashtable<String, OverlayInode>>);
-
-impl Inodes {
-    fn lock(&self) -> MutexGuard<'_, Hashtable<String, OverlayInode>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+/// The state `dentry` keeps, made from the level `init` finds where it
+/// keeps none yet, as overlayfs's `ovl_get_inode` finds or makes one.
+pub(super) fn ovl_inode(
+    dentry: &Dentry,
+    init: impl FnOnce() -> Result<Level, FilesystemError>,
+) -> Result<Arc<OverlayInode>, FilesystemError> {
+    if let Some(kept) = dentry.d_fsdata.get() {
+        return Ok(downcast(kept.clone()));
     }
+    let made: Arc<dyn Any + Send + Sync> = Arc::new(OverlayInode {
+        level: Mutex::new(init()?),
+        lock: RwSemaphore::default(),
+        read: AtomicBool::new(false),
+        copy: Mutex::new(None),
+    });
+    Ok(downcast(dentry.d_fsdata.get_or_init(|| made).clone()))
+}
 
-    /// The directory at `path`, standing for `level` as just found, as
-    /// overlayfs's `ovl_get_inode` finds one: the one already shared there,
-    /// brought up to date, where the upper is missing from `level`,
-    /// or one of its own otherwise.
-    pub(super) fn get_inode(&self, path: String, level: Level, shared: bool) -> Arc<OverlayInode> {
-        if !shared {
-            return OverlayInode::new(level, path);
-        }
-        let mut inodes = self.lock();
-        if let Some(inode) = inodes.get(&path) {
-            *inode.lock() = level;
-            return inode;
-        }
-        inodes.get_or_insert_with(path.clone(), || OverlayInode::new(level, path))
-    }
-
-    /// Layer `into` now holds `dir` as the directory at `path`, made or
-    /// found there by a copy up, as overlayfs's `ovl_inode_update` records
-    /// the upper dentry, so every handle of it asks that Layer too.
-    pub(super) fn inode_update(&self, path: &str, into: usize, dir: &OverlayPath) {
-        if let Some(inode) = self.lock().get(&path.to_string()) {
-            inode.lock()[into] = Some(dir.clone());
-        }
-    }
-
-    /// The directory at `path` was removed or replaced through the
-    /// Overlay, so one made there later is no handle's of it.
-    pub(super) fn forget(&self, path: &str) {
-        self.lock()
-            .retain(|held| held != path && !is_beneath(held, path));
-    }
+fn downcast(kept: Arc<dyn Any + Send + Sync>) -> Arc<OverlayInode> {
+    kept.downcast()
+        .expect("an Overlay's dentry keeps an Overlay's state")
 }

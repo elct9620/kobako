@@ -17,28 +17,24 @@ mod stack;
 use std::any::Any;
 use std::sync::Arc;
 
-use super::path::components;
 use super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs};
 use crate::vfs::{Blocking, Dentry, Filesystem};
-use inode::OverlayInode;
-use stack::{Chain, OverlayFs};
+use stack::OverlayFs;
 
 /// Read-only lower Layers under an upper Tmpfs, stacked into one
 /// Filesystem. Two Overlays sharing an upper are not serialized against
 /// each other, as overlayfs leaves two mounts sharing an upper directory
 /// undefined.
 ///
-/// A directory opened beneath it is an Overlay too, holding each Layer's
-/// directory it stands for, so it is reached wherever those directories
-/// move, as a descriptor reaches its directory. overlayfs leaves a change
-/// made to a Layer outside it undefined; here such a change is the
-/// host's, and a directory opened before it keeps the Layers' directories
-/// it holds.
+/// Each directory of the view keeps each Layer's directory it stands for
+/// on its dentry, so it is reached wherever those directories move, as a
+/// descriptor reaches its directory, and a directory opened beneath it is
+/// this Overlay asked about that dentry. overlayfs leaves a change made to
+/// a Layer outside it undefined; here such a change is the host's, and a
+/// directory reached before it keeps the Layers' directories it holds.
 #[derive(Clone)]
 pub struct Overlay {
     fs: OverlayFs,
-    /// The directory this one stands for, `None` for the root.
-    inode: Option<Arc<OverlayInode>>,
     /// How many Overlays stack here, itself among them, as Linux counts
     /// a super block's `s_stack_depth`.
     stack_depth: usize,
@@ -80,39 +76,8 @@ impl Overlay {
         }
         Ok(Self {
             fs: OverlayFs::new(lower, upper)?,
-            inode: None,
             stack_depth,
         })
-    }
-
-    /// The chain to this directory: its Layers' directories as it holds
-    /// them, or, for a change through a directory the upper does not hold
-    /// yet, the chain from the root, so the change can make it there
-    /// first.
-    fn chain(&self, changes: bool) -> Result<Chain, FilesystemError> {
-        let Some(inode) = &self.inode else {
-            return self.fs.root();
-        };
-        let level = inode.level();
-        if changes && self.fs.misses_upper(&level) {
-            let mut chain = self.fs.root()?;
-            self.fs.descend(&mut chain, components(inode.path()))?;
-            return Ok(chain);
-        }
-        Ok(Chain::at(inode.path().to_string(), level))
-    }
-
-    /// The directory `name` in this one, as an Overlay of its own.
-    fn beneath(&self, name: &str) -> Result<Arc<dyn Inode>, FilesystemError> {
-        let mut chain = self.chain(false)?;
-        self.fs.enter(&mut chain, name)?;
-        let level = chain.level().clone();
-        let shared = self.fs.misses_upper(&level);
-        let inode = self.fs.inodes().get_inode(chain.path(), level, shared);
-        Ok(Arc::new(Self {
-            inode: Some(inode),
-            ..self.clone()
-        }))
     }
 
     /// This Overlay waiting for a copy up's lock through `blocking`.
@@ -130,27 +95,26 @@ impl Inode for Overlay {
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        let changes = options.write || options.truncate || options.create || options.create_new;
-        let mut chain = self.chain(changes)?;
-        self.fs.open(&mut chain, &dentry.name(), options)
+        self.fs.open(&self.fs.parent(dentry)?, dentry, options)
     }
 
     fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
-        self.beneath(&dentry.name())
+        self.fs.dir(dentry)?;
+        Ok(Arc::new(self.clone()))
     }
 
-    fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.fs.dir_metadata(self.chain(false)?.level())
+    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.fs.dir_metadata(&self.fs.dir(dentry)?.level())
     }
 
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         self.fs
-            .symlink_metadata(self.chain(false)?.level(), &dentry.name())
+            .symlink_metadata(&self.fs.parent(dentry)?.level(), &dentry.name())
     }
 
     fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         self.fs
-            .case_exact_name(self.chain(false)?.level(), &dentry.name())
+            .case_exact_name(&self.fs.parent(dentry)?.level(), &dentry.name())
     }
 
     /// A change made to a Layer outside the Overlay is undefined, as
@@ -161,46 +125,44 @@ impl Inode for Overlay {
 
     fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         self.fs
-            .read_link(self.chain(false)?.level(), &dentry.name())
+            .read_link(&self.fs.parent(dentry)?.level(), &dentry.name())
     }
 
-    fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.fs.entries(self.chain(false)?.level())
+    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.fs.entries(&self.fs.dir(dentry)?.level())
     }
 
     fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs.create_dir(&mut self.chain(true)?, &dentry.name())
+        self.fs.create_dir(&self.fs.parent(dentry)?, &dentry.name())
     }
 
     fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        let (mut chain, name) = (self.chain(true)?, dentry.name());
-        self.fs.remove_dir(&mut chain, &name)?;
-        self.fs.inodes().forget(&chain.path_of(&name));
-        Ok(())
+        self.fs.remove_dir(&self.fs.parent(dentry)?, &dentry.name())
     }
 
     fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs.remove_file(&mut self.chain(true)?, &dentry.name())
+        self.fs
+            .remove_file(&self.fs.parent(dentry)?, &dentry.name())
     }
 
     /// Both directories lie in one Overlay, however many directories of
-    /// it are open. A directory replaced at `to` is no handle's that a
-    /// directory made there later reaches.
+    /// it are open.
     fn rename(
         &self,
         from: &Dentry,
         to_dir: &dyn Inode,
         to: &Dentry,
     ) -> Result<(), FilesystemError> {
-        let target = (to_dir as &dyn Any)
+        (to_dir as &dyn Any)
             .downcast_ref::<Self>()
             .filter(|target| target.fs.is(&self.fs))
             .ok_or(FilesystemError::CrossesDevices)?;
-        let (mut from_chain, from) = (self.chain(true)?, from.name());
-        let (mut to_chain, to) = (target.chain(true)?, to.name());
-        self.fs.rename(&mut from_chain, &from, &mut to_chain, &to)?;
-        self.fs.inodes().forget(&to_chain.path_of(&to));
-        Ok(())
+        self.fs.rename(
+            &self.fs.parent(from)?,
+            from,
+            &self.fs.parent(to)?,
+            &to.name(),
+        )
     }
 }
 
@@ -2164,7 +2126,8 @@ mod tests {
             opening: AtomicBool::new(false),
         });
         let overlay = over(lower.clone(), Arc::new(Tmpfs::new())).with_blocking(counts.clone());
-        let (first, second) = (at(overlay.clone()), at(overlay));
+        let first = at(overlay);
+        let second = first.clone();
         let copying = thread::spawn(move || write(&first, "note", b"first"));
         while !lower.opening.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(1));

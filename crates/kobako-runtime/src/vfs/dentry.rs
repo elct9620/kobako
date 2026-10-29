@@ -211,6 +211,12 @@ impl Dentries {
     /// `d_invalidate` drops it: the next lookup makes another, and
     /// whoever holds this one keeps it, neither dead nor reached by name.
     pub(crate) fn d_invalidate(&self, dentry: &Arc<Dentry>) {
+        self.d_drop(dentry);
+    }
+
+    /// Take `dentry` out of the table, so the next lookup of its name
+    /// makes another, as Linux's `d_drop` unhashes one.
+    pub(crate) fn d_drop(&self, dentry: &Arc<Dentry>) {
         let mut table = self.hashtable();
         let Some(parent) = dentry.state().parent.clone() else {
             return;

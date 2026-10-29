@@ -862,7 +862,8 @@ pub(crate) fn vfs_rmdir(
 
 /// Remove the file `victim` in `dir` through `inode`, the directory
 /// holding it, as Linux's `vfs_unlink` does once its caller holds `dir`,
-/// the name itself held too.
+/// the name itself held too. Its dentry is then dropped, as `d_delete`
+/// drops one still in use, so a file made at the name later has its own.
 pub(crate) fn vfs_unlink(
     filesystem: &Filesystem,
     inode: &dyn Inode,
@@ -871,7 +872,9 @@ pub(crate) fn vfs_unlink(
 ) -> Result<(), FilesystemError> {
     let _victim = victim.rwsem.down_write(filesystem.blocking())?;
     may_delete_dentry(dir, kind_at(inode, victim)?, false)?;
-    inode.remove_file(victim)
+    inode.remove_file(victim)?;
+    filesystem.dentries().d_drop(victim);
+    Ok(())
 }
 
 /// Make the directory `child` in `dir` through `inode`, the directory

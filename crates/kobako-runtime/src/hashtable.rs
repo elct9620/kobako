@@ -51,9 +51,4 @@ impl<K: Hash + Eq, V> Hashtable<K, V> {
     pub(crate) fn remove(&mut self, key: &K) -> Option<Arc<V>> {
         self.entries.remove(key).and_then(|held| held.upgrade())
     }
-
-    /// Keep only the entries whose key `keep` answers true for.
-    pub(crate) fn retain(&mut self, mut keep: impl FnMut(&K) -> bool) {
-        self.entries.retain(|key, _| keep(key));
-    }
 }
