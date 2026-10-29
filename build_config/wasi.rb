@@ -92,8 +92,7 @@ end
 # Explicit host build short-circuits mruby's auto-host-creation
 # (vendor/mruby/lib/mruby/build.rb:573). +:gcc+ forces a bare +gcc+ so
 # +Toolchain.guess+ cannot pick +:clang+ on macOS and resolve through
-# PATH into wasi-sdk's clang. Windows builds with +:visualcpp+, inside the
-# environment vcvars sets, as the guest crates' MSVC target links it.
+# PATH into wasi-sdk's clang.
 #
 # Besides the mrbc the cross build compiles its mrblib with, the host
 # build archives a libmruby.a for one consumer: the guest crates' unit
@@ -102,7 +101,7 @@ end
 # compile against the same mruby API and integer width as the Guest
 # Binary.
 MRuby::Build.new("host") do |conf|
-  conf.toolchain(Gem.win_platform? ? :visualcpp : :gcc)
+  conf.toolchain :gcc
   conf.build_mrbc_exec
   KobakoBuildConfig::MRBGEM_ALLOWLIST.each { |gem_name| conf.gem core: gem_name }
   KobakoBuildConfig::GUEST_DEFINES.each do |flag|
