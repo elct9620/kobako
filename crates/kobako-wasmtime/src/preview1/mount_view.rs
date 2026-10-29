@@ -384,7 +384,11 @@ const PROBE_WAT: &str = r#"
       (i32.const 2) (i64.const 0) (i64.const 2) (i32.const 0) (i32.const 128)))
   ;; Stat `inner` beneath the directory opened into 128.
   (func (export "stat_inner") (result i32)
-    (call $stat (i32.load (i32.const 128)) (i32.const 0) (i32.const 960) (i32.const 5) (i32.const 384))))
+    (call $stat (i32.load (i32.const 128)) (i32.const 0) (i32.const 960) (i32.const 5) (i32.const 384)))
+  ;; Open `inner` for reading beneath the directory opened into 128.
+  (func (export "open_inner") (result i32)
+    (call $open (i32.load (i32.const 128)) (i32.const 0) (i32.const 960) (i32.const 5)
+      (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 132))))
 "#;
 
 const FILE: (i32, i32) = (700, 8);
@@ -903,8 +907,9 @@ fn a_host_directory_moved_while_opened_is_reached_through_its_descriptor() {
     );
 }
 
-// The Policy judges paths, so the descriptor reaches its directory from
-// the Mount's root again and finds another one standing there.
+// The move goes through another Filesystem instance, which the guest's
+// dentries never see, so the descriptor reaches its directory from the
+// Mount's root again and finds another one standing there.
 // @behavior RT-150
 #[test]
 fn a_directory_moved_while_opened_beneath_a_policy_is_not_reached() {
@@ -913,6 +918,35 @@ fn a_directory_moved_while_opened_beneath_a_policy_is_not_reached() {
         ERRNO_NOENT,
         "path_filestat_get through a directory descriptor beneath a Mount with a Policy through \
          preview1 must answer ENOENT once the directory moved away"
+    );
+}
+
+// The second Mount shares the instance's dentries, so the move carries
+// the descriptor's along, and the Policy judges the path it moved to:
+// allowed there it reaches `inner`, refused there it answers EACCES.
+// @behavior RT-170
+#[test]
+fn a_directory_moved_beneath_another_mount_of_its_instance_is_reached_beneath_a_policy() {
+    let open_after_move = |policy: Arc<dyn Policy>| {
+        let instance = Filesystem::new(file_and_directory());
+        let mount = Mount::new("/data", instance.clone(), Access::ReadWrite)
+            .expect("/data is a guest path");
+        let mut guest = Guest::new(&[Grant::Mount(mount.clone().with_policy(policy))]);
+        assert_eq!(guest.call_bare("open_dir"), 0, "dir must open");
+        let other = Path::root(mount, Profile::Permissive);
+        vfs::rename(&other, "dir", &other, "moved").expect("the directory must move");
+        vfs::create_dir(&other, "dir").expect("another directory must be made");
+        guest.call_bare("open_inner")
+    };
+    assert_eq!(
+        (
+            open_after_move(Arc::new(AllowsAll)),
+            open_after_move(Arc::new(Refuses("/data/moved/inner")))
+        ),
+        (0, ERRNO_ACCES),
+        "path_open of inner through a directory descriptor beneath a Mount with a Policy, \
+         once the directory moved beneath another Mount of the same Filesystem instance, through \
+         preview1 must reach it where it moved, as the Policy judges that path"
     );
 }
 
