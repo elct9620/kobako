@@ -161,7 +161,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 
 | Step | Statement |
 | --- | --- |
-| Given | a Ruby Filesystem opening real host files, its directory holding a link to a file |
+| Given | a Ruby Filesystem opening real host files, beside a link to one, where Ruby defines `File::NOFOLLOW` |
 | When | the guest reads the link |
 | Then | `open` is handed `File::NOFOLLOW`, so the read raises ELOOP and the file is not reached |
 
@@ -300,3 +300,15 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem holding a file three directories deep |
 | When | the script reads that file |
 | Then | the object's `stat` is asked about the file alone, by its whole path |
+
+## `RF-023` A Ruby Filesystem opens without a no-follow flag where its host's Ruby has none
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-011` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem holding a file, on a host whose Ruby defines no `File::NOFOLLOW`, as on Windows |
+| When | the script reads the file |
+| Then | `open` is handed no such flag, and the read answers the file's contents |
