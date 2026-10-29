@@ -74,15 +74,16 @@ module KobakoWasm
   # `rake beni:build` staged (the `host` build of build_config/wasi.rb).
   HOST_CARGO_ENV = { "BENI_VENDOR_DIR" => VENDOR_DIR }.freeze
 
+  # Asks cargo itself rather than a POSIX shell, which Windows lacks.
   def self.cargo_available?
-    system("which cargo > /dev/null 2>&1")
+    system("cargo", "--version", out: File::NULL, err: File::NULL)
   end
 
   # True when the `cargo llvm-cov` subcommand is installed. It is an
   # optional add-on (`cargo install cargo-llvm-cov`), not part of a base
   # toolchain, so the coverage tasks gate on it separately from cargo.
   def self.llvm_cov_available?
-    system("cargo llvm-cov --version > /dev/null 2>&1")
+    system("cargo", "llvm-cov", "--version", out: File::NULL, err: File::NULL)
   end
 
   # Shared guard for the Stage C build tasks: abort with an install hint

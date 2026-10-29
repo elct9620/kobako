@@ -95,8 +95,9 @@ class CargoOracle
     BuildResult.new(status: :build_failed, error: out)
   end
 
+  # Asks cargo itself rather than a POSIX shell, which Windows lacks.
   def cargo_on_path?
-    system("command -v cargo > /dev/null 2>&1")
+    system("cargo", "--version", out: File::NULL, err: File::NULL)
   end
 
   # Resolve the cargo +target_directory+ for the crate's manifest. For a
