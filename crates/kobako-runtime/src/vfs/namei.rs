@@ -23,7 +23,7 @@ use super::path::{Path, Step};
 use super::rwsem::RwSemaphoreGuard;
 use super::times::mask_file_times;
 use super::Error;
-use crate::filesystem::{Access, FileType, FilesystemError, Inode, Metadata, OpenOptions};
+use crate::filesystem::{Access, File, FileType, FilesystemError, Inode, Metadata, OpenOptions};
 use crate::mount::Mount;
 
 use super::{NAME_MAX, PATH_MAX};
@@ -86,19 +86,14 @@ impl Nameidata {
         self.child_of(&self.name)
     }
 
-    /// The dentry of `name` in the directory the walk stands in. One
-    /// already held is asked whether it still names what stands there, as
-    /// Linux's `lookup_fast` asks `d_revalidate`, and dropped for a new one
-    /// where it does not.
+    /// The dentry of `name` in the directory the walk stands in.
     fn child_of(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
-        let dentries = self.mount.filesystem().dentries();
-        if let Some(held) = dentries.d_lookup(self.dentry(), name) {
-            if self.base().d_revalidate(&held)? {
-                return Ok(held);
-            }
-            dentries.d_invalidate(&held);
-        }
-        Ok(dentries.child(self.dentry(), name))
+        lookup_one(
+            self.mount.filesystem(),
+            self.base().as_ref(),
+            self.dentry(),
+            name,
+        )
     }
 
     /// `name` as the directory the walk stands in stores it, and the
@@ -173,6 +168,26 @@ impl Nameidata {
     pub(crate) fn check(&self, access: Access) -> Result<(), Error> {
         Ok(self.mount.check(|| self.dentry_path(), access)?)
     }
+}
+
+/// The dentry of `name` in `parent`, whose directory `inode` is, as
+/// Linux's `lookup_one` finds one: a dentry already held is asked whether
+/// it still names what stands there, as `lookup_fast` asks
+/// `d_revalidate`, and dropped for a new one where it does not.
+pub(crate) fn lookup_one(
+    filesystem: &Filesystem,
+    inode: &dyn Inode,
+    parent: &Arc<Dentry>,
+    name: &str,
+) -> Result<Arc<Dentry>, FilesystemError> {
+    let dentries = filesystem.dentries();
+    if let Some(held) = dentries.d_lookup(parent, name) {
+        if inode.d_revalidate(&held)? {
+            return Ok(held);
+        }
+        dentries.d_invalidate(&held);
+    }
+    Ok(dentries.child(parent, name))
 }
 
 /// One name of a path still to walk, and whether a link's target named it.
@@ -572,7 +587,10 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileD
                 truncate: how.truncate,
             };
             let child = nd.child()?;
-            let file = nd.base().open(&child, &options)?;
+            let file = match options.create {
+                true => vfs_create(nd.base().as_ref(), nd.dentry(), &child, &options)?,
+                false => nd.base().open(&child, &options)?,
+            };
             Ok(FileDescription::File(mask_file_times(
                 file,
                 start.profile(),
@@ -608,7 +626,7 @@ pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {
     refuse_root(&nd.name, FilesystemError::AlreadyExists)?;
     let _held = down_write(&nd.mount, nd.dentry())?;
     let child = nd.child()?;
-    Ok(nd.base().create_dir(&child)?)
+    Ok(vfs_mkdir(nd.base().as_ref(), nd.dentry(), &child)?)
 }
 
 /// Remove the empty directory `path` beneath `start`.
@@ -646,6 +664,7 @@ pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
     Ok(vfs_unlink(
         nd.mount.filesystem(),
         nd.base().as_ref(),
+        nd.dentry(),
         &nd.child()?,
     )?)
 }
@@ -691,26 +710,21 @@ pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<
     // What stands at the source, and which directory stands beneath the
     // other, hold still once both are held, so each is asked then, as
     // Linux's `do_renameat2` looks the source up under `lock_rename`.
-    let _held = lock_rename(filesystem, old_dir, new_dir)?;
+    let _held = start_renaming(filesystem, (old_dir, &old), (new_dir, &new), None)?;
     let is_dir = source.look_up(&old)?.file_type == FileType::Directory;
     if names_directory && !is_dir {
         return Err(FilesystemError::NotADirectory.into());
     }
-    if new_dir.is_subdir(&old) {
-        return Err(FilesystemError::InvalidInput.into());
-    }
-    if old_dir.is_subdir(&new) {
-        return Err(FilesystemError::DirectoryNotEmpty.into());
-    }
     if is_dir && !from.mount().moves_directories() {
         return Err(FilesystemError::CrossesDevices.into());
     }
+    let (old_inode, new_inode) = (source.base().as_ref(), target.base().as_ref());
     Ok(vfs_rename(
         filesystem,
-        (old_dir, &old),
-        (new_dir, &new),
+        (old_inode, old_dir, &old),
+        (new_inode, new_dir, &new),
         None,
-        || source.base().rename(&old, target.base().as_ref(), &new),
+        || old_inode.rename(&old, new_inode, &new),
     )?)
 }
 
@@ -731,7 +745,7 @@ pub(crate) enum RenameFlag {
 /// then the one above the other before it, as a removal holds the
 /// directory above the one it removes first, and otherwise in a fixed
 /// order.
-pub(crate) fn lock_rename<'a>(
+fn lock_rename<'a>(
     filesystem: &'a Filesystem,
     old_dir: &'a Arc<Dentry>,
     new_dir: &'a Arc<Dentry>,
@@ -751,21 +765,60 @@ pub(crate) fn lock_rename<'a>(
     Ok(vec![rename, first, second.rwsem.down_write(blocking)?])
 }
 
+/// Hold both directories a move of `old` to `new` changes, as Linux's
+/// `start_renaming` does through `lock_rename`, refusing a move whose
+/// source stands above its target directory, and one whose target stands
+/// above its source directory, which only an exchange may not empty.
+pub(crate) fn start_renaming<'a>(
+    filesystem: &'a Filesystem,
+    (old_dir, old): (&'a Arc<Dentry>, &Arc<Dentry>),
+    (new_dir, new): (&'a Arc<Dentry>, &Arc<Dentry>),
+    flag: Option<RenameFlag>,
+) -> Result<Vec<RwSemaphoreGuard<'a>>, FilesystemError> {
+    let held = lock_rename(filesystem, old_dir, new_dir)?;
+    if new_dir.is_subdir(old) {
+        return Err(FilesystemError::InvalidInput);
+    }
+    if old_dir.is_subdir(new) {
+        return Err(match flag {
+            Some(RenameFlag::Exchange) => FilesystemError::InvalidInput,
+            _ => FilesystemError::DirectoryNotEmpty,
+        });
+    }
+    Ok(held)
+}
+
 /// Move `old` in its directory to `new` in its own through `rename`, the
-/// Filesystem's call, as Linux's `vfs_rename` does once `lock_rename`
+/// Filesystem's call, as Linux's `vfs_rename` does once `start_renaming`
 /// holds both directories: each name held while it moves, and its dentry
-/// following it. A directory replaced at `new` is gone for whoever holds
-/// it, and an exchange swaps the two names' dentries, as `d_exchange` does.
+/// following it. What stands on each side is checked first, as
+/// `vfs_rename` asks `may_delete_dentry` and `may_create_dentry`, and a
+/// `NoReplace` move onto a name taken is refused, as the exclusive lookup
+/// before it refuses one. A directory replaced at `new` is gone for whoever
+/// holds it, and an exchange swaps the two names' dentries, as
+/// `d_exchange` does.
 pub(crate) fn vfs_rename(
     filesystem: &Filesystem,
-    (old_dir, old): (&Arc<Dentry>, &Arc<Dentry>),
-    (new_dir, new): (&Arc<Dentry>, &Arc<Dentry>),
+    (old_inode, old_dir, old): (&dyn Inode, &Arc<Dentry>, &Arc<Dentry>),
+    (new_inode, new_dir, new): (&dyn Inode, &Arc<Dentry>, &Arc<Dentry>),
     flag: Option<RenameFlag>,
     rename: impl FnOnce() -> Result<(), FilesystemError>,
 ) -> Result<(), FilesystemError> {
     let blocking = filesystem.blocking();
     let _old = old.rwsem.down_write(blocking)?;
     let _new = new.rwsem.down_write(blocking)?;
+    let moving = kind_at(old_inode, old)?;
+    let is_dir = moving == Some(FileType::Directory);
+    may_delete_dentry(old_dir, moving, is_dir)?;
+    match (kind_at(new_inode, new)?, flag) {
+        (None, Some(RenameFlag::Exchange)) => return Err(FilesystemError::NotFound),
+        (None, _) => may_create_dentry(new_dir, None)?,
+        (Some(_), Some(RenameFlag::NoReplace)) => return Err(FilesystemError::AlreadyExists),
+        (target, Some(RenameFlag::Exchange)) => {
+            may_delete_dentry(new_dir, target, target == Some(FileType::Directory))?
+        }
+        (target, _) => may_delete_dentry(new_dir, target, is_dir)?,
+    }
     rename()?;
     let dentries = filesystem.dentries();
     if flag == Some(RenameFlag::Exchange) {
@@ -789,21 +842,97 @@ pub(crate) fn vfs_rmdir(
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
     let _victim = victim.rwsem.down_write(filesystem.blocking())?;
+    may_delete_dentry(dir, kind_at(inode, victim)?, true)?;
     inode.remove_dir(victim)?;
     filesystem.dentries().delete(dir, &victim.name());
     Ok(())
 }
 
-/// Remove the file `victim` through `inode`, the directory holding it, as
-/// Linux's `vfs_unlink` does once its caller holds that directory, the
-/// name itself held too.
+/// Remove the file `victim` in `dir` through `inode`, the directory
+/// holding it, as Linux's `vfs_unlink` does once its caller holds `dir`,
+/// the name itself held too.
 pub(crate) fn vfs_unlink(
     filesystem: &Filesystem,
     inode: &dyn Inode,
+    dir: &Dentry,
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
     let _victim = victim.rwsem.down_write(filesystem.blocking())?;
+    may_delete_dentry(dir, kind_at(inode, victim)?, false)?;
     inode.remove_file(victim)
+}
+
+/// Make the directory `child` in `dir` through `inode`, the directory
+/// holding it, as Linux's `vfs_mkdir` does once its caller holds `dir`.
+pub(crate) fn vfs_mkdir(
+    inode: &dyn Inode,
+    dir: &Dentry,
+    child: &Dentry,
+) -> Result<(), FilesystemError> {
+    may_create_dentry(dir, kind_at(inode, child)?)?;
+    inode.create_dir(child)
+}
+
+/// Make the file `child` in `dir` through `inode`, the directory holding
+/// it, and open it as `options` asks, as Linux's `vfs_create` does once
+/// its caller holds `dir`.
+pub(crate) fn vfs_create(
+    inode: &dyn Inode,
+    dir: &Dentry,
+    child: &Dentry,
+    options: &OpenOptions,
+) -> Result<Box<dyn File>, FilesystemError> {
+    may_create_dentry(dir, kind_at(inode, child)?)?;
+    let options = OpenOptions {
+        create_new: true,
+        ..*options
+    };
+    inode.open(child, &options)
+}
+
+/// What stands at `dentry` in the directory `inode` is, a link reported
+/// as itself, or `None` where nothing does, as a dentry is negative.
+fn kind_at(inode: &dyn Inode, dentry: &Dentry) -> Result<Option<FileType>, FilesystemError> {
+    match inode.symlink_metadata(dentry) {
+        Ok(metadata) => Ok(Some(metadata.file_type)),
+        Err(FilesystemError::NotFound) => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+/// Refuse to make an entry where `child`, what stands at its name, says
+/// one is, or in `dir` once it was removed, as Linux's
+/// `may_create_dentry` refuses.
+fn may_create_dentry(dir: &Dentry, child: Option<FileType>) -> Result<(), FilesystemError> {
+    if child.is_some() {
+        return Err(FilesystemError::AlreadyExists);
+    }
+    if dir.is_dead() {
+        return Err(FilesystemError::NotFound);
+    }
+    Ok(())
+}
+
+/// Refuse to remove `victim`, what stands at a name in `dir`, where
+/// nothing does, where it is not the kind `is_dir` asks for, or once `dir`
+/// was removed, as Linux's `may_delete_dentry` refuses.
+fn may_delete_dentry(
+    dir: &Dentry,
+    victim: Option<FileType>,
+    is_dir: bool,
+) -> Result<(), FilesystemError> {
+    let Some(victim) = victim else {
+        return Err(FilesystemError::NotFound);
+    };
+    match (is_dir, victim == FileType::Directory) {
+        (true, false) => return Err(FilesystemError::NotADirectory),
+        (false, true) => return Err(FilesystemError::IsADirectory),
+        _ => {}
+    }
+    if dir.is_dead() {
+        return Err(FilesystemError::NotFound);
+    }
+    Ok(())
 }
 
 /// Refuse a guest path ending in `.` or `..` as the refusal `[dot,

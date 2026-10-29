@@ -3,10 +3,11 @@
 //! layer with its dentry. Each call holds that directory's lock as the
 //! VFS helpers overlayfs calls do: shared while a name is looked up, as
 //! `lookup_one_unlocked`, and exclusive while one is made, removed, or
-//! moved, as `start_creating`, `start_removing`, and `lock_rename`. A
-//! removal or a move goes through the VFS's own `vfs_rmdir`,
-//! `vfs_unlink`, and `vfs_rename`, as overlayfs's do, so it holds what it
-//! removes or moves and the Layer's dentries follow it.
+//! moved, as `start_creating`, `start_removing`, and `start_renaming`. A
+//! name is found through the VFS's `lookup_one`, and an entry made,
+//! removed, or moved through its `vfs_mkdir`, `vfs_create`, `vfs_rmdir`,
+//! `vfs_unlink`, and `vfs_rename`, as overlayfs's are, so the VFS checks
+//! what stands there and the Layer's dentries follow each change.
 
 use std::any::Any;
 use std::sync::Arc;
@@ -14,8 +15,8 @@ use std::sync::Arc;
 use super::super::tmpfs::TmpfsFile;
 use super::super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs};
 use crate::vfs::{
-    lock_rename, vfs_rename, vfs_rmdir, vfs_unlink, Dentry, Filesystem, RenameFlag,
-    RwSemaphoreGuard,
+    lookup_one, start_renaming, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Dentry,
+    Filesystem, RenameFlag, RwSemaphoreGuard,
 };
 
 /// The attribute marking a directory opaque, and its value, as
@@ -41,8 +42,8 @@ impl OverlayPath {
     }
 
     /// The dentry of `name` in this directory.
-    fn child(&self, name: &str) -> Arc<Dentry> {
-        self.filesystem.dentries().child(&self.dentry, name)
+    fn child(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
+        lookup_one(&self.filesystem, self.dir.as_ref(), &self.dentry, name)
     }
 
     fn shared(&self) -> Result<RwSemaphoreGuard<'_>, FilesystemError> {
@@ -105,11 +106,17 @@ impl OverlayPath {
         to: &str,
         flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
-        let _held = lock_rename(&self.filesystem, &self.dentry, &target.dentry)?;
+        let (old, new) = (self.child(from)?, target.child(to)?);
+        let _held = start_renaming(
+            &self.filesystem,
+            (&self.dentry, &old),
+            (&target.dentry, &new),
+            flag,
+        )?;
         vfs_rename(
             &self.filesystem,
-            (&self.dentry, &self.child(from)),
-            (&target.dentry, &target.child(to)),
+            (self.dir.as_ref(), &self.dentry, &old),
+            (target.dir.as_ref(), &target.dentry, &new),
             flag,
             || self.upper()?.rename2(from, target.upper()?, to, flag),
         )
@@ -131,22 +138,35 @@ impl OverlayPath {
         Ok(())
     }
 
-    /// A file made here holds the directory, as `O_CREAT` does.
+    /// Open the file standing at `name`.
     pub(super) fn open(
         &self,
         name: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
-        let _held = match options.create || options.create_new {
-            true => self.exclusive()?,
-            false => self.shared()?,
-        };
-        self.dir.open(&self.child(name), options)
+        let _held = self.shared()?;
+        self.dir.open(&*self.child(name)?, options)
+    }
+
+    /// Make the file `name` and open it, holding the directory, as
+    /// `O_CREAT` does.
+    pub(super) fn create(
+        &self,
+        name: &str,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn File>, FilesystemError> {
+        let _held = self.exclusive()?;
+        vfs_create(
+            self.dir.as_ref(),
+            &self.dentry,
+            &*self.child(name)?,
+            options,
+        )
     }
 
     pub(super) fn open_dir(&self, name: &str) -> Result<Self, FilesystemError> {
         let _held = self.shared()?;
-        let dentry = self.child(name);
+        let dentry = self.child(name)?;
         Ok(Self {
             dir: self.dir.open_dir(&dentry)?,
             dentry,
@@ -160,17 +180,17 @@ impl OverlayPath {
 
     pub(super) fn symlink_metadata(&self, name: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.shared()?;
-        self.dir.symlink_metadata(&self.child(name))
+        self.dir.symlink_metadata(&*self.child(name)?)
     }
 
     pub(super) fn lookup(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.shared()?;
-        self.dir.lookup(&self.child(name))
+        self.dir.lookup(&*self.child(name)?)
     }
 
     pub(super) fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.shared()?;
-        self.dir.read_link(&self.child(name))
+        self.dir.read_link(&*self.child(name)?)
     }
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -180,7 +200,7 @@ impl OverlayPath {
 
     pub(super) fn create_dir(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.exclusive()?;
-        self.dir.create_dir(&self.child(name))
+        vfs_mkdir(self.dir.as_ref(), &self.dentry, &*self.child(name)?)
     }
 
     pub(super) fn remove_dir(&self, name: &str) -> Result<(), FilesystemError> {
@@ -189,12 +209,17 @@ impl OverlayPath {
             &self.filesystem,
             self.dir.as_ref(),
             &self.dentry,
-            &self.child(name),
+            &self.child(name)?,
         )
     }
 
     pub(super) fn remove_file(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.exclusive()?;
-        vfs_unlink(&self.filesystem, self.dir.as_ref(), &self.child(name))
+        vfs_unlink(
+            &self.filesystem,
+            self.dir.as_ref(),
+            &self.dentry,
+            &self.child(name)?,
+        )
     }
 }

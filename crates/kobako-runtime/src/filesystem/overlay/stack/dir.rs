@@ -232,17 +232,9 @@ impl OverlayFs {
                 let upper = self.upper()?;
                 let dir = self.upper_dir(chain, upper)?;
                 if !dir.is_whiteout(name) {
-                    return dir.open(name, options);
+                    return dir.create(name, options);
                 }
-                self.exchange_in(&dir, name, |work, temp| {
-                    work.open(
-                        temp,
-                        &OpenOptions {
-                            create_new: true,
-                            ..*options
-                        },
-                    )
-                })
+                self.exchange_in(&dir, name, |work, temp| work.create(temp, options))
             }
         }
     }
