@@ -43,7 +43,8 @@ pub fn read_link(start: &Path, path: &str) -> Result<(), Error> {
     Err(FilesystemError::Unsupported.into())
 }
 
-#[cfg(test)]
+/// Only a unix host lets a test make a link.
+#[cfg(all(test, unix))]
 mod tests {
     use std::fs;
     use std::sync::Arc;
@@ -56,7 +57,6 @@ mod tests {
     // A host link reports the length of where it points, so only the VFS
     // keeps that length from the guest.
     // @behavior RT-173
-    #[cfg(unix)]
     #[test]
     fn a_link_reports_no_size_however_its_filesystem_sizes_it() {
         let host = std::env::temp_dir().join(format!("kobako-link-size-{}", std::process::id()));

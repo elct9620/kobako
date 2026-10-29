@@ -565,8 +565,10 @@ mod tests {
     }
 
     /// A Policy refusing everything beneath `/data/refused`.
+    #[cfg(unix)]
     struct RefusesRefused;
 
+    #[cfg(unix)]
     impl crate::mount::Policy for RefusesRefused {
         fn allows(&self, path: &str, _access: super::super::Access) -> bool {
             !path.starts_with("/data/refused")
