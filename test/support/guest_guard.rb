@@ -63,6 +63,14 @@ module GuestGuard
     skip "Windows has no ps to report a process's start time" if Gem.win_platform?
   end
 
+  # Whether a Bind appends to a host file in one step. Windows has no append
+  # to switch one handle to for a single write, so a Bind there refuses one.
+  def bind_appends? = !Gem.win_platform?
+
+  # Whether a Bind reports a host entry's identity. Windows reports none, so
+  # beneath a block a directory opened there is not reached again.
+  def bind_identity? = !Gem.win_platform?
+
   # Whether the artifact cache stores to disk here. It trusts only a cache
   # directory its user owns, which only Unix reports, so Windows compiles
   # every Guest Binary itself.
