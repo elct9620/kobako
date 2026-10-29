@@ -24,7 +24,7 @@ class TestRuntime < Minitest::Test
   def test_default_path_resolves_under_project_data_dir
     expected = TestPaths.data("kobako.wasm")
     assert_equal expected, Kobako::Runtime.default_path
-    assert Kobako::Runtime.default_path.start_with?("/"), "default_path must be absolute"
+    assert File.absolute_path?(Kobako::Runtime.default_path), "default_path must be absolute"
   end
 
   def test_from_path_repeated_calls_return_independent_instances
