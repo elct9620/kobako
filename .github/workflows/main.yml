@@ -53,9 +53,8 @@ jobs:
           ruby-version: '4.0'
           bundler-cache: true
           rubygems: '3.6.9'
-      # The sources come from the build's own list; the mruby archive is
-      # keyed by what stages it: its build config, beni's version, and the
-      # toolchain.
+      # The sources come from the build's own list, which names what stages
+      # the mruby archive too, so the key and the build agree on staleness.
       - name: Key the Guest Binaries by their sources
         id: sources
         run: echo "hash=$(bundle exec rake wasm:sources | xargs sha256sum | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -64,7 +63,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: data/*.wasm
-          key: guests-${{ steps.sources.outputs.hash }}-${{ hashFiles('build_config/**', 'Gemfile.lock', 'rust-toolchain.toml') }}
+          key: guests-${{ steps.sources.outputs.hash }}
       - name: Set up Rust toolchain
         if: steps.guests.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-rust

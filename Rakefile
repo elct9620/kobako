@@ -72,7 +72,10 @@ Dir.glob("tasks/**/*.rake").each { |t| load t }
 # the json suite (test/e2e/json/) the json variant — omitting one lets its
 # tests skip silently under CI. All are gitignored and mtime-idempotent, so
 # this only does real work on a clean clone or when the wasm sources change.
-task test: ["wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode", "wasm:build:json", "wasm:build:full"]
+# The oracle tests build guest crates on the host, linking the mruby archive
+# beni:build stages.
+task test: ["beni:build", "wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode", "wasm:build:json",
+            "wasm:build:full"]
 
 # `crates:test` joins the default because the core envelope's only pin
 # lives there: the envelope has one implementation, so the golden vectors

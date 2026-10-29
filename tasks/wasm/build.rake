@@ -4,12 +4,10 @@
 #
 #   * `rake wasm:build` — cross-compiles the kobako-wasm shell crate against
 #                         the vendored wasi-sdk + libmruby.a and writes the
-#                         Guest Binary to `data/kobako.wasm`. Runs
+#                         Guest Binary to `data/kobako.wasm`. Depends on
 #                         `beni:build` (Stages A+B: toolchain vendoring +
-#                         libmruby.a) first, so the full pipeline runs
-#                         end-to-end from a clean clone with a single
-#                         command; a current Guest Binary restored without
-#                         the archive skips both.
+#                         libmruby.a) so the full pipeline runs end-to-end
+#                         from a clean clone with a single command.
 #   * `rake wasm:clean` — removes every Guest Binary variant and the wasm
 #                         crate's `target/` cache directory.
 #
@@ -20,18 +18,11 @@
 
 require_relative "../support/wasm"
 
-# Build what +builder+ names, staging the mruby archive first where it
-# needs one.
-def build_guest(builder)
-  Rake::Task["beni:build"].invoke if builder.needs_archive?
-  KobakoWasm.ensure_cargo!
-  builder.build
-end
-
 namespace :wasm do
   desc "Build Guest Binary (data/kobako.wasm) from kobako-wasm crate + libmruby.a (Stage C)"
-  task :build do
-    build_guest(KobakoWasm::GuestBuilder.new)
+  task build: ["beni:build"] do
+    KobakoWasm.ensure_cargo!
+    KobakoWasm::GuestBuilder.new.build
   end
 
   # One build task per capability variant, table-driven so the bodies do
@@ -39,8 +30,9 @@ namespace :wasm do
   # KobakoWasm so the build tasks, clean list, and check gate share it.
   KobakoWasm::VARIANT_BUILDS.each do |name, (features, output)|
     desc "Build the #{name.delete_prefix("build:")} variant Guest Binary (#{File.basename(output)})"
-    task name do
-      build_guest(KobakoWasm::GuestBuilder.new(features: features, output: output))
+    task name => ["beni:build"] do
+      KobakoWasm.ensure_cargo!
+      KobakoWasm::GuestBuilder.new(features: features, output: output).build
     end
   end
 
