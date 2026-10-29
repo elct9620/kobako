@@ -13,8 +13,11 @@
 #                               crates manifest and cargo guard it shares.
 #                               Characterization only — not in the release
 #                               gate, no threshold enforced.
-#   * `rake crates:graph`     — the build graphs the published crates promise,
-#                               across both Rust workspaces.
+#   * `rake crates:graph`     — the build graphs the published host crates
+#                               promise.
+#   * `rake wasm:graph`       — the same for the guest tiers, which link the
+#                               mruby archive, so it lives in the `wasm:`
+#                               namespace with the guest's other checks.
 
 require_relative "support/wasm"
 require_relative "support/rust_coverage"
@@ -35,7 +38,8 @@ CRATES_MANIFEST = File.expand_path("../crates/Cargo.toml", __dir__)
 # expand nothing into it — except the magnus probe, which reads every edge.
 #
 # The guest tiers compile on the host and link the archive Stage B
-# stages, hence the +beni:build+ prerequisite and +KobakoWasm::HOST_CARGO_ENV+.
+# stages, hence +wasm:graph+'s +beni:build+ prerequisite and
+# +KobakoWasm::HOST_CARGO_ENV+.
 CratesGraphProbe = Struct.new(:crate, :dir, :features, :edges, :denied, :allowed, :built, keyword_init: true) do
   def label = [crate, features].compact.join(" ")
 
@@ -83,6 +87,19 @@ CRATES_GRAPH_PROBES = [
   CratesGraphProbe.new(crate: "kobako-wasmtime", dir: CRATES_WORKSPACE_DIR, denied: %w[magnus], built: false)
 ].freeze
 
+# The probes of the guest workspace, and those of the host's.
+GUEST_GRAPH_PROBES, HOST_GRAPH_PROBES =
+  CRATES_GRAPH_PROBES.partition { |probe| probe.dir == KobakoWasm::WASM_WORKSPACE_DIR }.map(&:freeze)
+
+# Report whether each of +probes+ keeps its promise, as the gate +name+.
+def check_graphs(name, probes)
+  violations = probes.filter_map { |probe| crates_graph_violation(probe) }
+  puts KobakoReport.gate(name: name,
+                         ok_summary: "#{probes.size} build graphs leave out what they promise to",
+                         violations: violations, noun: "violation",
+                         hint: "Each promise is written in docs/guides/customization.md.")
+end
+
 # Why +probe+ breaks its promise, or +nil+ when it keeps it.
 def crates_graph_violation(probe)
   Dir.chdir(probe.dir) do
@@ -102,13 +119,16 @@ namespace :crates do
     sh "cargo", "test", "--manifest-path", CRATES_MANIFEST, "--workspace"
   end
 
-  desc "Check each published crate's build graph leaves out what its seam promises to"
+  desc "Check each published host crate's build graph leaves out what its seam promises to"
+  task :graph do
+    check_graphs("crates:graph", HOST_GRAPH_PROBES)
+  end
+end
+
+namespace :wasm do
+  desc "Check each guest tier's build graph leaves out what its seam promises to"
   task graph: ["beni:build"] do
-    violations = CRATES_GRAPH_PROBES.filter_map { |probe| crates_graph_violation(probe) }
-    puts KobakoReport.gate(name: "crates:graph",
-                           ok_summary: "#{CRATES_GRAPH_PROBES.size} build graphs leave out what they promise to",
-                           violations: violations, noun: "violation",
-                           hint: "Each promise is written in docs/guides/customization.md.")
+    check_graphs("wasm:graph", GUEST_GRAPH_PROBES)
   end
 end
 

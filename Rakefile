@@ -86,6 +86,6 @@ task test: ["beni:build", "wasm:build", "wasm:build:regexp", "wasm:build:regexp_
 # in `crates/kobako-transport` are what the wire's consistency guarantee
 # rests on for that layer, and a default run that skipped them would
 # report green on an unverified wire. The guest crates' own units stay in
-# `wasm:test`, which carries no such claim. `crates:graph` holds what no
-# test binary can: the build graphs the published crates promise.
-task default: %i[compile test crates:test crates:graph rubocop steep]
+# `wasm:test`, which carries no such claim. `crates:graph` and `wasm:graph`
+# hold what no test binary can: the build graphs the published crates promise.
+task default: %i[compile test crates:test crates:graph wasm:graph rubocop steep]

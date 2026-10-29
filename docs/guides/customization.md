@@ -162,8 +162,8 @@ A shell naming its own `MrbGuest::Codec` never asks for `msgpack`. The SDK defau
 to a codec because an embedder names it directly; with the feature off it reaches no
 payload codec.
 
-`crates:graph` builds each tier on every release and checks that no codec
-appears in the graph. Each build includes the tier's tests, since a library whose
+`crates:graph` and `wasm:graph` build each tier on every release and check that
+no codec appears in the graph. Each build includes the tier's tests, since a library whose
 tests still need a codec has not moved it out of the code. A `[dev-dependencies]`
 codec is allowed, because no consumer installs it.
 
