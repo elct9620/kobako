@@ -73,8 +73,7 @@ pub trait Inode: Any + Send + Sync {
 
     /// What `dentry` names without following a link standing there, as
     /// `lstat` answers, since the runtime follows a link itself. A link is
-    /// reported as one and nothing of where it points: no size, and no way
-    /// to read it.
+    /// reported as one; the runtime keeps its size from the guest.
     fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
 
     /// The name `dentry` carries spelled as this directory stores it; a
@@ -184,7 +183,7 @@ pub enum FileType {
 #[non_exhaustive]
 pub struct Metadata {
     pub file_type: FileType,
-    /// The length in bytes; zero for a directory or a link.
+    /// The length in bytes; zero for a directory.
     pub len: u64,
     /// The device and inode numbers naming what the path holds, as
     /// `st_dev` and `st_ino` do. An `ino` of zero reports none, so a

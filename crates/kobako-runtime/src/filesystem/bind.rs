@@ -182,16 +182,14 @@ fn to_file_type(host: cap_std::fs::FileType) -> FileType {
     }
 }
 
-/// What a host entry is, a file's size alone counted: a link reports no
-/// size, so nothing of where it points reaches the guest. The host names
-/// its identity, link count, and times on unix; elsewhere a Bind
+/// What a host entry is, the size of a file or a link counted. The host
+/// names its identity, link count, and times on unix; elsewhere a Bind
 /// reports none.
 fn to_metadata(metadata: cap_std::fs::Metadata) -> Metadata {
     let file_type = to_file_type(metadata.file_type());
-    let len = if file_type == FileType::File {
-        metadata.len()
-    } else {
-        0
+    let len = match file_type {
+        FileType::File | FileType::Symlink => metadata.len(),
+        FileType::Directory | FileType::Unknown => 0,
     };
     #[cfg(unix)]
     {
@@ -250,10 +248,8 @@ fn open_in(dir: &Dir, name: &str, options: &OpenOptions) -> Result<Box<dyn File>
     // a link swapped in, since the runtime follows a link itself.
     open.follow(FollowSymlinks::No);
     let found = dir.symlink_metadata(name);
-    match found.map(|metadata| to_file_type(metadata.file_type())) {
-        Ok(FileType::Symlink) => return Err(FilesystemError::FilesystemLoop),
-        Ok(FileType::Unknown) => return Err(FilesystemError::PermissionDenied),
-        _ => {}
+    if let Ok(FileType::Symlink) = found.map(|metadata| to_file_type(metadata.file_type())) {
+        return Err(FilesystemError::FilesystemLoop);
     }
     #[cfg(unix)]
     {
@@ -825,12 +821,16 @@ mod tests {
             .into_iter()
             .find(|entry| entry.name == "link")
             .map(|entry| entry.file_type);
-        let shape = |metadata: Metadata| (metadata.file_type, metadata.len);
         assert_eq!(
-            (directory.symlink_metadata("link").map(shape), listed),
-            (Ok((FileType::Symlink, 0)), Some(FileType::Symlink)),
+            (
+                directory
+                    .symlink_metadata("link")
+                    .map(|metadata| metadata.file_type),
+                listed
+            ),
+            (Ok(FileType::Symlink), Some(FileType::Symlink)),
             "a host link looked up through Bind::symlink_metadata and listed through \
-             Bind::entries must report a link with no size"
+             Bind::entries must report a link"
         );
     }
 

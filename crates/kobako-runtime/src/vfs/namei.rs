@@ -600,21 +600,33 @@ pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileD
 }
 
 /// What stands at the path answers before any access is judged, as Linux's
-/// `open` does on a read-only mount.
+/// `do_open` answers it on a read-only mount.
 fn refuse_what_stands(existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
     let refusal = match existing {
         None if !how.create => Some(FilesystemError::NotFound),
         Some(_) if how.create && how.exclusive => Some(FilesystemError::AlreadyExists),
-        Some(FileType::Directory) if how.write || how.truncate || how.create => {
-            Some(FilesystemError::IsADirectory)
-        }
+        Some(FileType::Directory) if how.create => Some(FilesystemError::IsADirectory),
         Some(FileType::Directory) | None => None,
         Some(_) if how.directory => Some(FilesystemError::NotADirectory),
         Some(_) => None,
     };
     match refusal {
         Some(error) => Err(error.into()),
-        None => Ok(()),
+        None => may_open(existing, how),
+    }
+}
+
+/// Refuse to open what stands at the path as Linux's `may_open` does: a
+/// directory for writing, and a device, as every Mount is `nodev`. A FIFO
+/// or a socket, which Linux opens, is refused too, as the runtime keeps no
+/// peer for either.
+fn may_open(existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
+    match existing {
+        Some(FileType::Directory) if how.write || how.truncate => {
+            Err(FilesystemError::IsADirectory.into())
+        }
+        Some(FileType::Unknown) => Err(FilesystemError::PermissionDenied.into()),
+        _ => Ok(()),
     }
 }
 
@@ -1220,6 +1232,25 @@ mod tests {
     // the VFS marking its dentry dead, which is where a make and an open of
     // the same name would take the dentry about to die.
     // @behavior RT-163
+    // A Tmpfs whiteout is a character device 0:0, which a Tmpfs opens as
+    // unsupported, so only the VFS refusing it as a device answers EACCES.
+    // @behavior RT-174
+    #[test]
+    fn an_entry_neither_file_nor_directory_opens_as_access_denied() {
+        let tmpfs = Tmpfs::new();
+        tmpfs.whiteout("w").expect("the whiteout must be made");
+        let root = root_of(Filesystem::new(Arc::new(tmpfs)));
+        let how = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        assert_eq!(
+            vfs::open(&root, "w", &how, true).err(),
+            Some(vfs::Error::Filesystem(FilesystemError::PermissionDenied)),
+            "a character device through vfs::open must answer PermissionDenied"
+        );
+    }
+
     // A held name its Filesystem answers as changed outside the runtime no
     // longer stands for what is at the name now, so the removal reaches a
     // dentry of its own and the directory a descriptor holds stays alive.
