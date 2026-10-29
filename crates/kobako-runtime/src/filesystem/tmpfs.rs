@@ -500,8 +500,12 @@ impl Inode for Tmpfs {
         }
     }
 
-    /// A Tmpfs matches names byte for byte.
+    /// A Tmpfs matches names byte for byte, and records what a directory
+    /// standing at the name is, as tmpfs's lookup hands `d_add` its inode.
     fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        if let Ok(Node::Directory(dir)) = self.dir.get(&dentry.name()) {
+            dentry.d_instantiate(Identity::of(&dir.metadata(self.tree.dev)));
+        }
         Ok(dentry.name())
     }
 

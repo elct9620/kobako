@@ -308,8 +308,20 @@ impl Inode for Bind {
         }))
     }
 
+    /// The name as the host spells it, recording what stands there once it
+    /// is spelled so, as a lookup hands `d_add` the inode it found, so
+    /// `d_revalidate` can tell a dentry the host replaced behind the
+    /// runtime's back. That costs one host stat a name.
     fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.at(dentry, lookup::lookup)
+        self.at(dentry, |dir, name| {
+            let stored = lookup::lookup(dir, name)?;
+            if stored == name {
+                if let Ok(found) = dir.symlink_metadata(name) {
+                    dentry.d_instantiate(Identity::of(&to_metadata(found)));
+                }
+            }
+            Ok(stored)
+        })
     }
 
     /// The host may move or remake what a dentry names behind the runtime's
