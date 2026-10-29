@@ -48,6 +48,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-runtime/src/vfs/times.rs`
 - `crates/kobako-runtime/src/vfs/namei.rs`
 - `crates/kobako-runtime/src/vfs/dentry.rs`
+- `crates/kobako-runtime/src/vfs/stat.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/cache.rs`
 - `crates/kobako-wasmtime/src/abi.rs`
@@ -1863,3 +1864,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a directory whose ancestors move again and again through the runtime |
 | When | its path is asked at the same time |
 | Then | each path answered is one the directory stood at |
+
+## `RT-173` A link reports no size to the guest
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-048` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount whose Filesystem reports a link with the size of where it points |
+| When | the guest looks the link up without following it |
+| Then | the link reports a size of zero |
+
+## `RT-174` The runtime opens only a file or a directory, whatever its Filesystem
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-090` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount whose Filesystem holds an entry that is neither a file, a directory, nor a link |
+| When | the guest opens the entry |
+| Then | the open answers EACCES |

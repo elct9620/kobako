@@ -532,7 +532,7 @@ both live in the upper and never show, so no name is reserved
 | --- | --- |
 | Given | a Bind whose host directory holds a link to a file beside it |
 | When | the link is looked up, and its directory is listed |
-| Then | both report a link with no size |
+| Then | both report a link |
 
 ## `FS-049` An Overlay reports a link its Layer holds as a link
 
