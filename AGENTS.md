@@ -146,16 +146,16 @@ The gem bundles only the pure default; capability variants are Release assets de
 
 ### Release gate
 
-`bundle exec rake` is the gate CI runs, and the Stop hook runs it too.
+`bundle exec rake` is the gate, and the Stop hook runs it. It runs two partitions, which CI runs in jobs of their own.
 
 | Part | Rule |
 |---|---|
-| default task | compile, test, `crates:test`, `crates:graph`, rubocop, steep |
-| `crates:test` | in the default; it holds the envelope's only pin |
-| `crates:graph` | in the default; build graphs no test binary can host |
-| `wasm:test` | a separate CI step |
+| `check:guest` | every Guest Binary, `wasm:test`, `wasm:graph`; the only one reaching beni |
+| `check:host` | compile, test, `crates:test`, `crates:graph`, rubocop, steep |
+| `crates:test` | in `check:host`; it holds the envelope's only pin |
+| `crates:graph`, `wasm:graph` | build graphs no test binary can host |
 
-A new check is a test beside what it guards; a task joins the default only when no test can host it.
+`check:host` tests the Guest Binaries already built, so CI hands each host the ones one job built. A new check is a test beside what it guards; a task joins a partition only when no test can host it.
 
 ### Commands
 
