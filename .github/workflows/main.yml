@@ -36,16 +36,117 @@ jobs:
       - name: Check the specification is written the way a reference line is
         run: sumi fmt --check
 
-  build:
+  # A Guest Binary is the same wasm whichever host builds it, so one job
+  # builds every variant, as a release does, and every build job tests
+  # that one. It is cached by what the build reads, and the guest crates'
+  # own checks run only when it is built again.
+  wasm:
     runs-on: ubuntu-latest
-    name: Ruby ${{ matrix.ruby }}
+    name: Guest Binary
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
+        with:
+          ruby-version: '4.0'
+          bundler-cache: true
+          rubygems: '3.6.9'
+      # The sources come from the build's own list; the mruby archive is
+      # keyed by what stages it: its build config, beni's version, and the
+      # toolchain.
+      - name: Key the Guest Binaries by their sources
+        id: sources
+        run: echo "hash=$(bundle exec rake wasm:sources | xargs sha256sum | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Restore the Guest Binaries
+        id: guests
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: data/*.wasm
+          key: guests-${{ steps.sources.outputs.hash }}-${{ hashFiles('build_config/**', 'Gemfile.lock', 'rust-toolchain.toml') }}
+      - name: Set up Rust toolchain
+        if: steps.guests.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy
+          targets: wasm32-wasip1
+      - name: Cache cargo
+        if: steps.guests.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            wasm
+            wasm/kobako-baker
+      - name: Build every Guest Binary variant
+        if: steps.guests.outputs.cache-hit != 'true'
+        run: bundle exec rake wasm:build wasm:build:regexp wasm:build:regexp_unicode wasm:build:json wasm:build:full
+      - name: Rust unit tests (wasm/, host target)
+        if: steps.guests.outputs.cache-hit != 'true'
+        run: bundle exec rake wasm:test
+      - name: cargo clippy (wasm/ and the baker, host target)
+        if: steps.guests.outputs.cache-hit != 'true'
+        env:
+          BENI_VENDOR_DIR: ${{ github.workspace }}/vendor
+        run: |
+          cargo clippy --manifest-path wasm/Cargo.toml --workspace --all-targets -- -D warnings
+          cargo clippy --manifest-path wasm/kobako-baker/Cargo.toml --all-targets -- -D warnings
+      - name: cargo clippy (wasm/, wasm32-wasip1)
+        if: steps.guests.outputs.cache-hit != 'true'
+        # beni-sys requires the mruby archive paths explicitly on cross
+        # targets; building the Guest Binaries above staged them.
+        env:
+          MRUBY_LIB_DIR: ${{ github.workspace }}/vendor/mruby/build/wasi/lib
+          WASI_SDK_PATH: ${{ github.workspace }}/vendor/wasi-sdk
+        run: cargo clippy --manifest-path wasm/Cargo.toml --workspace --target wasm32-wasip1 -- -D warnings
+      - name: cargo doc (wasm/ and the baker, private items)
+        if: steps.guests.outputs.cache-hit != 'true'
+        env:
+          RUSTDOCFLAGS: -D warnings
+          BENI_VENDOR_DIR: ${{ github.workspace }}/vendor
+        run: |
+          cargo doc --manifest-path wasm/Cargo.toml --workspace --no-deps --document-private-items
+          cargo doc --manifest-path wasm/kobako-baker/Cargo.toml --no-deps --document-private-items
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kobako-wasm
+          path: data/*.wasm
+          retention-days: 1
+          if-no-files-found: error
+
+  # Every Ruby a native gem ships for runs on Linux; each other host the
+  # gem ships for runs the newest, since what differs there is the host's
+  # own calls a Bind makes, not the Ruby ABI. The Linux jobs keep the
+  # names the pull request ruleset requires.
+  build:
+    runs-on: ${{ matrix.os }}
+    name: Ruby ${{ matrix.ruby }}${{ matrix.suffix }}
+    needs: wasm
     strategy:
       fail-fast: false
       matrix:
+        os:
+          - ubuntu-latest
+          - macos-26
+          - windows-latest
         ruby:
           - '3.3'
           - '3.4'
           - '4.0'
+        exclude:
+          - os: macos-26
+            ruby: '3.3'
+          - os: macos-26
+            ruby: '3.4'
+          - os: windows-latest
+            ruby: '3.3'
+          - os: windows-latest
+            ruby: '3.4'
+        include:
+          - os: macos-26
+            suffix: ' (macOS)'
+          - os: windows-latest
+            suffix: ' (Windows)'
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,7 +162,6 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           components: clippy, rustfmt
-          targets: wasm32-wasip1
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -69,12 +169,17 @@ jobs:
             .
             crates
             wasm
-            wasm/kobako-baker
+      # Fetched after the checkout, so each is newer than its sources and
+      # the default task tests it rather than building it again.
+      - name: Fetch the Guest Binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: kobako-wasm
+          path: data/
       - name: Run the default task
         run: bundle exec rake
-      - name: Rust unit tests (wasm/, host target)
-        run: bundle exec rake wasm:test
       - name: cargo fmt --check (every workspace)
+        if: matrix.os == 'ubuntu-latest' && matrix.ruby == '4.0'
         run: |
           cargo fmt --manifest-path ext/kobako/Cargo.toml -- --check
           cargo fmt --manifest-path crates/Cargo.toml --all -- --check
@@ -84,56 +189,9 @@ jobs:
         run: cargo clippy --manifest-path Cargo.toml --workspace --all-targets -- -D warnings
       - name: cargo clippy (crates/, host workspace)
         run: cargo clippy --manifest-path crates/Cargo.toml --workspace --all-targets -- -D warnings
-      - name: cargo clippy (wasm/ and the baker, host target)
-        env:
-          BENI_VENDOR_DIR: ${{ github.workspace }}/vendor
-        run: |
-          cargo clippy --manifest-path wasm/Cargo.toml --workspace --all-targets -- -D warnings
-          cargo clippy --manifest-path wasm/kobako-baker/Cargo.toml --all-targets -- -D warnings
-      - name: cargo clippy (wasm/, wasm32-wasip1)
-        # beni-sys requires the Stage B archive paths explicitly on
-        # cross targets; "Run the default task" above built them.
-        env:
-          MRUBY_LIB_DIR: ${{ github.workspace }}/vendor/mruby/build/wasi/lib
-          WASI_SDK_PATH: ${{ github.workspace }}/vendor/wasi-sdk
-        run: cargo clippy --manifest-path wasm/Cargo.toml --workspace --target wasm32-wasip1 -- -D warnings
-      - name: cargo doc (every workspace, private items)
+      - name: cargo doc (ext and crates/, private items)
         env:
           RUSTDOCFLAGS: -D warnings
-          BENI_VENDOR_DIR: ${{ github.workspace }}/vendor
         run: |
           cargo doc --manifest-path Cargo.toml --workspace --no-deps --document-private-items
           cargo doc --manifest-path crates/Cargo.toml --workspace --no-deps --document-private-items
-          cargo doc --manifest-path wasm/Cargo.toml --workspace --no-deps --document-private-items
-          cargo doc --manifest-path wasm/kobako-baker/Cargo.toml --no-deps --document-private-items
-
-  # A Directory answers through the host's own calls, and some differ on
-  # macOS, such as how the host spells a name it stores. The default task
-  # runs those code paths here; the matrix above stays on Linux.
-  macos:
-    runs-on: macos-26
-    name: Ruby 4.0 (macOS)
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
-        with:
-          ruby-version: '4.0'
-          bundler-cache: true
-          rubygems: '3.6.9'
-      - name: Set up Rust toolchain
-        uses: ./.github/actions/setup-rust
-        with:
-          targets: wasm32-wasip1
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: |
-            .
-            crates
-            wasm
-            wasm/kobako-baker
-      - name: Run the default task
-        run: bundle exec rake
