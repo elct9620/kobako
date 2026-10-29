@@ -20,6 +20,11 @@ class TestE2EFirstRunInterrupt < Minitest::Test
   DEADLINE = 60
   HAND_OFF = 0.05
 
+  def setup
+    super
+    require_child_sigint!
+  end
+
   CHILD = <<~RUBY
     require "kobako"
     sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"))

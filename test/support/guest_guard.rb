@@ -48,4 +48,11 @@ module GuestGuard
       flunk "cargo build --release #{oracle.bin_name} failed:\n#{build.error}"
     end
   end
+
+  # A host that can send one child process a SIGINT. Windows sends it to
+  # the whole console instead, the test runner's shell included, so a test
+  # needing it skips there, under CI too.
+  def require_child_sigint!
+    skip "Windows sends SIGINT to the whole console, not one child process" if Gem.win_platform?
+  end
 end
