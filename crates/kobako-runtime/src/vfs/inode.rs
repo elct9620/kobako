@@ -10,7 +10,7 @@ use crate::locking::{RwSemaphore, RwSemaphoreGuard};
 
 /// What a directory is, apart from where it stands: the device and inode
 /// numbers its Filesystem names it by, as Linux reads `i_ino` and `s_dev`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Identity {
     dev: u64,
     ino: u64,
@@ -20,10 +20,13 @@ impl Identity {
     /// The identity `metadata` names, `None` where its inode of zero reports
     /// none.
     pub fn of(metadata: &Metadata) -> Option<Self> {
-        (metadata.ino != 0).then_some(Self {
-            dev: metadata.dev,
-            ino: metadata.ino,
-        })
+        Self::named(metadata.dev, metadata.ino)
+    }
+
+    /// The identity `dev` and `ino` name, `None` where an inode of zero
+    /// reports none.
+    pub(crate) fn named(dev: u64, ino: u64) -> Option<Self> {
+        (ino != 0).then_some(Self { dev, ino })
     }
 
     /// `metadata`, naming this identity.

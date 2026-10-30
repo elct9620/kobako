@@ -64,6 +64,19 @@ impl Node {
             Self::Whiteout { .. } => FileType::Unknown,
         }
     }
+
+    /// Its entry in a listing of a Tmpfs on `dev`, named as a stat of it is.
+    fn dir_entry(&self, name: &str, dev: u64) -> DirEntry {
+        let entry = DirEntry::new(name, self.file_type());
+        match self {
+            Self::File(content) => {
+                let content = lock(content);
+                entry.with_identity(content.dev, content.ino)
+            }
+            Self::Directory(dir) => entry.with_identity(dev, dir.ino),
+            Self::Whiteout { .. } => entry,
+        }
+    }
 }
 
 /// A directory and its inode number. Each entry is held under its own
@@ -559,6 +572,7 @@ impl InodeOperations for Tmpfs {
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         Some(Ok(Box::new(TmpfsDir {
             dir: self.dir.clone(),
+            dev: self.tree.dev,
         })))
     }
 
@@ -593,6 +607,7 @@ impl InodeOperations for Tmpfs {
 /// A directory of a Tmpfs, open.
 struct TmpfsDir {
     dir: Arc<Dir>,
+    dev: u64,
 }
 
 impl FileOperations for TmpfsDir {
@@ -602,7 +617,7 @@ impl FileOperations for TmpfsDir {
             .state()
             .entries
             .iter()
-            .map(|(name, node)| DirEntry::new(name.as_str(), node.file_type()))
+            .map(|(name, node)| node.dir_entry(name, self.dev))
             .collect())
     }
 }

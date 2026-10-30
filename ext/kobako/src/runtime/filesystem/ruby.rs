@@ -256,8 +256,8 @@ impl RubyFilesystem {
         names
             .into_iter()
             .map(|name| {
-                let file_type = self.stat(join(&at, &name))?.file_type;
-                Ok(DirEntry::new(name, file_type))
+                let stat = self.stat(join(&at, &name))?;
+                Ok(DirEntry::new(name, stat.file_type).with_identity(stat.dev, stat.ino))
             })
             .collect()
     }

@@ -4,7 +4,7 @@
 //! descriptor, and the same directory behind. A listing of the Mount must
 //! answer the same errno.
 //!
-//! kobako reports no inode numbers, and its times differ from the host's
+//! kobako's inode numbers are its own, and its times differ from the host's
 //! by when each call ran, so of what a stat writes only the filetype is
 //! compared; the errno and the directory carry the rest of the decision.
 //!

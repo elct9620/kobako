@@ -6,9 +6,12 @@
 //! actually built, and the frontend refuses a declaration below the
 //! request — so the request is also the floor.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::filesystem::Metadata;
+use crate::vfs::Identity;
 
 /// The ordered isolation ladder a runtime builds one rung of.
 ///
@@ -34,6 +37,23 @@ pub enum Profile {
 }
 
 impl Profile {
+    /// The inode number a guest on this posture sees for `identity`. A
+    /// hermetic guest sees none, as a Filesystem's device number depends on
+    /// how many were made before it in the process. Any other sees a hash of
+    /// it, as wasmtime-wasi hands preview1 a metadata hash, so it can tell
+    /// entries apart without reading a host's inode number; the hash is not a
+    /// secret, since its key is fixed.
+    pub fn guest_ino(self, identity: Option<Identity>) -> u64 {
+        match (self, identity) {
+            (Self::Hermetic, _) | (_, None) => 0,
+            (Self::Permissive, Some(identity)) => {
+                let mut hasher = DefaultHasher::new();
+                identity.hash(&mut hasher);
+                hasher.finish()
+            }
+        }
+    }
+
     /// `metadata` as a guest on this posture sees it. A Filesystem records
     /// the host's real time whatever the invocation writing to it runs
     /// under, so one shared across invocations keeps one record; a hermetic

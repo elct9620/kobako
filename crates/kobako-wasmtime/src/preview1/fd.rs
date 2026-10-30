@@ -8,7 +8,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{FileType, Metadata};
-use kobako_runtime::vfs::{DirContext, DirEmit, File, Whence};
+use kobako_runtime::profile::Profile;
+use kobako_runtime::vfs::{DirContext, DirEmit, File, Identity, Whence};
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
@@ -94,10 +95,11 @@ fn to_filetype(file_type: FileType) -> Filetype {
 /// time zero where it keeps no time, and with no size for a link, so
 /// nothing of where it points reaches the guest.
 pub(crate) fn filestat(table: &Descriptors, metadata: Metadata) -> types::Filestat {
+    let ino = table.profile().guest_ino(Identity::of(&metadata));
     let metadata = table.profile().mask_times(metadata);
     types::Filestat {
         dev: 0,
-        ino: 0,
+        ino,
         filetype: to_filetype(metadata.file_type),
         nlink: metadata.nlink.unwrap_or(1),
         size: match metadata.file_type {
@@ -301,15 +303,15 @@ pub(crate) fn read(
 }
 
 /// The `dirent` header ahead of one entry's name.
-fn dirent_header(d_next: u64, name: &str, filetype: Filetype) -> Answer<Vec<u8>> {
+fn dirent_header(emit: &DirEmit<'_>, d_ino: u64) -> Answer<Vec<u8>> {
     let mut header = vec![0; types::Dirent::guest_size() as usize];
     WitxMemory::Unshared(&mut header).write(
         GuestPtr::new(0),
         types::Dirent {
-            d_next,
-            d_ino: 0,
-            d_namlen: name.len() as u32,
-            d_type: filetype,
+            d_next: emit.next,
+            d_ino,
+            d_namlen: emit.name.len() as u32,
+            d_type: to_filetype(emit.file_type),
         },
     )?;
     Ok(header)
@@ -321,10 +323,11 @@ fn write_dirent(
     mem: &mut GuestMemory<'_, '_>,
     buf: (GuestPtr<u8>, u32),
     used: &mut u32,
+    profile: Profile,
     emit: &DirEmit<'_>,
 ) -> Answer<bool> {
     let (start, capacity) = buf;
-    let header = dirent_header(emit.next, emit.name, to_filetype(emit.file_type))?;
+    let header = dirent_header(emit, profile.guest_ino(emit.identity))?;
     for part in [&header[..], emit.name.as_bytes()] {
         let room = (capacity - *used) as usize;
         let take = part.len().min(room);
@@ -349,20 +352,21 @@ pub(crate) fn readdir(
     capacity: u32,
     cookie: u64,
 ) -> Answer<types::Size> {
+    let profile = table.profile();
     let dir = match descriptor_mut(table, fd)? {
         Descriptor::Directory(dir) => dir,
         _ => return Err(Errno::Badf.into()),
     };
     let mut used: u32 = 0;
     let mut failed = None;
-    let mut actor = |emit: &DirEmit<'_>| match write_dirent(mem, (start, capacity), &mut used, emit)
-    {
-        Ok(room) => room,
-        Err(error) => {
-            failed = Some(error);
-            false
-        }
-    };
+    let mut actor =
+        |emit: &DirEmit<'_>| match write_dirent(mem, (start, capacity), &mut used, profile, emit) {
+            Ok(room) => room,
+            Err(error) => {
+                failed = Some(error);
+                false
+            }
+        };
     dir.file
         .iterate_dir(&mut DirContext::new(cookie, &mut actor))?;
     match failed {

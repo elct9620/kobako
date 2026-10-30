@@ -1983,3 +1983,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a directory opened through the runtime, with no Driver in front of it |
 | When | a caller lists it, stops early, and lists it again from where it stopped |
 | Then | `.` and `..` come first, and each entry carries the position after it |
+
+## `RT-183` A guest tells entries apart by inode number where its posture allows
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-182` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a permissive guest and a hermetic guest, each holding a Mount of a file |
+| When | each stats the file and lists its directory |
+| Then | the permissive guest reads one hash in both, and the hermetic guest reads 0 |

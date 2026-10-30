@@ -189,8 +189,13 @@ impl Bind {
     }
 
     fn entries_of(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.fid(dentry)?
-            .entries()
+        let dir = self.fid(dentry)?;
+        #[cfg(unix)]
+        let dev = {
+            use cap_std::fs::MetadataExt;
+            dir.dir_metadata().map_err(to_error)?.dev()
+        };
+        dir.entries()
             .map_err(to_error)?
             .map(|entry| {
                 let entry = entry.map_err(to_error)?;
@@ -198,10 +203,14 @@ impl Bind {
                     .file_name()
                     .into_string()
                     .map_err(|_| FilesystemError::IllegalSequence)?;
-                Ok(DirEntry {
-                    name,
-                    file_type: to_file_type(entry.file_type().map_err(to_error)?),
-                })
+                let listed =
+                    DirEntry::new(name, to_file_type(entry.file_type().map_err(to_error)?));
+                #[cfg(unix)]
+                let listed = {
+                    use std::os::unix::fs::DirEntryExt;
+                    listed.with_identity(dev, entry.ino())
+                };
+                Ok(listed)
             })
             .collect()
     }

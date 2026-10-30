@@ -980,6 +980,27 @@ impl File {
 }
 ```
 
+## `DirEntry::with_identity`
+
+This entry naming a device and an inode number, as a stat of it reports them.
+
+```rust
+impl DirEntry {
+    pub fn with_identity(self, dev: u64, ino: u64) -> Self {}
+}
+```
+
+## `Profile::guest_ino`
+
+The inode number a guest on this posture sees for an identity. A hermetic guest
+sees none. Any other sees a hash, which is not a secret.
+
+```rust
+impl Profile {
+    pub fn guest_ino(self, identity: Option<Identity>) -> u64 {}
+}
+```
+
 ## `DirEmit`
 
 One entry a listing hands its actor, as `dir_emit` does.

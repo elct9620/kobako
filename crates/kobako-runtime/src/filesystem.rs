@@ -373,6 +373,10 @@ impl Metadata {
 pub struct DirEntry {
     pub name: String,
     pub file_type: FileType,
+    /// The device and inode numbers naming the entry, as `Metadata` reports
+    /// them and `dir_emit` hands `d_ino`. An `ino` of zero reports none.
+    pub dev: u64,
+    pub ino: u64,
 }
 
 impl DirEntry {
@@ -381,7 +385,14 @@ impl DirEntry {
         Self {
             name: name.into(),
             file_type,
+            dev: 0,
+            ino: 0,
         }
+    }
+
+    /// This entry naming `dev` and `ino`, as a stat of it reports them.
+    pub fn with_identity(self, dev: u64, ino: u64) -> Self {
+        Self { dev, ino, ..self }
     }
 }
 

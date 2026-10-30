@@ -530,6 +530,15 @@ impl Guest {
             .expect("probe call must not trap")
     }
 
+    /// Stat `file.txt`, without following a link, into 384.
+    fn call_flagged_stat(&mut self) -> i32 {
+        self.instance
+            .get_typed_func::<(i32, i32, i32), i32>(&mut self.store, "stat_flagged")
+            .expect("probe export must resolve")
+            .call(&mut self.store, (FILE.0, FILE.1, 0))
+            .expect("probe call must not trap")
+    }
+
     /// The names a listing from `cookie` into `len` bytes holds whole.
     fn list(&mut self, cookie: u64, len: i32) -> Vec<String> {
         let errno = self
@@ -723,6 +732,75 @@ fn a_mount_appears_as_a_directory_at_its_path() {
         &memory.data(&guest.store)[512..517],
         b"/data",
         "a Mount at /data through Runtime::invoke must preopen /data as descriptor 3"
+    );
+}
+
+/// The inode number the guest reads for `file.txt` from a stat and from a
+/// listing, and for the Mount's root from `.`.
+fn inodes_seen(profile: Profile) -> (u64, u64, u64) {
+    let mut guest = Guest::for_posture(
+        profile,
+        &[grant(file_and_directory(), Access::ReadWrite, None)],
+    );
+    assert_eq!(guest.call_flagged_stat(), 0, "the stat must succeed");
+    assert!(
+        guest.list(0, 1024).contains(&"file.txt".to_string()),
+        "the listing must hold file.txt"
+    );
+    let memory = guest
+        .instance
+        .get_memory(&mut guest.store, "memory")
+        .expect("probe exports its memory");
+    let data = memory.data(&guest.store);
+    let u64_at = |at: usize| u64::from_le_bytes(data[at..at + 8].try_into().unwrap());
+    let used = u32::from_le_bytes(data[136..140].try_into().unwrap()) as usize;
+    let mut at = 2048;
+    let (mut dot, mut listed) = (None, None);
+    while at + 24 <= 2048 + used {
+        let len = u32::from_le_bytes(data[at + 16..at + 20].try_into().unwrap()) as usize;
+        match &data[at + 24..at + 24 + len] {
+            b"." => dot = Some(u64_at(at + 8)),
+            b"file.txt" => listed = Some(u64_at(at + 8)),
+            _ => {}
+        }
+        at += 24 + len;
+    }
+    (
+        u64_at(384 + 8),
+        listed.expect("the listing names file.txt"),
+        dot.expect("the listing names `.`"),
+    )
+}
+
+// The hash is a host detail, so only what a guest can rely on is asserted: a
+// listing and a stat agree, an entry is told from another, and it is no raw
+// inode number, which a fresh Tmpfs numbers from 1.
+// @behavior RT-183
+#[test]
+fn a_permissive_guest_tells_entries_apart_by_their_inode_numbers() {
+    let (stat, listed, dot) = inodes_seen(Profile::Permissive);
+    assert_eq!(
+        stat, listed,
+        "fd_readdir and path_filestat_get of a file beneath a Mount through a permissive \
+         guest's preview1 must answer the same inode number"
+    );
+    assert!(
+        stat > u64::from(u16::MAX) && dot > u64::from(u16::MAX) && dot != stat,
+        "a permissive guest's inode numbers for a file and its directory must differ and be \
+         hashes rather than a Filesystem's own small numbers, not {stat} and {dot}"
+    );
+}
+
+// A Tmpfs's device number depends on how many came before it, so any number
+// drawn from it would differ between otherwise identical runs.
+// @behavior RT-183
+#[test]
+fn a_hermetic_guest_sees_no_inode_numbers() {
+    assert_eq!(
+        inodes_seen(Profile::Hermetic),
+        (0, 0, 0),
+        "a stat and a listing of a file and its directory beneath a Mount through a hermetic \
+         guest's preview1 must answer inode number 0"
     );
 }
 

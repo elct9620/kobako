@@ -6,6 +6,8 @@ use std::ops::BitOr;
 use std::sync::Arc;
 
 use super::cred::Cred;
+use super::dentry::Dentry;
+use super::inode::Identity;
 use super::mount::VfsMount;
 use super::namei::d_getattr;
 use super::openat2::OpenHow;
@@ -90,6 +92,8 @@ pub enum Whence {
 pub struct DirEmit<'a> {
     pub name: &'a str,
     pub file_type: FileType,
+    /// What the entry is, `None` where its Filesystem names no inode number.
+    pub identity: Option<Identity>,
     /// The position a listing going on from just after this entry starts at.
     pub next: u64,
 }
@@ -429,20 +433,30 @@ impl File {
             _ => self.read_entries()?,
         };
         let stopped = {
-            let entries = [(".", FileType::Directory), ("..", FileType::Directory)]
-                .into_iter()
-                .chain(
-                    listing
-                        .iter()
-                        .map(|entry| (entry.name.as_str(), entry.file_type)),
-                );
+            let dots = match ctx.pos < 2 {
+                true => self.dot_identities(),
+                false => (None, None),
+            };
+            let entries = [
+                (".", FileType::Directory, dots.0),
+                ("..", FileType::Directory, dots.1),
+            ]
+            .into_iter()
+            .chain(listing.iter().map(|entry| {
+                (
+                    entry.name.as_str(),
+                    entry.file_type,
+                    Identity::named(entry.dev, entry.ino),
+                )
+            }));
             let skip = usize::try_from(ctx.pos).unwrap_or(usize::MAX);
             let mut stopped = false;
-            for (index, (name, file_type)) in entries.enumerate().skip(skip) {
+            for (index, (name, file_type, identity)) in entries.enumerate().skip(skip) {
                 let next = index as u64 + 1;
                 let emit = DirEmit {
                     name,
                     file_type,
+                    identity,
                     next,
                 };
                 if !(ctx.actor)(&emit) {
@@ -457,6 +471,25 @@ impl File {
             self.listing = Some(listing);
         }
         Ok(())
+    }
+
+    /// What `.` and `..` name, as `dir_emit_dot` reads the directory's inode
+    /// and `dir_emit_dotdot` its parent's, the root its own. Asked of a
+    /// Filesystem where the root records none, so one that cannot answer names
+    /// none rather than failing the listing.
+    fn dot_identities(&self) -> (Option<Identity>, Option<Identity>) {
+        let identity = |dentry: &Dentry| {
+            d_getattr(dentry)
+                .ok()
+                .and_then(|metadata| Identity::of(&metadata))
+        };
+        let dentry = self.path.dentry();
+        let itself = identity(dentry);
+        let parent = match dentry.parent() {
+            Some(parent) => identity(&parent),
+            None => itself,
+        };
+        (itself, parent)
     }
 
     /// The entries of the directory, under its lock shared as `iterate_dir`
@@ -488,9 +521,9 @@ impl File {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{create_pipe_files, do_file_open, PipeInodeInfo};
+    use super::super::{create_pipe_files, do_file_open, vfs_fstatat, PipeInodeInfo};
     use super::*;
-    use crate::filesystem::Tmpfs;
+    use crate::filesystem::{Bind, InodeOperations, Overlay, Tmpfs};
     use crate::mount::{Access, Mount};
     use crate::vfs::Filesystem;
 
@@ -549,6 +582,81 @@ mod tests {
         file.iterate_dir(&mut DirContext::new(pos, &mut actor))
             .unwrap_or_else(|_| panic!("the directory must list"));
         seen
+    }
+
+    /// Each entry of the root of `filesystem` with what a listing names it
+    /// and what a stat of it names it.
+    fn identities<F: InodeOperations>(
+        filesystem: F,
+    ) -> Vec<(String, Option<Identity>, Option<Identity>)> {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(filesystem)),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let start = Path::root(mount.mnt());
+        let mut root = File::root(mount.mnt(), Arc::default())
+            .unwrap_or_else(|_| panic!("the root must open"));
+        let mut listed = Vec::new();
+        root.iterate_dir(&mut DirContext::new(2, &mut |emit| {
+            listed.push((emit.name.to_string(), emit.identity));
+            true
+        }))
+        .unwrap_or_else(|_| panic!("the root must list"));
+        listed
+            .into_iter()
+            .map(|(name, identity)| {
+                let stat = vfs_fstatat(&Arc::default(), &start, &name, false)
+                    .unwrap_or_else(|_| panic!("{name} must stat"));
+                (name, identity, Identity::of(&stat))
+            })
+            .collect()
+    }
+
+    fn assert_named_alike(label: &str, entries: Vec<(String, Option<Identity>, Option<Identity>)>) {
+        assert!(!entries.is_empty(), "{label} must list something");
+        for (name, listed, stat) in entries {
+            assert!(
+                listed.is_some() && listed == stat,
+                "{name} of a {label} through File::iterate_dir must name what vfs_fstatat names, \
+                 not {listed:?} beside {stat:?}"
+            );
+        }
+    }
+
+    // @behavior RT-183
+    #[test]
+    fn a_tmpfs_lists_each_entry_as_a_stat_names_it() {
+        let tmpfs: Tmpfs = [("a", "x"), ("d/b", "y")].into_iter().collect();
+        assert_named_alike("Tmpfs", identities(tmpfs));
+    }
+
+    // @behavior RT-183
+    #[test]
+    fn an_overlay_lists_each_entry_as_a_stat_names_it() {
+        let lower: Tmpfs = [("a", "x"), ("d/b", "y")].into_iter().collect();
+        let upper = Tmpfs::new();
+        let overlay = Overlay::new(
+            vec![Filesystem::new(Arc::new(lower))],
+            Some(Filesystem::new(Arc::new(upper))),
+        )
+        .unwrap_or_else(|_| panic!("the Overlay must make"));
+        assert_named_alike("Overlay", identities(overlay));
+    }
+
+    // A host names no identity through a Bind beyond unix.
+    // @behavior RT-183
+    #[cfg(unix)]
+    #[test]
+    fn a_bind_lists_each_entry_as_a_stat_names_it() {
+        let dir = std::env::temp_dir().join(format!("kobako-listed-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("d")).expect("the host directory must make");
+        std::fs::write(dir.join("a"), "x").expect("the host file must write");
+        let bind = Bind::new(&dir).unwrap_or_else(|_| panic!("the Bind must make"));
+        let entries = identities(bind);
+        std::fs::remove_dir_all(&dir).expect("the host directory must go");
+        assert_named_alike("Bind", entries);
     }
 
     // @behavior RT-182
