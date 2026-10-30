@@ -1447,3 +1447,31 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs file, and an Overlay's file open to read from a Tmpfs Layer |
 | When | each file is synced |
 | Then | each sync succeeds |
+
+## `FS-141` A file removed while open still reports itself
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a five byte file open on a Tmpfs, a Bind, and an Overlay |
+| When | the guest removes each file's name and asks the size of what it holds |
+| Then | each answers 5, and each still reads its bytes |
+
+## `FS-142` A file removed while open can still be sized
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a five byte file open to write on a Tmpfs, a Bind, and an Overlay |
+| When | the guest removes each file's name and sets what it holds to two bytes |
+| Then | each answers that it holds two bytes |
+
+## `FS-143` A file on the same name as one removed while open is its own
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-141` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a file open on a Bind, whose host then replaces it with a longer one |
+| When | the guest asks the size of the path, and of what it holds |
+| Then | the path answers the longer size, and what it holds its own |

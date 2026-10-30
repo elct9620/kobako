@@ -351,3 +351,16 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem whose `stat` answers a size for a directory |
 | When | the script reads the directory's size |
 | Then | it reads the size the `stat` answers |
+
+## `RF-027` A Ruby file open keeps its answers apart from its path's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-022` |
+| relates | `FS-141`, `FS-143` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `stat` and open file answer different sizes |
+| When | the script asks the size of the file and its path, removes the name, and asks the file again |
+| Then | the open file answers its `size` each time, and the path answers the `stat` |

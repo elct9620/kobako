@@ -1434,7 +1434,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | an invocation holding files open only to read beneath a read-only and a read-write Mount |
 | When | the guest sets the size of each |
-| Then | the first answers EPERM as wasmtime-wasi does, the second EINVAL as Linux ftruncate does |
+| Then | each answers EINVAL, as Linux ftruncate does |
 
 ## `RT-138` An argument preview1 cannot hold is refused in wasmtime-wasi's order
 

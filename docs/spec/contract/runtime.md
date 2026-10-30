@@ -702,6 +702,17 @@ impl File {
 }
 ```
 
+## `File::truncate`
+
+Truncate or extend it through what it was opened on. Anything but a file open to
+write refuses as invalid input.
+
+```rust
+impl File {
+    pub fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {}
+}
+```
+
 ## `File::iterate_dir`
 
 The entries of the directory, without `.` or `..`, none once it was removed.
@@ -1052,6 +1063,35 @@ pub trait InodeOperations {
 }
 ```
 
+## `Iattr`
+
+What a change sets of an entry.
+
+```rust
+pub struct Iattr {}
+```
+
+## `Iattr::size`
+
+A change truncating or extending a file, extending with zeros.
+
+```rust
+impl Iattr {
+    pub fn size(len: u64) -> Self {}
+}
+```
+
+## `InodeOperations::setattr`
+
+Apply a change to this entry, as it stands even once its name is gone. An entry
+without it refuses as invalid input.
+
+```rust
+pub trait InodeOperations {
+    fn setattr(&self, _dentry: &Dentry, _attr: &Iattr) -> Option<Result<(), FilesystemError>>;
+}
+```
+
 ## `InodeOperations::rename`
 
 Move what one Dentry names to another in a target directory, refusing what
@@ -1133,26 +1173,6 @@ at the end that the file cannot take as one step answers `Unsupported`.
 ```rust
 pub trait FileOperations {
     fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, FilesystemError>;
-}
-```
-
-## `FileOperations::getattr`
-
-What the open file is, and its length, even once its name is gone.
-
-```rust
-pub trait FileOperations {
-    fn getattr(&self) -> Result<Metadata, FilesystemError>;
-}
-```
-
-## `FileOperations::truncate`
-
-Truncate or extend the file, extending with zeros.
-
-```rust
-pub trait FileOperations {
-    fn truncate(&mut self, _len: u64) -> Result<(), FilesystemError>;
 }
 ```
 
