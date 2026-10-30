@@ -49,6 +49,38 @@ class TestE2EDirectoryLockThreads < Minitest::Test
     print [maker.value, looker.value].inspect
   RUBY
 
+  # One Sandbox creating a file in a Tmpfs while its mount's block sleeps on
+  # the change, holding the directory, and one holding the GVL looking in
+  # that directory meanwhile.
+  POLICY_CHILD = <<~RUBY
+    require "kobako"
+    asking = Queue.new
+    tmpfs = Kobako::Filesystem::Tmpfs.new
+    block = lambda do |_path, access|
+      if access == :read_write
+        asking << true
+        sleep 0.2
+      end
+      true
+    end
+    sandbox = lambda do |gvl|
+      Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: gvl).mount("/data", tmpfs, access: :read_write, &block)
+    end
+    maker = Thread.new { sandbox.(:hold).eval('File.write("/data/new", "x"); true').value }
+    asking.pop
+    looker = Thread.new { sandbox.(:hold).eval('File.exist?("/data/new")').value }
+    print [maker.value, looker.value].inspect
+  RUBY
+
+  # A block needs the GVL to answer, so only the directory's lock giving up
+  # the GVL lets it finish while the looking Sandbox waits.
+  # @behavior MT-029
+  def test_a_sandbox_waiting_on_a_directory_a_mounts_block_holds_lets_the_block_finish
+    assert_equal "[true, true]", run_ruby(POLICY_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE),
+                 "a Sandbox#eval holding the GVL that looks in a directory another Thread's Sandbox#eval holds " \
+                 "while its Sandbox#mount block is asked about a change must let both finish"
+  end
+
   # The looking Sandbox waits on the directory before the Overlay is asked,
   # so only the directory's lock giving up the GVL lets the Ruby Layer
   # take the GVL back and finish.
