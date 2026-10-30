@@ -188,7 +188,7 @@ Each row names an entry point and only what reading it will not tell you.
 | dispatch | `lib/kobako/transport/dispatcher.rb` | answers an ok, fault, or break arm, never raises |
 | Handles | `lib/kobako/catalog/handles.rb` | minted per invocation by `Context` |
 | Extensions | `docs/guides/extensions.md` | a backend's kind is a keyword |
-| Mounts | `crates/kobako-runtime/src/mount.rs` | the Mount decides access; `vfs` asks it; preview1 maps the answer |
+| Mounts | `crates/kobako-runtime/src/mount.rs` | a Grant; `vfs` walks its `VfsMount`, `security` judges through the `Cred`, preview1 maps the answer |
 | Filesystems in Ruby | `ext/kobako/src/runtime/filesystem.rs` | an invocation pins its Mounts' objects; an Overlay marks its Layers |
 | host exceptions | `ext/kobako/src/runtime/escape.rs` | a callback's non-`StandardError` ends the run and re-raises in Ruby |
 | guest capabilities | `wasm/kobako-{io,regexp,json}/src/` | pure-Rust `beni::Gem`, no mrblib |

@@ -199,39 +199,41 @@ A new kind of Grant joins as a context beside Filesystem. It conforms to the sam
 
 ### Filesystem Layers
 
-The Filesystem context follows Linux's three layers: the syscall layer, the VFS, and the drivers. A Policy and a driver's operations are hooks the VFS calls at fixed points, not layers of their own.
+The Filesystem context follows Linux's three layers: the Wasm Driver in the syscall's place, the VFS, and the Filesystem Drivers. A Policy and a Filesystem Driver's operations are hooks the VFS calls at fixed points, not layers of their own.
 
 ```
 ┌───────────────────────────────────────────┐
-│ syscall    kobako-wasmtime                │
-│ decode · errno · fd table                 │
+│ Wasm Driver   kobako-wasmtime             │
+│ decode · errno · fd table · what a        │
+│ posture shows the guest                   │
 └─────────────────────┬─────────────────────┘
                       ▼
 ┌───────────────────────────────────────────┐
 │ VFS        kobako-runtime::vfs            │
-│ namei · dentries · locks · mount flags    │
+│ namei · dentries · locks · vfsmount       │
 │ open files · pipes                        │
 │                                           │
 │   ┌─────────────┐      ┌─────────────┐    │
-│   │ hook: check │      │ hook: i_op  │    │
+│   │ hook: cred  │      │ hook: i_op  │    │
 │   └──────┬──────┘      └──────┬──────┘    │
 └──────────┼────────────────────┼───────────┘
            ▼                    ▼
 ┌─────────────────────┐ ┌─────────────────────┐
-│ Security Module     │ │ driver              │
+│ Security Module     │ │ Filesystem Driver   │
 │ Policy              │ │ Tmpfs · Bind        │
-│                     │ │ Overlay · Ruby      │
+│ (kobako_runtime::   │ │ Overlay · Ruby      │
+│  security)          │ │                     │
 └─────────────────────┘ └─────────────────────┘
 ```
 
-Each role keeps to its own work, so a change that crosses roles is a change in the wrong place. A VFS name follows Linux's once it is checked there.
+Each role keeps to its own work, so a change that crosses roles is a change in the wrong place. Only the Wasm Driver and a hook hold kobako's own design, so the VFS's names follow Linux's. Its one exception is `Blocking`, since Linux holds no GVL to give up while it waits.
 
 | Role | Owns |
 |---|---|
-| syscall | decoding, errno, the fd table |
-| VFS | the walk, dentries, locks, open files, mount flags, answering for an operation an entry lacks |
-| Security Module | whether a path may be reached |
-| driver | what one entry answers, and its own state on a dentry or inode |
+| Wasm Driver | decoding, errno, the fd table, the Cred, what a posture shows the guest |
+| VFS | the walk, dentries, locks, open files, read-only mounts, answering for an operation an entry lacks |
+| Security Module | whether a path may be reached, registered for each Invocation on its Cred |
+| Filesystem Driver | what one entry answers, and its own state on a dentry or inode |
 
 ## Build Rules
 
