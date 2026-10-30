@@ -1427,3 +1427,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a host directory beneath a Bind |
 | When | the directory is read through the Bind |
 | Then | it reports the size the host's own stat reports |
+
+## `FS-139` An Overlay takes afresh a name its Layer no longer holds
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-136` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory open through an Overlay over a Bind |
+| When | the host replaces the directory with another holding a file, and the guest reads that file |
+| Then | the read answers what the host wrote |

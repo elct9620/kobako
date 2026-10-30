@@ -397,6 +397,16 @@ impl Dentry {
 }
 ```
 
+## `Dentry::ops`
+
+What answers about this name, the same for every Dentry of one Filesystem.
+
+```rust
+impl Dentry {
+    pub fn ops(&self) -> Option<&Arc<dyn DentryOperations>> {}
+}
+```
+
 ## `Dentry::d_fsdata`
 
 What the Filesystem keeps on the name, set once.
@@ -930,15 +940,38 @@ pub trait InodeOperations {
 }
 ```
 
-## `InodeOperations::d_revalidate`
+## `InodeOperations::dentry_ops`
 
-Whether a Dentry the runtime still holds names what it recorded. A false answer
-has the runtime drop the Dentry and take the name afresh. A Filesystem without
-it keeps every name valid.
+What the runtime asks of a Filesystem's root once, to give every Dentry of it.
+A Filesystem without one keeps every name valid.
 
 ```rust
 pub trait InodeOperations {
-    fn d_revalidate(&self, _dentry: &Dentry) -> Option<Result<bool, FilesystemError>>;
+    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>>;
+}
+```
+
+## `DentryOperations`
+
+What a Filesystem answers about a name rather than an entry. A name may stand
+for nothing, so no entry can answer for it.
+
+```rust
+pub trait DentryOperations: Send + Sync {}
+```
+
+## `DentryOperations::revalidate`
+
+Whether a Dentry the runtime still holds in a directory names what it recorded.
+A false answer has the runtime drop the Dentry and take the name afresh.
+
+```rust
+pub trait DentryOperations {
+    fn revalidate(
+        &self,
+        dir: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Result<bool, FilesystemError>;
 }
 ```
 

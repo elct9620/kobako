@@ -345,7 +345,7 @@ VFS does. One wrapping another forwards those it keeps.
 | Method | Keeps | Without it, the runtime answers |
 |---|---|---|
 | `lookup` | one dentry and lock per entry, and a Policy checking the stored spelling | ENOTDIR, no directory to walk through |
-| `d_revalidate` | a held dentry dropped once its name stands for another entry | valid, as nothing changes it outside the runtime |
+| `dentry_ops` | a held dentry dropped once its name stands for another entry, through `DentryOperations::revalidate` | valid, as nothing changes it outside the runtime |
 | `get_link` | a link followed only within the directory a descriptor opened | EINVAL |
 | `create` | a file made under the directory's lock | EACCES |
 | `FileOperations::iterate_shared` | a directory listed from what its `open` made | ENOTDIR |
