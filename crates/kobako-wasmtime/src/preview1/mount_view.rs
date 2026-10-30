@@ -11,8 +11,8 @@ use kobako_runtime::filesystem::Access;
 #[cfg(unix)]
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::{
-    DentryOperations, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
-    OpenOptions, Overlay, Tmpfs,
+    DentryOperations, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Lookup,
+    Metadata, OpenOptions, Overlay, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
@@ -561,7 +561,7 @@ fn contents(root: &Path, path: &str) -> Option<Vec<u8>> {
         return None;
     };
     let mut buf = vec![0; 64];
-    let read = file.ops().read(&mut buf, 0).ok()?;
+    let read = file.ops().read_iter(&mut Kiocb::at(0), &mut buf).ok()?;
     buf.truncate(read);
     Some(buf)
 }
@@ -1257,18 +1257,21 @@ impl AppendedMeanwhileFile {
         self.other
             .lock()
             .expect("the other writer's lock must not be poisoned")
-            .append(b"bbb")
+            .write_iter(&mut Kiocb::at(0).appending(), b"bbb")
             .map(drop)
     }
 }
 
 impl FileOperations for AppendedMeanwhileFile {
-    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.file.read(buf, offset)
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        self.file.read_iter(iocb, buf)
     }
 
-    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.file.write(buf, offset)
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        if iocb.append {
+            self.other_appends()?;
+        }
+        self.file.write_iter(iocb, buf)
     }
 
     /// The length is read before the other writer appends, so a write
@@ -1281,11 +1284,6 @@ impl FileOperations for AppendedMeanwhileFile {
 
     fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
         self.file.truncate(len)
-    }
-
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
-        self.other_appends()?;
-        self.file.append(buf)
     }
 }
 

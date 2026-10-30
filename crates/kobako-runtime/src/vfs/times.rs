@@ -8,7 +8,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::filesystem::{FileOperations, FilesystemError, Metadata};
+use crate::filesystem::{FileOperations, FilesystemError, Kiocb, Metadata};
 use crate::profile::Profile;
 
 /// `metadata` as an invocation running under `profile` sees it.
@@ -41,16 +41,12 @@ pub(crate) fn mask_file_times(
 struct Hermetic(Box<dyn FileOperations>);
 
 impl FileOperations for Hermetic {
-    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.read(buf, offset)
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        self.0.read_iter(iocb, buf)
     }
 
-    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.write(buf, offset)
-    }
-
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
-        self.0.append(buf)
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        self.0.write_iter(iocb, buf)
     }
 
     fn getattr(&self) -> Result<Metadata, FilesystemError> {
@@ -96,7 +92,7 @@ mod tests {
             panic!("{name} must open as a file");
         };
         file.ops()
-            .write(b"x", 0)
+            .write_iter(&mut Kiocb::at(0), b"x")
             .expect("the file must take a write");
         file
     }

@@ -271,7 +271,7 @@ mod tests {
 
     use super::super::tmpfs::Tmpfs;
     use super::super::wrap::{Hook, Wrap};
-    use super::super::FileType;
+    use super::super::{FileType, Kiocb};
     use super::*;
     use crate::vfs::kern_path::{kern_path, KernPath};
 
@@ -322,7 +322,9 @@ mod tests {
 
     fn read_from(file: &mut dyn FileOperations) -> Vec<u8> {
         let mut buf = vec![0; 64];
-        let read = file.read(&mut buf, 0).expect("the file must read");
+        let read = file
+            .read_iter(&mut Kiocb::at(0), &mut buf)
+            .expect("the file must read");
         buf.truncate(read);
         buf
     }
@@ -341,7 +343,7 @@ mod tests {
                 ..OpenOptions::default()
             },
         )?
-        .write(contents, 0)
+        .write_iter(&mut Kiocb::at(0), contents)
         .map(drop)
     }
 

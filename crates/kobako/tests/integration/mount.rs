@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::common::real_sandbox;
 use kobako::filesystem::{
-    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
+    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Lookup, Metadata,
     OpenOptions, Tmpfs,
 };
 use kobako::msgpack::Value;
@@ -230,18 +230,15 @@ struct OneNote(&'static [u8]);
 struct NoteFile(&'static [u8]);
 
 impl FileOperations for NoteFile {
-    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        let rest = self.0.get(offset as usize..).unwrap_or_default();
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        let rest = self.0.get(iocb.pos as usize..).unwrap_or_default();
         let read = rest.len().min(buf.len());
         buf[..read].copy_from_slice(&rest[..read]);
+        iocb.pos += read as u64;
         Ok(read)
     }
 
-    fn write(&mut self, _buf: &[u8], _offset: u64) -> Result<usize, FilesystemError> {
-        Err(FilesystemError::ReadOnlyFilesystem)
-    }
-
-    fn append(&mut self, _buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+    fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, FilesystemError> {
         Err(FilesystemError::ReadOnlyFilesystem)
     }
 

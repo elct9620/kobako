@@ -9,8 +9,8 @@ use std::time::SystemTime;
 
 use super::path::{ancestors, name, normalize_seed};
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup,
-    Metadata, OpenOptions,
+    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb,
+    Lookup, Metadata, OpenOptions,
 };
 use crate::vfs::{Dentry, Identity, Inode};
 use whiteout::Whiteout;
@@ -693,27 +693,28 @@ pub(crate) struct TmpfsFile {
 }
 
 impl FileOperations for TmpfsFile {
-    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let data = &lock(&self.data).bytes;
-        let start = usize::try_from(offset)
+        let start = usize::try_from(iocb.pos)
             .unwrap_or(usize::MAX)
             .min(data.len());
         let read = buf.len().min(data.len() - start);
         buf[..read].copy_from_slice(&data[start..start + read]);
+        iocb.pos += read as u64;
         Ok(read)
-    }
-
-    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        let start = usize::try_from(offset).map_err(|_| FilesystemError::InvalidInput)?;
-        write(&mut lock(&self.data), buf, start)
     }
 
     /// The end is read and written under one lock, so another handle's
     /// append lands before or after this one, never over it.
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
         let mut data = lock(&self.data);
-        let start = data.bytes.len();
-        Ok((start as u64, write(&mut data, buf, start)?))
+        let start = match iocb.append {
+            true => data.bytes.len(),
+            false => usize::try_from(iocb.pos).map_err(|_| FilesystemError::InvalidInput)?,
+        };
+        let written = write(&mut data, buf, start)?;
+        iocb.pos = (start + written) as u64;
+        Ok(written)
     }
 
     fn getattr(&self) -> Result<Metadata, FilesystemError> {
@@ -753,7 +754,9 @@ mod tests {
             )
             .expect("the file must open");
         let mut buf = vec![0; 64];
-        let read = file.read(&mut buf, 0).expect("the file must read");
+        let read = file
+            .read_iter(&mut Kiocb::at(0), &mut buf)
+            .expect("the file must read");
         buf.truncate(read);
         buf
     }
@@ -845,7 +848,8 @@ mod tests {
                 },
             )
             .expect("a new file must be created");
-        file.write(b"kept", 0).expect("the write must land");
+        file.write_iter(&mut Kiocb::at(0), b"kept")
+            .expect("the write must land");
         drop(file);
         assert_eq!(
             read_all(&tmpfs, "notes.txt"),
@@ -901,7 +905,7 @@ mod tests {
         let tmpfs = at(tmpfs.with_size(Some(4)));
         assert_eq!(
             (
-                writable(&tmpfs, "file").write(b"four", 1),
+                writable(&tmpfs, "file").write_iter(&mut Kiocb::at(1), b"four"),
                 read_all(&tmpfs, "file")
             ),
             (Err(FilesystemError::StorageFull), b"x".to_vec()),
@@ -916,7 +920,7 @@ mod tests {
         let tmpfs = at([("file", "")].into_iter().collect());
         assert_eq!(
             (
-                writable(&tmpfs, "file").write(b"", 1000),
+                writable(&tmpfs, "file").write_iter(&mut Kiocb::at(1000), b""),
                 read_all(&tmpfs, "file")
             ),
             (Ok(0), Vec::new()),
@@ -954,11 +958,11 @@ mod tests {
     fn a_removed_file_returns_its_space() {
         let tmpfs = at(Tmpfs::new().with_size(Some(4)));
         writable(&tmpfs, "first")
-            .write(b"four", 0)
+            .write_iter(&mut Kiocb::at(0), b"four")
             .expect("the first file must fit");
         tmpfs.remove_file("first").expect("the file must remove");
         assert_eq!(
-            writable(&tmpfs, "second").write(b"four", 0),
+            writable(&tmpfs, "second").write_iter(&mut Kiocb::at(0), b"four"),
             Ok(4),
             "the space a file removed through Tmpfs::remove_file held must be free for the next"
         );
@@ -976,7 +980,7 @@ mod tests {
         assert_eq!(
             (
                 file.truncate(unallocatable),
-                file.write(b"x", unallocatable),
+                file.write_iter(&mut Kiocb::at(unallocatable), b"x"),
                 read_all(&tmpfs, "file")
             ),
             (
@@ -1058,13 +1062,17 @@ mod tests {
         let tmpfs = at([("log", "a")].into_iter().collect());
         let mut first = writable(&tmpfs, "log");
         let mut second = writable(&tmpfs, "log");
+        let (mut from_first, mut from_second) =
+            (Kiocb::at(0).appending(), Kiocb::at(0).appending());
         assert_eq!(
             (
-                first.append(b"bb"),
-                second.append(b"ccc"),
+                first.write_iter(&mut from_first, b"bb"),
+                from_first.pos,
+                second.write_iter(&mut from_second, b"ccc"),
+                from_second.pos,
                 read_all(&tmpfs, "log")
             ),
-            (Ok((1, 2)), Ok((3, 3)), b"abbccc".to_vec()),
+            (Ok(2), 3, Ok(3), 6, b"abbccc".to_vec()),
             "TmpfsFile::append through two handles on one file must land each at the end as it \
              stands, answering where it landed"
         );
@@ -1313,11 +1321,13 @@ mod tests {
             ..OpenOptions::default()
         };
         let mut file = tmpfs.open("file", &options).expect("the file must be made");
-        file.write(b"ab", 0).expect("the file must take a write");
+        file.write_iter(&mut Kiocb::at(0), b"ab")
+            .expect("the file must take a write");
         let made = file.getattr().expect("the file must report");
-        file.read(&mut [0; 1], 0).expect("the file must read");
+        file.read_iter(&mut Kiocb::at(0), &mut [0; 1])
+            .expect("the file must read");
         std::thread::sleep(std::time::Duration::from_millis(10));
-        file.write(b"c", 0)
+        file.write_iter(&mut Kiocb::at(0), b"c")
             .expect("the file must take a write within its length");
         let written = tmpfs.symlink_metadata("file").expect("the file must stand");
         assert_eq!(

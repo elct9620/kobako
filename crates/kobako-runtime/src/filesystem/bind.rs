@@ -21,8 +21,8 @@ use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup,
-    Metadata, OpenOptions,
+    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb,
+    Lookup, Metadata, OpenOptions,
 };
 use crate::vfs::{Dentry, Identity, Inode};
 
@@ -478,28 +478,18 @@ struct BindFile {
     file: std::fs::File,
 }
 
-impl FileOperations for BindFile {
-    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.file.seek(SeekFrom::Start(offset)).map_err(to_error)?;
-        self.file.read(buf).map_err(to_error)
-    }
-
-    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.file.seek(SeekFrom::Start(offset)).map_err(to_error)?;
-        self.file.write(buf).map_err(to_error)
-    }
-
+impl BindFile {
     /// Windows has no append to switch one handle to for a single write,
     /// so an append that could land over another writer's is refused.
     #[cfg(not(unix))]
-    fn append(&mut self, _buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+    fn append(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, FilesystemError> {
         Err(FilesystemError::Unsupported)
     }
 
     /// The host places the write at the file's end as `O_APPEND` does, so
     /// another writer's append lands before or after it, never over it.
     #[cfg(unix)]
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+    fn append(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
         use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
 
         let flags = fcntl_getfl(&self.file)
@@ -514,7 +504,31 @@ impl FileOperations for BindFile {
             .map_err(io::Error::from)
             .map_err(to_error)?;
         let written = written.map_err(to_error)?;
-        Ok((end.map_err(to_error)? - written as u64, written))
+        iocb.pos = end.map_err(to_error)?;
+        Ok(written)
+    }
+}
+
+impl FileOperations for BindFile {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        self.file
+            .seek(SeekFrom::Start(iocb.pos))
+            .map_err(to_error)?;
+        let read = self.file.read(buf).map_err(to_error)?;
+        iocb.pos += read as u64;
+        Ok(read)
+    }
+
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        if iocb.append {
+            return self.append(iocb, buf);
+        }
+        self.file
+            .seek(SeekFrom::Start(iocb.pos))
+            .map_err(to_error)?;
+        let written = self.file.write(buf).map_err(to_error)?;
+        iocb.pos += written as u64;
+        Ok(written)
     }
 
     fn getattr(&self) -> Result<Metadata, FilesystemError> {
@@ -701,7 +715,7 @@ mod tests {
         };
         let mut buf = [0; 3];
         assert_eq!(
-            (file.ops().read(&mut buf, 0), &buf),
+            (file.ops().read_iter(&mut Kiocb::at(0), &mut buf), &buf),
             (Ok(3), b"new"),
             "vfs::do_file_open through an Overlay over a Bind whose host replaced a directory \
              a descriptor holds must read the file standing there now"
@@ -828,7 +842,9 @@ mod tests {
             )
             .expect("the host file must open");
         let mut buf = [0; 16];
-        let read = file.read(&mut buf, 0).expect("the host file must read");
+        let read = file
+            .read_iter(&mut Kiocb::at(0), &mut buf)
+            .expect("the host file must read");
         assert_eq!(
             &buf[..read],
             b"a,b",
@@ -859,7 +875,7 @@ mod tests {
                 },
             )
             .expect("a new file must be created")
-            .write(b"written", 0)
+            .write_iter(&mut Kiocb::at(0), b"written")
             .expect("the write must land");
         assert_eq!(
             fs::read(host.0.join("out.txt")).expect("the host file must exist"),
@@ -888,7 +904,7 @@ mod tests {
             .expect("the host file must open");
         assert_eq!(
             (
-                file.append(b"y").err(),
+                file.write_iter(&mut Kiocb::at(0).appending(), b"y").err(),
                 fs::read(host.0.join("f")).expect("the host file must read")
             ),
             (Some(FilesystemError::Unsupported), b"x".to_vec()),
@@ -1209,7 +1225,8 @@ mod tests {
                         .open("log.txt", &options)
                         .expect("the host file must open to write");
                     for _ in 0..10_000 {
-                        file.append(byte).expect("the append must succeed");
+                        file.write_iter(&mut Kiocb::at(0).appending(), byte)
+                            .expect("the append must succeed");
                     }
                 })
             })

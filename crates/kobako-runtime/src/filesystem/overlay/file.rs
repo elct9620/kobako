@@ -6,7 +6,7 @@
 
 use std::sync::{Arc, PoisonError};
 
-use super::super::{FileOperations, FilesystemError, Metadata};
+use super::super::{FileOperations, FilesystemError, Kiocb, Metadata};
 use super::inode::{ovl_inode, ReaderGuard};
 use crate::vfs::Dentry;
 
@@ -37,24 +37,20 @@ struct OverlayFile {
 }
 
 impl FileOperations for OverlayFile {
-    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         match self.inode.copy() {
             Some(copy) => copy
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .read(buf, offset),
-            None => self.file.read(buf, offset),
+                .read_iter(iocb, buf),
+            None => self.file.read_iter(iocb, buf),
         }
     }
 
     /// A file open to read takes no write, so the lower Layer's file
     /// answers it.
-    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.file.write(buf, offset)
-    }
-
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
-        self.file.append(buf)
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        self.file.write_iter(iocb, buf)
     }
 
     fn getattr(&self) -> Result<Metadata, FilesystemError> {

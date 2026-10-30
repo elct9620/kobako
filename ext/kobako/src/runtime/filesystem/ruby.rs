@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{
-    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
+    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Lookup, Metadata,
     OpenOptions,
 };
 use kobako_runtime::vfs::{Dentry, Inode};
@@ -373,6 +373,27 @@ impl RubyFile {
         }
     }
 
+    /// The file's `append` writes all of `buf` at its end in one step and
+    /// answers where the file then ends, as `IO#pos` does after a write to
+    /// a file opened to append. A file lacking it cannot append, since its
+    /// `size` and `pwrite` are two steps another writer can land between.
+    fn append(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        let end: u64 = ask(
+            self.file.get(),
+            "append",
+            FilesystemError::Unsupported,
+            |ruby, file| file.funcall("append", (ruby.str_from_slice(buf),)),
+        )?;
+        if end < buf.len() as u64 {
+            return Err(FilesystemError::Other(format!(
+                "append answered the file ending at {end}, before the {} bytes it wrote",
+                buf.len()
+            )));
+        }
+        iocb.pos = end;
+        Ok(buf.len())
+    }
+
     /// Ask the file to close, a file lacking `close` having nothing to
     /// release.
     fn close(&mut self) -> Result<(), FilesystemError> {
@@ -382,14 +403,15 @@ impl RubyFile {
 }
 
 impl FileOperations for RubyFile {
-    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        ask(
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        let pos = iocb.pos;
+        let read = ask(
             self.file.get(),
             "pread",
             FilesystemError::Unsupported,
             |ruby, file| {
                 // `IO#pread` raises `EOFError` at the end of a file, which reads as nothing.
-                let read: Option<RString> = match file.funcall("pread", (buf.len(), offset)) {
+                let read: Option<RString> = match file.funcall("pread", (buf.len(), pos)) {
                     Err(err) if err.is_kind_of(ruby.exception_eof_error()) => None,
                     read => read?,
                 };
@@ -400,15 +422,21 @@ impl FileOperations for RubyFile {
                 buf[..len].copy_from_slice(&bytes[..len]);
                 Ok(len)
             },
-        )
+        )?;
+        iocb.pos += read as u64;
+        Ok(read)
     }
 
-    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        ask(
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        if iocb.append {
+            return self.append(iocb, buf);
+        }
+        let pos = iocb.pos;
+        let written = ask(
             self.file.get(),
             "pwrite",
             FilesystemError::ReadOnlyFilesystem,
-            |ruby, file| file.funcall("pwrite", (ruby.str_from_slice(buf), offset)),
+            |ruby, file| file.funcall("pwrite", (ruby.str_from_slice(buf), pos)),
         )
         .and_then(|written: usize| match written {
             written if written <= buf.len() => Ok(written),
@@ -416,27 +444,9 @@ impl FileOperations for RubyFile {
                 "pwrite answered {written} bytes written of the {} it was handed",
                 buf.len()
             ))),
-        })
-    }
-
-    /// The file's `append` writes all of `buf` at its end in one step and
-    /// answers where the file then ends, as `IO#pos` does after a write to
-    /// a file opened to append. A file lacking it cannot append, since its
-    /// `size` and `pwrite` are two steps another writer can land between.
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
-        ask(
-            self.file.get(),
-            "append",
-            FilesystemError::Unsupported,
-            |ruby, file| file.funcall("append", (ruby.str_from_slice(buf),)),
-        )
-        .and_then(|end: u64| match end.checked_sub(buf.len() as u64) {
-            Some(at) => Ok((at, buf.len())),
-            None => Err(FilesystemError::Other(format!(
-                "append answered the file ending at {end}, before the {} bytes it wrote",
-                buf.len()
-            ))),
-        })
+        })?;
+        iocb.pos += written as u64;
+        Ok(written)
     }
 
     fn getattr(&self) -> Result<Metadata, FilesystemError> {

@@ -6,7 +6,7 @@ use super::namei::down_read;
 use super::openat2::OpenHow;
 use super::path::Path;
 use super::Error;
-use crate::filesystem::{DirEntry, FileOperations, FilesystemError, Metadata, OpenOptions};
+use crate::filesystem::{DirEntry, FileOperations, FilesystemError, Kiocb, Metadata, OpenOptions};
 use crate::mount::Mount;
 use crate::profile::Profile;
 
@@ -109,6 +109,15 @@ impl File {
 
     pub fn set_pos(&mut self, pos: u64) {
         self.pos = pos;
+    }
+
+    /// A call landing at `pos`, at the end where it was opened to append, as
+    /// `init_sync_kiocb` takes `IOCB_APPEND` from `f_flags`.
+    pub fn kiocb(&self, pos: u64) -> Kiocb {
+        match self.append {
+            true => Kiocb::at(pos).appending(),
+            false => Kiocb::at(pos),
+        }
     }
 
     /// What answers for it.

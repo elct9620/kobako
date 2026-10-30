@@ -7,7 +7,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use kobako_runtime::filesystem::{FileOperations, FileType, Metadata};
+use kobako_runtime::filesystem::{FileOperations, FileType, Kiocb, Metadata};
 use kobako_runtime::vfs::File;
 
 use super::args::{
@@ -345,7 +345,8 @@ pub(crate) fn pread(
         return Err(Errno::Badf.into());
     }
     let offset = refuse_reading_past_largest_offset(refuse_negative(offset)?, len)?;
-    let read = file.ops().read(mem.bytes_mut(ptr, len)?, offset)?;
+    let mut iocb = file.kiocb(offset);
+    let read = file.ops().read_iter(&mut iocb, mem.bytes_mut(ptr, len)?)?;
     mem.write_u32(nread, read as u32)
 }
 
@@ -404,12 +405,12 @@ pub(crate) fn pwrite(
     }
     let offset = refuse_negative(offset)?;
     // Linux's `pwrite` ignores the offset of a file opened to append.
-    let written = if file.append() {
-        file.ops().append(buf)?.1
-    } else {
-        file.ops()
-            .write(trim_to_largest_offset(buf, offset)?, offset)?
+    let buf = match file.append() {
+        true => buf,
+        false => trim_to_largest_offset(buf, offset)?,
     };
+    let mut iocb = file.kiocb(offset);
+    let written = file.ops().write_iter(&mut iocb, buf)?;
     mem.write_u32(nwritten, written as u32)
 }
 
@@ -423,7 +424,7 @@ pub(crate) fn read(
     let (ptr, len) = mem.first_non_empty_buffer(iovs.0, iovs.1)?;
     let read = match descriptor_mut(table, fd)? {
         // Bounded before stdin is drained, so a trap takes no bytes.
-        Descriptor::Stdin(pipe) => pipe.read(mem.bytes_mut(ptr, len)?, 0)?,
+        Descriptor::Stdin(pipe) => pipe.read_iter(&mut Kiocb::at(0), mem.bytes_mut(ptr, len)?)?,
         Descriptor::File(file) => {
             // Bounded before the access is checked, as wasmtime-wasi bounds
             // it before the host refuses the read.
@@ -432,8 +433,9 @@ pub(crate) fn read(
                 return Err(Errno::Badf.into());
             }
             let at = refuse_reading_past_largest_offset(file.pos(), len)?;
-            let read = file.ops().read(buf, at)?;
-            file.set_pos(at + read as u64);
+            let mut iocb = file.kiocb(at);
+            let read = file.ops().read_iter(&mut iocb, buf)?;
+            file.set_pos(iocb.pos);
             read
         }
         Descriptor::Channel(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
@@ -552,21 +554,21 @@ pub(crate) fn write(
 ) -> Answer {
     let (ptr, len) = mem.first_non_empty_buffer(ciovs.0, ciovs.1)?;
     let written = match descriptor_mut(table, fd)? {
-        Descriptor::Channel(pipe) => pipe.write(mem.bytes(ptr, len)?, 0)?,
+        Descriptor::Channel(pipe) => pipe.write_iter(&mut Kiocb::at(0), mem.bytes(ptr, len)?)?,
         Descriptor::File(file) => {
             // Bounded before the access is checked, as in `pwrite`.
             let buf = mem.bytes(ptr, len)?;
             if !file.writable() {
                 return Err(Errno::Badf.into());
             }
-            let (at, written) = if file.append() {
-                file.ops().append(buf)?
-            } else {
-                let at = file.pos();
-                let buf = trim_to_largest_offset(buf, at)?;
-                (at, file.ops().write(buf, at)?)
+            let at = file.pos();
+            let buf = match file.append() {
+                true => buf,
+                false => trim_to_largest_offset(buf, at)?,
             };
-            file.set_pos(at.checked_add(written as u64).ok_or(Errno::Fbig)?);
+            let mut iocb = file.kiocb(at);
+            let written = file.ops().write_iter(&mut iocb, buf)?;
+            file.set_pos(iocb.pos);
             written
         }
         Descriptor::Stdin(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),

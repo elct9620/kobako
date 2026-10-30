@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    FileOperations, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
+    FileOperations, FilesystemError, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
@@ -68,7 +68,10 @@ fn contents<F: InodeOperations>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
         panic!("the file must exist");
     };
     let mut buf = vec![0; 64];
-    let read = file.ops().read(&mut buf, 0).expect("the file must read");
+    let read = file
+        .ops()
+        .read_iter(&mut Kiocb::at(0), &mut buf)
+        .expect("the file must read");
     buf.truncate(read);
     buf
 }
@@ -612,17 +615,13 @@ struct CountedFile {
 }
 
 impl FileOperations for CountedFile {
-    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         self.reads.fetch_add(1, Ordering::Relaxed);
-        self.file.read(buf, offset)
+        self.file.read_iter(iocb, buf)
     }
 
-    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.file.write(buf, offset)
-    }
-
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
-        self.file.append(buf)
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        self.file.write_iter(iocb, buf)
     }
 
     fn getattr(&self) -> Result<Metadata, FilesystemError> {
@@ -665,16 +664,12 @@ fn a_read_of_a_length_asks_the_filesystem_once() {
 struct RefusesClose(Box<dyn FileOperations>);
 
 impl FileOperations for RefusesClose {
-    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.read(buf, offset)
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        self.0.read_iter(iocb, buf)
     }
 
-    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.write(buf, offset)
-    }
-
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
-        self.0.append(buf)
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        self.0.write_iter(iocb, buf)
     }
 
     fn getattr(&self) -> Result<Metadata, FilesystemError> {
@@ -694,16 +689,12 @@ impl FileOperations for RefusesClose {
 struct FailsReads(Box<dyn FileOperations>);
 
 impl FileOperations for FailsReads {
-    fn read(&mut self, _buf: &mut [u8], _offset: u64) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
         Err(FilesystemError::Other("the disk went away".to_string()))
     }
 
-    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.write(buf, offset)
-    }
-
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
-        self.0.append(buf)
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        self.0.write_iter(iocb, buf)
     }
 
     fn getattr(&self) -> Result<Metadata, FilesystemError> {
@@ -756,16 +747,12 @@ fn a_close_the_filesystem_refuses_fails_the_scripts_close() {
 struct WritesInParts(Box<dyn FileOperations>);
 
 impl FileOperations for WritesInParts {
-    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.read(buf, offset)
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        self.0.read_iter(iocb, buf)
     }
 
-    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.write(&buf[..buf.len().min(3)], offset)
-    }
-
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
-        self.0.append(&buf[..buf.len().min(3)])
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        self.0.write_iter(iocb, &buf[..buf.len().min(3)])
     }
 
     fn getattr(&self) -> Result<Metadata, FilesystemError> {
@@ -936,16 +923,12 @@ fn a_write_lands_whole_when_the_filesystem_takes_it_in_parts() {
 struct ReportsLen(Box<dyn FileOperations>, u64);
 
 impl FileOperations for ReportsLen {
-    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.read(buf, offset)
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        self.0.read_iter(iocb, buf)
     }
 
-    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.write(buf, offset)
-    }
-
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
-        self.0.append(buf)
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        self.0.write_iter(iocb, buf)
     }
 
     fn getattr(&self) -> Result<Metadata, FilesystemError> {

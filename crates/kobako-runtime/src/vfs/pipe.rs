@@ -4,7 +4,7 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use crate::filesystem::{FileOperations, FilesystemError};
+use crate::filesystem::{FileOperations, FilesystemError, Kiocb};
 
 /// The read end of a pipe holding fixed bytes, as the Preamble's stream is.
 pub struct PipeReader {
@@ -23,7 +23,7 @@ impl FileOperations for PipeReader {
     /// nothing from a pipe still holding bytes answers `Interrupted`, as a
     /// blocking read given nothing to fill returns before it would wait; one
     /// from a drained pipe reads nothing, as a closed writer's pipe does.
-    fn read(&mut self, buf: &mut [u8], _offset: u64) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let rest = &self.bytes[self.read..];
         if buf.is_empty() && !rest.is_empty() {
             return Err(FilesystemError::Interrupted);
@@ -64,7 +64,7 @@ impl FileOperations for PipeWriter {
     /// A pipe has no offsets, so a write lands after the last. A write past
     /// the capacity keeps what fit and answers a failure, which is how a
     /// capture one past its limit learns it was truncated.
-    fn write(&mut self, buf: &[u8], _offset: u64) -> Result<usize, FilesystemError> {
+    fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
         let mut buffer = self.buffer.lock().unwrap_or_else(PoisonError::into_inner);
         let take = buf.len().min(self.capacity - buffer.len());
         buffer.extend_from_slice(&buf[..take]);
@@ -85,10 +85,10 @@ mod tests {
         let mut buf = [0; 2];
         assert_eq!(
             (
-                reader.read(&mut buf, 0),
+                reader.read_iter(&mut Kiocb::at(0), &mut buf),
                 buf,
-                reader.read(&mut buf, 0),
-                reader.read(&mut buf, 0)
+                reader.read_iter(&mut Kiocb::at(0), &mut buf),
+                reader.read_iter(&mut Kiocb::at(0), &mut buf)
             ),
             (Ok(2), *b"ab", Ok(1), Ok(0)),
             "PipeReader::read of three bytes in steps of two must take them in order, then nothing"
@@ -100,7 +100,10 @@ mod tests {
         let mut holding = PipeReader::new(b"a".to_vec());
         let mut drained = PipeReader::new(Vec::new());
         assert_eq!(
-            (holding.read(&mut [], 0), drained.read(&mut [], 0)),
+            (
+                holding.read_iter(&mut Kiocb::at(0), &mut []),
+                drained.read_iter(&mut Kiocb::at(0), &mut [])
+            ),
             (Err(FilesystemError::Interrupted), Ok(0)),
             "PipeReader::read into no room must answer Interrupted while bytes remain and nothing \
              once drained"
@@ -113,8 +116,8 @@ mod tests {
         let shared = writer.clone();
         assert_eq!(
             (
-                writer.write(b"ab", 0).ok(),
-                writer.write(b"cd", 0).is_err(),
+                writer.write_iter(&mut Kiocb::at(0), b"ab").ok(),
+                writer.write_iter(&mut Kiocb::at(0), b"cd").is_err(),
                 shared.contents()
             ),
             (Some(2), true, b"abc".to_vec()),

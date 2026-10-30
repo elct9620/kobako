@@ -159,28 +159,54 @@ pub trait DentryOperations: Send + Sync {
     ) -> Result<bool, FilesystemError>;
 }
 
-/// One open file. The runtime keeps its position, so every read and write
-/// names the offset it starts at.
+/// Where one read or write lands, and where the file left off once it did,
+/// as Linux's `struct kiocb`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Kiocb {
+    /// Where the call lands; the file moves it past what it took.
+    pub pos: u64,
+    /// Whether a write lands at the file's end as it stands then, as
+    /// `IOCB_APPEND` asks.
+    pub append: bool,
+}
+
+impl Kiocb {
+    /// A call landing at `pos`.
+    pub fn at(pos: u64) -> Self {
+        Self { pos, append: false }
+    }
+
+    /// This call, landing at the file's end as it stands when the write
+    /// lands.
+    pub fn appending(self) -> Self {
+        Self {
+            append: true,
+            ..self
+        }
+    }
+}
+
+/// One open file. The runtime keeps its position and hands each call where it
+/// lands.
 pub trait FileOperations: Send {
-    /// Read from `offset` into `buf`. A file without it refuses as Linux's
-    /// `vfs_read` refuses one without `f_op->read`.
-    fn read(&mut self, _buf: &mut [u8], _offset: u64) -> Result<usize, FilesystemError> {
+    /// Read into `buf` from where `iocb` lands, moving it past what was read
+    /// unless the file has no positions. A file without it refuses as Linux's
+    /// `vfs_read` refuses one without `f_op->read_iter`.
+    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
         Err(FilesystemError::InvalidInput)
     }
 
-    /// Write `buf` at `offset`. A file without it refuses as Linux's
-    /// `vfs_write` refuses one without `f_op->write`.
-    fn write(&mut self, _buf: &[u8], _offset: u64) -> Result<usize, FilesystemError> {
+    /// Write `buf` where `iocb` lands, moving it past what was written unless
+    /// the file has no positions. A file without it refuses as Linux's
+    /// `vfs_write` refuses one without `f_op->write_iter`.
+    ///
+    /// A call landing at the end must keep another writer's from landing over
+    /// it, as `generic_file_write_iter` reads the end under the inode's lock,
+    /// so a file that cannot read its end and write there in one step answers
+    /// `Unsupported`.
+    fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, FilesystemError> {
         Err(FilesystemError::InvalidInput)
-    }
-
-    /// Write `buf` at the file's end as it stands when the write lands,
-    /// answering the offset it landed at and how much was written. It
-    /// keeps another writer's append from landing over this one, as Linux
-    /// takes an append under the file's lock, so a file that cannot read
-    /// its end and write there in one step answers `Unsupported`.
-    fn append(&mut self, _buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
-        Err(FilesystemError::Unsupported)
     }
 
     /// What the open file is, and its length, even once its name is gone,
