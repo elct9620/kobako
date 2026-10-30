@@ -61,7 +61,7 @@ Each part owns one concern, and its dependencies on other kobako parts may only 
 |---|---|---|
 | `kobako-transport` | the core envelope and the ABI's values | none, ever |
 | `kobako-codec` | the payload dialects, one namespace and feature per schema | none |
-| `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant`, `Mount`, `vfs`, `Inode` and kinds | transport |
+| `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant`, `Mount`, `vfs`, `InodeOperations` and kinds | transport |
 | `kobako-wasmtime` | one engine behind that contract | runtime, transport |
 | `kobako` | the Rust host model: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
 | `lib/` | the Ruby host model and its own dialect | the native ext |
@@ -210,9 +210,10 @@ The Filesystem context follows Linux's three layers: the syscall layer, the VFS,
 ┌───────────────────────────────────────────┐
 │ VFS        kobako-runtime::vfs            │
 │ namei · dentries · locks · mount flags    │
+│ open files · pipes                        │
 │                                           │
 │   ┌─────────────┐      ┌─────────────┐    │
-│   │ hook: check │      │ hook: d_op  │    │
+│   │ hook: check │      │ hook: i_op  │    │
 │   └──────┬──────┘      └──────┬──────┘    │
 └──────────┼────────────────────┼───────────┘
            ▼                    ▼
@@ -228,9 +229,9 @@ Each role keeps to its own work, so a change that crosses roles is a change in t
 | Role | Owns |
 |---|---|
 | syscall | decoding, errno, the fd table |
-| VFS | the walk, dentries, locks, mount flags, calling each hook |
+| VFS | the walk, dentries, locks, open files, mount flags, answering for an operation an entry lacks |
 | Security Module | whether a path may be reached |
-| driver | one name in one directory, and its own state on a dentry |
+| driver | what one entry answers, and its own state on a dentry or inode |
 
 ## Build Rules
 

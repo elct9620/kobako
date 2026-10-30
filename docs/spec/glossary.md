@@ -365,9 +365,13 @@ One name of a Filesystem and the directory above it, made by the runtime alone. 
 
 The runtime records on the Dentry the Inode a lookup finds, as Linux's `d_add` does, and asks no more. An Inode may say it answers by path, as a name there means what stands at it now. A Filesystem may answer that a held Dentry no longer names what it recorded. The runtime then drops that Dentry for the next lookup, and its holders keep it alive.
 
+### Open File
+
+What a descriptor refers to, as Linux's `struct file`. It holds where it was opened, what answers for it, its position, and what it was opened for. A Driver's table holds it, so every ABI shares one.
+
 ### Path
 
-A directory the guest reached beneath a Mount, as the Mount and the Dentry naming it. The runtime walks a guest path from one, one name at a time.
+An entry the guest reached beneath a Mount, as the Mount and the Dentry naming it. The runtime walks a guest path from a directory's, one name at a time.
 
 ```
 Path = Mount + Dentry ─▶ Inode ─▶ lookup ─▶ the next Path
