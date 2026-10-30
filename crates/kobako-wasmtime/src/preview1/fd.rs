@@ -15,7 +15,7 @@ use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
 use super::types::{self, Fdflags, Filetype, Fstflags, Rights};
-use crate::descriptors::{Descriptor, Descriptors, OpenDirectory};
+use crate::descriptors::{Descriptor, Descriptors};
 
 /// What a preopen allows itself: every path call, as wasmtime-wasi hands
 /// most userlands.
@@ -60,24 +60,29 @@ fn descriptor(table: &Descriptors, fd: u32) -> Answer<&Descriptor> {
     table.get(fd).ok_or_else(|| Errno::Badf.into())
 }
 
-fn descriptor_mut(table: &mut Descriptors, fd: u32) -> Answer<&mut Descriptor> {
-    table.get_mut(fd).ok_or_else(|| Errno::Badf.into())
+/// The open file `fd` stands for.
+fn file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
+    match table.get_mut(fd) {
+        Some(descriptor) => Ok(&mut descriptor.file),
+        None => Err(Errno::Badf.into()),
+    }
 }
 
-/// The open file `fd` stands for; any other descriptor is `BADF`.
-fn file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
-    match descriptor_mut(table, fd)? {
-        Descriptor::File(file) => Ok(file),
-        Descriptor::Directory(_) => Err(Errno::Badf.into()),
+/// The open file `fd` stands for, in a call about its position. wasi-testsuite
+/// has a directory refuse one, where Linux would seek it.
+fn seekable(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
+    match file(table, fd)? {
+        file if file.is_directory() => Err(Errno::Badf.into()),
+        file => Ok(file),
     }
 }
 
 /// A call any file or directory answers, which preview1 refuses for
 /// stdio.
 fn file_or_directory(table: &Descriptors, fd: u32) -> Answer {
-    match descriptor(table, fd)? {
-        Descriptor::File(file) if file.is_stream() => Err(Errno::Badf.into()),
-        Descriptor::Directory(_) | Descriptor::File(_) => Ok(()),
+    match descriptor(table, fd)?.file.is_stream() {
+        true => Err(Errno::Badf.into()),
+        false => Ok(()),
     }
 }
 
@@ -141,10 +146,7 @@ pub(crate) fn allocate(table: &mut Descriptors, fd: u32, offset: u64, len: u64) 
 }
 
 pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
-    match table.remove(fd).ok_or(Errno::Badf)? {
-        Descriptor::File(file) => Ok(file.close()?),
-        Descriptor::Directory(dir) => Ok(dir.file.close()?),
-    }
+    Ok(table.remove(fd).ok_or(Errno::Badf)?.file.close()?)
 }
 
 pub(crate) fn sync(table: &mut Descriptors, fd: u32) -> Answer {
@@ -152,42 +154,37 @@ pub(crate) fn sync(table: &mut Descriptors, fd: u32) -> Answer {
 }
 
 pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> {
-    let (fs_filetype, fs_flags, fs_rights_base, fs_rights_inheriting) = match descriptor(table, fd)?
-    {
-        Descriptor::File(file) if file.is_stream() => {
-            let rights = match file.readable() {
-                true => Rights::FD_READ,
-                false => Rights::FD_WRITE,
-            };
-            (Filetype::Unknown, Fdflags::empty(), rights, rights)
+    let descriptor = descriptor(table, fd)?;
+    let file = &descriptor.file;
+    let mut fs_flags = Fdflags::empty();
+    if !file.is_stream() {
+        fs_flags.set(Fdflags::APPEND, file.append());
+        fs_flags.set(Fdflags::NONBLOCK, file.nonblock());
+    }
+    let (fs_filetype, fs_rights_base, fs_rights_inheriting) = if file.is_stream() {
+        let rights = match file.readable() {
+            true => Rights::FD_READ,
+            false => Rights::FD_WRITE,
+        };
+        (Filetype::Unknown, rights, rights)
+    } else if descriptor.preopen.is_some() {
+        (Filetype::Directory, preopen_rights(), preopen_inheriting())
+    } else if file.is_directory() {
+        let rights = Rights::all()
+            - Rights::FD_WRITE
+            - Rights::FD_SEEK
+            - Rights::FD_FILESTAT_SET_SIZE
+            - Rights::PATH_FILESTAT_SET_SIZE;
+        (Filetype::Directory, rights, rights)
+    } else {
+        let mut rights = Rights::all();
+        if !file.readable() {
+            rights -= Rights::FD_READ | Rights::FD_READDIR;
         }
-        Descriptor::Directory(dir) if dir.preopen.is_some() => (
-            Filetype::Directory,
-            Fdflags::empty(),
-            preopen_rights(),
-            preopen_inheriting(),
-        ),
-        Descriptor::Directory(_) => {
-            let rights = Rights::all()
-                - Rights::FD_WRITE
-                - Rights::FD_SEEK
-                - Rights::FD_FILESTAT_SET_SIZE
-                - Rights::PATH_FILESTAT_SET_SIZE;
-            (Filetype::Directory, Fdflags::empty(), rights, rights)
+        if !file.writable() {
+            rights -= Rights::FD_WRITE;
         }
-        Descriptor::File(file) => {
-            let mut rights = Rights::all();
-            if !file.readable() {
-                rights -= Rights::FD_READ | Rights::FD_READDIR;
-            }
-            if !file.writable() {
-                rights -= Rights::FD_WRITE;
-            }
-            let mut flags = Fdflags::empty();
-            flags.set(Fdflags::APPEND, file.append());
-            flags.set(Fdflags::NONBLOCK, file.nonblock());
-            (Filetype::RegularFile, flags, rights, rights)
-        }
+        (Filetype::RegularFile, rights, rights)
     };
     Ok(types::Fdstat {
         fs_filetype,
@@ -212,11 +209,7 @@ pub(crate) fn fdstat_set_rights(table: &Descriptors, fd: u32) -> Answer {
 }
 
 pub(crate) fn filestat_get(table: &Descriptors, fd: u32) -> Answer<types::Filestat> {
-    let metadata = match descriptor(table, fd)? {
-        Descriptor::Directory(dir) => dir.file.getattr()?,
-        Descriptor::File(file) => file.getattr()?,
-    };
-    Ok(filestat(table, metadata))
+    Ok(filestat(table, descriptor(table, fd)?.file.getattr()?))
 }
 
 pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> Answer {
@@ -245,13 +238,11 @@ pub(crate) fn pread(
 }
 
 pub(crate) fn prestat_get(table: &Descriptors, fd: u32) -> Answer<types::Prestat> {
-    match descriptor(table, fd)? {
-        Descriptor::Directory(OpenDirectory {
-            preopen: Some(at), ..
-        }) => Ok(types::Prestat::Dir(types::PrestatDir {
+    match &descriptor(table, fd)?.preopen {
+        Some(at) => Ok(types::Prestat::Dir(types::PrestatDir {
             pr_name_len: at.len() as u32,
         })),
-        _ => Err(Errno::Badf.into()),
+        None => Err(Errno::Badf.into()),
     }
 }
 
@@ -262,17 +253,15 @@ pub(crate) fn prestat_dir_name(
     path: GuestPtr<u8>,
     path_len: u32,
 ) -> Answer {
-    match descriptor(table, fd)? {
-        Descriptor::Directory(OpenDirectory {
-            preopen: Some(at), ..
-        }) => {
+    match &descriptor(table, fd)?.preopen {
+        Some(at) => {
             let name = at.as_bytes();
             if name.len() > path_len as usize {
                 return Err(Errno::Nametoolong.into());
             }
             mem.write_bytes(path, name)
         }
-        _ => Err(Errno::Notdir.into()),
+        None => Err(Errno::Notdir.into()),
     }
 }
 
@@ -353,10 +342,7 @@ pub(crate) fn readdir(
     cookie: u64,
 ) -> Answer<types::Size> {
     let profile = table.profile();
-    let dir = match descriptor_mut(table, fd)? {
-        Descriptor::Directory(dir) => dir,
-        _ => return Err(Errno::Badf.into()),
-    };
+    let dir = file(table, fd)?;
     let mut used: u32 = 0;
     let mut failed = None;
     let mut actor =
@@ -367,8 +353,7 @@ pub(crate) fn readdir(
                 false
             }
         };
-    dir.file
-        .iterate_dir(&mut DirContext::new(cookie, &mut actor))?;
+    dir.iterate_dir(&mut DirContext::new(cookie, &mut actor))?;
     match failed {
         Some(error) => Err(error),
         None => Ok(used),
@@ -402,11 +387,11 @@ pub(crate) fn seek(
         types::Whence::Cur => Whence::Cur,
         types::Whence::End => Whence::End,
     };
-    Ok(file(table, fd)?.llseek(offset, whence)?)
+    Ok(seekable(table, fd)?.llseek(offset, whence)?)
 }
 
 pub(crate) fn tell(table: &mut Descriptors, fd: u32) -> Answer<u64> {
-    Ok(file(table, fd)?.llseek(0, Whence::Cur)?)
+    Ok(seekable(table, fd)?.llseek(0, Whence::Cur)?)
 }
 
 pub(crate) fn write(
@@ -428,10 +413,13 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        fdstat_get, fdstat_set_flags, filestat_set_size, renumber, sync, tell, Answer, Errno,
+        fdstat_get, fdstat_set_flags, filestat_set_size, renumber, seek, sync, tell, Answer, Errno,
         Fdflags,
     };
     use crate::descriptors::{Descriptor, Descriptors};
+    use crate::preview1::memory::GuestMemory;
+    use crate::preview1::path::create_directory;
+    use crate::preview1::types::Whence;
     use kobako_runtime::filesystem::{
         FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
     };
@@ -440,6 +428,7 @@ mod tests {
     use kobako_runtime::vfs::{
         self, create_pipe_files, Dentry, Filesystem, Inode, OpenHow, Path, PipeInodeInfo,
     };
+    use wiggle::GuestPtr;
 
     /// A table holding only the three standard streams.
     fn standard_streams() -> Descriptors {
@@ -522,7 +511,7 @@ mod tests {
         let mut how = OpenHow::default();
         how.read = true;
         let start = Path::root(mount.mnt());
-        Descriptor::File(
+        Descriptor::of(
             vfs::do_file_open(&Arc::default(), &start, "file", &how, true)
                 .unwrap_or_else(|_| panic!("the file must open")),
         )
@@ -559,6 +548,53 @@ mod tests {
             Fdflags::NONBLOCK,
             "fd_fdstat_get after fd_fdstat_set_flags must report not blocking and, as Linux's \
              setfl ignores it, no sync"
+        );
+    }
+
+    // wasi-testsuite's dir_fd_op_failures names these answers and writes that
+    // they part from POSIX, where a directory seeks.
+    // @behavior RT-184
+    #[test]
+    fn a_directory_refuses_a_call_about_its_position() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(HoldsRefusesClose)),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let mut table = Descriptors::new(
+            create_pipe_files(&PipeInodeInfo::filled(Vec::new())).0,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            vec![mount],
+            None,
+            Profile::Hermetic,
+        )
+        .unwrap_or_else(|_| panic!("the table must make"));
+        assert_eq!(
+            (
+                errno(tell(&mut table, 3)),
+                errno(seek(&mut table, 3, 0, Whence::Set)),
+            ),
+            (Some(Errno::Badf), Some(Errno::Badf)),
+            "fd_tell and fd_seek on a directory through preview1 must answer EBADF, as \
+             wasi-testsuite requires"
+        );
+    }
+
+    // @behavior RT-185
+    #[test]
+    fn a_path_call_starting_from_a_file_is_not_a_directory() {
+        let mut table = standard_streams();
+        let fd = table.push(open_file()).expect("a descriptor to start from");
+        let mut bytes = *b"a";
+        let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+        let mem = GuestMemory::new(&mut memory, 1);
+        assert_eq!(
+            errno(create_directory(&table, &mem, fd, GuestPtr::new((0, 1)))),
+            Some(Errno::Notdir),
+            "path_create_directory starting from a file through preview1 must answer ENOTDIR, as \
+             Linux refuses a walk starting there"
         );
     }
 

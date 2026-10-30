@@ -16,7 +16,6 @@ use wiggle::{GuestPtr, GuestType};
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
 use super::types::{self, Clockid, Eventrwflags, Eventtype, Subclockflags, SubscriptionU};
-use crate::descriptors::Descriptor;
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
 
@@ -108,13 +107,12 @@ fn ready(
     subscribed: types::SubscriptionFdReadwrite,
     event: PollMask,
 ) -> Answer {
-    let table = invocation.wasi().descriptors();
-    let file = match table.get(subscribed.file_descriptor.into()) {
-        Some(Descriptor::File(file)) => file,
-        Some(Descriptor::Directory(dir)) => &dir.file,
-        None => return Err(Errno::Badf.into()),
-    };
-    match file.poll().contains(event) {
+    let descriptor = invocation
+        .wasi()
+        .descriptors()
+        .get(subscribed.file_descriptor.into())
+        .ok_or(Errno::Badf)?;
+    match descriptor.file.poll().contains(event) {
         true => Ok(()),
         false => Err(Errno::Badf.into()),
     }

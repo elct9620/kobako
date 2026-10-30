@@ -464,7 +464,7 @@ impl InodeOperations for Bind {
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         if options.directory {
-            return Some(Ok(Box::new(BindDir(self.clone()))));
+            return Some(Ok(Box::new(BindDir(self.clone(), self.fid(dentry).ok()))));
         }
         Some(self.open_file(dentry, options))
     }
@@ -524,12 +524,23 @@ impl InodeOperations for Bind {
 }
 
 /// A host directory, open: it reaches the descriptor kept on the dentry it is
-/// handed, so it follows the directory wherever it moves.
-struct BindDir(Bind);
+/// handed, so it follows the directory wherever it moves. It also keeps the
+/// descriptor it opened with, for a sync, which is handed no dentry.
+struct BindDir(Bind, Option<Arc<Dir>>);
 
 impl FileOperations for BindDir {
     fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
         self.0.entries_of(dentry)
+    }
+
+    /// Make the host directory's names durable. Windows syncs no directory, so
+    /// there the host answers for them itself.
+    fn fsync(&mut self) -> Result<(), FilesystemError> {
+        #[cfg(unix)]
+        if let Some(dir) = &self.1 {
+            rustix::fs::fsync(&**dir).map_err(|err| to_error(io::Error::from(err)))?;
+        }
+        Ok(())
     }
 }
 

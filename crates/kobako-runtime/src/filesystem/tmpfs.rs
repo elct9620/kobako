@@ -620,6 +620,12 @@ impl FileOperations for TmpfsDir {
             .map(|(name, node)| node.dir_entry(name, self.dev))
             .collect())
     }
+
+    /// A Tmpfs holds nothing to make durable, as tmpfs names `noop_fsync` for
+    /// its directories too.
+    fn fsync(&mut self) -> Result<(), FilesystemError> {
+        Ok(())
+    }
 }
 
 /// A file of a Tmpfs.

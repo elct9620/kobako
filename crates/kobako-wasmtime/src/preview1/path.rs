@@ -9,7 +9,7 @@ use super::errno::{Answer, Errno};
 use super::fd::{check_fstflags, filestat};
 use super::memory::GuestMemory;
 use super::types;
-use crate::descriptors::{Descriptor, Descriptors, OpenDirectory};
+use crate::descriptors::{Descriptor, Descriptors};
 
 /// The flags `path_open` takes besides the path itself.
 pub(crate) struct OpenFlags {
@@ -19,11 +19,13 @@ pub(crate) struct OpenFlags {
     pub(crate) fdflags: types::Fdflags,
 }
 
-/// The directory `fd` stands for; any other descriptor is `BADF`.
+/// The directory `fd` stands for, a path being walked from; anything else is
+/// `NOTDIR`, as Linux refuses a walk starting there.
 fn directory(table: &Descriptors, fd: u32) -> Answer<&vfs::Path> {
-    match table.get(fd).ok_or(Errno::Badf)? {
-        Descriptor::Directory(dir) => Ok(dir.file.path()),
-        Descriptor::File(_) => Err(Errno::Badf.into()),
+    let file = &table.get(fd).ok_or(Errno::Badf)?.file;
+    match file.is_directory() {
+        true => Ok(file.path()),
+        false => Err(Errno::Notdir.into()),
     }
 }
 
@@ -85,10 +87,7 @@ pub(crate) fn open(
     flags: &OpenFlags,
 ) -> Answer<types::Fd> {
     let path = mem.path(path)?;
-    let dir = match table.get(fd).ok_or(Errno::Badf)? {
-        Descriptor::Directory(dir) => dir.file.path(),
-        Descriptor::File(_) => return Err(Errno::Notdir.into()),
-    };
+    let dir = directory(table, fd)?;
     // A Filesystem makes no write durable on its own schedule, so an open
     // asking otherwise is unsupported rather than quietly granted.
     if flags
@@ -114,14 +113,7 @@ pub(crate) fn open(
     how.append = flags.fdflags.contains(types::Fdflags::APPEND);
     how.nonblock = flags.fdflags.contains(types::Fdflags::NONBLOCK);
     let file = vfs::do_file_open(table.cred(), dir, &path, &how, !table.is_full())?;
-    let descriptor = match file.is_directory() {
-        true => Descriptor::Directory(OpenDirectory {
-            file,
-            preopen: None,
-        }),
-        false => Descriptor::File(file),
-    };
-    Ok(table.push(descriptor).ok_or(Errno::Mfile)?.into())
+    Ok(table.push(Descriptor::of(file)).ok_or(Errno::Mfile)?.into())
 }
 
 pub(crate) fn readlink(

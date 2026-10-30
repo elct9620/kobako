@@ -286,6 +286,13 @@ impl FileOperations for OverlayDir {
     fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
         self.0.fs.entries(&self.0.fs.dir(dentry)?.level())
     }
+
+    /// Its Layers answer for what they hold, and its upper is a Tmpfs, so
+    /// nothing is left to make durable, as `ovl_dir_fsync` finds with no upper
+    /// of its own to sync.
+    fn fsync(&mut self) -> Result<(), FilesystemError> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

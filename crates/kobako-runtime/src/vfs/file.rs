@@ -121,7 +121,6 @@ pub struct File {
     cred: Arc<Cred>,
     /// What answers for it, as `f_op`.
     ops: Box<dyn FileOperations>,
-    directory: bool,
     /// What it was opened for, as `f_mode`.
     mode: FMode,
     /// Whether each write lands at the end, as `O_APPEND` in `f_flags`.
@@ -148,7 +147,6 @@ impl File {
             path,
             cred,
             ops,
-            directory: false,
             mode: FMode::of(how),
             append: how.append,
             nonblock: how.nonblock,
@@ -174,10 +172,11 @@ impl File {
             Some(opened) => opened?,
             None => Box::new(Unlistable),
         };
-        Ok(Self {
-            directory: true,
-            ..Self::new(path, cred, ops, &OpenHow::default())
-        })
+        let how = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        Ok(Self::new(path, cred, ops, &how))
     }
 
     /// This file with no position, as `stream_open` makes a pipe's ends.
@@ -196,8 +195,12 @@ impl File {
         &self.path
     }
 
+    /// Whether it is a directory, as `S_ISDIR(file_inode(file))`.
     pub fn is_directory(&self) -> bool {
-        self.directory
+        self.path
+            .dentry()
+            .inode()
+            .is_some_and(|inode| inode.kind() == FileType::Directory)
     }
 
     /// What it was opened for.
@@ -354,11 +357,21 @@ impl File {
         }
     }
 
+    /// Refuse a directory's read, as every directory's `f_op->read` is
+    /// `generic_read_dir`.
+    fn generic_read_dir(&self) -> Result<(), FilesystemError> {
+        match self.is_directory() {
+            true => Err(FilesystemError::IsADirectory),
+            false => Ok(()),
+        }
+    }
+
     /// Read from its position, moving it past what was read, as `vfs_read`
     /// does.
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         self.may_read()?;
         self.rw_verify_area(self.pos, buf.len())?;
+        self.generic_read_dir()?;
         let mut iocb = self.kiocb(self.pos);
         let read = self.ops.read_iter(&mut iocb, buf)?;
         self.pos = iocb.pos;
@@ -369,6 +382,7 @@ impl File {
     pub fn pread(&mut self, buf: &mut [u8], pos: u64) -> Result<usize, FilesystemError> {
         self.may_pread(pos)?;
         self.rw_verify_area(pos, buf.len())?;
+        self.generic_read_dir()?;
         self.ops.read_iter(&mut self.kiocb(pos), buf)
     }
 
@@ -398,7 +412,7 @@ impl File {
 
     /// What it reports of itself, as `vfs_getattr` answers.
     pub fn getattr(&self) -> Result<Metadata, Error> {
-        match self.directory {
+        match self.is_directory() {
             true => {
                 self.cred.security_path_walk(&self.path)?;
                 self.path.metadata()
@@ -410,7 +424,7 @@ impl File {
     /// Truncate or extend it through what it was opened on, as `do_ftruncate`
     /// refuses anything but a file open to write, and reaches `->setattr`.
     pub fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        if self.directory || !self.writable() || len > MAX_OFFSET {
+        if self.is_directory() || !self.writable() || len > MAX_OFFSET {
             return Err(FilesystemError::InvalidInput);
         }
         let dentry = self.path.dentry();
@@ -676,6 +690,41 @@ mod tests {
             ),
             "File::iterate_dir must hand `.` and `..` ahead of the entries, each with the \
              position after it, and go on from any of those positions"
+        );
+    }
+
+    // @behavior RT-184
+    #[test]
+    fn a_directory_answers_as_a_directory_open_to_read_does() {
+        let tmpfs: Arc<Tmpfs> = Arc::new([("a", "x")].into_iter().collect());
+        let mount = Mount::new("/data", Filesystem::new(tmpfs), Access::ReadWrite)
+            .expect("/data is a guest path");
+        let mut dir = File::root(mount.mnt(), Arc::default())
+            .unwrap_or_else(|_| panic!("the root must open"));
+        let mut buf = [0; 2];
+        assert_eq!(
+            (
+                dir.read(&mut buf),
+                dir.pread(&mut buf, 0),
+                dir.write(b"xy"),
+                dir.pwrite(b"xy", 0),
+                dir.truncate(0),
+                dir.fallocate(0, 1),
+                dir.fsync(),
+                dir.fadvise(0, 0),
+            ),
+            (
+                Err(FilesystemError::IsADirectory),
+                Err(FilesystemError::IsADirectory),
+                Err(FilesystemError::BadDescriptor),
+                Err(FilesystemError::BadDescriptor),
+                Err(FilesystemError::InvalidInput),
+                Err(FilesystemError::BadDescriptor),
+                Ok(()),
+                Ok(()),
+            ),
+            "File calls on a directory must answer as Linux answers one open to read: EISDIR to \
+             read, EBADF to write or allocate, EINVAL to truncate, and success to sync or advise"
         );
     }
 

@@ -396,7 +396,20 @@ fn answered_as_a_linux_pipe(call: &str, fd: i32) -> Option<i32> {
             Some(ERRNO_INVAL)
         }
         ("fd_fdstat_set_flags" | "fd_filestat_get", 0..=2) => Some(ERRNO_SUCCESS),
-        ("path_open", 0..=2) => Some(ERRNO_NOTDIR),
+        ("fd_readdir" | "fd_readdir_far", 0..=2) => Some(ERRNO_NOTDIR),
+        (
+            "path_create_directory"
+            | "path_filestat_get"
+            | "path_filestat_set_times"
+            | "path_link"
+            | "path_open"
+            | "path_readlink"
+            | "path_remove_directory"
+            | "path_rename"
+            | "path_symlink"
+            | "path_unlink_file",
+            0..=2,
+        ) => Some(ERRNO_NOTDIR),
         ("fd_pread" | "fd_pread_far", 1 | 2) => Some(ERRNO_SPIPE),
         ("fd_pwrite" | "fd_pwrite_far", 0) => Some(ERRNO_SPIPE),
         _ => None,

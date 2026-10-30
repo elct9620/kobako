@@ -15,17 +15,21 @@ use kobako_runtime::profile::Profile;
 use kobako_runtime::security::prepare_creds;
 use kobako_runtime::vfs::{Cred, File};
 
-/// What one descriptor stands for.
-pub(crate) enum Descriptor {
-    /// A directory beneath a Mount; a preopen is the Mount's own root.
-    Directory(OpenDirectory),
-    File(File),
-}
-
-pub(crate) struct OpenDirectory {
+/// What one descriptor stands for, as Linux's fd table holds a `struct file`.
+pub(crate) struct Descriptor {
     pub(crate) file: File,
     /// The guest path a preopen names; a Mount's own root has one.
     pub(crate) preopen: Option<String>,
+}
+
+impl Descriptor {
+    /// The descriptor of `file`, naming no preopen.
+    pub(crate) fn of(file: File) -> Self {
+        Self {
+            file,
+            preopen: None,
+        }
+    }
 }
 
 pub(crate) struct Descriptors {
@@ -53,18 +57,18 @@ impl Descriptors {
         profile: Profile,
     ) -> Result<Self, FilesystemError> {
         let mut used = BTreeMap::from([
-            (0, Descriptor::File(stdin)),
-            (1, Descriptor::File(stdout)),
-            (2, Descriptor::File(stderr)),
+            (0, Descriptor::of(stdin)),
+            (1, Descriptor::of(stdout)),
+            (2, Descriptor::of(stderr)),
         ]);
         let cred = prepare_creds(&mounts);
         for (fd, mount) in (3..).zip(&mounts) {
             used.insert(
                 fd,
-                Descriptor::Directory(OpenDirectory {
+                Descriptor {
                     file: File::root(mount.mnt(), cred.clone())?,
                     preopen: Some(mount.at().to_string()),
-                }),
+                },
             );
         }
         Ok(Self {

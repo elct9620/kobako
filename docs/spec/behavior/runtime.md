@@ -1995,3 +1995,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a permissive guest and a hermetic guest, each holding a Mount of a file |
 | When | each stats the file and lists its directory |
 | Then | the permissive guest reads one hash in both, and the hermetic guest reads 0 |
+
+## `RT-184` A directory answers as one open to read does
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-180` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory opened beneath a Mount |
+| When | a caller reads, writes, sizes, allocates, syncs, advises on it, or asks its position |
+| Then | it answers EISDIR, EBADF, EINVAL, EBADF, success, success, and EBADF |
+
+## `RT-185` A call starting from anything but a directory is not a directory
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-184` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding a file open beneath a Mount |
+| When | the guest makes a path call starting from that descriptor |
+| Then | the call answers ENOTDIR, as Linux refuses the walk |
