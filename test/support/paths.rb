@@ -42,13 +42,23 @@ module TestPaths
   # opened until its Filesystem is collected, and Windows refuses to remove
   # a directory still open, so the collector runs first. One collection need
   # not reach it, as Ruby's collector keeps whatever the machine stack still
-  # appears to point at, so a refusal asks again a few times.
+  # appears to point at, so a refusal asks again a few times. A last refusal
+  # says what Ruby still keeps: none of these alive while the directory stays
+  # open means something beneath Ruby holds it.
   def remove_host_directory(dir, attempts: 5)
+    tries ||= 0
+    tries += 1
     GC.start
     FileUtils.remove_entry(dir)
-  rescue Errno::EACCES
-    attempts -= 1
-    retry if attempts.positive?
-    raise
+  rescue Errno::EACCES => e
+    retry if tries < attempts
+    raise e.exception("#{e.message} (after #{tries} collections, alive: #{host_directory_holders})")
+  end
+
+  # How many of each object that can keep a host directory open are alive.
+  def host_directory_holders
+    [Kobako::Filesystem::Bind, Kobako::Filesystem::Overlay, Kobako::Sandbox, Kobako::Runtime]
+      .map { |holder| "#{holder.name.split("::").last}=#{ObjectSpace.each_object(holder).count}" }
+      .join(" ")
   end
 end
