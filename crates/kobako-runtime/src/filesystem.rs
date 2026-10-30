@@ -225,7 +225,7 @@ pub struct OpenOptions {
 pub enum FileType {
     File,
     Directory,
-    /// A link, as only `symlink_metadata` and a listing report one.
+    /// A link, as only a stat that does not follow it and a listing report one.
     Symlink,
     /// Anything else a host holds, such as a FIFO, a socket, or a device,
     /// which no Filesystem opens.
