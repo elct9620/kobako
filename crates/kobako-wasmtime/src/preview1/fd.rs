@@ -580,7 +580,7 @@ mod tests {
     //! does, so its Filesystem learns of the close and may refuse it.
     use std::sync::Arc;
 
-    use super::renumber;
+    use super::{renumber, sync};
     use crate::descriptors::{Descriptor, Descriptors};
     use crate::preview1::errno::{Errno, Failure};
     use kobako_runtime::filesystem::{
@@ -638,6 +638,25 @@ mod tests {
             vfs::do_file_open(&start, "file", &how, true)
                 .unwrap_or_else(|_| panic!("the file must open")),
         )
+    }
+
+    // @behavior RT-176
+    #[test]
+    fn a_file_without_fsync_refuses_a_sync() {
+        let mut table = Descriptors::new(
+            PipeReader::new(Vec::new()),
+            PipeWriter::new(1),
+            PipeWriter::new(1),
+            Vec::new(),
+            None,
+            Profile::Hermetic,
+        )
+        .expect("a table holding no Mount must make");
+        let fd = table.push(open_file()).expect("a descriptor to sync");
+        assert!(
+            matches!(sync(&mut table, fd), Err(Failure::Errno(Errno::Inval))),
+            "fd_sync on a file whose Filesystem has no fsync must answer EINVAL"
+        );
     }
 
     // @behavior RT-114

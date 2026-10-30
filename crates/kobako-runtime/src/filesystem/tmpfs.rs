@@ -724,6 +724,12 @@ impl FileOperations for TmpfsFile {
         let len = usize::try_from(len).map_err(|_| FilesystemError::InvalidInput)?;
         lock(&self.data).resize(len)
     }
+
+    /// Nothing outlives the Tmpfs, so there is nothing to flush, as shmem's
+    /// `noop_fsync`.
+    fn fsync(&mut self) -> Result<(), FilesystemError> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

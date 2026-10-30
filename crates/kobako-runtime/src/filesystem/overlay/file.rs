@@ -71,6 +71,15 @@ impl FileOperations for OverlayFile {
         self.file.truncate(len)
     }
 
+    /// A file open to read flushes what it reads, as `ovl_fsync` syncs the
+    /// real file.
+    fn fsync(&mut self) -> Result<(), FilesystemError> {
+        match self.inode.copy() {
+            Some(copy) => copy.lock().unwrap_or_else(PoisonError::into_inner).fsync(),
+            None => self.file.fsync(),
+        }
+    }
+
     fn release(self: Box<Self>) -> Result<(), FilesystemError> {
         self.file.release()
     }

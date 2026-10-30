@@ -285,6 +285,30 @@ mod tests {
         kern_path(filesystem.clone())
     }
 
+    // @behavior FS-140
+    #[test]
+    fn a_file_with_nothing_to_flush_syncs() {
+        let lower: Tmpfs = [("file", "x")].into_iter().collect();
+        let upper = Tmpfs::new();
+        let overlay = at(Overlay::new(
+            vec![Filesystem::new(Arc::new(lower))],
+            Some(Filesystem::new(Arc::new(upper))),
+        )
+        .expect("the Overlay must stack"));
+        assert_eq!(
+            open_to_read(&overlay, "file").fsync(),
+            Ok(()),
+            "FileOperations::fsync on an Overlay's file open to read from a Tmpfs Layer must \
+             succeed"
+        );
+        let tmpfs = at([("file", "x")].into_iter().collect::<Tmpfs>());
+        assert_eq!(
+            open_to_read(&tmpfs, "file").fsync(),
+            Ok(()),
+            "FileOperations::fsync on a Tmpfs file must succeed"
+        );
+    }
+
     fn open_to_read(fs: &KernPath, path: &str) -> Box<dyn FileOperations> {
         fs.open(
             path,

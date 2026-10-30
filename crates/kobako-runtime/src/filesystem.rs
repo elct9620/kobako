@@ -202,11 +202,11 @@ pub trait FileOperations: Send {
         Err(FilesystemError::NotADirectory)
     }
 
-    /// Make what was written durable. The default has nothing to flush,
-    /// which is the truthful answer of a file with no durability of its
-    /// own.
+    /// Make what was written durable. A file with nothing to flush answers
+    /// success itself, as tmpfs names `noop_fsync`; one without it refuses
+    /// as Linux's `vfs_fsync_range` refuses one without `f_op->fsync`.
     fn fsync(&mut self) -> Result<(), FilesystemError> {
-        Ok(())
+        Err(FilesystemError::InvalidInput)
     }
 
     /// Release the file once the guest closes it, answering whether what
