@@ -42,17 +42,34 @@ module TestPaths
   # opened until its Filesystem is collected, and Windows refuses to remove
   # a directory still open, so the collector runs first. One collection need
   # not reach it, as Ruby's collector keeps whatever the machine stack still
-  # appears to point at, so a refusal asks again a few times. A last refusal
-  # says what Ruby still keeps: none of these alive while the directory stays
-  # open means something beneath Ruby holds it.
-  def remove_host_directory(dir, attempts: 5)
-    tries ||= 0
-    tries += 1
+  # appears to point at, and the frames of a running test can keep it there
+  # however often it asks, so a refusal waits for the run to end.
+  def remove_host_directory(dir)
     GC.start
     FileUtils.remove_entry(dir)
+  rescue Errno::EACCES
+    Minitest.after_run { remove_refused_directories } unless @refused
+    (@refused ||= []) << dir
+  end
+
+  # Remove what refused with every test's frames gone. A refusal now fails the
+  # run and says what Ruby still keeps: none of these alive while a directory
+  # stays open means something beneath Ruby holds it.
+  def remove_refused_directories
+    GC.start
+    refusals = @refused.filter_map { |dir| refusal_of(dir) }
+    return if refusals.empty?
+
+    warn "#{refusals.join("\n")}\nalive: #{host_directory_holders}"
+    exit!
+  end
+
+  # Why +dir+ cannot be removed, or nil once it is gone.
+  def refusal_of(dir)
+    FileUtils.remove_entry(dir)
+    nil
   rescue Errno::EACCES => e
-    retry if tries < attempts
-    raise e.exception("#{e.message} (after #{tries} collections, alive: #{host_directory_holders})")
+    e.message
   end
 
   # How many of each object that can keep a host directory open are alive.
