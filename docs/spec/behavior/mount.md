@@ -343,3 +343,15 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Sandbox whose read-only mount has a block answering truthy for everything |
 | When | the script writes a file beneath it |
 | Then | it raises `Errno::EROFS`, and the block is not asked about the change |
+
+## `MT-029` A Sandbox waiting on a directory a mount's block holds lets the block finish
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-026` |
+
+| Step | Statement |
+| --- | --- |
+| Given | one Tmpfs shared by two Threads, with a mount's block that sleeps while asked about a change |
+| When | one Sandbox creates a file while the other, holding the GVL, looks in that directory |
+| Then | both finish |
