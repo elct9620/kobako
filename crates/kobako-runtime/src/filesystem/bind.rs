@@ -182,15 +182,12 @@ fn to_file_type(host: cap_std::fs::FileType) -> FileType {
     }
 }
 
-/// What a host entry is, the size of a file or a link counted. The host
-/// names its identity, link count, and times on unix; elsewhere a Bind
-/// reports none.
+/// What a host entry is, with the size the host reports. The host names
+/// its identity, link count, and times on unix; elsewhere a Bind reports
+/// none.
 fn to_metadata(metadata: cap_std::fs::Metadata) -> Metadata {
     let file_type = to_file_type(metadata.file_type());
-    let len = match file_type {
-        FileType::File | FileType::Symlink => metadata.len(),
-        FileType::Directory | FileType::Unknown => 0,
-    };
+    let len = metadata.len();
     #[cfg(unix)]
     {
         use cap_std::fs::MetadataExt;
@@ -967,6 +964,27 @@ mod tests {
             (Ok(FileType::Symlink), Some(FileType::Symlink)),
             "a host link looked up through Bind::symlink_metadata and listed through \
              Bind::entries must report a link"
+        );
+    }
+
+    // A directory's size is the host's to choose, so the host's own stat
+    // is the only witness of it.
+    // @behavior FS-138
+    #[test]
+    fn a_directory_reports_the_size_its_host_reports() {
+        let host = HostDir::new("dir-size");
+        fs::create_dir(host.0.join("sub")).expect("the host directory must be created");
+        fs::write(host.0.join("sub/file"), "hello").expect("the host file must be written");
+        let directory = bind_host(&host.0);
+        assert_eq!(
+            directory
+                .symlink_metadata("sub")
+                .map(|metadata| metadata.len),
+            Ok(fs::metadata(host.0.join("sub"))
+                .expect("the host directory must stand")
+                .len()),
+            "a host directory looked up through Bind::symlink_metadata must report the size its \
+             host reports"
         );
     }
 

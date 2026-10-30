@@ -139,7 +139,9 @@ impl Dir {
     }
 
     /// What the directory reports: two names and one more for each
-    /// directory it holds, as a tmpfs counts `.` and each `..` beneath it.
+    /// directory it holds, as a tmpfs counts `.` and each `..` beneath it,
+    /// and a size of `BOGO_DIRENT_SIZE` for each of its entries and those
+    /// two, as a tmpfs sizes a directory.
     fn metadata(&self, dev: u64) -> Metadata {
         let state = self.state();
         let subdirectories = state
@@ -147,8 +149,9 @@ impl Dir {
             .values()
             .filter(|node| matches!(node, Node::Directory(_)))
             .count() as u64;
+        let len = (2 + state.entries.len() as u64) * BOGO_DIRENT_SIZE;
         state.times.report(
-            Metadata::new(FileType::Directory, 0)
+            Metadata::new(FileType::Directory, len)
                 .with_identity(dev, self.ino)
                 .with_nlink(2 + subdirectories),
         )
@@ -293,6 +296,9 @@ fn inodes_for(bytes: Option<usize>) -> Option<usize> {
 }
 
 const PAGE: usize = 4096;
+
+/// The size a tmpfs counts for each name a directory holds.
+const BOGO_DIRENT_SIZE: u64 = 20;
 
 impl Tmpfs {
     /// The most bytes a Tmpfs's files hold unless given a limit of their
@@ -1270,6 +1276,26 @@ mod tests {
             (Some(4), Some(1)),
             "Tmpfs::metadata of a directory holding a file and two directories must count four \
              names, and of the file one"
+        );
+    }
+
+    // @behavior FS-137
+    #[test]
+    fn a_tmpfs_sizes_a_directory_as_a_tmpfs_does() {
+        let tmpfs = at([("dir/file", "x")].into_iter().collect());
+        tmpfs.create_dir("dir/a").expect("a directory must be made");
+        tmpfs.create_dir("empty").expect("a directory must be made");
+        let len = |path| {
+            tmpfs
+                .symlink_metadata(path)
+                .expect("the directory must stand")
+                .len
+        };
+        assert_eq!(
+            (len("dir"), len("empty")),
+            (80, 40),
+            "Tmpfs::metadata of a directory holding two entries must report a size of 80, and of \
+             an empty one 40"
         );
     }
 
