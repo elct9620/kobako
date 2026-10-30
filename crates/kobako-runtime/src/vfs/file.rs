@@ -14,6 +14,9 @@ use crate::filesystem::{
     DirEntry, FileOperations, FilesystemError, Iattr, Kiocb, Metadata, OpenOptions,
 };
 
+/// The largest offset a file holds, where Linux's signed `loff_t` ends.
+const MAX_OFFSET: u64 = i64::MAX as u64;
+
 /// What an open file was opened for and what it can do, as Linux's `fmode_t`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FMode(u8);
@@ -180,9 +183,65 @@ impl File {
         }
     }
 
+    /// Whether a read may reach it, as `vfs_read` asks of `f_mode` before it
+    /// touches the caller's buffer.
+    pub fn may_read(&self) -> Result<(), FilesystemError> {
+        match self.readable() {
+            true => Ok(()),
+            false => Err(FilesystemError::BadDescriptor),
+        }
+    }
+
+    /// Whether a write may reach it, as `vfs_write` asks of `f_mode` before
+    /// it touches the caller's buffer.
+    pub fn may_write(&self) -> Result<(), FilesystemError> {
+        match self.writable() {
+            true => Ok(()),
+            false => Err(FilesystemError::BadDescriptor),
+        }
+    }
+
+    /// Whether a read from `pos` may reach it, as `pread` refuses a negative
+    /// offset, then a file without one.
+    pub fn may_pread(&self, pos: u64) -> Result<(), FilesystemError> {
+        self.may_at(pos, FMode::PREAD)?;
+        self.may_read()
+    }
+
+    /// Whether a write at `pos` may reach it, as `pwrite` refuses a negative
+    /// offset, then a file without one.
+    pub fn may_pwrite(&self, pos: u64) -> Result<(), FilesystemError> {
+        self.may_at(pos, FMode::PWRITE)?;
+        self.may_write()
+    }
+
+    fn may_at(&self, pos: u64, mode: FMode) -> Result<(), FilesystemError> {
+        if pos > MAX_OFFSET {
+            return Err(FilesystemError::InvalidInput);
+        }
+        match self.mode.contains(mode) {
+            true => Ok(()),
+            false => Err(FilesystemError::NotSeekable),
+        }
+    }
+
+    /// Refuse a call of `count` bytes from where it lands if it would end past
+    /// the largest offset, as `rw_verify_area` does; a stream lands nowhere.
+    fn rw_verify_area(&self, pos: u64, count: usize) -> Result<(), FilesystemError> {
+        if self.is_stream() {
+            return Ok(());
+        }
+        match pos.checked_add(count as u64) {
+            Some(end) if end <= MAX_OFFSET => Ok(()),
+            _ => Err(FilesystemError::InvalidInput),
+        }
+    }
+
     /// Read from its position, moving it past what was read, as `vfs_read`
     /// does.
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        self.may_read()?;
+        self.rw_verify_area(self.pos, buf.len())?;
         let mut iocb = self.kiocb(self.pos);
         let read = self.ops.read_iter(&mut iocb, buf)?;
         self.pos = iocb.pos;
@@ -191,12 +250,16 @@ impl File {
 
     /// Read from `pos`, leaving its position, as `pread` does.
     pub fn pread(&mut self, buf: &mut [u8], pos: u64) -> Result<usize, FilesystemError> {
+        self.may_pread(pos)?;
+        self.rw_verify_area(pos, buf.len())?;
         self.ops.read_iter(&mut self.kiocb(pos), buf)
     }
 
     /// Write at its position, moving it past what was written, as `vfs_write`
     /// does.
     pub fn write(&mut self, buf: &[u8]) -> Result<usize, FilesystemError> {
+        self.may_write()?;
+        self.rw_verify_area(self.pos, buf.len())?;
         let mut iocb = self.kiocb(self.pos);
         let written = self.ops.write_iter(&mut iocb, buf)?;
         self.pos = iocb.pos;
@@ -206,6 +269,8 @@ impl File {
     /// Write at `pos`, leaving its position, as `pwrite` does. Opened to
     /// append, it lands at the end whatever `pos` says.
     pub fn pwrite(&mut self, buf: &[u8], pos: u64) -> Result<usize, FilesystemError> {
+        self.may_pwrite(pos)?;
+        self.rw_verify_area(pos, buf.len())?;
         self.ops.write_iter(&mut self.kiocb(pos), buf)
     }
 
@@ -228,7 +293,7 @@ impl File {
     /// Truncate or extend it through what it was opened on, as `do_ftruncate`
     /// refuses anything but a file open to write, and reaches `->setattr`.
     pub fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        if self.directory || !self.writable() {
+        if self.directory || !self.writable() || len > MAX_OFFSET {
             return Err(FilesystemError::InvalidInput);
         }
         let dentry = self.path.dentry();
@@ -267,5 +332,90 @@ impl File {
     /// answers, as `filp_close` does; dropping it is what `->release` does.
     pub fn close(mut self) -> Result<(), FilesystemError> {
         self.ops.flush()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::do_file_open;
+    use super::*;
+    use crate::filesystem::Tmpfs;
+    use crate::mount::{Access, Mount};
+    use crate::vfs::Filesystem;
+
+    /// `file.txt`, seven bytes long, opened for `access`.
+    fn open(read: bool, write: bool) -> File {
+        let tmpfs = Tmpfs::try_from_iter([("file.txt", "granted")]).expect("the seed must fit");
+        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
+            .expect("/data is a guest path");
+        let how = OpenHow {
+            read,
+            write,
+            ..OpenHow::default()
+        };
+        do_file_open(
+            &Arc::default(),
+            &Path::root(mount.mnt()),
+            "file.txt",
+            &how,
+            true,
+        )
+        .unwrap_or_else(|_| panic!("file.txt must open"))
+    }
+
+    // No Driver stands in front of these calls, so the file itself is what
+    // refuses each one before its Filesystem is asked.
+    // @behavior RT-180
+    #[test]
+    fn an_open_file_answers_for_what_it_was_opened_for() {
+        let mut buf = [0; 2];
+        assert_eq!(
+            (
+                open(true, false).write(b"xy"),
+                open(true, false).pwrite(b"xy", 0),
+                open(false, true).read(&mut buf),
+                open(false, true).pread(&mut buf, 0),
+            ),
+            (
+                Err(FilesystemError::BadDescriptor),
+                Err(FilesystemError::BadDescriptor),
+                Err(FilesystemError::BadDescriptor),
+                Err(FilesystemError::BadDescriptor),
+            ),
+            "File::write and pwrite on a file opened to read, and File::read and pread on one \
+             opened to write, must answer EBADF, as vfs_read and vfs_write do"
+        );
+    }
+
+    // @behavior RT-180
+    #[test]
+    fn an_open_file_refuses_a_call_ending_past_the_largest_offset() {
+        let mut buf = [0; 2];
+        let mut file = open(true, true);
+        file.set_pos(MAX_OFFSET - 1);
+        assert_eq!(
+            (
+                file.read(&mut buf),
+                file.write(b"xy"),
+                file.pread(&mut buf, MAX_OFFSET - 1),
+                file.pwrite(b"xy", MAX_OFFSET - 1),
+                file.pread(&mut buf, MAX_OFFSET + 1),
+                file.pwrite(b"xy", MAX_OFFSET + 1),
+                file.truncate(MAX_OFFSET + 1),
+                file.pwrite(b"", MAX_OFFSET),
+            ),
+            (
+                Err(FilesystemError::InvalidInput),
+                Err(FilesystemError::InvalidInput),
+                Err(FilesystemError::InvalidInput),
+                Err(FilesystemError::InvalidInput),
+                Err(FilesystemError::InvalidInput),
+                Err(FilesystemError::InvalidInput),
+                Err(FilesystemError::InvalidInput),
+                Ok(0),
+            ),
+            "File calls ending past the largest signed offset must answer EINVAL, as \
+             rw_verify_area does, and an empty one ending at it must pass"
+        );
     }
 }

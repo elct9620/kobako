@@ -60,7 +60,6 @@ const ERRNO_ACCES: i32 = 2;
 const ERRNO_BADF: i32 = 8;
 const ERRNO_BUSY: i32 = 10;
 const ERRNO_MFILE: i32 = 33;
-const ERRNO_FBIG: i32 = 22;
 const ERRNO_INVAL: i32 = 28;
 const ERRNO_IO: i32 = 29;
 const ERRNO_ISDIR: i32 = 31;
@@ -2304,18 +2303,22 @@ fn the_runtime_answers_for_an_operation_a_filesystem_lacks() {
 }
 
 // A Tmpfs would refuse the bytes for want of space, so only the refusal
-// before the Filesystem is asked answers EFBIG.
+// before the Filesystem is asked answers EINVAL.
 // @behavior RT-133
 #[test]
-fn a_write_at_the_largest_signed_offset_is_too_large() {
+fn a_write_ending_past_the_largest_signed_offset_is_invalid() {
     let tmpfs = file_and_directory();
-    let answer = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)])
-        .call_bare("write_at_the_largest_offset");
+    let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)]);
+    let answers = (
+        guest.call_bare("write_at_the_largest_offset"),
+        guest.call_at("write_at", i64::MAX as u64 - 1),
+    );
     assert_eq!(
-        (answer, contents(&host(&tmpfs), "file.txt")),
-        (ERRNO_FBIG, Some(b"granted".to_vec())),
-        "fd_write at the largest signed 64-bit offset of a Tmpfs file beneath a Mount through \
-         preview1 must answer EFBIG, as Linux does, and leave the file as it was"
+        (answers, contents(&host(&tmpfs), "file.txt")),
+        ((ERRNO_INVAL, ERRNO_INVAL), Some(b"granted".to_vec())),
+        "fd_write at the largest signed 64-bit offset, and fd_pwrite from one before it, of a \
+         Tmpfs file beneath a Mount through preview1 must answer EINVAL, as Linux does, and \
+         leave the file as it was"
     );
 }
 
@@ -2849,7 +2852,7 @@ fn a_link_leading_out_of_a_mount_is_not_permitted() {
 // of the bound and the access check decides between a trap and EBADF.
 // @behavior RT-144
 #[test]
-fn a_buffer_outside_memory_is_bounded_before_a_files_access_is_checked() {
+fn a_files_access_is_checked_before_a_buffer_outside_memory_is_bounded() {
     let call = |name, rights| {
         Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)])
             .try_call_at(name, rights)
@@ -2861,10 +2864,10 @@ fn a_buffer_outside_memory_is_bounded_before_a_files_access_is_checked() {
             call("pwrite_far_with", RIGHTS_FD_READ),
             call("pread_far_with", RIGHTS_FD_WRITE),
         ],
-        [None, None, None, Some(ERRNO_BADF)],
+        [Some(ERRNO_BADF); 4],
         "through preview1 on a file opened without the access each call needs, with a buffer \
-         past memory, fd_read, fd_write, and fd_pwrite must trap, and fd_pread must answer \
-         EBADF, as wasmtime-wasi does"
+         past memory, fd_read, fd_write, fd_pwrite, and fd_pread must answer EBADF, as Linux \
+         asks f_mode before it touches the buffer"
     );
 }
 

@@ -47,6 +47,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `test/e2e/test_mount_spelling.rb`
 - `crates/kobako-runtime/src/vfs/namei.rs`
 - `crates/kobako-runtime/src/vfs/dentry.rs`
+- `crates/kobako-runtime/src/vfs/file.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/cache.rs`
 - `crates/kobako-wasmtime/src/abi.rs`
@@ -1373,7 +1374,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the host stops before the cache directory is written back |
 | Then | the cache holds the whole artifact under its name, or none |
 
-## `RT-133` A write at the largest signed offset is too large
+## `RT-133` A write ending past the largest signed offset is invalid
 
 | Attribute | Value |
 | --- | --- |
@@ -1381,9 +1382,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation holding a file open beneath a Mount at the largest signed 64-bit offset |
-| When | the guest writes to it |
-| Then | the write answers EFBIG as Linux does, and the file stays as it was |
+| Given | an invocation holding a file open beneath a Mount |
+| When | the guest writes bytes that would end past the largest signed 64-bit offset |
+| Then | the write answers EINVAL as Linux does, and the file stays as it was |
 
 ## `RT-134` An unlink with a trailing slash answers for the name itself
 
@@ -1508,7 +1509,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest opens the link's path from the Mount's root |
 | Then | the open answers EPERM, as wasmtime-wasi does |
 
-## `RT-144` A buffer outside memory is bounded before a file's access is checked
+## `RT-144` A file's access is checked before a buffer outside memory is bounded
 
 | Attribute | Value |
 | --- | --- |
@@ -1518,7 +1519,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a file opened without the right to read, and one without the right to write |
 | When | the guest reads or writes each with a buffer outside its memory |
-| Then | fd_read and both writes trap, while fd_pread answers EBADF, as wasmtime-wasi does |
+| Then | each call answers EBADF, as Linux reads the file's mode before the buffer |
 
 ## `RT-145` A link swapped in after a Policy judges a path is not followed
 
@@ -1945,3 +1946,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding an empty directory, one thread moving another directory onto it |
 | When | another thread makes an entry through the held directory |
 | Then | the make waits for the move and answers ENOENT, and the move succeeds |
+
+## `RT-180` An open file answers for itself whichever Driver asks
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-116` |
+| relates | `RT-133` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file opened beneath a Mount through the runtime, with no Driver in front of it |
+| When | a caller reads or writes it against its mode, or past the largest signed 64-bit offset |
+| Then | the first answers EBADF and the second EINVAL, and the Filesystem is not asked |

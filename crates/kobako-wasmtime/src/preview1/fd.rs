@@ -8,7 +8,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{FileType, Metadata};
-use kobako_runtime::vfs::{FMode, File};
+use kobako_runtime::vfs::File;
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
@@ -87,26 +87,6 @@ fn refuse_negative(offset: u64) -> Answer<u64> {
         return Err(Errno::Inval.into());
     }
     Ok(offset)
-}
-
-/// A read of `len` bytes from `offset`, refused as Linux refuses one whose
-/// end would pass the largest signed offset.
-fn refuse_reading_past_largest_offset(offset: u64, len: u32) -> Answer<u64> {
-    if offset.saturating_add(u64::from(len)) > i64::MAX as u64 {
-        return Err(Errno::Inval.into());
-    }
-    Ok(offset)
-}
-
-/// The part of `buf` a write at `offset` lands, as Linux cuts a write
-/// short at the largest signed offset and refuses one starting there as
-/// too large.
-fn trim_to_largest_offset(buf: &[u8], offset: u64) -> Answer<&[u8]> {
-    let room = (i64::MAX as u64).saturating_sub(offset);
-    if room == 0 && !buf.is_empty() {
-        return Err(Errno::Fbig.into());
-    }
-    Ok(&buf[..buf.len().min(usize::try_from(room).unwrap_or(usize::MAX))])
 }
 
 /// A call any file or directory answers, which preview1 refuses for
@@ -270,11 +250,8 @@ pub(crate) fn filestat_get(table: &Descriptors, fd: u32) -> Answer<types::Filest
     Ok(filestat(table, metadata))
 }
 
-/// A Mount that refuses the write answers first, as wasmtime-wasi answers
-/// by its preopen; a file opened only to read then answers as Linux's
-/// `ftruncate` does.
 pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> Answer {
-    Ok(file(table, fd)?.truncate(refuse_negative(size)?)?)
+    Ok(file(table, fd)?.truncate(size)?)
 }
 
 /// A Filesystem keeps no timestamps of the guest's choosing, so setting
@@ -294,13 +271,7 @@ pub(crate) fn pread(
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_iovec(iovs)?;
     let file = file(table, fd)?;
-    if !file.mode().contains(FMode::PREAD) {
-        return Err(Errno::Spipe.into());
-    }
-    if !file.readable() {
-        return Err(Errno::Badf.into());
-    }
-    let offset = refuse_reading_past_largest_offset(refuse_negative(offset)?, buf.len())?;
+    file.may_pread(offset)?;
     Ok(file.pread(mem.bytes_mut(buf)?, offset)? as u32)
 }
 
@@ -345,22 +316,8 @@ pub(crate) fn pwrite(
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_ciovec(ciovs)?;
     let file = file(table, fd)?;
-    if !file.mode().contains(FMode::PWRITE) {
-        return Err(Errno::Spipe.into());
-    }
-    // The buffer is bounded before the access is checked, as wasmtime-wasi
-    // bounds it before the host refuses the write.
-    let buf = mem.bytes(buf)?;
-    if !file.writable() {
-        return Err(Errno::Badf.into());
-    }
-    let offset = refuse_negative(offset)?;
-    // Linux's `pwrite` ignores the offset of a file opened to append.
-    let buf = match file.append() {
-        true => buf,
-        false => trim_to_largest_offset(buf, offset)?,
-    };
-    Ok(file.pwrite(buf, offset)? as u32)
+    file.may_pwrite(offset)?;
+    Ok(file.pwrite(mem.bytes(buf)?, offset)? as u32)
 }
 
 pub(crate) fn read(
@@ -371,19 +328,9 @@ pub(crate) fn read(
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_iovec(iovs)?;
     let file = file(table, fd)?;
-    if file.is_stream() && !file.readable() {
-        return Err(Errno::Badf.into());
-    }
-    // Bounded before the access is checked, as wasmtime-wasi bounds it before
-    // the host refuses the read of a file, and before a pipe is drained, so a
-    // trap takes no bytes.
-    let len = buf.len();
-    let buf = mem.bytes_mut(buf)?;
-    if !file.readable() {
-        return Err(Errno::Badf.into());
-    }
-    refuse_reading_past_largest_offset(file.pos(), len)?;
-    Ok(file.read(buf)? as u32)
+    file.may_read()?;
+    // Bounded before the file is asked, as a trap takes no bytes from a pipe.
+    Ok(file.read(mem.bytes_mut(buf)?)? as u32)
 }
 
 /// The `dirent` header ahead of one entry's name.
@@ -503,19 +450,8 @@ pub(crate) fn write(
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_ciovec(ciovs)?;
     let file = file(table, fd)?;
-    if file.is_stream() && !file.writable() {
-        return Err(Errno::Badf.into());
-    }
-    // Bounded before the access is checked, as in `pwrite`.
-    let buf = mem.bytes(buf)?;
-    if !file.writable() {
-        return Err(Errno::Badf.into());
-    }
-    let buf = match file.append() {
-        true => buf,
-        false => trim_to_largest_offset(buf, file.pos())?,
-    };
-    Ok(file.write(buf)? as u32)
+    file.may_write()?;
+    Ok(file.write(mem.bytes(buf)?)? as u32)
 }
 
 #[cfg(test)]
