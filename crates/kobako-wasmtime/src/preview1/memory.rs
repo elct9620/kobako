@@ -129,9 +129,14 @@ mod tests {
     // @behavior RT-096
     #[test]
     fn a_call_past_its_hostcall_fuel_answers_nomem() {
-        let mut array_bytes = [0u8; 64];
-        let mut buffer_bytes = [0u8; 64];
-        buffer_bytes[4..8].copy_from_slice(&(128u32 << 20).wrapping_add(1).to_le_bytes());
+        // A guest's memory starts aligned, and wiggle refuses an `iovec` at a
+        // host address that is not.
+        #[repr(align(8))]
+        struct Aligned([u8; 64]);
+
+        let mut array_bytes = Aligned([0; 64]);
+        let mut buffer_bytes = Aligned([0; 64]);
+        buffer_bytes.0[4..8].copy_from_slice(&(128u32 << 20).wrapping_add(1).to_le_bytes());
         let answer = |bytes: &mut [u8], count: u32| {
             let mut memory = wiggle::GuestMemory::Unshared(bytes);
             GuestMemory::new(&mut memory, HOSTCALL_FUEL)
@@ -141,8 +146,8 @@ mod tests {
         };
         assert_eq!(
             (
-                answer(&mut array_bytes, (16 << 20) + 1),
-                answer(&mut buffer_bytes, 1)
+                answer(&mut array_bytes.0, (16 << 20) + 1),
+                answer(&mut buffer_bytes.0, 1)
             ),
             (Some(Errno::Nomem), Some(Errno::Nomem)),
             "an iovec array or a buffer past 128 MiB through one preview1 call must answer \

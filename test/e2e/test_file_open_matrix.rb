@@ -91,7 +91,7 @@ class TestE2EFileOpenMatrix < Minitest::Test
 
   # @behavior FL-034
   def test_a_block_allowing_every_change_answers_as_cruby_does
-    assert_equal as_bind(READ_WRITE, block: true),
+    assert_equal as_bind(READ_WRITE),
                  up_to_refusal(answers(directory, access: :read_write) { |_path, _access| true }),
                  "File.open beneath a Sandbox#mount block allowing every change must answer as CRuby does " \
                  "over a read-write Linux directory, but for the rules its host imposes"
@@ -101,7 +101,7 @@ class TestE2EFileOpenMatrix < Minitest::Test
   # EROFS; every other answer is the read-only one.
   # @behavior FL-034
   def test_a_block_allowing_only_reads_refuses_each_change_as_eacces
-    assert_equal as_bind(READ_ONLY.map { |line| line.gsub("EROFS", "EACCES") }, block: true),
+    assert_equal as_bind(READ_ONLY.map { |line| line.gsub("EROFS", "EACCES") }),
                  answers(directory, access: :read_write) { |_path, access| access == :read },
                  "File.open beneath a Sandbox#mount block allowing only reads must answer EACCES where CRuby " \
                  "over a read-only Linux directory answers EROFS"
@@ -130,13 +130,9 @@ class TestE2EFileOpenMatrix < Minitest::Test
     lines.map { |line| line.sub(/( write=Errno::ENOTSUP) .*/, '\1') }
   end
 
-  # What a Bind answers beside CRuby's +table+ on this host. Windows refuses
-  # an append write, and beneath a +block+ reaches no directory opened as a
-  # File again, so its read raises IOError rather than EISDIR.
-  def as_bind(table, block: false)
-    table = refusing_appends(table) unless bind_appends?
-    return table if bind_identity? || !block
-
-    table.map { |line| line.sub(" dir: read=Errno::EISDIR", " dir: read=IOError") }
+  # What a Bind answers beside CRuby's +table+ on this host: Windows refuses
+  # an append write.
+  def as_bind(table)
+    bind_appends? ? table : refusing_appends(table)
   end
 end
