@@ -7,19 +7,12 @@ use super::times::mask_times;
 use super::Error;
 use crate::filesystem::{FileType, FilesystemError, Metadata};
 
-/// What `path` beneath `start` names, a link at its end followed.
-pub fn metadata(start: &Path, path: &str) -> Result<Metadata, Error> {
-    stat(start, path, true)
-}
-
-/// What `path` beneath `start` names, a link at its end reported as
+/// What `path` beneath `start` names, as Linux's `vfs_fstatat` answers: a
+/// link at its end followed where `follow` asks, and otherwise reported as
 /// itself unless a trailing `/` asks for the directory it leads to, as
-/// Linux's `lstat` answers.
-pub fn symlink_metadata(start: &Path, path: &str) -> Result<Metadata, Error> {
-    stat(start, path, names_directory(path))
-}
-
-fn stat(start: &Path, path: &str, follow: bool) -> Result<Metadata, Error> {
+/// `AT_SYMLINK_NOFOLLOW` leaves one.
+pub fn vfs_fstatat(start: &Path, path: &str, follow: bool) -> Result<Metadata, Error> {
+    let follow = follow || names_directory(path);
     let mut nd = filename_lookup(start, path, follow, false)?;
     // A link the walk did not follow at the end is one swapped in since,
     // so it is reported as itself rather than followed.
@@ -38,7 +31,7 @@ fn hide_link(metadata: Metadata) -> Metadata {
 
 /// A guest never reads where a link points, so reading one is
 /// unsupported once the path is known to stand.
-pub fn read_link(start: &Path, path: &str) -> Result<(), Error> {
+pub fn do_readlinkat(start: &Path, path: &str) -> Result<(), Error> {
     filename_lookup(start, path, false, false)?.check_directory()?;
     Err(FilesystemError::Unsupported.into())
 }
@@ -67,12 +60,12 @@ mod tests {
         let bind = Bind::new(&host).expect("the host directory must open");
         let mount = Mount::new("/data", Filesystem::new(Arc::new(bind)), Access::Read)
             .expect("/data is a guest path");
-        let found = vfs::symlink_metadata(&Path::root(mount, Profile::Permissive), "link");
+        let found = vfs::vfs_fstatat(&Path::root(mount, Profile::Permissive), "link", false);
         let _ = fs::remove_dir_all(&host);
         assert_eq!(
             found.map(|metadata| (metadata.file_type, metadata.len)),
             Ok((FileType::Symlink, 0)),
-            "a host link through vfs::symlink_metadata must report a link of size zero"
+            "a host link through vfs::vfs_fstatat without following must report a link of size zero"
         );
     }
 }

@@ -47,7 +47,7 @@ pub(crate) fn create_directory(
     path: (u32, u32),
 ) -> Answer {
     let dir = directory(table, fd)?;
-    Ok(vfs::create_dir(dir, &mem.path(path.0, path.1)?)?)
+    Ok(vfs::filename_mkdirat(dir, &mem.path(path.0, path.1)?)?)
 }
 
 pub(crate) fn filestat_get(
@@ -62,9 +62,9 @@ pub(crate) fn filestat_get(
     let dir = directory(table, fd)?;
     let path = mem.path(path.0, path.1)?;
     let metadata = if flags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 {
-        vfs::metadata(dir, &path)?
+        vfs::vfs_fstatat(dir, &path, true)?
     } else {
-        vfs::symlink_metadata(dir, &path)?
+        vfs::vfs_fstatat(dir, &path, false)?
     };
     write_metadata(mem, out, metadata)
 }
@@ -80,7 +80,7 @@ pub(crate) fn filestat_set_times(
     args::flags(flags, args::LOOKUPFLAGS)?;
     args::fstflags(fst_flags)?;
     let dir = directory(table, fd)?;
-    Ok(vfs::set_times(dir, &mem.path(path.0, path.1)?)?)
+    Ok(vfs::do_utimes(dir, &mem.path(path.0, path.1)?)?)
 }
 
 /// A Filesystem holds no links, and answering as if one were made would
@@ -140,7 +140,7 @@ pub(crate) fn open(
     how.directory = oflag(OFLAGS_DIRECTORY);
     how.follow = flags.dirflags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0;
     let mount = Arc::clone(dir.mount());
-    let descriptor = match vfs::open(dir, &path, &how, !table.is_full())? {
+    let descriptor = match vfs::do_file_open(dir, &path, &how, !table.is_full())? {
         FileDescription::Directory(path) => Descriptor::Directory(OpenDirectory {
             path,
             preopen: false,
@@ -166,7 +166,7 @@ pub(crate) fn readlink(
     path: (u32, u32),
 ) -> Answer {
     let dir = directory(table, fd)?;
-    Ok(vfs::read_link(dir, &mem.path(path.0, path.1)?)?)
+    Ok(vfs::do_readlinkat(dir, &mem.path(path.0, path.1)?)?)
 }
 
 pub(crate) fn remove_directory(
@@ -176,7 +176,7 @@ pub(crate) fn remove_directory(
     path: (u32, u32),
 ) -> Answer {
     let dir = directory(table, fd)?;
-    Ok(vfs::remove_dir(dir, &mem.path(path.0, path.1)?)?)
+    Ok(vfs::filename_rmdir(dir, &mem.path(path.0, path.1)?)?)
 }
 
 pub(crate) fn rename(
@@ -188,7 +188,7 @@ pub(crate) fn rename(
     let from = directory(table, old.0)?;
     let to = directory(table, new.0)?;
     let (from_path, to_path) = (mem.path(old.1 .0, old.1 .1)?, mem.path(new.1 .0, new.1 .1)?);
-    Ok(vfs::rename(from, &from_path, to, &to_path)?)
+    Ok(vfs::filename_renameat2(from, &from_path, to, &to_path)?)
 }
 
 /// A Filesystem holds no links to make.
@@ -212,5 +212,5 @@ pub(crate) fn unlink_file(
     path: (u32, u32),
 ) -> Answer {
     let dir = directory(table, fd)?;
-    Ok(vfs::remove_file(dir, &mem.path(path.0, path.1)?)?)
+    Ok(vfs::filename_unlinkat(dir, &mem.path(path.0, path.1)?)?)
 }

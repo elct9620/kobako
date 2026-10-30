@@ -32,12 +32,14 @@ pub(crate) use rwsem::{Inline, RwSemaphore, RwSemaphoreGuard};
 
 pub use dentry::Dentry;
 pub use filesystem::Filesystem;
-pub use namei::{create_dir, open, remove_dir, remove_file, rename};
+pub use namei::{
+    do_file_open, filename_mkdirat, filename_renameat2, filename_rmdir, filename_unlinkat,
+};
 pub use openat2::{FileDescription, OpenHow};
 pub use path::Path;
 pub use rwsem::Blocking;
-pub use stat::{metadata, read_link, symlink_metadata};
-pub use utimes::set_times;
+pub use stat::{do_readlinkat, vfs_fstatat};
+pub use utimes::do_utimes;
 
 /// Linux's limits on a path, its terminating NUL counted, and on one name
 /// within it.

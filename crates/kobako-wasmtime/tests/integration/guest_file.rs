@@ -64,7 +64,9 @@ fn host<F: Inode>(filesystem: &Arc<F>) -> Path {
 fn contents<F: Inode>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
     let mut how = OpenHow::default();
     how.read = true;
-    let Ok(FileDescription::File(mut file)) = vfs::open(&host(filesystem), path, &how, true) else {
+    let Ok(FileDescription::File(mut file)) =
+        vfs::do_file_open(&host(filesystem), path, &how, true)
+    else {
         panic!("the file must exist");
     };
     let mut buf = vec![0; 64];
@@ -411,7 +413,7 @@ fn an_exclusive_open_without_create_makes_no_file() {
     assert_eq!(
         (
             answer,
-            vfs::symlink_metadata(&host(&tmpfs), "lock").is_err()
+            vfs::vfs_fstatat(&host(&tmpfs), "lock", false).is_err()
         ),
         (Err("Errno::ENOENT".to_string()), true),
         "File.open with RDONLY | EXCL of a path nothing is at through the bundled guest must \

@@ -575,7 +575,7 @@ impl Guest {
 fn contents(root: &Path, path: &str) -> Option<Vec<u8>> {
     let mut how = OpenHow::default();
     how.read = true;
-    let Ok(FileDescription::File(mut file)) = vfs::open(root, path, &how, true) else {
+    let Ok(FileDescription::File(mut file)) = vfs::do_file_open(root, path, &how, true) else {
         return None;
     };
     let mut buf = vec![0; 64];
@@ -590,7 +590,7 @@ fn overwrite(root: &Path, path: &str) {
     (how.write, how.create) = (true, true);
     assert!(
         matches!(
-            vfs::open(root, path, &how, true),
+            vfs::do_file_open(root, path, &how, true),
             Ok(FileDescription::File(_))
         ),
         "the file must be made"
@@ -866,8 +866,8 @@ fn stat_after(policy: Option<Arc<dyn Policy>>, change: impl FnOnce(&Path)) -> i3
 /// an `inner` of its own, so only where the descriptor reaches decides
 /// whether the lookup finds one.
 fn move_and_replace(root: &Path) {
-    vfs::rename(root, "dir", root, "moved").unwrap();
-    vfs::create_dir(root, "dir").unwrap();
+    vfs::filename_renameat2(root, "dir", root, "moved").unwrap();
+    vfs::filename_mkdirat(root, "dir").unwrap();
     overwrite(root, "dir/inner");
 }
 
@@ -877,9 +877,9 @@ fn move_and_replace(root: &Path) {
 #[test]
 fn a_directory_made_in_a_removed_directorys_place_is_not_reached_through_it() {
     let answer = stat_after(None, |root| {
-        vfs::remove_file(root, "dir/inner").unwrap();
-        vfs::remove_dir(root, "dir").unwrap();
-        vfs::create_dir(root, "dir").unwrap();
+        vfs::filename_unlinkat(root, "dir/inner").unwrap();
+        vfs::filename_rmdir(root, "dir").unwrap();
+        vfs::filename_mkdirat(root, "dir").unwrap();
         overwrite(root, "dir/inner");
     });
     assert_eq!(
@@ -951,8 +951,8 @@ fn a_directory_moved_beneath_another_mount_of_its_instance_is_reached_beneath_a_
         let mut guest = Guest::new(&[Grant::Mount(mount.clone().with_policy(policy))]);
         assert_eq!(guest.call_bare("open_dir"), 0, "dir must open");
         let other = Path::root(mount, Profile::Permissive);
-        vfs::rename(&other, "dir", &other, "moved").expect("the directory must move");
-        vfs::create_dir(&other, "dir").expect("another directory must be made");
+        vfs::filename_renameat2(&other, "dir", &other, "moved").expect("the directory must move");
+        vfs::filename_mkdirat(&other, "dir").expect("another directory must be made");
         guest.call_bare("open_inner")
     };
     assert_eq!(
@@ -1070,9 +1070,9 @@ fn a_directory_descriptor_holds_its_directory_while_open() {
         "dir must open as a directory"
     );
     let outside = host(&reuses);
-    vfs::remove_file(&outside, "dir/inner").unwrap();
-    vfs::remove_dir(&outside, "dir").unwrap();
-    vfs::create_dir(&outside, "dir").unwrap();
+    vfs::filename_unlinkat(&outside, "dir/inner").unwrap();
+    vfs::filename_rmdir(&outside, "dir").unwrap();
+    vfs::filename_mkdirat(&outside, "dir").unwrap();
     overwrite(&host(&tmpfs), "dir/inner");
     assert_eq!(
         guest.call_bare("stat_inner"),
@@ -1196,8 +1196,8 @@ fn a_directory_two_layers_hold_is_reached_through_its_descriptor() {
 #[test]
 fn a_directory_moved_back_to_its_path_is_reached_through_its_descriptor_again() {
     let answer = stat_after(None, |root| {
-        vfs::rename(root, "dir", root, "moved").unwrap();
-        vfs::rename(root, "moved", root, "dir").unwrap();
+        vfs::filename_renameat2(root, "dir", root, "moved").unwrap();
+        vfs::filename_renameat2(root, "moved", root, "dir").unwrap();
     });
     assert_eq!(
         answer, 0,
@@ -1331,7 +1331,7 @@ fn a_directory_beneath_a_mount_with_a_policy_does_not_move() {
     assert_eq!(
         (
             guest.call_pair("rename_paths", DIR, MOVED),
-            vfs::symlink_metadata(&host(&tmpfs), "dir/secret").map(|m| m.file_type)
+            vfs::vfs_fstatat(&host(&tmpfs), "dir/secret", false).map(|m| m.file_type)
         ),
         (ERRNO_XDEV, Ok(FileType::File)),
         "path_rename of a directory beneath a Mount with a Policy through preview1 must \
@@ -1921,7 +1921,7 @@ fn a_path_ending_in_a_dot_makes_nothing_where_no_directory_stands() {
     assert_eq!(
         (
             answers,
-            vfs::symlink_metadata(&host(&tmpfs), "missing").is_err()
+            vfs::vfs_fstatat(&host(&tmpfs), "missing", false).is_err()
         ),
         ([ERRNO_NOENT, ERRNO_NOENT], true),
         "path_create_directory and path_open with O_CREAT of missing/. beneath a Mount through \
@@ -1947,7 +1947,7 @@ fn a_path_ending_in_a_dot_is_neither_removed_nor_moved() {
     assert_eq!(
         (
             answers,
-            vfs::symlink_metadata(&host(&tmpfs), "dir/inner").is_ok()
+            vfs::vfs_fstatat(&host(&tmpfs), "dir/inner", false).is_ok()
         ),
         (
             [

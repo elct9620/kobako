@@ -544,19 +544,19 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(FileDescription::Directory(held)) = vfs::open(&root, "a", &how, true) else {
+        let Ok(FileDescription::Directory(held)) = vfs::do_file_open(&root, "a", &how, true) else {
             panic!("the directory must open");
         };
         fs::rename(host.0.join("a"), host.0.join("moved")).expect("the host must move it");
         fs::create_dir(host.0.join("a")).expect("the host must remake it");
-        vfs::remove_dir(&root, "a").expect("the new directory must go");
+        vfs::filename_rmdir(&root, "a").expect("the new directory must go");
         assert_eq!(
             (
-                vfs::create_dir(&held, "made"),
+                vfs::filename_mkdirat(&held, "made"),
                 host.0.join("moved/made").is_dir()
             ),
             (Ok(()), true),
-            "vfs::create_dir through a Bind directory the host moved away, once vfs::remove_dir \
+            "vfs::filename_mkdiratthrough a Bind directory the host moved away, once vfs::filename_rmdir\
              removed the one remade at its path, must make the directory in the moved one"
         );
     }
@@ -598,7 +598,8 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(FileDescription::Directory(_held)) = vfs::open(&root, "a/d", &directory, true)
+        let Ok(FileDescription::Directory(_held)) =
+            vfs::do_file_open(&root, "a/d", &directory, true)
         else {
             panic!("a/d must open");
         };
@@ -609,9 +610,9 @@ mod tests {
             ..OpenHow::default()
         };
         assert_eq!(
-            vfs::open(&root, "a/d/secret", &read, true).err(),
+            vfs::do_file_open(&root, "a/d/secret", &read, true).err(),
             Some(vfs::Error::Filesystem(FilesystemError::NotFound)),
-            "vfs::open beneath a Bind Mount with a Policy, through a directory the host moved \
+            "vfs::do_file_openbeneath a Bind Mount with a Policy, through a directory the host moved \
              beneath a refused path while a descriptor beneath it was held, must answer NotFound"
         );
     }

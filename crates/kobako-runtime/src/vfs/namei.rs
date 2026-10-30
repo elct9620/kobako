@@ -517,11 +517,16 @@ fn path_lookupat(
     Ok(nd)
 }
 
-/// Open `path` beneath `start` as `how` asks, as Linux's `path_openat`
+/// Open `path` beneath `start` as `how` asks, as Linux's `do_file_open`
 /// walks to the last name and `do_open` opens it. `room` says whether the
 /// caller has a descriptor left to hand the guest; without one the open
 /// answers `TooManyOpenFiles` once the path is known to stand.
-pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileDescription, Error> {
+pub fn do_file_open(
+    start: &Path,
+    path: &str,
+    how: &OpenHow,
+    room: bool,
+) -> Result<FileDescription, Error> {
     // A path ending in `/` asks for a directory, which cannot be created
     // as a file. Linux answers it once the names before the last are
     // walked, before it would follow a link standing at the last.
@@ -623,7 +628,7 @@ fn may_open(existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
 
 /// Make the directory `path` beneath `start`. A trailing `/` asks for the
 /// directory being made, so it is no refusal here, as `mkdir(2)` takes it.
-pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {
+pub fn filename_mkdirat(start: &Path, path: &str) -> Result<(), Error> {
     let nd = filename_lookup(start, path, false, false)?;
     nd.check(Access::ReadWrite)?;
     refuse_root(&nd.name, FilesystemError::AlreadyExists)?;
@@ -633,7 +638,7 @@ pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {
 }
 
 /// Remove the empty directory `path` beneath `start`.
-pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
+pub fn filename_rmdir(start: &Path, path: &str) -> Result<(), Error> {
     refuse_dot_end(
         start,
         path,
@@ -658,7 +663,7 @@ pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {
 /// Remove the file `path` beneath `start`. Linux's `unlink` follows no
 /// link at the end, so a trailing `/` is answered by the name itself: no
 /// file removes as a directory.
-pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
+pub fn filename_unlinkat(start: &Path, path: &str) -> Result<(), Error> {
     let mut nd = filename_lookup(start, path, false, false)?;
     nd.check(Access::ReadWrite)?;
     nd.check_directory()?;
@@ -676,7 +681,12 @@ pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {
 /// stays within one Mount; across two it crosses devices, as across two
 /// mounted devices. A directory moves only beneath a Mount that allows it,
 /// as Linux's `security_path_rename` asks before the move.
-pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<(), Error> {
+pub fn filename_renameat2(
+    from: &Path,
+    from_path: &str,
+    to: &Path,
+    to_path: &str,
+) -> Result<(), Error> {
     let busy = [FilesystemError::ResourceBusy, FilesystemError::ResourceBusy];
     refuse_dot_end(from, from_path, busy.clone())?;
     refuse_dot_end(to, to_path, busy)?;
@@ -1221,7 +1231,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        match vfs::open(start, path, &how, true) {
+        match vfs::do_file_open(start, path, &how, true) {
             Ok(FileDescription::Directory(dir)) => dir,
             _ => panic!("{path} must open as a directory"),
         }
@@ -1244,9 +1254,9 @@ mod tests {
             ..OpenHow::default()
         };
         assert_eq!(
-            vfs::open(&root, "w", &how, true).err(),
+            vfs::do_file_open(&root, "w", &how, true).err(),
             Some(vfs::Error::Filesystem(FilesystemError::PermissionDenied)),
-            "a character device through vfs::open must answer PermissionDenied"
+            "a character device through vfs::do_file_openmust answer PermissionDenied"
         );
     }
 
@@ -1262,11 +1272,11 @@ mod tests {
         let root = root_of(Filesystem::new(hooked.clone()));
         let held = open_dir(&root, "d");
         hooked.stale.store(true, Ordering::SeqCst);
-        vfs::remove_file(&root, "d/keep").expect("the file must go");
-        vfs::remove_dir(&root, "d").expect("the directory must go");
+        vfs::filename_unlinkat(&root, "d/keep").expect("the file must go");
+        vfs::filename_rmdir(&root, "d").expect("the directory must go");
         assert!(
             !held.dentry().is_dead(),
-            "vfs::remove_dir of a name whose held dentry Inode::d_revalidate answers stale must \
+            "vfs::filename_rmdirof a name whose held dentry Inode::d_revalidate answers stale must \
              leave that dentry alive"
         );
     }
@@ -1288,15 +1298,15 @@ mod tests {
             ..HookedTmpfs::default()
         };
         let root = root_of(Filesystem::new(Arc::new(hooked)));
-        vfs::create_dir(&root, "d").expect("the directory must be made");
+        vfs::filename_mkdirat(&root, "d").expect("the directory must be made");
         let remover = {
             let root = root.clone();
-            thread::spawn(move || vfs::remove_dir(&root, "d"))
+            thread::spawn(move || vfs::filename_rmdir(&root, "d"))
         };
         removing
             .recv()
             .expect("the removal must reach the Filesystem");
-        vfs::create_dir(&root, "d").expect("another directory must be made in its place");
+        vfs::filename_mkdirat(&root, "d").expect("another directory must be made in its place");
         let dir = open_dir(&root, "d");
         made.send(()).ok();
         remover
@@ -1304,9 +1314,9 @@ mod tests {
             .expect("the remover must not panic")
             .expect("the removal must succeed");
         assert_eq!(
-            vfs::create_dir(&dir, "inner"),
+            vfs::filename_mkdirat(&dir, "inner"),
             Ok(()),
-            "vfs::create_dir through a directory vfs::create_dir made while vfs::remove_dir \
+            "vfs::filename_mkdiratthrough a directory vfs::filename_mkdiratmade while vfs::filename_rmdir\
              removed the one in its place must make into the directory made"
         );
     }
@@ -1359,12 +1369,12 @@ mod tests {
                     create: true,
                     ..OpenHow::default()
                 };
-                vfs::open(&root, "f", &how, true).map(drop)
+                vfs::do_file_open(&root, "f", &how, true).map(drop)
             })
         };
         reaching.recv().expect("the open must reach the Policy");
         let remover = thread::spawn(move || {
-            let answer = vfs::remove_file(&root, "f");
+            let answer = vfs::filename_unlinkat(&root, "f");
             removed.send(()).ok();
             answer
         });
@@ -1376,7 +1386,7 @@ mod tests {
         assert_eq!(
             opened,
             Ok(()),
-            "vfs::open with create of a file vfs::remove_file removes while the open is judged \
+            "vfs::do_file_openwith create of a file vfs::filename_unlinkatremoves while the open is judged \
              must open it or make it, never answer NotFound"
         );
     }
@@ -1388,18 +1398,18 @@ mod tests {
     fn a_directory_moved_beneath_itself_is_refused_whatever_its_filesystem() {
         let hooked = Arc::new(HookedTmpfs::default());
         let root = root_of(Filesystem::new(hooked.clone()));
-        vfs::create_dir(&root, "a").expect("the directory must be made");
-        vfs::create_dir(&root, "a/b").expect("the directory beneath it must be made");
+        vfs::filename_mkdirat(&root, "a").expect("the directory must be made");
+        vfs::filename_mkdirat(&root, "a/b").expect("the directory beneath it must be made");
         assert_eq!(
             (
-                vfs::rename(&root, "a", &root, "a/b/a"),
+                vfs::filename_renameat2(&root, "a", &root, "a/b/a"),
                 hooked.renames.load(Ordering::SeqCst)
             ),
             (
                 Err(vfs::Error::Filesystem(FilesystemError::InvalidInput)),
                 0
             ),
-            "vfs::rename of a directory into a directory beneath it must answer InvalidInput \
+            "vfs::filename_renameat2of a directory into a directory beneath it must answer InvalidInput \
              without asking the Filesystem"
         );
     }
@@ -1411,7 +1421,7 @@ mod tests {
         let hooked = HookedTmpfs {
             making: Some(Box::new({
                 let root = root.clone();
-                move || match vfs::create_dir(root.get().expect("the root is set"), "other") {
+                move || match vfs::filename_mkdirat(root.get().expect("the root is set"), "other") {
                     Err(vfs::Error::Filesystem(err)) => Err(err),
                     _ => Ok(()),
                 }
@@ -1421,10 +1431,10 @@ mod tests {
         let path = root_of(Filesystem::new(Arc::new(hooked)));
         root.set(path.clone()).ok();
         assert_eq!(
-            vfs::create_dir(&path, "made"),
+            vfs::filename_mkdirat(&path, "made"),
             Err(vfs::Error::Filesystem(FilesystemError::Deadlock)),
-            "vfs::create_dir called by a Filesystem's own create_dir on the directory the outer \
-             vfs::create_dir holds must answer Deadlock"
+            "vfs::filename_mkdiratcalled by a Filesystem's own create_dir on the directory the outer \
+             vfs::filename_mkdiratholds must answer Deadlock"
         );
     }
 
@@ -1453,15 +1463,15 @@ mod tests {
             ..HookedTmpfs::default()
         };
         let root = root_of(Filesystem::with_blocking(Arc::new(hooked), counts.clone()));
-        vfs::create_dir(&root, "d").expect("the directory must be made");
+        vfs::filename_mkdirat(&root, "d").expect("the directory must be made");
         let remover = {
             let root = root.clone();
-            thread::spawn(move || vfs::remove_dir(&root, "d"))
+            thread::spawn(move || vfs::filename_rmdir(&root, "d"))
         };
         removing
             .recv()
             .expect("the removal must reach the Filesystem");
-        let made = vfs::create_dir(&root, "e");
+        let made = vfs::filename_mkdirat(&root, "e");
         remover
             .join()
             .expect("the remover must not panic")
@@ -1469,7 +1479,7 @@ mod tests {
         assert_eq!(
             (made, counts.0.load(Ordering::SeqCst)),
             (Ok(()), 1),
-            "vfs::create_dir on a directory another thread's vfs::remove_dir holds must wait \
+            "vfs::filename_mkdiraton a directory another thread's vfs::filename_rmdirholds must wait \
              through the Blocking given by Filesystem::with_blocking, then answer"
         );
     }
@@ -1505,12 +1515,12 @@ mod tests {
         let root = root_of(Filesystem::with_blocking(Arc::new(folds), counts.clone()));
         let mover = {
             let root = root.clone();
-            thread::spawn(move || vfs::rename(&root, "dir/f", &root, "dir/g"))
+            thread::spawn(move || vfs::filename_renameat2(&root, "dir/f", &root, "dir/g"))
         };
         // Bounded, so a move that never reaches the Filesystem fails the
         // assertion rather than hanging the test.
         reaching.recv_timeout(Duration::from_secs(5)).ok();
-        let removed = vfs::remove_file(&root, "DIR/F");
+        let removed = vfs::filename_unlinkat(&root, "DIR/F");
         let moved = mover.join().expect("the mover must not panic");
         assert_eq!(
             (moved, removed, counts.0.load(Ordering::SeqCst) > 0),
@@ -1519,7 +1529,7 @@ mod tests {
                 Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
                 true
             ),
-            "vfs::remove_file of `DIR/F` while vfs::rename moves `dir/f`, over a Filesystem \
+            "vfs::filename_unlinkatof `DIR/F` while vfs::filename_renameat2moves `dir/f`, over a Filesystem \
              storing both as `DIR/F`, must wait for the move and then find nothing"
         );
     }

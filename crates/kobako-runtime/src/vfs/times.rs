@@ -89,7 +89,7 @@ mod tests {
             create: true,
             ..OpenHow::default()
         };
-        let Ok(FileDescription::File(mut file)) = vfs::open(start, name, &how, true) else {
+        let Ok(FileDescription::File(mut file)) = vfs::do_file_open(start, name, &how, true) else {
             panic!("{name} must open as a file");
         };
         file.write_at(b"x", 0).expect("the file must take a write");
@@ -106,13 +106,13 @@ mod tests {
         let start = path_over(Arc::new(Tmpfs::new()), Profile::Permissive);
         let before = SystemTime::now();
         write(&start, "file");
-        let modified = vfs::metadata(&start, "file")
+        let modified = vfs::vfs_fstatat(&start, "file", true)
             .expect("the file must stand")
             .modified
             .expect("a Tmpfs keeps a modification time");
         assert!(
             modified >= before,
-            "vfs::metadata of a file written beneath a Path on the weaker posture must report a \
+            "vfs::vfs_fstatatof a file written beneath a Path on the weaker posture must report a \
              modification time no earlier than the write"
         );
     }
@@ -127,11 +127,11 @@ mod tests {
         let epoch = [Some(UNIX_EPOCH); 3];
         assert_eq!(
             (
-                times(&vfs::metadata(&start, "file").expect("the file must stand")),
+                times(&vfs::vfs_fstatat(&start, "file", true).expect("the file must stand")),
                 times(&file.metadata().expect("the open file must report")),
             ),
             (epoch, epoch),
-            "vfs::metadata of a written file, and File::metadata of it opened through vfs::open, \
+            "vfs::vfs_fstatatof a written file, and File::metadata of it opened through vfs::do_file_open, \
              beneath a Path on the strongest posture must report each time as the Unix epoch"
         );
     }
@@ -143,9 +143,9 @@ mod tests {
         write(&path_over(tmpfs.clone(), Profile::Permissive), "file");
         let hermetic = path_over(tmpfs, Profile::Hermetic);
         assert_eq!(
-            times(&vfs::metadata(&hermetic, "file").expect("the file must stand")),
+            times(&vfs::vfs_fstatat(&hermetic, "file", true).expect("the file must stand")),
             [Some(UNIX_EPOCH); 3],
-            "vfs::metadata beneath a Path on the strongest posture, of a file the weaker posture \
+            "vfs::vfs_fstatatbeneath a Path on the strongest posture, of a file the weaker posture \
              wrote into the same Tmpfs, must report each time as the Unix epoch"
         );
     }
