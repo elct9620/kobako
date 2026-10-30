@@ -114,6 +114,7 @@ Every Ruby test lives under `test/`, grouped by kind, and `tasks/` holds none.
 | host-side unit test, or `test/fixtures/minimal.wasm` | a behavior mruby cannot reach |
 | a test's home follows what it needs | a home picked by subject alone |
 | paths and skips via `TestPaths` and `GuestGuard` | hand-rolled `__dir__` paths or guards |
+| a helper's failure says the state that decides the next step | an error only a rerun can explain |
 
 A scenario test's assertion message is a contract: "<input> through <public API> must <behaviour>". One that lacks it gains it the next time the test is touched. Witness rationale goes in the comment above the test; `test/e2e/test_io_write.rb` is the worked example.
 
