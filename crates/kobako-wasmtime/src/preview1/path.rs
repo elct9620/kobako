@@ -32,9 +32,7 @@ pub(crate) struct OpenFlags {
 fn directory(table: &Descriptors, fd: u32) -> Answer<&vfs::Path> {
     match table.get(fd).ok_or(Errno::Badf)? {
         Descriptor::Directory(dir) => Ok(dir.file.path()),
-        Descriptor::Stdin(_) | Descriptor::Channel(_) | Descriptor::File(_) => {
-            Err(Errno::Badf.into())
-        }
+        Descriptor::File(_) => Err(Errno::Badf.into()),
     }
 }
 
@@ -117,7 +115,6 @@ pub(crate) fn open(
     let dir = match table.get(fd).ok_or(Errno::Badf)? {
         Descriptor::Directory(dir) => dir.file.path(),
         Descriptor::File(_) => return Err(Errno::Notdir.into()),
-        Descriptor::Stdin(_) | Descriptor::Channel(_) => return Err(Errno::Badf.into()),
     };
     let oflag = |bit| flags.oflags & bit != 0;
     // A Filesystem makes no write durable on its own schedule, and every

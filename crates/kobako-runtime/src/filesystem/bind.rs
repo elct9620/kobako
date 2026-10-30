@@ -767,11 +767,11 @@ mod tests {
             assert_eq!(
                 (
                     file.getattr().map(|found| found.len).ok(),
-                    file.ops().read_iter(&mut Kiocb::at(0), &mut buf),
+                    file.pread(&mut buf, 0),
                     &buf
                 ),
                 (Some(5), Ok(5), b"hello"),
-                "File::getattr and FileOperations::read_iter of a file whose name \
+                "File::getattr and File::pread of a file whose name \
                  vfs::filename_unlinkat removed on a {name} must answer what it holds"
             );
         }
@@ -872,7 +872,7 @@ mod tests {
         };
         let mut buf = [0; 3];
         assert_eq!(
-            (file.ops().read_iter(&mut Kiocb::at(0), &mut buf), &buf),
+            (file.pread(&mut buf, 0), &buf),
             (Ok(3), b"new"),
             "vfs::do_file_open through an Overlay over a Bind whose host replaced a directory \
              a descriptor holds must read the file standing there now"

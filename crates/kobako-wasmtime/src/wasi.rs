@@ -11,10 +11,12 @@ use crate::config::Config;
 use crate::descriptors::Descriptors;
 use crate::{capture, guest_mem};
 use kobako_runtime::error::Trap;
+use std::sync::Arc;
+
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{PipeReader, PipeWriter};
+use kobako_runtime::vfs::{create_pipe_files, PipeInodeInfo};
 use kobako_transport::abi::FRAME_LEN_SIZE;
 
 /// One instance's WASI context: its descriptor table, the clocks its
@@ -24,8 +26,8 @@ pub(crate) struct Wasi {
     ctx: WasiP1Ctx,
     descriptors: Descriptors,
     clocks: Clocks,
-    stdout: PipeWriter,
-    stderr: PipeWriter,
+    stdout: Arc<PipeInodeInfo>,
+    stderr: Arc<PipeInodeInfo>,
 }
 
 impl Wasi {
@@ -89,16 +91,16 @@ impl Wasi {
         stdin_content.extend_from_slice(&(preamble.len() as u32).to_be_bytes());
         stdin_content.extend_from_slice(preamble);
 
-        let stdout = PipeWriter::new(capture::pipe_capacity(stdout_limit));
-        let stderr = PipeWriter::new(capture::pipe_capacity(stderr_limit));
+        let stdout = PipeInodeInfo::new(capture::pipe_capacity(stdout_limit));
+        let stderr = PipeInodeInfo::new(capture::pipe_capacity(stderr_limit));
 
         // stdio lives in kobako's descriptor table, which answers every
         // call that reads a descriptor (`crate::preview1`); the builder
         // keeps only what the remaining imports read.
         let descriptors = Descriptors::new(
-            PipeReader::new(stdin_content),
-            stdout.clone(),
-            stderr.clone(),
+            create_pipe_files(&PipeInodeInfo::filled(stdin_content)).0,
+            create_pipe_files(&stdout).1,
+            create_pipe_files(&stderr).1,
             mounts,
             open_file_limit,
             profile,

@@ -561,7 +561,7 @@ fn contents(root: &Path, path: &str) -> Option<Vec<u8>> {
         return None;
     };
     let mut buf = vec![0; 64];
-    let read = file.ops().read_iter(&mut Kiocb::at(0), &mut buf).ok()?;
+    let read = file.pread(&mut buf, 0).ok()?;
     buf.truncate(read);
     Some(buf)
 }

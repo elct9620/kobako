@@ -7,8 +7,8 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use kobako_runtime::filesystem::{FileOperations, FileType, Kiocb, Metadata};
-use kobako_runtime::vfs::File;
+use kobako_runtime::filesystem::{FileType, Metadata};
+use kobako_runtime::vfs::{FMode, File};
 
 use super::args::{
     self, FDFLAGS_APPEND, FDFLAGS_NONBLOCK, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
@@ -87,19 +87,16 @@ fn descriptor_mut(table: &mut Descriptors, fd: u32) -> Answer<&mut Descriptor> {
 fn file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
     match descriptor_mut(table, fd)? {
         Descriptor::File(file) => Ok(file),
-        Descriptor::Stdin(_) | Descriptor::Channel(_) | Descriptor::Directory(_) => {
-            Err(Errno::Badf.into())
-        }
+        Descriptor::Directory(_) => Err(Errno::Badf.into()),
     }
 }
 
-/// A call that moves a stream position: a file has one, stdio is a pipe
-/// with none, and a directory is no stream at all.
+/// A call about a position in a file: a file has one, a pipe has none, and
+/// a directory is no stream at all.
 fn seekable(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
-    match descriptor_mut(table, fd)? {
-        Descriptor::File(file) => Ok(file),
-        Descriptor::Stdin(_) | Descriptor::Channel(_) => Err(Errno::Spipe.into()),
-        Descriptor::Directory(_) => Err(Errno::Badf.into()),
+    match file(table, fd)? {
+        file if file.is_stream() => Err(Errno::Spipe.into()),
+        file => Ok(file),
     }
 }
 
@@ -136,8 +133,8 @@ fn trim_to_largest_offset(buf: &[u8], offset: u64) -> Answer<&[u8]> {
 /// stdio.
 fn file_or_directory(table: &Descriptors, fd: u32) -> Answer {
     match descriptor(table, fd)? {
+        Descriptor::File(file) if file.is_stream() => Err(Errno::Badf.into()),
         Descriptor::Directory(_) | Descriptor::File(_) => Ok(()),
-        Descriptor::Stdin(_) | Descriptor::Channel(_) => Err(Errno::Badf.into()),
     }
 }
 
@@ -199,7 +196,7 @@ pub(crate) fn advise(
     advice: u32,
 ) -> Answer {
     args::variant(advice, args::ADVICE_MAX)?;
-    file(table, fd)?;
+    seekable(table, fd)?;
     refuse_negative(offset)?;
     refuse_negative(len).map(drop)
 }
@@ -207,7 +204,7 @@ pub(crate) fn advise(
 /// A Filesystem has no room to reserve ahead of a write, so allocating it
 /// is unsupported rather than answered as done.
 pub(crate) fn allocate(table: &mut Descriptors, fd: u32) -> Answer {
-    file(table, fd)?;
+    seekable(table, fd)?;
     Err(Errno::Notsup.into())
 }
 
@@ -215,18 +212,22 @@ pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
     match table.remove(fd).ok_or(Errno::Badf)? {
         Descriptor::File(file) => Ok(file.close()?),
         Descriptor::Directory(dir) => Ok(dir.file.close()?),
-        Descriptor::Stdin(_) | Descriptor::Channel(_) => Ok(()),
     }
 }
 
 pub(crate) fn sync(table: &mut Descriptors, fd: u32) -> Answer {
-    Ok(file(table, fd)?.ops().fsync()?)
+    Ok(file(table, fd)?.fsync()?)
 }
 
 pub(crate) fn fdstat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, out: u32) -> Answer {
     let (filetype, flags, base, inheriting) = match descriptor(table, fd)? {
-        Descriptor::Stdin(_) => (FILETYPE_UNKNOWN, 0, RIGHTS_FD_READ, RIGHTS_FD_READ),
-        Descriptor::Channel(_) => (FILETYPE_UNKNOWN, 0, RIGHTS_FD_WRITE, RIGHTS_FD_WRITE),
+        Descriptor::File(file) if file.is_stream() => {
+            let rights = match file.readable() {
+                true => RIGHTS_FD_READ,
+                false => RIGHTS_FD_WRITE,
+            };
+            (FILETYPE_UNKNOWN, 0, rights, rights)
+        }
         Descriptor::Directory(dir) if dir.preopen => {
             (FILETYPE_DIRECTORY, 0, PREOPEN_RIGHTS, PREOPEN_INHERITING)
         }
@@ -297,9 +298,6 @@ pub(crate) fn filestat_get(
     out: u32,
 ) -> Answer {
     match descriptor(table, fd)? {
-        Descriptor::Stdin(_) | Descriptor::Channel(_) => {
-            write_filestat(mem, out, FILETYPE_UNKNOWN, 0, 0)
-        }
         Descriptor::Directory(dir) => write_metadata(mem, out, dir.file.getattr()?),
         Descriptor::File(file) => write_metadata(mem, out, file.getattr()?),
     }
@@ -329,17 +327,15 @@ pub(crate) fn pread(
     nread: u32,
 ) -> Answer {
     let (ptr, len) = mem.first_non_empty_buffer(iovs.0, iovs.1)?;
-    let file = match descriptor_mut(table, fd)? {
-        Descriptor::Stdin(_) => return Err(Errno::Spipe.into()),
-        Descriptor::Channel(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
-        Descriptor::File(file) => file,
-    };
+    let file = file(table, fd)?;
+    if !file.mode().contains(FMode::PREAD) {
+        return Err(Errno::Spipe.into());
+    }
     if !file.readable() {
         return Err(Errno::Badf.into());
     }
     let offset = refuse_reading_past_largest_offset(refuse_negative(offset)?, len)?;
-    let mut iocb = file.kiocb(offset);
-    let read = file.ops().read_iter(&mut iocb, mem.bytes_mut(ptr, len)?)?;
+    let read = file.pread(mem.bytes_mut(ptr, len)?, offset)?;
     mem.write_u32(nread, read as u32)
 }
 
@@ -385,11 +381,10 @@ pub(crate) fn pwrite(
     nwritten: u32,
 ) -> Answer {
     let (ptr, len) = mem.first_non_empty_buffer(ciovs.0, ciovs.1)?;
-    let file = match descriptor_mut(table, fd)? {
-        Descriptor::Channel(_) => return Err(Errno::Spipe.into()),
-        Descriptor::Stdin(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
-        Descriptor::File(file) => file,
-    };
+    let file = file(table, fd)?;
+    if !file.mode().contains(FMode::PWRITE) {
+        return Err(Errno::Spipe.into());
+    }
     // The buffer is bounded before the access is checked, as wasmtime-wasi
     // bounds it before the host refuses the write.
     let buf = mem.bytes(ptr, len)?;
@@ -402,8 +397,7 @@ pub(crate) fn pwrite(
         true => buf,
         false => trim_to_largest_offset(buf, offset)?,
     };
-    let mut iocb = file.kiocb(offset);
-    let written = file.ops().write_iter(&mut iocb, buf)?;
+    let written = file.pwrite(buf, offset)?;
     mem.write_u32(nwritten, written as u32)
 }
 
@@ -415,24 +409,19 @@ pub(crate) fn read(
     nread: u32,
 ) -> Answer {
     let (ptr, len) = mem.first_non_empty_buffer(iovs.0, iovs.1)?;
-    let read = match descriptor_mut(table, fd)? {
-        // Bounded before stdin is drained, so a trap takes no bytes.
-        Descriptor::Stdin(pipe) => pipe.read_iter(&mut Kiocb::at(0), mem.bytes_mut(ptr, len)?)?,
-        Descriptor::File(file) => {
-            // Bounded before the access is checked, as wasmtime-wasi bounds
-            // it before the host refuses the read.
-            let buf = mem.bytes_mut(ptr, len)?;
-            if !file.readable() {
-                return Err(Errno::Badf.into());
-            }
-            let at = refuse_reading_past_largest_offset(file.pos(), len)?;
-            let mut iocb = file.kiocb(at);
-            let read = file.ops().read_iter(&mut iocb, buf)?;
-            file.set_pos(iocb.pos);
-            read
-        }
-        Descriptor::Channel(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
-    };
+    let file = file(table, fd)?;
+    if file.is_stream() && !file.readable() {
+        return Err(Errno::Badf.into());
+    }
+    // Bounded before the access is checked, as wasmtime-wasi bounds it before
+    // the host refuses the read of a file, and before a pipe is drained, so a
+    // trap takes no bytes.
+    let buf = mem.bytes_mut(ptr, len)?;
+    if !file.readable() {
+        return Err(Errno::Badf.into());
+    }
+    refuse_reading_past_largest_offset(file.pos(), len)?;
+    let read = file.read(buf)?;
     mem.write_u32(nread, read as u32)
 }
 
@@ -546,26 +535,20 @@ pub(crate) fn write(
     nwritten: u32,
 ) -> Answer {
     let (ptr, len) = mem.first_non_empty_buffer(ciovs.0, ciovs.1)?;
-    let written = match descriptor_mut(table, fd)? {
-        Descriptor::Channel(pipe) => pipe.write_iter(&mut Kiocb::at(0), mem.bytes(ptr, len)?)?,
-        Descriptor::File(file) => {
-            // Bounded before the access is checked, as in `pwrite`.
-            let buf = mem.bytes(ptr, len)?;
-            if !file.writable() {
-                return Err(Errno::Badf.into());
-            }
-            let at = file.pos();
-            let buf = match file.append() {
-                true => buf,
-                false => trim_to_largest_offset(buf, at)?,
-            };
-            let mut iocb = file.kiocb(at);
-            let written = file.ops().write_iter(&mut iocb, buf)?;
-            file.set_pos(iocb.pos);
-            written
-        }
-        Descriptor::Stdin(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
+    let file = file(table, fd)?;
+    if file.is_stream() && !file.writable() {
+        return Err(Errno::Badf.into());
+    }
+    // Bounded before the access is checked, as in `pwrite`.
+    let buf = mem.bytes(ptr, len)?;
+    if !file.writable() {
+        return Err(Errno::Badf.into());
+    }
+    let buf = match file.append() {
+        true => buf,
+        false => trim_to_largest_offset(buf, file.pos())?,
     };
+    let written = file.write(buf)?;
     mem.write_u32(nwritten, written as u32)
 }
 
@@ -575,7 +558,7 @@ mod tests {
     //! does, so its Filesystem learns of the close and may refuse it.
     use std::sync::Arc;
 
-    use super::{renumber, sync};
+    use super::{filestat_set_size, renumber, seekable, sync, Answer};
     use crate::descriptors::{Descriptor, Descriptors};
     use crate::preview1::errno::{Errno, Failure};
     use kobako_runtime::filesystem::{
@@ -585,8 +568,47 @@ mod tests {
     use kobako_runtime::mount::Mount;
     use kobako_runtime::profile::Profile;
     use kobako_runtime::vfs::{
-        self, Dentry, Filesystem, Inode, OpenHow, Path, PipeReader, PipeWriter,
+        self, create_pipe_files, Dentry, Filesystem, Inode, OpenHow, Path, PipeInodeInfo,
     };
+
+    /// A table holding only the three standard streams.
+    fn standard_streams() -> Descriptors {
+        Descriptors::new(
+            create_pipe_files(&PipeInodeInfo::filled(Vec::new())).0,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            Vec::new(),
+            None,
+            Profile::Hermetic,
+        )
+        .expect("a table holding no Mount must make")
+    }
+
+    // @behavior RT-177
+    #[test]
+    fn a_standard_stream_answers_as_a_pipe_does() {
+        let mut table = standard_streams();
+        let answer = |result: Answer| match result {
+            Err(Failure::Errno(errno)) => Some(errno),
+            _ => None,
+        };
+        assert_eq!(
+            [
+                answer(sync(&mut table, 1)),
+                answer(filestat_set_size(&mut table, 1, 0)),
+                answer(seekable(&mut table, 0).map(drop)),
+                answer(seekable(&mut table, 1).map(drop)),
+            ],
+            [
+                Some(Errno::Inval),
+                Some(Errno::Inval),
+                Some(Errno::Spipe),
+                Some(Errno::Spipe)
+            ],
+            "fd_sync and fd_filestat_set_size on a standard stream through preview1 must answer \
+             EINVAL, and a call about its position ESPIPE, as Linux answers for a pipe"
+        );
+    }
 
     /// A file whose Filesystem refuses to close it.
     struct RefusesClose;
@@ -638,15 +660,7 @@ mod tests {
     // @behavior RT-176
     #[test]
     fn a_file_without_fsync_refuses_a_sync() {
-        let mut table = Descriptors::new(
-            PipeReader::new(Vec::new()),
-            PipeWriter::new(1),
-            PipeWriter::new(1),
-            Vec::new(),
-            None,
-            Profile::Hermetic,
-        )
-        .expect("a table holding no Mount must make");
+        let mut table = standard_streams();
         let fd = table.push(open_file()).expect("a descriptor to sync");
         assert!(
             matches!(sync(&mut table, fd), Err(Failure::Errno(Errno::Inval))),
@@ -657,15 +671,7 @@ mod tests {
     // @behavior RT-114
     #[test]
     fn renumbering_onto_an_open_file_closes_it_first() {
-        let mut table = Descriptors::new(
-            PipeReader::new(Vec::new()),
-            PipeWriter::new(1),
-            PipeWriter::new(1),
-            Vec::new(),
-            None,
-            Profile::Hermetic,
-        )
-        .expect("a table holding no Mount must make");
+        let mut table = standard_streams();
         let from = table.push(open_file()).expect("a descriptor to move");
         let to = table.push(open_file()).expect("a descriptor to move onto");
         assert!(

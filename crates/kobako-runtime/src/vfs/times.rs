@@ -32,7 +32,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::filesystem::{Access, InodeOperations, Kiocb, Tmpfs};
+    use crate::filesystem::{Access, InodeOperations, Tmpfs};
     use crate::mount::Mount;
     use crate::vfs::{self, File, Filesystem, OpenHow, Path};
 
@@ -52,9 +52,7 @@ mod tests {
         let Ok(mut file) = vfs::do_file_open(start, name, &how, true) else {
             panic!("{name} must open as a file");
         };
-        file.ops()
-            .write_iter(&mut Kiocb::at(0), b"x")
-            .expect("the file must take a write");
+        file.write(b"x").expect("the file must take a write");
         file
     }
 

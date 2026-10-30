@@ -41,7 +41,7 @@ pub use namei::{
 };
 pub use openat2::OpenHow;
 pub use path::Path;
-pub use pipe::{PipeReader, PipeWriter};
+pub use pipe::{create_pipe_files, PipeInodeInfo};
 pub use rwsem::Blocking;
 pub use stat::{do_readlinkat, vfs_fstatat};
 pub use utimes::do_utimes;

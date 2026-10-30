@@ -69,10 +69,7 @@ fn contents<F: InodeOperations>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
         panic!("the file must exist");
     };
     let mut buf = vec![0; 64];
-    let read = file
-        .ops()
-        .read_iter(&mut Kiocb::at(0), &mut buf)
-        .expect("the file must read");
+    let read = file.pread(&mut buf, 0).expect("the file must read");
     buf.truncate(read);
     buf
 }

@@ -100,17 +100,21 @@ fn read_subscription(invocation: &Invocation, mem: &GuestMemory, sub: u32) -> An
     let kind = match mem.read_u8(GuestMemory::field(sub, 8)?)? {
         TAG_CLOCK => read_clock(invocation, mem, sub)?,
         TAG_FD_READ => match descriptor(invocation, mem, sub)? {
-            Descriptor::Stdin(_) => Kind::FdRead { hangup: false },
-            Descriptor::File(file) => Kind::FdRead {
+            Descriptor::File(file) if file.is_stream() && file.readable() => {
+                Kind::FdRead { hangup: false }
+            }
+            Descriptor::File(file) if !file.is_stream() => Kind::FdRead {
                 hangup: file.getattr()?.len <= file.pos(),
             },
-            Descriptor::Channel(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
+            Descriptor::File(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },
         TAG_FD_WRITE => match descriptor(invocation, mem, sub)? {
-            Descriptor::Channel(_) => Kind::FdWrite,
+            Descriptor::File(file) if file.is_stream() && !file.writable() => {
+                return Err(Errno::Badf.into())
+            }
             Descriptor::File(file) if file.path().mount().allows_writes() => Kind::FdWrite,
             Descriptor::File(_) => return Err(Errno::Perm.into()),
-            Descriptor::Stdin(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
+            Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },
         _ => return Err(Errno::Inval.into()),
     };

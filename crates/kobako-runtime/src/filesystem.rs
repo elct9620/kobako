@@ -282,7 +282,7 @@ pub enum FileType {
     /// A link, as only a stat that does not follow it and a listing report one.
     Symlink,
     /// Anything else a host holds, such as a FIFO, a socket, or a device,
-    /// which no Filesystem opens.
+    /// which no Filesystem opens; a pipe of the runtime's own reports it too.
     Unknown,
 }
 

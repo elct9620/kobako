@@ -22,9 +22,17 @@ impl FMode {
     pub const READ: Self = Self(1);
     /// Opened to write, as `FMODE_WRITE`.
     pub const WRITE: Self = Self(1 << 1);
+    /// Takes a position to seek, as `FMODE_LSEEK`.
+    pub const LSEEK: Self = Self(1 << 2);
+    /// Reads from a named offset, as `FMODE_PREAD`.
+    pub const PREAD: Self = Self(1 << 3);
+    /// Writes at a named offset, as `FMODE_PWRITE`.
+    pub const PWRITE: Self = Self(1 << 4);
+    /// Reads and writes what comes next, with no position, as `FMODE_STREAM`.
+    pub const STREAM: Self = Self(1 << 5);
 
     fn of(how: &OpenHow) -> Self {
-        let mut mode = 0;
+        let mut mode = Self::LSEEK.0 | Self::PREAD.0 | Self::PWRITE.0;
         if how.read {
             mode |= Self::READ.0;
         }
@@ -96,6 +104,12 @@ impl File {
         })
     }
 
+    /// This file with no position, as `stream_open` makes a pipe's ends.
+    pub(super) fn stream_open(&mut self) {
+        let access = self.mode.0 & (FMode::READ.0 | FMode::WRITE.0);
+        self.mode = FMode(access | FMode::STREAM.0);
+    }
+
     /// The root of `mount` opened as a directory, for an invocation running
     /// under `profile`.
     pub fn root(mount: Mount, profile: Profile) -> Result<Self, FilesystemError> {
@@ -144,18 +158,52 @@ impl File {
         self.pos = pos;
     }
 
+    /// Whether it reads and writes what comes next, with no position.
+    pub fn is_stream(&self) -> bool {
+        self.mode.contains(FMode::STREAM)
+    }
+
     /// A call landing at `pos`, at the end where it was opened to append, as
     /// `init_sync_kiocb` takes `IOCB_APPEND` from `f_flags`.
-    pub fn kiocb(&self, pos: u64) -> Kiocb {
+    fn kiocb(&self, pos: u64) -> Kiocb {
         match self.append {
             true => Kiocb::at(pos).appending(),
             false => Kiocb::at(pos),
         }
     }
 
-    /// What answers for it.
-    pub fn ops(&mut self) -> &mut dyn FileOperations {
-        self.ops.as_mut()
+    /// Read from its position, moving it past what was read, as `vfs_read`
+    /// does.
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        let mut iocb = self.kiocb(self.pos);
+        let read = self.ops.read_iter(&mut iocb, buf)?;
+        self.pos = iocb.pos;
+        Ok(read)
+    }
+
+    /// Read from `pos`, leaving its position, as `pread` does.
+    pub fn pread(&mut self, buf: &mut [u8], pos: u64) -> Result<usize, FilesystemError> {
+        self.ops.read_iter(&mut self.kiocb(pos), buf)
+    }
+
+    /// Write at its position, moving it past what was written, as `vfs_write`
+    /// does.
+    pub fn write(&mut self, buf: &[u8]) -> Result<usize, FilesystemError> {
+        let mut iocb = self.kiocb(self.pos);
+        let written = self.ops.write_iter(&mut iocb, buf)?;
+        self.pos = iocb.pos;
+        Ok(written)
+    }
+
+    /// Write at `pos`, leaving its position, as `pwrite` does. Opened to
+    /// append, it lands at the end whatever `pos` says.
+    pub fn pwrite(&mut self, buf: &[u8], pos: u64) -> Result<usize, FilesystemError> {
+        self.ops.write_iter(&mut self.kiocb(pos), buf)
+    }
+
+    /// Make what was written durable, as `vfs_fsync` does.
+    pub fn fsync(&mut self) -> Result<(), FilesystemError> {
+        self.ops.fsync()
     }
 
     /// What it reports of itself, as `vfs_getattr` answers.
