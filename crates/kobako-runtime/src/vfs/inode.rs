@@ -34,9 +34,8 @@ impl Identity {
 /// on the dentry naming it: what it is, and what answers for it, as Linux's
 /// inode carries `i_mode`, `i_ino`, and `i_op`.
 pub struct Inode {
-    /// What kind of entry it is; `None` for one its Filesystem answers for
-    /// by path.
-    kind: Option<FileType>,
+    /// What kind of entry it is.
+    kind: FileType,
     /// `None` where the Filesystem names no inode number.
     identity: Option<Identity>,
     ops: Arc<dyn InodeOperations>,
@@ -50,20 +49,8 @@ impl Inode {
     /// The entry `metadata` reports, answered for by `ops`.
     pub fn new(metadata: &Metadata, ops: Arc<dyn InodeOperations>) -> Self {
         Self {
-            kind: Some(metadata.file_type),
+            kind: metadata.file_type,
             identity: Identity::of(metadata),
-            ops,
-            private: OnceLock::new(),
-        }
-    }
-
-    /// An entry `ops` answers for by the path each call names, so the name
-    /// always means what stands there now, and a lookup need not ask what
-    /// that is.
-    pub fn by_path(ops: Arc<dyn InodeOperations>) -> Self {
-        Self {
-            kind: None,
-            identity: None,
             ops,
             private: OnceLock::new(),
         }
@@ -83,19 +70,14 @@ impl Inode {
     /// The root of a Filesystem, which a lookup never finds.
     pub(super) fn root(ops: Arc<dyn InodeOperations>) -> Self {
         Self {
-            kind: Some(FileType::Directory),
+            kind: FileType::Directory,
             identity: None,
             ops,
             private: OnceLock::new(),
         }
     }
 
-    /// Whether its Filesystem answers for it by the path each call names.
-    pub fn answers_by_path(&self) -> bool {
-        self.kind.is_none()
-    }
-
-    pub fn kind(&self) -> Option<FileType> {
+    pub fn kind(&self) -> FileType {
         self.kind
     }
 

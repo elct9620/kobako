@@ -109,7 +109,7 @@ impl SecurityOperations for MountPolicy {
         let dentries = filesystem.dentries();
         let told_apart = dentry
             .inode()
-            .is_some_and(|inode| inode.answers_by_path() || inode.identity().is_some());
+            .is_some_and(|inode| inode.identity().is_some());
         if dentries.unlinked(dentry) || !told_apart {
             return Err(FilesystemError::NotFound.into());
         }
@@ -125,9 +125,7 @@ impl SecurityOperations for MountPolicy {
         let mut dir = filesystem.root().clone();
         for ancestor in above.iter().rev().skip(1) {
             dir = match dir.lookup(ancestor) {
-                Some(Ok(Lookup::Found(inode)))
-                    if matches!(inode.kind(), Some(FileType::Directory) | None) =>
-                {
+                Some(Ok(Lookup::Found(inode))) if inode.kind() == FileType::Directory => {
                     inode.ops().clone()
                 }
                 Some(Err(err))

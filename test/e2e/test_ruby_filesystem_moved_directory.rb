@@ -48,6 +48,7 @@ class TestE2ERubyFilesystemMovedDirectory < Minitest::Test
   end
 
   HELD = TestPaths.fixture("minimal_held_directory.wat")
+  ERRNO_NOENT = 44
 
   # A backend whose `dir` moves beneath `refused/` once its stat is
   # answered, leaving another `dir` holding another `inner`, as a store
@@ -90,8 +91,8 @@ class TestE2ERubyFilesystemMovedDirectory < Minitest::Test
   end
 
   # Ruby is asked by the path the descriptor's directory stands at in the
-  # runtime, the path the block judges, so a directory the backend moved
-  # beneath a refused path is never asked about there.
+  # runtime, the path the block judges. Another directory stands there now,
+  # so the walk ends rather than reach beneath a path the block refuses.
   # @behavior RF-025
   def test_a_directory_a_ruby_filesystems_backend_moved_reaches_nothing_a_policy_refuses
     filesystem = MovingFilesystem.new
@@ -99,11 +100,11 @@ class TestE2ERubyFilesystemMovedDirectory < Minitest::Test
     policy = ->(at, _) { (judged << at) && !at.start_with?("/data/refused") }
     errno = Kobako::Sandbox.new(wasm_path: HELD).mount("/data", filesystem, access: :read, &policy).eval("").value
 
-    assert_equal [0, ["/data/dir", "/data/dir/inner"], ["dir", "dir/inner"]],
+    assert_equal [ERRNO_NOENT, ["/data/dir"], ["dir"]],
                  [errno, judged, filesystem.asked.uniq],
                  "path_open through a directory descriptor a guest opened from a Ruby Filesystem mounted by " \
                  "Sandbox#mount with a block, after the backend moved the directory beneath a refused path, " \
-                 "must ask the object only about the path the block judged"
+                 "must answer ENOENT and ask the object only about the path the block judged"
   end
 
   # Another directory made at the old path holds no `inner`, so only a

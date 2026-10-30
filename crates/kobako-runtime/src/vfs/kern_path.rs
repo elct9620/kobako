@@ -77,7 +77,7 @@ impl KernPath {
         let nd = self.resolve(path)?;
         let dentry = nd.child()?;
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
-        if inode.kind() == Some(FileType::Symlink) {
+        if inode.kind() == FileType::Symlink {
             return Err(FilesystemError::FilesystemLoop);
         }
         d_can_lookup(inode.ops(), &dentry)?;
@@ -96,7 +96,7 @@ impl KernPath {
             return self.metadata();
         }
         let mut nd = self.resolve(path)?;
-        nd.found()
+        nd.getattr()
     }
 
     pub(crate) fn lookup(&self, path: &str) -> Result<String, FilesystemError> {

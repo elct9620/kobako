@@ -19,7 +19,7 @@ use kobako_runtime::filesystem::{
     DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
     Kiocb, Lookup, Metadata, OpenOptions,
 };
-use kobako_runtime::vfs::{Dentry, Inode};
+use kobako_runtime::vfs::{Dentry, Identity, Inode};
 
 use crate::runtime::pinned_value::PinnedValue;
 use crate::runtime::{escape, gvl};
@@ -30,6 +30,7 @@ use crate::runtime::{escape, gvl};
 /// so each call asks it by the path the dentry stands at now, as CIFS
 /// builds one from the dentry, and a directory opened beneath it is the
 /// same object.
+#[derive(Clone, Copy)]
 pub(crate) struct RubyFilesystem {
     object: Opaque<Value>,
     /// The device a stat without a `dev` names, the object's own, shared by
@@ -229,10 +230,10 @@ impl RubyFilesystem {
                 Ok(RubyFile::pin(ruby, file))
             },
         )?;
-        dentry.add(Some(Inode::by_path(Arc::new(Self {
-            object: self.object,
-            dev: self.dev,
-        }))));
+        if dentry.inode().is_none() {
+            let made = self.stat(dentry.path_raw())?;
+            dentry.add(Some(Inode::new(&made, Arc::new(*self))));
+        }
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         let kept = inode
             .private()
@@ -281,12 +282,11 @@ impl RubyFilesystem {
 }
 
 /// Every entry answers through the same object, asked by the path a dentry
-/// stands at, so a name always means what stands there now and the path a
-/// Policy judges. A Ruby object answers `stat` alone, so it holds no links to
-/// follow.
+/// stands at, the path a Policy judges. A Ruby object answers `stat` alone,
+/// so it holds no links to follow.
 impl InodeOperations for RubyFilesystem {
     fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
-        Some(Arc::new(RubyDentry))
+        Some(Arc::new(*self))
     }
 
     /// A file open here answers its own `size`, even once its name is gone;
@@ -315,14 +315,13 @@ impl InodeOperations for RubyFilesystem {
     }
 
     /// A Ruby object matches names exactly, as its contract asks. A lookup
-    /// asks it nothing, so a walk through several names asks the object
-    /// once, by the whole path, as 9p walks to a dentry's fid only when a
-    /// call needs one.
-    fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-        Some(Ok(Lookup::Found(Inode::by_path(Arc::new(Self {
-            object: self.object,
-            dev: self.dev,
-        })))))
+    /// asks its `stat` what stands at the name, as FUSE asks its daemon.
+    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        Some(match self.stat(dentry.path_raw()) {
+            Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(*self)))),
+            Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
+            Err(err) => Err(err),
+        })
     }
 
     /// A directory opens without asking the object anything; it is asked
@@ -333,10 +332,7 @@ impl InodeOperations for RubyFilesystem {
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         if options.directory {
-            return Some(Ok(Box::new(RubyDir(Self {
-                object: self.object,
-                dev: self.dev,
-            }))));
+            return Some(Ok(Box::new(RubyDir(*self))));
         }
         Some(self.open_at(dentry, options))
     }
@@ -424,19 +420,24 @@ fn open_file(dentry: &Dentry) -> Option<Arc<PinnedValue>> {
     file.upgrade()
 }
 
-/// A name asked by its path means what stands there now, while an open file
-/// answers for itself, so a walk finding a dentry a file is open on takes one
-/// of its own, as a name replaced behind Linux's dentry gets a new one. The
-/// object is asked nothing.
-struct RubyDentry;
-
-impl DentryOperations for RubyDentry {
+/// The backend changes outside the runtime, so a dentry someone holds is
+/// asked again, as FUSE compares what a fresh lookup finds, and one no longer
+/// naming what it recorded gets a new one. An open file answers for itself,
+/// so a walk finding a dentry one is open on takes one of its own.
+impl DentryOperations for RubyFilesystem {
     fn revalidate(
         &self,
         _dir: &dyn InodeOperations,
         dentry: &Dentry,
     ) -> Result<bool, FilesystemError> {
-        Ok(open_file(dentry).is_none())
+        let Some(inode) = dentry.inode().filter(|_| open_file(dentry).is_none()) else {
+            return Ok(dentry.inode().is_none());
+        };
+        match self.stat(dentry.path_raw()) {
+            Ok(found) => Ok(Identity::of(&found) == inode.identity()),
+            Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => Ok(false),
+            Err(err) => Err(err),
+        }
     }
 }
 

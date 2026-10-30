@@ -203,7 +203,7 @@ impl InodeOperations for Overlay {
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         let is_dir = dentry
             .inode()
-            .is_some_and(|inode| inode.kind() == Some(FileType::Directory));
+            .is_some_and(|inode| inode.kind() == FileType::Directory);
         if is_dir {
             return self.fs.dir_metadata(&self.fs.dir(dentry)?.level());
         }

@@ -330,10 +330,17 @@ mod tests {
             self.root.symlink_metadata(&dentry.path_raw())
         }
 
-        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-            Some(Ok(Lookup::Found(Inode::by_path(Arc::new(Self {
-                root: self.root.clone(),
-            })))))
+        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+            Some(match self.root.symlink_metadata(&dentry.path_raw()) {
+                Ok(found) => Ok(Lookup::Found(Inode::new(
+                    &found,
+                    Arc::new(Self {
+                        root: self.root.clone(),
+                    }),
+                ))),
+                Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
+                Err(err) => Err(err),
+            })
         }
 
         fn open(

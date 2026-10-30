@@ -203,13 +203,13 @@ impl OverlayPath {
         let dentry = self.looked_up(name)?;
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
-            Some(FileType::Directory) | None => Ok(Self {
+            FileType::Directory => Ok(Self {
                 dir: inode.ops().clone(),
                 dentry,
                 filesystem: self.filesystem.clone(),
             }),
-            Some(FileType::Symlink) => Err(FilesystemError::FilesystemLoop),
-            Some(_) => Err(FilesystemError::NotADirectory),
+            FileType::Symlink => Err(FilesystemError::FilesystemLoop),
+            _ => Err(FilesystemError::NotADirectory),
         }
     }
 

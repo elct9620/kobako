@@ -35,18 +35,18 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
     end
   end
 
-  # Each directory on the way would cost one more call into Ruby; the
-  # walk instead asks the object once, by the whole path.
+  # A walk reads what kind each name is, as Linux's reads the dentry, so the
+  # read itself asks the object nothing more.
   # @behavior RF-022
-  def test_a_path_through_directories_asks_stat_about_the_file_alone
+  def test_a_path_through_directories_asks_stat_about_each_name
     filesystem = DeepFilesystem.new
     Kobako::Sandbox.new(wasm_path: REAL_WASM)
                    .mount("/data", filesystem, access: :read)
                    .eval('File.read("/data/a/b/c/note.txt")')
 
-    assert_equal ["a/b/c/note.txt"], filesystem.asked,
+    assert_equal ["a", "a/b", "a/b/c", "a/b/c/note.txt"], filesystem.asked,
                  "a file three directories deep read through Sandbox#mount of a Ruby Filesystem must ask its stat " \
-                 "about the file alone"
+                 "once about each name on the way"
   end
 
   # @behavior RF-026

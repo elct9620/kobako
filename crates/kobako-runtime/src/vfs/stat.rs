@@ -24,7 +24,7 @@ pub fn vfs_fstatat(
     // A link the walk did not follow at the end is one swapped in since,
     // so it is reported as itself rather than followed.
     nd.check_directory()?;
-    Ok(nd.found()?)
+    Ok(nd.getattr()?)
 }
 
 /// Where the link at `path` beneath `start` points, asked of the security

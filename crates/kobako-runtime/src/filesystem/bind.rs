@@ -405,7 +405,7 @@ impl InodeOperations for Bind {
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         let is_dir = dentry
             .inode()
-            .is_some_and(|inode| inode.kind() == Some(FileType::Directory));
+            .is_some_and(|inode| inode.kind() == FileType::Directory);
         if is_dir {
             return Ok(to_metadata(
                 self.fid(dentry)?.dir_metadata().map_err(to_error)?,
@@ -896,7 +896,7 @@ mod tests {
         assert!(
             matches!(
                 filesystem.root().lookup(&note),
-                Some(Ok(Lookup::Found(inode))) if inode.kind() == Some(FileType::File)
+                Some(Ok(Lookup::Found(inode))) if inode.kind() == FileType::File
             ),
             "a name looked up through Bind in a directory not yet opened, once its dentry moved \
              with it, must be found where the dentry stands"
