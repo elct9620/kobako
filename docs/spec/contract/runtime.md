@@ -457,77 +457,71 @@ What an open reached: a directory or a file.
 pub enum FileDescription {}
 ```
 
-## `open`
+## `do_file_open`
 
-Open a path beneath a directory, answering too many open files where the
-caller has no descriptor left.
-
-```rust
-pub fn open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileDescription, Error> {}
-```
-
-## `create_dir`
-
-Make a directory at a path beneath a directory.
+Open a path beneath a directory, as Linux's `do_file_open` serves `openat`.
+Where the caller has no descriptor left, it answers too many open files.
 
 ```rust
-pub fn create_dir(start: &Path, path: &str) -> Result<(), Error> {}
+pub fn do_file_open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileDescription, Error> {}
 ```
 
-## `remove_dir`
+## `filename_mkdirat`
+
+Make a directory at a path beneath a directory, as Linux's `filename_mkdirat`
+serves `mkdirat`.
+
+```rust
+pub fn filename_mkdirat(start: &Path, path: &str) -> Result<(), Error> {}
+```
+
+## `filename_rmdir`
 
 Remove the empty directory at a path beneath a directory.
 
 ```rust
-pub fn remove_dir(start: &Path, path: &str) -> Result<(), Error> {}
+pub fn filename_rmdir(start: &Path, path: &str) -> Result<(), Error> {}
 ```
 
-## `remove_file`
+## `filename_unlinkat`
 
 Remove the file at a path beneath a directory.
 
 ```rust
-pub fn remove_file(start: &Path, path: &str) -> Result<(), Error> {}
+pub fn filename_unlinkat(start: &Path, path: &str) -> Result<(), Error> {}
 ```
 
-## `rename`
+## `filename_renameat2`
 
 Move an entry within one Mount.
 
 ```rust
-pub fn rename(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<(), Error> {}
+pub fn filename_renameat2(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<(), Error> {}
 ```
 
-## `metadata`
+## `vfs_fstatat`
 
-What a path names, a link at its end followed.
+What a path names, a link at its end followed where asked and reported as
+itself otherwise.
 
 ```rust
-pub fn metadata(start: &Path, path: &str) -> Result<Metadata, Error> {}
+pub fn vfs_fstatat(start: &Path, path: &str, follow: bool) -> Result<Metadata, Error> {}
 ```
 
-## `symlink_metadata`
-
-What a path names, a link at its end reported as itself.
-
-```rust
-pub fn symlink_metadata(start: &Path, path: &str) -> Result<Metadata, Error> {}
-```
-
-## `read_link`
+## `do_readlinkat`
 
 Refuse reading a link as unsupported once the path is known to stand.
 
 ```rust
-pub fn read_link(start: &Path, path: &str) -> Result<(), Error> {}
+pub fn do_readlinkat(start: &Path, path: &str) -> Result<(), Error> {}
 ```
 
-## `set_times`
+## `do_utimes`
 
 Refuse setting timestamps as unsupported once the path is known to stand.
 
 ```rust
-pub fn set_times(start: &Path, path: &str) -> Result<(), Error> {}
+pub fn do_utimes(start: &Path, path: &str) -> Result<(), Error> {}
 ```
 
 ## `PATH_MAX`
