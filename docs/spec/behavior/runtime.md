@@ -1933,3 +1933,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding its standard input and output |
 | When | the guest reads at an offset from each, and writes at an offset to each |
 | Then | each call answers ESPIPE |
+
+## `RT-179` A directory a move replaces makes nothing more
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-159` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding an empty directory, one thread moving another directory onto it |
+| When | another thread makes an entry through the held directory |
+| Then | the make waits for the move and answers ENOENT, and the move succeeds |
