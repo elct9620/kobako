@@ -84,9 +84,10 @@ Every edit and every stop runs the checks in `.claude/settings.json`. When one f
 | a cop or lint fires | change the code |
 | tempted to widen | never add exclusions, `#[allow]`, or `# steep:ignore` |
 | RuboCop and RBS disagree | disable the cop in `.rubocop.yml`, citing upstream |
+| a lint fires on what wiggle generates | allow it on the generating module alone |
 | a dependency changes | commit every workspace's lock file with it |
 
-The tool-vs-tool case is the one justified widening, and the type system wins it. Lock files ship even for the gem, unlike the usual gem convention.
+Those two cases are the only justified widening, as no change of ours can fit either, and the type system wins the first. Lock files ship even for the gem, unlike the usual gem convention.
 
 ### 5. Documentation
 
