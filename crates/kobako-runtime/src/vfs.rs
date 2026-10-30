@@ -33,7 +33,7 @@ pub(crate) use namei::{
 pub(crate) use rwsem::{Inline, RwSemaphore, RwSemaphoreGuard};
 
 pub use dentry::Dentry;
-pub use file::File;
+pub use file::{FMode, File};
 pub use filesystem::Filesystem;
 pub use inode::{Identity, Inode};
 pub use namei::{

@@ -13,6 +13,33 @@ use crate::filesystem::{
 use crate::mount::Mount;
 use crate::profile::Profile;
 
+/// What an open file was opened for and what it can do, as Linux's `fmode_t`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FMode(u8);
+
+impl FMode {
+    /// Opened to read, as `FMODE_READ`.
+    pub const READ: Self = Self(1);
+    /// Opened to write, as `FMODE_WRITE`.
+    pub const WRITE: Self = Self(1 << 1);
+
+    fn of(how: &OpenHow) -> Self {
+        let mut mode = 0;
+        if how.read {
+            mode |= Self::READ.0;
+        }
+        if how.write {
+            mode |= Self::WRITE.0;
+        }
+        Self(mode)
+    }
+
+    /// Whether this holds all of `mode`.
+    pub fn contains(self, mode: Self) -> bool {
+        self.0 & mode.0 == mode.0
+    }
+}
+
 /// One open file or directory, as a descriptor refers to it.
 pub struct File {
     /// Where it was opened, as `f_path`; it follows the name wherever it
@@ -22,8 +49,7 @@ pub struct File {
     ops: Box<dyn FileOperations>,
     directory: bool,
     /// What it was opened for, as `f_mode`.
-    readable: bool,
-    writable: bool,
+    mode: FMode,
     /// Whether each write lands at the end, as `O_APPEND` in `f_flags`.
     append: bool,
     /// Where the next read or write lands, as `f_pos`.
@@ -40,8 +66,7 @@ impl File {
             path,
             ops,
             directory: false,
-            readable: how.read,
-            writable: how.write,
+            mode: FMode::of(how),
             append: how.append,
             pos: 0,
             listing: None,
@@ -86,14 +111,19 @@ impl File {
         self.directory
     }
 
+    /// What it was opened for.
+    pub fn mode(&self) -> FMode {
+        self.mode
+    }
+
     /// Whether it was opened to read.
     pub fn readable(&self) -> bool {
-        self.readable
+        self.mode.contains(FMode::READ)
     }
 
     /// Whether it was opened to write.
     pub fn writable(&self) -> bool {
-        self.writable
+        self.mode.contains(FMode::WRITE)
     }
 
     /// Whether each write lands at the end.
@@ -142,7 +172,7 @@ impl File {
     /// Truncate or extend it through what it was opened on, as `do_ftruncate`
     /// refuses anything but a file open to write, and reaches `->setattr`.
     pub fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        if self.directory || !self.writable {
+        if self.directory || !self.writable() {
             return Err(FilesystemError::InvalidInput);
         }
         let dentry = self.path.dentry();
