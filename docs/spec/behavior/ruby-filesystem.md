@@ -290,7 +290,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | When | the guest syncs each file |
 | Then | the first sync answers ENOTSUP, and the second succeeds |
 
-## `RF-022` A path through a Ruby Filesystem's directories asks stat once
+## `RF-022` A path through a Ruby Filesystem's directories asks stat about each name
 
 | Attribute | Value |
 | --- | --- |
@@ -300,7 +300,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | --- | --- |
 | Given | a Ruby Filesystem holding a file three directories deep |
 | When | the script reads that file |
-| Then | the object's `stat` is asked about the file alone, by its whole path |
+| Then | the object's `stat` is asked once about each name on the way, by its whole path |
 
 ## `RF-023` A Ruby Filesystem opens without a no-follow flag where its host's Ruby has none
 

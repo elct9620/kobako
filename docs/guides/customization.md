@@ -333,8 +333,8 @@ operations. A wrapper wraps each entry its `lookup` finds through `Inode::with_o
 so it still sees every call beneath it.
 Every call hands the Dentry it is about. A Filesystem answering by path reads it
 from `Dentry::path_raw`, so a directory moved through the runtime is asked at its
-new path. Its `lookup` finds an `Inode::by_path`. Any other finds an `Inode::new`
-with its identity, or a Policy cannot tell a directory from one made in its place.
+new path. Its `lookup` finds an `Inode::new` with its identity, or a Policy cannot
+tell a directory from one made in its place.
 
 ### Filesystem Obligations
 

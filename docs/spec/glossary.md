@@ -363,7 +363,7 @@ One entry of a Filesystem, as a lookup finds it: its kind, its Identity, and the
 
 One name of a Filesystem and the directory above it, made by the runtime alone. It carries the name as the directory stores it, so every spelling of one entry reaches the same Dentry. A name moved through the runtime takes its Dentry along, and one removed through it is dead. A Filesystem reads the name a call is about from its Dentry.
 
-The runtime records on the Dentry the Inode a lookup finds, as Linux's `d_add` does, and asks no more. An Inode may say it answers by path, as a name there means what stands at it now. A Filesystem may answer that a held Dentry no longer names what it recorded. The runtime then drops that Dentry for the next lookup, and its holders keep it alive.
+The runtime records on the Dentry the Inode a lookup finds, as Linux's `d_add` does, and asks no more. A Filesystem may answer that a held Dentry no longer names what it recorded. The runtime then drops that Dentry for the next lookup, and its holders keep it alive.
 
 ### Open File
 

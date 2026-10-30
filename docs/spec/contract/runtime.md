@@ -468,16 +468,6 @@ impl Inode {
 }
 ```
 
-## `Inode::by_path`
-
-An entry its operations answer for by the path each call names.
-
-```rust
-impl Inode {
-    pub fn by_path(ops: Arc<dyn InodeOperations>) -> Self {}
-}
-```
-
 ## `Inode::with_ops`
 
 This entry answered for by other operations, as a wrapper wraps what it finds.
@@ -508,23 +498,13 @@ impl Inode {
 }
 ```
 
-## `Inode::answers_by_path`
-
-Whether its Filesystem answers for the entry by the path each call names.
-
-```rust
-impl Inode {
-    pub fn answers_by_path(&self) -> bool {}
-}
-```
-
 ## `Inode::kind`
 
-What kind of entry it is, none for one answered by path.
+What kind of entry it is.
 
 ```rust
 impl Inode {
-    pub fn kind(&self) -> Option<FileType> {}
+    pub fn kind(&self) -> FileType {}
 }
 ```
 
