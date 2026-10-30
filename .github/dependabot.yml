@@ -41,9 +41,9 @@ updates:
       beni:
         patterns:
           - "beni*"
-      # wasmtime, wasmtime-wasi, and wasmtime-wizer share one release
-      # train, so their minor and patch bumps arrive as a single PR
-      # instead of dissolving into the rust-deps catch-all.
+      # wasmtime, wasmtime-wasi, wasmtime-wizer, and wiggle share one
+      # release train, so their minor and patch bumps arrive as a single
+      # PR instead of dissolving into the rust-deps catch-all.
       #
       # A major crossing does not: Dependabot raises every major as its
       # own PR whatever a group says, so the train arrives split across
@@ -52,6 +52,7 @@ updates:
       wasmtime-deps:
         patterns:
           - "wasmtime*"
+          - "wiggle*"
       rust-deps:
         update-types:
           - minor

@@ -1,31 +1,22 @@
-//! The 10 `path_*` calls. Each reads its arguments from guest memory and
-//! hands the call to the runtime's VFS, which resolves the path, asks the
-//! Mount, and asks the Filesystem. Links are no Filesystem's to make, so
-//! those calls are unsupported.
+//! The 10 `path_*` calls. Each hands the call to the runtime's VFS, which
+//! resolves the path, asks the Mount, and asks the Filesystem. Links are no
+//! Filesystem's to make, so those calls are unsupported.
 
 use kobako_runtime::vfs::{self, OpenHow};
+use wiggle::GuestPtr;
 
-use super::args::{
-    self, FDFLAGS_APPEND, FDFLAGS_NONBLOCK, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
-};
 use super::errno::{Answer, Errno};
-use super::fd::write_metadata;
+use super::fd::{check_fstflags, filestat};
 use super::memory::GuestMemory;
+use super::types;
 use crate::descriptors::{Descriptor, Descriptors, OpenDirectory};
-
-const LOOKUPFLAGS_SYMLINK_FOLLOW: u32 = 1 << 0;
-const OFLAGS_CREAT: u32 = 1 << 0;
-const OFLAGS_DIRECTORY: u32 = 1 << 1;
-const OFLAGS_EXCL: u32 = 1 << 2;
-const OFLAGS_TRUNC: u32 = 1 << 3;
 
 /// The flags `path_open` takes besides the path itself.
 pub(crate) struct OpenFlags {
-    pub(crate) dirflags: u32,
-    pub(crate) oflags: u32,
-    pub(crate) rights_base: u64,
-    pub(crate) rights_inheriting: u64,
-    pub(crate) fdflags: u32,
+    pub(crate) dirflags: types::Lookupflags,
+    pub(crate) oflags: types::Oflags,
+    pub(crate) rights_base: types::Rights,
+    pub(crate) fdflags: types::Fdflags,
 }
 
 /// The directory `fd` stands for; any other descriptor is `BADF`.
@@ -38,111 +29,92 @@ fn directory(table: &Descriptors, fd: u32) -> Answer<&vfs::Path> {
 
 pub(crate) fn create_directory(
     table: &Descriptors,
-    mem: &GuestMemory,
+    mem: &GuestMemory<'_, '_>,
     fd: u32,
-    path: (u32, u32),
+    path: GuestPtr<str>,
 ) -> Answer {
     let dir = directory(table, fd)?;
-    Ok(vfs::filename_mkdirat(
-        table.cred(),
-        dir,
-        &mem.path(path.0, path.1)?,
-    )?)
+    Ok(vfs::filename_mkdirat(table.cred(), dir, &mem.path(path)?)?)
 }
 
 pub(crate) fn filestat_get(
     table: &Descriptors,
-    mem: &mut GuestMemory,
+    mem: &GuestMemory<'_, '_>,
     fd: u32,
-    flags: u32,
-    path: (u32, u32),
-    out: u32,
-) -> Answer {
-    args::flags(flags, args::LOOKUPFLAGS)?;
+    flags: types::Lookupflags,
+    path: GuestPtr<str>,
+) -> Answer<types::Filestat> {
     let dir = directory(table, fd)?;
-    let path = mem.path(path.0, path.1)?;
-    let metadata = if flags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0 {
-        vfs::vfs_fstatat(table.cred(), dir, &path, true)?
-    } else {
-        vfs::vfs_fstatat(table.cred(), dir, &path, false)?
-    };
-    write_metadata(table, mem, out, metadata)
+    let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
+    let metadata = vfs::vfs_fstatat(table.cred(), dir, &mem.path(path)?, follow)?;
+    Ok(filestat(table, metadata))
 }
 
 pub(crate) fn filestat_set_times(
     table: &Descriptors,
-    mem: &GuestMemory,
+    mem: &GuestMemory<'_, '_>,
     fd: u32,
-    flags: u32,
-    path: (u32, u32),
-    fst_flags: u32,
+    path: GuestPtr<str>,
+    fst_flags: types::Fstflags,
 ) -> Answer {
-    args::flags(flags, args::LOOKUPFLAGS)?;
-    args::fstflags(fst_flags)?;
+    check_fstflags(fst_flags)?;
     let dir = directory(table, fd)?;
-    Ok(vfs::do_utimes(
-        table.cred(),
-        dir,
-        &mem.path(path.0, path.1)?,
-    )?)
+    Ok(vfs::do_utimes(table.cred(), dir, &mem.path(path)?)?)
 }
 
 /// A Filesystem holds no links, and answering as if one were made would
 /// leave the guest believing it was.
 pub(crate) fn link(
     table: &Descriptors,
-    mem: &GuestMemory,
-    old_fd: u32,
-    old_flags: u32,
-    old_path: (u32, u32),
-    new_fd: u32,
-    new_path: (u32, u32),
+    mem: &GuestMemory<'_, '_>,
+    old: (u32, GuestPtr<str>),
+    new: (u32, GuestPtr<str>),
 ) -> Answer {
-    args::flags(old_flags, args::LOOKUPFLAGS)?;
-    directory(table, old_fd)?;
-    directory(table, new_fd)?;
-    mem.path(old_path.0, old_path.1)?;
-    mem.path(new_path.0, new_path.1)?;
+    directory(table, old.0)?;
+    directory(table, new.0)?;
+    mem.path(old.1)?;
+    mem.path(new.1)?;
     Err(Errno::Notsup.into())
 }
 
 pub(crate) fn open(
     table: &mut Descriptors,
-    mem: &mut GuestMemory,
+    mem: &GuestMemory<'_, '_>,
     fd: u32,
-    path: (u32, u32),
+    path: GuestPtr<str>,
     flags: &OpenFlags,
-    out: u32,
-) -> Answer {
-    args::flags(flags.dirflags, args::LOOKUPFLAGS)?;
-    args::flags(flags.oflags, args::OFLAGS)?;
-    args::flags(flags.rights_base, args::RIGHTS)?;
-    args::flags(flags.rights_inheriting, args::RIGHTS)?;
-    args::flags(flags.fdflags, args::FDFLAGS)?;
-    let path = mem.path(path.0, path.1)?;
+) -> Answer<types::Fd> {
+    let path = mem.path(path)?;
     let dir = match table.get(fd).ok_or(Errno::Badf)? {
         Descriptor::Directory(dir) => dir.file.path(),
         Descriptor::File(_) => return Err(Errno::Notdir.into()),
     };
-    let oflag = |bit| flags.oflags & bit != 0;
     // A Filesystem makes no write durable on its own schedule, and every
     // call waits for its answer, so an open asking otherwise is
     // unsupported rather than quietly granted.
-    if flags.fdflags & (FDFLAGS_SYNCHRONIZED | FDFLAGS_NONBLOCK) != 0 {
+    if flags.fdflags.intersects(
+        types::Fdflags::DSYNC
+            | types::Fdflags::RSYNC
+            | types::Fdflags::SYNC
+            | types::Fdflags::NONBLOCK,
+    ) {
         return Err(Errno::Notsup.into());
     }
-    if oflag(OFLAGS_DIRECTORY) && oflag(OFLAGS_CREAT | OFLAGS_EXCL | OFLAGS_TRUNC) {
+    let oflags = flags.oflags;
+    if oflags.contains(types::Oflags::DIRECTORY)
+        && oflags.intersects(types::Oflags::CREAT | types::Oflags::EXCL | types::Oflags::TRUNC)
+    {
         return Err(Errno::Inval.into());
     }
     let mut how = OpenHow::default();
-    how.read = flags.rights_base & RIGHTS_FD_READ != 0;
-    how.write = flags.rights_base & RIGHTS_FD_WRITE != 0;
-    how.create = oflag(OFLAGS_CREAT);
-    how.exclusive = oflag(OFLAGS_EXCL);
-    how.truncate = oflag(OFLAGS_TRUNC);
-    how.directory = oflag(OFLAGS_DIRECTORY);
-    how.follow = flags.dirflags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0;
-    how.append = flags.fdflags & FDFLAGS_APPEND != 0;
+    how.read = flags.rights_base.contains(types::Rights::FD_READ);
+    how.write = flags.rights_base.contains(types::Rights::FD_WRITE);
+    how.create = oflags.contains(types::Oflags::CREAT);
+    how.exclusive = oflags.contains(types::Oflags::EXCL);
+    how.truncate = oflags.contains(types::Oflags::TRUNC);
+    how.directory = oflags.contains(types::Oflags::DIRECTORY);
+    how.follow = flags.dirflags.contains(types::Lookupflags::SYMLINK_FOLLOW);
+    how.append = flags.fdflags.contains(types::Fdflags::APPEND);
     let file = vfs::do_file_open(table.cred(), dir, &path, &how, !table.is_full())?;
     let descriptor = match file.is_directory() {
         true => Descriptor::Directory(OpenDirectory {
@@ -151,44 +123,39 @@ pub(crate) fn open(
         }),
         false => Descriptor::File(file),
     };
-    let opened = table.push(descriptor).ok_or(Errno::Mfile)?;
-    mem.write_u32(out, opened)
+    Ok(table.push(descriptor).ok_or(Errno::Mfile)?.into())
 }
 
 pub(crate) fn readlink(
     table: &Descriptors,
-    mem: &GuestMemory,
+    mem: &GuestMemory<'_, '_>,
     fd: u32,
-    path: (u32, u32),
-) -> Answer {
+    path: GuestPtr<str>,
+) -> Answer<types::Size> {
     let dir = directory(table, fd)?;
-    vfs::do_readlinkat(table.cred(), dir, &mem.path(path.0, path.1)?)?;
+    vfs::do_readlinkat(table.cred(), dir, &mem.path(path)?)?;
     Err(Errno::Notsup.into())
 }
 
 pub(crate) fn remove_directory(
     table: &Descriptors,
-    mem: &GuestMemory,
+    mem: &GuestMemory<'_, '_>,
     fd: u32,
-    path: (u32, u32),
+    path: GuestPtr<str>,
 ) -> Answer {
     let dir = directory(table, fd)?;
-    Ok(vfs::filename_rmdir(
-        table.cred(),
-        dir,
-        &mem.path(path.0, path.1)?,
-    )?)
+    Ok(vfs::filename_rmdir(table.cred(), dir, &mem.path(path)?)?)
 }
 
 pub(crate) fn rename(
     table: &Descriptors,
-    mem: &GuestMemory,
-    old: (u32, (u32, u32)),
-    new: (u32, (u32, u32)),
+    mem: &GuestMemory<'_, '_>,
+    old: (u32, GuestPtr<str>),
+    new: (u32, GuestPtr<str>),
 ) -> Answer {
     let from = directory(table, old.0)?;
     let to = directory(table, new.0)?;
-    let (from_path, to_path) = (mem.path(old.1 .0, old.1 .1)?, mem.path(new.1 .0, new.1 .1)?);
+    let (from_path, to_path) = (mem.path(old.1)?, mem.path(new.1)?);
     Ok(vfs::filename_renameat2(
         table.cred(),
         from,
@@ -201,27 +168,23 @@ pub(crate) fn rename(
 /// A Filesystem holds no links to make.
 pub(crate) fn symlink(
     table: &Descriptors,
-    mem: &GuestMemory,
-    old_path: (u32, u32),
+    mem: &GuestMemory<'_, '_>,
+    old_path: GuestPtr<str>,
     fd: u32,
-    new_path: (u32, u32),
+    new_path: GuestPtr<str>,
 ) -> Answer {
     directory(table, fd)?;
-    mem.path(old_path.0, old_path.1)?;
-    mem.path(new_path.0, new_path.1)?;
+    mem.path(old_path)?;
+    mem.path(new_path)?;
     Err(Errno::Notsup.into())
 }
 
 pub(crate) fn unlink_file(
     table: &Descriptors,
-    mem: &GuestMemory,
+    mem: &GuestMemory<'_, '_>,
     fd: u32,
-    path: (u32, u32),
+    path: GuestPtr<str>,
 ) -> Answer {
     let dir = directory(table, fd)?;
-    Ok(vfs::filename_unlinkat(
-        table.cred(),
-        dir,
-        &mem.path(path.0, path.1)?,
-    )?)
+    Ok(vfs::filename_unlinkat(table.cred(), dir, &mem.path(path)?)?)
 }

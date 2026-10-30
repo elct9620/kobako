@@ -10,24 +10,14 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::errno::{Answer, Errno, Failure};
+use wiggle::{GuestPtr, GuestType};
+
+use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
+use super::types::{self, Clockid, Eventrwflags, Eventtype, Subclockflags, SubscriptionU};
 use crate::descriptors::Descriptor;
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
-
-const SUBSCRIPTION_SIZE: u32 = 48;
-const EVENT_SIZE: u32 = 32;
-
-const TAG_CLOCK: u8 = 0;
-const TAG_FD_READ: u8 = 1;
-const TAG_FD_WRITE: u8 = 2;
-
-const CLOCK_REALTIME: u32 = 0;
-const CLOCK_MONOTONIC: u32 = 1;
-/// The highest `clockid` variant.
-const CLOCK_MAX: u32 = 3;
-const SUBCLOCKFLAGS_ABSTIME: u16 = 1;
 
 /// One subscription as the guest wrote it.
 struct Subscription {
@@ -46,26 +36,22 @@ enum Kind {
     FdWrite,
 }
 
-const EVENTRWFLAGS_HANGUP: u16 = 1;
-
 pub(crate) fn poll_oneoff(
     invocation: &Invocation,
-    mem: &mut GuestMemory,
-    subs: u32,
-    events: u32,
+    mem: &mut GuestMemory<'_, '_>,
+    subs: GuestPtr<types::Subscription>,
+    events: GuestPtr<types::Event>,
     count: u32,
-    nevents: u32,
-) -> Answer {
+) -> Answer<types::Size> {
     if count == 0 {
         return Err(Errno::Inval.into());
     }
-    mem.consume(count, SUBSCRIPTION_SIZE)?;
-    mem.consume(count, EVENT_SIZE)?;
-    let subscriptions = (0..count)
-        .map(|index| {
-            let sub = GuestMemory::element(subs, index, SUBSCRIPTION_SIZE)?;
-            read_subscription(invocation, mem, sub)
-        })
+    mem.consume(count, types::Subscription::guest_size())?;
+    mem.consume(count, types::Event::guest_size())?;
+    let subscriptions = subs
+        .as_array(count)
+        .iter()
+        .map(|sub| read_subscription(invocation, mem, sub?))
         .collect::<Answer<Vec<_>>>()?;
 
     let clocks = subscriptions.iter().filter_map(|sub| match sub.kind {
@@ -87,19 +73,22 @@ pub(crate) fn poll_oneoff(
             Kind::FdRead { .. } | Kind::FdWrite => (true, 1),
         };
         if ready {
-            let event = GuestMemory::element(events, written, EVENT_SIZE)?;
-            write_event(mem, event, sub, nbytes)?;
+            mem.write(events.add(written)?, event(sub, nbytes))?;
             written += 1;
         }
     }
-    mem.write_u32(nevents, written)
+    Ok(written)
 }
 
-fn read_subscription(invocation: &Invocation, mem: &GuestMemory, sub: u32) -> Answer<Subscription> {
-    let userdata = mem.read_u64(sub)?;
-    let kind = match mem.read_u8(GuestMemory::field(sub, 8)?)? {
-        TAG_CLOCK => read_clock(invocation, mem, sub)?,
-        TAG_FD_READ => match descriptor(invocation, mem, sub)? {
+fn read_subscription(
+    invocation: &Invocation,
+    mem: &GuestMemory<'_, '_>,
+    sub: GuestPtr<types::Subscription>,
+) -> Answer<Subscription> {
+    let sub = mem.read(sub)?;
+    let kind = match sub.u {
+        SubscriptionU::Clock(clock) => read_clock(invocation, &clock)?,
+        SubscriptionU::FdRead(subscribed) => match descriptor(invocation, subscribed)? {
             Descriptor::File(file) if file.is_stream() && file.readable() => {
                 Kind::FdRead { hangup: false }
             }
@@ -108,50 +97,46 @@ fn read_subscription(invocation: &Invocation, mem: &GuestMemory, sub: u32) -> An
             },
             Descriptor::File(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },
-        TAG_FD_WRITE => match descriptor(invocation, mem, sub)? {
+        SubscriptionU::FdWrite(subscribed) => match descriptor(invocation, subscribed)? {
             Descriptor::File(file) if file.is_stream() && file.writable() => Kind::FdWrite,
             Descriptor::File(file) if file.is_stream() => return Err(Errno::Badf.into()),
             Descriptor::File(file) if !file.path().mnt().is_readonly() => Kind::FdWrite,
             Descriptor::File(_) => return Err(Errno::Perm.into()),
             Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },
-        _ => return Err(Errno::Inval.into()),
     };
-    Ok(Subscription { userdata, kind })
+    Ok(Subscription {
+        userdata: sub.userdata,
+        kind,
+    })
 }
 
-fn descriptor<'a>(
-    invocation: &'a Invocation,
-    mem: &GuestMemory,
-    sub: u32,
-) -> Answer<&'a Descriptor> {
-    let fd = mem.read_u32(GuestMemory::field(sub, 16)?)?;
+fn descriptor(
+    invocation: &Invocation,
+    subscribed: types::SubscriptionFdReadwrite,
+) -> Answer<&Descriptor> {
     invocation
         .wasi()
         .descriptors()
-        .get(fd)
+        .get(subscribed.file_descriptor.into())
         .ok_or_else(|| Errno::Badf.into())
 }
 
 /// A clock, read against the guest's own clocks. Only the realtime and
 /// monotonic clocks can be waited on, alone or among other
 /// subscriptions, as in wasmtime-wasi.
-fn read_clock(invocation: &Invocation, mem: &GuestMemory, sub: u32) -> Answer<Kind> {
-    let id = mem.read_u32(GuestMemory::field(sub, 16)?)?;
-    let timeout = mem.read_u64(GuestMemory::field(sub, 24)?)?;
-    let flags = mem.read_u16(GuestMemory::field(sub, 40)?)?;
-    if id > CLOCK_MAX || flags & !SUBCLOCKFLAGS_ABSTIME != 0 {
-        return Err(Errno::Inval.into());
-    }
-    let absolute = flags & SUBCLOCKFLAGS_ABSTIME != 0;
+fn read_clock(invocation: &Invocation, clock: &types::SubscriptionClock) -> Answer<Kind> {
+    let absolute = clock
+        .flags
+        .contains(Subclockflags::SUBSCRIPTION_CLOCK_ABSTIME);
     let clocks = invocation.wasi().clocks();
-    let now = match (id, absolute) {
-        (CLOCK_REALTIME | CLOCK_MONOTONIC, false) => 0,
-        (CLOCK_MONOTONIC, true) => clocks.monotonic_now(),
-        (CLOCK_REALTIME, true) => clocks.wall_now(),
+    let now = match (clock.id, absolute) {
+        (Clockid::Realtime | Clockid::Monotonic, false) => 0,
+        (Clockid::Monotonic, true) => clocks.monotonic_now(),
+        (Clockid::Realtime, true) => clocks.wall_now(),
         _ => return Err(Errno::Inval.into()),
     };
-    Ok(Kind::Clock(timeout.saturating_sub(now)))
+    Ok(Kind::Clock(clock.timeout.saturating_sub(now)))
 }
 
 /// Wait `nanos` of the guest's time: none on frozen clocks, and on live
@@ -166,24 +151,26 @@ fn wait(invocation: &Invocation, nanos: u64) -> Answer {
         let left = deadline.saturating_duration_since(Instant::now());
         if wanted >= left {
             thread::sleep(left);
-            return Err(Failure::Trap(wasmtime::Error::new(TimeoutTrap)));
+            return Err(types::Error::trap(wasmtime::Error::new(TimeoutTrap)));
         }
     }
     thread::sleep(wanted);
     Ok(())
 }
 
-fn write_event(mem: &mut GuestMemory, event: u32, sub: &Subscription, nbytes: u64) -> Answer {
-    let (kind, flags) = match sub.kind {
-        Kind::Clock(_) => (TAG_CLOCK, 0),
-        Kind::FdRead { hangup } => (TAG_FD_READ, if hangup { EVENTRWFLAGS_HANGUP } else { 0 }),
-        Kind::FdWrite => (TAG_FD_WRITE, 0),
+fn event(sub: &Subscription, nbytes: u64) -> types::Event {
+    let (type_, flags) = match sub.kind {
+        Kind::Clock(_) => (Eventtype::Clock, Eventrwflags::empty()),
+        Kind::FdRead { hangup: true } => (Eventtype::FdRead, Eventrwflags::FD_READWRITE_HANGUP),
+        Kind::FdRead { hangup: false } => (Eventtype::FdRead, Eventrwflags::empty()),
+        Kind::FdWrite => (Eventtype::FdWrite, Eventrwflags::empty()),
     };
-    mem.write_u64(event, sub.userdata)?;
-    mem.write_u16(GuestMemory::field(event, 8)?, 0)?;
-    mem.write_u8(GuestMemory::field(event, 10)?, kind)?;
-    mem.write_u64(GuestMemory::field(event, 16)?, nbytes)?;
-    mem.write_u16(GuestMemory::field(event, 24)?, flags)
+    types::Event {
+        userdata: sub.userdata,
+        error: Errno::Success,
+        type_,
+        fd_readwrite: types::EventFdReadwrite { nbytes, flags },
+    }
 }
 
 #[cfg(test)]

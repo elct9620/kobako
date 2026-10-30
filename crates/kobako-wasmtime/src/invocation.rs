@@ -39,6 +39,7 @@ pub(crate) struct Invocation {
     reentry_trap: Option<wasmtime::Error>,
     exports: Option<Exports>,
     open_calls: u32,
+    hostcall_fuel: usize,
 }
 
 impl Invocation {
@@ -53,7 +54,18 @@ impl Invocation {
             reentry_trap: None,
             exports: None,
             open_calls: 0,
+            hostcall_fuel: 0,
         }
+    }
+
+    /// How much of the guest's memory the call under way may have the host
+    /// copy or walk, as wasmtime hands each host call.
+    pub(crate) fn hostcall_fuel(&self) -> usize {
+        self.hostcall_fuel
+    }
+
+    pub(crate) fn set_hostcall_fuel(&mut self, fuel: usize) {
+        self.hostcall_fuel = fuel;
     }
 
     pub(crate) fn set_exports(&mut self, exports: Exports) {

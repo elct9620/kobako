@@ -57,6 +57,10 @@ wasmtime = { version = "50.0.0", default-features = false, features = [
 # its own descriptor table. `p1` is the only feature kobako asks for; it
 # enables `p2` itself, while `p0` and `p3` stay off.
 wasmtime-wasi = { version = "50.0.0", default-features = false, features = ["p1"] }
+# wiggle generates the preview1 calls kobako answers from `witx/`, as it
+# generates wasmtime-wasi's, so each takes its arguments and writes its answer
+# as wasmtime-wasi does. It rides wasmtime's release train.
+wiggle = { version = "50.0.0", default-features = false, features = ["wasmtime"] }
 # sha2 keys the on-disk compiled-module cache by Guest Binary content
 # (see cache.rs); a collision would load the wrong artifact, so the
 # hash must be cryptographic.

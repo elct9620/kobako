@@ -9,71 +9,51 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{FileType, Metadata};
 use kobako_runtime::vfs::{FMode, File};
+use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 
-use super::args::{
-    self, FDFLAGS_APPEND, FDFLAGS_NONBLOCK, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
-};
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
+use super::types::{self, Fdflags, Filetype, Fstflags, Rights};
 use crate::descriptors::{Descriptor, Descriptors, OpenDirectory};
-
-/// `fdstat` / `filestat` filetypes.
-const FILETYPE_UNKNOWN: u8 = 0;
-const FILETYPE_DIRECTORY: u8 = 3;
-const FILETYPE_REGULAR_FILE: u8 = 4;
-const FILETYPE_SYMBOLIC_LINK: u8 = 7;
-
-const RIGHTS_FD_DATASYNC: u64 = 1 << 0;
-const RIGHTS_FD_SEEK: u64 = 1 << 2;
-const RIGHTS_FD_FDSTAT_SET_FLAGS: u64 = 1 << 3;
-const RIGHTS_FD_SYNC: u64 = 1 << 4;
-const RIGHTS_FD_TELL: u64 = 1 << 5;
-const RIGHTS_FD_ADVISE: u64 = 1 << 7;
-const RIGHTS_FD_ALLOCATE: u64 = 1 << 8;
-const RIGHTS_FD_READDIR: u64 = 1 << 14;
-const RIGHTS_PATH_FILESTAT_SET_SIZE: u64 = 1 << 19;
-const RIGHTS_FD_FILESTAT_GET: u64 = 1 << 21;
-const RIGHTS_FD_FILESTAT_SET_SIZE: u64 = 1 << 22;
-const RIGHTS_FD_FILESTAT_SET_TIMES: u64 = 1 << 23;
-const RIGHTS_POLL_FD_READWRITE: u64 = 1 << 27;
 
 /// What a preopen allows itself: every path call, as wasmtime-wasi hands
 /// most userlands.
-const PREOPEN_RIGHTS: u64 = (1 << 9)
-    | (1 << 10)
-    | (1 << 11)
-    | (1 << 12)
-    | (1 << 13)
-    | RIGHTS_FD_READDIR
-    | (1 << 15)
-    | (1 << 16)
-    | (1 << 17)
-    | (1 << 18)
-    | (1 << 20)
-    | RIGHTS_FD_FILESTAT_GET
-    | RIGHTS_FD_FILESTAT_SET_TIMES
-    | (1 << 24)
-    | (1 << 25)
-    | (1 << 26);
+fn preopen_rights() -> Rights {
+    Rights::PATH_CREATE_DIRECTORY
+        | Rights::PATH_CREATE_FILE
+        | Rights::PATH_LINK_SOURCE
+        | Rights::PATH_LINK_TARGET
+        | Rights::PATH_OPEN
+        | Rights::FD_READDIR
+        | Rights::PATH_READLINK
+        | Rights::PATH_RENAME_SOURCE
+        | Rights::PATH_RENAME_TARGET
+        | Rights::PATH_FILESTAT_GET
+        | Rights::PATH_FILESTAT_SET_TIMES
+        | Rights::FD_FILESTAT_GET
+        | Rights::FD_FILESTAT_SET_TIMES
+        | Rights::PATH_SYMLINK
+        | Rights::PATH_REMOVE_DIRECTORY
+        | Rights::PATH_UNLINK_FILE
+}
 
 /// What a file opened beneath a preopen may hold. Reading and writing are
 /// both inherited whatever the Mount's access, since wasi-libc intersects
 /// them before asking: a read-only Mount answers a write itself, as `ROFS`.
-const PREOPEN_INHERITING: u64 = PREOPEN_RIGHTS
-    | RIGHTS_FD_DATASYNC
-    | RIGHTS_FD_READ
-    | RIGHTS_FD_SEEK
-    | RIGHTS_FD_FDSTAT_SET_FLAGS
-    | RIGHTS_FD_SYNC
-    | RIGHTS_FD_TELL
-    | RIGHTS_FD_WRITE
-    | RIGHTS_FD_ADVISE
-    | RIGHTS_FD_ALLOCATE
-    | RIGHTS_FD_FILESTAT_SET_SIZE
-    | RIGHTS_POLL_FD_READWRITE;
-
-/// The size of one `dirent` header ahead of its name.
-const DIRENT_SIZE: u32 = 24;
+fn preopen_inheriting() -> Rights {
+    preopen_rights()
+        | Rights::FD_DATASYNC
+        | Rights::FD_READ
+        | Rights::FD_SEEK
+        | Rights::FD_FDSTAT_SET_FLAGS
+        | Rights::FD_SYNC
+        | Rights::FD_TELL
+        | Rights::FD_WRITE
+        | Rights::FD_ADVISE
+        | Rights::FD_ALLOCATE
+        | Rights::FD_FILESTAT_SET_SIZE
+        | Rights::POLL_FD_READWRITE
+}
 
 fn descriptor(table: &Descriptors, fd: u32) -> Answer<&Descriptor> {
     table.get(fd).ok_or_else(|| Errno::Badf.into())
@@ -138,21 +118,12 @@ fn file_or_directory(table: &Descriptors, fd: u32) -> Answer {
     }
 }
 
-/// A `filestat` of `filetype`, named `nlink` times and `size` bytes long.
-fn write_filestat(mem: &mut GuestMemory, out: u32, filetype: u8, nlink: u64, size: u64) -> Answer {
-    GuestMemory::check_aligned(out, 8)?;
-    mem.write(out, &[0; 64])?;
-    mem.write_u8(GuestMemory::field(out, 16)?, filetype)?;
-    mem.write_u64(GuestMemory::field(out, 24)?, nlink)?;
-    mem.write_u64(GuestMemory::field(out, 32)?, size)
-}
-
-fn to_filetype(file_type: FileType) -> u8 {
+fn to_filetype(file_type: FileType) -> Filetype {
     match file_type {
-        FileType::Directory => FILETYPE_DIRECTORY,
-        FileType::Symlink => FILETYPE_SYMBOLIC_LINK,
-        FileType::File => FILETYPE_REGULAR_FILE,
-        _ => FILETYPE_UNKNOWN,
+        FileType::Directory => Filetype::Directory,
+        FileType::Symlink => Filetype::SymbolicLink,
+        FileType::File => Filetype::RegularFile,
+        _ => Filetype::Unknown,
     }
 }
 
@@ -160,32 +131,21 @@ fn to_filetype(file_type: FileType) -> u8 {
 /// holding `table` sees it: named once where it keeps no count of names, at
 /// time zero where it keeps no time, and with no size for a link, so
 /// nothing of where it points reaches the guest.
-pub(crate) fn write_metadata(
-    table: &Descriptors,
-    mem: &mut GuestMemory,
-    out: u32,
-    metadata: Metadata,
-) -> Answer {
+pub(crate) fn filestat(table: &Descriptors, metadata: Metadata) -> types::Filestat {
     let metadata = table.profile().mask_times(metadata);
-    let len = match metadata.file_type {
-        FileType::Symlink => 0,
-        _ => metadata.len,
-    };
-    write_filestat(
-        mem,
-        out,
-        to_filetype(metadata.file_type),
-        metadata.nlink.unwrap_or(1),
-        len,
-    )?;
-    for (offset, time) in [
-        (40, metadata.accessed),
-        (48, metadata.modified),
-        (56, metadata.changed),
-    ] {
-        mem.write_u64(GuestMemory::field(out, offset)?, timestamp(time))?;
+    types::Filestat {
+        dev: 0,
+        ino: 0,
+        filetype: to_filetype(metadata.file_type),
+        nlink: metadata.nlink.unwrap_or(1),
+        size: match metadata.file_type {
+            FileType::Symlink => 0,
+            _ => metadata.len,
+        },
+        atim: timestamp(metadata.accessed),
+        mtim: timestamp(metadata.modified),
+        ctim: timestamp(metadata.changed),
     }
-    Ok(())
 }
 
 /// `time` as a preview1 `timestamp`, nanoseconds since the Unix epoch;
@@ -197,16 +157,20 @@ fn timestamp(time: Option<SystemTime>) -> u64 {
         })
 }
 
+/// Setting a timestamp and setting it to now are exclusive: asking both is
+/// `INVAL`.
+pub(crate) fn check_fstflags(flags: Fstflags) -> Answer {
+    if flags.contains(Fstflags::ATIM | Fstflags::ATIM_NOW)
+        || flags.contains(Fstflags::MTIM | Fstflags::MTIM_NOW)
+    {
+        return Err(Errno::Inval.into());
+    }
+    Ok(())
+}
+
 /// The hints preview1 offers about a file. A Filesystem that ignores them
 /// is still correct, so they succeed over a range Linux takes.
-pub(crate) fn advise(
-    table: &mut Descriptors,
-    fd: u32,
-    offset: u64,
-    len: u64,
-    advice: u32,
-) -> Answer {
-    args::variant(advice, args::ADVICE_MAX)?;
+pub(crate) fn advise(table: &mut Descriptors, fd: u32, offset: u64, len: u64) -> Answer {
     seekable(table, fd)?;
     refuse_negative(offset)?;
     refuse_negative(len).map(drop)
@@ -230,88 +194,80 @@ pub(crate) fn sync(table: &mut Descriptors, fd: u32) -> Answer {
     Ok(file(table, fd)?.fsync()?)
 }
 
-pub(crate) fn fdstat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, out: u32) -> Answer {
-    let (filetype, flags, base, inheriting) = match descriptor(table, fd)? {
+pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> {
+    let (fs_filetype, fs_flags, fs_rights_base, fs_rights_inheriting) = match descriptor(table, fd)?
+    {
         Descriptor::File(file) if file.is_stream() => {
             let rights = match file.readable() {
-                true => RIGHTS_FD_READ,
-                false => RIGHTS_FD_WRITE,
+                true => Rights::FD_READ,
+                false => Rights::FD_WRITE,
             };
-            (FILETYPE_UNKNOWN, 0, rights, rights)
+            (Filetype::Unknown, Fdflags::empty(), rights, rights)
         }
-        Descriptor::Directory(dir) if dir.preopen.is_some() => {
-            (FILETYPE_DIRECTORY, 0, PREOPEN_RIGHTS, PREOPEN_INHERITING)
-        }
+        Descriptor::Directory(dir) if dir.preopen.is_some() => (
+            Filetype::Directory,
+            Fdflags::empty(),
+            preopen_rights(),
+            preopen_inheriting(),
+        ),
         Descriptor::Directory(_) => {
-            let rights = args::RIGHTS
-                & !RIGHTS_FD_WRITE
-                & !RIGHTS_FD_SEEK
-                & !RIGHTS_FD_FILESTAT_SET_SIZE
-                & !RIGHTS_PATH_FILESTAT_SET_SIZE;
-            (FILETYPE_DIRECTORY, 0, rights, rights)
+            let rights = Rights::all()
+                - Rights::FD_WRITE
+                - Rights::FD_SEEK
+                - Rights::FD_FILESTAT_SET_SIZE
+                - Rights::PATH_FILESTAT_SET_SIZE;
+            (Filetype::Directory, Fdflags::empty(), rights, rights)
         }
         Descriptor::File(file) => {
-            let mut rights = args::RIGHTS;
+            let mut rights = Rights::all();
             if !file.readable() {
-                rights &= !RIGHTS_FD_READ & !RIGHTS_FD_READDIR;
+                rights -= Rights::FD_READ | Rights::FD_READDIR;
             }
             if !file.writable() {
-                rights &= !RIGHTS_FD_WRITE;
+                rights -= Rights::FD_WRITE;
             }
-            let flags = if file.append() {
-                FDFLAGS_APPEND as u16
-            } else {
-                0
+            let flags = match file.append() {
+                true => Fdflags::APPEND,
+                false => Fdflags::empty(),
             };
-            (FILETYPE_REGULAR_FILE, flags, rights, rights)
+            (Filetype::RegularFile, flags, rights, rights)
         }
     };
-    GuestMemory::check_aligned(out, 8)?;
-    mem.write_u8(out, filetype)?;
-    mem.write_u16(GuestMemory::field(out, 2)?, flags)?;
-    mem.write_u64(GuestMemory::field(out, 8)?, base)?;
-    mem.write_u64(GuestMemory::field(out, 16)?, inheriting)
+    Ok(types::Fdstat {
+        fs_filetype,
+        fs_flags,
+        fs_rights_base,
+        fs_rights_inheriting,
+    })
 }
 
 /// Only appending can change once a file is open; the sync flags are
 /// `INVAL`, as in wasmtime-wasi, and a file never stops blocking, so
 /// asking it to is unsupported.
-pub(crate) fn fdstat_set_flags(table: &mut Descriptors, fd: u32, flags: u32) -> Answer {
-    args::flags(flags, args::FDFLAGS)?;
+pub(crate) fn fdstat_set_flags(table: &mut Descriptors, fd: u32, flags: Fdflags) -> Answer {
     let file = file(table, fd)?;
-    if flags & FDFLAGS_SYNCHRONIZED != 0 {
+    if flags.intersects(Fdflags::DSYNC | Fdflags::RSYNC | Fdflags::SYNC) {
         return Err(Errno::Inval.into());
     }
-    if flags & FDFLAGS_NONBLOCK != 0 {
+    if flags.contains(Fdflags::NONBLOCK) {
         return Err(Errno::Notsup.into());
     }
-    file.set_append(flags & FDFLAGS_APPEND != 0);
+    file.set_append(flags.contains(Fdflags::APPEND));
     Ok(())
 }
 
 /// Rights only narrow at open, so a later change is unsupported.
-pub(crate) fn fdstat_set_rights(
-    table: &Descriptors,
-    fd: u32,
-    base: u64,
-    inheriting: u64,
-) -> Answer {
-    args::flags(base, args::RIGHTS)?;
-    args::flags(inheriting, args::RIGHTS)?;
+pub(crate) fn fdstat_set_rights(table: &Descriptors, fd: u32) -> Answer {
     file_or_directory(table, fd)?;
     Err(Errno::Notsup.into())
 }
 
-pub(crate) fn filestat_get(
-    table: &Descriptors,
-    mem: &mut GuestMemory,
-    fd: u32,
-    out: u32,
-) -> Answer {
-    match descriptor(table, fd)? {
-        Descriptor::Directory(dir) => write_metadata(table, mem, out, dir.file.getattr()?),
-        Descriptor::File(file) => write_metadata(table, mem, out, file.getattr()?),
-    }
+pub(crate) fn filestat_get(table: &Descriptors, fd: u32) -> Answer<types::Filestat> {
+    let metadata = match descriptor(table, fd)? {
+        Descriptor::Directory(dir) => dir.file.getattr()?,
+        Descriptor::File(file) => file.getattr()?,
+    };
+    Ok(filestat(table, metadata))
 }
 
 /// A Mount that refuses the write answers first, as wasmtime-wasi answers
@@ -323,21 +279,20 @@ pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> 
 
 /// A Filesystem keeps no timestamps of the guest's choosing, so setting
 /// them is unsupported rather than silently ignored.
-pub(crate) fn filestat_set_times(table: &Descriptors, fd: u32, fst_flags: u32) -> Answer {
-    args::fstflags(fst_flags)?;
+pub(crate) fn filestat_set_times(table: &Descriptors, fd: u32, flags: Fstflags) -> Answer {
+    check_fstflags(flags)?;
     file_or_directory(table, fd)?;
     Err(Errno::Notsup.into())
 }
 
 pub(crate) fn pread(
     table: &mut Descriptors,
-    mem: &mut GuestMemory,
+    mem: &mut GuestMemory<'_, '_>,
     fd: u32,
-    iovs: (u32, u32),
+    iovs: types::IovecArray,
     offset: u64,
-    nread: u32,
-) -> Answer {
-    let (ptr, len) = mem.first_non_empty_buffer(iovs.0, iovs.1)?;
+) -> Answer<types::Size> {
+    let buf = mem.first_non_empty_iovec(iovs)?;
     let file = file(table, fd)?;
     if !file.mode().contains(FMode::PREAD) {
         return Err(Errno::Spipe.into());
@@ -345,29 +300,26 @@ pub(crate) fn pread(
     if !file.readable() {
         return Err(Errno::Badf.into());
     }
-    let offset = refuse_reading_past_largest_offset(refuse_negative(offset)?, len)?;
-    let read = file.pread(mem.bytes_mut(ptr, len)?, offset)?;
-    mem.write_u32(nread, read as u32)
+    let offset = refuse_reading_past_largest_offset(refuse_negative(offset)?, buf.len())?;
+    Ok(file.pread(mem.bytes_mut(buf)?, offset)? as u32)
 }
 
-pub(crate) fn prestat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, out: u32) -> Answer {
+pub(crate) fn prestat_get(table: &Descriptors, fd: u32) -> Answer<types::Prestat> {
     match descriptor(table, fd)? {
         Descriptor::Directory(OpenDirectory {
             preopen: Some(at), ..
-        }) => {
-            GuestMemory::check_aligned(out, 4)?;
-            mem.write_u8(out, 0)?;
-            mem.write_u32(GuestMemory::field(out, 4)?, at.len() as u32)
-        }
+        }) => Ok(types::Prestat::Dir(types::PrestatDir {
+            pr_name_len: at.len() as u32,
+        })),
         _ => Err(Errno::Badf.into()),
     }
 }
 
 pub(crate) fn prestat_dir_name(
     table: &Descriptors,
-    mem: &mut GuestMemory,
+    mem: &mut GuestMemory<'_, '_>,
     fd: u32,
-    path: u32,
+    path: GuestPtr<u8>,
     path_len: u32,
 ) -> Answer {
     match descriptor(table, fd)? {
@@ -378,7 +330,7 @@ pub(crate) fn prestat_dir_name(
             if name.len() > path_len as usize {
                 return Err(Errno::Nametoolong.into());
             }
-            mem.write(path, name)
+            mem.write_bytes(path, name)
         }
         _ => Err(Errno::Notdir.into()),
     }
@@ -386,20 +338,19 @@ pub(crate) fn prestat_dir_name(
 
 pub(crate) fn pwrite(
     table: &mut Descriptors,
-    mem: &mut GuestMemory,
+    mem: &mut GuestMemory<'_, '_>,
     fd: u32,
-    ciovs: (u32, u32),
+    ciovs: types::CiovecArray,
     offset: u64,
-    nwritten: u32,
-) -> Answer {
-    let (ptr, len) = mem.first_non_empty_buffer(ciovs.0, ciovs.1)?;
+) -> Answer<types::Size> {
+    let buf = mem.first_non_empty_ciovec(ciovs)?;
     let file = file(table, fd)?;
     if !file.mode().contains(FMode::PWRITE) {
         return Err(Errno::Spipe.into());
     }
     // The buffer is bounded before the access is checked, as wasmtime-wasi
     // bounds it before the host refuses the write.
-    let buf = mem.bytes(ptr, len)?;
+    let buf = mem.bytes(buf)?;
     if !file.writable() {
         return Err(Errno::Badf.into());
     }
@@ -409,18 +360,16 @@ pub(crate) fn pwrite(
         true => buf,
         false => trim_to_largest_offset(buf, offset)?,
     };
-    let written = file.pwrite(buf, offset)?;
-    mem.write_u32(nwritten, written as u32)
+    Ok(file.pwrite(buf, offset)? as u32)
 }
 
 pub(crate) fn read(
     table: &mut Descriptors,
-    mem: &mut GuestMemory,
+    mem: &mut GuestMemory<'_, '_>,
     fd: u32,
-    iovs: (u32, u32),
-    nread: u32,
-) -> Answer {
-    let (ptr, len) = mem.first_non_empty_buffer(iovs.0, iovs.1)?;
+    iovs: types::IovecArray,
+) -> Answer<types::Size> {
+    let buf = mem.first_non_empty_iovec(iovs)?;
     let file = file(table, fd)?;
     if file.is_stream() && !file.readable() {
         return Err(Errno::Badf.into());
@@ -428,13 +377,28 @@ pub(crate) fn read(
     // Bounded before the access is checked, as wasmtime-wasi bounds it before
     // the host refuses the read of a file, and before a pipe is drained, so a
     // trap takes no bytes.
-    let buf = mem.bytes_mut(ptr, len)?;
+    let len = buf.len();
+    let buf = mem.bytes_mut(buf)?;
     if !file.readable() {
         return Err(Errno::Badf.into());
     }
     refuse_reading_past_largest_offset(file.pos(), len)?;
-    let read = file.read(buf)?;
-    mem.write_u32(nread, read as u32)
+    Ok(file.read(buf)? as u32)
+}
+
+/// The `dirent` header ahead of one entry's name.
+fn dirent_header(d_next: u64, name: &str, filetype: Filetype) -> Answer<Vec<u8>> {
+    let mut header = vec![0; types::Dirent::guest_size() as usize];
+    WitxMemory::Unshared(&mut header).write(
+        GuestPtr::new(0),
+        types::Dirent {
+            d_next,
+            d_ino: 0,
+            d_namlen: name.len() as u32,
+            d_type: filetype,
+        },
+    )?;
+    Ok(header)
 }
 
 /// A directory's entries as preview1 `dirent`s, `.` and `..` first, from
@@ -444,12 +408,12 @@ pub(crate) fn read(
 /// per step.
 pub(crate) fn readdir(
     table: &mut Descriptors,
-    mem: &mut GuestMemory,
+    mem: &mut GuestMemory<'_, '_>,
     fd: u32,
-    buf: (u32, u32),
+    start: GuestPtr<u8>,
+    capacity: u32,
     cookie: u64,
-    bufused: u32,
-) -> Answer {
+) -> Answer<types::Size> {
     let dir = match descriptor_mut(table, fd)? {
         Descriptor::Directory(dir) => dir,
         _ => return Err(Errno::Badf.into()),
@@ -459,26 +423,22 @@ pub(crate) fn readdir(
         Some(listing) if cookie != 0 => listing,
         _ => dir.file.iterate_dir()?,
     };
-    let entries = [(".", FILETYPE_DIRECTORY), ("..", FILETYPE_DIRECTORY)]
+    let entries = [(".", Filetype::Directory), ("..", Filetype::Directory)]
         .into_iter()
         .chain(
             listing
                 .iter()
                 .map(|entry| (entry.name.as_str(), to_filetype(entry.file_type))),
         );
-    let (start, capacity) = buf;
     let mut used: u32 = 0;
     let mut full = false;
     'entries: for (index, (name, filetype)) in entries.enumerate().skip(skip) {
-        let mut dirent = [0u8; DIRENT_SIZE as usize];
-        dirent[0..8].copy_from_slice(&(index as u64 + 1).to_le_bytes());
-        dirent[16..20].copy_from_slice(&(name.len() as u32).to_le_bytes());
-        dirent[20] = filetype;
-        for part in [&dirent[..], name.as_bytes()] {
+        let header = dirent_header(index as u64 + 1, name, filetype)?;
+        for part in [&header[..], name.as_bytes()] {
             let room = (capacity - used) as usize;
             let take = part.len().min(room);
             if take > 0 {
-                mem.write(GuestMemory::field(start, used)?, &part[..take])?;
+                mem.write_bytes(start.add(used)?, &part[..take])?;
             }
             used += take as u32;
             if used == capacity {
@@ -490,7 +450,7 @@ pub(crate) fn readdir(
     if full {
         dir.file.keep_listing(listing);
     }
-    mem.write_u32(bufused, used)
+    Ok(used)
 }
 
 /// preview1 renumbering closes `to` as `fd_close` does, answering a close
@@ -511,18 +471,15 @@ pub(crate) fn renumber(table: &mut Descriptors, from: u32, to: u32) -> Answer {
 
 pub(crate) fn seek(
     table: &mut Descriptors,
-    mem: &mut GuestMemory,
     fd: u32,
     offset: i64,
-    whence: u32,
-    out: u32,
-) -> Answer {
-    args::variant(whence, args::WHENCE_MAX)?;
+    whence: types::Whence,
+) -> Answer<u64> {
     let file = seekable(table, fd)?;
     let base = match whence {
-        0 => 0,
-        1 => file.pos(),
-        _ => file.getattr()?.len,
+        types::Whence::Set => 0,
+        types::Whence::Cur => file.pos(),
+        types::Whence::End => file.getattr()?.len,
     };
     // Linux holds an offset in a signed 64-bit `off_t`, past which a seek
     // is `OVERFLOW` rather than a position a write could wrap around.
@@ -531,28 +488,26 @@ pub(crate) fn seek(
         return Err(Errno::Overflow.into());
     }
     file.set_pos(position);
-    mem.write_u64(out, position)
+    Ok(position)
 }
 
-pub(crate) fn tell(table: &mut Descriptors, mem: &mut GuestMemory, fd: u32, out: u32) -> Answer {
-    let position = seekable(table, fd)?.pos();
-    mem.write_u64(out, position)
+pub(crate) fn tell(table: &mut Descriptors, fd: u32) -> Answer<u64> {
+    Ok(seekable(table, fd)?.pos())
 }
 
 pub(crate) fn write(
     table: &mut Descriptors,
-    mem: &mut GuestMemory,
+    mem: &mut GuestMemory<'_, '_>,
     fd: u32,
-    ciovs: (u32, u32),
-    nwritten: u32,
-) -> Answer {
-    let (ptr, len) = mem.first_non_empty_buffer(ciovs.0, ciovs.1)?;
+    ciovs: types::CiovecArray,
+) -> Answer<types::Size> {
+    let buf = mem.first_non_empty_ciovec(ciovs)?;
     let file = file(table, fd)?;
     if file.is_stream() && !file.writable() {
         return Err(Errno::Badf.into());
     }
     // Bounded before the access is checked, as in `pwrite`.
-    let buf = mem.bytes(ptr, len)?;
+    let buf = mem.bytes(buf)?;
     if !file.writable() {
         return Err(Errno::Badf.into());
     }
@@ -560,8 +515,7 @@ pub(crate) fn write(
         true => buf,
         false => trim_to_largest_offset(buf, file.pos())?,
     };
-    let written = file.write(buf)?;
-    mem.write_u32(nwritten, written as u32)
+    Ok(file.write(buf)? as u32)
 }
 
 #[cfg(test)]
@@ -570,9 +524,8 @@ mod tests {
     //! does, so its Filesystem learns of the close and may refuse it.
     use std::sync::Arc;
 
-    use super::{filestat_set_size, renumber, seekable, sync, Answer};
+    use super::{filestat_set_size, renumber, seekable, sync, Answer, Errno};
     use crate::descriptors::{Descriptor, Descriptors};
-    use crate::preview1::errno::{Errno, Failure};
     use kobako_runtime::filesystem::{
         FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
     };
@@ -595,20 +548,21 @@ mod tests {
         .expect("a table holding no Mount must make")
     }
 
+    /// The code a call answered, if it answered one.
+    fn errno<T>(answer: Answer<T>) -> Option<Errno> {
+        answer.err().and_then(|err| err.downcast().ok())
+    }
+
     // @behavior RT-177
     #[test]
     fn a_standard_stream_answers_as_a_pipe_does() {
         let mut table = standard_streams();
-        let answer = |result: Answer| match result {
-            Err(Failure::Errno(errno)) => Some(errno),
-            _ => None,
-        };
         assert_eq!(
             [
-                answer(sync(&mut table, 1)),
-                answer(filestat_set_size(&mut table, 1, 0)),
-                answer(seekable(&mut table, 0).map(drop)),
-                answer(seekable(&mut table, 1).map(drop)),
+                errno(sync(&mut table, 1)),
+                errno(filestat_set_size(&mut table, 1, 0)),
+                errno(seekable(&mut table, 0).map(drop)),
+                errno(seekable(&mut table, 1).map(drop)),
             ],
             [
                 Some(Errno::Inval),
@@ -673,8 +627,9 @@ mod tests {
     fn a_file_without_fsync_refuses_a_sync() {
         let mut table = standard_streams();
         let fd = table.push(open_file()).expect("a descriptor to sync");
-        assert!(
-            matches!(sync(&mut table, fd), Err(Failure::Errno(Errno::Inval))),
+        assert_eq!(
+            errno(sync(&mut table, fd)),
+            Some(Errno::Inval),
             "fd_sync on a file whose Filesystem has no fsync must answer EINVAL"
         );
     }
@@ -685,11 +640,9 @@ mod tests {
         let mut table = standard_streams();
         let from = table.push(open_file()).expect("a descriptor to move");
         let to = table.push(open_file()).expect("a descriptor to move onto");
-        assert!(
-            matches!(
-                renumber(&mut table, from, to),
-                Err(Failure::Errno(Errno::Acces))
-            ),
+        assert_eq!(
+            errno(renumber(&mut table, from, to)),
+            Some(Errno::Acces),
             "fd_renumber onto a file whose Filesystem refuses the close must answer that refusal"
         );
         assert!(

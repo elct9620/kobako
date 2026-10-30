@@ -4,223 +4,93 @@
 use kobako_runtime::filesystem::FilesystemError;
 use kobako_runtime::mount::Denial;
 use kobako_runtime::vfs;
+use wiggle::GuestError;
 
-/// One preview1 `errno`, numbered as the witx `$errno` enum numbers it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u16)]
-pub(crate) enum Errno {
-    TooBig = 1,
-    Acces = 2,
-    Addrinuse = 3,
-    Addrnotavail = 4,
-    Afnosupport = 5,
-    Again = 6,
-    Already = 7,
-    Badf = 8,
-    Badmsg = 9,
-    Busy = 10,
-    Canceled = 11,
-    Child = 12,
-    Connaborted = 13,
-    Connrefused = 14,
-    Connreset = 15,
-    Deadlk = 16,
-    Destaddrreq = 17,
-    Dom = 18,
-    Dquot = 19,
-    Exist = 20,
-    Fault = 21,
-    Fbig = 22,
-    Hostunreach = 23,
-    Idrm = 24,
-    Ilseq = 25,
-    Inprogress = 26,
-    Intr = 27,
-    Inval = 28,
-    Io = 29,
-    Isconn = 30,
-    Isdir = 31,
-    Loop = 32,
-    Mfile = 33,
-    Mlink = 34,
-    Msgsize = 35,
-    Multihop = 36,
-    Nametoolong = 37,
-    Netdown = 38,
-    Netreset = 39,
-    Netunreach = 40,
-    Nfile = 41,
-    Nobufs = 42,
-    Nodev = 43,
-    Noent = 44,
-    Noexec = 45,
-    Nolck = 46,
-    Nolink = 47,
-    Nomem = 48,
-    Nomsg = 49,
-    Noprotoopt = 50,
-    Nospc = 51,
-    Nosys = 52,
-    Notconn = 53,
-    Notdir = 54,
-    Notempty = 55,
-    Notrecoverable = 56,
-    Notsock = 57,
-    Notsup = 58,
-    Notty = 59,
-    Nxio = 60,
-    Overflow = 61,
-    Ownerdead = 62,
-    Perm = 63,
-    Pipe = 64,
-    Proto = 65,
-    Protonosupport = 66,
-    Prototype = 67,
-    Range = 68,
-    Rofs = 69,
-    Spipe = 70,
-    Srch = 71,
-    Stale = 72,
-    Timedout = 73,
-    Txtbsy = 74,
-    Xdev = 75,
-    Notcapable = 76,
+use super::types;
+pub(crate) use super::types::Errno;
+
+pub(crate) type Answer<T = ()> = Result<T, types::Error>;
+
+/// The code a POSIX error name a Filesystem's failure carries stands for:
+/// the witx case, `E` prefixed and upper-cased.
+fn from_posix_name(name: &str) -> Option<Errno> {
+    Some(match name {
+        "ENOENT" => Errno::Noent,
+        "EEXIST" => Errno::Exist,
+        "ENOTDIR" => Errno::Notdir,
+        "EISDIR" => Errno::Isdir,
+        "ENOTEMPTY" => Errno::Notempty,
+        "EACCES" => Errno::Acces,
+        "EROFS" => Errno::Rofs,
+        "EINVAL" => Errno::Inval,
+        "ENOTSUP" => Errno::Notsup,
+        "ENOSPC" => Errno::Nospc,
+        "EFBIG" => Errno::Fbig,
+        "EXDEV" => Errno::Xdev,
+        "EDEADLK" => Errno::Deadlk,
+        "ELOOP" => Errno::Loop,
+        "EPERM" => Errno::Perm,
+        "EBADF" => Errno::Badf,
+        "EBUSY" => Errno::Busy,
+        "EILSEQ" => Errno::Ilseq,
+        "EINTR" => Errno::Intr,
+        "EMFILE" => Errno::Mfile,
+        "ENAMETOOLONG" => Errno::Nametoolong,
+        "ENOMEM" => Errno::Nomem,
+        "ENOTSOCK" => Errno::Notsock,
+        "EOVERFLOW" => Errno::Overflow,
+        "ESPIPE" => Errno::Spipe,
+        _ => return None,
+    })
 }
 
-impl Errno {
-    /// The code a POSIX error name stands for: the witx case, `E`
-    /// prefixed and upper-cased. `ENOTCAPABLE` is WASI's own.
-    fn from_posix_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "E2BIG" => Self::TooBig,
-            "EACCES" => Self::Acces,
-            "EADDRINUSE" => Self::Addrinuse,
-            "EADDRNOTAVAIL" => Self::Addrnotavail,
-            "EAFNOSUPPORT" => Self::Afnosupport,
-            "EAGAIN" => Self::Again,
-            "EALREADY" => Self::Already,
-            "EBADF" => Self::Badf,
-            "EBADMSG" => Self::Badmsg,
-            "EBUSY" => Self::Busy,
-            "ECANCELED" => Self::Canceled,
-            "ECHILD" => Self::Child,
-            "ECONNABORTED" => Self::Connaborted,
-            "ECONNREFUSED" => Self::Connrefused,
-            "ECONNRESET" => Self::Connreset,
-            "EDEADLK" => Self::Deadlk,
-            "EDESTADDRREQ" => Self::Destaddrreq,
-            "EDOM" => Self::Dom,
-            "EDQUOT" => Self::Dquot,
-            "EEXIST" => Self::Exist,
-            "EFAULT" => Self::Fault,
-            "EFBIG" => Self::Fbig,
-            "EHOSTUNREACH" => Self::Hostunreach,
-            "EIDRM" => Self::Idrm,
-            "EILSEQ" => Self::Ilseq,
-            "EINPROGRESS" => Self::Inprogress,
-            "EINTR" => Self::Intr,
-            "EINVAL" => Self::Inval,
-            "EIO" => Self::Io,
-            "EISCONN" => Self::Isconn,
-            "EISDIR" => Self::Isdir,
-            "ELOOP" => Self::Loop,
-            "EMFILE" => Self::Mfile,
-            "EMLINK" => Self::Mlink,
-            "EMSGSIZE" => Self::Msgsize,
-            "EMULTIHOP" => Self::Multihop,
-            "ENAMETOOLONG" => Self::Nametoolong,
-            "ENETDOWN" => Self::Netdown,
-            "ENETRESET" => Self::Netreset,
-            "ENETUNREACH" => Self::Netunreach,
-            "ENFILE" => Self::Nfile,
-            "ENOBUFS" => Self::Nobufs,
-            "ENODEV" => Self::Nodev,
-            "ENOENT" => Self::Noent,
-            "ENOEXEC" => Self::Noexec,
-            "ENOLCK" => Self::Nolck,
-            "ENOLINK" => Self::Nolink,
-            "ENOMEM" => Self::Nomem,
-            "ENOMSG" => Self::Nomsg,
-            "ENOPROTOOPT" => Self::Noprotoopt,
-            "ENOSPC" => Self::Nospc,
-            "ENOSYS" => Self::Nosys,
-            "ENOTCONN" => Self::Notconn,
-            "ENOTDIR" => Self::Notdir,
-            "ENOTEMPTY" => Self::Notempty,
-            "ENOTRECOVERABLE" => Self::Notrecoverable,
-            "ENOTSOCK" => Self::Notsock,
-            "ENOTSUP" => Self::Notsup,
-            "ENOTTY" => Self::Notty,
-            "ENXIO" => Self::Nxio,
-            "EOVERFLOW" => Self::Overflow,
-            "EOWNERDEAD" => Self::Ownerdead,
-            "EPERM" => Self::Perm,
-            "EPIPE" => Self::Pipe,
-            "EPROTO" => Self::Proto,
-            "EPROTONOSUPPORT" => Self::Protonosupport,
-            "EPROTOTYPE" => Self::Prototype,
-            "ERANGE" => Self::Range,
-            "EROFS" => Self::Rofs,
-            "ESPIPE" => Self::Spipe,
-            "ESRCH" => Self::Srch,
-            "ESTALE" => Self::Stale,
-            "ETIMEDOUT" => Self::Timedout,
-            "ETXTBSY" => Self::Txtbsy,
-            "EXDEV" => Self::Xdev,
-            "ENOTCAPABLE" => Self::Notcapable,
-            _ => return None,
-        })
-    }
-}
-
-/// A call that did not succeed. preview1 traps rather than answering
-/// for a pointer outside guest memory or an argument outside what the
-/// witx defines, as wasmtime-wasi does.
-pub(crate) enum Failure {
-    Errno(Errno),
-    Trap(wasmtime::Error),
-}
-
-impl Failure {
-    /// A trap saying what the guest handed over that preview1 cannot hold.
-    pub(crate) fn trap(message: &'static str) -> Self {
-        Self::Trap(wasmtime::Error::msg(message))
-    }
-}
-
-impl From<Errno> for Failure {
-    fn from(errno: Errno) -> Self {
-        Self::Errno(errno)
+/// A pointer outside the memory or misaligned traps, as the witx
+/// documentation requires; a value inside memory that no witx type holds is
+/// `INVAL`, as in wasmtime-wasi.
+impl From<GuestError> for types::Error {
+    fn from(error: GuestError) -> Self {
+        match error {
+            GuestError::InvalidFlagValue { .. } | GuestError::InvalidEnumValue { .. } => {
+                Errno::Inval.into()
+            }
+            GuestError::PtrOverflow
+            | GuestError::PtrOutOfBounds { .. }
+            | GuestError::PtrNotAligned { .. } => Self::trap(error.into()),
+            GuestError::InvalidUtf8 { .. } => Errno::Ilseq.into(),
+            GuestError::TryFromIntError { .. } => Errno::Overflow.into(),
+            GuestError::SliceLengthsDiffer => Errno::Fault.into(),
+            GuestError::InFunc { err, .. } => Self::from(*err),
+        }
     }
 }
 
 /// The code a Filesystem's failure reaches the guest as: the one its
 /// POSIX name stands for, or `IO` for a failure without one.
-impl From<FilesystemError> for Failure {
+impl From<FilesystemError> for types::Error {
     fn from(error: FilesystemError) -> Self {
-        Self::Errno(
-            error
-                .posix_name()
-                .and_then(Errno::from_posix_name)
-                .unwrap_or(Errno::Io),
-        )
+        error
+            .posix_name()
+            .and_then(from_posix_name)
+            .unwrap_or(Errno::Io)
+            .into()
     }
 }
 
 /// A change beneath a read-only Mount is `ROFS`; a Policy's refusal is
 /// `ACCES`.
-impl From<Denial> for Failure {
+impl From<Denial> for types::Error {
     fn from(denial: Denial) -> Self {
-        Self::Errno(match denial {
+        match denial {
             Denial::ReadOnly => Errno::Rofs,
             Denial::Refused => Errno::Acces,
-        })
+        }
+        .into()
     }
 }
 
 /// A path escaping its descriptor is `NOTCAPABLE`, as preview1 names a
 /// capability the guest does not hold.
-impl From<vfs::Error> for Failure {
+impl From<vfs::Error> for types::Error {
     fn from(error: vfs::Error) -> Self {
         match error {
             vfs::Error::Filesystem(error) => error.into(),
@@ -229,8 +99,6 @@ impl From<vfs::Error> for Failure {
         }
     }
 }
-
-pub(crate) type Answer<T = ()> = Result<T, Failure>;
 
 #[cfg(test)]
 mod tests {
@@ -268,12 +136,13 @@ mod tests {
         ];
         for (error, code) in cases {
             let label = format!("{error:?}");
-            let Failure::Errno(errno) = Failure::from(error) else {
+            let Ok(errno) = types::Error::from(error).downcast() else {
                 panic!("{label} must answer an error code, not a trap");
             };
             assert_eq!(
-                errno as u16, code,
-                "{label} through Failure::from must reach the guest as preview1 errno {code}"
+                u16::from(errno),
+                code,
+                "{label} through types::Error::from must reach the guest as preview1 errno {code}"
             );
         }
     }

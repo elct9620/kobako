@@ -836,6 +836,7 @@ dependencies = [
  "sha2 0.11.1",
  "wasmtime",
  "wasmtime-wasi",
+ "wiggle",
 ]
 
 [[package]]
