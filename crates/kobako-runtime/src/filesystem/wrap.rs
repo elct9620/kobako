@@ -5,9 +5,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use super::{
-    DirEntry, FileOperations, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
-};
+use super::{FileOperations, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions};
 use crate::vfs::Dentry;
 
 /// What a test changes of the Filesystem beneath it.
@@ -52,14 +50,6 @@ pub(crate) trait Hook: Send + Sync + 'static {
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         inner.create(dentry, options)
-    }
-
-    fn entries(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-        inner.entries(dentry)
     }
 
     fn mkdir(
@@ -143,10 +133,6 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         self.hook.create(self.inner.as_ref(), dentry, options)
-    }
-
-    fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-        self.hook.entries(self.inner.as_ref(), dentry)
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {

@@ -7,12 +7,11 @@
 //! before a fresh one is taken.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 
-use kobako_runtime::filesystem::{DirEntry, FileOperations};
+use kobako_runtime::filesystem::FilesystemError;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::Path;
+use kobako_runtime::vfs::File;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
 /// What one descriptor stands for.
@@ -23,27 +22,12 @@ pub(crate) enum Descriptor {
     Channel(MemoryOutputPipe),
     /// A directory beneath a Mount; a preopen is the Mount's own root.
     Directory(OpenDirectory),
-    File(OpenFile),
+    File(File),
 }
 
 pub(crate) struct OpenDirectory {
-    pub(crate) path: Path,
+    pub(crate) file: File,
     pub(crate) preopen: bool,
-    /// The entries a listing began with, held until it reaches its end, so
-    /// each later call reads on without listing the directory again.
-    pub(crate) listing: Option<Vec<DirEntry>>,
-}
-
-pub(crate) struct OpenFile {
-    pub(crate) file: Box<dyn FileOperations>,
-    pub(crate) position: u64,
-    pub(crate) append: bool,
-    pub(crate) readable: bool,
-    pub(crate) writable: bool,
-    /// The Mount it was opened beneath, whose permission to write answers a
-    /// wait to write and a resize, as wasmtime-wasi answers both by its
-    /// preopen's permissions.
-    pub(crate) mount: Arc<Mount>,
 }
 
 pub(crate) struct Descriptors {
@@ -65,7 +49,7 @@ impl Descriptors {
         mounts: Vec<Mount>,
         limit: Option<usize>,
         profile: Profile,
-    ) -> Self {
+    ) -> Result<Self, FilesystemError> {
         let mut used = BTreeMap::from([
             (0, Descriptor::Stdin(stdin)),
             (1, Descriptor::Channel(stdout)),
@@ -75,17 +59,16 @@ impl Descriptors {
             used.insert(
                 fd,
                 Descriptor::Directory(OpenDirectory {
-                    path: Path::root(mount, profile),
+                    file: File::root(mount, profile)?,
                     preopen: true,
-                    listing: None,
                 }),
             );
         }
-        Self {
+        Ok(Self {
             used,
             free: BTreeSet::new(),
             limit,
-        }
+        })
     }
 
     pub(crate) fn get(&self, fd: u32) -> Option<&Descriptor> {

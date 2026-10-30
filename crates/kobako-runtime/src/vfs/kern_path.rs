@@ -13,7 +13,7 @@ use super::namei::{
     vfs_rmdir, vfs_unlink, Nameidata,
 };
 use super::path::Path;
-use super::{Error, Filesystem};
+use super::{Error, File, Filesystem};
 use crate::filesystem::{
     Access, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Metadata,
     OpenOptions,
@@ -70,7 +70,7 @@ impl KernPath {
             return Err(FilesystemError::FilesystemLoop);
         }
         d_can_lookup(inode.ops(), &dentry)?;
-        Ok(Self(self.0.with_directory(dentry)))
+        Ok(Self(self.0.with_dentry(dentry)))
     }
 
     /// What the directory reports of itself.
@@ -98,7 +98,9 @@ impl KernPath {
     }
 
     pub(crate) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.0.entries().map_err(to_filesystem_error)
+        File::directory(self.0.clone())?
+            .iterate_dir()
+            .map_err(to_filesystem_error)
     }
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {

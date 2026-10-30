@@ -392,6 +392,9 @@ impl InodeOperations for Bind {
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        if options.directory {
+            return Some(Ok(Box::new(BindDir(self.clone()))));
+        }
         Some(self.at(dentry, |dir, name| open_in(dir, name, options)))
     }
 
@@ -401,10 +404,6 @@ impl InodeOperations for Bind {
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         Some(self.at(dentry, |dir, name| open_in(dir, name, options)))
-    }
-
-    fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-        Some(self.entries_of(dentry))
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
@@ -450,6 +449,16 @@ impl InodeOperations for Bind {
                     })
                 }),
         )
+    }
+}
+
+/// A host directory, open: it reaches the descriptor kept on the dentry it is
+/// handed, so it follows the directory wherever it moves.
+struct BindDir(Bind);
+
+impl FileOperations for BindDir {
+    fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.0.entries_of(dentry)
     }
 }
 
@@ -557,7 +566,7 @@ mod tests {
     fn a_directory_remade_by_the_host_leaves_the_moved_ones_descriptor_alive() {
         use crate::mount::Mount;
         use crate::profile::Profile;
-        use crate::vfs::{self, FileDescription, OpenHow};
+        use crate::vfs::{self, OpenHow};
         let host = HostDir::new("remade");
         fs::create_dir_all(host.0.join("a")).expect("the host directory must be made");
         let filesystem = crate::vfs::Filesystem::new(Arc::new(
@@ -570,15 +579,16 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(FileDescription::Directory(held)) = vfs::do_file_open(&root, "a", &how, true) else {
+        let Ok(opened) = vfs::do_file_open(&root, "a", &how, true) else {
             panic!("the directory must open");
         };
+        let held = opened.path();
         fs::rename(host.0.join("a"), host.0.join("moved")).expect("the host must move it");
         fs::create_dir(host.0.join("a")).expect("the host must remake it");
         vfs::filename_rmdir(&root, "a").expect("the new directory must go");
         assert_eq!(
             (
-                vfs::filename_mkdirat(&held, "made"),
+                vfs::filename_mkdirat(held, "made"),
                 host.0.join("moved/made").is_dir()
             ),
             (Ok(()), true),
@@ -608,7 +618,7 @@ mod tests {
     fn a_walk_through_a_held_directory_the_host_moved_reaches_nothing_the_policy_refuses() {
         use crate::mount::Mount;
         use crate::profile::Profile;
-        use crate::vfs::{self, FileDescription, OpenHow};
+        use crate::vfs::{self, OpenHow};
         let host = HostDir::new("held-ancestor");
         fs::create_dir_all(host.0.join("a/d")).expect("the host tree must be made");
         fs::create_dir_all(host.0.join("refused")).expect("the host tree must be made");
@@ -624,9 +634,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(FileDescription::Directory(_held)) =
-            vfs::do_file_open(&root, "a/d", &directory, true)
-        else {
+        let Ok(_held) = vfs::do_file_open(&root, "a/d", &directory, true) else {
             panic!("a/d must open");
         };
         fs::rename(host.0.join("a"), host.0.join("refused/a")).expect("the host must move a");

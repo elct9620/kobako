@@ -62,8 +62,8 @@ The types those seams carry, by grade:
 
 | Grade | Names |
 |---|---|
-| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_runtime::{Tmpfs, Bind, Inode, Overlay, Mount, MountPathError}` · `kobako_runtime::vfs::{Filesystem, Dentry, Identity, Inode, Path, do_file_open, filename_mkdirat, filename_rmdir, filename_unlinkat, filename_renameat2, vfs_fstatat, do_readlinkat, do_utimes, PATH_MAX, NAME_MAX}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
-| **stable · exhaustive** | `kobako_mruby::Arguments` · `kobako_runtime::{Profile, Entry, Completion, Access, Denial}` · `kobako_runtime::vfs::{Error, FileDescription}` · `kobako_codec::msgpack::{Value, Arguments}` · `kobako::{Backend, Provider, msgpack::RunArg}` |
+| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_runtime::{Tmpfs, Bind, Inode, Overlay, Mount, MountPathError}` · `kobako_runtime::vfs::{Filesystem, Dentry, File, Identity, Inode, Path, do_file_open, filename_mkdirat, filename_rmdir, filename_unlinkat, filename_renameat2, vfs_fstatat, do_readlinkat, do_utimes, PATH_MAX, NAME_MAX}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
+| **stable · exhaustive** | `kobako_mruby::Arguments` · `kobako_runtime::{Profile, Entry, Completion, Access, Denial}` · `kobako_runtime::vfs::Error` · `kobako_codec::msgpack::{Value, Arguments}` · `kobako::{Backend, Provider, msgpack::RunArg}` |
 | **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, FileType, FilesystemError, SeedError, Snapshot, Capture, Usage, OpenOptions, Metadata, DirEntry}` · `kobako_runtime::vfs::OpenHow` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |
 | **append-only, read by an older peer as `Unknown`** | `kobako_transport::envelope::{Downcall, Upcall}` |
@@ -348,6 +348,7 @@ VFS does. One wrapping another forwards those it keeps.
 | `d_revalidate` | a held dentry dropped once its name stands for another entry | valid, as nothing changes it outside the runtime |
 | `get_link` | a link followed only within the directory a descriptor opened | EINVAL |
 | `create` | a file made under the directory's lock | EACCES |
+| `FileOperations::iterate_shared` | a directory listed from what its `open` made | ENOTDIR |
 | `mkdir`, `rmdir`, `unlink`, `rename` | a change made under the directory's lock | EPERM |
 | `FileOperations::append` | another writer's append from landing over this one | `Unsupported`, which it answers itself |
 

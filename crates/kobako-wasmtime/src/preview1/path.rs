@@ -3,9 +3,7 @@
 //! Mount, and asks the Filesystem. Links are no Filesystem's to make, so
 //! those calls are unsupported.
 
-use std::sync::Arc;
-
-use kobako_runtime::vfs::{self, FileDescription, OpenHow};
+use kobako_runtime::vfs::{self, OpenHow};
 
 use super::args::{
     self, FDFLAGS_APPEND, FDFLAGS_NONBLOCK, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
@@ -13,7 +11,7 @@ use super::args::{
 use super::errno::{Answer, Errno};
 use super::fd::write_metadata;
 use super::memory::GuestMemory;
-use crate::descriptors::{Descriptor, Descriptors, OpenDirectory, OpenFile};
+use crate::descriptors::{Descriptor, Descriptors, OpenDirectory};
 
 const LOOKUPFLAGS_SYMLINK_FOLLOW: u32 = 1 << 0;
 const OFLAGS_CREAT: u32 = 1 << 0;
@@ -33,7 +31,7 @@ pub(crate) struct OpenFlags {
 /// The directory `fd` stands for; any other descriptor is `BADF`.
 fn directory(table: &Descriptors, fd: u32) -> Answer<&vfs::Path> {
     match table.get(fd).ok_or(Errno::Badf)? {
-        Descriptor::Directory(dir) => Ok(&dir.path),
+        Descriptor::Directory(dir) => Ok(dir.file.path()),
         Descriptor::Stdin(_) | Descriptor::Channel(_) | Descriptor::File(_) => {
             Err(Errno::Badf.into())
         }
@@ -117,7 +115,7 @@ pub(crate) fn open(
     args::flags(flags.fdflags, args::FDFLAGS)?;
     let path = mem.path(path.0, path.1)?;
     let dir = match table.get(fd).ok_or(Errno::Badf)? {
-        Descriptor::Directory(dir) => &dir.path,
+        Descriptor::Directory(dir) => dir.file.path(),
         Descriptor::File(_) => return Err(Errno::Notdir.into()),
         Descriptor::Stdin(_) | Descriptor::Channel(_) => return Err(Errno::Badf.into()),
     };
@@ -139,21 +137,14 @@ pub(crate) fn open(
     how.truncate = oflag(OFLAGS_TRUNC);
     how.directory = oflag(OFLAGS_DIRECTORY);
     how.follow = flags.dirflags & LOOKUPFLAGS_SYMLINK_FOLLOW != 0;
-    let mount = Arc::clone(dir.mount());
-    let descriptor = match vfs::do_file_open(dir, &path, &how, !table.is_full())? {
-        FileDescription::Directory(path) => Descriptor::Directory(OpenDirectory {
-            path,
-            preopen: false,
-            listing: None,
-        }),
-        FileDescription::File(file) => Descriptor::File(OpenFile {
+    how.append = flags.fdflags & FDFLAGS_APPEND != 0;
+    let file = vfs::do_file_open(dir, &path, &how, !table.is_full())?;
+    let descriptor = match file.is_directory() {
+        true => Descriptor::Directory(OpenDirectory {
             file,
-            position: 0,
-            append: flags.fdflags & FDFLAGS_APPEND != 0,
-            readable: how.read,
-            writable: how.write,
-            mount,
+            preopen: false,
         }),
+        false => Descriptor::File(file),
     };
     let opened = table.push(descriptor).ok_or(Errno::Mfile)?;
     mem.write_u32(out, opened)

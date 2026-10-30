@@ -12,7 +12,7 @@ impl Tmpfs {
     /// unnamed, it gives its room back.
     pub(crate) fn tmpfile(&self) -> Result<TmpfsFile, FilesystemError> {
         Ok(TmpfsFile {
-            data: Content::create(&self.tree.space)?,
+            data: Content::create(&self.tree)?,
         })
     }
 

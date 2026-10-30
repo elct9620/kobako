@@ -1,10 +1,11 @@
 //! What an open asks for and what it reaches, as Linux's `openat2` takes
 //! an `open_how` and `vfs_open` holds what the walk opened.
 
+use super::file::File;
 use super::namei::{d_can_lookup, down_read, Nameidata};
 use super::path::Path;
 use super::Error;
-use crate::filesystem::{FileOperations, FilesystemError};
+use crate::filesystem::FilesystemError;
 
 /// How to open a path, as Linux's `struct open_how` carries `openat2`'s
 /// flags.
@@ -23,18 +24,13 @@ pub struct OpenHow {
     pub directory: bool,
     /// Follow a link at the end of the path.
     pub follow: bool,
-}
-
-/// What an open reached, as POSIX calls the open file description a
-/// descriptor refers to.
-pub enum FileDescription {
-    Directory(Path),
-    File(Box<dyn FileOperations>),
+    /// Land each write at the end, as `O_APPEND` does.
+    pub append: bool,
 }
 
 /// The directory `nd` ends at, opened now, as Linux's `vfs_open` holds
 /// what it opened, so the descriptor follows it wherever it moves.
-pub(crate) fn vfs_open(start: &Path, nd: Nameidata) -> Result<FileDescription, Error> {
+pub(crate) fn vfs_open(start: &Path, nd: Nameidata) -> Result<File, Error> {
     let dentry = match nd.name.as_str() {
         "" => nd.dentry().clone(),
         _ => {
@@ -45,5 +41,5 @@ pub(crate) fn vfs_open(start: &Path, nd: Nameidata) -> Result<FileDescription, E
             dentry
         }
     };
-    Ok(FileDescription::Directory(start.with_directory(dentry)))
+    Ok(File::directory(start.with_dentry(dentry))?)
 }

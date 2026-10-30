@@ -284,11 +284,19 @@ impl InodeOperations for RubyFilesystem {
         })))))
     }
 
+    /// A directory opens without asking the object anything; it is asked
+    /// for the names only when the guest lists them.
     fn open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        if options.directory {
+            return Some(Ok(Box::new(RubyDir(Self {
+                object: self.object,
+                dev: self.dev,
+            }))));
+        }
         Some(self.open_at(dentry, options))
     }
 
@@ -298,10 +306,6 @@ impl InodeOperations for RubyFilesystem {
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         Some(self.open_at(dentry, options))
-    }
-
-    fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-        Some(self.entries_at(dentry))
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
@@ -341,6 +345,16 @@ impl InodeOperations for RubyFilesystem {
         to: &Dentry,
     ) -> Option<Result<(), FilesystemError>> {
         Some(self.rename_to(from, to_dir, to))
+    }
+}
+
+/// A directory of the Ruby object, open: it asks the object by the path the
+/// dentry it is handed stands at.
+struct RubyDir(RubyFilesystem);
+
+impl FileOperations for RubyDir {
+    fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.0.entries_at(dentry)
     }
 }
 

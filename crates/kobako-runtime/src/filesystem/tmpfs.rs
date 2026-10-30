@@ -230,34 +230,41 @@ struct Content {
     bytes: Vec<u8>,
     space: Arc<Space>,
     times: Times,
+    dev: u64,
+    ino: u64,
 }
 
 impl Content {
     /// A file the Host App seeds, counted but never refused.
-    fn seed(bytes: Vec<u8>, space: &Arc<Space>) -> Arc<Mutex<Self>> {
-        space.bytes.add(bytes.len());
-        space.inodes.add(1);
-        Self::new(bytes, space)
+    fn seed(bytes: Vec<u8>, tree: &Tree) -> Arc<Mutex<Self>> {
+        tree.space.bytes.add(bytes.len());
+        tree.space.inodes.add(1);
+        Self::new(bytes, tree)
     }
 
     /// An empty file the guest creates, refused once no inode is left.
-    fn create(space: &Arc<Space>) -> Result<Arc<Mutex<Self>>, FilesystemError> {
-        space.inodes.take(1)?;
-        Ok(Self::new(Vec::new(), space))
+    fn create(tree: &Tree) -> Result<Arc<Mutex<Self>>, FilesystemError> {
+        tree.space.inodes.take(1)?;
+        Ok(Self::new(Vec::new(), tree))
     }
 
-    fn new(bytes: Vec<u8>, space: &Arc<Space>) -> Arc<Mutex<Self>> {
+    fn new(bytes: Vec<u8>, tree: &Tree) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
             bytes,
-            space: space.clone(),
+            space: tree.space.clone(),
             times: Times::now(),
+            dev: tree.dev,
+            ino: tree.next_ino.fetch_add(1, Ordering::Relaxed),
         }))
     }
 
     /// What the file reports, named once, as a Tmpfs holds no hard links.
     fn metadata(&self) -> Metadata {
-        self.times
-            .report(Metadata::new(FileType::File, self.bytes.len() as u64).with_nlink(1))
+        self.times.report(
+            Metadata::new(FileType::File, self.bytes.len() as u64)
+                .with_identity(self.dev, self.ino)
+                .with_nlink(1),
+        )
     }
 
     /// Resize to `len`, refusing a growth past the space left or past what
@@ -401,7 +408,6 @@ impl Tmpfs {
         I: IntoIterator<Item = (P, C)>,
     {
         let tmpfs = Self::new();
-        let space = &tmpfs.tree.space;
         for (path, contents) in files {
             let path = normalize_seed(path.as_ref());
             if path.is_empty() {
@@ -417,7 +423,7 @@ impl Tmpfs {
                     .entries
                     .entry(name(above).to_string())
                     .or_insert_with(|| {
-                        space.inodes.add(1);
+                        tmpfs.tree.space.inodes.add(1);
                         Node::Directory(tmpfs.new_directory())
                     })
                     .clone();
@@ -436,7 +442,7 @@ impl Tmpfs {
             }
             state.entries.insert(
                 name(&path).to_string(),
-                Node::File(Content::seed(contents.into(), space)),
+                Node::File(Content::seed(contents.into(), &tmpfs.tree)),
             );
         }
         Ok(tmpfs)
@@ -504,7 +510,7 @@ impl Tmpfs {
     }
 
     fn create_at(&self, name: &str) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let data = Content::create(&self.tree.space)?;
+        let data = Content::create(&self.tree)?;
         self.dir.state().insert(name, Node::File(data.clone()));
         Ok(Box::new(TmpfsFile { data }))
     }
@@ -557,14 +563,14 @@ impl InodeOperations for Tmpfs {
         Some(self.create_at(&dentry.name()))
     }
 
-    fn entries(&self, _dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-        Some(Ok(self
-            .dir
-            .state()
-            .entries
-            .iter()
-            .map(|(name, node)| DirEntry::new(name.as_str(), node.file_type()))
-            .collect()))
+    fn open(
+        &self,
+        _dentry: &Dentry,
+        _options: &OpenOptions,
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        Some(Ok(Box::new(TmpfsDir {
+            dir: self.dir.clone(),
+        })))
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
@@ -592,6 +598,23 @@ impl InodeOperations for Tmpfs {
                 .ok_or(FilesystemError::CrossesDevices)
                 .and_then(|target| self.rename2(&from.name(), target, &to.name(), None)),
         )
+    }
+}
+
+/// A directory of a Tmpfs, open.
+struct TmpfsDir {
+    dir: Arc<Dir>,
+}
+
+impl FileOperations for TmpfsDir {
+    fn iterate_shared(&mut self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        Ok(self
+            .dir
+            .state()
+            .entries
+            .iter()
+            .map(|(name, node)| DirEntry::new(name.as_str(), node.file_type()))
+            .collect())
     }
 }
 

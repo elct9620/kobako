@@ -2,13 +2,14 @@
 //!
 //! For stdio each answers what wasmtime-wasi's preview1 answers for the
 //! same descriptor; the differential probe in `preview1` holds that. For a
-//! directory or a file beneath a Mount, the Filesystem answers
-//! and the descriptor's position and rights stay here.
+//! directory or a file beneath a Mount, the runtime's open file holds the
+//! position and the Filesystem answers; the rights stay here.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
 use kobako_runtime::filesystem::{FileType, Metadata};
+use kobako_runtime::vfs::File;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::p2::{InputStream, OutputStream, StreamError};
 
@@ -17,7 +18,7 @@ use super::args::{
 };
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
-use crate::descriptors::{Descriptor, Descriptors, OpenFile};
+use crate::descriptors::{Descriptor, Descriptors};
 
 /// `fdstat` / `filestat` filetypes.
 const FILETYPE_UNKNOWN: u8 = 0;
@@ -90,7 +91,7 @@ fn descriptor_mut(table: &mut Descriptors, fd: u32) -> Answer<&mut Descriptor> {
 }
 
 /// The open file `fd` stands for; any other descriptor is `BADF`.
-fn file(table: &mut Descriptors, fd: u32) -> Answer<&mut OpenFile> {
+fn file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
     match descriptor_mut(table, fd)? {
         Descriptor::File(file) => Ok(file),
         Descriptor::Stdin(_) | Descriptor::Channel(_) | Descriptor::Directory(_) => {
@@ -101,7 +102,7 @@ fn file(table: &mut Descriptors, fd: u32) -> Answer<&mut OpenFile> {
 
 /// A call that moves a stream position: a file has one, stdio is a pipe
 /// with none, and a directory is no stream at all.
-fn seekable(table: &mut Descriptors, fd: u32) -> Answer<&mut OpenFile> {
+fn seekable(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
     match descriptor_mut(table, fd)? {
         Descriptor::File(file) => Ok(file),
         Descriptor::Stdin(_) | Descriptor::Channel(_) => Err(Errno::Spipe.into()),
@@ -219,13 +220,14 @@ pub(crate) fn allocate(table: &mut Descriptors, fd: u32) -> Answer {
 
 pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
     match table.remove(fd).ok_or(Errno::Badf)? {
-        Descriptor::File(open) => Ok(open.file.release()?),
-        _ => Ok(()),
+        Descriptor::File(file) => Ok(file.release()?),
+        Descriptor::Directory(dir) => Ok(dir.file.release()?),
+        Descriptor::Stdin(_) | Descriptor::Channel(_) => Ok(()),
     }
 }
 
 pub(crate) fn sync(table: &mut Descriptors, fd: u32) -> Answer {
-    Ok(file(table, fd)?.file.fsync()?)
+    Ok(file(table, fd)?.f_op().fsync()?)
 }
 
 pub(crate) fn fdstat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, out: u32) -> Answer {
@@ -245,13 +247,13 @@ pub(crate) fn fdstat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, ou
         }
         Descriptor::File(file) => {
             let mut rights = args::RIGHTS;
-            if !file.readable {
+            if !file.readable() {
                 rights &= !RIGHTS_FD_READ & !RIGHTS_FD_READDIR;
             }
-            if !file.writable {
+            if !file.writable() {
                 rights &= !RIGHTS_FD_WRITE;
             }
-            let flags = if file.append {
+            let flags = if file.append() {
                 FDFLAGS_APPEND as u16
             } else {
                 0
@@ -278,7 +280,7 @@ pub(crate) fn fdstat_set_flags(table: &mut Descriptors, fd: u32, flags: u32) -> 
     if flags & FDFLAGS_NONBLOCK != 0 {
         return Err(Errno::Notsup.into());
     }
-    file.append = flags & FDFLAGS_APPEND != 0;
+    file.set_append(flags & FDFLAGS_APPEND != 0);
     Ok(())
 }
 
@@ -305,8 +307,8 @@ pub(crate) fn filestat_get(
         Descriptor::Stdin(_) | Descriptor::Channel(_) => {
             write_filestat(mem, out, FILETYPE_UNKNOWN, 0, 0)
         }
-        Descriptor::Directory(dir) => write_metadata(mem, out, dir.path.metadata()?),
-        Descriptor::File(file) => write_metadata(mem, out, file.file.getattr()?),
+        Descriptor::Directory(dir) => write_metadata(mem, out, dir.file.getattr()?),
+        Descriptor::File(file) => write_metadata(mem, out, file.getattr()?),
     }
 }
 
@@ -315,13 +317,13 @@ pub(crate) fn filestat_get(
 /// `ftruncate` does.
 pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> Answer {
     let file = file(table, fd)?;
-    if !file.mount.allows_writes() {
+    if !file.path().mount().allows_writes() {
         return Err(Errno::Perm.into());
     }
-    if !file.writable {
+    if !file.writable() {
         return Err(Errno::Inval.into());
     }
-    Ok(file.file.truncate(refuse_negative(size)?)?)
+    Ok(file.f_op().truncate(refuse_negative(size)?)?)
 }
 
 /// A Filesystem keeps no timestamps of the guest's choosing, so setting
@@ -346,11 +348,11 @@ pub(crate) fn pread(
         Descriptor::Channel(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         Descriptor::File(file) => file,
     };
-    if !file.readable {
+    if !file.readable() {
         return Err(Errno::Badf.into());
     }
     let offset = refuse_reading_past_largest_offset(refuse_negative(offset)?, len)?;
-    let read = file.file.read(mem.bytes_mut(ptr, len)?, offset)?;
+    let read = file.f_op().read(mem.bytes_mut(ptr, len)?, offset)?;
     mem.write_u32(nread, read as u32)
 }
 
@@ -361,7 +363,7 @@ pub(crate) fn prestat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, o
             mem.write_u8(out, 0)?;
             mem.write_u32(
                 GuestMemory::field(out, 4)?,
-                dir.path.mount().at().len() as u32,
+                dir.file.path().mount().at().len() as u32,
             )
         }
         _ => Err(Errno::Badf.into()),
@@ -377,7 +379,7 @@ pub(crate) fn prestat_dir_name(
 ) -> Answer {
     match descriptor(table, fd)? {
         Descriptor::Directory(dir) if dir.preopen => {
-            let name = dir.path.mount().at().as_bytes();
+            let name = dir.file.path().mount().at().as_bytes();
             if name.len() > path_len as usize {
                 return Err(Errno::Nametoolong.into());
             }
@@ -404,15 +406,15 @@ pub(crate) fn pwrite(
     // The buffer is bounded before the access is checked, as wasmtime-wasi
     // bounds it before the host refuses the write.
     let buf = mem.bytes(ptr, len)?;
-    if !file.writable {
+    if !file.writable() {
         return Err(Errno::Badf.into());
     }
     let offset = refuse_negative(offset)?;
     // Linux's `pwrite` ignores the offset of a file opened to append.
-    let written = if file.append {
-        file.file.append(buf)?.1
+    let written = if file.append() {
+        file.f_op().append(buf)?.1
     } else {
-        file.file
+        file.f_op()
             .write(trim_to_largest_offset(buf, offset)?, offset)?
     };
     mem.write_u32(nwritten, written as u32)
@@ -438,12 +440,12 @@ pub(crate) fn read(
             // Bounded before the access is checked, as wasmtime-wasi bounds
             // it before the host refuses the read.
             let buf = mem.bytes_mut(ptr, len)?;
-            if !file.readable {
+            if !file.readable() {
                 return Err(Errno::Badf.into());
             }
-            let at = refuse_reading_past_largest_offset(file.position, len)?;
-            let read = file.file.read(buf, at)?;
-            file.position += read as u64;
+            let at = refuse_reading_past_largest_offset(file.pos(), len)?;
+            let read = file.f_op().read(buf, at)?;
+            file.set_pos(at + read as u64);
             read
         }
         Descriptor::Channel(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
@@ -469,9 +471,9 @@ pub(crate) fn readdir(
         _ => return Err(Errno::Badf.into()),
     };
     let skip = usize::try_from(cookie).map_err(|_| Errno::Overflow)?;
-    let listing = match dir.listing.take() {
+    let listing = match dir.file.take_listing() {
         Some(listing) if cookie != 0 => listing,
-        _ => dir.path.entries()?,
+        _ => dir.file.iterate_dir()?,
     };
     let entries = [(".", FILETYPE_DIRECTORY), ("..", FILETYPE_DIRECTORY)]
         .into_iter()
@@ -502,7 +504,7 @@ pub(crate) fn readdir(
         }
     }
     if full {
-        dir.listing = Some(listing);
+        dir.file.keep_listing(listing);
     }
     mem.write_u32(bufused, used)
 }
@@ -535,8 +537,8 @@ pub(crate) fn seek(
     let file = seekable(table, fd)?;
     let base = match whence {
         0 => 0,
-        1 => file.position,
-        _ => file.file.getattr()?.len,
+        1 => file.pos(),
+        _ => file.getattr()?.len,
     };
     // Linux holds an offset in a signed 64-bit `off_t`, past which a seek
     // is `OVERFLOW` rather than a position a write could wrap around.
@@ -544,12 +546,12 @@ pub(crate) fn seek(
     if position > i64::MAX as u64 {
         return Err(Errno::Overflow.into());
     }
-    file.position = position;
+    file.set_pos(position);
     mem.write_u64(out, position)
 }
 
 pub(crate) fn tell(table: &mut Descriptors, mem: &mut GuestMemory, fd: u32, out: u32) -> Answer {
-    let position = seekable(table, fd)?.position;
+    let position = seekable(table, fd)?.pos();
     mem.write_u64(out, position)
 }
 
@@ -566,16 +568,17 @@ pub(crate) fn write(
         Descriptor::File(file) => {
             // Bounded before the access is checked, as in `pwrite`.
             let buf = mem.bytes(ptr, len)?;
-            if !file.writable {
+            if !file.writable() {
                 return Err(Errno::Badf.into());
             }
-            let (at, written) = if file.append {
-                file.file.append(buf)?
+            let (at, written) = if file.append() {
+                file.f_op().append(buf)?
             } else {
-                let buf = trim_to_largest_offset(buf, file.position)?;
-                (file.position, file.file.write(buf, file.position)?)
+                let at = file.pos();
+                let buf = trim_to_largest_offset(buf, at)?;
+                (at, file.f_op().write(buf, at)?)
             };
-            file.position = at.checked_add(written as u64).ok_or(Errno::Fbig)?;
+            file.set_pos(at.checked_add(written as u64).ok_or(Errno::Fbig)?);
             written
         }
         Descriptor::Stdin(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
@@ -618,61 +621,64 @@ mod tests {
     //! does, so its Filesystem learns of the close and may refuse it.
     use std::sync::Arc;
 
-    use kobako_runtime::filesystem::{Access, FileOperations, FilesystemError, Metadata, Tmpfs};
+    use kobako_runtime::filesystem::{
+        Access, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
+        OpenOptions,
+    };
     use kobako_runtime::mount::Mount;
     use kobako_runtime::profile::Profile;
-    use kobako_runtime::vfs::Filesystem;
+    use kobako_runtime::vfs::{self, Dentry, Filesystem, Inode, OpenHow, Path};
     use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
     use super::renumber;
-    use crate::descriptors::{Descriptor, Descriptors, OpenFile};
+    use crate::descriptors::{Descriptor, Descriptors};
     use crate::preview1::errno::{Errno, Failure};
 
     /// A file whose Filesystem refuses to release it.
     struct RefusesClose;
 
     impl FileOperations for RefusesClose {
-        fn read(&mut self, _buf: &mut [u8], _offset: u64) -> Result<usize, FilesystemError> {
-            Ok(0)
-        }
-
-        fn write(&mut self, buf: &[u8], _offset: u64) -> Result<usize, FilesystemError> {
-            Ok(buf.len())
-        }
-
-        fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
-            Ok((0, buf.len()))
-        }
-
-        fn getattr(&self) -> Result<Metadata, FilesystemError> {
-            Err(FilesystemError::Unsupported)
-        }
-
-        fn truncate(&mut self, _len: u64) -> Result<(), FilesystemError> {
-            Ok(())
-        }
-
         fn release(self: Box<Self>) -> Result<(), FilesystemError> {
             Err(FilesystemError::PermissionDenied)
         }
     }
 
+    /// A directory holding that one file at every name.
+    struct HoldsRefusesClose;
+
+    impl InodeOperations for HoldsRefusesClose {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(FileType::Directory, 0))
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+            let found = Metadata::new(FileType::File, 0);
+            Some(Ok(Lookup::Found(Inode::new(&found, Arc::new(Self)))))
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            Some(Ok(Box::new(RefusesClose)))
+        }
+    }
+
     fn open_file() -> Descriptor {
-        Descriptor::File(OpenFile {
-            file: Box::new(RefusesClose),
-            position: 0,
-            append: false,
-            readable: true,
-            writable: false,
-            mount: Arc::new(
-                Mount::new(
-                    "/data",
-                    Filesystem::new(Arc::new(Tmpfs::new())),
-                    Access::Read,
-                )
-                .expect("/data is a guest path"),
-            ),
-        })
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(HoldsRefusesClose)),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let mut how = OpenHow::default();
+        how.read = true;
+        let start = Path::root(mount, Profile::Hermetic);
+        Descriptor::File(
+            vfs::do_file_open(&start, "file", &how, true)
+                .unwrap_or_else(|_| panic!("the file must open")),
+        )
     }
 
     // @behavior RT-114
@@ -685,7 +691,8 @@ mod tests {
             Vec::new(),
             None,
             Profile::Hermetic,
-        );
+        )
+        .expect("a table holding no Mount must make");
         let from = table.push(open_file()).expect("a descriptor to move");
         let to = table.push(open_file()).expect("a descriptor to move onto");
         assert!(

@@ -6,7 +6,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
-    DirEntry, FileOperations, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+    FileOperations, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
 };
 use kobako_runtime::vfs::Dentry;
 
@@ -135,10 +135,6 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         self.hook.create(self.inner.as_ref(), dentry, options)
-    }
-
-    fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-        self.inner.entries(dentry)
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {

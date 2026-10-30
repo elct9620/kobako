@@ -270,8 +270,21 @@ impl InodeOperations for OneNote {
         }))
     }
 
-    fn entries(&self, _dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-        Some(Ok(vec![DirEntry::new("note.txt", FileType::File)]))
+    fn open(
+        &self,
+        _dentry: &Dentry,
+        _options: &OpenOptions,
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        Some(Ok(Box::new(NoteDir)))
+    }
+}
+
+/// The directory holding `note.txt`, open.
+struct NoteDir;
+
+impl FileOperations for NoteDir {
+    fn iterate_shared(&mut self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        Ok(vec![DirEntry::new("note.txt", FileType::File)])
     }
 }
 

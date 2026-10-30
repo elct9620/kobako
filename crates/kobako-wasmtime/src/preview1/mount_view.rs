@@ -17,7 +17,7 @@ use kobako_runtime::filesystem::{
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{self, Dentry, FileDescription, Filesystem, Inode, OpenHow, Path};
+use kobako_runtime::vfs::{self, Dentry, Filesystem, Inode, OpenHow, Path};
 use wasmtime::{Instance, Module, Store};
 
 use crate::cache::shared_engine;
@@ -38,6 +38,22 @@ fn host<F: InodeOperations>(filesystem: &Arc<F>) -> Path {
     )
     .expect("/data is a guest path");
     Path::root(mount, Profile::Permissive)
+}
+
+/// The names `filesystem`'s root holds, as the host lists them.
+fn host_entries<F: InodeOperations>(filesystem: &Arc<F>) -> Result<Vec<String>, vfs::Error> {
+    let mount = Mount::new(
+        "/data",
+        Filesystem::new(filesystem.clone()),
+        Access::ReadWrite,
+    )
+    .expect("/data is a guest path");
+    let mut root = vfs::File::root(mount, Profile::Permissive)?;
+    Ok(root
+        .iterate_dir()?
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect())
 }
 
 const ERRNO_ACCES: i32 = 2;
@@ -541,11 +557,11 @@ impl Guest {
 fn contents(root: &Path, path: &str) -> Option<Vec<u8>> {
     let mut how = OpenHow::default();
     how.read = true;
-    let Ok(FileDescription::File(mut file)) = vfs::do_file_open(root, path, &how, true) else {
+    let Ok(mut file) = vfs::do_file_open(root, path, &how, true) else {
         return None;
     };
     let mut buf = vec![0; 64];
-    let read = file.read(&mut buf, 0).ok()?;
+    let read = file.f_op().read(&mut buf, 0).ok()?;
     buf.truncate(read);
     Some(buf)
 }
@@ -555,10 +571,7 @@ fn overwrite(root: &Path, path: &str) {
     let mut how = OpenHow::default();
     (how.write, how.create) = (true, true);
     assert!(
-        matches!(
-            vfs::do_file_open(root, path, &how, true),
-            Ok(FileDescription::File(_))
-        ),
+        vfs::do_file_open(root, path, &how, true).is_ok(),
         "the file must be made"
     );
 }
@@ -2428,7 +2441,7 @@ fn a_file_created_at_a_path_ending_in_a_slash_is_refused_as_a_directory() {
     assert_eq!(
         (
             guest.call("write_file", NEW_AS_DIRECTORY),
-            host(&tmpfs).entries().map(|entries| entries.len())
+            host_entries(&tmpfs).map(|entries| entries.len())
         ),
         (ERRNO_ISDIR, Ok(0)),
         "path_open creating `new.txt/` beneath a Mount through preview1 must answer EISDIR and \
@@ -2450,12 +2463,7 @@ fn open_flagged(path: (i32, i32), oflags: i32, fdflags: i32) -> (i32, Vec<String
     let tmpfs = tmpfs_with("file.txt", "granted");
     let errno = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)])
         .call_flagged(path, oflags, fdflags);
-    let held = host(&tmpfs)
-        .entries()
-        .expect("the root must list")
-        .into_iter()
-        .map(|entry| entry.name)
-        .collect();
+    let held = host_entries(&tmpfs).expect("the root must list");
     (errno, held)
 }
 

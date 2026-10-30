@@ -1,22 +1,22 @@
-//! A directory beneath a Mount, as Linux's `struct path` pairs a mount
-//! with a dentry.
+//! A name beneath a Mount, as Linux's `struct path` pairs a mount with a
+//! dentry.
 
 use std::sync::Arc;
 
 use super::dentry::Dentry;
-use super::namei::down_read;
 use super::times::mask_times;
 use super::Error;
-use crate::filesystem::{DirEntry, FileType, FilesystemError, InodeOperations, Lookup, Metadata};
+use crate::filesystem::{FileType, FilesystemError, InodeOperations, Lookup, Metadata};
 use crate::mount::Mount;
 use crate::profile::Profile;
 
-/// A directory beneath a Mount, as a directory descriptor holds one: the
-/// Mount's root, or a directory opened beneath it.
+/// A name beneath a Mount, as an open file holds its `f_path`: the Mount's
+/// root, or an entry opened beneath it. A call relative to one starts at a
+/// directory.
 #[derive(Clone)]
 pub struct Path {
     mount: Arc<Mount>,
-    /// The directory, wherever it moved, and whether it was removed.
+    /// The entry, wherever it moved, and whether it was removed.
     dentry: Arc<Dentry>,
     /// The isolation the invocation holding it runs under, which decides
     /// whether the times a Filesystem reports reach the guest.
@@ -33,8 +33,8 @@ impl Path {
         }
     }
 
-    /// This Path standing in the directory `dentry` records.
-    pub(crate) fn with_directory(&self, dentry: Arc<Dentry>) -> Self {
+    /// This Path standing at `dentry`.
+    pub(crate) fn with_dentry(&self, dentry: Arc<Dentry>) -> Self {
         Self {
             mount: self.mount.clone(),
             dentry,
@@ -133,21 +133,5 @@ impl Path {
     pub fn metadata(&self) -> Result<Metadata, Error> {
         self.revalidate_path()?;
         Ok(mask_times(self.dir().getattr(&self.dentry)?, self.profile))
-    }
-
-    /// The entries of the directory, without `.` or `..`; none once it was
-    /// removed, as Linux lists a dead directory.
-    pub fn entries(&self) -> Result<Vec<DirEntry>, Error> {
-        self.revalidate_path()?;
-        // A listing holds the directory shared, as Linux's `iterate_dir`
-        // does, so a removal through the VFS lands before or after it.
-        let _held = down_read(&self.mount, &self.dentry)?;
-        if self.dentry.is_dead() {
-            return Ok(Vec::new());
-        }
-        Ok(self
-            .dir()
-            .entries(&self.dentry)
-            .unwrap_or(Err(FilesystemError::NotADirectory))?)
     }
 }

@@ -89,9 +89,10 @@ pub trait InodeOperations: Any + Send + Sync {
         None
     }
 
-    /// Open this file, which `dentry` names, as `options` asks, truncating
-    /// it where they say to. The runtime refuses a directory and a link
-    /// before it asks.
+    /// Open this entry, which `dentry` names, as `options` asks, truncating
+    /// a file where they say to, as `f_op->open` makes the open file. A
+    /// directory opens to be listed; without it, listing one answers
+    /// `NotADirectory`. The runtime refuses a link before it asks.
     fn open(
         &self,
         _dentry: &Dentry,
@@ -108,12 +109,6 @@ pub trait InodeOperations: Any + Send + Sync {
         _dentry: &Dentry,
         _options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        None
-    }
-
-    /// The entries of this directory, which `dentry` names, without `.`
-    /// or `..`, as `iterate_shared` is handed the file it lists.
-    fn entries(&self, _dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
         None
     }
 
@@ -153,24 +148,45 @@ pub trait InodeOperations: Any + Send + Sync {
 /// One open file. The runtime keeps its position, so every read and write
 /// names the offset it starts at.
 pub trait FileOperations: Send {
-    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError>;
+    /// Read from `offset` into `buf`. A file without it refuses as Linux's
+    /// `vfs_read` refuses one without `f_op->read`.
+    fn read(&mut self, _buf: &mut [u8], _offset: u64) -> Result<usize, FilesystemError> {
+        Err(FilesystemError::InvalidInput)
+    }
 
-    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError>;
+    /// Write `buf` at `offset`. A file without it refuses as Linux's
+    /// `vfs_write` refuses one without `f_op->write`.
+    fn write(&mut self, _buf: &[u8], _offset: u64) -> Result<usize, FilesystemError> {
+        Err(FilesystemError::InvalidInput)
+    }
 
     /// Write `buf` at the file's end as it stands when the write lands,
     /// answering the offset it landed at and how much was written. It
     /// keeps another writer's append from landing over this one, as Linux
     /// takes an append under the file's lock, so a file that cannot read
     /// its end and write there in one step answers `Unsupported`.
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError>;
+    fn append(&mut self, _buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
+        Err(FilesystemError::Unsupported)
+    }
 
     /// What the open file is, and its length, even once its name is gone,
     /// as a host answers `fstat` through the descriptor it holds.
-    fn getattr(&self) -> Result<Metadata, FilesystemError>;
+    fn getattr(&self) -> Result<Metadata, FilesystemError> {
+        Err(FilesystemError::Unsupported)
+    }
 
     /// Truncate or extend the file to `len` bytes, extending with zeros, as
     /// `ftruncate` reaches through the file a host holds.
-    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError>;
+    fn truncate(&mut self, _len: u64) -> Result<(), FilesystemError> {
+        Err(FilesystemError::InvalidInput)
+    }
+
+    /// The entries of this directory, which `dentry` names, without `.`
+    /// or `..`, as `iterate_shared` lists the file it is handed. A file
+    /// without it answers `NotADirectory`, as Linux's `iterate_dir` does.
+    fn iterate_shared(&mut self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        Err(FilesystemError::NotADirectory)
+    }
 
     /// Make what was written durable. The default has nothing to flush,
     /// which is the truthful answer of a file with no durability of its
@@ -199,6 +215,8 @@ pub struct OpenOptions {
     pub create_new: bool,
     /// Empty the file once it is open.
     pub truncate: bool,
+    /// Open a directory, to list it, as `O_DIRECTORY` does.
+    pub directory: bool,
 }
 
 /// What a path names.

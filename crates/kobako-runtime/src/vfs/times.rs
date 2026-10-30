@@ -77,7 +77,7 @@ mod tests {
     use super::*;
     use crate::filesystem::{Access, InodeOperations, Tmpfs};
     use crate::mount::Mount;
-    use crate::vfs::{self, FileDescription, Filesystem, OpenHow, Path};
+    use crate::vfs::{self, File, Filesystem, OpenHow, Path};
 
     fn path_over(tmpfs: Arc<dyn InodeOperations>, profile: Profile) -> Path {
         let mount = Mount::new("/data", Filesystem::new(tmpfs), Access::ReadWrite)
@@ -86,16 +86,18 @@ mod tests {
     }
 
     /// Write `name` beneath `start`, answering the file still open.
-    fn write(start: &Path, name: &str) -> Box<dyn FileOperations> {
+    fn write(start: &Path, name: &str) -> File {
         let how = OpenHow {
             write: true,
             create: true,
             ..OpenHow::default()
         };
-        let Ok(FileDescription::File(mut file)) = vfs::do_file_open(start, name, &how, true) else {
+        let Ok(mut file) = vfs::do_file_open(start, name, &how, true) else {
             panic!("{name} must open as a file");
         };
-        file.write(b"x", 0).expect("the file must take a write");
+        file.f_op()
+            .write(b"x", 0)
+            .expect("the file must take a write");
         file
     }
 

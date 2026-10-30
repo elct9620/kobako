@@ -225,9 +225,15 @@ impl OverlayPath {
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.shared()?;
-        self.dir
-            .entries(&self.dentry)
-            .unwrap_or(Err(FilesystemError::NotADirectory))
+        let options = OpenOptions {
+            read: true,
+            directory: true,
+            ..OpenOptions::default()
+        };
+        match self.dir.open(&self.dentry, &options) {
+            Some(opened) => opened?.iterate_shared(&self.dentry),
+            None => Err(FilesystemError::NotADirectory),
+        }
     }
 
     pub(super) fn create_dir(&self, name: &str) -> Result<(), FilesystemError> {

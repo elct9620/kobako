@@ -17,8 +17,9 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use super::dentry::Dentry;
+use super::file::File;
 use super::filesystem::Filesystem;
-use super::openat2::{vfs_open, FileDescription, OpenHow};
+use super::openat2::{vfs_open, OpenHow};
 use super::path::Path;
 use super::rwsem::RwSemaphoreGuard;
 use super::times::mask_file_times;
@@ -585,12 +586,7 @@ pub(crate) fn filename_lookup(
 /// walks to the last name and `do_open` opens it. `room` says whether the
 /// caller has a descriptor left to hand the guest; without one the open
 /// answers `TooManyOpenFiles` once the path is known to stand.
-pub fn do_file_open(
-    start: &Path,
-    path: &str,
-    how: &OpenHow,
-    room: bool,
-) -> Result<FileDescription, Error> {
+pub fn do_file_open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<File, Error> {
     // A path ending in `/` asks for a directory, which cannot be created
     // as a file. Linux answers it once the names before the last are
     // walked, before it would follow a link standing at the last.
@@ -645,6 +641,7 @@ pub fn do_file_open(
                 create: how.create && existing.is_none(),
                 create_new: how.create && how.exclusive,
                 truncate: how.truncate,
+                directory: false,
             };
             // A create looked its name up afresh under the directory's lock;
             // any other open acts on what the walk found.
@@ -652,14 +649,15 @@ pub fn do_file_open(
                 true => nd.child()?,
                 false => nd.walked()?,
             };
-            let file = match options.create {
+            let f_op = match options.create {
                 true => vfs_create(nd.base().as_ref(), nd.dentry(), &child, &options)?,
                 false => d_open(&child, &options)?,
             };
-            Ok(FileDescription::File(mask_file_times(
-                file,
-                start.profile(),
-            )))
+            Ok(File::new(
+                start.with_dentry(child),
+                mask_file_times(f_op, start.profile()),
+                how,
+            ))
         }
     }
 }
@@ -1129,7 +1127,7 @@ mod tests {
     use crate::mount::{Mount, Policy};
     use crate::profile::Profile;
     use crate::vfs::kern_path::{kern_path, KernPath};
-    use crate::vfs::{self, Blocking, Dentry, FileDescription, Filesystem, Inode, OpenHow, Path};
+    use crate::vfs::{self, Blocking, Dentry, Filesystem, Inode, OpenHow, Path};
 
     type Hook = Box<dyn Fn() -> Result<(), FilesystemError> + Send + Sync>;
 
@@ -1171,8 +1169,12 @@ mod tests {
             self.tmpfs.create(dentry, options)
         }
 
-        fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-            self.tmpfs.entries(dentry)
+        fn open(
+            &self,
+            dentry: &Dentry,
+            options: &OpenOptions,
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            self.tmpfs.open(dentry, options)
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
@@ -1219,6 +1221,18 @@ mod tests {
         dentry.path_raw().to_uppercase()
     }
 
+    /// A directory of a `FoldsToUpper`, open.
+    struct FoldedDir(KernPath);
+
+    impl FileOperations for FoldedDir {
+        fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+            match folded(dentry).as_str() {
+                "" => self.0.entries(),
+                at => self.0.open_dir(at)?.entries(),
+            }
+        }
+    }
+
     impl InodeOperations for FoldsToUpper {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             self.root.symlink_metadata(&folded(dentry))
@@ -1240,6 +1254,9 @@ mod tests {
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            if options.directory {
+                return Some(Ok(Box::new(FoldedDir(self.root.clone()))));
+            }
             Some(self.root.open(&folded(dentry), options))
         }
 
@@ -1249,14 +1266,6 @@ mod tests {
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
             Some(self.root.open(&folded(dentry), options))
-        }
-
-        fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-            Some(
-                self.root
-                    .open_dir(&folded(dentry))
-                    .and_then(|dir| dir.entries()),
-            )
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
@@ -1307,8 +1316,8 @@ mod tests {
             ..OpenHow::default()
         };
         match vfs::do_file_open(start, path, &how, true) {
-            Ok(FileDescription::Directory(dir)) => dir,
-            _ => panic!("{path} must open as a directory"),
+            Ok(dir) => dir.path().clone(),
+            Err(_) => panic!("{path} must open as a directory"),
         }
     }
 

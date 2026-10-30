@@ -181,6 +181,9 @@ impl InodeOperations for Overlay {
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        if options.directory {
+            return Some(Ok(Box::new(OverlayDir(self.clone()))));
+        }
         self.open_at(dentry, options)
     }
 
@@ -190,14 +193,6 @@ impl InodeOperations for Overlay {
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         self.open_at(dentry, options)
-    }
-
-    fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-        Some(
-            self.fs
-                .dir(dentry)
-                .and_then(|dir| self.fs.entries(&dir.level())),
-        )
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
@@ -233,6 +228,16 @@ impl InodeOperations for Overlay {
         to: &Dentry,
     ) -> Option<Result<(), FilesystemError>> {
         Some(self.rename_to(from, to_dir, to))
+    }
+}
+
+/// A directory of the view, open: it merges its Layers each time it is
+/// listed, finding them through the dentry it is handed.
+struct OverlayDir(Overlay);
+
+impl FileOperations for OverlayDir {
+    fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.0.fs.entries(&self.0.fs.dir(dentry)?.level())
     }
 }
 
@@ -1076,15 +1081,16 @@ mod tests {
     /// A Tmpfs whose directory beneath its root starts `Interleave` the first
     /// time one is listed, as a removal's emptiness check lists it.
     impl Hook for Interleave {
-        fn entries(
+        fn open(
             &self,
             inner: &dyn InodeOperations,
             dentry: &Dentry,
-        ) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-            if dentry.dget_parent().is_some() {
+            options: &OpenOptions,
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            if options.directory && dentry.dget_parent().is_some() {
                 self.start();
             }
-            inner.entries(dentry)
+            inner.open(dentry, options)
         }
     }
 
@@ -1620,6 +1626,18 @@ mod tests {
         dentry.path_raw().to_lowercase()
     }
 
+    /// A directory of a `FoldsCase`, open.
+    struct FoldedDir(KernPath);
+
+    impl FileOperations for FoldedDir {
+        fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+            match folded(dentry).as_str() {
+                "" => self.0.entries(),
+                at => self.0.open_dir(at)?.entries(),
+            }
+        }
+    }
+
     impl InodeOperations for FoldsCase {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             self.root.symlink_metadata(&folded(dentry))
@@ -1641,6 +1659,9 @@ mod tests {
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            if options.directory {
+                return Some(Ok(Box::new(FoldedDir(self.root.clone()))));
+            }
             Some(self.root.open(&folded(dentry), options))
         }
 
@@ -1650,13 +1671,6 @@ mod tests {
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
             Some(self.root.open(&folded(dentry), options))
-        }
-
-        fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-            Some(match folded(dentry).as_str() {
-                "" => self.root.entries(),
-                at => self.root.open_dir(at).and_then(|dir| dir.entries()),
-            })
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {

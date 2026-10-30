@@ -301,7 +301,7 @@ mod tests {
     use crate::mount::Mount;
     use crate::profile::Profile;
     use crate::vfs::kern_path::{kern_path, KernPath};
-    use crate::vfs::{self, FileDescription, Filesystem, Identity, Inode, OpenHow, Path};
+    use crate::vfs::{self, File, Filesystem, Identity, Inode, OpenHow, Path};
 
     /// A Filesystem answering each call by the path its dentry stands at,
     /// as one written in Ruby does, so a removed directory it opened
@@ -327,6 +327,9 @@ mod tests {
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            if options.directory {
+                return Some(Ok(Box::new(ByPathDir(self.root.clone()))));
+            }
             Some(self.root.open(&dentry.path_raw(), options))
         }
 
@@ -336,13 +339,6 @@ mod tests {
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
             Some(self.root.open(&dentry.path_raw(), options))
-        }
-
-        fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-            Some(match dentry.path_raw().as_str() {
-                "" => self.root.entries(),
-                at => self.root.open_dir(at).and_then(|dir| dir.entries()),
-            })
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
@@ -371,6 +367,18 @@ mod tests {
         }
     }
 
+    /// A directory of a `ByPath`, open.
+    struct ByPathDir(KernPath);
+
+    impl FileOperations for ByPathDir {
+        fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+            match dentry.path_raw().as_str() {
+                "" => self.0.entries(),
+                at => self.0.open_dir(at)?.entries(),
+            }
+        }
+    }
+
     fn by_path(tmpfs: &Arc<Tmpfs>) -> Arc<Filesystem> {
         Filesystem::new(Arc::new(ByPath {
             root: kern_path(tmpfs.clone()),
@@ -389,8 +397,8 @@ mod tests {
             ..OpenHow::default()
         };
         match vfs::do_file_open(start, path, &how, true) {
-            Ok(FileDescription::Directory(dir)) => dir,
-            _ => panic!("{path} must open as a directory"),
+            Ok(dir) => dir.path().clone(),
+            Err(_) => panic!("{path} must open as a directory"),
         }
     }
 
@@ -431,7 +439,9 @@ mod tests {
         assert_eq!(
             (
                 vfs::filename_mkdirat(&dir, "made"),
-                dir.entries(),
+                File::directory(dir.clone())
+                    .expect("the directory must open")
+                    .iterate_dir(),
                 kern_path(tmpfs.clone()).symlink_metadata("dir/made").err()
             ),
             (
@@ -439,7 +449,7 @@ mod tests {
                 Ok(Vec::new()),
                 Some(FilesystemError::NotFound)
             ),
-            "vfs::filename_mkdirat and Path::entries through a directory vfs::filename_rmdir removed, over \
+            "vfs::filename_mkdirat and File::iterate_dir through a directory vfs::filename_rmdir removed, over \
              a Filesystem answering by path, must answer NotFound and list nothing, and make \
              nothing in the directory made in its place"
         );

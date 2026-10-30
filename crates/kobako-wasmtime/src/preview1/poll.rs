@@ -102,13 +102,13 @@ fn read_subscription(invocation: &Invocation, mem: &GuestMemory, sub: u32) -> An
         TAG_FD_READ => match descriptor(invocation, mem, sub)? {
             Descriptor::Stdin(_) => Kind::FdRead { hangup: false },
             Descriptor::File(file) => Kind::FdRead {
-                hangup: file.file.getattr()?.len <= file.position,
+                hangup: file.getattr()?.len <= file.pos(),
             },
             Descriptor::Channel(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },
         TAG_FD_WRITE => match descriptor(invocation, mem, sub)? {
             Descriptor::Channel(_) => Kind::FdWrite,
-            Descriptor::File(file) if file.mount.allows_writes() => Kind::FdWrite,
+            Descriptor::File(file) if file.path().mount().allows_writes() => Kind::FdWrite,
             Descriptor::File(_) => return Err(Errno::Perm.into()),
             Descriptor::Stdin(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },

@@ -9,13 +9,12 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    DirEntry, FileOperations, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
-    Tmpfs,
+    FileOperations, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{self, Dentry, FileDescription, Filesystem, OpenHow, Path};
+use kobako_runtime::vfs::{self, Dentry, Filesystem, OpenHow, Path};
 use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Outcome, Preamble};
 
@@ -65,13 +64,11 @@ fn host<F: InodeOperations>(filesystem: &Arc<F>) -> Path {
 fn contents<F: InodeOperations>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
     let mut how = OpenHow::default();
     how.read = true;
-    let Ok(FileDescription::File(mut file)) =
-        vfs::do_file_open(&host(filesystem), path, &how, true)
-    else {
+    let Ok(mut file) = vfs::do_file_open(&host(filesystem), path, &how, true) else {
         panic!("the file must exist");
     };
     let mut buf = vec![0; 64];
-    let read = file.read(&mut buf, 0).expect("the file must read");
+    let read = file.f_op().read(&mut buf, 0).expect("the file must read");
     buf.truncate(read);
     buf
 }
@@ -593,6 +590,9 @@ where
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         let opened = self.inner.open(dentry, options)?;
+        if options.directory {
+            return Some(opened);
+        }
         Some(opened.map(|file| Box::new((self.wrap)(file)) as Box<dyn FileOperations>))
     }
 
@@ -603,10 +603,6 @@ where
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         let made = self.inner.create(dentry, options)?;
         Some(made.map(|file| Box::new((self.wrap)(file)) as Box<dyn FileOperations>))
-    }
-
-    fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
-        self.inner.entries(dentry)
     }
 }
 

@@ -8,6 +8,7 @@
 //! checks neither.
 
 mod dentry;
+mod file;
 mod filesystem;
 mod inode;
 #[cfg(test)]
@@ -31,12 +32,13 @@ pub(crate) use namei::{
 pub(crate) use rwsem::{Inline, RwSemaphore, RwSemaphoreGuard};
 
 pub use dentry::Dentry;
+pub use file::File;
 pub use filesystem::Filesystem;
 pub use inode::{Identity, Inode};
 pub use namei::{
     do_file_open, filename_mkdirat, filename_renameat2, filename_rmdir, filename_unlinkat,
 };
-pub use openat2::{FileDescription, OpenHow};
+pub use openat2::OpenHow;
 pub use path::Path;
 pub use rwsem::Blocking;
 pub use stat::{do_readlinkat, vfs_fstatat};
