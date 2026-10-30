@@ -31,11 +31,11 @@ pub mod yielder;
 pub use dispatch::DispatchHandler;
 pub use error::{InvokeError, SetupError, Trap};
 pub use filesystem::{
-    Access, Bind, Blocking, DentryOperations, DirEntry, FileOperations, FileType, FilesystemError,
-    Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, Overlay, SeedError, Tmpfs,
+    Bind, Blocking, DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr,
+    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, Overlay, SeedError, Tmpfs,
 };
 pub use grant::{Grant, GrantKind};
-pub use mount::{Denial, Mount, MountPathError, Policy};
+pub use mount::{Access, Denial, Mount, MountPathError, Policy};
 pub use profile::Profile;
 pub use runtime::{Entry, Runtime};
 pub use snapshot::{Capture, Completion, Snapshot, Usage};

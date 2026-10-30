@@ -57,7 +57,7 @@ pub use error::{Error, Failure};
 pub use execution::{Execution, Usage};
 pub use extension::{Backend, Extension, Provider};
 pub use handles::Handles;
-pub use kobako_runtime::filesystem::Access;
+pub use kobako_runtime::mount::Access;
 pub use kobako_runtime::mount::Policy;
 pub use kobako_runtime::vfs::{Dentry, Filesystem, Inode};
 

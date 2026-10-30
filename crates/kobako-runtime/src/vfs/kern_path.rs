@@ -15,10 +15,10 @@ use super::namei::{
 use super::path::Path;
 use super::{Error, File, Filesystem};
 use crate::filesystem::{
-    Access, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations, Metadata,
+    DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations, Metadata,
     OpenOptions,
 };
-use crate::mount::Mount;
+use crate::mount::{Access, Mount};
 
 /// A directory of a Filesystem reached through the VFS.
 #[derive(Clone)]

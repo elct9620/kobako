@@ -7,9 +7,8 @@ use std::sync::Arc;
 use magnus::value::{Opaque, ReprValue};
 use magnus::{prelude::*, Error as MagnusError, RArray, RString, Ruby, Symbol, Value};
 
-use kobako_runtime::filesystem::Access;
 use kobako_runtime::grant::Grant;
-use kobako_runtime::mount::{Mount, Policy};
+use kobako_runtime::mount::{Access, Mount, Policy};
 
 use super::to_filesystem;
 use crate::runtime::pinned_value::PinnedValue;

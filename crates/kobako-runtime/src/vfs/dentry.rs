@@ -310,10 +310,10 @@ mod tests {
 
     use super::{Dentries, Dentry};
     use crate::filesystem::{
-        Access, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup,
-        Metadata, OpenOptions, Tmpfs,
+        DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
+        OpenOptions, Tmpfs,
     };
-    use crate::mount::Mount;
+    use crate::mount::{Access, Mount};
     use crate::vfs::kern_path::{kern_path, KernPath};
     use crate::vfs::{self, File, Filesystem, Identity, Inode, OpenHow, Path};
 

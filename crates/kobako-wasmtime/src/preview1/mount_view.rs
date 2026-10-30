@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use kobako_runtime::filesystem::Access;
 #[cfg(unix)]
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::{
@@ -16,7 +15,7 @@ use kobako_runtime::filesystem::{
     Metadata, OpenOptions, Overlay, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
-use kobako_runtime::mount::{Mount, Policy};
+use kobako_runtime::mount::{Access, Mount, Policy};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{self, Dentry, Filesystem, Inode, OpenHow, Path};
 use wasmtime::{Instance, Module, Store};

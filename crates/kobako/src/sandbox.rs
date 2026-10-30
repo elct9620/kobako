@@ -30,9 +30,8 @@ use crate::handles::HandleTable;
 use crate::payload::RunPayload;
 use crate::receiver::Receiver;
 use crate::snippet;
-use kobako_runtime::filesystem::Access;
 use kobako_runtime::grant::GrantKind;
-use kobako_runtime::mount::{Mount, Policy};
+use kobako_runtime::mount::{Access, Mount, Policy};
 use kobako_runtime::vfs::Filesystem;
 
 mod context;

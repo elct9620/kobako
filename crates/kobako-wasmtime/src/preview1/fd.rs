@@ -574,10 +574,9 @@ mod tests {
     use crate::descriptors::{Descriptor, Descriptors};
     use crate::preview1::errno::{Errno, Failure};
     use kobako_runtime::filesystem::{
-        Access, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
-        OpenOptions,
+        FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
     };
-    use kobako_runtime::mount::Mount;
+    use kobako_runtime::mount::{Access, Mount};
     use kobako_runtime::profile::Profile;
     use kobako_runtime::vfs::{
         self, create_pipe_files, Dentry, Filesystem, Inode, OpenHow, Path, PipeInodeInfo,

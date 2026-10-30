@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::Access;
-use kobako_runtime::mount::{Mount, Policy};
+use kobako_runtime::mount::{Access, Mount, Policy};
 use kobako_runtime::vfs::Filesystem;
 
 use crate::catalog::Catalog;

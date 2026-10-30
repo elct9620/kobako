@@ -4,10 +4,11 @@
 
 use std::sync::Arc;
 
+use super::mount::Access;
 use super::mount::{Denial, VfsMount};
 use super::path::Path;
 use super::Error;
-use crate::filesystem::{Access, FileType, FilesystemError};
+use crate::filesystem::{FileType, FilesystemError};
 
 /// What a security module answers, as a hook in Linux's `lsm_hook_defs.h`. A
 /// hook a module does not have allows the call, and a module can only refuse.

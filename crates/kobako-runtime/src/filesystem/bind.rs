@@ -636,7 +636,7 @@ mod tests {
         let filesystem = crate::vfs::Filesystem::new(Arc::new(
             Bind::new(&host.0).expect("the host directory must open"),
         ));
-        let mount = Mount::new("/data", filesystem, super::super::Access::ReadWrite)
+        let mount = Mount::new("/data", filesystem, crate::mount::Access::ReadWrite)
             .expect("/data is a guest path");
         let root = vfs::Path::root(mount.mnt());
         let how = OpenHow {
@@ -667,7 +667,7 @@ mod tests {
 
     #[cfg(unix)]
     impl crate::mount::Policy for RefusesRefused {
-        fn allows(&self, path: &str, _access: super::super::Access) -> bool {
+        fn allows(&self, path: &str, _access: crate::mount::Access) -> bool {
             !path.starts_with("/data/refused")
         }
     }
@@ -689,7 +689,7 @@ mod tests {
         let filesystem = crate::vfs::Filesystem::new(Arc::new(
             Bind::new(&host.0).expect("the host directory must open"),
         ));
-        let mount = Mount::new("/data", filesystem, super::super::Access::Read)
+        let mount = Mount::new("/data", filesystem, crate::mount::Access::Read)
             .expect("/data is a guest path")
             .with_policy(Arc::new(RefusesRefused));
         let root = vfs::Path::root(mount.mnt());
@@ -719,8 +719,8 @@ mod tests {
     /// `f`, by name.
     #[cfg(unix)]
     fn each_holding_five_bytes(host: &HostDir) -> [(&'static str, crate::vfs::Path); 3] {
-        use crate::filesystem::{Access, Overlay, Tmpfs};
-        use crate::mount::Mount;
+        use crate::filesystem::{Overlay, Tmpfs};
+        use crate::mount::{Access, Mount};
         use crate::vfs::Filesystem;
         fs::write(host.0.join("f"), "hello").expect("the host file must be written");
         let tmpfs = || [("f", "hello")].into_iter().collect::<Tmpfs>();
@@ -837,8 +837,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn an_overlay_takes_afresh_a_name_its_bind_layer_no_longer_holds() {
-        use crate::filesystem::{Access, Overlay, Tmpfs};
-        use crate::mount::Mount;
+        use crate::filesystem::{Overlay, Tmpfs};
+        use crate::mount::{Access, Mount};
         use crate::vfs::{self, Filesystem, OpenHow};
         let host = HostDir::new("overlay-replaced");
         fs::create_dir(host.0.join("a")).expect("the host directory must be made");

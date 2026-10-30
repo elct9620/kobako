@@ -37,7 +37,7 @@ pub use dentry::Dentry;
 pub use file::{FMode, File};
 pub use filesystem::Filesystem;
 pub use inode::{Identity, Inode};
-pub use mount::{Denial, VfsMount};
+pub use mount::{Access, Denial, VfsMount};
 pub use namei::{
     do_file_open, filename_mkdirat, filename_renameat2, filename_rmdir, filename_unlinkat,
 };

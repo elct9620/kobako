@@ -5,6 +5,13 @@ use std::sync::Arc;
 
 use super::filesystem::Filesystem;
 
+/// What the guest may do beneath a Mount.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Access {
+    Read,
+    ReadWrite,
+}
+
 /// Why a call was refused before it reached the Filesystem.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Denial {

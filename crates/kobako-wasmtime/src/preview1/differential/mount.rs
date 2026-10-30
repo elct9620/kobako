@@ -18,10 +18,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::grant::Grant;
-use kobako_runtime::mount::Mount;
+use kobako_runtime::mount::{Access, Mount};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{Filesystem, PATH_MAX};
 use wasmtime::{Linker, Module, Store};

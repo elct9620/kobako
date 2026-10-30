@@ -20,14 +20,14 @@ use super::cred::Cred;
 use super::dentry::Dentry;
 use super::file::File;
 use super::filesystem::Filesystem;
+use super::mount::Access;
 use super::mount::VfsMount;
 use super::openat2::{vfs_open, OpenHow};
 use super::path::Path;
 use super::rwsem::RwSemaphoreGuard;
 use super::Error;
 use crate::filesystem::{
-    Access, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
-    OpenOptions,
+    FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
 };
 
 use super::{NAME_MAX, PATH_MAX};
@@ -1136,10 +1136,10 @@ mod tests {
     use std::time::Duration;
 
     use crate::filesystem::{
-        Access, DentryOperations, DirEntry, FileOperations, FilesystemError, InodeOperations,
-        Lookup, Metadata, OpenOptions, Tmpfs,
+        DentryOperations, DirEntry, FileOperations, FilesystemError, InodeOperations, Lookup,
+        Metadata, OpenOptions, Tmpfs,
     };
-    use crate::mount::{Mount, Policy};
+    use crate::mount::{Access, Mount, Policy};
     use crate::vfs::kern_path::{kern_path, KernPath};
     use crate::vfs::{self, Blocking, Dentry, Filesystem, Inode, OpenHow, Path};
 

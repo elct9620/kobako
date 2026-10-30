@@ -1198,7 +1198,7 @@ mod tests {
                 Arc::new(Wrap::new(tmpfs, interleave.clone())),
                 Arc::new(Tmpfs::new()),
             ))),
-            super::super::Access::ReadWrite,
+            crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
         let root = crate::vfs::Path::root(mount.mnt());
@@ -1263,7 +1263,7 @@ mod tests {
                 Arc::new(Wrap::new(Arc::new(tmpfs), layer.clone())),
                 Arc::new(Tmpfs::new()),
             ))),
-            super::super::Access::ReadWrite,
+            crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
         let root = crate::vfs::Path::root(mount.mnt());
@@ -1545,7 +1545,7 @@ mod tests {
         .expect("an upper over a lower Layer must make a view");
         let root = |filesystem| {
             let mount =
-                crate::mount::Mount::new("/data", filesystem, super::super::Access::ReadWrite)
+                crate::mount::Mount::new("/data", filesystem, crate::mount::Access::ReadWrite)
                     .expect("/data is a guest path");
             crate::vfs::Path::root(mount.mnt())
         };

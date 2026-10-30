@@ -27,13 +27,6 @@ pub use tmpfs::{SeedError, Tmpfs};
 
 use crate::vfs::{Dentry, Inode};
 
-/// What the guest may do beneath a Mount.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Access {
-    Read,
-    ReadWrite,
-}
-
 /// What one name in a directory turned out to be, as `->lookup` answers.
 pub enum Lookup {
     /// The entry standing at the name, for the runtime to record on the
