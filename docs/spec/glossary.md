@@ -357,18 +357,18 @@ later call -> same identity at its path ─┬─ yes -> proceeds
 
 ### Inode
 
-One directory a Filesystem holds, answering the calls about the names in it. A Filesystem is written as its Inodes, as Linux writes one as a directory's `inode_operations`. The runtime asks an Inode about one name at a time. A file it opens answers as an open file.
+One entry of a Filesystem, as a lookup finds it: its kind, its Identity, and the operations answering for it. A directory's operations answer about one name in it at a time. A Filesystem is written as those operations, as Linux writes `inode_operations`. Whatever an entry lacks, the runtime answers for it.
 
 ### Dentry
 
-One name of a Filesystem and the directory above it, made by the runtime alone. It carries the name as the directory stores it, so every spelling of one entry reaches the same Dentry. A name moved through the runtime takes its Dentry along, and one removed through it is dead. An Inode reads the name a call is about from its Dentry.
+One name of a Filesystem and the directory above it, made by the runtime alone. It carries the name as the directory stores it, so every spelling of one entry reaches the same Dentry. A name moved through the runtime takes its Dentry along, and one removed through it is dead. A Filesystem reads the name a call is about from its Dentry.
 
-A Filesystem's lookup records on the Dentry what stands at the name, and its Identity, as Linux's `d_add` does. A Filesystem answering by path records that instead, as a name there always means what stands at it now. A Filesystem may answer that a held Dentry no longer names what it recorded. The runtime then drops that Dentry for the next lookup, and its holders keep it alive.
+The runtime records on the Dentry the Inode a lookup finds, as Linux's `d_add` does, and asks no more. An Inode may say it answers by path, as a name there means what stands at it now. A Filesystem may answer that a held Dentry no longer names what it recorded. The runtime then drops that Dentry for the next lookup, and its holders keep it alive.
 
 ### Path
 
-A directory the guest reached beneath a Mount, as the Mount, its Filesystem, and the Dentry naming it. The runtime walks a guest path from one, one name at a time.
+A directory the guest reached beneath a Mount, as the Mount and the Dentry naming it. The runtime walks a guest path from one, one name at a time.
 
 ```
-Path = Mount + Dentry ─▶ Inode ─▶ the next Path
+Path = Mount + Dentry ─▶ Inode ─▶ lookup ─▶ the next Path
 ```

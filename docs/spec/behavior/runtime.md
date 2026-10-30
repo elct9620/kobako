@@ -1888,3 +1888,14 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Mount whose Filesystem holds an entry that is neither a file, a directory, nor a link |
 | When | the guest opens the entry |
 | Then | the open answers EACCES |
+## `RT-175` The runtime answers for an operation a Filesystem lacks
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-174` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount whose Filesystem has no operation to make, remove, or move a name |
+| When | the guest makes a directory, makes a file, removes a directory, removes a file, and renames a file |
+| Then | the calls answer EPERM, EACCES, EPERM, EPERM, and EPERM |

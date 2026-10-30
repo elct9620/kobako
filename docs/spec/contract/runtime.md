@@ -413,6 +413,17 @@ The device and inode numbers a Filesystem names an entry by.
 pub struct Identity {}
 ```
 
+## `Identity::of`
+
+The identity some metadata names, none where its inode number of zero reports
+none.
+
+```rust
+impl Identity {
+    pub fn of(metadata: &Metadata) -> Option<Self> {}
+}
+```
+
 ## `Inode`
 
 One entry of a Filesystem, as a lookup records it on a Dentry.
@@ -421,13 +432,43 @@ One entry of a Filesystem, as a lookup records it on a Dentry.
 pub struct Inode {}
 ```
 
-## `Inode::by_path`
+## `Inode::new`
 
-An entry its Filesystem answers for by the path each call names.
+The entry some metadata reports, answered for by its operations.
 
 ```rust
 impl Inode {
-    pub fn by_path() -> Self {}
+    pub fn new(metadata: &Metadata, ops: Arc<dyn InodeOperations>) -> Self {}
+}
+```
+
+## `Inode::by_path`
+
+An entry its operations answer for by the path each call names.
+
+```rust
+impl Inode {
+    pub fn by_path(ops: Arc<dyn InodeOperations>) -> Self {}
+}
+```
+
+## `Inode::with_ops`
+
+This entry answered for by other operations, as a wrapper wraps what it finds.
+
+```rust
+impl Inode {
+    pub fn with_ops(&self, ops: Arc<dyn InodeOperations>) -> Self {}
+}
+```
+
+## `Inode::ops`
+
+What answers for the entry.
+
+```rust
+impl Inode {
+    pub fn ops(&self) -> &Arc<dyn InodeOperations> {}
 }
 ```
 
@@ -657,131 +698,121 @@ pub trait Policy {
 
 ## `InodeOperations`
 
-The files and directories beneath a Mount's root or a directory opened
-beneath it, as the `*at` calls reach them. Each call names
-one entry by the Dentry the VFS made for it. One may wrap another and answer
-by delegating, wrapping each directory it opens too. No method has a default,
-so a wrapper forwards each.
+What one entry of a Filesystem answers, as Linux's `inode_operations`. Only
+`getattr` is required. An operation an entry lacks answers none, and the
+runtime answers for it as Linux's VFS does. A wrapper wraps each entry its
+`lookup` finds.
 
 ```rust
 pub trait InodeOperations {}
 ```
 
-## `InodeOperations::open`
+## `InodeOperations::getattr`
 
-Open the file a Dentry names, creating or truncating it where the options say
-to.
-
-```rust
-pub trait InodeOperations {
-    fn open(&self, dentry: &Dentry, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError>;
-}
-```
-
-## `InodeOperations::open_dir`
-
-The directory a Dentry names in this one, as an Inode of its own.
-Anything else standing there is refused, a link among them.
+What this entry reports of itself. A link reports itself.
 
 ```rust
 pub trait InodeOperations {
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError>;
-}
-```
-
-## `InodeOperations::metadata`
-
-What the directory a Dentry names reports of itself.
-
-```rust
-pub trait InodeOperations {
-    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
-}
-```
-
-## `InodeOperations::symlink_metadata`
-
-What a Dentry names without following a link standing there.
-
-```rust
-pub trait InodeOperations {
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
 }
 ```
 
 ## `InodeOperations::lookup`
 
-The name a Dentry carries, spelled as this directory stores it. The runtime
-keeps one Dentry per spelling it answers, so every spelling of one entry shares
-it. A name it does not hold stays as given. A Filesystem matching names exactly
-answers the name itself.
+What stands at the name a Dentry carries in this directory. An entry without
+it is no directory to walk through.
 
 ```rust
 pub trait InodeOperations {
-    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
+    fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>>;
 }
 ```
 
 ## `InodeOperations::d_revalidate`
 
-Whether a Dentry the runtime still holds names what it named when the runtime
-took it. A false answer has the runtime drop the Dentry and take the name
-afresh. A Filesystem changed only through the runtime answers true.
+Whether a Dentry the runtime still holds names what it recorded. A false answer
+has the runtime drop the Dentry and take the name afresh. A Filesystem without
+it keeps every name valid.
 
 ```rust
 pub trait InodeOperations {
-    fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError>;
+    fn d_revalidate(&self, _dentry: &Dentry) -> Option<Result<bool, FilesystemError>>;
 }
 ```
 
-## `InodeOperations::read_link`
+## `InodeOperations::get_link`
 
-Where a link a Dentry names points, for the runtime to follow. Anything else
-standing there is invalid input, as it is for a Filesystem holding no links.
+Where this link points, for the runtime to follow. An entry without it answers
+invalid input.
 
 ```rust
 pub trait InodeOperations {
-    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError>;
+    fn get_link(&self, _dentry: &Dentry) -> Option<Result<String, FilesystemError>>;
+}
+```
+
+## `InodeOperations::open`
+
+Open this file, truncating it where the options say to. The runtime refuses a
+directory and a link before it asks.
+
+```rust
+pub trait InodeOperations {
+    fn open(&self, _dentry: &Dentry, _options: &OpenOptions) -> Option<Result<Box<dyn File>, FilesystemError>>;
+}
+```
+
+## `InodeOperations::create`
+
+Make the file a Dentry names in this directory and open it. A directory without
+it answers permission denied.
+
+```rust
+pub trait InodeOperations {
+    fn create(&self, _dentry: &Dentry, _options: &OpenOptions) -> Option<Result<Box<dyn File>, FilesystemError>>;
 }
 ```
 
 ## `InodeOperations::entries`
 
-The entries of the directory a Dentry names.
+The entries of this directory. An entry without it answers not a directory.
 
 ```rust
 pub trait InodeOperations {
-    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError>;
+    fn entries(&self, _dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>>;
 }
 ```
 
-## `InodeOperations::create_dir`
+## `InodeOperations::mkdir`
 
-Create the directory a Dentry names.
+Make the directory a Dentry names in this one. A directory without it answers
+not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
+    fn mkdir(&self, _dentry: &Dentry) -> Option<Result<(), FilesystemError>>;
 }
 ```
 
-## `InodeOperations::remove_dir`
+## `InodeOperations::rmdir`
 
-Remove the empty directory a Dentry names.
+Remove the empty directory a Dentry names in this one. A directory without it
+answers not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
+    fn rmdir(&self, _dentry: &Dentry) -> Option<Result<(), FilesystemError>>;
 }
 ```
 
-## `InodeOperations::remove_file`
+## `InodeOperations::unlink`
 
-Remove the file a Dentry names.
+Remove the file a Dentry names in this directory. A directory without it
+answers not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError>;
+    fn unlink(&self, _dentry: &Dentry) -> Option<Result<(), FilesystemError>>;
 }
 ```
 
@@ -790,12 +821,22 @@ pub trait InodeOperations {
 Move what one Dentry names to another in a target directory, refusing what
 rename(2) refuses at the target. The runtime has already checked the source
 and never hands a move onto its own name. The target is a directory of the
-same Mount, so one of another type crosses devices.
+same Mount, so one of another type crosses devices. A directory without it
+answers not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn rename(&self, from: &Dentry, to_dir: &dyn InodeOperations, to: &Dentry) -> Result<(), FilesystemError>;
+    fn rename(&self, _from: &Dentry, _to_dir: &dyn InodeOperations, _to: &Dentry) -> Option<Result<(), FilesystemError>>;
 }
+```
+
+## `Lookup`
+
+What one name in a directory turned out to be: an entry, nothing, or an entry
+stored under another spelling.
+
+```rust
+pub enum Lookup {}
 ```
 
 ## `File`
