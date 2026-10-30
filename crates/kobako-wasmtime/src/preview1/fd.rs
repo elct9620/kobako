@@ -1,9 +1,8 @@
 //! The 21 `fd_*` calls over kobako's descriptor table.
 //!
-//! For stdio each answers what wasmtime-wasi's preview1 answers for the
-//! same descriptor; the differential probe in `preview1` holds that. For a
-//! directory or a file beneath a Mount, the runtime's open file holds the
-//! position and the Filesystem answers; the rights stay here.
+//! The runtime's open file decides each answer, so this keeps only what
+//! preview1 itself defines: which file a number stands for, its rights, a
+//! preopen's name, and what wasi-testsuite asks of a directory's position.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

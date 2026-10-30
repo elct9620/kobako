@@ -17,6 +17,8 @@ engine stays swappable.
 | `grant` | the `Grant` a frontend hands each invocation, and the `GrantKind`s a runtime supports |
 | `mount` | the `Mount` at a guest path, its `Access`, and the `Policy` judging its paths |
 | `filesystem` | the `InodeOperations` trait and the four kinds kobako ships |
+| `endpoint` | the host side of the kobako ABI, over the `GuestInstance` an engine implements |
+| `vfs` | the walk, open files, and pipes each engine's calls reach, whichever ABI it encodes |
 | `sched` | the `Blocking` a frontend registers, how its threads wait for a lock |
 | `dispatch` / `yielder` | the `DispatchHandler` and `Yielder` traits a frontend supplies for guest→host dispatch and block-yield re-entry |
 

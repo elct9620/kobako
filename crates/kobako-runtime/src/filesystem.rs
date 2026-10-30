@@ -1,10 +1,10 @@
 //! The Filesystem behind a Mount: what answers every call a
 //! guest makes beneath that Mount's path.
 //!
-//! A runtime owns the descriptors and path resolution, and the Mount
-//! decides access; `InodeOperations` only answer for the files and directories
-//! themselves, so a third party brings them without implementing any of
-//! that. A runtime asks a directory about one name at a time, carried by
+//! A Driver owns the descriptors, the VFS owns open files and path
+//! resolution, and the Mount decides access; `InodeOperations` only answer for
+//! the files and directories themselves, so a third party brings them without
+//! implementing any of that. A runtime asks a directory about one name at a time, carried by
 //! the `Dentry` the VFS made for it, as Linux hands a filesystem's
 //! `inode_operations` a dentry: never `.`, `..`, or a name holding `/`.
 

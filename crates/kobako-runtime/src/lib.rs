@@ -32,6 +32,7 @@ pub mod yielder;
 // the crate root: the module path repeats the crate name and adds nothing
 // a reader of `kobako_runtime::Runtime` was missing.
 pub use dispatch::DispatchHandler;
+pub use endpoint::{Calls, GuestInstance};
 pub use error::{InvokeError, SetupError, Trap};
 pub use filesystem::{
     Bind, DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr,

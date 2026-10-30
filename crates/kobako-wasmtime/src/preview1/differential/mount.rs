@@ -12,6 +12,10 @@
 //! own answer — unlinking a directory is `ISDIR` on Linux and `PERM` on
 //! macOS. kobako answers one way on every host, the way Linux does, so
 //! the probe holds where CI runs it.
+//!
+//! An open asking to sync, or for a directory it would truncate, is left out:
+//! wasmtime-wasi refuses both as invalid or unsupported, where kobako answers
+//! as Linux does, which `mount_view` holds to literal answers.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -88,7 +92,6 @@ const OFLAGS_DIRECTORY: i32 = 1 << 1;
 const OFLAGS_EXCL: i32 = 1 << 2;
 const OFLAGS_TRUNC: i32 = 1 << 3;
 const FDFLAGS_NONBLOCK: i32 = 1 << 2;
-const FDFLAGS_SYNC: i32 = 1 << 4;
 const RIGHTS_FD_READ: i64 = 1 << 1;
 const RIGHTS_FD_WRITE: i64 = 1 << 6;
 
@@ -191,16 +194,6 @@ const CALLS: &[Call] = &[
         oflags: OFLAGS_DIRECTORY | OFLAGS_CREAT,
         rights: RIGHTS_FD_READ,
         fdflags: 0,
-    },
-    Call::Open {
-        oflags: OFLAGS_DIRECTORY | OFLAGS_TRUNC,
-        rights: RIGHTS_FD_READ,
-        fdflags: 0,
-    },
-    Call::Open {
-        oflags: 0,
-        rights: RIGHTS_FD_READ,
-        fdflags: FDFLAGS_SYNC,
     },
     Call::Open {
         oflags: 0,
@@ -459,9 +452,8 @@ fn escapes(path: &str) -> bool {
         })
 }
 
-/// What kobako answers where it differs from wasmtime-wasi on purpose. An
-/// open asking not to block is `NOTSUP`, where wasmtime-wasi records the
-/// flag and blocks anyway. A path above the root is `NOTCAPABLE`, the code preview1 names for a
+/// What kobako answers where it differs from wasmtime-wasi on purpose. A path
+/// above the root is `NOTCAPABLE`, the code preview1 names for a
 /// capability the guest was never handed, where wasmtime-wasi passes on
 /// cap-std's refusal as `PERM`. A path past `PATH_MAX` is `NAMETOOLONG`
 /// as Linux answers the whole path, where cap-std resolves it one name
@@ -485,13 +477,6 @@ fn predict(call: Call, path: &str, mut oracle: Observation) -> Observation {
         filetype: 0,
         tree: HostDir::new().tree(),
     };
-    if matches!(call, Call::Open { fdflags, .. } if fdflags & FDFLAGS_NONBLOCK != 0) {
-        return refused(if path.len() >= PATH_MAX {
-            ERRNO_NAMETOOLONG
-        } else {
-            ERRNO_NOTSUP
-        });
-    }
     let refused_first = matches!(oracle.errno, Some(ERRNO_BUSY | ERRNO_INVAL | ERRNO_NOTSUP));
     if steps_out_of_a_link(path) && !refused_first {
         return refused(ERRNO_LOOP);

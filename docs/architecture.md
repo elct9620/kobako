@@ -61,8 +61,9 @@ Each part owns one concern, and its dependencies on other kobako parts may only 
 |---|---|---|
 | `kobako-transport` | the core envelope and the ABI's values | none, ever |
 | `kobako-codec` | the payload dialects, one namespace and feature per schema | none |
-| `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant`, `Mount`, `vfs`, `sched`, `InodeOperations` and kinds | transport |
-| `kobako-wasmtime` | one engine behind that contract | runtime, transport |
+| `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant` | transport |
+| `kobako-runtime` | what every engine shares: `endpoint`, `vfs`, `Mount`, `sched`, `InodeOperations` and kinds | transport |
+| `kobako-wasmtime` | one engine behind that contract, and its preview1 encoding | runtime, transport |
 | `kobako` | the Rust host model: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
 | `lib/` | the Ruby host model and its own dialect | the native ext |
 | `ext/` | the magnus bridge from Ruby values to the driver's envelopes and an `InodeOperations` | runtime, transport, wasmtime |

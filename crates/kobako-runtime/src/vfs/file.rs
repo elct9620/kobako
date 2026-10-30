@@ -558,7 +558,7 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::filesystem::{Bind, InodeOperations, Lookup, Overlay, Tmpfs};
+    use crate::filesystem::{InodeOperations, Lookup, Overlay, Tmpfs};
     use crate::mount::{Access, Mount};
     use crate::vfs::Filesystem;
     use crate::vfs::Inode;
@@ -683,7 +683,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("kobako-listed-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("d")).expect("the host directory must make");
         std::fs::write(dir.join("a"), "x").expect("the host file must write");
-        let bind = Bind::new(&dir).unwrap_or_else(|_| panic!("the Bind must make"));
+        let bind =
+            crate::filesystem::Bind::new(&dir).unwrap_or_else(|_| panic!("the Bind must make"));
         let entries = identities(bind);
         std::fs::remove_dir_all(&dir).expect("the host directory must go");
         assert_named_alike("Bind", entries);

@@ -5,7 +5,8 @@
 # neutral value types (`Snapshot`, `Trap`, `SetupError`, ...), the
 # dispatch / yield re-entry traits a frontend supplies, and the Grants
 # a frontend hands each invocation, the Mount and the Filesystems it
-# places. Engine implementations (`kobako-wasmtime`) and host frontends
+# places. It also holds what every engine would answer alike: the host
+# ABI endpoint and the VFS. Engine implementations (`kobako-wasmtime`) and host frontends
 # (the Ruby ext) meet on this surface, so the engine stays swappable.
 # `cap-std` confines a Bind to its host directory.
 #

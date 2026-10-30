@@ -367,10 +367,13 @@ VFS does. One wrapping another forwards those it keeps.
 | `dentry_ops` | a held dentry dropped once its name stands for another entry, through `DentryOperations::revalidate` | valid, as nothing changes it outside the runtime |
 | `get_link` | a link followed only within the directory a descriptor opened | EINVAL |
 | `create` | a file made under the directory's lock | EACCES |
-| `setattr` | a file sized through what holds it | EINVAL |
+| `setattr` | a file sized through what holds it, and times of the guest's choosing | EINVAL for a size, ENOTSUP for a time |
+| `link`, `symlink` | a name made under the directory's lock | EPERM |
 | `FileOperations::read_iter`, `write_iter` | a file's bytes, moving `Kiocb::pos` past what they took | EINVAL |
 | `FileOperations::iterate_shared` | a directory listed from what its `open` made | ENOTDIR |
 | `FileOperations::fsync` | what was written made durable; answer `Ok` with nothing to flush | EINVAL |
+| `FileOperations::fallocate` | room reserved ahead of a write | ENOTSUP |
+| `FileOperations::poll` | what a call would find ready | ready to read and write |
 | `mkdir`, `rmdir`, `unlink`, `rename` | a change made under the directory's lock | EPERM |
 | `Kiocb::append` in `write_iter` | another writer's append from landing over this one | `Unsupported`, which it answers itself |
 

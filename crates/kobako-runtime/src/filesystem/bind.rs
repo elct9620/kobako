@@ -536,12 +536,18 @@ impl FileOperations for BindDir {
     /// Make the host directory's names durable. Windows syncs no directory, so
     /// there the host answers for them itself.
     fn fsync(&mut self) -> Result<(), FilesystemError> {
-        #[cfg(unix)]
-        if let Some(dir) = &self.1 {
-            rustix::fs::fsync(&**dir).map_err(|err| to_error(io::Error::from(err)))?;
-        }
-        Ok(())
+        self.1.as_deref().map_or(Ok(()), sync_dir)
     }
+}
+
+#[cfg(unix)]
+fn sync_dir(dir: &Dir) -> Result<(), FilesystemError> {
+    rustix::fs::fsync(dir).map_err(|err| to_error(io::Error::from(err)))
+}
+
+#[cfg(not(unix))]
+fn sync_dir(_dir: &Dir) -> Result<(), FilesystemError> {
+    Ok(())
 }
 
 /// An open host file. The runtime names every offset, so each access seeks
