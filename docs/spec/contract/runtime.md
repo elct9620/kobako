@@ -732,13 +732,13 @@ impl File {
 }
 ```
 
-## `File::release`
+## `File::close`
 
-Release it once the last descriptor closes.
+Close it once the last descriptor goes, answering what its flush answers.
 
 ```rust
 impl File {
-    pub fn release(self) -> Result<(), FilesystemError> {}
+    pub fn close(self) -> Result<(), FilesystemError> {}
 }
 ```
 
@@ -1148,14 +1148,14 @@ pub trait FileOperations {
 }
 ```
 
-## `FileOperations::release`
+## `FileOperations::flush`
 
-Release the file once the guest closes it, answering whether what it held was
-kept. The default has nothing to release.
+Answer, as the guest closes the file, whether what it held was kept. The default
+has nothing to flush. Whatever else the file holds goes when it is dropped.
 
 ```rust
 pub trait FileOperations {
-    fn release(self: Box<Self>) -> Result<(), FilesystemError>;
+    fn flush(&mut self) -> Result<(), FilesystemError>;
 }
 ```
 
