@@ -359,6 +359,14 @@ later call -> same identity at its path ─┬─ yes -> proceeds
 
 One entry of a Filesystem, as a lookup finds it: its kind, its Identity, and the operations answering for it. A directory's operations answer about one name in it at a time. A Filesystem is written as those operations, as Linux writes `inode_operations`. Whatever an entry lacks, the runtime answers for it.
 
+### Cred
+
+Who a Guest's calls are made for, as Linux's `struct cred`. It holds the security hooks one Invocation registered, so a Policy reaches the runtime the way an LSM does.
+
+```
+Invocation's Mounts -> Cred -> each call's security hooks
+```
+
 ### Dentry
 
 One name of a Filesystem and the directory above it, made by the runtime alone. It carries the name as the directory stores it, so every spelling of one entry reaches the same Dentry. A name moved through the runtime takes its Dentry along, and one removed through it is dead. A Filesystem reads the name a call is about from its Dentry.
@@ -371,8 +379,8 @@ What a descriptor refers to, as Linux's `struct file`. It holds where it was ope
 
 ### Path
 
-An entry the guest reached beneath a Mount, as the Mount and the Dentry naming it. The runtime walks a guest path from a directory's, one name at a time.
+An entry the guest reached beneath a Mount, as the Filesystem mounted there and the Dentry naming it. The runtime walks a guest path from a directory's, one name at a time.
 
 ```
-Path = Mount + Dentry ─▶ Inode ─▶ lookup ─▶ the next Path
+Path = mounted Filesystem + Dentry ─▶ Inode ─▶ lookup ─▶ the next Path
 ```

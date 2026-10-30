@@ -528,17 +528,6 @@ impl Mount {
 }
 ```
 
-## `Mount::allows_writes`
-
-Whether a change beneath the Mount may be allowed at all, without asking
-its Policy.
-
-```rust
-impl Mount {
-    pub fn allows_writes(&self) -> bool {}
-}
-```
-
 ## `Denial`
 
 Why a call was refused: a change beneath a read-only mount, or a security hook.
