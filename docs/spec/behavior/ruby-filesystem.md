@@ -326,3 +326,15 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a guest holding a directory it opened from a Ruby Filesystem |
 | When | the guest renames the directory, and makes another at its path |
 | Then | a lookup through the descriptor asks the object about the new path |
+
+## `RF-025` A directory a Ruby Filesystem's backend moved reaches nothing a Policy refuses
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-136`, `RF-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened from a Ruby Filesystem, beneath a Mount with a Policy |
+| When | the backend moves the directory beneath a refused path, and the guest opens a file through the descriptor |
+| Then | the object is asked only about the paths the Policy judged |
