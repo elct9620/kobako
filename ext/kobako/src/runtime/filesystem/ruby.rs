@@ -462,7 +462,7 @@ impl FileOperations for RubyFile {
         change_if_answered(self.file.get(), "fsync")
     }
 
-    fn release(mut self: Box<Self>) -> Result<(), FilesystemError> {
+    fn flush(&mut self) -> Result<(), FilesystemError> {
         self.close()
     }
 }

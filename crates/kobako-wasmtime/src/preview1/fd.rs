@@ -213,8 +213,8 @@ pub(crate) fn allocate(table: &mut Descriptors, fd: u32) -> Answer {
 
 pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
     match table.remove(fd).ok_or(Errno::Badf)? {
-        Descriptor::File(file) => Ok(file.release()?),
-        Descriptor::Directory(dir) => Ok(dir.file.release()?),
+        Descriptor::File(file) => Ok(file.close()?),
+        Descriptor::Directory(dir) => Ok(dir.file.close()?),
         Descriptor::Stdin(_) | Descriptor::Channel(_) => Ok(()),
     }
 }
@@ -593,11 +593,11 @@ mod tests {
         self, Dentry, Filesystem, Inode, OpenHow, Path, PipeReader, PipeWriter,
     };
 
-    /// A file whose Filesystem refuses to release it.
+    /// A file whose Filesystem refuses to close it.
     struct RefusesClose;
 
     impl FileOperations for RefusesClose {
-        fn release(self: Box<Self>) -> Result<(), FilesystemError> {
+        fn flush(&mut self) -> Result<(), FilesystemError> {
             Err(FilesystemError::PermissionDenied)
         }
     }

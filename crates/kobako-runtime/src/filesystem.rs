@@ -209,10 +209,12 @@ pub trait FileOperations: Send {
         Err(FilesystemError::InvalidInput)
     }
 
-    /// Release the file once the guest closes it, answering whether what
-    /// it held was kept. The default has nothing to release; a file the
-    /// guest never closes is dropped instead.
-    fn release(self: Box<Self>) -> Result<(), FilesystemError> {
+    /// Answer, as the guest closes the file, whether what it held was kept,
+    /// as `f_op->flush` answers `close(2)`. The default has nothing to flush.
+    /// What the file holds goes when it is dropped, as `->release` runs and
+    /// no caller reads its answer, so a file the guest never closes still
+    /// lets go of it.
+    fn flush(&mut self) -> Result<(), FilesystemError> {
         Ok(())
     }
 }

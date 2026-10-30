@@ -65,8 +65,8 @@ impl FileOperations for Hermetic {
         self.0.fsync()
     }
 
-    fn release(self: Box<Self>) -> Result<(), FilesystemError> {
-        self.0.release()
+    fn flush(&mut self) -> Result<(), FilesystemError> {
+        self.0.flush()
     }
 }
 

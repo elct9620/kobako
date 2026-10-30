@@ -148,8 +148,9 @@ impl File {
         self.listing = Some(listing);
     }
 
-    /// Release it once the last descriptor closes, as `filp_close` does.
-    pub fn release(self) -> Result<(), FilesystemError> {
-        self.ops.release()
+    /// Close it once the last descriptor goes, answering what its flush
+    /// answers, as `filp_close` does; dropping it is what `->release` does.
+    pub fn close(mut self) -> Result<(), FilesystemError> {
+        self.ops.flush()
     }
 }

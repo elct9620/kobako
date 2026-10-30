@@ -80,7 +80,7 @@ impl FileOperations for OverlayFile {
         }
     }
 
-    fn release(self: Box<Self>) -> Result<(), FilesystemError> {
-        self.file.release()
+    fn flush(&mut self) -> Result<(), FilesystemError> {
+        self.file.flush()
     }
 }

@@ -685,7 +685,7 @@ impl FileOperations for RefusesClose {
         self.0.truncate(len)
     }
 
-    fn release(self: Box<Self>) -> Result<(), FilesystemError> {
+    fn flush(&mut self) -> Result<(), FilesystemError> {
         Err(FilesystemError::PermissionDenied)
     }
 }
