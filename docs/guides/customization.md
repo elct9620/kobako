@@ -307,13 +307,15 @@ depends on wasmtime, so another engine writes its own table.
 
 ### Engine Options
 
-`Runtime::compile` is optional. An engine that keeps its default compiles nothing, and
-the SDK replays the preloaded source on every invocation instead of its bytecode.
-
 Only the isolation floor and each invocation's Grants cross that seam. The engine's
-own caps are configured where the engine is built. The SDK checks the posture it
-declares and refuses a Mount it does not support
+own caps are configured where the engine is built
 (→ [runtime](../spec/behavior/runtime.md)).
+
+| Option | Where an engine leaves it |
+|---|---|
+| `Runtime::compile` | compiles nothing; the SDK replays the preloaded source |
+| `Runtime::supports` | supports no Grant; the SDK refuses a Mount |
+| `Runtime::profile` | required; the SDK checks the posture it declares |
 
 ### Engine-free Builds
 
