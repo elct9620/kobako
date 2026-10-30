@@ -320,38 +320,36 @@ A Mount hands the guest a Filesystem made from any `impl InodeOperations`, and a
 stacks Filesystems as Layers.
 The runtime walks each guest path one name at a time and checks it before the
 Filesystem acts on it. It follows a link itself, so a Filesystem only answers one
-name in a directory it already opened.
+name in a directory it already found.
 
 ```
 guest path ─▶ runtime: walk name by name, follow links, check the Policy ─▶ Filesystem
                               ▲                                               │
-                              ├── symlink_metadata · open_dir ────────────────┤
-                              └── read_link · lookup ─────────────────────────┘
+                              └── lookup: the entry at a name ────────────────┘
 ```
 
-A directory the guest opens answers through operations of its own, from `open_dir`. A
-wrapper wraps each directory it opens too, so it still sees every call beneath it.
+Each entry answers for itself: a `lookup` finds an `Inode`, which holds that entry's
+operations. A wrapper wraps each entry its `lookup` finds through `Inode::with_ops`,
+so it still sees every call beneath it.
 Every call hands the Dentry it is about. A Filesystem answering by path reads it
 from `Dentry::path_raw`, so a directory moved through the runtime is asked at its
-new path, and its `lookup` records `Inode::by_path` on the Dentry. Any other records
-what stands at the name through `Dentry::d_add`, or a Policy cannot tell a directory
-from one made in its place.
+new path. Its `lookup` finds an `Inode::by_path`. Any other finds an `Inode::new`
+with its identity, or a Policy cannot tell a directory from one made in its place.
 
 ### Filesystem Obligations
 
-Seven methods carry a guarantee the runtime gives the guest. None has a default, so
-each Filesystem and its `File` answer them, and one wrapping another forwards them.
-A method like these joins without a default, a break marked `!`.
+Only `getattr` and the `File` methods are required. An operation an entry lacks answers
+`None`, as a NULL in Linux's `inode_operations`, and the runtime answers for it as Linux's
+VFS does. One wrapping another forwards those it keeps.
 
-| Method | Keeps | An implementor without it answers |
+| Method | Keeps | Without it, the runtime answers |
 |---|---|---|
-| `open` | no link opened as the file at a name | the file, as no link stands there |
-| `symlink_metadata` | a link from being followed but where the runtime follows it | what stands there, as no link does |
-| `open_dir` | the same, for each directory on a path, and its identity held while open | the directory, as no link stands there |
-| `read_link` | a link followed only within the directory a descriptor opened | `InvalidInput` |
-| `lookup` | one dentry and lock per entry, and a Policy checking the stored spelling | the name as given |
-| `d_revalidate` | a held dentry dropped once its name stands for another entry | `true`, as nothing changes it outside the runtime |
-| `File::append` | another writer's append from landing over this one | `Unsupported` |
+| `lookup` | one dentry and lock per entry, and a Policy checking the stored spelling | ENOTDIR, no directory to walk through |
+| `d_revalidate` | a held dentry dropped once its name stands for another entry | valid, as nothing changes it outside the runtime |
+| `get_link` | a link followed only within the directory a descriptor opened | EINVAL |
+| `create` | a file made under the directory's lock | EACCES |
+| `mkdir`, `rmdir`, `unlink`, `rename` | a change made under the directory's lock | EPERM |
+| `File::append` | another writer's append from landing over this one | `Unsupported`, which it answers itself |
 
 An Overlay waits for a copy up's lock through `Blocking`. A frontend whose threads share a
 lock of their own gives that lock up inside `wait`, as Ruby gives up the GVL.

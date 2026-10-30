@@ -24,7 +24,7 @@ use super::rwsem::RwSemaphoreGuard;
 use super::times::mask_file_times;
 use super::Error;
 use crate::filesystem::{
-    Access, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions,
+    Access, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
 };
 use crate::mount::Mount;
 
@@ -50,10 +50,6 @@ pub(crate) struct Nameidata {
     pending: VecDeque<Part>,
     follows_links: bool,
     links: usize,
-    /// Whether each directory stepped into is opened at once, so a link
-    /// on the way is found where it stands; otherwise a Filesystem may
-    /// open several names in one call when the walk is complete.
-    eager: bool,
     pub(crate) name: String,
     /// The dentry the walk looked `name` up on, kept for as long as the
     /// walk runs, as Linux's `nameidata` holds what it found, so what the
@@ -83,10 +79,20 @@ impl Nameidata {
         self.frames.last().expect("a walk stands somewhere")
     }
 
-    /// The dentry of the last name in `base`, as `d_alloc` makes one for a
-    /// name a call is about.
+    /// The dentry of the last name in `base`, looked up afresh, as a change
+    /// looks its name up again once it holds the directory's lock.
     pub(crate) fn child(&self) -> Result<Arc<Dentry>, FilesystemError> {
         self.child_of(&self.name)
+    }
+
+    /// The dentry the walk ended on, as Linux's `do_open` and `vfs_getattr`
+    /// act on what the walk found without looking it up again, so a change
+    /// made since cannot lead the call anywhere but where the walk stands.
+    pub(crate) fn walked(&self) -> Result<Arc<Dentry>, FilesystemError> {
+        match &self.last {
+            Some(dentry) => Ok(dentry.clone()),
+            None => self.child(),
+        }
     }
 
     /// The dentry of `name` in the directory the walk stands in.
@@ -100,24 +106,15 @@ impl Nameidata {
     }
 
     /// `name` as the directory the walk stands in stores it, and the
-    /// dentry of that spelling, as Linux's `lookup_slow` asks `->lookup`
-    /// and a case-insensitive filesystem answers through `d_add_ci`: every
-    /// spelling reaching one entry shares its dentry, and so its lock. The
+    /// dentry of that spelling, what stands there recorded on it. The
     /// caller holds that directory's lock.
     fn lookup_slow(&self, name: &str) -> Result<(String, Arc<Dentry>), FilesystemError> {
-        let given = self.child_of(name)?;
-        let stored = self.base().lookup(&given)?;
-        match stored == name {
-            true => Ok((stored, given)),
-            false => {
-                // The stored spelling's dentry is asked too, so a
-                // Filesystem recording what a name names at its lookup
-                // records it on the dentry the walk keeps.
-                let dentry = self.child_of(&stored)?;
-                self.base().lookup(&dentry)?;
-                Ok((stored, dentry))
-            }
-        }
+        lookup_slow(
+            self.mount.filesystem(),
+            self.base().as_ref(),
+            self.dentry(),
+            name,
+        )
     }
 
     /// What stands at the name, a link reported as itself, asked of the
@@ -127,7 +124,7 @@ impl Nameidata {
         if self.found.is_none() {
             let parent = self.dentry().clone();
             self.found = Some(down_read(&self.mount, &parent).and_then(|_held| {
-                let child = self.child()?;
+                let child = self.walked()?;
                 self.look_up(&child)
             }));
         }
@@ -135,11 +132,16 @@ impl Nameidata {
     }
 
     /// What stands at the name, whose dentry is `child`, a link reported
-    /// as itself; the directory itself for the empty name.
+    /// as itself; the directory itself for the empty name. A dentry naming
+    /// nothing is looked up again, as the caller may have just taken the
+    /// lock a change was holding.
     fn look_up(&self, child: &Dentry) -> Result<Metadata, FilesystemError> {
         match self.name.as_str() {
-            "" => self.base().metadata(self.dentry()),
-            _ => self.base().symlink_metadata(child),
+            "" => self.base().getattr(self.dentry()),
+            _ => {
+                d_lookup_inode(self.base().as_ref(), child)?;
+                d_getattr(child)
+            }
         }
     }
 
@@ -187,12 +189,95 @@ pub(crate) fn lookup_one(
 ) -> Result<Arc<Dentry>, FilesystemError> {
     let dentries = filesystem.dentries();
     if let Some(held) = dentries.d_lookup(parent, name) {
-        if inode.d_revalidate(&held)? {
+        if inode.d_revalidate(&held).unwrap_or(Ok(true))? {
             return Ok(held);
         }
         dentries.d_invalidate(&held);
     }
     Ok(dentries.child(parent, name))
+}
+
+/// Ask the directory `dir` what stands at `dentry` where the dentry records
+/// nothing yet, and record it, as Linux's `lookup_fast` keeps a dentry that
+/// names something and `lookup_slow` asks `->lookup` for one that does not.
+/// A directory holding the entry under another spelling answers that
+/// spelling, for the caller to take that dentry instead.
+pub(crate) fn d_lookup_inode(
+    dir: &dyn InodeOperations,
+    dentry: &Dentry,
+) -> Result<Option<String>, FilesystemError> {
+    if dentry.d_inode().is_some() {
+        return Ok(None);
+    }
+    match dir
+        .lookup(dentry)
+        .unwrap_or(Err(FilesystemError::NotADirectory))?
+    {
+        Lookup::Found(inode) => dentry.d_add(Some(inode)),
+        Lookup::Absent => dentry.d_add(None),
+        Lookup::Spelled(stored) => return Ok(Some(stored)),
+    }
+    Ok(None)
+}
+
+/// `name` in `parent`, whose directory is `dir`, as `dir` stores it, and the
+/// dentry of that spelling with what stands there recorded on it, as Linux's
+/// `lookup_slow` asks `->lookup` and a case-insensitive filesystem answers
+/// through `d_add_ci`: every spelling reaching one entry shares its dentry,
+/// and so its lock.
+pub(crate) fn lookup_slow(
+    filesystem: &Filesystem,
+    dir: &dyn InodeOperations,
+    parent: &Arc<Dentry>,
+    name: &str,
+) -> Result<(String, Arc<Dentry>), FilesystemError> {
+    let given = lookup_one(filesystem, dir, parent, name)?;
+    match d_lookup_inode(dir, &given)? {
+        None => Ok((name.to_string(), given)),
+        Some(stored) => {
+            let dentry = lookup_one(filesystem, dir, parent, &stored)?;
+            d_lookup_inode(dir, &dentry)?;
+            Ok((stored, dentry))
+        }
+    }
+}
+
+/// What the entry `dentry` records reports of itself, `NotFound` where it
+/// records none, as `vfs_getattr` asks the inode a dentry holds.
+pub(crate) fn d_getattr(dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    match dentry.d_inode() {
+        Some(inode) => inode.ops().getattr(dentry),
+        None => Err(FilesystemError::NotFound),
+    }
+}
+
+/// Open the file `dentry` records as `options` asks, as `vfs_open` finds
+/// `f_op->open` on the inode a dentry holds.
+pub(crate) fn d_open(
+    dentry: &Dentry,
+    options: &OpenOptions,
+) -> Result<Box<dyn File>, FilesystemError> {
+    match dentry.d_inode() {
+        Some(inode) => inode.ops().open(dentry, options).unwrap_or_else(|| {
+            Err(match inode.kind() {
+                Some(FileType::Directory) => FilesystemError::IsADirectory,
+                _ => FilesystemError::Unsupported,
+            })
+        }),
+        None => Err(FilesystemError::NotFound),
+    }
+}
+
+/// Where the link `dentry` records points, as `vfs_readlink` asks the inode
+/// a dentry holds; anything else refuses as `readlinkat` does.
+pub(crate) fn d_get_link(dentry: &Dentry) -> Result<String, FilesystemError> {
+    match dentry.d_inode() {
+        Some(inode) => inode
+            .ops()
+            .get_link(dentry)
+            .unwrap_or(Err(FilesystemError::InvalidInput)),
+        None => Err(FilesystemError::NotFound),
+    }
 }
 
 /// One name of a path still to walk, and whether a link's target named it.
@@ -244,7 +329,7 @@ pub(crate) fn d_can_lookup(
     dir: &Arc<dyn InodeOperations>,
     dentry: &Dentry,
 ) -> Result<(), FilesystemError> {
-    match dir.metadata(dentry)?.file_type {
+    match dir.getattr(dentry)?.file_type {
         FileType::Directory => Ok(()),
         _ => Err(FilesystemError::NotADirectory),
     }
@@ -252,22 +337,23 @@ pub(crate) fn d_can_lookup(
 
 impl Nameidata {
     /// Step into the directory `part` names, or follow the link standing
-    /// there; `dot` is a `.` or `..` right after it, which no link takes,
-    /// so the directory opens at once there. The directory is opened
-    /// first, a link standing there refused, so only a name that opens as
-    /// none is asked what it is.
+    /// there; `dot` is a `.` or `..` right after it, which no link takes.
+    /// An entry answered for by path has told nothing of what it is, so it
+    /// is stepped into as a directory, asked only where `dot` needs it to be
+    /// one or the walk fails beneath it.
     fn walk_component(&mut self, part: Part, dot: bool) -> Result<(), Error> {
         let parent = self.dentry().clone();
         let _held = down_read(&self.mount, &parent)?;
         let (name, dentry) = self.lookup_slow(&part.name)?;
-        let opened = self.base().open_dir(&dentry).and_then(|dir| {
-            if self.eager || dot {
-                d_can_lookup(&dir, &dentry)?;
-            }
-            Ok(dir)
-        });
-        match opened {
-            Ok(dir) => {
+        let inode = dentry.d_inode().ok_or(FilesystemError::NotFound)?;
+        match inode.kind() {
+            Some(FileType::Symlink) if dot => Err(FilesystemError::FilesystemLoop.into()),
+            Some(FileType::Symlink) => self.pick_link(&dentry),
+            Some(FileType::Directory) | None => {
+                let dir = inode.ops().clone();
+                if dot && inode.answers_by_path() {
+                    d_can_lookup(&dir, &dentry)?;
+                }
                 self.frames.push(Frame {
                     dir,
                     name,
@@ -276,14 +362,7 @@ impl Nameidata {
                 });
                 Ok(())
             }
-            Err(FilesystemError::FilesystemLoop) => {
-                match self.base().symlink_metadata(&dentry)?.file_type {
-                    FileType::Symlink if dot => Err(FilesystemError::FilesystemLoop.into()),
-                    FileType::Symlink => self.pick_link(&dentry),
-                    _ => Err(FilesystemError::FilesystemLoop.into()),
-                }
-            }
-            Err(err) => Err(err.into()),
+            Some(_) => Err(FilesystemError::NotADirectory.into()),
         }
     }
 
@@ -297,7 +376,7 @@ impl Nameidata {
         if self.links > MAXSYMLINKS {
             return Err(FilesystemError::FilesystemLoop.into());
         }
-        let target = self.base().read_link(dentry)?;
+        let target = d_get_link(dentry)?;
         if target.starts_with('/') {
             return Err(FilesystemError::NotPermitted.into());
         }
@@ -333,11 +412,7 @@ impl Nameidata {
     /// and no link.
     fn stays_in(&self, name: &str) -> Result<(), Error> {
         let _held = down_read(&self.mount, self.dentry())?;
-        match self
-            .base()
-            .symlink_metadata(&self.lookup_slow(name)?.1)?
-            .file_type
-        {
+        match d_getattr(&self.lookup_slow(name)?.1)?.file_type {
             FileType::Directory => Ok(()),
             FileType::Symlink => Err(FilesystemError::FilesystemLoop.into()),
             _ => Err(FilesystemError::NotADirectory.into()),
@@ -413,35 +488,11 @@ impl Nameidata {
 /// is `InvalidFilename`. Where `follow` asks, a link at the end is followed
 /// too; one pointing at nothing is `FilesystemLoop` to a call that
 /// `creates`, since what it would create could lie outside `start`.
-///
-/// The walk first lets a Filesystem open the directories it steps through
-/// together, as the last is first asked about. A link on the way then
-/// answers as a loop, and where links are followed the walk starts over,
-/// opening each directory as it steps in, to find the link and follow it.
 pub(crate) fn filename_lookup(
     start: &Path,
     path: &str,
     follow: bool,
     creates: bool,
-) -> Result<Nameidata, Error> {
-    match path_lookupat(start, path, follow, creates, false) {
-        Err(Error::Filesystem(FilesystemError::FilesystemLoop))
-            if start.mount().follows_links() =>
-        {
-            path_lookupat(start, path, follow, creates, true)
-        }
-        resolved => resolved,
-    }
-}
-
-/// One walk of `path`, as Linux's `path_lookupat` is one attempt that
-/// `filename_lookup` repeats.
-fn path_lookupat(
-    start: &Path,
-    path: &str,
-    follow: bool,
-    creates: bool,
-    eager: bool,
 ) -> Result<Nameidata, Error> {
     start.revalidate_path()?;
     if path.is_empty() {
@@ -453,7 +504,7 @@ fn path_lookupat(
     let mut nd = Nameidata {
         mount: start.mount().clone(),
         frames: vec![Frame {
-            dir: start.dir().clone(),
+            dir: start.dir(),
             name: String::new(),
             dentry: start.dentry().clone(),
             through_link: false,
@@ -461,7 +512,6 @@ fn path_lookupat(
         pending: parts(path, false),
         follows_links: start.mount().follows_links(),
         links: 0,
-        eager,
         name: String::new(),
         last: None,
         judged: String::new(),
@@ -475,7 +525,7 @@ fn path_lookupat(
         let parent = nd.dentry().clone();
         let held = down_read(&nd.mount, &parent)?;
         let (stored, dentry) = nd.lookup_slow(&name.name)?;
-        let looked_up = nd.base().symlink_metadata(&dentry);
+        let looked_up = d_getattr(&dentry);
         if !matches!(&looked_up, Ok(metadata) if metadata.file_type == FileType::Symlink) {
             found = Some(looked_up);
             nd.name = stored;
@@ -595,10 +645,15 @@ pub fn do_file_open(
                 create_new: how.create && how.exclusive,
                 truncate: how.truncate,
             };
-            let child = nd.child()?;
+            // A create looked its name up afresh under the directory's lock;
+            // any other open acts on what the walk found.
+            let child = match how.create {
+                true => nd.child()?,
+                false => nd.walked()?,
+            };
             let file = match options.create {
                 true => vfs_create(nd.base().as_ref(), nd.dentry(), &child, &options)?,
-                false => nd.base().open(&child, &options)?,
+                false => d_open(&child, &options)?,
             };
             Ok(FileDescription::File(mask_file_times(
                 file,
@@ -750,7 +805,11 @@ pub fn filename_renameat2(
         (old_inode, old_dir, &old),
         (new_inode, new_dir, &new),
         None,
-        || old_inode.rename(&old, new_inode, &new),
+        || {
+            old_inode
+                .rename(&old, new_inode, &new)
+                .unwrap_or(Err(FilesystemError::NotPermitted))
+        },
     )?)
 }
 
@@ -873,7 +932,9 @@ pub(crate) fn vfs_rmdir(
 ) -> Result<(), FilesystemError> {
     let _victim = victim.rwsem.down_write(filesystem.blocking())?;
     may_delete_dentry(dir, kind_at(inode, victim)?, true)?;
-    inode.remove_dir(victim)?;
+    inode
+        .rmdir(victim)
+        .unwrap_or(Err(FilesystemError::NotPermitted))?;
     victim.mark_dead();
     filesystem.dentries().d_delete(victim);
     Ok(())
@@ -891,7 +952,9 @@ pub(crate) fn vfs_unlink(
 ) -> Result<(), FilesystemError> {
     let _victim = victim.rwsem.down_write(filesystem.blocking())?;
     may_delete_dentry(dir, kind_at(inode, victim)?, false)?;
-    inode.remove_file(victim)?;
+    inode
+        .unlink(victim)
+        .unwrap_or(Err(FilesystemError::NotPermitted))?;
     filesystem.dentries().d_delete(victim);
     Ok(())
 }
@@ -904,7 +967,9 @@ pub(crate) fn vfs_mkdir(
     child: &Dentry,
 ) -> Result<(), FilesystemError> {
     may_create_dentry(dir, kind_at(inode, child)?)?;
-    inode.create_dir(child)
+    inode
+        .mkdir(child)
+        .unwrap_or(Err(FilesystemError::NotPermitted))
 }
 
 /// Make the file `child` in `dir` through `inode`, the directory holding
@@ -921,7 +986,9 @@ pub(crate) fn vfs_create(
         create_new: true,
         ..*options
     };
-    inode.open(child, &options)
+    inode
+        .create(child, &options)
+        .unwrap_or(Err(FilesystemError::PermissionDenied))
 }
 
 /// Make a whiteout at `child` in `dir` through `make`, the Filesystem's
@@ -949,12 +1016,24 @@ pub(crate) fn vfs_link(
 }
 
 /// What stands at `dentry` in the directory `inode` is, a link reported
-/// as itself, or `None` where nothing does, as a dentry is negative.
+/// as itself, or `None` where nothing does, as a dentry is negative. It
+/// reads the kind the dentry records, as Linux's `d_is_*` do, and asks only
+/// an entry answered for by path, which records none. A name the directory
+/// stores under another spelling has something there, of a kind not asked.
 fn kind_at(
     inode: &dyn InodeOperations,
     dentry: &Dentry,
 ) -> Result<Option<FileType>, FilesystemError> {
-    match inode.symlink_metadata(dentry) {
+    if d_lookup_inode(inode, dentry)?.is_some() {
+        return Ok(Some(FileType::Unknown));
+    }
+    let Some(recorded) = dentry.d_inode() else {
+        return Ok(None);
+    };
+    if let Some(kind) = recorded.kind() {
+        return Ok(Some(kind));
+    }
+    match recorded.ops().getattr(dentry) {
         Ok(metadata) => Ok(Some(metadata.file_type)),
         Err(FilesystemError::NotFound) => Ok(None),
         Err(err) => Err(err),
@@ -1043,12 +1122,13 @@ mod tests {
     use std::time::Duration;
 
     use crate::filesystem::{
-        Access, DirEntry, File, FilesystemError, InodeOperations, Metadata, OpenOptions, Tmpfs,
+        Access, DirEntry, File, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+        Tmpfs,
     };
     use crate::mount::{Mount, Policy};
     use crate::profile::Profile;
     use crate::vfs::kern_path::{kern_path, KernPath};
-    use crate::vfs::{self, Blocking, Dentry, FileDescription, Filesystem, OpenHow, Path};
+    use crate::vfs::{self, Blocking, Dentry, FileDescription, Filesystem, Inode, OpenHow, Path};
 
     type Hook = Box<dyn Fn() -> Result<(), FilesystemError> + Send + Sync>;
 
@@ -1067,56 +1147,50 @@ mod tests {
     }
 
     impl InodeOperations for HookedTmpfs {
-        fn open(
-            &self,
-            dentry: &Dentry,
-            options: &OpenOptions,
-        ) -> Result<Box<dyn File>, FilesystemError> {
-            self.tmpfs.open(dentry, options)
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.tmpfs.getattr(dentry)
         }
 
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-            self.tmpfs.open_dir(dentry)
-        }
-
-        fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.tmpfs.metadata(dentry)
-        }
-
-        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.tmpfs.symlink_metadata(dentry)
-        }
-
-        fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
             self.tmpfs.lookup(dentry)
         }
 
-        fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
-            Ok(!self.stale.load(Ordering::SeqCst) && self.tmpfs.d_revalidate(dentry)?)
+        fn d_revalidate(&self, dentry: &Dentry) -> Option<Result<bool, FilesystemError>> {
+            if self.stale.load(Ordering::SeqCst) {
+                return Some(Ok(false));
+            }
+            self.tmpfs.d_revalidate(dentry)
         }
 
-        fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-            self.tmpfs.read_link(dentry)
+        fn create(
+            &self,
+            dentry: &Dentry,
+            options: &OpenOptions,
+        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+            self.tmpfs.create(dentry, options)
         }
 
-        fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
             self.tmpfs.entries(dentry)
         }
 
-        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
             match &self.making {
-                Some(making) => making(),
-                None => self.tmpfs.create_dir(dentry),
+                Some(making) => Some(making()),
+                None => self.tmpfs.mkdir(dentry),
             }
         }
 
-        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.remove_dir(dentry)?;
-            self.removed.as_ref().map_or(Ok(()), |removed| removed())
+        fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+            Some(
+                self.tmpfs
+                    .rmdir(dentry)?
+                    .and_then(|()| self.removed.as_ref().map_or(Ok(()), |removed| removed())),
+            )
         }
 
-        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.remove_file(dentry)
+        fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+            self.tmpfs.unlink(dentry)
         }
 
         fn rename(
@@ -1124,7 +1198,7 @@ mod tests {
             from: &Dentry,
             to_dir: &dyn InodeOperations,
             to: &Dentry,
-        ) -> Result<(), FilesystemError> {
+        ) -> Option<Result<(), FilesystemError>> {
             self.renames.fetch_add(1, Ordering::SeqCst);
             self.tmpfs.rename(from, to_dir, to)
         }
@@ -1132,96 +1206,80 @@ mod tests {
 
     /// A Tmpfs holding only upper-case names and reaching each by any case,
     /// as a host folding case does, answering each call by the folded path
-    /// from its root; each directory it opens folds too, and `renaming`
-    /// runs as a move reaches any of them.
+    /// from its root; `renaming` runs as a move reaches any directory.
+    #[derive(Clone)]
     struct FoldsToUpper {
         root: KernPath,
-        at: String,
         renaming: Arc<Hook>,
     }
 
-    impl FoldsToUpper {
-        /// The name `dentry` carries, folded, beneath this directory.
-        fn path(&self, dentry: &Dentry) -> String {
-            let name = dentry.name().to_uppercase();
-            match self.at.as_str() {
-                "" => name,
-                at => format!("{at}/{name}"),
-            }
-        }
+    /// The path `dentry` stands at, folded.
+    fn folded(dentry: &Dentry) -> String {
+        dentry.path_raw().to_uppercase()
     }
 
     impl InodeOperations for FoldsToUpper {
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.root.symlink_metadata(&folded(dentry))
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+            let name = dentry.name();
+            let upper = name.to_uppercase();
+            Some(match self.root.symlink_metadata(&folded(dentry)) {
+                Ok(_) if upper != name => Ok(Lookup::Spelled(upper)),
+                Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone())))),
+                Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
+                Err(err) => Err(err),
+            })
+        }
+
         fn open(
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Result<Box<dyn File>, FilesystemError> {
-            self.root.open(&self.path(dentry), options)
+        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+            Some(self.root.open(&folded(dentry), options))
         }
 
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-            let at = self.path(dentry);
-            self.root.open_dir(&at)?;
-            Ok(Arc::new(Self {
-                root: self.root.clone(),
-                at,
-                renaming: self.renaming.clone(),
-            }))
+        fn create(
+            &self,
+            dentry: &Dentry,
+            options: &OpenOptions,
+        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+            Some(self.root.open(&folded(dentry), options))
         }
 
-        fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.root.symlink_metadata(&self.at)
+        fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
+            Some(
+                self.root
+                    .open_dir(&folded(dentry))
+                    .and_then(|dir| dir.entries()),
+            )
         }
 
-        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.root.symlink_metadata(&self.path(dentry))
+        fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+            Some(self.root.create_dir(&folded(dentry)))
         }
 
-        fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-            match self.symlink_metadata(dentry) {
-                Ok(_) => Ok(dentry.name().to_uppercase()),
-                Err(FilesystemError::NotFound) => Ok(dentry.name()),
-                Err(err) => Err(err),
-            }
+        fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+            Some(self.root.remove_dir(&folded(dentry)))
         }
 
-        fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
-            Ok(true)
-        }
-
-        fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-            self.root.read_link(&self.path(dentry))
-        }
-
-        fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.root.open_dir(&self.at)?.entries()
-        }
-
-        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.create_dir(&self.path(dentry))
-        }
-
-        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_dir(&self.path(dentry))
-        }
-
-        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_file(&self.path(dentry))
+        fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+            Some(self.root.remove_file(&folded(dentry)))
         }
 
         fn rename(
             &self,
             from: &Dentry,
-            to_dir: &dyn InodeOperations,
+            _to_dir: &dyn InodeOperations,
             to: &Dentry,
-        ) -> Result<(), FilesystemError> {
-            (self.renaming)()?;
-            let target = (to_dir as &dyn std::any::Any)
-                .downcast_ref::<Self>()
-                .ok_or(FilesystemError::CrossesDevices)?;
-            self.root
-                .rename(&self.path(from), &self.root, &target.path(to))
+        ) -> Option<Result<(), FilesystemError>> {
+            Some(
+                (self.renaming)()
+                    .and_then(|()| self.root.rename(&folded(from), &self.root, &folded(to))),
+            )
         }
     }
 
@@ -1525,7 +1583,6 @@ mod tests {
         let tmpfs: Tmpfs = [("DIR/F", "x")].into_iter().collect();
         let folds = FoldsToUpper {
             root: kern_path(Arc::new(tmpfs)),
-            at: String::new(),
             renaming,
         };
         let root = root_of(Filesystem::with_blocking(Arc::new(folds), counts.clone()));

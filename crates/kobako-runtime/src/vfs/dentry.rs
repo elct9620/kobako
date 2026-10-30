@@ -295,13 +295,13 @@ mod tests {
 
     use super::{Dentries, Dentry};
     use crate::filesystem::{
-        Access, DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions,
-        Tmpfs,
+        Access, DirEntry, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
+        OpenOptions, Tmpfs,
     };
     use crate::mount::Mount;
     use crate::profile::Profile;
     use crate::vfs::kern_path::{kern_path, KernPath};
-    use crate::vfs::{self, FileDescription, Filesystem, Inode, OpenHow, Path};
+    use crate::vfs::{self, FileDescription, Filesystem, Identity, Inode, OpenHow, Path};
 
     /// A Filesystem answering each call by the path its dentry stands at,
     /// as one written in Ruby does, so a removed directory it opened
@@ -312,60 +312,49 @@ mod tests {
     }
 
     impl InodeOperations for ByPath {
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.root.symlink_metadata(&dentry.path_raw())
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+            Some(Ok(Lookup::Found(Inode::by_path(Arc::new(Self {
+                root: self.root.clone(),
+            })))))
+        }
+
         fn open(
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Result<Box<dyn File>, FilesystemError> {
-            self.root.open(&dentry.path_raw(), options)
+        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+            Some(self.root.open(&dentry.path_raw(), options))
         }
 
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-            if self.root.symlink_metadata(&dentry.path_raw())?.file_type != FileType::Directory {
-                return Err(FilesystemError::NotADirectory);
-            }
-            Ok(Arc::new(Self {
-                root: self.root.clone(),
-            }))
+        fn create(
+            &self,
+            dentry: &Dentry,
+            options: &OpenOptions,
+        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+            Some(self.root.open(&dentry.path_raw(), options))
         }
 
-        fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.root.symlink_metadata(&dentry.path_raw())
-        }
-
-        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.root.symlink_metadata(&dentry.path_raw())
-        }
-
-        fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-            Ok(dentry.name())
-        }
-
-        fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
-            Ok(true)
-        }
-
-        fn read_link(&self, _dentry: &Dentry) -> Result<String, FilesystemError> {
-            Err(FilesystemError::InvalidInput)
-        }
-
-        fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-            match dentry.path_raw().as_str() {
+        fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
+            Some(match dentry.path_raw().as_str() {
                 "" => self.root.entries(),
-                at => self.root.open_dir(at)?.entries(),
-            }
+                at => self.root.open_dir(at).and_then(|dir| dir.entries()),
+            })
         }
 
-        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.create_dir(&dentry.path_raw())
+        fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+            Some(self.root.create_dir(&dentry.path_raw()))
         }
 
-        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_dir(&dentry.path_raw())
+        fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+            Some(self.root.remove_dir(&dentry.path_raw()))
         }
 
-        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_file(&dentry.path_raw())
+        fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+            Some(self.root.remove_file(&dentry.path_raw()))
         }
 
         fn rename(
@@ -373,12 +362,12 @@ mod tests {
             from: &Dentry,
             to_dir: &dyn InodeOperations,
             to: &Dentry,
-        ) -> Result<(), FilesystemError> {
-            (to_dir as &dyn Any)
-                .downcast_ref::<Self>()
-                .ok_or(FilesystemError::CrossesDevices)?;
-            self.root
-                .rename(&from.path_raw(), &self.root, &to.path_raw())
+        ) -> Option<Result<(), FilesystemError>> {
+            (to_dir as &dyn Any).downcast_ref::<Self>()?;
+            Some(
+                self.root
+                    .rename(&from.path_raw(), &self.root, &to.path_raw()),
+            )
         }
     }
 
@@ -409,6 +398,7 @@ mod tests {
     // lookup replacing it would hide the change it is there to see.
     #[test]
     fn a_dentry_keeps_what_a_lookup_first_found_there() {
+        let ops: Arc<dyn InodeOperations> = Arc::new(Tmpfs::new());
         let (first, second) = (
             Metadata::new(FileType::Directory, 0).with_identity(1, 2),
             Metadata::new(FileType::Directory, 0).with_identity(1, 3),
@@ -416,11 +406,11 @@ mod tests {
         let dentries = Dentries::default();
         let dentry = dentries.child(&dentries.root(), "dir");
         dentry.d_add(None);
-        dentry.d_add(Some(Inode::from(&first)));
-        dentry.d_add(Some(Inode::from(&second)));
+        dentry.d_add(Some(Inode::new(&first, ops.clone())));
+        dentry.d_add(Some(Inode::new(&second, ops)));
         assert_eq!(
-            dentry.d_inode().as_deref(),
-            Some(&Inode::from(&first)),
+            dentry.d_inode().and_then(|inode| inode.identity()),
+            Identity::of(&first),
             "Dentry::d_add after a negative lookup and then a positive one must keep the first \
              inode recorded"
         );

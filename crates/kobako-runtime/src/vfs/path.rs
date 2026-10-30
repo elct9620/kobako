@@ -7,7 +7,7 @@ use super::dentry::Dentry;
 use super::namei::down_read;
 use super::times::mask_times;
 use super::Error;
-use crate::filesystem::{DirEntry, FilesystemError, InodeOperations, Metadata};
+use crate::filesystem::{DirEntry, FileType, FilesystemError, InodeOperations, Lookup, Metadata};
 use crate::mount::Mount;
 use crate::profile::Profile;
 
@@ -16,11 +16,8 @@ use crate::profile::Profile;
 #[derive(Clone)]
 pub struct Path {
     mount: Arc<Mount>,
-    /// Where the directory stands in its Filesystem, and whether it was
-    /// removed.
+    /// The directory, wherever it moved, and whether it was removed.
     dentry: Arc<Dentry>,
-    /// The directory itself, which a call reaches wherever it moved.
-    dir: Arc<dyn InodeOperations>,
     /// The isolation the invocation holding it runs under, which decides
     /// whether the times a Filesystem reports reach the guest.
     profile: Profile,
@@ -30,23 +27,17 @@ impl Path {
     /// The root of `mount`, for an invocation running under `profile`.
     pub fn root(mount: Mount, profile: Profile) -> Self {
         Self {
-            dir: mount.filesystem().root().clone(),
             dentry: mount.filesystem().dentries().root(),
             mount: Arc::new(mount),
             profile,
         }
     }
 
-    /// This Path standing in `dir`, opened beneath it as `dentry`.
-    pub(crate) fn with_directory(
-        &self,
-        dir: Arc<dyn InodeOperations>,
-        dentry: Arc<Dentry>,
-    ) -> Self {
+    /// This Path standing in the directory `dentry` records.
+    pub(crate) fn with_directory(&self, dentry: Arc<Dentry>) -> Self {
         Self {
             mount: self.mount.clone(),
             dentry,
-            dir,
             profile: self.profile,
         }
     }
@@ -64,9 +55,15 @@ impl Path {
         &self.dentry
     }
 
-    /// The directory itself, where a call through it starts.
-    pub(crate) fn dir(&self) -> &Arc<dyn InodeOperations> {
-        &self.dir
+    /// The directory itself, where a call through it starts. A Path is made
+    /// only for a dentry recording its directory, which a dentry never
+    /// gives up.
+    pub(crate) fn dir(&self) -> Arc<dyn InodeOperations> {
+        self.dentry
+            .d_inode()
+            .expect("a Path's dentry records its directory")
+            .ops()
+            .clone()
     }
 
     /// Refuse a call through the directory, beneath a Mount whose Policy
@@ -96,6 +93,10 @@ impl Path {
         if dentries.d_unlinked(&self.dentry) || !told_apart {
             return Err(FilesystemError::NotFound.into());
         }
+        // No `d_revalidate` means a name stays valid, as Linux's d_op does.
+        if filesystem.root().d_revalidate(&self.dentry).is_none() {
+            return Ok(());
+        }
         let mut above = Vec::new();
         let mut at = Some(parent);
         while let Some(next) = at {
@@ -104,15 +105,24 @@ impl Path {
         }
         let mut dir = filesystem.root().clone();
         for ancestor in above.iter().rev().skip(1) {
-            dir = match dir.open_dir(ancestor) {
-                Ok(dir) => dir,
-                Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => {
-                    return Err(FilesystemError::NotFound.into())
+            dir = match dir.lookup(ancestor) {
+                Some(Ok(Lookup::Found(inode)))
+                    if matches!(inode.kind(), Some(FileType::Directory) | None) =>
+                {
+                    inode.ops().clone()
                 }
-                Err(err) => return Err(err.into()),
+                Some(Err(err))
+                    if !matches!(
+                        err,
+                        FilesystemError::NotFound | FilesystemError::NotADirectory
+                    ) =>
+                {
+                    return Err(err.into())
+                }
+                _ => return Err(FilesystemError::NotFound.into()),
             };
         }
-        if dir.d_revalidate(&self.dentry)? {
+        if dir.d_revalidate(&self.dentry).unwrap_or(Ok(true))? {
             return Ok(());
         }
         dentries.d_invalidate(&self.dentry);
@@ -122,7 +132,7 @@ impl Path {
     /// What the directory reports of itself.
     pub fn metadata(&self) -> Result<Metadata, Error> {
         self.revalidate_path()?;
-        Ok(mask_times(self.dir.metadata(&self.dentry)?, self.profile))
+        Ok(mask_times(self.dir().getattr(&self.dentry)?, self.profile))
     }
 
     /// The entries of the directory, without `.` or `..`; none once it was
@@ -135,6 +145,9 @@ impl Path {
         if self.dentry.is_dead() {
             return Ok(Vec::new());
         }
-        Ok(self.dir.entries(&self.dentry)?)
+        Ok(self
+            .dir()
+            .entries(&self.dentry)
+            .unwrap_or(Err(FilesystemError::NotADirectory))?)
     }
 }

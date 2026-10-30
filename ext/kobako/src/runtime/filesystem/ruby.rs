@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{
-    DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions,
+    DirEntry, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
 };
 use kobako_runtime::vfs::{Dentry, Inode};
 
@@ -209,8 +209,8 @@ fn join(dir: &str, name: &str) -> String {
     }
 }
 
-impl InodeOperations for RubyFilesystem {
-    fn open(
+impl RubyFilesystem {
+    fn open_at(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
@@ -227,46 +227,7 @@ impl InodeOperations for RubyFilesystem {
         )
     }
 
-    /// A Ruby object answers `stat` alone, so it holds no links to refuse.
-    /// The directory is not asked about until a call needs it, so a walk
-    /// through several names asks the object once, by the whole path, as
-    /// 9p walks to a dentry's fid only when a call needs one.
-    fn open_dir(&self, _dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-        Ok(Arc::new(Self {
-            object: self.object,
-            dev: self.dev,
-        }))
-    }
-
-    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.stat(dentry.path_raw())
-    }
-
-    /// A Ruby object answers `stat` alone, so it holds no links.
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.stat(dentry.path_raw())
-    }
-
-    /// A Ruby object matches names exactly, as its contract asks, and is
-    /// asked by path on every call, so a lookup asks it nothing.
-    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        dentry.d_add(Some(Inode::by_path()));
-        Ok(dentry.name())
-    }
-
-    /// A Ruby object is asked by the path a dentry stands at, so a name
-    /// always means what stands there now, the path a Policy judges.
-    fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
-        Ok(true)
-    }
-
-    /// A Ruby object answers `stat` alone, so it holds no links.
-    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.symlink_metadata(dentry)?;
-        Err(FilesystemError::InvalidInput)
-    }
-
-    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+    fn entries_at(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
         let at = dentry.path_raw();
         let names: Vec<String> = ask(
             self.object,
@@ -283,37 +244,7 @@ impl InodeOperations for RubyFilesystem {
             .collect()
     }
 
-    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        change(
-            self.object,
-            "mkdir",
-            (dentry.path_raw(),),
-            FilesystemError::ReadOnlyFilesystem,
-        )
-    }
-
-    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        change(
-            self.object,
-            "rmdir",
-            (dentry.path_raw(),),
-            FilesystemError::ReadOnlyFilesystem,
-        )
-    }
-
-    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        change(
-            self.object,
-            "unlink",
-            (dentry.path_raw(),),
-            FilesystemError::ReadOnlyFilesystem,
-        )
-    }
-
-    /// `rename(from, to)`, as `File.rename` takes it. What stands at `from`
-    /// after the runtime checked it is the object's to keep still. Both
-    /// directories are of one object, which their shared device names.
-    fn rename(
+    fn rename_to(
         &self,
         from: &Dentry,
         to_dir: &dyn InodeOperations,
@@ -329,6 +260,86 @@ impl InodeOperations for RubyFilesystem {
             (from.path_raw(), to.path_raw()),
             FilesystemError::ReadOnlyFilesystem,
         )
+    }
+}
+
+/// Every entry answers through the same object, asked by the path a dentry
+/// stands at, so a name always means what stands there now, the path a
+/// Policy judges, and no `d_revalidate` is needed. A Ruby object answers
+/// `stat` alone, so it holds no links to follow.
+impl InodeOperations for RubyFilesystem {
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.stat(dentry.path_raw())
+    }
+
+    /// A Ruby object matches names exactly, as its contract asks. A lookup
+    /// asks it nothing, so a walk through several names asks the object
+    /// once, by the whole path, as 9p walks to a dentry's fid only when a
+    /// call needs one.
+    fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        Some(Ok(Lookup::Found(Inode::by_path(Arc::new(Self {
+            object: self.object,
+            dev: self.dev,
+        })))))
+    }
+
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        Some(self.open_at(dentry, options))
+    }
+
+    fn create(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        Some(self.open_at(dentry, options))
+    }
+
+    fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
+        Some(self.entries_at(dentry))
+    }
+
+    fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        Some(change(
+            self.object,
+            "mkdir",
+            (dentry.path_raw(),),
+            FilesystemError::ReadOnlyFilesystem,
+        ))
+    }
+
+    fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        Some(change(
+            self.object,
+            "rmdir",
+            (dentry.path_raw(),),
+            FilesystemError::ReadOnlyFilesystem,
+        ))
+    }
+
+    fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        Some(change(
+            self.object,
+            "unlink",
+            (dentry.path_raw(),),
+            FilesystemError::ReadOnlyFilesystem,
+        ))
+    }
+
+    /// `rename(from, to)`, as `File.rename` takes it. What stands at `from`
+    /// after the runtime checked it is the object's to keep still. Both
+    /// directories are of one object, which their shared device names.
+    fn rename(
+        &self,
+        from: &Dentry,
+        to_dir: &dyn InodeOperations,
+        to: &Dentry,
+    ) -> Option<Result<(), FilesystemError>> {
+        Some(self.rename_to(from, to_dir, to))
     }
 }
 

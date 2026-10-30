@@ -8,8 +8,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::SystemTime;
 
 use super::path::{ancestors, name, normalize_seed};
-use super::{DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions};
-use crate::vfs::{Dentry, Inode};
+use super::{
+    DirEntry, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+};
+use crate::vfs::{Dentry, Identity, Inode};
 use whiteout::Whiteout;
 
 mod tmpfile;
@@ -170,14 +172,6 @@ impl Dir {
             .get(name)
             .cloned()
             .ok_or(FilesystemError::NotFound)
-    }
-
-    /// The directory standing at `name` in this one.
-    fn directory(&self, name: &str) -> Result<Arc<Self>, FilesystemError> {
-        match self.get(name)? {
-            Node::Directory(dir) => Ok(dir),
-            Node::File(_) | Node::Whiteout { .. } => Err(FilesystemError::NotADirectory),
-        }
     }
 }
 
@@ -461,102 +455,18 @@ impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Tmpfs {
     }
 }
 
-impl InodeOperations for Tmpfs {
-    fn open(
-        &self,
-        dentry: &Dentry,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
-        let name = &dentry.name();
-        let data = match self.dir.get(name) {
-            Ok(Node::Directory(_)) => return Err(FilesystemError::IsADirectory),
-            // A character device 0:0 has no driver to open it.
-            Ok(Node::Whiteout { .. }) => return Err(FilesystemError::Unsupported),
-            Ok(Node::File(data)) => {
-                if options.truncate {
-                    lock(&data).resize(0)?;
-                }
-                data
-            }
-            Err(FilesystemError::NotFound) if options.create || options.create_new => {
-                let data = Content::create(&self.tree.space)?;
-                self.dir.state().insert(name, Node::File(data.clone()));
-                data
-            }
-            Err(error) => return Err(error),
-        };
-        Ok(Box::new(TmpfsFile { data }))
-    }
-
-    /// A Tmpfs holds no links to refuse.
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-        Ok(Arc::new(self.beneath(self.dir.directory(&dentry.name())?)))
-    }
-
-    fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        Ok(self.dir.metadata(self.tree.dev))
-    }
-
-    /// A Tmpfs holds no links.
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        match self.dir.get(&dentry.name())? {
-            Node::File(data) => Ok(lock(&data).metadata()),
-            Node::Directory(dir) => Ok(dir.metadata(self.tree.dev)),
-            Node::Whiteout { .. } => Ok(Metadata::new(FileType::Unknown, 0).with_nlink(1)),
+impl Tmpfs {
+    /// What `node`, an entry of this Tmpfs, reports of itself. A whiteout is
+    /// a character device 0:0, as tmpfs makes one.
+    fn node_metadata(&self, node: &Node) -> Metadata {
+        match node {
+            Node::File(data) => lock(data).metadata(),
+            Node::Directory(dir) => dir.metadata(self.tree.dev),
+            Node::Whiteout { .. } => Metadata::new(FileType::Unknown, 0).with_nlink(1),
         }
     }
 
-    /// A Tmpfs matches names byte for byte, and records what stands at the
-    /// name, as tmpfs's lookup hands `d_add` its inode.
-    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        match self.symlink_metadata(dentry) {
-            Ok(found) => dentry.d_add(Some(Inode::from(&found))),
-            Err(FilesystemError::NotFound) => dentry.d_add(None),
-            Err(err) => return Err(err),
-        }
-        Ok(dentry.name())
-    }
-
-    /// A Tmpfs handed to more than one Filesystem instance changes through
-    /// each, behind the others' dentries, so a dentry whose identity the
-    /// runtime learned is valid only while that directory stands at its
-    /// name here, as NFS compares the handle a fresh lookup finds. One the
-    /// runtime learned nothing of has nothing to compare.
-    fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
-        let Some(identity) = dentry.d_inode().and_then(|inode| inode.identity()) else {
-            return Ok(true);
-        };
-        Ok(match self.symlink_metadata(dentry) {
-            Ok(found) => Inode::from(&found).identity() == Some(identity),
-            Err(_) => false,
-        })
-    }
-
-    /// A Tmpfs holds no links.
-    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.symlink_metadata(dentry)?;
-        Err(FilesystemError::InvalidInput)
-    }
-
-    fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        Ok(self
-            .dir
-            .state()
-            .entries
-            .iter()
-            .map(|(name, node)| DirEntry::new(name.as_str(), node.file_type()))
-            .collect())
-    }
-
-    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.tree.space.inodes.take(1)?;
-        let made = Node::Directory(self.new_directory());
-        self.dir.state().insert(&dentry.name(), made);
-        Ok(())
-    }
-
-    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        let name = &dentry.name();
+    fn rmdir_at(&self, name: &str) -> Result<(), FilesystemError> {
         let mut state = self.dir.state();
         let removed = match state.entries.get(name) {
             Some(Node::File(_) | Node::Whiteout { .. }) => {
@@ -573,8 +483,7 @@ impl InodeOperations for Tmpfs {
         Ok(())
     }
 
-    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        let name = &dentry.name();
+    fn unlink_at(&self, name: &str) -> Result<(), FilesystemError> {
         let mut state = self.dir.state();
         match state.entries.get(name) {
             Some(Node::File(_) | Node::Whiteout { .. }) => {
@@ -586,17 +495,137 @@ impl InodeOperations for Tmpfs {
         }
     }
 
+    fn mkdir_at(&self, name: &str) -> Result<(), FilesystemError> {
+        self.tree.space.inodes.take(1)?;
+        let made = Node::Directory(self.new_directory());
+        self.dir.state().insert(name, made);
+        Ok(())
+    }
+
+    fn create_at(&self, name: &str) -> Result<Box<dyn File>, FilesystemError> {
+        let data = Content::create(&self.tree.space)?;
+        self.dir.state().insert(name, Node::File(data.clone()));
+        Ok(Box::new(TmpfsFile { data }))
+    }
+}
+
+/// A directory of a Tmpfs answers for the names in it. A file answers
+/// through `TmpfsRegular`, and a whiteout, a character device 0:0 with no
+/// driver to open it, through `TmpfsWhiteout`.
+impl InodeOperations for Tmpfs {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        Ok(self.dir.metadata(self.tree.dev))
+    }
+
+    /// A Tmpfs matches names byte for byte and holds no links.
+    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        let node = match self.dir.get(&dentry.name()) {
+            Ok(node) => node,
+            Err(FilesystemError::NotFound) => return Some(Ok(Lookup::Absent)),
+            Err(err) => return Some(Err(err)),
+        };
+        let metadata = self.node_metadata(&node);
+        let ops: Arc<dyn InodeOperations> = match node {
+            Node::Directory(dir) => Arc::new(self.beneath(dir)),
+            Node::File(data) => Arc::new(TmpfsRegular { data }),
+            Node::Whiteout { .. } => Arc::new(TmpfsWhiteout),
+        };
+        Some(Ok(Lookup::Found(Inode::new(&metadata, ops))))
+    }
+
+    /// A Tmpfs handed to more than one Filesystem instance changes through
+    /// each, behind the others' dentries, so a dentry recording an identity
+    /// is valid only while that entry stands at its name here, as NFS
+    /// compares the handle a fresh lookup finds. One recording none has
+    /// nothing to compare.
+    fn d_revalidate(&self, dentry: &Dentry) -> Option<Result<bool, FilesystemError>> {
+        let Some(identity) = dentry.d_inode().and_then(|inode| inode.identity()) else {
+            return Some(Ok(true));
+        };
+        Some(Ok(match self.dir.get(&dentry.name()) {
+            Ok(node) => Identity::of(&self.node_metadata(&node)) == Some(identity),
+            Err(_) => false,
+        }))
+    }
+
+    fn create(
+        &self,
+        dentry: &Dentry,
+        _options: &OpenOptions,
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        Some(self.create_at(&dentry.name()))
+    }
+
+    fn entries(&self, _dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
+        Some(Ok(self
+            .dir
+            .state()
+            .entries
+            .iter()
+            .map(|(name, node)| DirEntry::new(name.as_str(), node.file_type()))
+            .collect()))
+    }
+
+    fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        Some(self.mkdir_at(&dentry.name()))
+    }
+
+    fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        Some(self.rmdir_at(&dentry.name()))
+    }
+
+    fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        Some(self.unlink_at(&dentry.name()))
+    }
+
     /// The move `rename2` makes with no flag, as `shmem_rename2` makes it.
     fn rename(
         &self,
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
-    ) -> Result<(), FilesystemError> {
-        let target = (to_dir as &dyn Any)
-            .downcast_ref::<Self>()
-            .ok_or(FilesystemError::CrossesDevices)?;
-        self.rename2(&from.name(), target, &to.name(), None)
+    ) -> Option<Result<(), FilesystemError>> {
+        Some(
+            (to_dir as &dyn Any)
+                .downcast_ref::<Self>()
+                .ok_or(FilesystemError::CrossesDevices)
+                .and_then(|target| self.rename2(&from.name(), target, &to.name(), None)),
+        )
+    }
+}
+
+/// A file of a Tmpfs.
+struct TmpfsRegular {
+    data: Arc<Mutex<Content>>,
+}
+
+impl InodeOperations for TmpfsRegular {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        Ok(lock(&self.data).metadata())
+    }
+
+    fn open(
+        &self,
+        _dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        if options.truncate {
+            if let Err(err) = lock(&self.data).resize(0) {
+                return Some(Err(err));
+            }
+        }
+        Some(Ok(Box::new(TmpfsFile {
+            data: self.data.clone(),
+        })))
+    }
+}
+
+/// A whiteout a Tmpfs holds for an Overlay above it.
+struct TmpfsWhiteout;
+
+impl InodeOperations for TmpfsWhiteout {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        Ok(Metadata::new(FileType::Unknown, 0).with_nlink(1))
     }
 }
 

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    DirEntry, File, FilesystemError, InodeOperations, Metadata, OpenOptions, Tmpfs,
+    DirEntry, File, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
@@ -553,15 +553,16 @@ fn file_constants_names_the_flags_an_open_honors() {
 
 /// A Tmpfs whose every open file is handed through `wrap` first.
 struct WrapsFiles<W> {
-    tmpfs: Tmpfs,
-    wrap: W,
+    inner: Arc<dyn InodeOperations>,
+    wrap: Arc<W>,
 }
 
 impl<W> WrapsFiles<W> {
     fn over_note(contents: &str, wrap: W) -> Arc<Self> {
+        let tmpfs: Tmpfs = [("note.txt", contents)].into_iter().collect();
         Arc::new(Self {
-            tmpfs: [("note.txt", contents)].into_iter().collect(),
-            wrap,
+            inner: Arc::new(tmpfs),
+            wrap: Arc::new(wrap),
         })
     }
 }
@@ -571,61 +572,40 @@ where
     W: Fn(Box<dyn File>) -> F + Send + Sync + 'static,
     F: File + 'static,
 {
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.inner.getattr(dentry)
+    }
+
+    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        Some(self.inner.lookup(dentry)?.map(|lookup| match lookup {
+            Lookup::Found(inode) => Lookup::Found(inode.with_ops(Arc::new(Self {
+                inner: inode.ops().clone(),
+                wrap: self.wrap.clone(),
+            }))),
+            other => other,
+        }))
+    }
+
     fn open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
-        Ok(Box::new((self.wrap)(self.tmpfs.open(dentry, options)?)))
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        let opened = self.inner.open(dentry, options)?;
+        Some(opened.map(|file| Box::new((self.wrap)(file)) as Box<dyn File>))
     }
 
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-        self.tmpfs.open_dir(dentry)
-    }
-
-    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.tmpfs.metadata(dentry)
-    }
-
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.tmpfs.symlink_metadata(dentry)
-    }
-
-    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.tmpfs.lookup(dentry)
-    }
-
-    fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
-        self.tmpfs.d_revalidate(dentry)
-    }
-
-    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.tmpfs.read_link(dentry)
-    }
-
-    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.tmpfs.entries(dentry)
-    }
-
-    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.tmpfs.create_dir(dentry)
-    }
-
-    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.tmpfs.remove_dir(dentry)
-    }
-
-    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.tmpfs.remove_file(dentry)
-    }
-
-    fn rename(
+    fn create(
         &self,
-        from: &Dentry,
-        _to_dir: &dyn InodeOperations,
-        to: &Dentry,
-    ) -> Result<(), FilesystemError> {
-        self.tmpfs.rename(from, &self.tmpfs, to)
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        let made = self.inner.create(dentry, options)?;
+        Some(made.map(|file| Box::new((self.wrap)(file)) as Box<dyn File>))
+    }
+
+    fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
+        self.inner.entries(dentry)
     }
 }
 

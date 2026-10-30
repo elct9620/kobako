@@ -9,13 +9,13 @@
 use std::sync::Arc;
 
 use super::namei::{
-    d_can_lookup, filename_lookup, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink,
-    Nameidata,
+    d_can_lookup, d_get_link, d_open, filename_lookup, vfs_create, vfs_mkdir, vfs_rename,
+    vfs_rmdir, vfs_unlink, Nameidata,
 };
 use super::path::Path;
 use super::{Error, Filesystem};
 use crate::filesystem::{
-    Access, DirEntry, File, FilesystemError, InodeOperations, Metadata, OpenOptions,
+    Access, DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions,
 };
 use crate::mount::Mount;
 use crate::profile::Profile;
@@ -57,16 +57,19 @@ impl KernPath {
             Err(FilesystemError::NotFound) if options.create || options.create_new => {
                 vfs_create(nd.base().as_ref(), nd.dentry(), &child, options)
             }
-            _ => nd.base().open(&child, options),
+            _ => d_open(&child, options),
         }
     }
 
     pub(crate) fn open_dir(&self, path: &str) -> Result<Self, FilesystemError> {
         let nd = self.resolve(path)?;
         let dentry = nd.child()?;
-        let dir = nd.base().open_dir(&dentry)?;
-        d_can_lookup(&dir, &dentry)?;
-        Ok(Self(self.0.with_directory(dir, dentry)))
+        let inode = dentry.d_inode().ok_or(FilesystemError::NotFound)?;
+        if inode.kind() == Some(FileType::Symlink) {
+            return Err(FilesystemError::FilesystemLoop);
+        }
+        d_can_lookup(inode.ops(), &dentry)?;
+        Ok(Self(self.0.with_directory(dentry)))
     }
 
     /// What the directory reports of itself.
@@ -85,15 +88,12 @@ impl KernPath {
     }
 
     pub(crate) fn lookup(&self, path: &str) -> Result<String, FilesystemError> {
-        let nd = self.resolve(path)?;
-        let child = nd.child()?;
-        nd.base().lookup(&child)
+        Ok(self.resolve(path)?.name)
     }
 
     pub(crate) fn read_link(&self, path: &str) -> Result<String, FilesystemError> {
         let nd = self.resolve(path)?;
-        let child = nd.child()?;
-        nd.base().read_link(&child)
+        d_get_link(&*nd.child()?)
     }
 
     pub(crate) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -151,7 +151,11 @@ impl KernPath {
             (old_inode, source.dentry(), &old),
             (new_inode, target.dentry(), &new),
             None,
-            || old_inode.rename(&old, new_inode, &new),
+            || {
+                old_inode
+                    .rename(&old, new_inode, &new)
+                    .unwrap_or(Err(FilesystemError::NotPermitted))
+            },
         )
     }
 }

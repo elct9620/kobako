@@ -17,7 +17,10 @@ mod stack;
 use std::any::Any;
 use std::sync::Arc;
 
-use super::{DirEntry, File, FilesystemError, InodeOperations, Metadata, OpenOptions, Tmpfs};
+use super::{
+    DirEntry, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+    Tmpfs,
+};
 use crate::vfs::{Blocking, Dentry, Filesystem, Inode};
 use stack::OverlayFs;
 
@@ -89,77 +92,28 @@ impl Overlay {
     }
 }
 
-impl InodeOperations for Overlay {
-    fn open(
-        &self,
-        dentry: &Dentry,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
-        self.fs.open(&self.fs.parent(dentry)?, dentry, options)
-    }
-
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-        self.fs.dir(dentry)?;
-        Ok(Arc::new(self.clone()))
-    }
-
-    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.fs.dir_metadata(&self.fs.dir(dentry)?.level())
-    }
-
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.fs
-            .symlink_metadata(&self.fs.parent(dentry)?.level(), &dentry.name())
-    }
-
-    /// The name as a Layer spells it, recording what stands there once it
-    /// is spelled so, as `ovl_lookup` hands `d_splice_alias` the inode it
-    /// made.
-    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+impl Overlay {
+    fn lookup_at(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         let level = self.fs.parent(dentry)?.level();
         let name = dentry.name();
         let stored = self.fs.case_exact_name(&level, &name)?;
-        if stored == name {
-            match self.fs.symlink_metadata(&level, &name) {
-                Ok(found) => dentry.d_add(Some(Inode::from(&found))),
-                Err(FilesystemError::NotFound) => dentry.d_add(None),
-                Err(_) => {}
-            }
+        if stored != name {
+            return Ok(Lookup::Spelled(stored));
         }
-        Ok(stored)
+        if let Some(recorded) = self.fs.sole_inode(&level, &name) {
+            return Ok(match recorded? {
+                Some(inode) => Lookup::Found(inode.with_ops(Arc::new(self.clone()))),
+                None => Lookup::Absent,
+            });
+        }
+        match self.fs.symlink_metadata(&level, &name) {
+            Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone())))),
+            Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
+            Err(err) => Err(err),
+        }
     }
 
-    /// A change made to a Layer outside the Overlay is undefined, as
-    /// overlayfs leaves it, so a name the runtime holds stays valid.
-    fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
-        Ok(true)
-    }
-
-    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.fs
-            .read_link(&self.fs.parent(dentry)?.level(), &dentry.name())
-    }
-
-    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.fs.entries(&self.fs.dir(dentry)?.level())
-    }
-
-    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs.create_dir(&self.fs.parent(dentry)?, &dentry.name())
-    }
-
-    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs.remove_dir(&self.fs.parent(dentry)?, &dentry.name())
-    }
-
-    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs
-            .remove_file(&self.fs.parent(dentry)?, &dentry.name())
-    }
-
-    /// Both directories lie in one Overlay, however many directories of
-    /// it are open.
-    fn rename(
+    fn rename_to(
         &self,
         from: &Dentry,
         to_dir: &dyn InodeOperations,
@@ -176,6 +130,110 @@ impl InodeOperations for Overlay {
             &to.name(),
         )
     }
+
+    fn open_at(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        Some(
+            self.fs
+                .parent(dentry)
+                .and_then(|parent| self.fs.open(&parent, dentry, options)),
+        )
+    }
+}
+
+/// Every entry of the view answers through the Overlay, finding what a call
+/// is about through the dentry it is handed. A change made to a Layer
+/// outside the Overlay is undefined, as overlayfs leaves it, so a name the
+/// runtime holds stays valid and it has no `d_revalidate`.
+impl InodeOperations for Overlay {
+    /// A directory reports its merged Layers; any other entry the Layer its
+    /// name is found in.
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        let is_dir = dentry
+            .d_inode()
+            .is_some_and(|inode| inode.kind() == Some(FileType::Directory));
+        if is_dir {
+            return self.fs.dir_metadata(&self.fs.dir(dentry)?.level());
+        }
+        self.fs
+            .symlink_metadata(&self.fs.parent(dentry)?.level(), &dentry.name())
+    }
+
+    /// The entry as a Layer spells it, as `ovl_lookup` hands
+    /// `d_splice_alias` the inode it made.
+    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        Some(self.lookup_at(dentry))
+    }
+
+    fn get_link(&self, dentry: &Dentry) -> Option<Result<String, FilesystemError>> {
+        Some(
+            self.fs
+                .parent(dentry)
+                .and_then(|parent| self.fs.read_link(&parent.level(), &dentry.name())),
+        )
+    }
+
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        self.open_at(dentry, options)
+    }
+
+    fn create(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        self.open_at(dentry, options)
+    }
+
+    fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
+        Some(
+            self.fs
+                .dir(dentry)
+                .and_then(|dir| self.fs.entries(&dir.level())),
+        )
+    }
+
+    fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        Some(
+            self.fs
+                .parent(dentry)
+                .and_then(|parent| self.fs.create_dir(&parent, &dentry.name())),
+        )
+    }
+
+    fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        Some(
+            self.fs
+                .parent(dentry)
+                .and_then(|parent| self.fs.remove_dir(&parent, &dentry.name())),
+        )
+    }
+
+    fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        Some(
+            self.fs
+                .parent(dentry)
+                .and_then(|parent| self.fs.remove_file(&parent, &dentry.name())),
+        )
+    }
+
+    /// Both directories lie in one Overlay, however many directories of
+    /// it are open.
+    fn rename(
+        &self,
+        from: &Dentry,
+        to_dir: &dyn InodeOperations,
+        to: &Dentry,
+    ) -> Option<Result<(), FilesystemError>> {
+        Some(self.rename_to(from, to_dir, to))
+    }
 }
 
 #[cfg(test)]
@@ -186,54 +244,10 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::super::tmpfs::Tmpfs;
+    use super::super::wrap::{Hook, Wrap};
     use super::super::FileType;
     use super::*;
     use crate::vfs::kern_path::{kern_path, KernPath};
-
-    /// The answer of a test Filesystem holding no links.
-    macro_rules! holds_no_links {
-        () => {
-            fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-                self.symlink_metadata(dentry)?;
-                Err(FilesystemError::InvalidInput)
-            }
-        };
-    }
-
-    /// The answers of a test Filesystem matching names byte for byte and
-    /// changed only through the runtime.
-    macro_rules! matches_names_exactly {
-        () => {
-            fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-                Ok(dentry.name())
-            }
-
-            fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
-                Ok(true)
-            }
-        };
-    }
-
-    /// The answers of a test Filesystem over the Tmpfs in `$inner` that
-    /// opens, lists, and reports its directories as that Tmpfs does.
-    macro_rules! opens_directories {
-        ($inner:tt) => {
-            fn open_dir(
-                &self,
-                dentry: &Dentry,
-            ) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-                self.$inner.open_dir(dentry)
-            }
-
-            fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-                self.$inner.metadata(dentry)
-            }
-
-            fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-                self.$inner.entries(dentry)
-            }
-        };
-    }
 
     /// `filesystem` reached through the VFS.
     fn at(filesystem: impl InodeOperations) -> KernPath {
@@ -1059,129 +1073,18 @@ mod tests {
         }
     }
 
-    /// A Tmpfs whose directory starts `interleave` the first time one is
-    /// listed, as a removal's emptiness check lists it.
-    struct Interleaves {
-        tmpfs: Arc<Tmpfs>,
-        interleave: Arc<Interleave>,
-    }
-
-    /// A directory an Interleaves opened, starting its call when listed.
-    struct Lists {
-        dir: Arc<dyn InodeOperations>,
-        interleave: Arc<Interleave>,
-    }
-
-    impl InodeOperations for Lists {
-        fn open(
+    /// A Tmpfs whose directory beneath its root starts `Interleave` the first
+    /// time one is listed, as a removal's emptiness check lists it.
+    impl Hook for Interleave {
+        fn entries(
             &self,
+            inner: &dyn InodeOperations,
             dentry: &Dentry,
-            options: &OpenOptions,
-        ) -> Result<Box<dyn File>, FilesystemError> {
-            self.dir.open(dentry, options)
-        }
-
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-            self.dir.open_dir(dentry)
-        }
-
-        fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.dir.metadata(dentry)
-        }
-
-        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.dir.symlink_metadata(dentry)
-        }
-
-        fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-            self.dir.lookup(dentry)
-        }
-
-        fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
-            self.dir.d_revalidate(dentry)
-        }
-
-        fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-            self.dir.read_link(dentry)
-        }
-
-        fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.interleave.start();
-            self.dir.entries(dentry)
-        }
-
-        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.dir.create_dir(dentry)
-        }
-
-        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.dir.remove_dir(dentry)
-        }
-
-        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.dir.remove_file(dentry)
-        }
-
-        fn rename(
-            &self,
-            from: &Dentry,
-            to_dir: &dyn InodeOperations,
-            to: &Dentry,
-        ) -> Result<(), FilesystemError> {
-            self.dir.rename(from, to_dir, to)
-        }
-    }
-
-    impl InodeOperations for Interleaves {
-        holds_no_links!();
-        matches_names_exactly!();
-
-        fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.tmpfs.metadata(dentry)
-        }
-
-        fn open(
-            &self,
-            dentry: &Dentry,
-            options: &OpenOptions,
-        ) -> Result<Box<dyn File>, FilesystemError> {
-            self.tmpfs.open(dentry, options)
-        }
-
-        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.tmpfs.symlink_metadata(dentry)
-        }
-
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-            Ok(Arc::new(Lists {
-                dir: self.tmpfs.open_dir(dentry)?,
-                interleave: self.interleave.clone(),
-            }))
-        }
-
-        fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.tmpfs.entries(dentry)
-        }
-
-        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.create_dir(dentry)
-        }
-
-        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.remove_dir(dentry)
-        }
-
-        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.remove_file(dentry)
-        }
-
-        fn rename(
-            &self,
-            from: &Dentry,
-            _to_dir: &dyn InodeOperations,
-            to: &Dentry,
-        ) -> Result<(), FilesystemError> {
-            self.tmpfs.rename(from, self.tmpfs.as_ref(), to)
+        ) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
+            if dentry.dget_parent().is_some() {
+                self.start();
+            }
+            inner.entries(dentry)
         }
     }
 
@@ -1191,24 +1094,24 @@ mod tests {
     // @behavior FS-037
     #[test]
     fn a_change_through_an_overlay_waits_for_the_one_in_progress() {
-        let lower = Arc::new(Interleaves {
-            tmpfs: tmpfs_with("dir/.keep", ""),
-            interleave: Arc::default(),
-        });
-        on(&lower.tmpfs)
+        let tmpfs = tmpfs_with("dir/.keep", "");
+        let interleave = Arc::new(Interleave::default());
+        on(&tmpfs)
             .remove_file("dir/.keep")
             .expect("the seed must go");
         let mount = crate::mount::Mount::new(
             "/data",
-            Filesystem::new(Arc::new(over(lower.clone(), Arc::new(Tmpfs::new())))),
+            Filesystem::new(Arc::new(over(
+                Arc::new(Wrap::new(tmpfs, interleave.clone())),
+                Arc::new(Tmpfs::new()),
+            ))),
             super::super::Access::ReadWrite,
         )
         .expect("/data is a guest path");
         let root = crate::vfs::Path::root(mount, crate::profile::Profile::Permissive);
-        *lower.interleave.overlay.lock().unwrap() = Some(root.clone());
+        *interleave.overlay.lock().unwrap() = Some(root.clone());
         let removed = crate::vfs::filename_rmdir(&root, "dir").is_ok();
-        lower
-            .interleave
+        interleave
             .other
             .lock()
             .unwrap()
@@ -1219,7 +1122,7 @@ mod tests {
         assert_eq!(
             (
                 removed,
-                *lower.interleave.finished_inside.lock().unwrap(),
+                *interleave.finished_inside.lock().unwrap(),
                 crate::vfs::vfs_fstatat(&root, "dir/new", false).is_ok()
             ),
             (true, Some(false), false),
@@ -1234,24 +1137,16 @@ mod tests {
         type Answers = (bool, Result<(), crate::vfs::Error>);
 
         struct Reenters {
-            tmpfs: Tmpfs,
             overlay: Mutex<Option<crate::vfs::Path>>,
             answer: Mutex<Option<Answers>>,
         }
 
-        impl InodeOperations for Reenters {
-            holds_no_links!();
-            matches_names_exactly!();
-
-            fn open(
+        impl Hook for Reenters {
+            fn getattr(
                 &self,
+                inner: &dyn InodeOperations,
                 dentry: &Dentry,
-                options: &OpenOptions,
-            ) -> Result<Box<dyn File>, FilesystemError> {
-                self.tmpfs.open(dentry, options)
-            }
-
-            fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            ) -> Result<Metadata, FilesystemError> {
                 let reentering = self.overlay.lock().unwrap().take();
                 if let Some(overlay) = reentering {
                     *self.answer.lock().unwrap() = Some((
@@ -1259,41 +1154,21 @@ mod tests {
                         crate::vfs::filename_mkdirat(&overlay, "made"),
                     ));
                 }
-                self.tmpfs.symlink_metadata(dentry)
-            }
-
-            opens_directories!(tmpfs);
-
-            fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-                self.tmpfs.create_dir(dentry)
-            }
-
-            fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-                self.tmpfs.remove_dir(dentry)
-            }
-
-            fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-                self.tmpfs.remove_file(dentry)
-            }
-
-            fn rename(
-                &self,
-                from: &Dentry,
-                _to_dir: &dyn InodeOperations,
-                to: &Dentry,
-            ) -> Result<(), FilesystemError> {
-                self.tmpfs.rename(from, &self.tmpfs, to)
+                inner.getattr(dentry)
             }
         }
 
         let layer = Arc::new(Reenters {
-            tmpfs: [("note", "x")].into_iter().collect(),
             overlay: Mutex::new(None),
             answer: Mutex::new(None),
         });
+        let tmpfs: Tmpfs = [("note", "x")].into_iter().collect();
         let mount = crate::mount::Mount::new(
             "/data",
-            Filesystem::new(Arc::new(over(layer.clone(), Arc::new(Tmpfs::new())))),
+            Filesystem::new(Arc::new(over(
+                Arc::new(Wrap::new(Arc::new(tmpfs), layer.clone())),
+                Arc::new(Tmpfs::new()),
+            ))),
             super::super::Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1689,101 +1564,111 @@ mod tests {
 
     /// A Tmpfs answering a lookup of `dir` at any depth with an I/O
     /// failure, though it opens `dir` as any other directory.
-    struct LooksUpNoDir(Arc<dyn InodeOperations>);
+    struct LooksUpNoDir;
 
-    impl InodeOperations for LooksUpNoDir {
-        holds_no_links!();
-        matches_names_exactly!();
-
-        fn open(
+    impl Hook for LooksUpNoDir {
+        fn getattr(
             &self,
+            inner: &dyn InodeOperations,
             dentry: &Dentry,
-            options: &OpenOptions,
-        ) -> Result<Box<dyn File>, FilesystemError> {
-            self.0.open(dentry, options)
-        }
-
-        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        ) -> Result<Metadata, FilesystemError> {
             if dentry.name() == "dir" {
                 return Err(FilesystemError::Other(
                     "dir cannot be looked up".to_string(),
                 ));
             }
-            self.0.symlink_metadata(dentry)
-        }
-
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-            Ok(Arc::new(Self(self.0.open_dir(dentry)?)))
-        }
-
-        fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.0.metadata(dentry)
-        }
-
-        fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.0.entries(dentry)
-        }
-
-        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.0.create_dir(dentry)
-        }
-
-        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.0.remove_dir(dentry)
-        }
-
-        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.0.remove_file(dentry)
-        }
-
-        fn rename(
-            &self,
-            from: &Dentry,
-            _to_dir: &dyn InodeOperations,
-            to: &Dentry,
-        ) -> Result<(), FilesystemError> {
-            self.0.rename(from, self.0.as_ref(), to)
+            inner.getattr(dentry)
         }
     }
 
     /// A Tmpfs whose `file` is gone after its first lookup, as a host
     /// directory another process changes mid-call.
+    #[derive(Default)]
     struct Vanishes {
-        tmpfs: Tmpfs,
         seen: AtomicBool,
     }
 
-    impl InodeOperations for Vanishes {
-        holds_no_links!();
-        matches_names_exactly!();
+    impl Hook for Vanishes {
+        fn getattr(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<Metadata, FilesystemError> {
+            if dentry.name() == "file" && self.seen.swap(true, Ordering::SeqCst) {
+                return Err(FilesystemError::NotFound);
+            }
+            inner.getattr(dentry)
+        }
+    }
+
+    /// A Tmpfs storing names in lower case and reaching each by any
+    /// case, as a host that folds case does, answering each call by the
+    /// folded path from its root.
+    #[derive(Clone)]
+    struct FoldsCase {
+        root: KernPath,
+    }
+
+    impl FoldsCase {
+        fn new(tmpfs: Tmpfs) -> Self {
+            Self { root: at(tmpfs) }
+        }
+    }
+
+    /// The path `dentry` stands at, folded.
+    fn folded(dentry: &Dentry) -> String {
+        dentry.path_raw().to_lowercase()
+    }
+
+    impl InodeOperations for FoldsCase {
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            self.root.symlink_metadata(&folded(dentry))
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+            let name = dentry.name();
+            let lower = name.to_lowercase();
+            Some(match self.root.symlink_metadata(&folded(dentry)) {
+                Ok(_) if lower != name => Ok(Lookup::Spelled(lower)),
+                Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone())))),
+                Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
+                Err(err) => Err(err),
+            })
+        }
 
         fn open(
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Result<Box<dyn File>, FilesystemError> {
-            self.tmpfs.open(dentry, options)
+        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+            Some(self.root.open(&folded(dentry), options))
         }
 
-        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            if dentry.name() == "file" && self.seen.swap(true, Ordering::SeqCst) {
-                return Err(FilesystemError::NotFound);
-            }
-            self.tmpfs.symlink_metadata(dentry)
+        fn create(
+            &self,
+            dentry: &Dentry,
+            options: &OpenOptions,
+        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+            Some(self.root.open(&folded(dentry), options))
         }
 
-        opens_directories!(tmpfs);
-
-        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.create_dir(dentry)
+        fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
+            Some(match folded(dentry).as_str() {
+                "" => self.root.entries(),
+                at => self.root.open_dir(at).and_then(|dir| dir.entries()),
+            })
         }
 
-        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.remove_dir(dentry)
+        fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+            Some(self.root.create_dir(&folded(dentry)))
         }
 
-        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.remove_file(dentry)
+        fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+            Some(self.root.remove_dir(&folded(dentry)))
+        }
+
+        fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+            Some(self.root.remove_file(&folded(dentry)))
         }
 
         fn rename(
@@ -1791,107 +1676,8 @@ mod tests {
             from: &Dentry,
             _to_dir: &dyn InodeOperations,
             to: &Dentry,
-        ) -> Result<(), FilesystemError> {
-            self.tmpfs.rename(from, &self.tmpfs, to)
-        }
-    }
-
-    /// A Tmpfs storing names in lower case and reaching each by any
-    /// case, as a host that folds case does, answering each call by the
-    /// folded path from its root; each directory it opens folds case too.
-    struct FoldsCase {
-        root: KernPath,
-        at: String,
-    }
-
-    impl FoldsCase {
-        fn new(tmpfs: Tmpfs) -> Self {
-            Self {
-                root: at(tmpfs),
-                at: String::new(),
-            }
-        }
-
-        /// The name `dentry` carries, folded, beneath this directory.
-        fn path(&self, dentry: &Dentry) -> String {
-            let name = dentry.name().to_lowercase();
-            match self.at.as_str() {
-                "" => name,
-                at => format!("{at}/{name}"),
-            }
-        }
-    }
-
-    impl InodeOperations for FoldsCase {
-        holds_no_links!();
-
-        fn open(
-            &self,
-            dentry: &Dentry,
-            options: &OpenOptions,
-        ) -> Result<Box<dyn File>, FilesystemError> {
-            self.root.open(&self.path(dentry), options)
-        }
-
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-            let at = self.path(dentry);
-            self.root.open_dir(&at)?;
-            Ok(Arc::new(Self {
-                root: self.root.clone(),
-                at,
-            }))
-        }
-
-        fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.root.symlink_metadata(&self.at)
-        }
-
-        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.root.symlink_metadata(&self.path(dentry))
-        }
-
-        fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-            match self.symlink_metadata(dentry) {
-                Ok(_) => Ok(dentry.name().to_lowercase()),
-                Err(FilesystemError::NotFound) => Ok(dentry.name()),
-                Err(err) => Err(err),
-            }
-        }
-
-        fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
-            Ok(true)
-        }
-
-        fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-            match self.at.as_str() {
-                "" => self.root.entries(),
-                at => self.root.open_dir(at)?.entries(),
-            }
-        }
-
-        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.create_dir(&self.path(dentry))
-        }
-
-        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_dir(&self.path(dentry))
-        }
-
-        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_file(&self.path(dentry))
-        }
-
-        fn rename(
-            &self,
-            from: &Dentry,
-            to_dir: &dyn InodeOperations,
-            to: &Dentry,
-        ) -> Result<(), FilesystemError> {
-            let target = (to_dir as &dyn Any)
-                .downcast_ref::<Self>()
-                .ok_or(FilesystemError::CrossesDevices)?;
-            self.root
-                .rename(&self.path(from), &self.root, &target.path(to))
+        ) -> Option<Result<(), FilesystemError>> {
+            Some(self.root.rename(&folded(from), &self.root, &folded(to)))
         }
     }
 
@@ -2055,7 +1841,10 @@ mod tests {
     #[test]
     fn a_directory_one_layer_shows_is_walked_without_a_lookup() {
         let only: Arc<dyn InodeOperations> = tmpfs_with("top/dir/file", "only");
-        let overlay = at(over(Arc::new(LooksUpNoDir(only)), Arc::new(Tmpfs::new())));
+        let overlay = at(over(
+            Arc::new(Wrap::new(only, Arc::new(LooksUpNoDir))),
+            Arc::new(Tmpfs::new()),
+        ));
         assert_eq!(
             read(&overlay, "top/dir/file"),
             b"only",
@@ -2067,10 +1856,8 @@ mod tests {
     // @behavior FS-080
     #[test]
     fn a_file_gone_during_a_rename_answers_not_found() {
-        let lower = Vanishes {
-            tmpfs: [("file", "lower")].into_iter().collect(),
-            seen: AtomicBool::new(false),
-        };
+        let tmpfs: Tmpfs = [("file", "lower")].into_iter().collect();
+        let lower = Wrap::new(Arc::new(tmpfs), Arc::new(Vanishes::default()));
         let overlay = at(over(Arc::new(lower), Arc::new(Tmpfs::new())));
         assert_eq!(
             overlay.rename("file", &overlay, "moved"),
@@ -2163,50 +1950,22 @@ mod tests {
     }
 
     /// A Tmpfs whose first open sleeps a while, flagging that it began.
+    #[derive(Default)]
     struct SleepsOnOpen {
-        tmpfs: Arc<Tmpfs>,
         opening: AtomicBool,
     }
 
-    impl InodeOperations for SleepsOnOpen {
-        holds_no_links!();
-        matches_names_exactly!();
-        opens_directories!(tmpfs);
-
+    impl Hook for SleepsOnOpen {
         fn open(
             &self,
+            inner: &dyn InodeOperations,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Result<Box<dyn File>, FilesystemError> {
+        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
             if !self.opening.swap(true, Ordering::SeqCst) {
                 thread::sleep(Duration::from_millis(100));
             }
-            self.tmpfs.open(dentry, options)
-        }
-
-        fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.tmpfs.symlink_metadata(dentry)
-        }
-
-        fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.create_dir(dentry)
-        }
-
-        fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.remove_dir(dentry)
-        }
-
-        fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.tmpfs.remove_file(dentry)
-        }
-
-        fn rename(
-            &self,
-            from: &Dentry,
-            _to_dir: &dyn InodeOperations,
-            to: &Dentry,
-        ) -> Result<(), FilesystemError> {
-            self.tmpfs.rename(from, self.tmpfs.as_ref(), to)
+            inner.open(dentry, options)
         }
     }
 
@@ -2216,15 +1975,13 @@ mod tests {
     #[test]
     fn a_contended_copy_up_waits_through_the_overlays_blocking() {
         let counts = Arc::new(CountsWaits(AtomicUsize::new(0)));
-        let lower = Arc::new(SleepsOnOpen {
-            tmpfs: tmpfs_with("note", "lower"),
-            opening: AtomicBool::new(false),
-        });
-        let overlay = over(lower.clone(), Arc::new(Tmpfs::new())).with_blocking(counts.clone());
+        let sleeps = Arc::new(SleepsOnOpen::default());
+        let lower = Wrap::new(tmpfs_with("note", "lower"), sleeps.clone());
+        let overlay = over(Arc::new(lower), Arc::new(Tmpfs::new())).with_blocking(counts.clone());
         let first = at(overlay);
         let second = first.clone();
         let copying = thread::spawn(move || write(&first, "note", b"first"));
-        while !lower.opening.load(Ordering::SeqCst) {
+        while !sleeps.opening.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(1));
         }
         let waited = write(&second, "note", b"later");

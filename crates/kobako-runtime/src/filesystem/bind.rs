@@ -20,22 +20,24 @@ use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
-use super::{DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions};
-use crate::vfs::{Dentry, Inode};
+use super::{
+    DirEntry, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+};
+use crate::vfs::{Dentry, Identity, Inode};
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
 ///
-/// A directory opened beneath it is a Bind too, named by its dentry and
-/// opened on the host when first asked, as Linux's 9p walks to a dentry's
-/// fid only when a call needs one, and keeps the host directory on the
-/// dentry, as 9p keeps its fid in `d_fsdata`. Only a directory asked about,
-/// or one above it, holds a host descriptor.
+/// Every entry beneath it answers through a Bind too, finding what a call is
+/// about through the dentry it is handed, as Linux's 9p does. A directory is
+/// opened on the host when first asked, as 9p walks to a dentry's fid only
+/// when a call needs one, and kept on the dentry, as 9p keeps its fid in
+/// `d_fsdata`. Only a directory asked about, or one above it, holds a host
+/// descriptor.
+#[derive(Clone)]
 pub struct Bind {
     /// The host directory the Bind was made at.
     root: Arc<Dir>,
-    /// The dentry naming this directory, `None` for the root.
-    dentry: Option<Arc<Dentry>>,
 }
 
 impl Bind {
@@ -44,7 +46,6 @@ impl Bind {
     pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {
         Ok(Self {
             root: Arc::new(Dir::open_ambient_dir(path, ambient_authority())?),
-            dentry: None,
         })
     }
 
@@ -93,23 +94,87 @@ impl Bind {
             .expect("a Bind's dentry keeps a host directory"))
     }
 
-    /// The host directory, opened when first asked.
-    fn dir(&self) -> Result<Arc<Dir>, FilesystemError> {
-        match &self.dentry {
-            Some(dentry) => self.fid(dentry),
-            None => Ok(self.root.clone()),
-        }
-    }
-
-    /// Answer `call` with this directory and the name `dentry` carries as
-    /// the host spells it.
+    /// Answer `call` with the directory above `dentry` and the name it
+    /// carries as the host spells it.
     fn at<T>(
         &self,
         dentry: &Dentry,
         call: impl FnOnce(&Dir, &str) -> Result<T, FilesystemError>,
     ) -> Result<T, FilesystemError> {
-        let dir = self.dir()?;
+        let dir = match dentry.dget_parent() {
+            Some(parent) => self.fid(&parent)?,
+            None => self.root.clone(),
+        };
         call(&dir, to_host_name(&dentry.name())?)
+    }
+
+    /// What stands at the name `dentry` carries, spelled as the host spells
+    /// it, as a lookup hands `d_splice_alias` the inode it found, so
+    /// `d_revalidate` can tell a dentry the host replaced behind the
+    /// runtime's back. That costs one host stat a name.
+    fn lookup_at(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        self.at(dentry, |dir, name| {
+            let stored = lookup::lookup(dir, name)?;
+            if stored != name {
+                return Ok(Lookup::Spelled(stored));
+            }
+            match dir.symlink_metadata(name).map_err(to_error) {
+                Ok(found) => Ok(Lookup::Found(Inode::new(
+                    &to_metadata(found),
+                    Arc::new(self.clone()),
+                ))),
+                Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
+                Err(err) => Err(err),
+            }
+        })
+    }
+
+    /// Whether the entry `dentry` recorded still stands where the dentry
+    /// does, walked to from the root by the names it stands at.
+    fn revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
+        let Some(identity) = dentry.d_inode().and_then(|inode| inode.identity()) else {
+            return Ok(true);
+        };
+        let path = dentry.path_raw();
+        let names: Vec<String> = path.split('/').map(String::from).collect();
+        let Some((name, above)) = names.split_last() else {
+            return Ok(true);
+        };
+        let gone = |err: FilesystemError| match err {
+            FilesystemError::NotFound
+            | FilesystemError::NotADirectory
+            | FilesystemError::FilesystemLoop => Ok(false),
+            err => Err(err),
+        };
+        let parent = match above {
+            [] => self.root.clone(),
+            above => match walk::walk(&self.root, above) {
+                Ok(parent) => Arc::new(parent),
+                Err(err) => return gone(err),
+            },
+        };
+        match parent.symlink_metadata(name).map_err(to_error) {
+            Ok(found) => Ok(Identity::of(&to_metadata(found)) == Some(identity)),
+            Err(err) => gone(err),
+        }
+    }
+
+    fn entries_of(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        self.fid(dentry)?
+            .entries()
+            .map_err(to_error)?
+            .map(|entry| {
+                let entry = entry.map_err(to_error)?;
+                let name = entry
+                    .file_name()
+                    .into_string()
+                    .map_err(|_| FilesystemError::IllegalSequence)?;
+                Ok(DirEntry {
+                    name,
+                    file_type: to_file_type(entry.file_type().map_err(to_error)?),
+                })
+            })
+            .collect()
     }
 }
 
@@ -276,134 +341,84 @@ fn open_in(dir: &Dir, name: &str, options: &OpenOptions) -> Result<Box<dyn File>
 }
 
 impl InodeOperations for Bind {
-    fn open(
-        &self,
-        dentry: &Dentry,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
-        self.at(dentry, |dir, name| open_in(dir, name, options))
-    }
-
-    fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        Ok(to_metadata(self.dir()?.dir_metadata().map_err(to_error)?))
-    }
-
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    /// A directory answers from its own descriptor, which follows it
+    /// wherever it moves and keeps its inode taken while it is open; any
+    /// other entry answers by its name in the directory above.
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        let is_dir = dentry
+            .d_inode()
+            .is_some_and(|inode| inode.kind() == Some(FileType::Directory));
+        if is_dir {
+            return Ok(to_metadata(
+                self.fid(dentry)?.dir_metadata().map_err(to_error)?,
+            ));
+        }
         self.at(dentry, |dir, name| {
             Ok(to_metadata(dir.symlink_metadata(name).map_err(to_error)?))
         })
     }
 
-    /// The directory named, opened when first asked; from then on it holds
-    /// the host directory's own descriptor, so its inode stays taken while
-    /// it is open.
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-        to_host_name(&dentry.name())?;
-        Ok(Arc::new(Self {
-            root: self.root.clone(),
-            dentry: Some(dentry.dget()),
-        }))
-    }
-
-    /// The name as the host spells it, recording what stands there once it
-    /// is spelled so, as a lookup hands `d_add` the inode it found, so
-    /// `d_revalidate` can tell a dentry the host replaced behind the
-    /// runtime's back. That costs one host stat a name.
-    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.at(dentry, |dir, name| {
-            let stored = lookup::lookup(dir, name)?;
-            if stored == name {
-                match dir.symlink_metadata(name).map_err(to_error) {
-                    Ok(found) => dentry.d_add(Some(Inode::from(&to_metadata(found)))),
-                    Err(FilesystemError::NotFound) => dentry.d_add(None),
-                    Err(_) => {}
-                }
-            }
-            Ok(stored)
-        })
+    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        Some(self.lookup_at(dentry))
     }
 
     /// The host may move or remake what a dentry names behind the runtime's
-    /// back, so a dentry the runtime learned the identity of is looked up
-    /// again in the directory its path stands for, walked to from the root
-    /// by the names it stands at, and is valid only while the same entry
-    /// stands there, as NFS compares the handle a fresh lookup finds. One
-    /// the runtime learned nothing of has nothing to compare.
-    fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
-        let Some(identity) = dentry.d_inode().and_then(|inode| inode.identity()) else {
-            return Ok(true);
-        };
-        let path = dentry.path_raw();
-        let names: Vec<String> = path.split('/').map(String::from).collect();
-        let Some((name, above)) = names.split_last() else {
-            return Ok(true);
-        };
-        let gone = |err: FilesystemError| match err {
-            FilesystemError::NotFound
-            | FilesystemError::NotADirectory
-            | FilesystemError::FilesystemLoop => Ok(false),
-            err => Err(err),
-        };
-        let parent = match above {
-            [] => self.root.clone(),
-            above => match walk::walk(&self.root, above) {
-                Ok(parent) => Arc::new(parent),
-                Err(err) => return gone(err),
-            },
-        };
-        match parent.symlink_metadata(name).map_err(to_error) {
-            Ok(found) => Ok(Inode::from(&to_metadata(found)).identity() == Some(identity)),
-            Err(err) => gone(err),
-        }
+    /// back, so a dentry recording an identity is valid only while the same
+    /// entry stands at the path it stands for, as NFS compares the handle a
+    /// fresh lookup finds. One recording none has nothing to compare.
+    fn d_revalidate(&self, dentry: &Dentry) -> Option<Result<bool, FilesystemError>> {
+        Some(self.revalidate(dentry))
     }
 
     /// A target that is no valid UTF-8 answers `IllegalSequence`, as a
     /// guest path is one.
-    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.at(dentry, |dir, name| {
+    fn get_link(&self, dentry: &Dentry) -> Option<Result<String, FilesystemError>> {
+        Some(self.at(dentry, |dir, name| {
             dir.read_link(name)
                 .map_err(to_error)?
                 .into_os_string()
                 .into_string()
                 .map_err(|_| FilesystemError::IllegalSequence)
-        })
+        }))
     }
 
-    fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.dir()?
-            .entries()
-            .map_err(to_error)?
-            .map(|entry| {
-                let entry = entry.map_err(to_error)?;
-                let name = entry
-                    .file_name()
-                    .into_string()
-                    .map_err(|_| FilesystemError::IllegalSequence)?;
-                Ok(DirEntry {
-                    name,
-                    file_type: to_file_type(entry.file_type().map_err(to_error)?),
-                })
-            })
-            .collect()
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        Some(self.at(dentry, |dir, name| open_in(dir, name, options)))
     }
 
-    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.at(dentry, |dir, name| dir.create_dir(name).map_err(to_error))
+    fn create(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        Some(self.at(dentry, |dir, name| open_in(dir, name, options)))
     }
 
-    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.at(dentry, |dir, name| dir.remove_dir(name).map_err(to_error))
+    fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
+        Some(self.entries_of(dentry))
+    }
+
+    fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        Some(self.at(dentry, |dir, name| dir.create_dir(name).map_err(to_error)))
+    }
+
+    fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        Some(self.at(dentry, |dir, name| dir.remove_dir(name).map_err(to_error)))
     }
 
     /// A directory is refused as one on every host, where the host itself
     /// answers EISDIR on Linux but EPERM on macOS.
-    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.at(dentry, |dir, name| {
+    fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        Some(self.at(dentry, |dir, name| {
             if dir.symlink_metadata(name).is_ok_and(|m| m.is_dir()) {
                 return Err(FilesystemError::IsADirectory);
             }
             dir.remove_file(name).map_err(to_error)
-        })
+        }))
     }
 
     /// A host directory takes no lock the runtime's check of the source
@@ -415,17 +430,21 @@ impl InodeOperations for Bind {
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
-    ) -> Result<(), FilesystemError> {
-        let target = (to_dir as &dyn Any)
-            .downcast_ref::<Self>()
-            .ok_or(FilesystemError::CrossesDevices)?;
-        self.at(from, |from_dir, from_name| {
-            target.at(to, |to_dir, to_name| {
-                from_dir
-                    .rename(from_name, to_dir, to_name)
-                    .map_err(to_error)
-            })
-        })
+    ) -> Option<Result<(), FilesystemError>> {
+        Some(
+            (to_dir as &dyn Any)
+                .downcast_ref::<Self>()
+                .ok_or(FilesystemError::CrossesDevices)
+                .and_then(|target| {
+                    self.at(from, |from_dir, from_name| {
+                        target.at(to, |to_dir, to_name| {
+                            from_dir
+                                .rename(from_name, to_dir, to_name)
+                                .map_err(to_error)
+                        })
+                    })
+                }),
+        )
     }
 }
 
@@ -633,18 +652,16 @@ mod tests {
         let dentries = filesystem.dentries();
         let root = dentries.root();
         let a = dentries.child(&root, "a");
-        let named = filesystem
-            .root()
-            .open_dir(&a)
-            .expect("the directory must be named");
         fs::rename(host.0.join("a"), host.0.join("x")).expect("the host must move it");
         dentries.d_move(&root, "a", &root, "x");
         let note = dentries.child(&a, "note");
-        assert_eq!(
-            named.symlink_metadata(&note).map(|found| found.file_type),
-            Ok(FileType::File),
-            "a directory Bind::open_dir named, once its dentry moved with it, must be opened \
-             where the dentry stands"
+        assert!(
+            matches!(
+                filesystem.root().lookup(&note),
+                Some(Ok(Lookup::Found(inode))) if inode.kind() == Some(FileType::File)
+            ),
+            "a name looked up through Bind in a directory not yet opened, once its dentry moved \
+             with it, must be found where the dentry stands"
         );
     }
 

@@ -14,11 +14,12 @@ use std::sync::Arc;
 
 use super::super::tmpfs::TmpfsFile;
 use super::super::{
-    DirEntry, File, FilesystemError, InodeOperations, Metadata, OpenOptions, Tmpfs,
+    DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions, Tmpfs,
 };
 use crate::vfs::{
-    lookup_one, start_renaming, vfs_create, vfs_link, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink,
-    vfs_whiteout, Dentry, Filesystem, RenameFlag, RwSemaphoreGuard,
+    d_get_link, d_getattr, d_open, lookup_one, lookup_slow, start_renaming, vfs_create, vfs_link,
+    vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, vfs_whiteout, Dentry, Filesystem, Inode,
+    RenameFlag, RwSemaphoreGuard,
 };
 
 /// The attribute marking a directory opaque, and its value, as
@@ -46,6 +47,12 @@ impl OverlayPath {
     /// The dentry of `name` in this directory.
     fn child(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
         lookup_one(&self.filesystem, self.dir.as_ref(), &self.dentry, name)
+    }
+
+    /// The dentry of `name` as this directory stores it, what stands there
+    /// recorded on it. The caller holds this directory's lock.
+    fn looked_up(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
+        Ok(lookup_slow(&self.filesystem, self.dir.as_ref(), &self.dentry, name)?.1)
     }
 
     fn shared(&self) -> Result<RwSemaphoreGuard<'_>, FilesystemError> {
@@ -153,7 +160,7 @@ impl OverlayPath {
         options: &OpenOptions,
     ) -> Result<Box<dyn File>, FilesystemError> {
         let _held = self.shared()?;
-        self.dir.open(&*self.child(name)?, options)
+        d_open(&*self.looked_up(name)?, options)
     }
 
     /// Make the file `name` and open it, holding the directory, as
@@ -172,38 +179,54 @@ impl OverlayPath {
         )
     }
 
+    /// The directory standing at `name`, a link there refused as a loop, as
+    /// `ovl_lookup` follows no link in a Layer.
     pub(super) fn open_dir(&self, name: &str) -> Result<Self, FilesystemError> {
         let _held = self.shared()?;
-        let dentry = self.child(name)?;
-        Ok(Self {
-            dir: self.dir.open_dir(&dentry)?,
-            dentry,
-            filesystem: self.filesystem.clone(),
-        })
+        let dentry = self.looked_up(name)?;
+        let inode = dentry.d_inode().ok_or(FilesystemError::NotFound)?;
+        match inode.kind() {
+            Some(FileType::Directory) | None => Ok(Self {
+                dir: inode.ops().clone(),
+                dentry,
+                filesystem: self.filesystem.clone(),
+            }),
+            Some(FileType::Symlink) => Err(FilesystemError::FilesystemLoop),
+            Some(_) => Err(FilesystemError::NotADirectory),
+        }
     }
 
     pub(super) fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.dir.metadata(&self.dentry)
+        self.dir.getattr(&self.dentry)
     }
 
     pub(super) fn symlink_metadata(&self, name: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.shared()?;
-        self.dir.symlink_metadata(&*self.child(name)?)
+        d_getattr(&*self.looked_up(name)?)
     }
 
+    /// `name` as this directory stores it.
     pub(super) fn lookup(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.shared()?;
-        self.dir.lookup(&*self.child(name)?)
+        Ok(lookup_slow(&self.filesystem, self.dir.as_ref(), &self.dentry, name)?.0)
+    }
+
+    /// What this directory records at `name`, `None` where nothing stands.
+    pub(super) fn inode_at(&self, name: &str) -> Result<Option<Arc<Inode>>, FilesystemError> {
+        let _held = self.shared()?;
+        Ok(self.looked_up(name)?.d_inode())
     }
 
     pub(super) fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.shared()?;
-        self.dir.read_link(&*self.child(name)?)
+        d_get_link(&*self.looked_up(name)?)
     }
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.shared()?;
-        self.dir.entries(&self.dentry)
+        self.dir
+            .entries(&self.dentry)
+            .unwrap_or(Err(FilesystemError::NotADirectory))
     }
 
     pub(super) fn create_dir(&self, name: &str) -> Result<(), FilesystemError> {

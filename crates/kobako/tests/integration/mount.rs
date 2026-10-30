@@ -8,10 +8,11 @@ use std::sync::Arc;
 
 use crate::common::real_sandbox;
 use kobako::filesystem::{
-    DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions, Tmpfs,
+    DirEntry, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+    Tmpfs,
 };
 use kobako::msgpack::Value;
-use kobako::{Access, Dentry, Error, Filesystem, Policy, Profile, Sandbox};
+use kobako::{Access, Dentry, Error, Filesystem, Inode, Policy, Profile, Sandbox};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::InvokeError;
 use kobako_runtime::grant::Grant;
@@ -253,72 +254,41 @@ impl File for NoteFile {
     }
 }
 
+/// The directory holding `note.txt`.
 impl InodeOperations for OneNote {
-    fn open(
-        &self,
-        dentry: &Dentry,
-        _options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
-        match dentry.name().as_str() {
-            "note.txt" => Ok(Box::new(NoteFile(self.0))),
-            _ => Err(FilesystemError::NotFound),
-        }
-    }
-
-    fn metadata(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         Ok(Metadata::new(FileType::Directory, 0))
     }
 
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        match dentry.name().as_str() {
-            "note.txt" => NoteFile(self.0).metadata(),
-            _ => Err(FilesystemError::NotFound),
-        }
+    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        Some(Ok(match dentry.name().as_str() {
+            "note.txt" => {
+                let found = Metadata::new(FileType::File, self.0.len() as u64);
+                Lookup::Found(Inode::new(&found, Arc::new(Note(self.0))))
+            }
+            _ => Lookup::Absent,
+        }))
     }
 
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-        match dentry.name().as_str() {
-            "note.txt" => Err(FilesystemError::NotADirectory),
-            _ => Err(FilesystemError::NotFound),
-        }
+    fn entries(&self, _dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
+        Some(Ok(vec![DirEntry::new("note.txt", FileType::File)]))
+    }
+}
+
+/// `note.txt` itself.
+struct Note(&'static [u8]);
+
+impl InodeOperations for Note {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        NoteFile(self.0).metadata()
     }
 
-    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        Ok(dentry.name())
-    }
-
-    fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
-        Ok(true)
-    }
-
-    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.symlink_metadata(dentry)?;
-        Err(FilesystemError::InvalidInput)
-    }
-
-    fn entries(&self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        Ok(vec![DirEntry::new("note.txt", FileType::File)])
-    }
-
-    fn create_dir(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
-        Err(FilesystemError::ReadOnlyFilesystem)
-    }
-
-    fn remove_dir(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
-        Err(FilesystemError::ReadOnlyFilesystem)
-    }
-
-    fn remove_file(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
-        Err(FilesystemError::ReadOnlyFilesystem)
-    }
-
-    fn rename(
+    fn open(
         &self,
-        _from: &Dentry,
-        _to_dir: &dyn InodeOperations,
-        _to: &Dentry,
-    ) -> Result<(), FilesystemError> {
-        Err(FilesystemError::ReadOnlyFilesystem)
+        _dentry: &Dentry,
+        _options: &OpenOptions,
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        Some(Ok(Box::new(NoteFile(self.0))))
     }
 }
 

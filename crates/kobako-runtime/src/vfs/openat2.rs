@@ -4,7 +4,7 @@
 use super::namei::{d_can_lookup, down_read, Nameidata};
 use super::path::Path;
 use super::Error;
-use crate::filesystem::File;
+use crate::filesystem::{File, FilesystemError};
 
 /// How to open a path, as Linux's `struct open_how` carries `openat2`'s
 /// flags.
@@ -35,17 +35,15 @@ pub enum FileDescription {
 /// The directory `nd` ends at, opened now, as Linux's `vfs_open` holds
 /// what it opened, so the descriptor follows it wherever it moves.
 pub(crate) fn vfs_open(start: &Path, nd: Nameidata) -> Result<FileDescription, Error> {
-    let (dir, dentry) = match nd.name.as_str() {
-        "" => (nd.base().clone(), nd.dentry().clone()),
+    let dentry = match nd.name.as_str() {
+        "" => nd.dentry().clone(),
         _ => {
             let _held = down_read(&nd.mount, nd.dentry())?;
-            let dentry = nd.child()?;
-            let dir = nd.base().open_dir(&dentry)?;
-            d_can_lookup(&dir, &dentry)?;
-            (dir, dentry)
+            let dentry = nd.walked()?;
+            let inode = dentry.d_inode().ok_or(FilesystemError::NotFound)?;
+            d_can_lookup(inode.ops(), &dentry)?;
+            dentry
         }
     };
-    Ok(FileDescription::Directory(
-        start.with_directory(dir, dentry),
-    ))
+    Ok(FileDescription::Directory(start.with_directory(dentry)))
 }

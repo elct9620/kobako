@@ -1,8 +1,11 @@
 //! Finding what the view shows at a name, as overlayfs's `namei.c` looks
 //! a name up in each layer and merges the directories it finds.
 
+use std::sync::Arc;
+
 use super::super::super::{FileType, FilesystemError, Metadata};
 use super::{entry, layer_dir, shows_below, sole_layer, Level, OverlayFs};
+use crate::vfs::Inode;
 
 impl OverlayFs {
     /// Each Layer's directory the directory `name` in `level` stands for,
@@ -130,6 +133,17 @@ impl OverlayFs {
     ) -> Result<Metadata, FilesystemError> {
         let (index, found) = self.lookup(level, name)?.ok_or(FilesystemError::NotFound)?;
         self.merge_identity(level, name, index, found)
+    }
+
+    /// What the one Layer `level` shows records at `name`, as overlayfs
+    /// leaves a directory one layer shows unmerged, so it asks nothing more
+    /// of that Layer; `None` where `level` spans more than one.
+    pub(in super::super) fn sole_inode(
+        &self,
+        level: &Level,
+        name: &str,
+    ) -> Option<Result<Option<Arc<Inode>>, FilesystemError>> {
+        sole_layer(level).map(|(_, dir)| dir.inode_at(name))
     }
 
     /// `name` spelled as the topmost Layer showing it stores it, the

@@ -2,6 +2,8 @@
 //! path, the files a Filesystem holds, and the refusals the runtime
 //! answers before the Filesystem is asked.
 
+mod wrap;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
@@ -9,8 +11,7 @@ use kobako_runtime::filesystem::Access;
 #[cfg(unix)]
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::{
-    DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions, Overlay,
-    Tmpfs,
+    File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions, Overlay, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
@@ -24,51 +25,7 @@ use crate::imports;
 use crate::invocation::Invocation;
 use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
 use crate::wasi::Wasi;
-
-/// The answer of a test Filesystem holding no links.
-macro_rules! holds_no_links {
-    () => {
-        fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-            self.symlink_metadata(dentry)?;
-            Err(FilesystemError::InvalidInput)
-        }
-    };
-}
-
-/// The answers of a test Filesystem matching names byte for byte and
-/// changed only through the runtime.
-macro_rules! matches_names_exactly {
-    () => {
-        fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-            if let Ok(found) = self.symlink_metadata(dentry) {
-                dentry.d_add(Some(Inode::from(&found)));
-            }
-            Ok(dentry.name())
-        }
-
-        fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
-            Ok(true)
-        }
-    };
-}
-
-/// The answers of a test Filesystem over the Tmpfs in `$inner` that opens,
-/// lists, and reports its directories as that Tmpfs does.
-macro_rules! opens_directories {
-    ($inner:tt) => {
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-            self.$inner.open_dir(dentry)
-        }
-
-        fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            self.$inner.metadata(dentry)
-        }
-
-        fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-            self.$inner.entries(dentry)
-        }
-    };
-}
+use wrap::{Hook, Wrap};
 
 /// The root of `filesystem` as the host reaches it through the VFS, a
 /// writer of its own beside the guest.
@@ -624,68 +581,25 @@ impl Policy for AllowsAll {
 /// A Tmpfs holding only upper-case names, reaching each by any case, as
 /// a host storing every name in upper case and folding case does; each
 /// directory it opens folds case too.
-struct StoresUpperCase(Arc<dyn InodeOperations>);
+struct StoresUpperCase;
 
-impl InodeOperations for StoresUpperCase {
-    holds_no_links!();
+impl StoresUpperCase {
+    fn over(tmpfs: Tmpfs) -> Arc<Wrap<Self>> {
+        Wrap::new(Arc::new(tmpfs), Arc::new(Self))
+    }
+}
 
-    fn open(
+impl Hook for StoresUpperCase {
+    fn lookup(
         &self,
+        inner: &dyn InodeOperations,
         dentry: &Dentry,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
-        self.0.open(dentry, options)
-    }
-
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.0.symlink_metadata(dentry)
-    }
-
-    fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+    ) -> Option<Result<Lookup, FilesystemError>> {
         let stored = dentry.name().to_uppercase();
-        if stored == dentry.name() {
-            if let Ok(found) = self.symlink_metadata(dentry) {
-                dentry.d_add(Some(Inode::from(&found)));
-            }
+        if stored != dentry.name() {
+            return Some(Ok(Lookup::Spelled(stored)));
         }
-        Ok(stored)
-    }
-
-    fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
-        Ok(true)
-    }
-
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-        Ok(Arc::new(Self(self.0.open_dir(dentry)?)))
-    }
-
-    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.0.metadata(dentry)
-    }
-
-    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.0.entries(dentry)
-    }
-
-    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.create_dir(dentry)
-    }
-
-    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.remove_dir(dentry)
-    }
-
-    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.remove_file(dentry)
-    }
-
-    fn rename(
-        &self,
-        from: &Dentry,
-        _to_dir: &dyn InodeOperations,
-        to: &Dentry,
-    ) -> Result<(), FilesystemError> {
-        self.0.rename(from, self.0.as_ref(), to)
+        inner.lookup(dentry)
     }
 }
 
@@ -697,7 +611,7 @@ fn a_policy_judges_a_path_as_its_filesystem_stores_it() {
     let tmpfs: Tmpfs = [("FILE.TXT", "granted")].into_iter().collect();
     let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/FILE.TXT"));
     let mut guest = Guest::new(&[grant(
-        Arc::new(StoresUpperCase(Arc::new(tmpfs))),
+        StoresUpperCase::over(tmpfs),
         Access::Read,
         Some(policy),
     )]);
@@ -718,7 +632,7 @@ fn a_policy_judges_a_path_beneath_an_opened_directory_as_its_filesystem_stores_i
     let tmpfs: Tmpfs = [("DIR/INNER", "x")].into_iter().collect();
     let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/DIR/INNER"));
     let mut guest = Guest::new(&[grant(
-        Arc::new(StoresUpperCase(Arc::new(tmpfs))),
+        StoresUpperCase::over(tmpfs),
         Access::Read,
         Some(policy),
     )]);
@@ -985,78 +899,74 @@ fn a_directory_moved_beneath_another_mount_of_its_instance_is_reached_beneath_a_
 /// it opened there is open, as a host hands a removed directory's number
 /// to the next one made, and by a fresh number once an open `dir` was
 /// removed.
+#[derive(Default)]
 struct ReusesInodes {
-    tmpfs: Arc<Tmpfs>,
-    opened: Mutex<Vec<Weak<dyn InodeOperations>>>,
+    found: Mutex<Vec<Weak<dyn InodeOperations>>>,
     removed_while_open: AtomicUsize,
 }
 
-impl InodeOperations for ReusesInodes {
-    holds_no_links!();
-    matches_names_exactly!();
-
-    fn open(
-        &self,
-        dentry: &Dentry,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
-        self.tmpfs.open(dentry, options)
-    }
-
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-        let opened = self.tmpfs.open_dir(dentry)?;
-        if dentry.name() == "dir" {
-            self.opened.lock().unwrap().push(Arc::downgrade(&opened));
-        }
-        Ok(opened)
-    }
-
-    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.tmpfs.metadata(dentry)
-    }
-
-    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.tmpfs.entries(dentry)
-    }
-
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        let found = self.tmpfs.symlink_metadata(dentry)?;
-        if dentry.name() != "dir" {
-            return Ok(found);
-        }
+impl ReusesInodes {
+    fn dir_metadata(&self, found: Metadata) -> Metadata {
         let ino = 100 + self.removed_while_open.load(Ordering::SeqCst) as u64;
-        Ok(found.with_identity(1, ino))
+        found.with_identity(1, ino)
+    }
+}
+
+impl Hook for ReusesInodes {
+    fn getattr(
+        &self,
+        inner: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Result<Metadata, FilesystemError> {
+        let found = inner.getattr(dentry)?;
+        Ok(match dentry.name().as_str() {
+            "dir" => self.dir_metadata(found),
+            _ => found,
+        })
     }
 
-    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.tmpfs.create_dir(dentry)
+    fn lookup(
+        &self,
+        inner: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Option<Result<Lookup, FilesystemError>> {
+        Some(inner.lookup(dentry)?.and_then(|lookup| match lookup {
+            Lookup::Found(inode) if dentry.name() == "dir" => {
+                self.found.lock().unwrap().push(Arc::downgrade(inode.ops()));
+                let found = self.dir_metadata(inode.ops().getattr(dentry)?);
+                Ok(Lookup::Found(Inode::new(&found, inode.ops().clone())))
+            }
+            other => Ok(other),
+        }))
     }
 
-    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.tmpfs.remove_dir(dentry)?;
-        let open = self
-            .opened
+    fn d_revalidate(
+        &self,
+        _inner: &dyn InodeOperations,
+        _dentry: &Dentry,
+    ) -> Option<Result<bool, FilesystemError>> {
+        None
+    }
+
+    /// The call removing it holds what it looked up, so `dir` is open
+    /// beyond that only where a descriptor holds it too.
+    fn rmdir(
+        &self,
+        inner: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Option<Result<(), FilesystemError>> {
+        let removed = inner.rmdir(dentry)?;
+        let held = self
+            .found
             .lock()
             .unwrap()
             .iter()
-            .any(|dir| dir.strong_count() > 0);
-        if dentry.name() == "dir" && open {
+            .filter(|dir| dir.strong_count() > 0)
+            .count();
+        if removed.is_ok() && dentry.name() == "dir" && held > 1 {
             self.removed_while_open.fetch_add(1, Ordering::SeqCst);
         }
-        Ok(())
-    }
-
-    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.tmpfs.remove_file(dentry)
-    }
-
-    fn rename(
-        &self,
-        from: &Dentry,
-        _to_dir: &dyn InodeOperations,
-        to: &Dentry,
-    ) -> Result<(), FilesystemError> {
-        self.tmpfs.rename(from, self.tmpfs.as_ref(), to)
+        Some(removed)
     }
 }
 
@@ -1068,11 +978,7 @@ impl InodeOperations for ReusesInodes {
 #[test]
 fn a_directory_descriptor_holds_its_directory_while_open() {
     let tmpfs = file_and_directory();
-    let reuses = Arc::new(ReusesInodes {
-        tmpfs: tmpfs.clone(),
-        opened: Mutex::new(Vec::new()),
-        removed_while_open: AtomicUsize::new(0),
-    });
+    let reuses = Wrap::new(tmpfs.clone(), Arc::new(ReusesInodes::default()));
     let mut guest = Guest::new(&[grant(
         reuses.clone(),
         Access::ReadWrite,
@@ -1099,45 +1005,22 @@ fn a_directory_descriptor_holds_its_directory_while_open() {
 
 /// A Tmpfs reporting no identity for anything it holds, as a host whose
 /// stat names no inode.
-struct NamesNoIdentity(Arc<Tmpfs>);
+struct NamesNoIdentity;
 
-impl InodeOperations for NamesNoIdentity {
-    holds_no_links!();
-    matches_names_exactly!();
-    opens_directories!(0);
-
-    fn open(
+impl Hook for NamesNoIdentity {
+    fn lookup(
         &self,
+        inner: &dyn InodeOperations,
         dentry: &Dentry,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
-        self.0.open(dentry, options)
-    }
-
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        let found = self.0.symlink_metadata(dentry)?;
-        Ok(Metadata::new(found.file_type, found.len))
-    }
-
-    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.create_dir(dentry)
-    }
-
-    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.remove_dir(dentry)
-    }
-
-    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.remove_file(dentry)
-    }
-
-    fn rename(
-        &self,
-        from: &Dentry,
-        _to_dir: &dyn InodeOperations,
-        to: &Dentry,
-    ) -> Result<(), FilesystemError> {
-        self.0.rename(from, self.0.as_ref(), to)
+    ) -> Option<Result<Lookup, FilesystemError>> {
+        Some(inner.lookup(dentry)?.and_then(|lookup| match lookup {
+            Lookup::Found(inode) => {
+                let found = inode.ops().getattr(dentry)?;
+                let bare = Metadata::new(found.file_type, found.len);
+                Ok(Lookup::Found(Inode::new(&bare, inode.ops().clone())))
+            }
+            other => Ok(other),
+        }))
     }
 }
 
@@ -1148,7 +1031,7 @@ impl InodeOperations for NamesNoIdentity {
 #[test]
 fn a_directory_without_an_identity_is_not_reached_again_beneath_a_policy() {
     let mut guest = Guest::new(&[grant(
-        Arc::new(NamesNoIdentity(file_and_directory())),
+        Wrap::new(file_and_directory(), Arc::new(NamesNoIdentity)),
         Access::ReadWrite,
         Some(Arc::new(AllowsAll)),
     )]);
@@ -1272,17 +1155,17 @@ fn every_invocation_reaches_the_filesystem_its_mount_holds() {
 
 /// A Tmpfs holding `file.txt` that counts every change it is asked for,
 /// so a test can tell the runtime refused before asking it.
+#[derive(Default)]
 struct ChangeCounter {
-    tmpfs: Tmpfs,
     changes: AtomicUsize,
 }
 
 impl ChangeCounter {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            tmpfs: [("file.txt", "granted")].into_iter().collect(),
-            changes: AtomicUsize::new(0),
-        })
+    /// A counter, and a Tmpfs holding `file.txt` it counts the changes of.
+    fn over_file() -> (Arc<Self>, Arc<Wrap<Self>>) {
+        let counter = Arc::new(Self::default());
+        let tmpfs: Tmpfs = [("file.txt", "granted")].into_iter().collect();
+        (counter.clone(), Wrap::new(Arc::new(tmpfs), counter))
     }
 
     fn change(&self) {
@@ -1290,47 +1173,43 @@ impl ChangeCounter {
     }
 }
 
-impl InodeOperations for ChangeCounter {
-    holds_no_links!();
-    matches_names_exactly!();
-
-    fn open(
+impl Hook for ChangeCounter {
+    fn mkdir(
         &self,
+        inner: &dyn InodeOperations,
         dentry: &Dentry,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
-        self.tmpfs.open(dentry, options)
-    }
-
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.tmpfs.symlink_metadata(dentry)
-    }
-
-    opens_directories!(tmpfs);
-
-    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    ) -> Option<Result<(), FilesystemError>> {
         self.change();
-        self.tmpfs.create_dir(dentry)
+        inner.mkdir(dentry)
     }
 
-    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn rmdir(
+        &self,
+        inner: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Option<Result<(), FilesystemError>> {
         self.change();
-        self.tmpfs.remove_dir(dentry)
+        inner.rmdir(dentry)
     }
 
-    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn unlink(
+        &self,
+        inner: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Option<Result<(), FilesystemError>> {
         self.change();
-        self.tmpfs.remove_file(dentry)
+        inner.unlink(dentry)
     }
 
     fn rename(
         &self,
+        inner: &dyn InodeOperations,
         from: &Dentry,
-        _to_dir: &dyn InodeOperations,
+        to_dir: &dyn InodeOperations,
         to: &Dentry,
-    ) -> Result<(), FilesystemError> {
+    ) -> Option<Result<(), FilesystemError>> {
         self.change();
-        self.tmpfs.rename(from, &self.tmpfs, to)
+        inner.rename(from, to_dir, to)
     }
 }
 
@@ -1356,7 +1235,7 @@ fn a_directory_beneath_a_mount_with_a_policy_does_not_move() {
 /// A Tmpfs whose files take another writer's `bbb` at their end as one
 /// is written, once the length the write would land at is known and
 /// before it lands, as another invocation sharing the file could.
-struct AppendedMeanwhile(Arc<Tmpfs>);
+struct AppendedMeanwhile;
 
 struct AppendedMeanwhileFile {
     file: Box<dyn File>,
@@ -1400,47 +1279,26 @@ impl File for AppendedMeanwhileFile {
     }
 }
 
-impl InodeOperations for AppendedMeanwhile {
-    holds_no_links!();
-    matches_names_exactly!();
-
+impl Hook for AppendedMeanwhile {
     fn open(
         &self,
+        inner: &dyn InodeOperations,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
         let writes = build_options(|options| options.write = true);
-        Ok(Box::new(AppendedMeanwhileFile {
-            file: self.0.open(dentry, options)?,
-            other: std::sync::Mutex::new(self.0.open(dentry, &writes)?),
-        }))
-    }
-
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.0.symlink_metadata(dentry)
-    }
-
-    opens_directories!(0);
-
-    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.create_dir(dentry)
-    }
-
-    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.remove_dir(dentry)
-    }
-
-    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.remove_file(dentry)
-    }
-
-    fn rename(
-        &self,
-        from: &Dentry,
-        _to_dir: &dyn InodeOperations,
-        to: &Dentry,
-    ) -> Result<(), FilesystemError> {
-        self.0.rename(from, self.0.as_ref(), to)
+        let file = match inner.open(dentry, options)? {
+            Ok(file) => file,
+            Err(err) => return Some(Err(err)),
+        };
+        let other = match inner.open(dentry, &writes)? {
+            Ok(other) => other,
+            Err(err) => return Some(Err(err)),
+        };
+        Some(Ok(Box::new(AppendedMeanwhileFile {
+            file,
+            other: std::sync::Mutex::new(other),
+        })))
     }
 }
 
@@ -1450,8 +1308,8 @@ impl InodeOperations for AppendedMeanwhile {
 #[test]
 fn an_append_lands_after_another_writers_append() {
     let tmpfs = tmpfs_with("file.txt", "granted");
-    let shared = Arc::new(AppendedMeanwhile(tmpfs.clone()));
-    let mut guest = Guest::new(&[grant(shared.clone(), Access::ReadWrite, None)]);
+    let shared = Wrap::new(tmpfs.clone(), Arc::new(AppendedMeanwhile));
+    let mut guest = Guest::new(&[grant(shared, Access::ReadWrite, None)]);
     assert_eq!(
         (
             guest.call("append_file", FILE),
@@ -1812,9 +1670,8 @@ fn a_link_out_of_a_directory_or_into_a_loop_answers_eloop_beneath_a_policy() {
 // @behavior RT-126
 #[test]
 fn a_link_check_that_fails_fails_the_call_beneath_a_policy() {
-    let failing = Arc::new(FailsLookingUpDir(
-        [("dir/file.txt", "granted")].into_iter().collect(),
-    ));
+    let tmpfs: Tmpfs = [("dir/file.txt", "granted")].into_iter().collect();
+    let failing = Wrap::new(Arc::new(tmpfs), Arc::new(FailsLookingUpDir));
     let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
     let mut guest = Guest::new(&[grant(failing, Access::Read, Some(policy))]);
     assert_eq!(
@@ -1827,64 +1684,18 @@ fn a_link_check_that_fails_fails_the_call_beneath_a_policy() {
 
 /// A Tmpfs failing every lookup of `dir` itself, as a host directory
 /// that cannot be read could.
-struct FailsLookingUpDir(Tmpfs);
+struct FailsLookingUpDir;
 
-impl InodeOperations for FailsLookingUpDir {
-    matches_names_exactly!();
-
-    fn open(
+impl Hook for FailsLookingUpDir {
+    fn lookup(
         &self,
+        inner: &dyn InodeOperations,
         dentry: &Dentry,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
-        self.0.open(dentry, options)
-    }
-
-    fn symlink_metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    ) -> Option<Result<Lookup, FilesystemError>> {
         match dentry.name().as_str() {
-            "dir" => Err(FilesystemError::Other("unreadable".into())),
-            _ => self.0.symlink_metadata(dentry),
+            "dir" => Some(Err(FilesystemError::Other("unreadable".into()))),
+            _ => inner.lookup(dentry),
         }
-    }
-
-    fn read_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.0.read_link(dentry)
-    }
-
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
-        match dentry.name().as_str() {
-            "dir" => Err(FilesystemError::Other("unreadable".into())),
-            _ => self.0.open_dir(dentry),
-        }
-    }
-
-    fn metadata(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.0.metadata(dentry)
-    }
-
-    fn entries(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.0.entries(dentry)
-    }
-
-    fn create_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.create_dir(dentry)
-    }
-
-    fn remove_dir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.remove_dir(dentry)
-    }
-
-    fn remove_file(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.0.remove_file(dentry)
-    }
-
-    fn rename(
-        &self,
-        from: &Dentry,
-        _to_dir: &dyn InodeOperations,
-        to: &Dentry,
-    ) -> Result<(), FilesystemError> {
-        self.0.rename(from, &self.0, to)
     }
 }
 
@@ -2308,6 +2119,77 @@ const NEW: (i32, i32) = (840, 7);
 const RIGHTS_FD_READ: u64 = 1 << 1;
 const ERRNO_PERM: i32 = 63;
 
+/// A Tmpfs with no operation to make, remove, or move a name, as a NULL in
+/// Linux's `inode_operations`.
+struct ChangesNothing;
+
+impl Hook for ChangesNothing {
+    fn create(
+        &self,
+        _inner: &dyn InodeOperations,
+        _dentry: &Dentry,
+        _options: &OpenOptions,
+    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        None
+    }
+
+    fn mkdir(
+        &self,
+        _inner: &dyn InodeOperations,
+        _dentry: &Dentry,
+    ) -> Option<Result<(), FilesystemError>> {
+        None
+    }
+
+    fn rmdir(
+        &self,
+        _inner: &dyn InodeOperations,
+        _dentry: &Dentry,
+    ) -> Option<Result<(), FilesystemError>> {
+        None
+    }
+
+    fn unlink(
+        &self,
+        _inner: &dyn InodeOperations,
+        _dentry: &Dentry,
+    ) -> Option<Result<(), FilesystemError>> {
+        None
+    }
+
+    fn rename(
+        &self,
+        _inner: &dyn InodeOperations,
+        _from: &Dentry,
+        _to_dir: &dyn InodeOperations,
+        _to: &Dentry,
+    ) -> Option<Result<(), FilesystemError>> {
+        None
+    }
+}
+
+// The Filesystem has nothing to answer these with, so each errno is the
+// runtime's, the one Linux's VFS answers for a NULL in `inode_operations`.
+// @behavior RT-175
+#[test]
+fn the_runtime_answers_for_an_operation_a_filesystem_lacks() {
+    let filesystem = Wrap::new(file_and_directory(), Arc::new(ChangesNothing));
+    let mut guest = Guest::new(&[grant(filesystem, Access::ReadWrite, None)]);
+    assert_eq!(
+        (
+            guest.call("make_dir", NEW),
+            guest.call_flagged(NEW, OFLAGS_CREAT, 0),
+            guest.call("remove_path", DIR),
+            guest.call("unlink_path", FILE),
+            guest.call_pair("rename_paths", FILE, MOVED),
+        ),
+        (ERRNO_PERM, ERRNO_ACCES, ERRNO_PERM, ERRNO_PERM, ERRNO_PERM),
+        "path_create_directory, path_open with O_CREAT, path_remove_directory, \
+         path_unlink_file, and path_rename through preview1, of a Filesystem lacking each \
+         operation, must answer EPERM, EACCES, EPERM, EPERM, and EPERM"
+    );
+}
+
 // A Tmpfs would refuse the bytes for want of space, so only the refusal
 // before the Filesystem is asked answers EFBIG.
 // @behavior RT-133
@@ -2422,8 +2304,8 @@ fn an_open_following_no_link_finds_a_dangling_link_as_itself() {
 /// What each root-changing export answers, and how many changes the
 /// Filesystem was asked for along the way.
 fn change_root(exports: &[&str]) -> (Vec<i32>, usize) {
-    let counted = ChangeCounter::new();
-    let mut guest = Guest::new(&[grant(counted.clone(), Access::ReadWrite, None)]);
+    let (counted, filesystem) = ChangeCounter::over_file();
+    let mut guest = Guest::new(&[grant(filesystem, Access::ReadWrite, None)]);
     let answers = exports.iter().map(|name| guest.call_bare(name)).collect();
     (answers, counted.changes.load(Ordering::Relaxed))
 }

@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use super::dentry::Dentries;
+use super::inode::Inode;
 use super::rwsem::{Blocking, Inline, RwSemaphore};
 use crate::filesystem::InodeOperations;
 
@@ -30,9 +31,11 @@ impl Filesystem {
     /// The instance `root` answers for, each call waiting for a
     /// directory's lock through `blocking`.
     pub fn with_blocking(root: Arc<dyn InodeOperations>, blocking: Arc<dyn Blocking>) -> Arc<Self> {
+        let dentries = Dentries::default();
+        dentries.root().d_add(Some(Inode::root(root.clone())));
         Arc::new(Self {
             root,
-            dentries: Dentries::default(),
+            dentries,
             blocking,
             rename_mutex: RwSemaphore::default(),
         })
