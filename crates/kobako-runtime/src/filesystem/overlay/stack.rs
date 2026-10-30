@@ -263,14 +263,14 @@ impl OverlayFs {
     /// parent: the root's every Layer's root merged down to the first
     /// marked opaque.
     pub(super) fn dir(&self, dentry: &Dentry) -> Result<ViewDir, FilesystemError> {
-        let inode = ovl_inode(dentry, || match dentry.dget_parent() {
+        let inode = ovl_inode(dentry, || match dentry.parent() {
             None => Ok(below_opaque_cut(
                 self.roots.iter().cloned().map(Some).collect(),
             )),
             Some(parent) => self.enter(&self.dir(&parent)?.level(), &dentry.name()),
         })?;
         Ok(ViewDir {
-            dentry: dentry.dget(),
+            dentry: dentry.get(),
             inode,
         })
     }
@@ -278,7 +278,7 @@ impl OverlayFs {
     /// The directory holding the entry `dentry` names.
     pub(super) fn parent(&self, dentry: &Dentry) -> Result<ViewDir, FilesystemError> {
         let parent = dentry
-            .dget_parent()
+            .parent()
             .expect("an entry the runtime names stands in a directory");
         self.dir(&parent)
     }

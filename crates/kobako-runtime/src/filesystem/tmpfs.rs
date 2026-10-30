@@ -620,7 +620,7 @@ impl DentryOperations for TmpfsDentry {
         dir: &dyn InodeOperations,
         dentry: &Dentry,
     ) -> Result<bool, FilesystemError> {
-        let Some(identity) = dentry.d_inode().and_then(|inode| inode.identity()) else {
+        let Some(identity) = dentry.inode().and_then(|inode| inode.identity()) else {
             return Ok(true);
         };
         let Some(dir) = (dir as &dyn Any).downcast_ref::<Tmpfs>() else {

@@ -61,11 +61,11 @@ impl Bind {
         if let Some(held) = held_dir(dentry) {
             return Ok(held);
         }
-        let Some(parent) = dentry.dget_parent() else {
+        let Some(parent) = dentry.parent() else {
             return Ok(self.root.clone());
         };
         let name = dentry.name();
-        let above = match parent.dget_parent() {
+        let above = match parent.parent() {
             None => Some(self.root.clone()),
             Some(_) => held_dir(&parent),
         };
@@ -73,7 +73,7 @@ impl Bind {
             Some(above) => {
                 let walked = walk::walk(&above, std::slice::from_ref(&name))?;
                 let moved = !dentry
-                    .dget_parent()
+                    .parent()
                     .is_some_and(|now| Arc::ptr_eq(&now, &parent))
                     || dentry.name() != name;
                 (!moved).then_some(walked)
@@ -89,7 +89,7 @@ impl Bind {
             }
         };
         let fid: Arc<dyn Any + Send + Sync> = Arc::new(dir);
-        let kept = dentry.d_fsdata().get_or_init(|| fid).clone();
+        let kept = dentry.fsdata().get_or_init(|| fid).clone();
         Ok(kept
             .downcast::<Dir>()
             .expect("a Bind's dentry keeps a host directory"))
@@ -102,7 +102,7 @@ impl Bind {
         dentry: &Dentry,
         call: impl FnOnce(&Dir, &str) -> Result<T, FilesystemError>,
     ) -> Result<T, FilesystemError> {
-        let dir = match dentry.dget_parent() {
+        let dir = match dentry.parent() {
             Some(parent) => self.fid(&parent)?,
             None => self.root.clone(),
         };
@@ -133,7 +133,7 @@ impl Bind {
     /// Whether the entry `dentry` recorded still stands where the dentry
     /// does, walked to from the root by the names it stands at.
     fn stands_as_recorded(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
-        let Some(identity) = dentry.d_inode().and_then(|inode| inode.identity()) else {
+        let Some(identity) = dentry.inode().and_then(|inode| inode.identity()) else {
             return Ok(true);
         };
         let path = dentry.path_raw();
@@ -181,7 +181,7 @@ impl Bind {
 
 /// The host directory a Bind keeps on `dentry`, once one was opened.
 fn held_dir(dentry: &Dentry) -> Option<Arc<Dir>> {
-    dentry.d_fsdata().get()?.clone().downcast::<Dir>().ok()
+    dentry.fsdata().get()?.clone().downcast::<Dir>().ok()
 }
 
 /// The directory `name` in `dir`, a link there refused as a loop, as
@@ -365,7 +365,7 @@ impl InodeOperations for Bind {
     /// other entry answers by its name in the directory above.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         let is_dir = dentry
-            .d_inode()
+            .inode()
             .is_some_and(|inode| inode.kind() == Some(FileType::Directory));
         if is_dir {
             return Ok(to_metadata(
@@ -701,7 +701,7 @@ mod tests {
         };
         let mut buf = [0; 3];
         assert_eq!(
-            (file.f_op().read(&mut buf, 0), &buf),
+            (file.ops().read(&mut buf, 0), &buf),
             (Ok(3), b"new"),
             "vfs::do_file_open through an Overlay over a Bind whose host replaced a directory \
              a descriptor holds must read the file standing there now"
@@ -723,7 +723,7 @@ mod tests {
         let root = dentries.root();
         let a = dentries.child(&root, "a");
         fs::rename(host.0.join("a"), host.0.join("x")).expect("the host must move it");
-        dentries.d_move(&root, "a", &root, "x");
+        dentries.move_dentry(&root, "a", &root, "x");
         let note = dentries.child(&a, "note");
         assert!(
             matches!(

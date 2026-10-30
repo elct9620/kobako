@@ -95,7 +95,7 @@ mod tests {
         let Ok(mut file) = vfs::do_file_open(start, name, &how, true) else {
             panic!("{name} must open as a file");
         };
-        file.f_op()
+        file.ops()
             .write(b"x", 0)
             .expect("the file must take a write");
         file

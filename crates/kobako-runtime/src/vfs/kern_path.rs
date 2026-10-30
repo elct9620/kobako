@@ -65,7 +65,7 @@ impl KernPath {
     pub(crate) fn open_dir(&self, path: &str) -> Result<Self, FilesystemError> {
         let nd = self.resolve(path)?;
         let dentry = nd.child()?;
-        let inode = dentry.d_inode().ok_or(FilesystemError::NotFound)?;
+        let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         if inode.kind() == Some(FileType::Symlink) {
             return Err(FilesystemError::FilesystemLoop);
         }

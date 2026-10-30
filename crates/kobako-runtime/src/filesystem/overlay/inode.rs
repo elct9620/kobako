@@ -105,8 +105,8 @@ pub(super) fn ovl_inode(
     dentry: &Dentry,
     init: impl FnOnce() -> Result<Level, FilesystemError>,
 ) -> Result<Arc<OverlayInode>, FilesystemError> {
-    let inode = dentry.d_inode().ok_or(FilesystemError::NotFound)?;
-    if let Some(kept) = inode.i_private().get() {
+    let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
+    if let Some(kept) = inode.private().get() {
         return Ok(downcast(kept.clone()));
     }
     let made: Arc<dyn Any + Send + Sync> = Arc::new(OverlayInode {
@@ -115,7 +115,7 @@ pub(super) fn ovl_inode(
         readers: AtomicUsize::new(0),
         copy: Mutex::new(None),
     });
-    Ok(downcast(inode.i_private().get_or_init(|| made).clone()))
+    Ok(downcast(inode.private().get_or_init(|| made).clone()))
 }
 
 fn downcast(kept: Arc<dyn Any + Send + Sync>) -> Arc<OverlayInode> {

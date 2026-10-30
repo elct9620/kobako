@@ -220,7 +220,7 @@ pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
 }
 
 pub(crate) fn sync(table: &mut Descriptors, fd: u32) -> Answer {
-    Ok(file(table, fd)?.f_op().fsync()?)
+    Ok(file(table, fd)?.ops().fsync()?)
 }
 
 pub(crate) fn fdstat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, out: u32) -> Answer {
@@ -316,7 +316,7 @@ pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> 
     if !file.writable() {
         return Err(Errno::Inval.into());
     }
-    Ok(file.f_op().truncate(refuse_negative(size)?)?)
+    Ok(file.ops().truncate(refuse_negative(size)?)?)
 }
 
 /// A Filesystem keeps no timestamps of the guest's choosing, so setting
@@ -345,7 +345,7 @@ pub(crate) fn pread(
         return Err(Errno::Badf.into());
     }
     let offset = refuse_reading_past_largest_offset(refuse_negative(offset)?, len)?;
-    let read = file.f_op().read(mem.bytes_mut(ptr, len)?, offset)?;
+    let read = file.ops().read(mem.bytes_mut(ptr, len)?, offset)?;
     mem.write_u32(nread, read as u32)
 }
 
@@ -405,9 +405,9 @@ pub(crate) fn pwrite(
     let offset = refuse_negative(offset)?;
     // Linux's `pwrite` ignores the offset of a file opened to append.
     let written = if file.append() {
-        file.f_op().append(buf)?.1
+        file.ops().append(buf)?.1
     } else {
-        file.f_op()
+        file.ops()
             .write(trim_to_largest_offset(buf, offset)?, offset)?
     };
     mem.write_u32(nwritten, written as u32)
@@ -432,7 +432,7 @@ pub(crate) fn read(
                 return Err(Errno::Badf.into());
             }
             let at = refuse_reading_past_largest_offset(file.pos(), len)?;
-            let read = file.f_op().read(buf, at)?;
+            let read = file.ops().read(buf, at)?;
             file.set_pos(at + read as u64);
             read
         }
@@ -560,11 +560,11 @@ pub(crate) fn write(
                 return Err(Errno::Badf.into());
             }
             let (at, written) = if file.append() {
-                file.f_op().append(buf)?
+                file.ops().append(buf)?
             } else {
                 let at = file.pos();
                 let buf = trim_to_largest_offset(buf, at)?;
-                (at, file.f_op().write(buf, at)?)
+                (at, file.ops().write(buf, at)?)
             };
             file.set_pos(at.checked_add(written as u64).ok_or(Errno::Fbig)?);
             written

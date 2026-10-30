@@ -190,7 +190,7 @@ pub(crate) fn lookup_one(
     name: &str,
 ) -> Result<Arc<Dentry>, FilesystemError> {
     let dentries = filesystem.dentries();
-    if let Some(held) = dentries.d_lookup(parent, name) {
+    if let Some(held) = dentries.lookup(parent, name) {
         let valid = match held.ops() {
             Some(ops) => ops.revalidate(inode, &held)?,
             None => true,
@@ -198,7 +198,7 @@ pub(crate) fn lookup_one(
         if valid {
             return Ok(held);
         }
-        dentries.d_invalidate(&held);
+        dentries.invalidate(&held);
     }
     Ok(dentries.child(parent, name))
 }
@@ -212,15 +212,15 @@ pub(crate) fn d_lookup_inode(
     dir: &dyn InodeOperations,
     dentry: &Dentry,
 ) -> Result<Option<String>, FilesystemError> {
-    if dentry.d_inode().is_some() {
+    if dentry.inode().is_some() {
         return Ok(None);
     }
     match dir
         .lookup(dentry)
         .unwrap_or(Err(FilesystemError::NotADirectory))?
     {
-        Lookup::Found(inode) => dentry.d_add(Some(inode)),
-        Lookup::Absent => dentry.d_add(None),
+        Lookup::Found(inode) => dentry.add(Some(inode)),
+        Lookup::Absent => dentry.add(None),
         Lookup::Spelled(stored) => return Ok(Some(stored)),
     }
     Ok(None)
@@ -251,7 +251,7 @@ pub(crate) fn lookup_slow(
 /// What the entry `dentry` records reports of itself, `NotFound` where it
 /// records none, as `vfs_getattr` asks the inode a dentry holds.
 pub(crate) fn d_getattr(dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-    match dentry.d_inode() {
+    match dentry.inode() {
         Some(inode) => inode.ops().getattr(dentry),
         None => Err(FilesystemError::NotFound),
     }
@@ -263,7 +263,7 @@ pub(crate) fn d_open(
     dentry: &Dentry,
     options: &OpenOptions,
 ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-    match dentry.d_inode() {
+    match dentry.inode() {
         Some(inode) => inode.ops().open(dentry, options).unwrap_or_else(|| {
             Err(match inode.kind() {
                 Some(FileType::Directory) => FilesystemError::IsADirectory,
@@ -277,7 +277,7 @@ pub(crate) fn d_open(
 /// Where the link `dentry` records points, as `vfs_readlink` asks the inode
 /// a dentry holds; anything else refuses as `readlinkat` does.
 pub(crate) fn d_get_link(dentry: &Dentry) -> Result<String, FilesystemError> {
-    match dentry.d_inode() {
+    match dentry.inode() {
         Some(inode) => inode
             .ops()
             .get_link(dentry)
@@ -351,7 +351,7 @@ impl Nameidata {
         let parent = self.dentry().clone();
         let _held = down_read(&self.mount, &parent)?;
         let (name, dentry) = self.lookup_slow(&part.name)?;
-        let inode = dentry.d_inode().ok_or(FilesystemError::NotFound)?;
+        let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
             Some(FileType::Symlink) if dot => Err(FilesystemError::FilesystemLoop.into()),
             Some(FileType::Symlink) => self.pick_link(&dentry),
@@ -911,15 +911,15 @@ pub(crate) fn vfs_rename(
     rename()?;
     let dentries = filesystem.dentries();
     if flag == Some(RenameFlag::Exchange) {
-        dentries.d_exchange(old, new);
+        dentries.exchange(old, new);
         return Ok(());
     }
     if target == Some(FileType::Directory) {
         new.mark_dead();
     }
-    dentries.d_delete(new);
+    dentries.delete(new);
     let (old_name, new_name) = (old.name(), new.name());
-    dentries.d_move(old_dir, &old_name, new_dir, &new_name);
+    dentries.move_dentry(old_dir, &old_name, new_dir, &new_name);
     Ok(())
 }
 
@@ -939,7 +939,7 @@ pub(crate) fn vfs_rmdir(
         .rmdir(victim)
         .unwrap_or(Err(FilesystemError::NotPermitted))?;
     victim.mark_dead();
-    filesystem.dentries().d_delete(victim);
+    filesystem.dentries().delete(victim);
     Ok(())
 }
 
@@ -958,7 +958,7 @@ pub(crate) fn vfs_unlink(
     inode
         .unlink(victim)
         .unwrap_or(Err(FilesystemError::NotPermitted))?;
-    filesystem.dentries().d_delete(victim);
+    filesystem.dentries().delete(victim);
     Ok(())
 }
 
@@ -1030,7 +1030,7 @@ fn kind_at(
     if d_lookup_inode(inode, dentry)?.is_some() {
         return Ok(Some(FileType::Unknown));
     }
-    let Some(recorded) = dentry.d_inode() else {
+    let Some(recorded) = dentry.inode() else {
         return Ok(None);
     };
     if let Some(kind) = recorded.kind() {

@@ -60,7 +60,7 @@ impl Path {
     /// gives up.
     pub(crate) fn dir(&self) -> Arc<dyn InodeOperations> {
         self.dentry
-            .d_inode()
+            .inode()
             .expect("a Path's dentry records its directory")
             .ops()
             .clone()
@@ -78,7 +78,7 @@ impl Path {
     /// host or another Filesystem instance moving a directory behind the
     /// runtime's back never has a Policy judge a path it no longer stands at.
     pub(crate) fn revalidate_path(&self) -> Result<(), Error> {
-        let Some(parent) = self.dentry.dget_parent() else {
+        let Some(parent) = self.dentry.parent() else {
             return Ok(());
         };
         if !self.mount.judges_paths() {
@@ -88,9 +88,9 @@ impl Path {
         let dentries = filesystem.dentries();
         let told_apart = self
             .dentry
-            .d_inode()
+            .inode()
             .is_some_and(|inode| inode.answers_by_path() || inode.identity().is_some());
-        if dentries.d_unlinked(&self.dentry) || !told_apart {
+        if dentries.unlinked(&self.dentry) || !told_apart {
             return Err(FilesystemError::NotFound.into());
         }
         let Some(ops) = self.dentry.ops() else {
@@ -99,7 +99,7 @@ impl Path {
         let mut above = Vec::new();
         let mut at = Some(parent);
         while let Some(next) = at {
-            at = next.dget_parent();
+            at = next.parent();
             above.push(next);
         }
         let mut dir = filesystem.root().clone();
@@ -124,7 +124,7 @@ impl Path {
         if ops.revalidate(dir.as_ref(), &self.dentry)? {
             return Ok(());
         }
-        dentries.d_invalidate(&self.dentry);
+        dentries.invalidate(&self.dentry);
         Err(FilesystemError::NotFound.into())
     }
 

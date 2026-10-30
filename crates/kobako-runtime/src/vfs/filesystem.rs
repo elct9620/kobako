@@ -32,7 +32,7 @@ impl Filesystem {
     /// directory's lock through `blocking`.
     pub fn with_blocking(root: Arc<dyn InodeOperations>, blocking: Arc<dyn Blocking>) -> Arc<Self> {
         let dentries = Dentries::new(root.dentry_ops());
-        dentries.root().d_add(Some(Inode::root(root.clone())));
+        dentries.root().add(Some(Inode::root(root.clone())));
         Arc::new(Self {
             root,
             dentries,

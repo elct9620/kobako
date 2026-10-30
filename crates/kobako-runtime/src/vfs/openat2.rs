@@ -36,7 +36,7 @@ pub(crate) fn vfs_open(start: &Path, nd: Nameidata) -> Result<File, Error> {
         _ => {
             let _held = down_read(&nd.mount, nd.dentry())?;
             let dentry = nd.walked()?;
-            let inode = dentry.d_inode().ok_or(FilesystemError::NotFound)?;
+            let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
             d_can_lookup(inode.ops(), &dentry)?;
             dentry
         }

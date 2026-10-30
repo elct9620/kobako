@@ -31,7 +31,7 @@ pub struct Dentry {
     this: Weak<Dentry>,
     /// What the Filesystem keeps on the name, set once, as Linux's
     /// `d_fsdata` holds a filesystem's own state for a dentry.
-    d_fsdata: OnceLock<Arc<dyn Any + Send + Sync>>,
+    fsdata: OnceLock<Arc<dyn Any + Send + Sync>>,
     /// What answers about this name, as `d_alloc` copies `s_d_op` from the
     /// super block.
     ops: Option<Arc<dyn DentryOperations>>,
@@ -64,7 +64,7 @@ impl Dentry {
             }),
             rwsem: RwSemaphore::default(),
             this: this.clone(),
-            d_fsdata: OnceLock::new(),
+            fsdata: OnceLock::new(),
             ops,
         })
     }
@@ -77,13 +77,13 @@ impl Dentry {
 
     /// The directory above, `None` for the root, as Linux's `dget_parent`
     /// takes it.
-    pub(crate) fn dget_parent(&self) -> Option<Arc<Dentry>> {
+    pub(crate) fn parent(&self) -> Option<Arc<Dentry>> {
         self.state().parent.clone()
     }
 
     /// This dentry, kept for as long as the caller holds it, as Linux's
     /// `dget` does.
-    pub(crate) fn dget(&self) -> Arc<Dentry> {
+    pub(crate) fn get(&self) -> Arc<Dentry> {
         self.this
             .upgrade()
             .expect("a dentry handed out is held by whoever handed it")
@@ -136,7 +136,7 @@ impl Dentry {
 
     /// What the name stands for, `None` while the dentry is negative, as
     /// Linux's `d_inode` reads it.
-    pub fn d_inode(&self) -> Option<Arc<Inode>> {
+    pub fn inode(&self) -> Option<Arc<Inode>> {
         self.state().inode.clone()
     }
 
@@ -145,7 +145,7 @@ impl Dentry {
     /// A dentry already naming something keeps it, as Linux instantiates a
     /// dentry once, so a later lookup never hides a change `d_revalidate`
     /// must see.
-    pub fn d_add(&self, inode: Option<Inode>) {
+    pub fn add(&self, inode: Option<Inode>) {
         let mut state = self.state();
         if state.inode.is_none() {
             state.inode = inode.map(Arc::new);
@@ -154,8 +154,8 @@ impl Dentry {
 
     /// What the Filesystem keeps on the name, set once, as Linux's
     /// `d_fsdata` holds a filesystem's own state for a dentry.
-    pub fn d_fsdata(&self) -> &OnceLock<Arc<dyn Any + Send + Sync>> {
-        &self.d_fsdata
+    pub fn fsdata(&self) -> &OnceLock<Arc<dyn Any + Send + Sync>> {
+        &self.fsdata
     }
 
     /// Whether this dentry is `ancestor` or stands beneath it, as Linux's
@@ -216,21 +216,21 @@ impl Dentries {
     }
 
     /// The dentry held for `name` in `parent`, as `d_lookup` finds one.
-    pub(crate) fn d_lookup(&self, parent: &Arc<Dentry>, name: &str) -> Option<Arc<Dentry>> {
+    pub(crate) fn lookup(&self, parent: &Arc<Dentry>, name: &str) -> Option<Arc<Dentry>> {
         self.hashtable().get(&key(parent, name))
     }
 
     /// `dentry` no longer names what stands at its name, as Linux's
     /// `d_invalidate` drops it: the next lookup makes another, and
     /// whoever holds this one keeps it, neither dead nor reached by name.
-    pub(crate) fn d_invalidate(&self, dentry: &Arc<Dentry>) {
-        self.d_drop(dentry);
+    pub(crate) fn invalidate(&self, dentry: &Arc<Dentry>) {
+        self.drop(dentry);
     }
 
     /// Whether `dentry` was taken out of the table, as Linux's
     /// `d_unlinked` answers for one no longer reached by its name.
-    pub(crate) fn d_unlinked(&self, dentry: &Arc<Dentry>) -> bool {
-        let Some(parent) = dentry.dget_parent() else {
+    pub(crate) fn unlinked(&self, dentry: &Arc<Dentry>) -> bool {
+        let Some(parent) = dentry.parent() else {
             return false;
         };
         !self
@@ -241,7 +241,7 @@ impl Dentries {
 
     /// Take `dentry` out of the table, so the next lookup of its name
     /// makes another, as Linux's `d_drop` unhashes one.
-    pub(crate) fn d_drop(&self, dentry: &Arc<Dentry>) {
+    pub(crate) fn drop(&self, dentry: &Arc<Dentry>) {
         let mut table = self.hashtable();
         let Some(parent) = dentry.state().parent.clone() else {
             return;
@@ -258,14 +258,14 @@ impl Dentries {
     /// The entry `dentry` names was removed, as Linux's `d_delete` leaves a
     /// dentry still in use unhashed; every dentry the table holds is in
     /// use.
-    pub(crate) fn d_delete(&self, dentry: &Arc<Dentry>) {
-        self.d_drop(dentry);
+    pub(crate) fn delete(&self, dentry: &Arc<Dentry>) {
+        self.drop(dentry);
     }
 
     /// The entry `from_name` in `from` moved to `to_name` in `to`, taking
     /// the directory held there, and every one beneath it, along, as
     /// Linux's does.
-    pub(crate) fn d_move(
+    pub(crate) fn move_dentry(
         &self,
         from: &Arc<Dentry>,
         from_name: &str,
@@ -287,7 +287,7 @@ impl Dentries {
     /// `first` and `second` trade the names they stand at, as Linux's
     /// `d_exchange` follows an exchange, so whoever holds either reaches
     /// it where it went.
-    pub(crate) fn d_exchange(&self, first: &Arc<Dentry>, second: &Arc<Dentry>) {
+    pub(crate) fn exchange(&self, first: &Arc<Dentry>, second: &Arc<Dentry>) {
         let mut table = self.hashtable();
         RENAME_LOCK.write(|| {
             let (mut one, mut other) = (first.state(), second.state());
@@ -428,13 +428,13 @@ mod tests {
         );
         let dentries = Dentries::new(None);
         let dentry = dentries.child(&dentries.root(), "dir");
-        dentry.d_add(None);
-        dentry.d_add(Some(Inode::new(&first, ops.clone())));
-        dentry.d_add(Some(Inode::new(&second, ops)));
+        dentry.add(None);
+        dentry.add(Some(Inode::new(&first, ops.clone())));
+        dentry.add(Some(Inode::new(&second, ops)));
         assert_eq!(
-            dentry.d_inode().and_then(|inode| inode.identity()),
+            dentry.inode().and_then(|inode| inode.identity()),
             Identity::of(&first),
-            "Dentry::d_add after a negative lookup and then a positive one must keep the first \
+            "Dentry::add after a negative lookup and then a positive one must keep the first \
              inode recorded"
         );
     }
@@ -494,7 +494,7 @@ mod tests {
         let root = dentries.root();
         let a = dentries.child(&root, "a");
         let b = dentries.child(&dentries.child(&root, "d"), "b");
-        dentries.d_exchange(&a, &b);
+        dentries.exchange(&a, &b);
         assert_eq!(
             (
                 a.path_raw(),
@@ -535,10 +535,10 @@ mod tests {
                 thread::spawn(move || {
                     let root = dentries.root();
                     while !stop.load(Ordering::SeqCst) {
-                        dentries.d_move(&x, "b", &y, "b");
-                        dentries.d_move(&root, "x", &root, "z");
-                        dentries.d_move(&root, "z", &root, "x");
-                        dentries.d_move(&y, "b", &x, "b");
+                        dentries.move_dentry(&x, "b", &y, "b");
+                        dentries.move_dentry(&root, "x", &root, "z");
+                        dentries.move_dentry(&root, "z", &root, "x");
+                        dentries.move_dentry(&y, "b", &x, "b");
                     }
                 })
             };

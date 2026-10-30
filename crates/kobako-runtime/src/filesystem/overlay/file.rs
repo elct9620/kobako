@@ -20,7 +20,7 @@ pub(super) fn reader(
     let inode = ovl_inode(dentry, || Ok(Vec::new()))?;
     Ok(Box::new(OverlayFile {
         file,
-        _dentry: dentry.dget(),
+        _dentry: dentry.get(),
         inode: inode.hold_reader(),
     }))
 }

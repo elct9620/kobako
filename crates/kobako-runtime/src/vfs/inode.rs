@@ -38,7 +38,7 @@ pub struct Inode {
     /// What the Filesystem keeps on the entry once it needs it, set once,
     /// as Linux's `i_private`, reached the same however its operations are
     /// wrapped.
-    i_private: OnceLock<Arc<dyn Any + Send + Sync>>,
+    private: OnceLock<Arc<dyn Any + Send + Sync>>,
 }
 
 impl Inode {
@@ -48,7 +48,7 @@ impl Inode {
             kind: Some(metadata.file_type),
             identity: Identity::of(metadata),
             ops,
-            i_private: OnceLock::new(),
+            private: OnceLock::new(),
         }
     }
 
@@ -60,7 +60,7 @@ impl Inode {
             kind: None,
             identity: None,
             ops,
-            i_private: OnceLock::new(),
+            private: OnceLock::new(),
         }
     }
 
@@ -71,7 +71,7 @@ impl Inode {
             kind: self.kind,
             identity: self.identity,
             ops,
-            i_private: OnceLock::new(),
+            private: OnceLock::new(),
         }
     }
 
@@ -81,7 +81,7 @@ impl Inode {
             kind: Some(FileType::Directory),
             identity: None,
             ops,
-            i_private: OnceLock::new(),
+            private: OnceLock::new(),
         }
     }
 
@@ -105,7 +105,7 @@ impl Inode {
 
     /// What the Filesystem keeps on the entry, set once, as Linux's
     /// `i_private`.
-    pub fn i_private(&self) -> &OnceLock<Arc<dyn Any + Send + Sync>> {
-        &self.i_private
+    pub fn private(&self) -> &OnceLock<Arc<dyn Any + Send + Sync>> {
+        &self.private
     }
 }

@@ -174,7 +174,7 @@ impl InodeOperations for Overlay {
     /// name is found in.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         let is_dir = dentry
-            .d_inode()
+            .inode()
             .is_some_and(|inode| inode.kind() == Some(FileType::Directory));
         if is_dir {
             return self.fs.dir_metadata(&self.fs.dir(dentry)?.level());
@@ -1108,7 +1108,7 @@ mod tests {
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            if options.directory && dentry.dget_parent().is_some() {
+            if options.directory && dentry.parent().is_some() {
                 self.start();
             }
             inner.open(dentry, options)

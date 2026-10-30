@@ -24,7 +24,7 @@ impl OverlayFs {
         if let Some(held) = &dir.level()[into] {
             return Ok(held.clone());
         }
-        let Some(above) = dir.dentry.dget_parent() else {
+        let Some(above) = dir.dentry.parent() else {
             return Err(FilesystemError::CrossesDevices);
         };
         let parent = self.upper_dir(&self.dir(&above)?, into)?;

@@ -53,7 +53,7 @@ impl OverlayPath {
     /// Whether the dentry this Layer holds for `name`, if it holds one, still
     /// names what it recorded, as `ovl_revalidate_real` asks the real dentry.
     pub(super) fn revalidate_real(&self, name: &str) -> Result<bool, FilesystemError> {
-        let held = self.filesystem.dentries().d_lookup(&self.dentry, name);
+        let held = self.filesystem.dentries().lookup(&self.dentry, name);
         match held.as_ref().and_then(|held| Some((held, held.ops()?))) {
             Some((held, ops)) => ops.revalidate(self.dir.as_ref(), held),
             None => Ok(true),
@@ -195,7 +195,7 @@ impl OverlayPath {
     pub(super) fn open_dir(&self, name: &str) -> Result<Self, FilesystemError> {
         let _held = self.shared()?;
         let dentry = self.looked_up(name)?;
-        let inode = dentry.d_inode().ok_or(FilesystemError::NotFound)?;
+        let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
             Some(FileType::Directory) | None => Ok(Self {
                 dir: inode.ops().clone(),
@@ -225,7 +225,7 @@ impl OverlayPath {
     /// What this directory records at `name`, `None` where nothing stands.
     pub(super) fn inode_at(&self, name: &str) -> Result<Option<Arc<Inode>>, FilesystemError> {
         let _held = self.shared()?;
-        Ok(self.looked_up(name)?.d_inode())
+        Ok(self.looked_up(name)?.inode())
     }
 
     pub(super) fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
