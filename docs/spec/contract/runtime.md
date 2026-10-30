@@ -25,6 +25,7 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/vfs/namei.rs`
 - `crates/kobako-runtime/src/vfs/openat2.rs`
 - `crates/kobako-runtime/src/vfs/path.rs`
+- `crates/kobako-runtime/src/vfs/pipe.rs`
 - `crates/kobako-runtime/src/vfs/rwsem.rs`
 - `crates/kobako-runtime/src/vfs/stat.rs`
 - `crates/kobako-runtime/src/vfs/utimes.rs`
@@ -728,6 +729,54 @@ Release it once the last descriptor closes.
 ```rust
 impl File {
     pub fn release(self) -> Result<(), FilesystemError> {}
+}
+```
+
+## `PipeReader`
+
+The read end of a pipe holding fixed bytes, as an invocation's standard input
+reads the Preamble.
+
+```rust
+pub struct PipeReader {}
+```
+
+## `PipeReader::new`
+
+A pipe holding these bytes.
+
+```rust
+impl PipeReader {
+    pub fn new(bytes: Vec<u8>) -> Self {}
+}
+```
+
+## `PipeWriter`
+
+The write end of a pipe holding at most a capacity's bytes. Each clone writes
+into one buffer, as a Channel's capture does.
+
+```rust
+pub struct PipeWriter {}
+```
+
+## `PipeWriter::new`
+
+A pipe holding at most this capacity's bytes.
+
+```rust
+impl PipeWriter {
+    pub fn new(capacity: usize) -> Self {}
+}
+```
+
+## `PipeWriter::contents`
+
+What was written so far.
+
+```rust
+impl PipeWriter {
+    pub fn contents(&self) -> Vec<u8> {}
 }
 ```
 
