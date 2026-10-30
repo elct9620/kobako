@@ -52,8 +52,8 @@ pub enum Error {
     /// The Mount refused it.
     Denied(Denial),
     /// The path is absolute, or climbs above the directory it is resolved
-    /// beneath, which no capability the guest holds reaches.
-    NotCapable,
+    /// beneath, escaping it as `openat2`'s `RESOLVE_BENEATH` refuses.
+    Escape,
 }
 
 impl From<FilesystemError> for Error {

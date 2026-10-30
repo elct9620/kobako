@@ -32,7 +32,7 @@ pub(crate) fn kern_path(filesystem: Arc<dyn Inode>) -> KernPath {
 fn to_filesystem_error(error: Error) -> FilesystemError {
     match error {
         Error::Filesystem(error) => error,
-        Error::NotCapable => FilesystemError::NotPermitted,
+        Error::Escape => FilesystemError::NotPermitted,
         Error::Denied(denial) => panic!("a read-write Mount refused a call: {denial:?}"),
     }
 }

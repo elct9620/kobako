@@ -310,7 +310,7 @@ impl Nameidata {
             return Err(if from_link {
                 FilesystemError::NotPermitted.into()
             } else {
-                Error::NotCapable
+                Error::Escape
             });
         }
         if !from_link && self.frames.last().is_some_and(|frame| frame.through_link) {
@@ -439,7 +439,7 @@ fn path_lookupat(
         return Err(FilesystemError::NotFound.into());
     }
     if path.starts_with('/') {
-        return Err(Error::NotCapable);
+        return Err(Error::Escape);
     }
     let mut nd = Nameidata {
         mount: start.mount().clone(),

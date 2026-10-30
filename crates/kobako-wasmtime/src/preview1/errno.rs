@@ -218,14 +218,14 @@ impl From<Denial> for Failure {
     }
 }
 
-/// A path absolute or above its descriptor is `NOTCAPABLE`, as preview1
-/// names a capability the guest does not hold.
+/// A path escaping its descriptor is `NOTCAPABLE`, as preview1 names a
+/// capability the guest does not hold.
 impl From<vfs::Error> for Failure {
     fn from(error: vfs::Error) -> Self {
         match error {
             vfs::Error::Filesystem(error) => error.into(),
             vfs::Error::Denied(denial) => denial.into(),
-            vfs::Error::NotCapable => Errno::Notcapable.into(),
+            vfs::Error::Escape => Errno::Notcapable.into(),
         }
     }
 }
