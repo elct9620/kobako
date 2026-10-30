@@ -251,8 +251,8 @@ impl Inode for RubyFilesystem {
         Ok(dentry.name())
     }
 
-    /// A Ruby object names nothing the runtime could compare, so each name
-    /// it holds stays valid.
+    /// A Ruby object is asked by the path a dentry stands at, so a name
+    /// always means what stands there now, the path a Policy judges.
     fn d_revalidate(&self, _dentry: &Dentry) -> Result<bool, FilesystemError> {
         Ok(true)
     }

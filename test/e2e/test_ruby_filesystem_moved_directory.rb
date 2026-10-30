@@ -47,8 +47,63 @@ class TestE2ERubyFilesystemMovedDirectory < Minitest::Test
     def moved(path, from, to) = path == from || path.start_with?("#{from}/") ? to + path.delete_prefix(from) : path
   end
 
+  HELD = TestPaths.fixture("minimal_held_directory.wat")
+
+  # A backend whose `dir` moves beneath `refused/` once its stat is
+  # answered, leaving another `dir` holding another `inner`, as a store
+  # shared outside the runtime changes behind it.
+  class MovingFilesystem
+    attr_reader :asked
+
+    def initialize
+      @asked = []
+      @entries = { "" => 1, "dir" => 2, "dir/inner" => 3 }
+      @directories = ["", "dir"]
+    end
+
+    def stat(path)
+      @asked << path
+      ino = @entries.fetch(path) { raise Errno::ENOENT, path }
+      Stat.new(directory: @directories.include?(path), size: 0, ino: ino).tap { move_away if path == "dir" }
+    end
+
+    def open(path, _flags)
+      @asked << path
+      raise Errno::ENOENT, path unless @entries.key?(path)
+
+      StringIO.new(+"")
+    end
+
+    private
+
+    def move_away
+      return if @entries.key?("refused/dir")
+
+      @entries.merge!("refused" => 4, "refused/dir" => 2, "refused/dir/inner" => 3, "dir" => 5, "dir/inner" => 6)
+      @directories.push("refused", "refused/dir")
+    end
+  end
+
   def setup
     require_fixture!(FIXTURE)
+    require_fixture!(HELD)
+  end
+
+  # Ruby is asked by the path the descriptor's directory stands at in the
+  # runtime, the path the block judges, so a directory the backend moved
+  # beneath a refused path is never asked about there.
+  # @behavior RF-025
+  def test_a_directory_a_ruby_filesystems_backend_moved_reaches_nothing_a_policy_refuses
+    filesystem = MovingFilesystem.new
+    judged = []
+    policy = ->(at, _) { (judged << at) && !at.start_with?("/data/refused") }
+    errno = Kobako::Sandbox.new(wasm_path: HELD).mount("/data", filesystem, access: :read, &policy).eval("").value
+
+    assert_equal [0, ["/data/dir", "/data/dir/inner"], ["dir", "dir/inner"]],
+                 [errno, judged, filesystem.asked.uniq],
+                 "path_open through a directory descriptor a guest opened from a Ruby Filesystem mounted by " \
+                 "Sandbox#mount with a block, after the backend moved the directory beneath a refused path, " \
+                 "must ask the object only about the path the block judged"
   end
 
   # Another directory made at the old path holds no `inner`, so only a
