@@ -17,10 +17,10 @@ use super::super::{
     DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions,
     Tmpfs,
 };
+use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
     d_get_link, d_getattr, d_open, lookup_one, lookup_slow, start_renaming, vfs_create, vfs_link,
     vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, vfs_whiteout, Dentry, Filesystem, RenameFlag,
-    RwSemaphoreGuard,
 };
 
 /// The attribute marking a directory opaque, and its value, as
@@ -66,12 +66,12 @@ impl OverlayPath {
         Ok(lookup_slow(&self.filesystem, self.dir.as_ref(), &self.dentry, name)?.1)
     }
 
-    fn shared(&self) -> Result<RwSemaphoreGuard<'_>, FilesystemError> {
-        self.dentry.rwsem.down_read(self.filesystem.blocking())
+    fn shared(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
+        self.dentry.inode_lock_shared()
     }
 
-    fn exclusive(&self) -> Result<RwSemaphoreGuard<'_>, FilesystemError> {
-        self.dentry.rwsem.down_write(self.filesystem.blocking())
+    fn exclusive(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
+        self.dentry.inode_lock()
     }
 
     /// This directory as a Tmpfs, the one kind holding an Overlay's marks.

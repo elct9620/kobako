@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::cred::Cred;
 use super::mount::VfsMount;
-use super::namei::{d_getattr, down_read};
+use super::namei::d_getattr;
 use super::openat2::OpenHow;
 use super::path::Path;
 use super::Error;
@@ -246,7 +246,7 @@ impl File {
         let dentry = self.path.dentry().clone();
         // A listing holds the directory shared, as Linux's `iterate_dir`
         // does, so a removal through the VFS lands before or after it.
-        let _held = down_read(self.path.mnt(), &dentry)?;
+        let _held = dentry.inode_lock_shared()?;
         if dentry.is_dead() {
             return Ok(Vec::new());
         }

@@ -9,10 +9,10 @@ use std::any::Any;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 
 use super::inode::Inode;
-use super::rwsem::RwSemaphore;
 use super::seqlock::SeqLock;
-use crate::filesystem::DentryOperations;
+use crate::filesystem::{DentryOperations, FilesystemError};
 use crate::hashtable::Hashtable;
+use crate::locking::{RwSemaphore, RwSemaphoreGuard};
 
 /// Every move of a dentry, as Linux's `rename_lock`, so a walk up its
 /// parents answers where the dentry stood at one instant.
@@ -22,10 +22,8 @@ static RENAME_LOCK: SeqLock = SeqLock::new();
 /// one, so a Filesystem reads the name a call is about from it.
 pub struct Dentry {
     state: Mutex<State>,
-    /// The lock calls on the names in this directory run under. Linux
-    /// keeps it on the directory's inode; the VFS owns no inode of its
-    /// own, and a directory has one dentry, so it is kept here.
-    pub(crate) rwsem: RwSemaphore,
+    /// The lock calls on the names in this directory run under.
+    rwsem: Arc<RwSemaphore>,
     /// This dentry, for whoever is handed it to keep, as Linux's `dget`
     /// takes a reference to any dentry it is handed.
     this: Weak<Dentry>,
@@ -62,7 +60,7 @@ impl Dentry {
                 dead: false,
                 inode: None,
             }),
-            rwsem: RwSemaphore::default(),
+            rwsem: Arc::default(),
             this: this.clone(),
             fsdata: OnceLock::new(),
             ops,
@@ -122,6 +120,19 @@ impl Dentry {
             names.retain(|name| !name.is_empty());
             names
         })
+    }
+
+    /// Hold this directory shared, as Linux's `inode_lock_shared` holds the
+    /// directory it looks a name up in, so no change through the VFS lands
+    /// between the name's dentry and what the Filesystem answers for it.
+    pub(crate) fn inode_lock_shared(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
+        Ok(self.rwsem.down_read()?)
+    }
+
+    /// Hold this directory exclusive, as Linux's `inode_lock` holds a
+    /// directory while a name in it is made, removed, or moved.
+    pub(crate) fn inode_lock(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
+        Ok(self.rwsem.down_write()?)
     }
 
     pub(crate) fn is_dead(&self) -> bool {

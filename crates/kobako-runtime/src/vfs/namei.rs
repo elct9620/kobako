@@ -23,11 +23,11 @@ use super::filesystem::Filesystem;
 use super::mount::{Access, VfsMount};
 use super::openat2::{vfs_open, OpenHow};
 use super::path::Path;
-use super::rwsem::RwSemaphoreGuard;
 use super::Error;
 use crate::filesystem::{
     FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
 };
+use crate::locking::RwSemaphoreGuard;
 
 use super::{NAME_MAX, PATH_MAX};
 
@@ -125,7 +125,7 @@ impl Nameidata {
     pub(crate) fn kind(&mut self) -> Result<FileType, FilesystemError> {
         if self.found.is_none() {
             let parent = self.dentry().clone();
-            self.found = Some(down_read(&self.mnt, &parent).and_then(|_held| {
+            self.found = Some(parent.inode_lock_shared().and_then(|_held| {
                 let child = self.walked()?;
                 self.look_up(&child)
             }));
@@ -152,12 +152,12 @@ impl Nameidata {
     pub(crate) fn getattr(&mut self) -> Result<Metadata, FilesystemError> {
         if self.name.is_empty() {
             let parent = self.dentry().clone();
-            let _held = down_read(&self.mnt, &parent)?;
+            let _held = parent.inode_lock_shared()?;
             return self.base().getattr(self.dentry());
         }
         self.kind()?;
         let parent = self.dentry().clone();
-        let _held = down_read(&self.mnt, &parent)?;
+        let _held = parent.inode_lock_shared()?;
         d_getattr(&*self.walked()?)
     }
 
@@ -338,25 +338,6 @@ struct Frame {
     through_link: bool,
 }
 
-/// Hold `dentry`'s directory lock shared, as Linux's lookup holds the
-/// directory it looks a name up in, so no change through the VFS lands
-/// between the name's dentry and what the Filesystem answers for it.
-pub(crate) fn down_read<'a>(
-    mnt: &VfsMount,
-    dentry: &'a Dentry,
-) -> Result<RwSemaphoreGuard<'a>, FilesystemError> {
-    dentry.rwsem.down_read(mnt.filesystem().blocking())
-}
-
-/// Hold `dentry`'s directory lock exclusive, as Linux holds a directory
-/// while a name in it is made, removed, or moved.
-fn down_write<'a>(
-    mnt: &VfsMount,
-    dentry: &'a Dentry,
-) -> Result<RwSemaphoreGuard<'a>, FilesystemError> {
-    dentry.rwsem.down_write(mnt.filesystem().blocking())
-}
-
 /// Refuse what a directory just stepped into, or just opened for a
 /// descriptor, answers unless it opened as a directory.
 pub(crate) fn d_can_lookup(
@@ -374,7 +355,7 @@ impl Nameidata {
     /// there; `dot` is a `.` or `..` right after it, which no link takes.
     fn walk_component(&mut self, part: Part, dot: bool) -> Result<(), Error> {
         let parent = self.dentry().clone();
-        let _held = down_read(&self.mnt, &parent)?;
+        let _held = parent.inode_lock_shared()?;
         let (name, dentry) = self.lookup_slow(&part.name)?;
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
@@ -436,7 +417,7 @@ impl Nameidata {
     /// A final `.` after `name` stands in it, which must be a directory
     /// and no link.
     fn stays_in(&self, name: &str) -> Result<(), Error> {
-        let _held = down_read(&self.mnt, self.dentry())?;
+        let _held = self.dentry().inode_lock_shared()?;
         match d_getattr(&self.lookup_slow(name)?.1)?.file_type {
             FileType::Directory => Ok(()),
             FileType::Symlink => Err(FilesystemError::FilesystemLoop.into()),
@@ -549,7 +530,7 @@ pub(crate) fn filename_lookup(
     let mut followed = false;
     while let Some(name) = last.as_ref().filter(|_| follow) {
         let parent = nd.dentry().clone();
-        let held = down_read(&nd.mnt, &parent)?;
+        let held = parent.inode_lock_shared()?;
         let (stored, dentry) = nd.lookup_slow(&name.name)?;
         let looked_up = d_kind(&dentry);
         if looked_up != Ok(FileType::Symlink) {
@@ -566,7 +547,7 @@ pub(crate) fn filename_lookup(
     if found.is_none() {
         if let Some(part) = last {
             let parent = nd.dentry().clone();
-            let _held = down_read(&nd.mnt, &parent)?;
+            let _held = parent.inode_lock_shared()?;
             let (stored, dentry) = nd.lookup_slow(&part.name)?;
             nd.name = stored;
             nd.last = Some(dentry);
@@ -634,7 +615,7 @@ pub fn do_file_open(
     let parent = nd.dentry().clone();
     let _held = match how.create {
         true => {
-            let held = down_write(&nd.mnt, &parent)?;
+            let held = parent.inode_lock()?;
             nd.found = Some(nd.child().and_then(|child| nd.look_up(&child)));
             Some(held)
         }
@@ -723,7 +704,7 @@ pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<()
     let nd = filename_lookup(cred, start, path, false, false)?;
     nd.check(Access::ReadWrite)?;
     refuse_root(&nd.name, FilesystemError::AlreadyExists)?;
-    let _held = down_write(&nd.mnt, nd.dentry())?;
+    let _held = nd.dentry().inode_lock()?;
     let child = nd.child()?;
     Ok(vfs_mkdir(nd.base().as_ref(), nd.dentry(), &child)?)
 }
@@ -743,7 +724,7 @@ pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), 
     nd.check(Access::ReadWrite)?;
     nd.check_directory()?;
     refuse_root(&nd.name, FilesystemError::InvalidInput)?;
-    let _parent = down_write(&nd.mnt, nd.dentry())?;
+    let _parent = nd.dentry().inode_lock()?;
     Ok(vfs_rmdir(
         nd.mnt.filesystem(),
         nd.base().as_ref(),
@@ -760,7 +741,7 @@ pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(
     nd.check(Access::ReadWrite)?;
     nd.check_directory()?;
     refuse_root(&nd.name, FilesystemError::IsADirectory)?;
-    let _parent = down_write(&nd.mnt, nd.dentry())?;
+    let _parent = nd.dentry().inode_lock()?;
     Ok(vfs_unlink(
         nd.mnt.filesystem(),
         nd.base().as_ref(),
@@ -853,36 +834,35 @@ pub(crate) enum RenameFlag {
 /// then the one above the other before it, as a removal holds the
 /// directory above the one it removes first, and otherwise in a fixed
 /// order.
-fn lock_rename<'a>(
-    filesystem: &'a Filesystem,
-    old_dir: &'a Arc<Dentry>,
-    new_dir: &'a Arc<Dentry>,
-) -> Result<Vec<RwSemaphoreGuard<'a>>, FilesystemError> {
-    let blocking = filesystem.blocking();
+fn lock_rename(
+    filesystem: &Filesystem,
+    old_dir: &Arc<Dentry>,
+    new_dir: &Arc<Dentry>,
+) -> Result<Vec<RwSemaphoreGuard>, FilesystemError> {
     if Arc::ptr_eq(old_dir, new_dir) {
-        return Ok(vec![old_dir.rwsem.down_write(blocking)?]);
+        return Ok(vec![old_dir.inode_lock()?]);
     }
-    let rename = filesystem.rename_mutex().down_write(blocking)?;
+    let rename = filesystem.rename_mutex().down_write()?;
     let old_first = new_dir.is_subdir(old_dir)
         || (!old_dir.is_subdir(new_dir) && Arc::as_ptr(old_dir) < Arc::as_ptr(new_dir));
     let (first, second) = match old_first {
         true => (old_dir, new_dir),
         false => (new_dir, old_dir),
     };
-    let first = first.rwsem.down_write(blocking)?;
-    Ok(vec![rename, first, second.rwsem.down_write(blocking)?])
+    let first = first.inode_lock()?;
+    Ok(vec![rename, first, second.inode_lock()?])
 }
 
 /// Hold both directories a move of `old` to `new` changes, as Linux's
 /// `start_renaming` does through `lock_rename`, refusing a move whose
 /// source stands above its target directory, and one whose target stands
 /// above its source directory, which only an exchange may not empty.
-pub(crate) fn start_renaming<'a>(
-    filesystem: &'a Filesystem,
-    (old_dir, old): (&'a Arc<Dentry>, &Arc<Dentry>),
-    (new_dir, new): (&'a Arc<Dentry>, &Arc<Dentry>),
+pub(crate) fn start_renaming(
+    filesystem: &Filesystem,
+    (old_dir, old): (&Arc<Dentry>, &Arc<Dentry>),
+    (new_dir, new): (&Arc<Dentry>, &Arc<Dentry>),
     flag: Option<RenameFlag>,
-) -> Result<Vec<RwSemaphoreGuard<'a>>, FilesystemError> {
+) -> Result<Vec<RwSemaphoreGuard>, FilesystemError> {
     let held = lock_rename(filesystem, old_dir, new_dir)?;
     if new_dir.is_subdir(old) {
         return Err(FilesystemError::InvalidInput);
@@ -912,9 +892,8 @@ pub(crate) fn vfs_rename(
     flag: Option<RenameFlag>,
     rename: impl FnOnce() -> Result<(), FilesystemError>,
 ) -> Result<(), FilesystemError> {
-    let blocking = filesystem.blocking();
-    let _old = old.rwsem.down_write(blocking)?;
-    let _new = new.rwsem.down_write(blocking)?;
+    let _old = old.inode_lock()?;
+    let _new = new.inode_lock()?;
     let moving = kind_at(old_inode, old)?;
     let is_dir = moving == Some(FileType::Directory);
     may_delete_dentry(old_dir, moving, is_dir)?;
@@ -953,7 +932,7 @@ pub(crate) fn vfs_rmdir(
     dir: &Arc<Dentry>,
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
-    let _victim = victim.rwsem.down_write(filesystem.blocking())?;
+    let _victim = victim.inode_lock()?;
     may_delete_dentry(dir, kind_at(inode, victim)?, true)?;
     inode
         .rmdir(victim)
@@ -973,7 +952,7 @@ pub(crate) fn vfs_unlink(
     dir: &Dentry,
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
-    let _victim = victim.rwsem.down_write(filesystem.blocking())?;
+    let _victim = victim.inode_lock()?;
     may_delete_dentry(dir, kind_at(inode, victim)?, false)?;
     inode
         .unlink(victim)
@@ -1141,8 +1120,9 @@ mod tests {
         Metadata, OpenOptions, Tmpfs,
     };
     use crate::mount::{Access, Mount, Policy};
+    use crate::sched::testing::count_waits;
     use crate::vfs::kern_path::{kern_path, KernPath};
-    use crate::vfs::{self, Blocking, Dentry, Filesystem, Inode, OpenHow, Path};
+    use crate::vfs::{self, Dentry, Filesystem, Inode, OpenHow, Path};
 
     type Hook = Box<dyn Fn() -> Result<(), FilesystemError> + Send + Sync>;
 
@@ -1315,17 +1295,6 @@ mod tests {
                 (self.renaming)()
                     .and_then(|()| self.root.rename(&folded(from), &self.root, &folded(to))),
             )
-        }
-    }
-
-    /// Counts each wait a Filesystem's directory locks make through it.
-    #[derive(Default)]
-    struct CountsWaits(AtomicUsize);
-
-    impl Blocking for CountsWaits {
-        fn wait(&self, wait: &mut dyn FnMut()) {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            wait();
         }
     }
 
@@ -1556,8 +1525,8 @@ mod tests {
 
     // @behavior RT-166
     #[test]
-    fn a_call_waiting_for_a_directorys_lock_waits_through_its_filesystems_blocking() {
-        let counts = Arc::new(CountsWaits::default());
+    fn a_call_waiting_for_a_directorys_lock_waits_through_the_registered_blocking() {
+        let counts = count_waits();
         let (removed, removing) = mpsc::channel();
         let removed = Mutex::new(removed);
         let hooked = HookedTmpfs {
@@ -1568,7 +1537,7 @@ mod tests {
                     // Bounded, so a call that never waits fails the count
                     // rather than hanging the test.
                     for _ in 0..2000 {
-                        if counts.0.load(Ordering::SeqCst) > 0 {
+                        if counts.load(Ordering::SeqCst) > 0 {
                             break;
                         }
                         thread::sleep(Duration::from_millis(1));
@@ -1578,7 +1547,7 @@ mod tests {
             })),
             ..HookedTmpfs::default()
         };
-        let root = root_of(Filesystem::with_blocking(Arc::new(hooked), counts.clone()));
+        let root = root_of(Filesystem::new(Arc::new(hooked)));
         vfs::filename_mkdirat(&Arc::default(), &root, "d").expect("the directory must be made");
         let remover = {
             let root = root.clone();
@@ -1593,10 +1562,10 @@ mod tests {
             .expect("the remover must not panic")
             .expect("the removal must succeed");
         assert_eq!(
-            (made, counts.0.load(Ordering::SeqCst)),
+            (made, counts.load(Ordering::SeqCst)),
             (Ok(()), 1),
             "vfs::filename_mkdirat on a directory another thread's vfs::filename_rmdir holds must wait \
-             through the Blocking given by Filesystem::with_blocking, then answer"
+             through the Blocking given to sched::register_blocking, then answer"
         );
     }
 
@@ -1605,7 +1574,7 @@ mod tests {
     // @behavior RT-169
     #[test]
     fn every_spelling_of_a_name_holds_its_one_dentry_and_lock() {
-        let counts = Arc::new(CountsWaits::default());
+        let counts = count_waits();
         let (reached, reaching) = mpsc::channel();
         let renaming: Arc<Hook> = Arc::new(Box::new({
             let (counts, reached) = (counts.clone(), Mutex::new(reached));
@@ -1614,7 +1583,7 @@ mod tests {
                 // Bounded, so a removal that never waits fails the count
                 // rather than hanging the test.
                 for _ in 0..2000 {
-                    if counts.0.load(Ordering::SeqCst) > 0 {
+                    if counts.load(Ordering::SeqCst) > 0 {
                         break;
                     }
                     thread::sleep(Duration::from_millis(1));
@@ -1627,7 +1596,7 @@ mod tests {
             root: kern_path(Arc::new(tmpfs)),
             renaming,
         };
-        let root = root_of(Filesystem::with_blocking(Arc::new(folds), counts.clone()));
+        let root = root_of(Filesystem::new(Arc::new(folds)));
         let mover = {
             let root = root.clone();
             thread::spawn(move || {
@@ -1640,7 +1609,7 @@ mod tests {
         let removed = vfs::filename_unlinkat(&Arc::default(), &root, "DIR/F");
         let moved = mover.join().expect("the mover must not panic");
         assert_eq!(
-            (moved, removed, counts.0.load(Ordering::SeqCst) > 0),
+            (moved, removed, counts.load(Ordering::SeqCst) > 0),
             (
                 Ok(()),
                 Err(vfs::Error::Filesystem(FilesystemError::NotFound)),

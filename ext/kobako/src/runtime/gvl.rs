@@ -16,6 +16,8 @@ use std::os::raw::c_void;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::ptr;
 
+use kobako_runtime::sched::Blocking;
+
 thread_local! {
     // True while this thread sits inside a region whose GVL we released and
     // have not yet re-acquired. Drives `reenter`'s one-shot re-acquire.
@@ -37,8 +39,19 @@ where
 
 /// Whether this thread holds the GVL: outside any released region, or
 /// inside a dispatch that re-acquired it.
-pub(crate) fn holds() -> bool {
+fn holds() -> bool {
     !GVL_RELEASED.with(|g| g.get())
+}
+
+/// A thread waits for a lock without the GVL, so a holder asking a
+/// Filesystem written in Ruby, or a mount's block, can take the GVL and
+/// finish.
+pub(crate) struct GvlFreeWait;
+
+impl Blocking for GvlFreeWait {
+    fn wait(&self, wait: &mut dyn FnMut()) {
+        region(holds(), wait);
+    }
 }
 
 /// Runs inline when the GVL is already held — hold mode, or a nested

@@ -19,7 +19,6 @@ mod namei;
 mod openat2;
 mod path;
 mod pipe;
-mod rwsem;
 mod seqlock;
 mod stat;
 mod utimes;
@@ -30,7 +29,6 @@ pub(crate) use namei::{
     d_get_link, d_getattr, d_lookup_inode, d_open, lookup_one, lookup_slow, start_renaming,
     vfs_create, vfs_link, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, vfs_whiteout, RenameFlag,
 };
-pub(crate) use rwsem::{Inline, RwSemaphore, RwSemaphoreGuard};
 
 pub use cred::{Cred, SecurityOperations};
 pub use dentry::Dentry;
@@ -44,7 +42,6 @@ pub use namei::{
 pub use openat2::OpenHow;
 pub use path::Path;
 pub use pipe::{create_pipe_files, PipeInodeInfo};
-pub use rwsem::Blocking;
 pub use stat::{do_readlinkat, vfs_fstatat};
 pub use utimes::do_utimes;
 

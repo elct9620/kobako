@@ -27,7 +27,7 @@ use super::inode::{ovl_inode, OverlayInode};
 use super::path::OverlayPath;
 
 use super::super::{FileOperations, FileType, FilesystemError, Kiocb, Metadata};
-use crate::vfs::{Blocking, Dentry, Filesystem, Inline};
+use crate::vfs::{Dentry, Filesystem};
 
 /// The directories of the upper Tmpfs holding the view's changes and the
 /// changes being built, as overlayfs's `upperdir` and `workdir`.
@@ -211,8 +211,6 @@ pub(super) struct OverlayFs {
     work: Option<OverlayPath>,
     /// The next name a change built in `work` takes.
     temp: Arc<AtomicU64>,
-    /// What a copy up waiting for another's lock gives up meanwhile.
-    blocking: Arc<dyn Blocking>,
 }
 
 impl OverlayFs {
@@ -239,13 +237,7 @@ impl OverlayFs {
             roots,
             work,
             temp: Arc::default(),
-            blocking: Arc::new(Inline),
         })
-    }
-
-    /// This view waiting for a copy up's lock through `blocking`.
-    pub(super) fn with_blocking(self, blocking: Arc<dyn Blocking>) -> Self {
-        Self { blocking, ..self }
     }
 
     /// Whether `other` is this view, reached through another directory.

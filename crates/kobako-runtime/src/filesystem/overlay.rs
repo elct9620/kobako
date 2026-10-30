@@ -21,7 +21,7 @@ use super::{
     DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
     Lookup, Metadata, OpenOptions, Tmpfs,
 };
-use crate::vfs::{d_getattr, d_lookup_inode, Blocking, Dentry, Filesystem, Inode};
+use crate::vfs::{d_getattr, d_lookup_inode, Dentry, Filesystem, Inode};
 use inode::{ovl_inode_kept, ovl_inode_real};
 use stack::OverlayFs;
 
@@ -82,14 +82,6 @@ impl Overlay {
             fs: OverlayFs::new(lower, upper)?,
             stack_depth,
         })
-    }
-
-    /// This Overlay waiting for a copy up's lock through `blocking`.
-    pub fn with_blocking(self, blocking: Arc<dyn Blocking>) -> Self {
-        Self {
-            fs: self.fs.with_blocking(blocking),
-            ..self
-        }
     }
 }
 
@@ -2037,16 +2029,6 @@ mod tests {
         );
     }
 
-    /// Counts each wait a copy up's lock makes through it.
-    struct CountsWaits(AtomicUsize);
-
-    impl Blocking for CountsWaits {
-        fn wait(&self, wait: &mut dyn FnMut()) {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            wait();
-        }
-    }
-
     /// A Tmpfs whose first open sleeps a while, flagging that it began.
     #[derive(Default)]
     struct SleepsOnOpen {
@@ -2071,11 +2053,11 @@ mod tests {
     // so the second, of the same file, finds the lock held and waits.
     // @behavior FS-039
     #[test]
-    fn a_contended_copy_up_waits_through_the_overlays_blocking() {
-        let counts = Arc::new(CountsWaits(AtomicUsize::new(0)));
+    fn a_contended_copy_up_waits_through_the_registered_blocking() {
+        let counts = crate::sched::testing::count_waits();
         let sleeps = Arc::new(SleepsOnOpen::default());
         let lower = Wrap::new(tmpfs_with("note", "lower"), sleeps.clone());
-        let overlay = over(Arc::new(lower), Arc::new(Tmpfs::new())).with_blocking(counts.clone());
+        let overlay = over(Arc::new(lower), Arc::new(Tmpfs::new()));
         let first = at(overlay);
         let second = first.clone();
         let copying = thread::spawn(move || write(&first, "note", b"first"));
@@ -2087,11 +2069,11 @@ mod tests {
             (
                 copying.join().expect("the first copy up must not panic"),
                 waited,
-                counts.0.load(Ordering::SeqCst) > 0
+                counts.load(Ordering::SeqCst) > 0
             ),
             (Ok(()), Ok(()), true),
             "a write through an Overlay copying up a file another thread is copying up must wait \
-             through the Blocking given by Overlay::with_blocking, then land"
+             through the Blocking given to sched::register_blocking, then land"
         );
     }
 

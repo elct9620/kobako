@@ -20,7 +20,7 @@ use magnus::{
 
 use ruby::RubyFilesystem;
 
-use kobako_runtime::filesystem::{Bind, Blocking, InodeOperations, Overlay, Tmpfs};
+use kobako_runtime::filesystem::{Bind, Overlay, Tmpfs};
 use kobako_runtime::vfs::Filesystem;
 
 pub(super) use grants::{to_grants, validate_mount};
@@ -104,7 +104,7 @@ fn tmpfs_new(args: &[Value]) -> Result<TmpfsFs, MagnusError> {
     let tmpfs = Tmpfs::try_from_iter(files)
         .map_err(|error| MagnusError::new(ruby.exception_arg_error(), error.to_string()))?
         .with_size(size);
-    Ok(TmpfsFs(new_filesystem(Arc::new(match nr_inodes {
+    Ok(TmpfsFs(Filesystem::new(Arc::new(match nr_inodes {
         Some(nr_inodes) => tmpfs.with_nr_inodes(nr_inodes),
         None => tmpfs,
     }))))
@@ -118,7 +118,7 @@ fn to_count(count: Value) -> Result<Option<usize>, MagnusError> {
 fn bind_new(path: String) -> Result<BindFs, MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
     Bind::new(&path)
-        .map(|directory| BindFs(new_filesystem(Arc::new(directory))))
+        .map(|directory| BindFs(Filesystem::new(Arc::new(directory))))
         .map_err(|err| {
             MagnusError::new(
                 ruby.exception_arg_error(),
@@ -165,25 +165,9 @@ fn overlay_new(args: &[Value]) -> Result<OverlayFs, MagnusError> {
         )
     })?;
     Ok(OverlayFs {
-        filesystem: new_filesystem(Arc::new(overlay.with_blocking(Arc::new(GvlFreeWait)))),
+        filesystem: Filesystem::new(Arc::new(overlay)),
         layers: lower.into_iter().chain(upper).map(Opaque::from).collect(),
     })
-}
-
-/// The Filesystem instance `root` answers for, its calls waiting for a
-/// directory's lock without the GVL.
-fn new_filesystem(root: Arc<dyn InodeOperations>) -> Arc<Filesystem> {
-    Filesystem::with_blocking(root, Arc::new(GvlFreeWait))
-}
-
-/// A thread waits for a lock without the GVL, so a holder asking a
-/// Filesystem written in Ruby can take the GVL and finish.
-struct GvlFreeWait;
-
-impl Blocking for GvlFreeWait {
-    fn wait(&self, wait: &mut dyn FnMut()) {
-        super::gvl::region(super::gvl::holds(), wait);
-    }
 }
 
 /// The Filesystem instance a Ruby handle of any kobako kind stands for. A
@@ -200,7 +184,7 @@ fn to_filesystem(value: Value) -> Result<Arc<Filesystem>, MagnusError> {
         return Ok(fs.filesystem.clone());
     }
     if let Some(fs) = RubyFilesystem::from_value(value) {
-        return Ok(new_filesystem(Arc::new(fs)));
+        return Ok(Filesystem::new(Arc::new(fs)));
     }
     let ruby = Ruby::get().expect("Ruby thread");
     Err(MagnusError::new(

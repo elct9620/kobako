@@ -15,7 +15,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use super::super::{FileOperations, FilesystemError, OpenOptions};
 use super::path::OverlayPath;
 use super::stack::Level;
-use crate::vfs::{Dentry, Inode, RwSemaphore};
+use crate::locking::RwSemaphore;
+use crate::vfs::{Dentry, Inode};
 
 /// A copy a file open to read reads once a copy up made it.
 pub(super) type Copy = Arc<Mutex<Box<dyn FileOperations>>>;
@@ -26,7 +27,7 @@ pub(super) struct OverlayInode {
     level: Mutex<Level>,
     /// The lock a copy up of the entry holds, as overlayfs's
     /// `ovl_inode_lock`, so two calls never copy one entry up at once.
-    pub(super) lock: RwSemaphore,
+    pub(super) lock: Arc<RwSemaphore>,
     /// How many files of a lower Layer are open to read here, so a copy up
     /// opens its copy only while one is.
     readers: AtomicUsize,
@@ -45,7 +46,7 @@ impl OverlayInode {
     fn new(level: Level, real: Option<Arc<Dentry>>) -> Self {
         Self {
             level: Mutex::new(level),
-            lock: RwSemaphore::default(),
+            lock: Arc::default(),
             readers: AtomicUsize::new(0),
             copy: Mutex::new(None),
             real: Mutex::new(real),

@@ -2,7 +2,7 @@
 //! an `open_how` and `vfs_open` holds what the walk opened.
 
 use super::file::File;
-use super::namei::{d_can_lookup, down_read, Nameidata};
+use super::namei::{d_can_lookup, Nameidata};
 use super::path::Path;
 use super::Error;
 use crate::filesystem::FilesystemError;
@@ -34,7 +34,7 @@ pub(crate) fn vfs_open(start: &Path, nd: Nameidata) -> Result<File, Error> {
     let dentry = match nd.name.as_str() {
         "" => nd.dentry().clone(),
         _ => {
-            let _held = down_read(&nd.mnt, nd.dentry())?;
+            let _held = nd.dentry().inode_lock_shared()?;
             let dentry = nd.walked()?;
             let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
             d_can_lookup(inode.ops(), &dentry)?;

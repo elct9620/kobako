@@ -111,6 +111,10 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     // directly into those classes through the constructors and mappers
     // in `runtime/errors.rs` — no intermediate hierarchy is registered.
 
+    // This extension is the only frontend in its process, so the first
+    // registration is the one that stands.
+    let _ = kobako_runtime::sched::register_blocking(Box::new(gvl::GvlFreeWait));
+
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
     runtime.define_singleton_method("from_path", function!(Runtime::from_path, 2))?;
     runtime.define_method("eval", method!(Runtime::eval, 3))?;

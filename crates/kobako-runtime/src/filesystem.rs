@@ -20,11 +20,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-pub use crate::vfs::Blocking;
 pub use bind::Bind;
 pub use overlay::Overlay;
 pub use tmpfs::{SeedError, Tmpfs};
 
+use crate::locking::Deadlock;
 use crate::vfs::{Dentry, Inode};
 
 /// What one name in a directory turned out to be, as `->lookup` answers.
@@ -447,6 +447,12 @@ const POSIX_NAMES: [(&str, FilesystemError); 26] = [
     ("EOVERFLOW", FilesystemError::ValueTooLarge),
     ("ESPIPE", FilesystemError::NotSeekable),
 ];
+
+impl From<Deadlock> for FilesystemError {
+    fn from(_: Deadlock) -> Self {
+        Self::Deadlock
+    }
+}
 
 impl FilesystemError {
     /// The POSIX error name this failure stands for, as `ENOENT`. `Other`

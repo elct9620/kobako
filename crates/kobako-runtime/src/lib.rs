@@ -17,9 +17,11 @@ pub mod error;
 pub mod filesystem;
 pub mod grant;
 mod hashtable;
+mod locking;
 pub mod mount;
 pub mod profile;
 pub mod runtime;
+pub mod sched;
 pub mod security;
 pub mod snapshot;
 pub mod vfs;
@@ -31,12 +33,13 @@ pub mod yielder;
 pub use dispatch::DispatchHandler;
 pub use error::{InvokeError, SetupError, Trap};
 pub use filesystem::{
-    Bind, Blocking, DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr,
+    Bind, DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr,
     InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, Overlay, SeedError, Tmpfs,
 };
 pub use grant::{Grant, GrantKind};
 pub use mount::{Access, Denial, Mount, MountPathError, Policy};
 pub use profile::Profile;
 pub use runtime::{Entry, Runtime};
+pub use sched::Blocking;
 pub use snapshot::{Capture, Completion, Snapshot, Usage};
 pub use yielder::Yielder;

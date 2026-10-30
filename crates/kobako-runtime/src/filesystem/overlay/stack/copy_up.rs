@@ -29,7 +29,7 @@ impl OverlayFs {
         };
         let parent = self.upper_dir(&self.dir(&above)?, into)?;
         let name = dir.dentry.name();
-        let _held = dir.inode.lock.down_write(self.blocking.as_ref())?;
+        let _held = dir.inode.lock.down_write()?;
         let made = match entry(&parent, &name)? {
             Some(found) if found.file_type == FileType::Directory => parent.open_dir(&name)?,
             Some(found) if found.file_type == FileType::Symlink => {
@@ -82,7 +82,7 @@ impl OverlayFs {
         }
         let target_dir = self.upper_dir(dir, into)?;
         let inode = ovl_inode(child, || Ok(Vec::new()))?;
-        let _held = inode.lock.down_write(self.blocking.as_ref())?;
+        let _held = inode.lock.down_write()?;
         // Another call may have copied it up while this one waited, as
         // overlayfs's `ovl_already_copied_up_locked` checks.
         if holds(&target_dir, &name)? {
