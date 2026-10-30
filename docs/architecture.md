@@ -113,7 +113,8 @@ Each line names what can be swapped on its right-hand side.
 
 ```
 Sandbox      = host model . engine . Guest Binary
-engine       = engine mechanics + host ABI endpoint     (kobako-wasmtime)
+engine       = engine mechanics + preview1 encoding     (kobako-wasmtime)
+             + host ABI endpoint + VFS                  (kobako-runtime)
 Guest Binary = guest ABI endpoint + guest model + gems  (kobako-wasm)
 host model   = frontend + codec                         (ext/ + lib/ | kobako)
 guest model  = flows + codec                            (kobako-mruby | own Guest)
@@ -128,7 +129,7 @@ The wasm ABI is what a Guest Binary is built against; the two seams are where a 
           :                       :                       :
   host    :    host ABI           :        guest ABI      :    guest
   model <-:->  endpoint  <--------:-------->  endpoint <--:->  model
-          :    (driver)           :     (kobako-core)     :    (flows)
+          :    (runtime)          :     (kobako-core)     :    (flows)
           :         \______ kobako-transport ______/      :
   contract: kobako-runtime            contract: Guest + proxy::dispatch
 ```
@@ -148,9 +149,10 @@ A change to the wire therefore stays inside the endpoints and `kobako-transport`
 | a path call the guest makes beneath a Mount | a `kobako-runtime` `vfs` operation |
 | how a frontend's thread waits on any lock | a `kobako-runtime` `Blocking`, registered once |
 | a frontend giving up on an invocation its callback cannot answer | `DispatchHandler::abandoned` |
+| an Engine's memory and exports | a `kobako-runtime` `GuestInstance` |
 
-The two sides replace different units.
-The host ABI endpoint shares `kobako-wasmtime` with the engine mechanics, so an engine is replaced whole.
+The two sides replace one unit each.
+A Wasm Driver replaces the Engine and its encoding of each ABI, and keeps the host ABI endpoint and the VFS.
 A guest replaces only its model and keeps `kobako-core`.
 
 ## The Contexts
@@ -204,8 +206,7 @@ The Filesystem context follows Linux's three layers: the Wasm Driver in the sysc
 ```
 ┌───────────────────────────────────────────┐
 │ Wasm Driver   kobako-wasmtime             │
-│ decode · errno · fd table · what a        │
-│ posture shows the guest                   │
+│ decode · errno · fd table · rights        │
 └─────────────────────┬─────────────────────┘
                       ▼
 ┌───────────────────────────────────────────┐
@@ -236,7 +237,7 @@ Each role keeps to its own work, so a change that crosses roles is a change in t
 
 | Role | Owns |
 |---|---|
-| Wasm Driver | decoding, errno, the fd table, the Cred, what a posture shows the guest |
+| Wasm Driver | decoding, errno codes, the fd table, rights, the Cred |
 | VFS | the walk, dentries, inodes, open files, read-only mounts, answering for an operation an entry lacks |
 | Security Module | whether a path may be reached, registered for each Invocation on its Cred |
 | Filesystem Driver | what one entry answers, and its own state on a dentry or inode |

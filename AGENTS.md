@@ -193,7 +193,8 @@ Each row names an entry point and only what reading it will not tell you.
 | Filesystems in Ruby | `ext/kobako/src/runtime/filesystem.rs` | an invocation pins its Mounts' objects; an Overlay marks its Layers |
 | host exceptions | `ext/kobako/src/runtime/escape.rs` | a callback's non-`StandardError` ends the run and re-raises in Ruby |
 | guest capabilities | `wasm/kobako-{io,regexp,json}/src/` | pure-Rust `beni::Gem`, no mrblib |
-| ABI surface | `wasm/kobako-core/src/guest.rs` | bodies in `wasm/kobako-mruby/src/flows.rs`; host side in `crates/kobako-wasmtime/src/driver.rs` |
+| ABI surface | `wasm/kobako-core/src/guest.rs` | bodies in `wasm/kobako-mruby/src/flows.rs`; host side in `crates/kobako-runtime/src/endpoint.rs` |
+| preview1 | `crates/kobako-wasmtime/src/preview1.rs` | wiggle generates it from `witx/`; `rake crates:testsuite` holds it to wasi-testsuite |
 | security | `docs/guides/security.md` | the host is the boundary |
 | customization | `docs/guides/customization.md` | grades are commitments |
 | parity | `docs/parity.md` | behavior aligns; APIs stay idiomatic |

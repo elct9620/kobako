@@ -284,12 +284,28 @@ the contract carries every frontend above it unchanged.
 | Contract part | Names |
 |---|---|
 | engine seams | `Runtime`, `DispatchHandler`, `Yielder` |
-| declared posture | `Profile` |
+| host ABI endpoint | `endpoint`, over a `GuestInstance` the engine implements |
+| files | `vfs`, with `File` answering what a guest may do with an open file |
+| declared posture | `Profile`, and `guest_metadata` for what a guest sees of an entry |
 | per-invocation types | `Snapshot`, `Completion`, `Capture`, `Usage`, `Trap` |
 
 The Rust host SDK takes an engine at `Sandbox::with_runtime` and keeps the whole tier
 above it: Catalog, Handles, snippet replay, Extension composition. `Sandbox::new` is
 the same path with the bundled wasmtime engine.
+
+### Engine Encoding
+
+An engine encodes each ABI itself, and the runtime beneath it decides every answer.
+`kobako-wasmtime` generates preview1's table with wiggle from `witx/`. That generator
+depends on wasmtime, so another engine writes its own table.
+
+| Encoded by the engine | Decided by the runtime |
+|---|---|
+| a call's arguments | what the call answers |
+| errno codes | which error it is |
+| the descriptor table and rights | the open file behind a descriptor |
+
+### Engine Options
 
 `Runtime::compile` is optional. An engine that keeps its default compiles nothing, and
 the SDK replays the preloaded source on every invocation instead of its bytecode.

@@ -269,6 +269,14 @@ permissive  <  hermetic
    requested rung  <=  declared rung   -> accepted
 ```
 
+### Driver
+
+What drives one Engine, such as wasmtime, and encodes each ABI onto it. The answers come from the runtime beneath it, so a change to an answer is no Driver's.
+
+```
+guest ──ABI──> Driver: decode, fd table, errno codes ──> runtime: the answer
+```
+
 ### Grant
 
 A host resource the Host App hands to the runtime instead of binding it by name. The guest reaches it through its system interface, such as a file it opens. The Sandbox holds it, and each Invocation receives it afresh.
