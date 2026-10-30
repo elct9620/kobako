@@ -338,3 +338,16 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a guest holding a directory it opened from a Ruby Filesystem, beneath a Mount with a Policy |
 | When | the backend moves the directory beneath a refused path, and the guest opens a file through the descriptor |
 | Then | the object is asked only about the paths the Policy judged |
+
+## `RF-026` A Ruby Filesystem's directory reports the size its stat answers
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-001` |
+| relates | `FS-138` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `stat` answers a size for a directory |
+| When | the script reads the directory's size |
+| Then | it reads the size the `stat` answers |

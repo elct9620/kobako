@@ -1403,3 +1403,27 @@ both live in the upper and never show, so no name is reserved
 | Given | a guest holding a directory beneath another, beneath a Bind Mount with a Policy |
 | When | the host moves the outer one beneath a refused path, and the guest opens a file at the old path |
 | Then | the open answers ENOENT |
+
+## `FS-137` A Tmpfs sizes a directory as a tmpfs does
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-116` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs directory holding two entries, and an empty one |
+| When | the two directories are read |
+| Then | the first reports a size of 80, and the empty one 40 |
+
+## `FS-138` A Bind reports the size its host gives a directory
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-005` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a host directory beneath a Bind |
+| When | the directory is read through the Bind |
+| Then | it reports the size the host's own stat reports |
