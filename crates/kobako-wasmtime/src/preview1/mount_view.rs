@@ -1273,18 +1273,6 @@ impl FileOperations for AppendedMeanwhileFile {
         }
         self.file.write_iter(iocb, buf)
     }
-
-    /// The length is read before the other writer appends, so a write
-    /// placed by it lands over what the other wrote.
-    fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        let metadata = self.file.getattr()?;
-        self.other_appends()?;
-        Ok(metadata)
-    }
-
-    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.file.truncate(len)
-    }
 }
 
 impl Hook for AppendedMeanwhile {
@@ -2002,10 +1990,10 @@ fn sizing_a_file_opened_only_to_read_answers_by_its_mount_then_as_linux_does() {
             size(Access::ReadWrite, RIGHTS_FD_READ),
             size(Access::ReadWrite, RIGHTS_FD_WRITE),
         ),
-        (ERRNO_PERM, ERRNO_INVAL, 0),
-        "fd_filestat_set_size on a file opened only to read through preview1 must answer EPERM \
-         beneath a read-only Mount, as wasmtime-wasi does, and EINVAL beneath a read-write one, \
-         as Linux's ftruncate does, while a file opened to write is sized"
+        (ERRNO_INVAL, ERRNO_INVAL, 0),
+        "fd_filestat_set_size on a file opened only to read through preview1 must answer EINVAL \
+         beneath a read-only and a read-write Mount, as Linux's ftruncate does, while a file \
+         opened to write is sized"
     );
 }
 

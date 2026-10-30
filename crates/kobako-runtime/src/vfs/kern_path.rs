@@ -15,7 +15,7 @@ use super::namei::{
 use super::path::Path;
 use super::{Error, File, Filesystem};
 use crate::filesystem::{
-    Access, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Metadata,
+    Access, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations, Metadata,
     OpenOptions,
 };
 use crate::mount::Mount;
@@ -60,6 +60,18 @@ impl KernPath {
             }
             _ => d_open(&child, options),
         }
+    }
+
+    /// Truncate or extend the file at `path`, as `->setattr` is asked.
+    pub(crate) fn truncate(&self, path: &str, len: u64) -> Result<(), FilesystemError> {
+        let nd = self.resolve(path)?;
+        let child = nd.child()?;
+        child
+            .inode()
+            .ok_or(FilesystemError::NotFound)?
+            .ops()
+            .setattr(&child, &Iattr::size(len))
+            .unwrap_or(Err(FilesystemError::InvalidInput))
     }
 
     pub(crate) fn open_dir(&self, path: &str) -> Result<Self, FilesystemError> {

@@ -18,10 +18,11 @@ use std::any::Any;
 use std::sync::Arc;
 
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup,
-    Metadata, OpenOptions, Tmpfs,
+    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
+    Lookup, Metadata, OpenOptions, Tmpfs,
 };
-use crate::vfs::{Blocking, Dentry, Filesystem, Inode};
+use crate::vfs::{d_getattr, d_lookup_inode, Blocking, Dentry, Filesystem, Inode};
+use inode::ovl_inode_kept;
 use stack::OverlayFs;
 
 /// Read-only lower Layers under an upper Tmpfs, stacked into one
@@ -93,6 +94,15 @@ impl Overlay {
 }
 
 impl Overlay {
+    /// The Layer's dentry the entry `dentry` answers through once a file was
+    /// opened there, and the inode the view recorded, as `ovl_getattr` asks
+    /// the real path.
+    fn real_of(&self, dentry: &Dentry) -> Option<(Arc<Dentry>, Arc<Inode>)> {
+        let inode = dentry.inode()?;
+        let real = ovl_inode_kept(&inode)?.real()?;
+        Some((real, inode))
+    }
+
     fn lookup_at(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         let level = self.fs.parent(dentry)?.level();
         let name = dentry.name();
@@ -136,11 +146,29 @@ impl Overlay {
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(
-            self.fs
-                .parent(dentry)
-                .and_then(|parent| self.fs.open(&parent, dentry, options)),
-        )
+        Some(self.open_file(dentry, options))
+    }
+
+    /// Open the file `dentry` names and keep the Layer's dentry it answers
+    /// through. One standing already is asked before the open, as the Layer
+    /// may hand the next lookup a dentry of its own once the file is open;
+    /// one this made is recorded after, as `->create` calls `d_instantiate`.
+    fn open_file(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        let dir = self.fs.parent(dentry)?;
+        let stood = dentry.inode().is_some();
+        if stood {
+            self.fs.record_real(&dir, dentry)?;
+        }
+        let file = self.fs.open(&dir, dentry, options)?;
+        if !stood {
+            d_lookup_inode(self, dentry)?;
+            self.fs.record_real(&dir, dentry)?;
+        }
+        Ok(file)
     }
 }
 
@@ -179,8 +207,20 @@ impl InodeOperations for Overlay {
         if is_dir {
             return self.fs.dir_metadata(&self.fs.dir(dentry)?.level());
         }
+        if let Some((real, inode)) = self.real_of(dentry) {
+            let found = d_getattr(&real)?;
+            return Ok(match inode.identity() {
+                Some(identity) => identity.onto(found),
+                None => found,
+            });
+        }
         self.fs
             .symlink_metadata(&self.fs.parent(dentry)?.level(), &dentry.name())
+    }
+
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
+        let (real, _) = self.real_of(dentry)?;
+        real.inode()?.ops().setattr(&real, attr)
     }
 
     /// The entry as a Layer spells it, as `ovl_lookup` hands

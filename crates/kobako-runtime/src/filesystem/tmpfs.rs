@@ -9,8 +9,8 @@ use std::time::SystemTime;
 
 use super::path::{ancestors, name, normalize_seed};
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb,
-    Lookup, Metadata, OpenOptions,
+    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
+    Kiocb, Lookup, Metadata, OpenOptions,
 };
 use crate::vfs::{Dentry, Identity, Inode};
 use whiteout::Whiteout;
@@ -642,6 +642,15 @@ impl InodeOperations for TmpfsRegular {
         Ok(lock(&self.data).metadata())
     }
 
+    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
+        let len = attr.size?;
+        Some(
+            usize::try_from(len)
+                .map_err(|_| FilesystemError::InvalidInput)
+                .and_then(|len| lock(&self.data).resize(len)),
+        )
+    }
+
     fn open(
         &self,
         _dentry: &Dentry,
@@ -715,15 +724,6 @@ impl FileOperations for TmpfsFile {
         let written = write(&mut data, buf, start)?;
         iocb.pos = (start + written) as u64;
         Ok(written)
-    }
-
-    fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        Ok(lock(&self.data).metadata())
-    }
-
-    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        let len = usize::try_from(len).map_err(|_| FilesystemError::InvalidInput)?;
-        lock(&self.data).resize(len)
     }
 
     /// Nothing outlives the Tmpfs, so there is nothing to flush, as shmem's
@@ -933,10 +933,13 @@ mod tests {
     #[test]
     fn a_tmpfs_holds_its_default_size() {
         let tmpfs = at(Tmpfs::new());
-        let mut file = writable(&tmpfs, "file");
+        let _file = writable(&tmpfs, "file");
         let mib_64 = 64 * 1024 * 1024;
         assert_eq!(
-            (file.truncate(mib_64), file.truncate(mib_64 + 1)),
+            (
+                tmpfs.truncate("file", mib_64),
+                tmpfs.truncate("file", mib_64 + 1)
+            ),
             (Ok(()), Err(FilesystemError::StorageFull)),
             "a Tmpfs given no limit through Tmpfs::new must hold 64 MiB and refuse a byte more"
         );
@@ -946,8 +949,9 @@ mod tests {
     #[test]
     fn a_tmpfs_without_a_size_grows_past_the_default() {
         let tmpfs = at(Tmpfs::new().with_size(None));
+        let _file = writable(&tmpfs, "file");
         assert_eq!(
-            writable(&tmpfs, "file").truncate(Tmpfs::DEFAULT_SIZE as u64 + 1),
+            tmpfs.truncate("file", Tmpfs::DEFAULT_SIZE as u64 + 1),
             Ok(()),
             "a Tmpfs given no limit through Tmpfs::with_size(None) must grow past 64 MiB"
         );
@@ -979,7 +983,7 @@ mod tests {
         let unallocatable = isize::MAX as u64 + 1;
         assert_eq!(
             (
-                file.truncate(unallocatable),
+                tmpfs.truncate("file", unallocatable),
                 file.write_iter(&mut Kiocb::at(unallocatable), b"x"),
                 read_all(&tmpfs, "file")
             ),
@@ -1323,7 +1327,9 @@ mod tests {
         let mut file = tmpfs.open("file", &options).expect("the file must be made");
         file.write_iter(&mut Kiocb::at(0), b"ab")
             .expect("the file must take a write");
-        let made = file.getattr().expect("the file must report");
+        let made = tmpfs
+            .symlink_metadata("file")
+            .expect("the file must report");
         file.read_iter(&mut Kiocb::at(0), &mut [0; 1])
             .expect("the file must read");
         std::thread::sleep(std::time::Duration::from_millis(10));

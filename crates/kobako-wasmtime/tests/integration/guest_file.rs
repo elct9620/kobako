@@ -9,7 +9,8 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    FileOperations, FilesystemError, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, Tmpfs,
+    FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Lookup, Metadata,
+    OpenOptions, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
@@ -623,14 +624,6 @@ impl FileOperations for CountedFile {
     fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
         self.file.write_iter(iocb, buf)
     }
-
-    fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        self.file.getattr()
-    }
-
-    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.file.truncate(len)
-    }
 }
 
 /// Each read reaching the Filesystem crosses the wasm boundary, and one a
@@ -672,14 +665,6 @@ impl FileOperations for RefusesClose {
         self.0.write_iter(iocb, buf)
     }
 
-    fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        self.0.getattr()
-    }
-
-    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.0.truncate(len)
-    }
-
     fn flush(&mut self) -> Result<(), FilesystemError> {
         Err(FilesystemError::PermissionDenied)
     }
@@ -695,14 +680,6 @@ impl FileOperations for FailsReads {
 
     fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
         self.0.write_iter(iocb, buf)
-    }
-
-    fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        self.0.getattr()
-    }
-
-    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.0.truncate(len)
     }
 }
 
@@ -753,14 +730,6 @@ impl FileOperations for WritesInParts {
 
     fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
         self.0.write_iter(iocb, &buf[..buf.len().min(3)])
-    }
-
-    fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        self.0.getattr()
-    }
-
-    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.0.truncate(len)
     }
 }
 
@@ -920,31 +889,38 @@ fn a_write_lands_whole_when_the_filesystem_takes_it_in_parts() {
 
 /// An open file reporting a length it does not hold, so a script meets a
 /// file of several GiB without the test allocating one.
-struct ReportsLen(Box<dyn FileOperations>, u64);
+struct ReportsLen(Arc<dyn InodeOperations>, u64);
 
-impl FileOperations for ReportsLen {
-    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
-        self.0.read_iter(iocb, buf)
-    }
-
-    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
-        self.0.write_iter(iocb, buf)
-    }
-
-    fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        let mut metadata = self.0.getattr()?;
-        metadata.len = self.1;
+impl InodeOperations for ReportsLen {
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        let mut metadata = self.0.getattr(dentry)?;
+        if metadata.file_type == FileType::File {
+            metadata.len = self.1;
+        }
         Ok(metadata)
     }
 
-    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.0.truncate(len)
+    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        Some(self.0.lookup(dentry)?.map(|lookup| match lookup {
+            Lookup::Found(inode) => {
+                Lookup::Found(inode.with_ops(Arc::new(Self(inode.ops().clone(), self.1))))
+            }
+            other => other,
+        }))
+    }
+
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        self.0.open(dentry, options)
     }
 }
 
 fn three_gib_note() -> Grant {
-    let filesystem = WrapsFiles::over_note("hello", |file| ReportsLen(file, 3 << 30));
-    mount(filesystem, Access::Read)
+    let tmpfs: Tmpfs = [("note.txt", "hello")].into_iter().collect();
+    mount(Arc::new(ReportsLen(Arc::new(tmpfs), 3 << 30)), Access::Read)
 }
 
 // @behavior FL-020

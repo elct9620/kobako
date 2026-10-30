@@ -164,6 +164,12 @@ impl OverlayPath {
         Ok(())
     }
 
+    /// The dentry of the entry standing at `name`.
+    pub(super) fn real(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
+        let _held = self.shared()?;
+        self.looked_up(name)
+    }
+
     /// Open the file standing at `name`.
     pub(super) fn open(
         &self,

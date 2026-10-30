@@ -8,7 +8,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::filesystem::{FileOperations, FilesystemError, Kiocb, Metadata};
+use crate::filesystem::Metadata;
 use crate::profile::Profile;
 
 /// `metadata` as an invocation running under `profile` sees it.
@@ -27,51 +27,12 @@ pub(crate) fn mask_times(metadata: Metadata, profile: Profile) -> Metadata {
 }
 
 /// `file` as an invocation running under `profile` sees it.
-pub(crate) fn mask_file_times(
-    file: Box<dyn FileOperations>,
-    profile: Profile,
-) -> Box<dyn FileOperations> {
-    match profile {
-        Profile::Permissive => file,
-        Profile::Hermetic => Box::new(Hermetic(file)),
-    }
-}
-
-/// A file read by a hermetic invocation.
-struct Hermetic(Box<dyn FileOperations>);
-
-impl FileOperations for Hermetic {
-    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
-        self.0.read_iter(iocb, buf)
-    }
-
-    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
-        self.0.write_iter(iocb, buf)
-    }
-
-    fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        Ok(mask_times(self.0.getattr()?, Profile::Hermetic))
-    }
-
-    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.0.truncate(len)
-    }
-
-    fn fsync(&mut self) -> Result<(), FilesystemError> {
-        self.0.fsync()
-    }
-
-    fn flush(&mut self) -> Result<(), FilesystemError> {
-        self.0.flush()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::filesystem::{Access, InodeOperations, Tmpfs};
+    use crate::filesystem::{Access, InodeOperations, Kiocb, Tmpfs};
     use crate::mount::Mount;
     use crate::vfs::{self, File, Filesystem, OpenHow, Path};
 

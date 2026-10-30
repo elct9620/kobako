@@ -6,7 +6,7 @@
 
 use std::sync::{Arc, PoisonError};
 
-use super::super::{FileOperations, FilesystemError, Kiocb, Metadata};
+use super::super::{FileOperations, FilesystemError, Kiocb};
 use super::inode::{ovl_inode, ReaderGuard};
 use crate::vfs::Dentry;
 
@@ -51,20 +51,6 @@ impl FileOperations for OverlayFile {
     /// answers it.
     fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
         self.file.write_iter(iocb, buf)
-    }
-
-    fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        match self.inode.copy() {
-            Some(copy) => copy
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .getattr(),
-            None => self.file.getattr(),
-        }
-    }
-
-    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.file.truncate(len)
     }
 
     /// A file open to read flushes what it reads, as `ovl_fsync` syncs the

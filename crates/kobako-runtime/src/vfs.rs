@@ -27,8 +27,8 @@ use crate::filesystem::FilesystemError;
 use crate::mount::Denial;
 
 pub(crate) use namei::{
-    d_get_link, d_getattr, d_open, lookup_one, lookup_slow, start_renaming, vfs_create, vfs_link,
-    vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, vfs_whiteout, RenameFlag,
+    d_get_link, d_getattr, d_lookup_inode, d_open, lookup_one, lookup_slow, start_renaming,
+    vfs_create, vfs_link, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, vfs_whiteout, RenameFlag,
 };
 pub(crate) use rwsem::{Inline, RwSemaphore, RwSemaphoreGuard};
 

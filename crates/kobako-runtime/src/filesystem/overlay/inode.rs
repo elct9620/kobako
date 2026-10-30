@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use super::super::{FileOperations, FilesystemError, OpenOptions};
 use super::path::OverlayPath;
 use super::stack::Level;
-use crate::vfs::{Dentry, RwSemaphore};
+use crate::vfs::{Dentry, Inode, RwSemaphore};
 
 /// A copy a file open to read reads once a copy up made it.
 pub(super) type Copy = Arc<Mutex<Box<dyn FileOperations>>>;
@@ -31,6 +31,10 @@ pub(super) struct OverlayInode {
     /// opens its copy only while one is.
     readers: AtomicUsize,
     copy: Mutex<Option<Copy>>,
+    /// The Layer's dentry this file was opened through, or was copied up
+    /// to, as `struct ovl_entry` holds the real dentries, so the entry
+    /// answers from it even once its name is gone from the view.
+    real: Mutex<Option<Arc<Dentry>>>,
 }
 
 fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -49,6 +53,15 @@ impl OverlayInode {
         lock(&self.level)[into] = Some(dir.clone());
     }
 
+    /// The Layer's dentry this file answers through, once it was opened.
+    pub(super) fn real(&self) -> Option<Arc<Dentry>> {
+        lock(&self.real).clone()
+    }
+
+    pub(super) fn set_real(&self, real: Arc<Dentry>) {
+        *lock(&self.real) = Some(real);
+    }
+
     /// The copy a copy up made, once one did for a file read here.
     pub(super) fn copy(&self) -> Option<Copy> {
         lock(&self.copy).clone()
@@ -65,6 +78,7 @@ impl OverlayInode {
     /// directory; a file opened to read here reads the copy from now on,
     /// as overlayfs's open file reaches the upper inode.
     pub(super) fn copied_up(&self, dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
+        self.set_real(dir.real(name)?);
         if self.readers.load(Ordering::SeqCst) == 0 {
             return Ok(());
         }
@@ -114,8 +128,14 @@ pub(super) fn ovl_inode(
         lock: RwSemaphore::default(),
         readers: AtomicUsize::new(0),
         copy: Mutex::new(None),
+        real: Mutex::new(None),
     });
     Ok(downcast(inode.private().get_or_init(|| made).clone()))
+}
+
+/// The state `inode` keeps, where it keeps any.
+pub(super) fn ovl_inode_kept(inode: &Inode) -> Option<Arc<OverlayInode>> {
+    Some(downcast(inode.private().get()?.clone()))
 }
 
 fn downcast(kept: Arc<dyn Any + Send + Sync>) -> Arc<OverlayInode> {

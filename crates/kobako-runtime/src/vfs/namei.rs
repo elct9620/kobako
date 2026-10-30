@@ -22,7 +22,6 @@ use super::filesystem::Filesystem;
 use super::openat2::{vfs_open, OpenHow};
 use super::path::Path;
 use super::rwsem::RwSemaphoreGuard;
-use super::times::mask_file_times;
 use super::Error;
 use crate::filesystem::{
     Access, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
@@ -657,11 +656,7 @@ pub fn do_file_open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Resu
                 true => vfs_create(nd.base().as_ref(), nd.dentry(), &child, &options)?,
                 false => d_open(&child, &options)?,
             };
-            Ok(File::new(
-                start.with_dentry(child),
-                mask_file_times(f_op, start.profile()),
-                how,
-            ))
+            Ok(File::new(start.with_dentry(child), f_op, how))
         }
     }
 }
@@ -989,9 +984,13 @@ pub(crate) fn vfs_create(
         create_new: true,
         ..*options
     };
-    inode
+    let file = inode
         .create(child, &options)
-        .unwrap_or(Err(FilesystemError::PermissionDenied))
+        .unwrap_or(Err(FilesystemError::PermissionDenied))?;
+    // What was made stands at the name now, as `->create` calls
+    // `d_instantiate`, for a Filesystem that did not record it itself.
+    d_lookup_inode(inode, child)?;
+    Ok(file)
 }
 
 /// Make a whiteout at `child` in `dir` through `make`, the Filesystem's

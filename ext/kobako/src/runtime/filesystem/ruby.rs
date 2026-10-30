@@ -12,12 +12,12 @@ use magnus::value::{Opaque, ReprValue};
 use magnus::{prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, Value};
 
 use std::any::Any;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{
-    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Lookup, Metadata,
-    OpenOptions,
+    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
+    Kiocb, Lookup, Metadata, OpenOptions,
 };
 use kobako_runtime::vfs::{Dentry, Inode};
 
@@ -211,21 +211,37 @@ fn join(dir: &str, name: &str) -> String {
 }
 
 impl RubyFilesystem {
+    /// Open the file `dentry` names and keep it on the inode, so the entry
+    /// answers from it however its name changes, as 9p keeps an open fid.
+    /// What this made is recorded first, as `->create` calls `d_instantiate`.
     fn open_at(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let path = dentry.path_raw();
-        ask(
+        let file = ask(
             self.object,
             "open",
             FilesystemError::Unsupported,
             |ruby, fs| {
                 let file: Value = fs.funcall("open", (path, to_flags(ruby, options)?))?;
-                Ok(Box::new(RubyFile::pin(ruby, file)) as Box<dyn FileOperations>)
+                Ok(RubyFile::pin(ruby, file))
             },
-        )
+        )?;
+        dentry.add(Some(Inode::by_path(Arc::new(Self {
+            object: self.object,
+            dev: self.dev,
+        }))));
+        let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
+        let kept = inode
+            .private()
+            .get_or_init(|| Arc::new(OpenRubyFile::default()))
+            .clone();
+        if let Ok(open) = kept.downcast::<OpenRubyFile>() {
+            *open.0.lock().unwrap_or_else(PoisonError::into_inner) = Arc::downgrade(&file.file);
+        }
+        Ok(Box::new(file))
     }
 
     fn entries_at(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -265,12 +281,37 @@ impl RubyFilesystem {
 }
 
 /// Every entry answers through the same object, asked by the path a dentry
-/// stands at, so a name always means what stands there now, the path a
-/// Policy judges, and no `d_revalidate` is needed. A Ruby object answers
-/// `stat` alone, so it holds no links to follow.
+/// stands at, so a name always means what stands there now and the path a
+/// Policy judges. A Ruby object answers `stat` alone, so it holds no links to
+/// follow.
 impl InodeOperations for RubyFilesystem {
+    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
+        Some(Arc::new(RubyDentry))
+    }
+
+    /// A file open here answers its own `size`, even once its name is gone;
+    /// anything else is asked by its path.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        self.stat(dentry.path_raw())
+        let Some(file) = open_file(dentry) else {
+            return self.stat(dentry.path_raw());
+        };
+        ask(
+            file.get(),
+            "size",
+            FilesystemError::Unsupported,
+            |_, file| Ok(Metadata::new(FileType::File, file.funcall("size", ())?)),
+        )
+    }
+
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
+        let len = attr.size?;
+        let file = open_file(dentry)?;
+        Some(change(
+            file.get(),
+            "truncate",
+            (len,),
+            FilesystemError::ReadOnlyFilesystem,
+        ))
     }
 
     /// A Ruby object matches names exactly, as its contract asks. A lookup
@@ -361,14 +402,48 @@ impl FileOperations for RubyDir {
 /// One file the Ruby object opened, which only the guest's descriptor
 /// refers to.
 struct RubyFile {
-    file: PinnedValue,
+    file: Arc<PinnedValue>,
     closed: bool,
+}
+
+/// The file open on a dentry. A dentry holds at most one, as `revalidate`
+/// has the next walk take a dentry of its own once one is open.
+#[derive(Default)]
+struct OpenRubyFile(Mutex<Weak<PinnedValue>>);
+
+/// The file open on `dentry`, while one is.
+fn open_file(dentry: &Dentry) -> Option<Arc<PinnedValue>> {
+    let inode = dentry.inode()?;
+    let open = inode
+        .private()
+        .get()?
+        .clone()
+        .downcast::<OpenRubyFile>()
+        .ok()?;
+    let file = open.0.lock().unwrap_or_else(PoisonError::into_inner);
+    file.upgrade()
+}
+
+/// A name asked by its path means what stands there now, while an open file
+/// answers for itself, so a walk finding a dentry a file is open on takes one
+/// of its own, as a name replaced behind Linux's dentry gets a new one. The
+/// object is asked nothing.
+struct RubyDentry;
+
+impl DentryOperations for RubyDentry {
+    fn revalidate(
+        &self,
+        _dir: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Result<bool, FilesystemError> {
+        Ok(open_file(dentry).is_none())
+    }
 }
 
 impl RubyFile {
     fn pin(ruby: &Ruby, file: Value) -> Self {
         Self {
-            file: PinnedValue::new(ruby, file),
+            file: Arc::new(PinnedValue::new(ruby, file)),
             closed: false,
         }
     }
@@ -447,24 +522,6 @@ impl FileOperations for RubyFile {
         })?;
         iocb.pos += written as u64;
         Ok(written)
-    }
-
-    fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        ask(
-            self.file.get(),
-            "size",
-            FilesystemError::Unsupported,
-            |_, file| Ok(Metadata::new(FileType::File, file.funcall("size", ())?)),
-        )
-    }
-
-    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        change(
-            self.file.get(),
-            "truncate",
-            (len,),
-            FilesystemError::ReadOnlyFilesystem,
-        )
     }
 
     /// A file lacking `fsync` has nothing of its own to flush.

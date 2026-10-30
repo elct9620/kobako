@@ -2,11 +2,14 @@
 //! for it, and what each descriptor of it shares, so any ABI a Driver encodes
 //! holds the same open file.
 
-use super::namei::down_read;
+use super::namei::{d_getattr, down_read};
 use super::openat2::OpenHow;
 use super::path::Path;
+use super::times::mask_times;
 use super::Error;
-use crate::filesystem::{DirEntry, FileOperations, FilesystemError, Kiocb, Metadata, OpenOptions};
+use crate::filesystem::{
+    DirEntry, FileOperations, FilesystemError, Iattr, Kiocb, Metadata, OpenOptions,
+};
 use crate::mount::Mount;
 use crate::profile::Profile;
 
@@ -129,8 +132,25 @@ impl File {
     pub fn getattr(&self) -> Result<Metadata, Error> {
         match self.directory {
             true => self.path.metadata(),
-            false => Ok(self.ops.getattr()?),
+            false => Ok(mask_times(
+                d_getattr(self.path.dentry())?,
+                self.path.profile(),
+            )),
         }
+    }
+
+    /// Truncate or extend it through what it was opened on, as `do_ftruncate`
+    /// refuses anything but a file open to write, and reaches `->setattr`.
+    pub fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
+        if self.directory || !self.writable {
+            return Err(FilesystemError::InvalidInput);
+        }
+        let dentry = self.path.dentry();
+        let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
+        inode
+            .ops()
+            .setattr(dentry, &Iattr::size(len))
+            .unwrap_or(Err(FilesystemError::InvalidInput))
     }
 
     /// The entries of the directory, without `.` or `..`; none once it was

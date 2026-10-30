@@ -64,9 +64,17 @@ pub enum Lookup {
 /// that Invocation.
 pub trait InodeOperations: Any + Send + Sync {
     /// What this entry, which `dentry` names, reports of itself, as
-    /// `getattr` is handed the path it answers for. A link reports itself;
-    /// the runtime keeps its size from the guest.
+    /// `getattr` is handed the path it answers for, even once its name is
+    /// gone and only an open file holds it, as `fstat` asks the same. A link
+    /// reports itself; the runtime keeps its size from the guest.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
+
+    /// Apply `attr` to this entry, even once its name is gone and only an
+    /// open file holds it, as `ftruncate` reaches `->setattr`. An entry
+    /// without it refuses as invalid input.
+    fn setattr(&self, _dentry: &Dentry, _attr: &Iattr) -> Option<Result<(), FilesystemError>> {
+        None
+    }
 
     /// What stands at the name `dentry` carries in this directory. The
     /// runtime asks once for a dentry naming nothing yet, and an entry
@@ -159,6 +167,22 @@ pub trait DentryOperations: Send + Sync {
     ) -> Result<bool, FilesystemError>;
 }
 
+/// What a change sets of an entry, as Linux's `struct iattr`; a field left
+/// `None` is one `ia_valid` does not name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Iattr {
+    /// The length to truncate or extend a file to, extending with zeros.
+    pub size: Option<u64>,
+}
+
+impl Iattr {
+    /// A change truncating or extending a file to `len`.
+    pub fn size(len: u64) -> Self {
+        Self { size: Some(len) }
+    }
+}
+
 /// Where one read or write lands, and where the file left off once it did,
 /// as Linux's `struct kiocb`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -206,18 +230,6 @@ pub trait FileOperations: Send {
     /// so a file that cannot read its end and write there in one step answers
     /// `Unsupported`.
     fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, FilesystemError> {
-        Err(FilesystemError::InvalidInput)
-    }
-
-    /// What the open file is, and its length, even once its name is gone,
-    /// as a host answers `fstat` through the descriptor it holds.
-    fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        Err(FilesystemError::Unsupported)
-    }
-
-    /// Truncate or extend the file to `len` bytes, extending with zeros, as
-    /// `ftruncate` reaches through the file a host holds.
-    fn truncate(&mut self, _len: u64) -> Result<(), FilesystemError> {
         Err(FilesystemError::InvalidInput)
     }
 

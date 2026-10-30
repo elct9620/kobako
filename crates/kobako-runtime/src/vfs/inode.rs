@@ -23,6 +23,11 @@ impl Identity {
             ino: metadata.ino,
         })
     }
+
+    /// `metadata`, naming this identity.
+    pub(crate) fn onto(self, metadata: Metadata) -> Metadata {
+        metadata.with_identity(self.dev, self.ino)
+    }
 }
 
 /// One entry of a Filesystem, as a lookup finds it for the runtime to record

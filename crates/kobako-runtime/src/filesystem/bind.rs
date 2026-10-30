@@ -14,15 +14,15 @@ mod walk;
 use std::any::Any;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb,
-    Lookup, Metadata, OpenOptions,
+    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
+    Kiocb, Lookup, Metadata, OpenOptions,
 };
 use crate::vfs::{Dentry, Identity, Inode};
 
@@ -128,6 +128,34 @@ impl Bind {
                 Err(err) => Err(err),
             }
         })
+    }
+
+    /// Open the file `dentry` names and keep its descriptor on the inode, so
+    /// the entry answers from it however its name changes, as 9p's
+    /// `v9fs_open_fid_add` keeps an open fid. What this made is recorded
+    /// first, as `->create` calls `d_instantiate`.
+    fn open_file(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        let file = self.at(dentry, |dir, name| open_in(dir, name, options))?;
+        if dentry.inode().is_none() {
+            let made = cap_std::fs::Metadata::from_file(&file).map_err(to_error)?;
+            dentry.add(Some(Inode::new(&to_metadata(made), Arc::new(self.clone()))));
+        }
+        let file = Arc::new(file);
+        let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
+        let kept = inode
+            .private()
+            .get_or_init(|| Arc::new(OpenFids::default()))
+            .clone();
+        if let Ok(fids) = kept.downcast::<OpenFids>() {
+            let mut fids = fids.0.lock().unwrap_or_else(PoisonError::into_inner);
+            fids.retain(|(fid, _)| fid.strong_count() > 0);
+            fids.push((Arc::downgrade(&file), options.write));
+        }
+        Ok(Box::new(BindFile { file }))
     }
 
     /// Whether the entry `dentry` recorded still stands where the dentry
@@ -280,11 +308,23 @@ fn unix_time(seconds: i64, nanoseconds: i64) -> Option<std::time::SystemTime> {
 }
 
 /// Open `name` in `dir` as `options` asks.
-fn open_in(
-    dir: &Dir,
-    name: &str,
-    options: &OpenOptions,
-) -> Result<Box<dyn FileOperations>, FilesystemError> {
+/// The descriptors open on one file, and which were opened to write, as 9p
+/// keeps open fids on `i_private`.
+#[derive(Default)]
+struct OpenFids(Mutex<Vec<(Weak<std::fs::File>, bool)>>);
+
+/// A descriptor open on the file `dentry` records, one open to write where
+/// `writable` asks, as 9p's `v9fs_fid_find_inode` finds one.
+fn open_fid(dentry: &Dentry, writable: bool) -> Option<Arc<std::fs::File>> {
+    let inode = dentry.inode()?;
+    let fids = inode.private().get()?.clone().downcast::<OpenFids>().ok()?;
+    let fids = fids.0.lock().unwrap_or_else(PoisonError::into_inner);
+    fids.iter()
+        .filter(|(_, opened_to_write)| *opened_to_write || !writable)
+        .find_map(|(fid, _)| fid.upgrade())
+}
+
+fn open_in(dir: &Dir, name: &str, options: &OpenOptions) -> Result<std::fs::File, FilesystemError> {
     // The host creates only for a writer, so a file already there is
     // opened as asked rather than for writing it was never given.
     if options.create && !(options.create_new || options.write || options.truncate) {
@@ -340,9 +380,7 @@ fn open_in(
             .map_err(io::Error::from)
             .map_err(to_error)?;
     }
-    Ok(Box::new(BindFile {
-        file: file.into_std(),
-    }))
+    Ok(file.into_std())
 }
 
 /// The host may move or remake what a dentry names behind the runtime's
@@ -361,8 +399,9 @@ impl DentryOperations for Bind {
 
 impl InodeOperations for Bind {
     /// A directory answers from its own descriptor, which follows it
-    /// wherever it moves and keeps its inode taken while it is open; any
-    /// other entry answers by its name in the directory above.
+    /// wherever it moves and keeps its inode taken while it is open; a file
+    /// open anywhere from the descriptor that holds it, even once its name
+    /// is gone; any other entry by its name in the directory above.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         let is_dir = dentry
             .inode()
@@ -370,6 +409,11 @@ impl InodeOperations for Bind {
         if is_dir {
             return Ok(to_metadata(
                 self.fid(dentry)?.dir_metadata().map_err(to_error)?,
+            ));
+        }
+        if let Some(file) = open_fid(dentry, false) {
+            return Ok(to_metadata(
+                cap_std::fs::Metadata::from_file(&file).map_err(to_error)?,
             ));
         }
         self.at(dentry, |dir, name| {
@@ -397,6 +441,14 @@ impl InodeOperations for Bind {
         }))
     }
 
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
+        let len = attr.size?;
+        Some(match open_fid(dentry, true) {
+            Some(file) => file.set_len(len).map_err(to_error),
+            None => Err(FilesystemError::InvalidInput),
+        })
+    }
+
     fn open(
         &self,
         dentry: &Dentry,
@@ -405,7 +457,7 @@ impl InodeOperations for Bind {
         if options.directory {
             return Some(Ok(Box::new(BindDir(self.clone()))));
         }
-        Some(self.at(dentry, |dir, name| open_in(dir, name, options)))
+        Some(self.open_file(dentry, options))
     }
 
     fn create(
@@ -413,7 +465,7 @@ impl InodeOperations for Bind {
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(self.at(dentry, |dir, name| open_in(dir, name, options)))
+        Some(self.open_file(dentry, options))
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
@@ -475,7 +527,7 @@ impl FileOperations for BindDir {
 /// An open host file. The runtime names every offset, so each access seeks
 /// first.
 struct BindFile {
-    file: std::fs::File,
+    file: Arc<std::fs::File>,
 }
 
 impl BindFile {
@@ -492,15 +544,16 @@ impl BindFile {
     fn append(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
         use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
 
-        let flags = fcntl_getfl(&self.file)
+        let mut file = &*self.file;
+        let flags = fcntl_getfl(file)
             .map_err(io::Error::from)
             .map_err(to_error)?;
-        fcntl_setfl(&self.file, flags | OFlags::APPEND)
+        fcntl_setfl(file, flags | OFlags::APPEND)
             .map_err(io::Error::from)
             .map_err(to_error)?;
-        let written = self.file.write(buf);
-        let end = self.file.stream_position();
-        fcntl_setfl(&self.file, flags)
+        let written = file.write(buf);
+        let end = file.stream_position();
+        fcntl_setfl(file, flags)
             .map_err(io::Error::from)
             .map_err(to_error)?;
         let written = written.map_err(to_error)?;
@@ -511,10 +564,9 @@ impl BindFile {
 
 impl FileOperations for BindFile {
     fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
-        self.file
-            .seek(SeekFrom::Start(iocb.pos))
-            .map_err(to_error)?;
-        let read = self.file.read(buf).map_err(to_error)?;
+        let mut file = &*self.file;
+        file.seek(SeekFrom::Start(iocb.pos)).map_err(to_error)?;
+        let read = file.read(buf).map_err(to_error)?;
         iocb.pos += read as u64;
         Ok(read)
     }
@@ -523,22 +575,11 @@ impl FileOperations for BindFile {
         if iocb.append {
             return self.append(iocb, buf);
         }
-        self.file
-            .seek(SeekFrom::Start(iocb.pos))
-            .map_err(to_error)?;
-        let written = self.file.write(buf).map_err(to_error)?;
+        let mut file = &*self.file;
+        file.seek(SeekFrom::Start(iocb.pos)).map_err(to_error)?;
+        let written = file.write(buf).map_err(to_error)?;
         iocb.pos += written as u64;
         Ok(written)
-    }
-
-    fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        Ok(to_metadata(
-            cap_std::fs::Metadata::from_file(&self.file).map_err(to_error)?,
-        ))
-    }
-
-    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.file.set_len(len).map_err(to_error)
     }
 
     fn fsync(&mut self) -> Result<(), FilesystemError> {
@@ -672,6 +713,122 @@ mod tests {
             Some(vfs::Error::Filesystem(FilesystemError::NotFound)),
             "vfs::do_file_open beneath a Bind Mount with a Policy, through a directory the host moved \
              beneath a refused path while a descriptor beneath it was held, must answer NotFound"
+        );
+    }
+
+    /// The roots of a Tmpfs, a Bind, and an Overlay, each holding a five byte
+    /// `f`, by name.
+    #[cfg(unix)]
+    fn each_holding_five_bytes(host: &HostDir) -> [(&'static str, crate::vfs::Path); 3] {
+        use crate::filesystem::{Access, Overlay, Tmpfs};
+        use crate::mount::Mount;
+        use crate::profile::Profile;
+        use crate::vfs::Filesystem;
+        fs::write(host.0.join("f"), "hello").expect("the host file must be written");
+        let tmpfs = || [("f", "hello")].into_iter().collect::<Tmpfs>();
+        let overlay = Overlay::new(
+            vec![Filesystem::new(Arc::new(tmpfs()))],
+            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+        )
+        .expect("the Overlay must stack");
+        let root = |filesystem: Arc<dyn InodeOperations>| {
+            let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
+                .expect("/data is a guest path");
+            crate::vfs::Path::root(mount, Profile::Permissive)
+        };
+        [
+            ("Tmpfs", root(Arc::new(tmpfs()))),
+            (
+                "Bind",
+                root(Arc::new(
+                    Bind::new(&host.0).expect("the host directory must open"),
+                )),
+            ),
+            ("Overlay", root(Arc::new(overlay))),
+        ]
+    }
+
+    // @behavior FS-141
+    #[cfg(unix)]
+    #[test]
+    fn a_file_removed_while_open_still_reports_itself() {
+        use crate::vfs::{self, OpenHow};
+        let host = HostDir::new("removed-open");
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        for (name, root) in each_holding_five_bytes(&host) {
+            let Ok(mut file) = vfs::do_file_open(&root, "f", &read, true) else {
+                panic!("{name}'s f must open");
+            };
+            vfs::filename_unlinkat(&root, "f").expect("the name must go");
+            let mut buf = [0; 5];
+            assert_eq!(
+                (
+                    file.getattr().map(|found| found.len).ok(),
+                    file.ops().read_iter(&mut Kiocb::at(0), &mut buf),
+                    &buf
+                ),
+                (Some(5), Ok(5), b"hello"),
+                "File::getattr and FileOperations::read_iter of a file whose name \
+                 vfs::filename_unlinkat removed on a {name} must answer what it holds"
+            );
+        }
+    }
+
+    // @behavior FS-142
+    #[cfg(unix)]
+    #[test]
+    fn a_file_removed_while_open_can_still_be_sized() {
+        use crate::vfs::{self, OpenHow};
+        let host = HostDir::new("removed-sized");
+        let write = OpenHow {
+            write: true,
+            ..OpenHow::default()
+        };
+        for (name, root) in each_holding_five_bytes(&host) {
+            let Ok(mut file) = vfs::do_file_open(&root, "f", &write, true) else {
+                panic!("{name}'s f must open");
+            };
+            vfs::filename_unlinkat(&root, "f").expect("the name must go");
+            assert_eq!(
+                (file.truncate(2), file.getattr().map(|found| found.len).ok()),
+                (Ok(()), Some(2)),
+                "File::truncate of a file whose name vfs::filename_unlinkat removed on a {name} \
+                 must size what it holds"
+            );
+        }
+    }
+
+    // A dentry the host replaced is dropped by its identity, so the path
+    // reaches the new file while the open one keeps its own descriptor.
+    // @behavior FS-143
+    #[cfg(unix)]
+    #[test]
+    fn a_file_replaced_while_open_answers_apart_from_its_path() {
+        use crate::vfs::{self, OpenHow};
+        let host = HostDir::new("replaced-open");
+        let [_, (_, root), _] = each_holding_five_bytes(&host);
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let Ok(file) = vfs::do_file_open(&root, "f", &read, true) else {
+            panic!("f must open");
+        };
+        fs::rename(host.0.join("f"), host.0.join("aside")).expect("the host must move f");
+        fs::write(host.0.join("f"), "longer!").expect("the host must remake f");
+        assert_eq!(
+            (
+                vfs::vfs_fstatat(&root, "f", true)
+                    .map(|found| found.len)
+                    .ok(),
+                file.getattr().map(|found| found.len).ok()
+            ),
+            (Some(7), Some(5)),
+            "vfs::vfs_fstatat of a path the host replaced under an open File must answer the new \
+             file, and File::getattr the one it holds"
         );
     }
 

@@ -241,14 +241,6 @@ impl FileOperations for NoteFile {
     fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, FilesystemError> {
         Err(FilesystemError::ReadOnlyFilesystem)
     }
-
-    fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        Ok(Metadata::new(FileType::File, self.0.len() as u64))
-    }
-
-    fn truncate(&mut self, _len: u64) -> Result<(), FilesystemError> {
-        Err(FilesystemError::ReadOnlyFilesystem)
-    }
 }
 
 /// The directory holding `note.txt`.
@@ -290,7 +282,7 @@ struct Note(&'static [u8]);
 
 impl InodeOperations for Note {
     fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        NoteFile(self.0).getattr()
+        Ok(Metadata::new(FileType::File, self.0.len() as u64))
     }
 
     fn open(

@@ -59,4 +59,50 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
                  "File.size of a directory a Ruby Filesystem holds, mounted by Sandbox#mount, must answer the " \
                  "size its stat answers"
   end
+
+  # A file whose +size+ differs from what its Filesystem's +stat+ answers, so
+  # a script tells which of them answered.
+  class SizedApartFilesystem
+    # One open file, answering a size of its own.
+    OpenFile = Data.define(:bytes) do
+      def size = bytes.bytesize
+      def pread(length, offset) = bytes.byteslice(offset, length) || ""
+    end
+
+    def initialize
+      @names = { "f" => OpenFile.new("hello") }
+    end
+
+    def open(path, _flags) = @names.fetch(path) { raise Errno::ENOENT, path }
+
+    def stat(path)
+      return Stat.new(true, 0, 1) if path.empty?
+      raise Errno::ENOENT, path unless @names.key?(path)
+
+      Stat.new(false, 105, 2)
+    end
+
+    def unlink(path) = @names.delete(path)
+  end
+
+  SIZES_APART = <<~RUBY
+    file = File.open("/data/f")
+    sizes = [file.size, File.size("/data/f")]
+    File.unlink("/data/f")
+    sizes << file.size
+  RUBY
+
+  # Only a walk taking a dentry of its own past the file open on the old one
+  # keeps the path asking +stat+, and only the file kept on that old dentry
+  # answers once the name is gone.
+  # @behavior RF-027
+  def test_an_open_file_keeps_its_answers_apart_from_its_paths
+    sizes = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                           .mount("/data", SizedApartFilesystem.new, access: :read_write)
+                           .eval(SIZES_APART).value
+
+    assert_equal [5, 105, 5], sizes,
+                 "File#size and File.size through Sandbox#mount of a Ruby Filesystem must answer the open " \
+                 "file's size and the path's stat, and File#size must still answer once the name is removed"
+  end
 end

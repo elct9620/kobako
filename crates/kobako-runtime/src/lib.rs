@@ -31,7 +31,7 @@ pub use dispatch::DispatchHandler;
 pub use error::{InvokeError, SetupError, Trap};
 pub use filesystem::{
     Access, Bind, Blocking, DentryOperations, DirEntry, FileOperations, FileType, FilesystemError,
-    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, Overlay, SeedError, Tmpfs,
+    Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, Overlay, SeedError, Tmpfs,
 };
 pub use grant::{Grant, GrantKind};
 pub use mount::{Denial, Mount, MountPathError, Policy};
