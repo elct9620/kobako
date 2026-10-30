@@ -158,7 +158,7 @@ These names come from another side, and step 1 keeps each as that side spells it
 |---|---|
 | Rust API Guidelines | `new`, `try_`, `as_`, `into_`, `_mut`, a getter without `get_`, a trait such as `Blocking` |
 | Rust standard library | `OpenOptions`, `Metadata`, `DirEntry` |
-| Linux, for the VFS and a Filesystem's operations | `filename_mkdirat`, `vfs_mkdir`, `DentryOperations::revalidate` |
+| Linux, for the VFS, a Filesystem's operations, locks, and scheduling | `filename_mkdirat`, `vfs_mkdir`, `DentryOperations::revalidate`, `RwSemaphore::down_read`, `sched::schedule` |
 | Ruby and its hooks | `method_missing`, `respond_to_missing?`, `LocalJumpError`, `ThreadError` |
 | magnus and beni | `funcall`, `define_method` |
 | WASI and POSIX | `fd_readdir`, `PATH_MAX`, `ELOOP` |

@@ -61,7 +61,7 @@ Each part owns one concern, and its dependencies on other kobako parts may only 
 |---|---|---|
 | `kobako-transport` | the core envelope and the ABI's values | none, ever |
 | `kobako-codec` | the payload dialects, one namespace and feature per schema | none |
-| `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant`, `Mount`, `vfs`, `InodeOperations` and kinds | transport |
+| `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant`, `Mount`, `vfs`, `sched`, `InodeOperations` and kinds | transport |
 | `kobako-wasmtime` | one engine behind that contract | runtime, transport |
 | `kobako` | the Rust host model: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
 | `lib/` | the Ruby host model and its own dialect | the native ext |
@@ -146,7 +146,7 @@ A change to the wire therefore stays inside the endpoints and `kobako-transport`
 | a result that does not frame | a `Trap` |
 | a host resource the guest reaches through WASI | a `kobako-runtime` `Grant`, such as a `Mount` |
 | a path call the guest makes beneath a Mount | a `kobako-runtime` `vfs` operation |
-| how a frontend's thread waits on a directory's or a copy up's lock | a `kobako-runtime` `Blocking` |
+| how a frontend's thread waits on any lock | a `kobako-runtime` `Blocking`, registered once |
 | a frontend giving up on an invocation its callback cannot answer | `DispatchHandler::abandoned` |
 
 The two sides replace different units.
@@ -210,7 +210,7 @@ The Filesystem context follows Linux's three layers: the Wasm Driver in the sysc
                       ▼
 ┌───────────────────────────────────────────┐
 │ VFS        kobako-runtime::vfs            │
-│ namei · dentries · locks · vfsmount       │
+│ namei · dentries · inodes · vfsmount      │
 │ open files · pipes                        │
 │                                           │
 │   ┌─────────────┐      ┌─────────────┐    │
@@ -224,16 +224,23 @@ The Filesystem context follows Linux's three layers: the Wasm Driver in the sysc
 │ (kobako_runtime::   │ │ Overlay · Ruby      │
 │  security)          │ │                     │
 └─────────────────────┘ └─────────────────────┘
+
+beneath the VFS and every Filesystem Driver:
+┌───────────────────────────────────────────┐
+│ locking   rw_semaphore                    │
+│ sched     current · schedule ◀── frontend │
+└───────────────────────────────────────────┘
 ```
 
-Each role keeps to its own work, so a change that crosses roles is a change in the wrong place. Only the Wasm Driver and a hook hold kobako's own design, so the VFS's names follow Linux's. Its one exception is `Blocking`, since Linux holds no GVL to give up while it waits.
+Each role keeps to its own work, so a change that crosses roles is a change in the wrong place. Only the Wasm Driver, a hook, and what a frontend registers hold kobako's own design, so the VFS's names follow Linux's.
 
 | Role | Owns |
 |---|---|
 | Wasm Driver | decoding, errno, the fd table, the Cred, what a posture shows the guest |
-| VFS | the walk, dentries, locks, open files, read-only mounts, answering for an operation an entry lacks |
+| VFS | the walk, dentries, inodes, open files, read-only mounts, answering for an operation an entry lacks |
 | Security Module | whether a path may be reached, registered for each Invocation on its Cred |
 | Filesystem Driver | what one entry answers, and its own state on a dentry or inode |
+| locking, sched | whether a wait can end, who asks, and the frontend's way to wait |
 
 ## Build Rules
 

@@ -56,7 +56,7 @@ Each row is one seam a third party can fill, with the endpoint it sits on.
 | Wasm engine | `impl Runtime`, handed to `Sandbox::with_runtime` | Rust host SDK | replaceable |
 | Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | a host frontend of your own | replaceable |
 | Filesystem | `impl InodeOperations` + `FileOperations`, behind a Mount | Rust host SDK | replaceable · methods append-only |
-| Lock wait | `impl Blocking`, handed to `Filesystem::with_blocking` or `Overlay::with_blocking` | a host frontend of your own | replaceable · methods append-only |
+| Lock wait | `impl Blocking`, handed once to `sched::register_blocking` | a host frontend of your own | replaceable · methods append-only |
 
 The types those seams carry, by grade:
 
@@ -356,6 +356,6 @@ VFS does. One wrapping another forwards those it keeps.
 | `mkdir`, `rmdir`, `unlink`, `rename` | a change made under the directory's lock | EPERM |
 | `Kiocb::append` in `write_iter` | another writer's append from landing over this one | `Unsupported`, which it answers itself |
 
-An Overlay waits for a copy up's lock through `Blocking`. A frontend whose threads share a
-lock of their own gives that lock up inside `wait`, as Ruby gives up the GVL.
-Otherwise the holder it waits for never finishes.
+Every lock waits through the one `Blocking` a process registers, so a Filesystem says nothing
+about waiting. A frontend whose threads share a lock of their own gives that lock up inside
+`wait`, as Ruby gives up the GVL. Otherwise the holder it waits for never finishes.

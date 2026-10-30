@@ -17,6 +17,7 @@ engine stays swappable.
 | `grant` | the `Grant` a frontend hands each invocation, and the `GrantKind`s a runtime supports |
 | `mount` | the `Mount` at a guest path, its `Access`, and the `Policy` judging its paths |
 | `filesystem` | the `InodeOperations` trait and the four kinds kobako ships |
+| `sched` | the `Blocking` a frontend registers, how its threads wait for a lock |
 | `dispatch` / `yielder` | the `DispatchHandler` and `Yielder` traits a frontend supplies for guest→host dispatch and block-yield re-entry |
 
 Engine implementations such as `kobako-wasmtime` implement `Runtime`.
