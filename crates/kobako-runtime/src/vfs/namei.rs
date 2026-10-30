@@ -20,8 +20,7 @@ use super::cred::Cred;
 use super::dentry::Dentry;
 use super::file::File;
 use super::filesystem::Filesystem;
-use super::mount::Access;
-use super::mount::VfsMount;
+use super::mount::{Access, VfsMount};
 use super::openat2::{vfs_open, OpenHow};
 use super::path::Path;
 use super::rwsem::RwSemaphoreGuard;
@@ -123,7 +122,7 @@ impl Nameidata {
     /// What kind of entry stands at the name, a link reported as itself,
     /// read from the dentry as Linux's `d_is_*` do; the directory itself for
     /// the empty name.
-    pub(crate) fn found(&mut self) -> Result<FileType, FilesystemError> {
+    pub(crate) fn kind(&mut self) -> Result<FileType, FilesystemError> {
         if self.found.is_none() {
             let parent = self.dentry().clone();
             self.found = Some(down_read(&self.mnt, &parent).and_then(|_held| {
@@ -156,7 +155,7 @@ impl Nameidata {
             let _held = down_read(&self.mnt, &parent)?;
             return self.base().getattr(self.dentry());
         }
-        self.found()?;
+        self.kind()?;
         let parent = self.dentry().clone();
         let _held = down_read(&self.mnt, &parent)?;
         d_getattr(&*self.walked()?)
@@ -166,7 +165,7 @@ impl Nameidata {
     /// something else stands there.
     pub(crate) fn check_directory(&mut self) -> Result<(), Error> {
         if self.names_directory {
-            match self.found() {
+            match self.kind() {
                 Ok(FileType::Directory) | Err(FilesystemError::NotFound) => {}
                 Ok(_) => return Err(FilesystemError::NotADirectory.into()),
                 Err(err) => return Err(err.into()),
@@ -578,7 +577,7 @@ pub(crate) fn filename_lookup(
     nd.found = match found {
         Some(found) => Some(nd.complete_walk(found)?),
         None if nd.descended() => {
-            let looked_up = nd.found();
+            let looked_up = nd.kind();
             Some(nd.complete_walk(looked_up)?)
         }
         None => None,
@@ -647,7 +646,7 @@ pub fn do_file_open(
     if !room {
         return Err(FilesystemError::TooManyOpenFiles.into());
     }
-    let existing = match nd.found() {
+    let existing = match nd.kind() {
         Ok(kind) => Some(kind),
         Err(FilesystemError::NotFound) => None,
         Err(err) => return Err(err.into()),
@@ -808,7 +807,7 @@ pub fn filename_renameat2(
     // known by the path rather than by the directories each walk opened;
     // it changes nothing once the source stands, as `rename(2)` answers.
     if onto_itself {
-        source.found()?;
+        source.kind()?;
         return Ok(());
     }
     let (old, new) = (source.child()?, target.child()?);
@@ -1113,7 +1112,7 @@ fn refuse_dot_end(
         _ => return Ok(()),
     };
     if !parent.is_empty()
-        && filename_lookup(cred, start, parent, true, false)?.found()? != FileType::Directory
+        && filename_lookup(cred, start, parent, true, false)?.kind()? != FileType::Directory
     {
         return Err(FilesystemError::NotADirectory.into());
     }

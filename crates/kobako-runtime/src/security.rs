@@ -7,8 +7,7 @@ use std::sync::Arc;
 
 use crate::filesystem::{FileType, FilesystemError, Lookup};
 use crate::mount::{Mount, Policy};
-use crate::vfs::Access;
-use crate::vfs::{Cred, Denial, Error, Path, SecurityOperations, VfsMount};
+use crate::vfs::{Access, Cred, Denial, Error, Path, SecurityOperations, VfsMount};
 
 /// What every Invocation holds to, whatever its Mounts allow.
 struct KobakoSecurity;

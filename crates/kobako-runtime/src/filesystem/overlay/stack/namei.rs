@@ -9,7 +9,7 @@ use crate::vfs::Dentry;
 
 /// What the view shows at a name, and the Layer's dentry anything but a
 /// directory answers through.
-type Shown = (Metadata, Option<Arc<Dentry>>);
+type ViewEntry = (Metadata, Option<Arc<Dentry>>);
 
 impl OverlayFs {
     /// Each Layer's directory the directory `name` in `level` stands for,
@@ -141,11 +141,11 @@ impl OverlayFs {
 
     /// As `symlink_metadata`, beside the Layer's dentry anything but a
     /// directory answers through.
-    pub(in super::super) fn shown_at(
+    pub(in super::super) fn view_entry(
         &self,
         level: &Level,
         name: &str,
-    ) -> Result<Option<Shown>, FilesystemError> {
+    ) -> Result<Option<ViewEntry>, FilesystemError> {
         let Some((index, found)) = self.lookup(level, name)? else {
             return Ok(None);
         };

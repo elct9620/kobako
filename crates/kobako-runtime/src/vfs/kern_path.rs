@@ -53,7 +53,7 @@ impl KernPath {
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let mut nd = self.resolve(path)?;
         let child = nd.child()?;
-        match nd.found() {
+        match nd.kind() {
             Err(FilesystemError::NotFound) if options.create || options.create_new => {
                 vfs_create(nd.base().as_ref(), nd.dentry(), &child, options)
             }

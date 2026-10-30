@@ -452,7 +452,7 @@ impl Guest {
     }
 
     /// A guest on `profile`.
-    fn on_posture(profile: Profile, grants: &[Grant]) -> Self {
+    fn for_posture(profile: Profile, grants: &[Grant]) -> Self {
         Self::build(None, profile, grants)
     }
 
@@ -1522,7 +1522,7 @@ fn tmpfs_grant(tmpfs: &Arc<Tmpfs>) -> [Grant; 1] {
 // @behavior RT-156
 #[test]
 fn the_weaker_posture_sees_the_times_a_filesystem_keeps() {
-    let mut guest = Guest::on_posture(Profile::Permissive, &tmpfs_grant(&Arc::new(Tmpfs::new())));
+    let mut guest = Guest::for_posture(Profile::Permissive, &tmpfs_grant(&Arc::new(Tmpfs::new())));
     let before = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("the host clock stands past the epoch")
@@ -1540,7 +1540,7 @@ fn the_weaker_posture_sees_the_times_a_filesystem_keeps() {
 // @behavior RT-157
 #[test]
 fn the_strongest_posture_sees_every_time_at_the_unix_epoch() {
-    let mut guest = Guest::on_posture(Profile::Hermetic, &tmpfs_grant(&Arc::new(Tmpfs::new())));
+    let mut guest = Guest::for_posture(Profile::Hermetic, &tmpfs_grant(&Arc::new(Tmpfs::new())));
     assert_eq!(guest.call("write_file", FILE), 0, "the write must succeed");
     let path = guest.times_of_path(FILE);
     assert_eq!(guest.call("stat_opened", FILE), 0, "the stat must succeed");
@@ -1556,9 +1556,9 @@ fn the_strongest_posture_sees_every_time_at_the_unix_epoch() {
 #[test]
 fn a_time_another_posture_wrote_reaches_the_strongest_posture_as_the_epoch() {
     let tmpfs = Arc::new(Tmpfs::new());
-    let mut writer = Guest::on_posture(Profile::Permissive, &tmpfs_grant(&tmpfs));
+    let mut writer = Guest::for_posture(Profile::Permissive, &tmpfs_grant(&tmpfs));
     assert_eq!(writer.call("write_file", FILE), 0, "the write must succeed");
-    let mut reader = Guest::on_posture(Profile::Hermetic, &tmpfs_grant(&tmpfs));
+    let mut reader = Guest::for_posture(Profile::Hermetic, &tmpfs_grant(&tmpfs));
     assert_eq!(
         reader.times_of_path(FILE),
         [0; 3],

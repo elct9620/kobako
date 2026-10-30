@@ -120,7 +120,7 @@ impl Overlay {
             }
             return Ok(Lookup::Found(inode));
         }
-        let Some((found, real)) = self.fs.shown_at(&level, &name)? else {
+        let Some((found, real)) = self.fs.view_entry(&level, &name)? else {
             return Ok(Lookup::Absent);
         };
         let inode = Inode::new(&found, Arc::new(self.clone()));

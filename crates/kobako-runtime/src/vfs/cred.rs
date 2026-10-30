@@ -4,8 +4,7 @@
 
 use std::sync::Arc;
 
-use super::mount::Access;
-use super::mount::{Denial, VfsMount};
+use super::mount::{Access, Denial, VfsMount};
 use super::path::Path;
 use super::Error;
 use crate::filesystem::{FileType, FilesystemError};
