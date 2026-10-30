@@ -168,6 +168,7 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
     if !file.is_stream() {
         fs_flags.set(Fdflags::APPEND, file.append());
         fs_flags.set(Fdflags::NONBLOCK, file.nonblock());
+        fs_flags.set(Fdflags::SYNC, file.sync());
     }
     let (fs_filetype, fs_rights_base, fs_rights_inheriting) = if file.is_stream() {
         let rights = match file.readable() {

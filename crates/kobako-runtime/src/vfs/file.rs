@@ -128,6 +128,9 @@ pub struct File {
     /// Whether it asked not to wait, as `O_NONBLOCK` in `f_flags`. Nothing
     /// here waits, so it only reports back.
     nonblock: bool,
+    /// Whether each write is made durable before it answers, as `O_SYNC` in
+    /// `f_flags`.
+    sync: bool,
     /// Where the next read or write lands, as `f_pos`.
     pos: u64,
     /// The entries a listing began with, held until it reaches its end, so
@@ -150,6 +153,7 @@ impl File {
             mode: FMode::of(how),
             append: how.append,
             nonblock: how.nonblock,
+            sync: how.sync,
             pos: 0,
             listing: None,
         }
@@ -227,6 +231,11 @@ impl File {
     /// Whether it asked not to wait.
     pub fn nonblock(&self) -> bool {
         self.nonblock
+    }
+
+    /// Whether each write is made durable before it answers.
+    pub fn sync(&self) -> bool {
+        self.sync
     }
 
     /// Change the flags an open file may change, as `fcntl`'s `setfl` takes
@@ -394,6 +403,15 @@ impl File {
         let mut iocb = self.kiocb(self.pos);
         let written = self.ops.write_iter(&mut iocb, buf)?;
         self.pos = iocb.pos;
+        self.generic_write_sync(written)
+    }
+
+    /// Make `written` bytes durable where it was opened to, as
+    /// `generic_write_sync` does once a write has landed.
+    fn generic_write_sync(&mut self, written: usize) -> Result<usize, FilesystemError> {
+        if self.sync && written > 0 {
+            self.ops.fsync()?;
+        }
         Ok(written)
     }
 
@@ -402,7 +420,8 @@ impl File {
     pub fn pwrite(&mut self, buf: &[u8], pos: u64) -> Result<usize, FilesystemError> {
         self.may_pwrite(pos)?;
         self.rw_verify_area(pos, buf.len())?;
-        self.ops.write_iter(&mut self.kiocb(pos), buf)
+        let written = self.ops.write_iter(&mut self.kiocb(pos), buf)?;
+        self.generic_write_sync(written)
     }
 
     /// Make what was written durable, as `vfs_fsync` does.
@@ -537,9 +556,12 @@ impl File {
 mod tests {
     use super::super::{create_pipe_files, do_file_open, vfs_fstatat, PipeInodeInfo};
     use super::*;
-    use crate::filesystem::{Bind, InodeOperations, Overlay, Tmpfs};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use crate::filesystem::{Bind, InodeOperations, Lookup, Overlay, Tmpfs};
     use crate::mount::{Access, Mount};
     use crate::vfs::Filesystem;
+    use crate::vfs::Inode;
 
     /// `file.txt`, seven bytes long, opened for `access`.
     fn open(read: bool, write: bool) -> File {
@@ -690,6 +712,82 @@ mod tests {
             ),
             "File::iterate_dir must hand `.` and `..` ahead of the entries, each with the \
              position after it, and go on from any of those positions"
+        );
+    }
+
+    /// A file counting its syncs, at every name of a directory.
+    struct CountsSyncs(Arc<AtomicUsize>);
+
+    impl FileOperations for CountsSyncs {
+        fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+            Ok(buf.len())
+        }
+
+        fn fsync(&mut self) -> Result<(), FilesystemError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    struct HoldsCountsSyncs(Arc<AtomicUsize>);
+
+    impl InodeOperations for HoldsCountsSyncs {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(FileType::Directory, 0))
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+            let found = Metadata::new(FileType::File, 0);
+            let ops = Arc::new(Self(self.0.clone()));
+            Some(Ok(Lookup::Found(Inode::new(&found, ops))))
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            Some(Ok(Box::new(CountsSyncs(self.0.clone()))))
+        }
+    }
+
+    // @behavior RT-091
+    #[test]
+    fn a_file_opened_to_sync_makes_each_write_durable() {
+        let syncs = Arc::new(AtomicUsize::new(0));
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(HoldsCountsSyncs(syncs.clone()))),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let open = |sync| {
+            let how = OpenHow {
+                write: true,
+                sync,
+                ..OpenHow::default()
+            };
+            do_file_open(
+                &Arc::default(),
+                &Path::root(mount.mnt()),
+                "file",
+                &how,
+                true,
+            )
+            .unwrap_or_else(|_| panic!("the file must open"))
+        };
+        let mut plain = open(false);
+        let mut synced = open(true);
+        plain.write(b"x").expect("the write must land");
+        let after_plain = syncs.load(Ordering::SeqCst);
+        synced.write(b"x").expect("the write must land");
+        synced.pwrite(b"x", 0).expect("the write must land");
+        synced.write(b"").expect("the empty write must land");
+        assert_eq!(
+            (after_plain, syncs.load(Ordering::SeqCst)),
+            (0, 2),
+            "File::write and pwrite must ask a file opened to sync to sync once per write landing \
+             bytes, as generic_write_sync does, and a file opened otherwise never"
         );
     }
 

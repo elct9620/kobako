@@ -776,6 +776,16 @@ impl File {
 }
 ```
 
+## `File::sync`
+
+Whether each write is made durable before it answers.
+
+```rust
+impl File {
+    pub fn sync(&self) -> bool {}
+}
+```
+
 ## `File::setfl`
 
 Change the flags an open file may change, as `fcntl` takes only `SETFL_MASK`.

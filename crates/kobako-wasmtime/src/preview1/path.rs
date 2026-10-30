@@ -99,20 +99,7 @@ pub(crate) fn open(
 ) -> Answer<types::Fd> {
     let path = mem.path(path)?;
     let dir = directory(table, fd)?;
-    // A Filesystem makes no write durable on its own schedule, so an open
-    // asking otherwise is unsupported rather than quietly granted.
-    if flags
-        .fdflags
-        .intersects(types::Fdflags::DSYNC | types::Fdflags::RSYNC | types::Fdflags::SYNC)
-    {
-        return Err(Errno::Notsup.into());
-    }
     let oflags = flags.oflags;
-    if oflags.contains(types::Oflags::DIRECTORY)
-        && oflags.intersects(types::Oflags::CREAT | types::Oflags::EXCL | types::Oflags::TRUNC)
-    {
-        return Err(Errno::Inval.into());
-    }
     let mut how = OpenHow::default();
     how.read = flags.rights_base.contains(types::Rights::FD_READ);
     how.write = flags.rights_base.contains(types::Rights::FD_WRITE);
@@ -123,6 +110,9 @@ pub(crate) fn open(
     how.follow = flags.dirflags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     how.append = flags.fdflags.contains(types::Fdflags::APPEND);
     how.nonblock = flags.fdflags.contains(types::Fdflags::NONBLOCK);
+    how.sync = flags
+        .fdflags
+        .intersects(types::Fdflags::DSYNC | types::Fdflags::RSYNC | types::Fdflags::SYNC);
     let file = vfs::do_file_open(table.cred(), dir, &path, &how, !table.is_full())?;
     Ok(table.push(Descriptor::of(file)).ok_or(Errno::Mfile)?.into())
 }

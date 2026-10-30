@@ -875,7 +875,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest creates a file at `new.txt/` beneath it |
 | Then | the creation answers that the path is a directory, and no file is made |
 
-## `RT-091` An open asking for synchronized writes is unsupported
+## `RT-091` An open may ask for synchronized writes
 
 | Attribute | Value |
 | --- | --- |
@@ -885,9 +885,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | an invocation handed a Mount holding `file.txt` |
 | When | the guest opens `file.txt` asking each write to be synchronized |
-| Then | the open answers that this is unsupported |
+| Then | the open succeeds, and each write landing bytes syncs the file once |
 
-## `RT-092` An open of a directory that creates or truncates is invalid
+## `RT-092` An open of a directory answers its other flags as Linux does
 
 | Attribute | Value |
 | --- | --- |
@@ -896,8 +896,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an invocation handed a read-write Mount |
-| When | the guest opens a path as a directory while asking to create or truncate it |
-| Then | the open is refused as invalid, and nothing is made |
+| When | the guest opens a path as a directory while asking to create, or opens a file as one |
+| Then | the first answers EINVAL, and the second ENOTDIR, and nothing is made |
 
 ## `RT-093` A rename of a file onto a path ending in a slash is not a directory
 

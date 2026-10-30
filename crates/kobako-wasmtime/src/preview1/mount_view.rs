@@ -2687,27 +2687,32 @@ fn open_flagged(path: (i32, i32), oflags: i32, fdflags: i32) -> (i32, Vec<String
 
 // @behavior RT-091
 #[test]
-fn an_open_asking_for_synchronized_writes_is_unsupported() {
+fn an_open_may_ask_for_synchronized_writes() {
     assert_eq!(
         open_flagged(FILE, 0, FDFLAGS_SYNC).0,
-        ERRNO_NOTSUP,
-        "path_open of `file.txt` with FDFLAGS_SYNC beneath a Mount through preview1 must answer \
-         ENOTSUP"
+        0,
+        "path_open of `file.txt` with FDFLAGS_SYNC beneath a Mount through preview1 must succeed, \
+         as Linux takes O_SYNC"
     );
 }
 
 // @behavior RT-092
 #[test]
-fn an_open_of_a_directory_that_creates_or_truncates_is_invalid() {
+fn an_open_of_a_directory_answers_its_other_flags_as_linux_does() {
     let held = vec!["file.txt".to_string()];
     assert_eq!(
         (
             open_flagged(NEW_AS_DIRECTORY, OFLAGS_DIRECTORY | OFLAGS_CREAT, 0),
-            open_flagged(FILE, OFLAGS_DIRECTORY | OFLAGS_TRUNC, 0)
+            open_flagged(FILE, OFLAGS_DIRECTORY | OFLAGS_TRUNC, 0),
+            open_flagged(FILE, OFLAGS_DIRECTORY, 0),
         ),
-        ((ERRNO_INVAL, held.clone()), (ERRNO_INVAL, held)),
-        "path_open with OFLAGS_DIRECTORY and CREAT or TRUNC beneath a Mount through preview1 \
-         must answer EINVAL and make nothing"
+        (
+            (ERRNO_INVAL, held.clone()),
+            (ERRNO_NOTDIR, held.clone()),
+            (ERRNO_NOTDIR, held)
+        ),
+        "path_open with OFLAGS_DIRECTORY beneath a Mount through preview1 must answer EINVAL \
+         with CREAT and ENOTDIR for a file, and make nothing, as Linux does"
     );
 }
 

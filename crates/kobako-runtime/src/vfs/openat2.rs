@@ -28,6 +28,17 @@ pub struct OpenHow {
     pub append: bool,
     /// Ask not to wait, as `O_NONBLOCK` does.
     pub nonblock: bool,
+    /// Make each write durable before it answers, as `O_SYNC` does.
+    pub sync: bool,
+}
+
+/// Refuse flags no open can mean before any path is looked at, as Linux's
+/// `build_open_flags` refuses `O_DIRECTORY` with `O_CREAT`.
+pub(crate) fn build_open_flags(how: &OpenHow) -> Result<(), FilesystemError> {
+    match how.directory && how.create {
+        true => Err(FilesystemError::InvalidInput),
+        false => Ok(()),
+    }
 }
 
 /// The directory `nd` ends at, opened now, as Linux's `vfs_open` holds

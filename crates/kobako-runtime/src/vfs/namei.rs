@@ -22,7 +22,7 @@ use super::file::File;
 use super::filesystem::Filesystem;
 use super::inode::Inode;
 use super::mount::{Access, VfsMount};
-use super::openat2::{vfs_open, OpenHow};
+use super::openat2::{build_open_flags, vfs_open, OpenHow};
 use super::path::Path;
 use super::Error;
 use crate::filesystem::{
@@ -599,6 +599,7 @@ pub fn do_file_open(
     how: &OpenHow,
     room: bool,
 ) -> Result<File, Error> {
+    build_open_flags(how)?;
     // A path ending in `/` asks for a directory, which cannot be created
     // as a file. Linux answers it once the names before the last are
     // walked, before it would follow a link standing at the last.
