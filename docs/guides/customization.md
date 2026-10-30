@@ -351,7 +351,7 @@ VFS does. One wrapping another forwards those it keeps.
 | `FileOperations::iterate_shared` | a directory listed from what its `open` made | ENOTDIR |
 | `FileOperations::fsync` | what was written made durable; answer `Ok` with nothing to flush | EINVAL |
 | `mkdir`, `rmdir`, `unlink`, `rename` | a change made under the directory's lock | EPERM |
-| `FileOperations::append` | another writer's append from landing over this one | `Unsupported`, which it answers itself |
+| `Kiocb::append` in `write_iter` | another writer's append from landing over this one | `Unsupported`, which it answers itself |
 
 An Overlay waits for a copy up's lock through `Blocking`. A frontend whose threads share a
 lock of their own gives that lock up inside `wait`, as Ruby gives up the GVL.

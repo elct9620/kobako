@@ -732,6 +732,17 @@ impl File {
 }
 ```
 
+## `File::kiocb`
+
+A call landing at an offset of this file, at its end where it was opened to
+append.
+
+```rust
+impl File {
+    pub fn kiocb(&self, pos: u64) -> Kiocb {}
+}
+```
+
 ## `File::close`
 
 Close it once the last descriptor goes, answering what its flush answers.
@@ -1074,35 +1085,54 @@ answers as Linux's VFS answers for a NULL in the table.
 pub trait FileOperations {}
 ```
 
-## `FileOperations::read`
+## `Kiocb`
 
-Read from an offset into the buffer, answering how much was read.
+Where one read or write lands, and where the file left off once it did.
 
 ```rust
-pub trait FileOperations {
-    fn read(&mut self, _buf: &mut [u8], _offset: u64) -> Result<usize, FilesystemError>;
+pub struct Kiocb {}
+```
+
+## `Kiocb::at`
+
+A call landing at an offset.
+
+```rust
+impl Kiocb {
+    pub fn at(pos: u64) -> Self {}
 }
 ```
 
-## `FileOperations::write`
+## `Kiocb::appending`
 
-Write the buffer at an offset, answering how much was written.
+The same call, landing at the file's end as it stands when the write lands.
 
 ```rust
-pub trait FileOperations {
-    fn write(&mut self, _buf: &[u8], _offset: u64) -> Result<usize, FilesystemError>;
+impl Kiocb {
+    pub fn appending(self) -> Self {}
 }
 ```
 
-## `FileOperations::append`
+## `FileOperations::read_iter`
 
-Write the buffer at the file's end as it stands when the write lands. It
-answers the offset it landed at and how much was written. A file that cannot
-take both steps as one answers `Unsupported`.
+Read into the buffer from where the call lands, answering how much was read. It
+moves the position past what it read, unless the file has no positions.
 
 ```rust
 pub trait FileOperations {
-    fn append(&mut self, _buf: &[u8]) -> Result<(u64, usize), FilesystemError>;
+    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError>;
+}
+```
+
+## `FileOperations::write_iter`
+
+Write the buffer where the call lands, answering how much was written. It moves
+the position past what it wrote, unless the file has no positions. A call landing
+at the end that the file cannot take as one step answers `Unsupported`.
+
+```rust
+pub trait FileOperations {
+    fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, FilesystemError>;
 }
 ```
 
