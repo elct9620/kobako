@@ -743,6 +743,34 @@ impl File {
 }
 ```
 
+## `FMode`
+
+What an open file was opened for and what it can do.
+
+```rust
+pub struct FMode(u8);
+```
+
+## `FMode::contains`
+
+Whether this holds all of another.
+
+```rust
+impl FMode {
+    pub fn contains(self, mode: Self) -> bool {}
+}
+```
+
+## `File::mode`
+
+What it was opened for and what it can do.
+
+```rust
+impl File {
+    pub fn mode(&self) -> FMode {}
+}
+```
+
 ## `File::kiocb`
 
 A call landing at an offset of this file, at its end where it was opened to
