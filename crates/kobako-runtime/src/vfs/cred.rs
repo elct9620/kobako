@@ -9,8 +9,9 @@ use super::path::Path;
 use super::Error;
 use crate::filesystem::{FileType, FilesystemError};
 
-/// What a security module answers, as a hook in Linux's `lsm_hook_defs.h`. A
-/// hook a module does not have allows the call, and a module can only refuse.
+/// What a security module answers, as a hook in Linux's `lsm_hook_defs.h`,
+/// beside the one kobako adds at the start of a walk. A hook a module does
+/// not have allows the call, and a module can only refuse.
 pub trait SecurityOperations: Send + Sync {
     /// Whether the path `path` names beneath `mnt` may be reached with
     /// `access`.
@@ -44,7 +45,8 @@ pub trait SecurityOperations: Send + Sync {
         Ok(())
     }
 
-    /// Whether a call may start from `path`.
+    /// Whether a call may start from `path`, kobako's own hook, as Linux asks
+    /// nothing of the dentry a walk starts from.
     fn path_walk(&self, _path: &Path) -> Result<(), Error> {
         Ok(())
     }
