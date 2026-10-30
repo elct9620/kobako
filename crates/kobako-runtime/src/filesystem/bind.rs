@@ -20,8 +20,8 @@ use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
-use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions};
-use crate::vfs::{Dentry, Identity};
+use super::{DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions};
+use crate::vfs::{Dentry, Inode};
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
@@ -87,7 +87,7 @@ impl Bind {
             }
         };
         let fid: Arc<dyn Any + Send + Sync> = Arc::new(dir);
-        let kept = dentry.d_fsdata.get_or_init(|| fid).clone();
+        let kept = dentry.d_fsdata().get_or_init(|| fid).clone();
         Ok(kept
             .downcast::<Dir>()
             .expect("a Bind's dentry keeps a host directory"))
@@ -115,7 +115,7 @@ impl Bind {
 
 /// The host directory a Bind keeps on `dentry`, once one was opened.
 fn held_dir(dentry: &Dentry) -> Option<Arc<Dir>> {
-    dentry.d_fsdata.get()?.clone().downcast::<Dir>().ok()
+    dentry.d_fsdata().get()?.clone().downcast::<Dir>().ok()
 }
 
 /// The directory `name` in `dir`, a link there refused as a loop, as
@@ -275,7 +275,7 @@ fn open_in(dir: &Dir, name: &str, options: &OpenOptions) -> Result<Box<dyn File>
     }))
 }
 
-impl Inode for Bind {
+impl InodeOperations for Bind {
     fn open(
         &self,
         dentry: &Dentry,
@@ -297,7 +297,7 @@ impl Inode for Bind {
     /// The directory named, opened when first asked; from then on it holds
     /// the host directory's own descriptor, so its inode stays taken while
     /// it is open.
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
         to_host_name(&dentry.name())?;
         Ok(Arc::new(Self {
             root: self.root.clone(),
@@ -313,8 +313,10 @@ impl Inode for Bind {
         self.at(dentry, |dir, name| {
             let stored = lookup::lookup(dir, name)?;
             if stored == name {
-                if let Ok(found) = dir.symlink_metadata(name) {
-                    dentry.d_instantiate(Identity::of(&to_metadata(found)));
+                match dir.symlink_metadata(name).map_err(to_error) {
+                    Ok(found) => dentry.d_add(Some(Inode::from(&to_metadata(found)))),
+                    Err(FilesystemError::NotFound) => dentry.d_add(None),
+                    Err(_) => {}
                 }
             }
             Ok(stored)
@@ -328,7 +330,7 @@ impl Inode for Bind {
     /// stands there, as NFS compares the handle a fresh lookup finds. One
     /// the runtime learned nothing of has nothing to compare.
     fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
-        let Some(identity) = dentry.identity() else {
+        let Some(identity) = dentry.d_inode().and_then(|inode| inode.identity()) else {
             return Ok(true);
         };
         let path = dentry.path_raw();
@@ -350,7 +352,7 @@ impl Inode for Bind {
             },
         };
         match parent.symlink_metadata(name).map_err(to_error) {
-            Ok(found) => Ok(Identity::of(&to_metadata(found)) == Some(identity)),
+            Ok(found) => Ok(Inode::from(&to_metadata(found)).identity() == Some(identity)),
             Err(err) => gone(err),
         }
     }
@@ -411,7 +413,7 @@ impl Inode for Bind {
     fn rename(
         &self,
         from: &Dentry,
-        to_dir: &dyn Inode,
+        to_dir: &dyn InodeOperations,
         to: &Dentry,
     ) -> Result<(), FilesystemError> {
         let target = (to_dir as &dyn Any)
@@ -556,7 +558,7 @@ mod tests {
                 host.0.join("moved/made").is_dir()
             ),
             (Ok(()), true),
-            "vfs::filename_mkdiratthrough a Bind directory the host moved away, once vfs::filename_rmdir\
+            "vfs::filename_mkdirat through a Bind directory the host moved away, once vfs::filename_rmdir \
              removed the one remade at its path, must make the directory in the moved one"
         );
     }
@@ -612,7 +614,7 @@ mod tests {
         assert_eq!(
             vfs::do_file_open(&root, "a/d/secret", &read, true).err(),
             Some(vfs::Error::Filesystem(FilesystemError::NotFound)),
-            "vfs::do_file_openbeneath a Bind Mount with a Policy, through a directory the host moved \
+            "vfs::do_file_open beneath a Bind Mount with a Policy, through a directory the host moved \
              beneath a refused path while a descriptor beneath it was held, must answer NotFound"
         );
     }

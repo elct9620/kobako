@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs,
+    DirEntry, File, FilesystemError, InodeOperations, Metadata, OpenOptions, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
@@ -44,7 +44,7 @@ fn run(source: &str, grants: &[Grant], flags: Vec<Flag>) -> Option<Result<String
     })
 }
 
-fn mount(filesystem: Arc<dyn Inode>, access: Access) -> Grant {
+fn mount(filesystem: Arc<dyn InodeOperations>, access: Access) -> Grant {
     Grant::Mount(
         Mount::new("/data", Filesystem::new(filesystem), access).expect("/data is a guest path"),
     )
@@ -55,13 +55,13 @@ fn note_tmpfs() -> Arc<Tmpfs> {
 }
 
 /// The root of `filesystem` as the host reaches it through the VFS.
-fn host<F: Inode>(filesystem: &Arc<F>) -> Path {
+fn host<F: InodeOperations>(filesystem: &Arc<F>) -> Path {
     let mount = Mount::new("/data", Filesystem::new(filesystem.clone()), Access::Read)
         .expect("/data is a guest path");
     Path::root(mount, Profile::Permissive)
 }
 
-fn contents<F: Inode>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
+fn contents<F: InodeOperations>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
     let mut how = OpenHow::default();
     how.read = true;
     let Ok(FileDescription::File(mut file)) =
@@ -566,7 +566,7 @@ impl<W> WrapsFiles<W> {
     }
 }
 
-impl<W, F> Inode for WrapsFiles<W>
+impl<W, F> InodeOperations for WrapsFiles<W>
 where
     W: Fn(Box<dyn File>) -> F + Send + Sync + 'static,
     F: File + 'static,
@@ -579,7 +579,7 @@ where
         Ok(Box::new((self.wrap)(self.tmpfs.open(dentry, options)?)))
     }
 
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
         self.tmpfs.open_dir(dentry)
     }
 
@@ -622,7 +622,7 @@ where
     fn rename(
         &self,
         from: &Dentry,
-        _to_dir: &dyn Inode,
+        _to_dir: &dyn InodeOperations,
         to: &Dentry,
     ) -> Result<(), FilesystemError> {
         self.tmpfs.rename(from, &self.tmpfs, to)
@@ -679,7 +679,7 @@ fn a_read_of_a_length_asks_the_filesystem_once() {
     assert_eq!(
         reads.load(Ordering::Relaxed),
         1,
-        "File#read(64) of a longer file through the bundled guest must ask its Inode forone read"
+        "File#read(64) of a longer file through the bundled guest must ask its Filesystem for one read"
     );
 }
 

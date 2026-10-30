@@ -16,14 +16,16 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use super::dentry::{Dentry, Identity};
+use super::dentry::Dentry;
 use super::filesystem::Filesystem;
 use super::openat2::{vfs_open, FileDescription, OpenHow};
 use super::path::Path;
 use super::rwsem::RwSemaphoreGuard;
 use super::times::mask_file_times;
 use super::Error;
-use crate::filesystem::{Access, File, FileType, FilesystemError, Inode, Metadata, OpenOptions};
+use crate::filesystem::{
+    Access, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions,
+};
 use crate::mount::Mount;
 
 use super::{NAME_MAX, PATH_MAX};
@@ -53,6 +55,10 @@ pub(crate) struct Nameidata {
     /// open several names in one call when the walk is complete.
     eager: bool,
     pub(crate) name: String,
+    /// The dentry the walk looked `name` up on, kept for as long as the
+    /// walk runs, as Linux's `nameidata` holds what it found, so what the
+    /// lookup recorded there is what the call acts on.
+    last: Option<Arc<Dentry>>,
     /// The path from the Mount's root, each name as the guest gave it.
     pub(crate) judged: String,
     /// Whether the path ended in `/` or `/.`, which only a directory
@@ -64,7 +70,7 @@ pub(crate) struct Nameidata {
 
 impl Nameidata {
     /// The directory the walk stands in, which holds the last name.
-    pub(crate) fn base(&self) -> &Arc<dyn Inode> {
+    pub(crate) fn base(&self) -> &Arc<dyn InodeOperations> {
         &self.frame().dir
     }
 
@@ -175,7 +181,7 @@ impl Nameidata {
 /// `d_revalidate`, and dropped for a new one where it does not.
 pub(crate) fn lookup_one(
     filesystem: &Filesystem,
-    inode: &dyn Inode,
+    inode: &dyn InodeOperations,
     parent: &Arc<Dentry>,
     name: &str,
 ) -> Result<Arc<Dentry>, FilesystemError> {
@@ -207,7 +213,7 @@ fn parts(path: &str, from_link: bool) -> VecDeque<Part> {
 /// A directory the walk stands in, its dentry, and whether a link led to
 /// it.
 struct Frame {
-    dir: Arc<dyn Inode>,
+    dir: Arc<dyn InodeOperations>,
     name: String,
     dentry: Arc<Dentry>,
     through_link: bool,
@@ -234,7 +240,10 @@ fn down_write<'a>(
 
 /// Refuse what a directory just stepped into, or just opened for a
 /// descriptor, answers unless it opened as a directory.
-pub(crate) fn d_can_lookup(dir: &Arc<dyn Inode>, dentry: &Dentry) -> Result<(), FilesystemError> {
+pub(crate) fn d_can_lookup(
+    dir: &Arc<dyn InodeOperations>,
+    dentry: &Dentry,
+) -> Result<(), FilesystemError> {
     match dir.metadata(dentry)?.file_type {
         FileType::Directory => Ok(()),
         _ => Err(FilesystemError::NotADirectory),
@@ -454,6 +463,7 @@ fn path_lookupat(
         links: 0,
         eager,
         name: String::new(),
+        last: None,
         judged: String::new(),
         names_directory: names_directory(path),
         found: None,
@@ -469,6 +479,7 @@ fn path_lookupat(
         if !matches!(&looked_up, Ok(metadata) if metadata.file_type == FileType::Symlink) {
             found = Some(looked_up);
             nd.name = stored;
+            nd.last = Some(dentry);
             break;
         }
         nd.pick_link(&dentry)?;
@@ -480,7 +491,9 @@ fn path_lookupat(
         if let Some(part) = last {
             let parent = nd.dentry().clone();
             let _held = down_read(&nd.mount, &parent)?;
-            nd.name = nd.lookup_slow(&part.name)?.0;
+            let (stored, dentry) = nd.lookup_slow(&part.name)?;
+            nd.name = stored;
+            nd.last = Some(dentry);
         }
     }
     // A walk that stepped into directories not yet opened settles its last
@@ -556,9 +569,9 @@ pub fn do_file_open(
     if !room {
         return Err(FilesystemError::TooManyOpenFiles.into());
     }
-    let (existing, identity) = match nd.found() {
-        Ok(metadata) => (Some(metadata.file_type), Identity::of(&metadata)),
-        Err(FilesystemError::NotFound) => (None, None),
+    let existing = match nd.found() {
+        Ok(metadata) => Some(metadata.file_type),
+        Err(FilesystemError::NotFound) => None,
         Err(err) => return Err(err.into()),
     };
     refuse_what_stands(existing, how)?;
@@ -571,7 +584,7 @@ pub fn do_file_open(
         Access::Read
     })?;
     match existing {
-        Some(FileType::Directory) => vfs_open(start, nd, identity),
+        Some(FileType::Directory) => vfs_open(start, nd),
         Some(_) | None => {
             let options = OpenOptions {
                 read: how.read,
@@ -812,8 +825,8 @@ pub(crate) fn start_renaming<'a>(
 /// `d_exchange` does.
 pub(crate) fn vfs_rename(
     filesystem: &Filesystem,
-    (old_inode, old_dir, old): (&dyn Inode, &Arc<Dentry>, &Arc<Dentry>),
-    (new_inode, new_dir, new): (&dyn Inode, &Arc<Dentry>, &Arc<Dentry>),
+    (old_inode, old_dir, old): (&dyn InodeOperations, &Arc<Dentry>, &Arc<Dentry>),
+    (new_inode, new_dir, new): (&dyn InodeOperations, &Arc<Dentry>, &Arc<Dentry>),
     flag: Option<RenameFlag>,
     rename: impl FnOnce() -> Result<(), FilesystemError>,
 ) -> Result<(), FilesystemError> {
@@ -854,7 +867,7 @@ pub(crate) fn vfs_rename(
 /// meanwhile, and its dentry dies before either is let go.
 pub(crate) fn vfs_rmdir(
     filesystem: &Filesystem,
-    inode: &dyn Inode,
+    inode: &dyn InodeOperations,
     dir: &Arc<Dentry>,
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
@@ -872,7 +885,7 @@ pub(crate) fn vfs_rmdir(
 /// drops one still in use, so a file made at the name later has its own.
 pub(crate) fn vfs_unlink(
     filesystem: &Filesystem,
-    inode: &dyn Inode,
+    inode: &dyn InodeOperations,
     dir: &Dentry,
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
@@ -886,7 +899,7 @@ pub(crate) fn vfs_unlink(
 /// Make the directory `child` in `dir` through `inode`, the directory
 /// holding it, as Linux's `vfs_mkdir` does once its caller holds `dir`.
 pub(crate) fn vfs_mkdir(
-    inode: &dyn Inode,
+    inode: &dyn InodeOperations,
     dir: &Dentry,
     child: &Dentry,
 ) -> Result<(), FilesystemError> {
@@ -898,7 +911,7 @@ pub(crate) fn vfs_mkdir(
 /// it, and open it as `options` asks, as Linux's `vfs_create` does once
 /// its caller holds `dir`.
 pub(crate) fn vfs_create(
-    inode: &dyn Inode,
+    inode: &dyn InodeOperations,
     dir: &Dentry,
     child: &Dentry,
     options: &OpenOptions,
@@ -914,7 +927,7 @@ pub(crate) fn vfs_create(
 /// Make a whiteout at `child` in `dir` through `make`, the Filesystem's
 /// call, as Linux's `vfs_whiteout` does once its caller holds `dir`.
 pub(crate) fn vfs_whiteout(
-    inode: &dyn Inode,
+    inode: &dyn InodeOperations,
     dir: &Dentry,
     child: &Dentry,
     make: impl FnOnce() -> Result<(), FilesystemError>,
@@ -926,7 +939,7 @@ pub(crate) fn vfs_whiteout(
 /// Name a file `child` in `dir` through `link`, the Filesystem's call, as
 /// Linux's `vfs_link` does once its caller holds `dir`.
 pub(crate) fn vfs_link(
-    inode: &dyn Inode,
+    inode: &dyn InodeOperations,
     dir: &Dentry,
     child: &Dentry,
     link: impl FnOnce() -> Result<(), FilesystemError>,
@@ -937,7 +950,10 @@ pub(crate) fn vfs_link(
 
 /// What stands at `dentry` in the directory `inode` is, a link reported
 /// as itself, or `None` where nothing does, as a dentry is negative.
-fn kind_at(inode: &dyn Inode, dentry: &Dentry) -> Result<Option<FileType>, FilesystemError> {
+fn kind_at(
+    inode: &dyn InodeOperations,
+    dentry: &Dentry,
+) -> Result<Option<FileType>, FilesystemError> {
     match inode.symlink_metadata(dentry) {
         Ok(metadata) => Ok(Some(metadata.file_type)),
         Err(FilesystemError::NotFound) => Ok(None),
@@ -1027,7 +1043,7 @@ mod tests {
     use std::time::Duration;
 
     use crate::filesystem::{
-        Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs,
+        Access, DirEntry, File, FilesystemError, InodeOperations, Metadata, OpenOptions, Tmpfs,
     };
     use crate::mount::{Mount, Policy};
     use crate::profile::Profile;
@@ -1050,7 +1066,7 @@ mod tests {
         stale: AtomicBool,
     }
 
-    impl Inode for HookedTmpfs {
+    impl InodeOperations for HookedTmpfs {
         fn open(
             &self,
             dentry: &Dentry,
@@ -1059,7 +1075,7 @@ mod tests {
             self.tmpfs.open(dentry, options)
         }
 
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
             self.tmpfs.open_dir(dentry)
         }
 
@@ -1106,7 +1122,7 @@ mod tests {
         fn rename(
             &self,
             from: &Dentry,
-            to_dir: &dyn Inode,
+            to_dir: &dyn InodeOperations,
             to: &Dentry,
         ) -> Result<(), FilesystemError> {
             self.renames.fetch_add(1, Ordering::SeqCst);
@@ -1135,7 +1151,7 @@ mod tests {
         }
     }
 
-    impl Inode for FoldsToUpper {
+    impl InodeOperations for FoldsToUpper {
         fn open(
             &self,
             dentry: &Dentry,
@@ -1144,7 +1160,7 @@ mod tests {
             self.root.open(&self.path(dentry), options)
         }
 
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
             let at = self.path(dentry);
             self.root.open_dir(&at)?;
             Ok(Arc::new(Self {
@@ -1197,7 +1213,7 @@ mod tests {
         fn rename(
             &self,
             from: &Dentry,
-            to_dir: &dyn Inode,
+            to_dir: &dyn InodeOperations,
             to: &Dentry,
         ) -> Result<(), FilesystemError> {
             (self.renaming)()?;
@@ -1256,7 +1272,7 @@ mod tests {
         assert_eq!(
             vfs::do_file_open(&root, "w", &how, true).err(),
             Some(vfs::Error::Filesystem(FilesystemError::PermissionDenied)),
-            "a character device through vfs::do_file_openmust answer PermissionDenied"
+            "a character device through vfs::do_file_open must answer PermissionDenied"
         );
     }
 
@@ -1276,7 +1292,7 @@ mod tests {
         vfs::filename_rmdir(&root, "d").expect("the directory must go");
         assert!(
             !held.dentry().is_dead(),
-            "vfs::filename_rmdirof a name whose held dentry Inode::d_revalidate answers stale must \
+            "vfs::filename_rmdir of a name whose held dentry InodeOperations::d_revalidate answers stale must \
              leave that dentry alive"
         );
     }
@@ -1316,7 +1332,7 @@ mod tests {
         assert_eq!(
             vfs::filename_mkdirat(&dir, "inner"),
             Ok(()),
-            "vfs::filename_mkdiratthrough a directory vfs::filename_mkdiratmade while vfs::filename_rmdir\
+            "vfs::filename_mkdirat through a directory vfs::filename_mkdirat made while vfs::filename_rmdir \
              removed the one in its place must make into the directory made"
         );
     }
@@ -1386,7 +1402,7 @@ mod tests {
         assert_eq!(
             opened,
             Ok(()),
-            "vfs::do_file_openwith create of a file vfs::filename_unlinkatremoves while the open is judged \
+            "vfs::do_file_open with create of a file vfs::filename_unlinkat removes while the open is judged \
              must open it or make it, never answer NotFound"
         );
     }
@@ -1409,7 +1425,7 @@ mod tests {
                 Err(vfs::Error::Filesystem(FilesystemError::InvalidInput)),
                 0
             ),
-            "vfs::filename_renameat2of a directory into a directory beneath it must answer InvalidInput \
+            "vfs::filename_renameat2 of a directory into a directory beneath it must answer InvalidInput \
              without asking the Filesystem"
         );
     }
@@ -1433,8 +1449,8 @@ mod tests {
         assert_eq!(
             vfs::filename_mkdirat(&path, "made"),
             Err(vfs::Error::Filesystem(FilesystemError::Deadlock)),
-            "vfs::filename_mkdiratcalled by a Filesystem's own create_dir on the directory the outer \
-             vfs::filename_mkdiratholds must answer Deadlock"
+            "vfs::filename_mkdirat called by a Filesystem's own create_dir on the directory the outer \
+             vfs::filename_mkdirat holds must answer Deadlock"
         );
     }
 
@@ -1479,7 +1495,7 @@ mod tests {
         assert_eq!(
             (made, counts.0.load(Ordering::SeqCst)),
             (Ok(()), 1),
-            "vfs::filename_mkdiraton a directory another thread's vfs::filename_rmdirholds must wait \
+            "vfs::filename_mkdirat on a directory another thread's vfs::filename_rmdir holds must wait \
              through the Blocking given by Filesystem::with_blocking, then answer"
         );
     }
@@ -1529,7 +1545,7 @@ mod tests {
                 Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
                 true
             ),
-            "vfs::filename_unlinkatof `DIR/F` while vfs::filename_renameat2moves `dir/f`, over a Filesystem \
+            "vfs::filename_unlinkat of `DIR/F` while vfs::filename_renameat2 moves `dir/f`, over a Filesystem \
              storing both as `DIR/F`, must wait for the move and then find nothing"
         );
     }

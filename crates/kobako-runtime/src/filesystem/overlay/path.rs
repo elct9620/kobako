@@ -13,7 +13,9 @@ use std::any::Any;
 use std::sync::Arc;
 
 use super::super::tmpfs::TmpfsFile;
-use super::super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs};
+use super::super::{
+    DirEntry, File, FilesystemError, InodeOperations, Metadata, OpenOptions, Tmpfs,
+};
 use crate::vfs::{
     lookup_one, start_renaming, vfs_create, vfs_link, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink,
     vfs_whiteout, Dentry, Filesystem, RenameFlag, RwSemaphoreGuard,
@@ -27,7 +29,7 @@ const OPAQUE: &[u8] = b"y";
 #[derive(Clone)]
 pub(super) struct OverlayPath {
     filesystem: Arc<Filesystem>,
-    dir: Arc<dyn Inode>,
+    dir: Arc<dyn InodeOperations>,
     dentry: Arc<Dentry>,
 }
 

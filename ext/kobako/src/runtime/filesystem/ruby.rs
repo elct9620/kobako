@@ -16,9 +16,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{
-    DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions,
+    DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions,
 };
-use kobako_runtime::vfs::Dentry;
+use kobako_runtime::vfs::{Dentry, Inode};
 
 use crate::runtime::pinned_value::PinnedValue;
 use crate::runtime::{escape, gvl};
@@ -209,7 +209,7 @@ fn join(dir: &str, name: &str) -> String {
     }
 }
 
-impl Inode for RubyFilesystem {
+impl InodeOperations for RubyFilesystem {
     fn open(
         &self,
         dentry: &Dentry,
@@ -231,7 +231,7 @@ impl Inode for RubyFilesystem {
     /// The directory is not asked about until a call needs it, so a walk
     /// through several names asks the object once, by the whole path, as
     /// 9p walks to a dentry's fid only when a call needs one.
-    fn open_dir(&self, _dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+    fn open_dir(&self, _dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
         Ok(Arc::new(Self {
             object: self.object,
             dev: self.dev,
@@ -247,8 +247,10 @@ impl Inode for RubyFilesystem {
         self.stat(dentry.path_raw())
     }
 
-    /// A Ruby object matches names exactly, as its contract asks.
+    /// A Ruby object matches names exactly, as its contract asks, and is
+    /// asked by path on every call, so a lookup asks it nothing.
     fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        dentry.d_add(Some(Inode::by_path()));
         Ok(dentry.name())
     }
 
@@ -314,7 +316,7 @@ impl Inode for RubyFilesystem {
     fn rename(
         &self,
         from: &Dentry,
-        to_dir: &dyn Inode,
+        to_dir: &dyn InodeOperations,
         to: &Dentry,
     ) -> Result<(), FilesystemError> {
         (to_dir as &dyn Any)

@@ -20,7 +20,7 @@ use magnus::{
 
 use ruby::RubyFilesystem;
 
-use kobako_runtime::filesystem::{Bind, Blocking, Inode, Overlay, Tmpfs};
+use kobako_runtime::filesystem::{Bind, Blocking, InodeOperations, Overlay, Tmpfs};
 use kobako_runtime::vfs::Filesystem;
 
 pub(super) use grants::{to_grants, validate_mount};
@@ -172,7 +172,7 @@ fn overlay_new(args: &[Value]) -> Result<OverlayFs, MagnusError> {
 
 /// The Filesystem instance `root` answers for, its calls waiting for a
 /// directory's lock without the GVL.
-fn new_filesystem(root: Arc<dyn Inode>) -> Arc<Filesystem> {
+fn new_filesystem(root: Arc<dyn InodeOperations>) -> Arc<Filesystem> {
     Filesystem::with_blocking(root, Arc::new(GvlFreeWait))
 }
 

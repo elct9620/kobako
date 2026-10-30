@@ -27,12 +27,14 @@ class TestE2EDirectoryLockThreads < Minitest::Test
     asked = 0
     layer = Object.new
     layer.define_singleton_method(:open) { |path, _flags| raise Errno::ENOENT, path }
-    # The third ask comes from the create itself, once it holds the
-    # directory; the walk's lookup and the open's own look come first.
+    # The fourth ask comes from the create itself, once it holds the
+    # directory; the walk's lookup asks twice and the open's own look once
+    # before it. An ask made before the create held the directory would let
+    # the looker answer false.
     layer.define_singleton_method(:stat) do |path|
       next Stat.new(true, 0, 1) if path.empty?
 
-      if (asked += 1) == 3
+      if (asked += 1) == 4
         asking << true
         sleep 0.2
       end

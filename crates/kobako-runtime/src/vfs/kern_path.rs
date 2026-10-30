@@ -8,13 +8,15 @@
 
 use std::sync::Arc;
 
-use super::dentry::Identity;
 use super::namei::{
-    filename_lookup, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Nameidata,
+    d_can_lookup, filename_lookup, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink,
+    Nameidata,
 };
 use super::path::Path;
 use super::{Error, Filesystem};
-use crate::filesystem::{Access, DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions};
+use crate::filesystem::{
+    Access, DirEntry, File, FilesystemError, InodeOperations, Metadata, OpenOptions,
+};
 use crate::mount::Mount;
 use crate::profile::Profile;
 
@@ -23,7 +25,7 @@ use crate::profile::Profile;
 pub(crate) struct KernPath(Path);
 
 /// The root of `filesystem`, mounted read-write.
-pub(crate) fn kern_path(filesystem: Arc<dyn Inode>) -> KernPath {
+pub(crate) fn kern_path(filesystem: Arc<dyn InodeOperations>) -> KernPath {
     let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
         .expect("/data is a guest path");
     KernPath(Path::root(mount, Profile::Permissive))
@@ -63,7 +65,7 @@ impl KernPath {
         let nd = self.resolve(path)?;
         let dentry = nd.child()?;
         let dir = nd.base().open_dir(&dentry)?;
-        dentry.d_instantiate(Identity::of(&dir.metadata(&dentry)?));
+        d_can_lookup(&dir, &dentry)?;
         Ok(Self(self.0.with_directory(dir, dentry)))
     }
 

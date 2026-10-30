@@ -55,14 +55,14 @@ Each row is one seam a third party can fill, with the endpoint it sits on.
 | The whole guest | `impl kobako_core::Guest` + `export_guest!` | guest | replaceable · methods append-only |
 | Wasm engine | `impl Runtime`, handed to `Sandbox::with_runtime` | Rust host SDK | replaceable |
 | Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | a host frontend of your own | replaceable |
-| Filesystem | `impl Inode` + `File`, behind a Mount | Rust host SDK | replaceable · methods append-only |
+| Filesystem | `impl InodeOperations` + `File`, behind a Mount | Rust host SDK | replaceable · methods append-only |
 | Lock wait | `impl Blocking`, handed to `Filesystem::with_blocking` or `Overlay::with_blocking` | a host frontend of your own | replaceable · methods append-only |
 
 The types those seams carry, by grade:
 
 | Grade | Names |
 |---|---|
-| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_runtime::{Tmpfs, Bind, Inode, Overlay, Mount, MountPathError}` · `kobako_runtime::vfs::{Filesystem, Dentry, Path, do_file_open, filename_mkdirat, filename_rmdir, filename_unlinkat, filename_renameat2, vfs_fstatat, do_readlinkat, do_utimes, PATH_MAX, NAME_MAX}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
+| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_runtime::{Tmpfs, Bind, Inode, Overlay, Mount, MountPathError}` · `kobako_runtime::vfs::{Filesystem, Dentry, Identity, Inode, Path, do_file_open, filename_mkdirat, filename_rmdir, filename_unlinkat, filename_renameat2, vfs_fstatat, do_readlinkat, do_utimes, PATH_MAX, NAME_MAX}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
 | **stable · exhaustive** | `kobako_mruby::Arguments` · `kobako_runtime::{Profile, Entry, Completion, Access, Denial}` · `kobako_runtime::vfs::{Error, FileDescription}` · `kobako_codec::msgpack::{Value, Arguments}` · `kobako::{Backend, Provider, msgpack::RunArg}` |
 | **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, FileType, FilesystemError, SeedError, Snapshot, Capture, Usage, OpenOptions, Metadata, DirEntry}` · `kobako_runtime::vfs::OpenHow` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |
@@ -316,7 +316,7 @@ driver, so choosing an engine there means choosing a different frontend.
 
 ## Filesystem
 
-A Mount hands the guest a Filesystem made from any `impl Inode`, and an Overlay
+A Mount hands the guest a Filesystem made from any `impl InodeOperations`, and an Overlay
 stacks Filesystems as Layers.
 The runtime walks each guest path one name at a time and checks it before the
 Filesystem acts on it. It follows a link itself, so a Filesystem only answers one
@@ -329,11 +329,13 @@ guest path ─▶ runtime: walk name by name, follow links, check the Policy ─
                               └── read_link · lookup ─────────────────────────┘
 ```
 
-A directory the guest opens is an Inode of its own, from `open_dir`. A
+A directory the guest opens answers through operations of its own, from `open_dir`. A
 wrapper wraps each directory it opens too, so it still sees every call beneath it.
 Every call hands the Dentry it is about. A Filesystem answering by path reads it
 from `Dentry::path_raw`, so a directory moved through the runtime is asked at its
-new path.
+new path, and its `lookup` records `Inode::by_path` on the Dentry. Any other records
+what stands at the name through `Dentry::d_add`, or a Policy cannot tell a directory
+from one made in its place.
 
 ### Filesystem Obligations
 

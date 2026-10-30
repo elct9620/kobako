@@ -72,11 +72,11 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::filesystem::{Access, Inode, Tmpfs};
+    use crate::filesystem::{Access, InodeOperations, Tmpfs};
     use crate::mount::Mount;
     use crate::vfs::{self, FileDescription, Filesystem, OpenHow, Path};
 
-    fn path_over(tmpfs: Arc<dyn Inode>, profile: Profile) -> Path {
+    fn path_over(tmpfs: Arc<dyn InodeOperations>, profile: Profile) -> Path {
         let mount = Mount::new("/data", Filesystem::new(tmpfs), Access::ReadWrite)
             .expect("/data is a guest path");
         Path::root(mount, profile)
@@ -112,7 +112,7 @@ mod tests {
             .expect("a Tmpfs keeps a modification time");
         assert!(
             modified >= before,
-            "vfs::vfs_fstatatof a file written beneath a Path on the weaker posture must report a \
+            "vfs::vfs_fstatat of a file written beneath a Path on the weaker posture must report a \
              modification time no earlier than the write"
         );
     }
@@ -131,7 +131,7 @@ mod tests {
                 times(&file.metadata().expect("the open file must report")),
             ),
             (epoch, epoch),
-            "vfs::vfs_fstatatof a written file, and File::metadata of it opened through vfs::do_file_open, \
+            "vfs::vfs_fstatat of a written file, and File::metadata of it opened through vfs::do_file_open, \
              beneath a Path on the strongest posture must report each time as the Unix epoch"
         );
     }
@@ -139,13 +139,13 @@ mod tests {
     // @behavior RT-158
     #[test]
     fn a_time_another_posture_wrote_reaches_the_strongest_posture_as_the_epoch() {
-        let tmpfs: Arc<dyn Inode> = Arc::new(Tmpfs::new());
+        let tmpfs: Arc<dyn InodeOperations> = Arc::new(Tmpfs::new());
         write(&path_over(tmpfs.clone(), Profile::Permissive), "file");
         let hermetic = path_over(tmpfs, Profile::Hermetic);
         assert_eq!(
             times(&vfs::vfs_fstatat(&hermetic, "file", true).expect("the file must stand")),
             [Some(UNIX_EPOCH); 3],
-            "vfs::vfs_fstatatbeneath a Path on the strongest posture, of a file the weaker posture \
+            "vfs::vfs_fstatat beneath a Path on the strongest posture, of a file the weaker posture \
              wrote into the same Tmpfs, must report each time as the Unix epoch"
         );
     }

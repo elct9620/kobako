@@ -104,7 +104,7 @@ pub(super) fn ovl_inode(
     dentry: &Dentry,
     init: impl FnOnce() -> Result<Level, FilesystemError>,
 ) -> Result<Arc<OverlayInode>, FilesystemError> {
-    if let Some(kept) = dentry.d_fsdata.get() {
+    if let Some(kept) = dentry.d_fsdata().get() {
         return Ok(downcast(kept.clone()));
     }
     let made: Arc<dyn Any + Send + Sync> = Arc::new(OverlayInode {
@@ -113,7 +113,7 @@ pub(super) fn ovl_inode(
         readers: AtomicUsize::new(0),
         copy: Mutex::new(None),
     });
-    Ok(downcast(dentry.d_fsdata.get_or_init(|| made).clone()))
+    Ok(downcast(dentry.d_fsdata().get_or_init(|| made).clone()))
 }
 
 fn downcast(kept: Arc<dyn Any + Send + Sync>) -> Arc<OverlayInode> {

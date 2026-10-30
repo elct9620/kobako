@@ -1,7 +1,6 @@
 //! What an open asks for and what it reaches, as Linux's `openat2` takes
 //! an `open_how` and `vfs_open` holds what the walk opened.
 
-use super::dentry::Identity;
 use super::namei::{d_can_lookup, down_read, Nameidata};
 use super::path::Path;
 use super::Error;
@@ -35,11 +34,7 @@ pub enum FileDescription {
 
 /// The directory `nd` ends at, opened now, as Linux's `vfs_open` holds
 /// what it opened, so the descriptor follows it wherever it moves.
-pub(crate) fn vfs_open(
-    start: &Path,
-    nd: Nameidata,
-    identity: Option<Identity>,
-) -> Result<FileDescription, Error> {
+pub(crate) fn vfs_open(start: &Path, nd: Nameidata) -> Result<FileDescription, Error> {
     let (dir, dentry) = match nd.name.as_str() {
         "" => (nd.base().clone(), nd.dentry().clone()),
         _ => {
@@ -50,7 +45,6 @@ pub(crate) fn vfs_open(
             (dir, dentry)
         }
     };
-    dentry.d_instantiate(identity);
     Ok(FileDescription::Directory(
         start.with_directory(dir, dentry),
     ))

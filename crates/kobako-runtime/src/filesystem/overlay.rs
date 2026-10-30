@@ -17,8 +17,8 @@ mod stack;
 use std::any::Any;
 use std::sync::Arc;
 
-use super::{DirEntry, File, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs};
-use crate::vfs::{Blocking, Dentry, Filesystem};
+use super::{DirEntry, File, FilesystemError, InodeOperations, Metadata, OpenOptions, Tmpfs};
+use crate::vfs::{Blocking, Dentry, Filesystem, Inode};
 use stack::OverlayFs;
 
 /// Read-only lower Layers under an upper Tmpfs, stacked into one
@@ -89,7 +89,7 @@ impl Overlay {
     }
 }
 
-impl Inode for Overlay {
+impl InodeOperations for Overlay {
     fn open(
         &self,
         dentry: &Dentry,
@@ -98,7 +98,7 @@ impl Inode for Overlay {
         self.fs.open(&self.fs.parent(dentry)?, dentry, options)
     }
 
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
         self.fs.dir(dentry)?;
         Ok(Arc::new(self.clone()))
     }
@@ -112,9 +112,21 @@ impl Inode for Overlay {
             .symlink_metadata(&self.fs.parent(dentry)?.level(), &dentry.name())
     }
 
+    /// The name as a Layer spells it, recording what stands there once it
+    /// is spelled so, as `ovl_lookup` hands `d_splice_alias` the inode it
+    /// made.
     fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        self.fs
-            .case_exact_name(&self.fs.parent(dentry)?.level(), &dentry.name())
+        let level = self.fs.parent(dentry)?.level();
+        let name = dentry.name();
+        let stored = self.fs.case_exact_name(&level, &name)?;
+        if stored == name {
+            match self.fs.symlink_metadata(&level, &name) {
+                Ok(found) => dentry.d_add(Some(Inode::from(&found))),
+                Err(FilesystemError::NotFound) => dentry.d_add(None),
+                Err(_) => {}
+            }
+        }
+        Ok(stored)
     }
 
     /// A change made to a Layer outside the Overlay is undefined, as
@@ -150,7 +162,7 @@ impl Inode for Overlay {
     fn rename(
         &self,
         from: &Dentry,
-        to_dir: &dyn Inode,
+        to_dir: &dyn InodeOperations,
         to: &Dentry,
     ) -> Result<(), FilesystemError> {
         (to_dir as &dyn Any)
@@ -206,7 +218,10 @@ mod tests {
     /// opens, lists, and reports its directories as that Tmpfs does.
     macro_rules! opens_directories {
         ($inner:tt) => {
-            fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+            fn open_dir(
+                &self,
+                dentry: &Dentry,
+            ) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
                 self.$inner.open_dir(dentry)
             }
 
@@ -221,12 +236,12 @@ mod tests {
     }
 
     /// `filesystem` reached through the VFS.
-    fn at(filesystem: impl Inode) -> KernPath {
+    fn at(filesystem: impl InodeOperations) -> KernPath {
         kern_path(Arc::new(filesystem))
     }
 
     /// The Filesystem `filesystem` holds, reached through the VFS.
-    fn on<F: Inode>(filesystem: &Arc<F>) -> KernPath {
+    fn on<F: InodeOperations>(filesystem: &Arc<F>) -> KernPath {
         kern_path(filesystem.clone())
     }
 
@@ -289,13 +304,13 @@ mod tests {
     }
 
     /// `upper` over the one lower Layer `lower`.
-    fn over(lower: Arc<dyn Inode>, upper: Arc<Tmpfs>) -> Overlay {
+    fn over(lower: Arc<dyn InodeOperations>, upper: Arc<Tmpfs>) -> Overlay {
         Overlay::new(vec![Filesystem::new(lower)], Some(Filesystem::new(upper)))
             .expect("an upper over a lower Layer must make a view")
     }
 
     /// The lower Layers `top` over `bottom`, with no upper.
-    fn lowers(top: Arc<dyn Inode>, bottom: Arc<dyn Inode>) -> Overlay {
+    fn lowers(top: Arc<dyn InodeOperations>, bottom: Arc<dyn InodeOperations>) -> Overlay {
         Overlay::new(vec![Filesystem::new(top), Filesystem::new(bottom)], None)
             .expect("two lower Layers must make a view")
     }
@@ -903,8 +918,8 @@ mod tests {
 
     /// Why `Overlay::new` refuses `lower` under `upper`, or `None`.
     fn refusal(
-        lower: Vec<Arc<dyn Inode>>,
-        upper: Option<Arc<dyn Inode>>,
+        lower: Vec<Arc<dyn InodeOperations>>,
+        upper: Option<Arc<dyn InodeOperations>>,
     ) -> Option<FilesystemError> {
         Overlay::new(
             lower.into_iter().map(Filesystem::new).collect(),
@@ -941,9 +956,10 @@ mod tests {
     // @behavior FS-126
     #[test]
     fn an_overlay_stacks_at_most_two_deep() {
-        let first: Arc<dyn Inode> =
+        let first: Arc<dyn InodeOperations> =
             Arc::new(lowers(Arc::new(Tmpfs::new()), Arc::new(Tmpfs::new())));
-        let second: Arc<dyn Inode> = Arc::new(over(first.clone(), Arc::new(Tmpfs::new())));
+        let second: Arc<dyn InodeOperations> =
+            Arc::new(over(first.clone(), Arc::new(Tmpfs::new())));
         assert_eq!(
             (
                 refusal(vec![first], Some(Arc::new(Tmpfs::new()))),
@@ -958,9 +974,9 @@ mod tests {
     // @behavior FS-127
     #[test]
     fn an_overlay_takes_at_most_five_hundred_lower_layers() {
-        let layers = |count: usize| -> Vec<Arc<dyn Inode>> {
+        let layers = |count: usize| -> Vec<Arc<dyn InodeOperations>> {
             (0..count)
-                .map(|_| Arc::new(Tmpfs::new()) as Arc<dyn Inode>)
+                .map(|_| Arc::new(Tmpfs::new()) as Arc<dyn InodeOperations>)
                 .collect()
         };
         assert_eq!(
@@ -1052,11 +1068,11 @@ mod tests {
 
     /// A directory an Interleaves opened, starting its call when listed.
     struct Lists {
-        dir: Arc<dyn Inode>,
+        dir: Arc<dyn InodeOperations>,
         interleave: Arc<Interleave>,
     }
 
-    impl Inode for Lists {
+    impl InodeOperations for Lists {
         fn open(
             &self,
             dentry: &Dentry,
@@ -1065,7 +1081,7 @@ mod tests {
             self.dir.open(dentry, options)
         }
 
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
             self.dir.open_dir(dentry)
         }
 
@@ -1109,14 +1125,14 @@ mod tests {
         fn rename(
             &self,
             from: &Dentry,
-            to_dir: &dyn Inode,
+            to_dir: &dyn InodeOperations,
             to: &Dentry,
         ) -> Result<(), FilesystemError> {
             self.dir.rename(from, to_dir, to)
         }
     }
 
-    impl Inode for Interleaves {
+    impl InodeOperations for Interleaves {
         holds_no_links!();
         matches_names_exactly!();
 
@@ -1136,7 +1152,7 @@ mod tests {
             self.tmpfs.symlink_metadata(dentry)
         }
 
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
             Ok(Arc::new(Lists {
                 dir: self.tmpfs.open_dir(dentry)?,
                 interleave: self.interleave.clone(),
@@ -1162,7 +1178,7 @@ mod tests {
         fn rename(
             &self,
             from: &Dentry,
-            _to_dir: &dyn Inode,
+            _to_dir: &dyn InodeOperations,
             to: &Dentry,
         ) -> Result<(), FilesystemError> {
             self.tmpfs.rename(from, self.tmpfs.as_ref(), to)
@@ -1207,7 +1223,7 @@ mod tests {
                 crate::vfs::vfs_fstatat(&root, "dir/new", false).is_ok()
             ),
             (true, Some(false), false),
-            "a create through vfs::do_file_openinto an Overlay directory vfs::filename_rmdiris removing must \
+            "a create through vfs::do_file_open into an Overlay directory vfs::filename_rmdir is removing must \
              wait for it, failing rather than landing in the directory being removed"
         );
     }
@@ -1223,7 +1239,7 @@ mod tests {
             answer: Mutex<Option<Answers>>,
         }
 
-        impl Inode for Reenters {
+        impl InodeOperations for Reenters {
             holds_no_links!();
             matches_names_exactly!();
 
@@ -1263,7 +1279,7 @@ mod tests {
             fn rename(
                 &self,
                 from: &Dentry,
-                _to_dir: &dyn Inode,
+                _to_dir: &dyn InodeOperations,
                 to: &Dentry,
             ) -> Result<(), FilesystemError> {
                 self.tmpfs.rename(from, &self.tmpfs, to)
@@ -1604,7 +1620,7 @@ mod tests {
         }
         assert!(
             returned,
-            "vfs::filename_renameat2of a file up one directory through an Overlay, while vfs::filename_rmdir\
+            "vfs::filename_renameat2 of a file up one directory through an Overlay, while vfs::filename_rmdir \
              removes that directory through a Mount of its upper Tmpfs, must return"
         );
     }
@@ -1642,8 +1658,8 @@ mod tests {
         churning.join().expect("the Overlay's calls must not panic");
         assert_eq!(
             lost, 0,
-            "vfs::filename_mkdiratin a directory through a Mount of an Overlay's upper Tmpfs, while \
-             vfs::filename_rmdirremoves that directory through the Overlay, must leave every \
+            "vfs::filename_mkdirat in a directory through a Mount of an Overlay's upper Tmpfs, while \
+             vfs::filename_rmdir removes that directory through the Overlay, must leave every \
              directory it made standing"
         );
     }
@@ -1673,9 +1689,9 @@ mod tests {
 
     /// A Tmpfs answering a lookup of `dir` at any depth with an I/O
     /// failure, though it opens `dir` as any other directory.
-    struct LooksUpNoDir(Arc<dyn Inode>);
+    struct LooksUpNoDir(Arc<dyn InodeOperations>);
 
-    impl Inode for LooksUpNoDir {
+    impl InodeOperations for LooksUpNoDir {
         holds_no_links!();
         matches_names_exactly!();
 
@@ -1696,7 +1712,7 @@ mod tests {
             self.0.symlink_metadata(dentry)
         }
 
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
             Ok(Arc::new(Self(self.0.open_dir(dentry)?)))
         }
 
@@ -1723,7 +1739,7 @@ mod tests {
         fn rename(
             &self,
             from: &Dentry,
-            _to_dir: &dyn Inode,
+            _to_dir: &dyn InodeOperations,
             to: &Dentry,
         ) -> Result<(), FilesystemError> {
             self.0.rename(from, self.0.as_ref(), to)
@@ -1737,7 +1753,7 @@ mod tests {
         seen: AtomicBool,
     }
 
-    impl Inode for Vanishes {
+    impl InodeOperations for Vanishes {
         holds_no_links!();
         matches_names_exactly!();
 
@@ -1773,7 +1789,7 @@ mod tests {
         fn rename(
             &self,
             from: &Dentry,
-            _to_dir: &dyn Inode,
+            _to_dir: &dyn InodeOperations,
             to: &Dentry,
         ) -> Result<(), FilesystemError> {
             self.tmpfs.rename(from, &self.tmpfs, to)
@@ -1806,7 +1822,7 @@ mod tests {
         }
     }
 
-    impl Inode for FoldsCase {
+    impl InodeOperations for FoldsCase {
         holds_no_links!();
 
         fn open(
@@ -1817,7 +1833,7 @@ mod tests {
             self.root.open(&self.path(dentry), options)
         }
 
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
             let at = self.path(dentry);
             self.root.open_dir(&at)?;
             Ok(Arc::new(Self {
@@ -1868,7 +1884,7 @@ mod tests {
         fn rename(
             &self,
             from: &Dentry,
-            to_dir: &dyn Inode,
+            to_dir: &dyn InodeOperations,
             to: &Dentry,
         ) -> Result<(), FilesystemError> {
             let target = (to_dir as &dyn Any)
@@ -1970,7 +1986,7 @@ mod tests {
     // @behavior FS-119
     #[test]
     fn a_copy_up_through_one_overlay_directory_is_seen_through_another() {
-        let lower: Arc<dyn Inode> = tmpfs_with("dir/a.txt", "a");
+        let lower: Arc<dyn InodeOperations> = tmpfs_with("dir/a.txt", "a");
         let overlay = at(over(lower, Arc::new(Tmpfs::new())));
         let first = overlay.open_dir("dir").expect("dir must open");
         let second = overlay.open_dir("dir").expect("dir must open again");
@@ -2038,7 +2054,7 @@ mod tests {
     // @behavior FS-122
     #[test]
     fn a_directory_one_layer_shows_is_walked_without_a_lookup() {
-        let only: Arc<dyn Inode> = tmpfs_with("top/dir/file", "only");
+        let only: Arc<dyn InodeOperations> = tmpfs_with("top/dir/file", "only");
         let overlay = at(over(Arc::new(LooksUpNoDir(only)), Arc::new(Tmpfs::new())));
         assert_eq!(
             read(&overlay, "top/dir/file"),
@@ -2152,7 +2168,7 @@ mod tests {
         opening: AtomicBool,
     }
 
-    impl Inode for SleepsOnOpen {
+    impl InodeOperations for SleepsOnOpen {
         holds_no_links!();
         matches_names_exactly!();
         opens_directories!(tmpfs);
@@ -2187,7 +2203,7 @@ mod tests {
         fn rename(
             &self,
             from: &Dentry,
-            _to_dir: &dyn Inode,
+            _to_dir: &dyn InodeOperations,
             to: &Dentry,
         ) -> Result<(), FilesystemError> {
             self.tmpfs.rename(from, self.tmpfs.as_ref(), to)
@@ -2229,7 +2245,8 @@ mod tests {
     // @behavior FS-072
     #[test]
     fn an_overlay_keeps_a_directorys_identity_when_a_write_copies_it_up() {
-        let lower: Arc<dyn Inode> = Arc::new([("dir/a.txt", "a")].into_iter().collect::<Tmpfs>());
+        let lower: Arc<dyn InodeOperations> =
+            Arc::new([("dir/a.txt", "a")].into_iter().collect::<Tmpfs>());
         let overlay = at(over(lower, Arc::new(Tmpfs::new())));
         let identity = |overlay: &KernPath| {
             let metadata = overlay

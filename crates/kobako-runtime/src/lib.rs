@@ -30,7 +30,7 @@ pub mod yielder;
 pub use dispatch::DispatchHandler;
 pub use error::{InvokeError, SetupError, Trap};
 pub use filesystem::{
-    Access, Bind, Blocking, DirEntry, File, FileType, FilesystemError, Inode, Metadata,
+    Access, Bind, Blocking, DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata,
     OpenOptions, Overlay, SeedError, Tmpfs,
 };
 pub use grant::{Grant, GrantKind};

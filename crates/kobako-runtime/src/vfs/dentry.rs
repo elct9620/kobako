@@ -8,30 +8,10 @@
 use std::any::Any;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 
+use super::inode::Inode;
 use super::rwsem::RwSemaphore;
 use super::seqlock::SeqLock;
-use crate::filesystem::Metadata;
 use crate::hashtable::Hashtable;
-
-/// What a directory is, apart from where it stands: the device and inode
-/// numbers its Filesystem names it by, as Linux reads them from the inode
-/// a dentry is instantiated with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Identity {
-    dev: u64,
-    ino: u64,
-}
-
-impl Identity {
-    /// The identity `metadata` names, or `None` where its inode of zero
-    /// reports none.
-    pub(crate) fn of(metadata: &Metadata) -> Option<Self> {
-        (metadata.ino != 0).then_some(Self {
-            dev: metadata.dev,
-            ino: metadata.ino,
-        })
-    }
-}
 
 /// Every move of a dentry, as Linux's `rename_lock`, so a walk up its
 /// parents answers where the dentry stood at one instant.
@@ -50,7 +30,7 @@ pub struct Dentry {
     this: Weak<Dentry>,
     /// What the Filesystem keeps on the name, set once, as Linux's
     /// `d_fsdata` holds a filesystem's own state for a dentry.
-    pub(crate) d_fsdata: OnceLock<Arc<dyn Any + Send + Sync>>,
+    d_fsdata: OnceLock<Arc<dyn Any + Send + Sync>>,
 }
 
 struct State {
@@ -60,8 +40,9 @@ struct State {
     /// Whether the directory was removed or replaced through the VFS, as
     /// Linux marks such a directory dead.
     dead: bool,
-    /// What the name stood for when the VFS first learned it.
-    identity: Option<Identity>,
+    /// What the name stands for once a lookup found it, `None` while the
+    /// dentry is negative.
+    inode: Option<Arc<Inode>>,
 }
 
 impl Dentry {
@@ -71,7 +52,7 @@ impl Dentry {
                 parent,
                 name: name.to_string(),
                 dead: false,
-                identity: None,
+                inode: None,
             }),
             rwsem: RwSemaphore::default(),
             this: this.clone(),
@@ -138,17 +119,28 @@ impl Dentry {
         self.state().dead = true;
     }
 
-    /// What the name stands for, once the VFS learned it.
-    pub(crate) fn identity(&self) -> Option<Identity> {
-        self.state().identity
+    /// What the name stands for, `None` while the dentry is negative, as
+    /// Linux's `d_inode` reads it.
+    pub fn d_inode(&self) -> Option<Arc<Inode>> {
+        self.state().inode.clone()
     }
 
-    /// Record `identity` as what the name stands for, as Linux's
-    /// `d_instantiate` attaches an inode once: a dentry that already names
-    /// something keeps it.
-    pub(crate) fn d_instantiate(&self, identity: Option<Identity>) {
+    /// Record `inode` as what the name stands for, `None` where nothing
+    /// does, as a Filesystem's lookup hands Linux's `d_add` what it found.
+    /// A dentry already naming something keeps it, as Linux instantiates a
+    /// dentry once, so a later lookup never hides a change `d_revalidate`
+    /// must see.
+    pub fn d_add(&self, inode: Option<Inode>) {
         let mut state = self.state();
-        state.identity = state.identity.or(identity);
+        if state.inode.is_none() {
+            state.inode = inode.map(Arc::new);
+        }
+    }
+
+    /// What the Filesystem keeps on the name, set once, as Linux's
+    /// `d_fsdata` holds a filesystem's own state for a dentry.
+    pub fn d_fsdata(&self) -> &OnceLock<Arc<dyn Any + Send + Sync>> {
+        &self.d_fsdata
     }
 
     /// Whether this dentry is `ancestor` or stands beneath it, as Linux's
@@ -301,14 +293,15 @@ mod tests {
     use std::any::Any;
     use std::sync::Arc;
 
-    use super::Dentry;
+    use super::{Dentries, Dentry};
     use crate::filesystem::{
-        Access, DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs,
+        Access, DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions,
+        Tmpfs,
     };
     use crate::mount::Mount;
     use crate::profile::Profile;
     use crate::vfs::kern_path::{kern_path, KernPath};
-    use crate::vfs::{self, FileDescription, Filesystem, OpenHow, Path};
+    use crate::vfs::{self, FileDescription, Filesystem, Inode, OpenHow, Path};
 
     /// A Filesystem answering each call by the path its dentry stands at,
     /// as one written in Ruby does, so a removed directory it opened
@@ -318,7 +311,7 @@ mod tests {
         root: KernPath,
     }
 
-    impl Inode for ByPath {
+    impl InodeOperations for ByPath {
         fn open(
             &self,
             dentry: &Dentry,
@@ -327,7 +320,7 @@ mod tests {
             self.root.open(&dentry.path_raw(), options)
         }
 
-        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+        fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
             if self.root.symlink_metadata(&dentry.path_raw())?.file_type != FileType::Directory {
                 return Err(FilesystemError::NotADirectory);
             }
@@ -378,7 +371,7 @@ mod tests {
         fn rename(
             &self,
             from: &Dentry,
-            to_dir: &dyn Inode,
+            to_dir: &dyn InodeOperations,
             to: &Dentry,
         ) -> Result<(), FilesystemError> {
             (to_dir as &dyn Any)
@@ -412,6 +405,27 @@ mod tests {
         }
     }
 
+    // `d_revalidate` compares what the dentry recorded first, so a later
+    // lookup replacing it would hide the change it is there to see.
+    #[test]
+    fn a_dentry_keeps_what_a_lookup_first_found_there() {
+        let (first, second) = (
+            Metadata::new(FileType::Directory, 0).with_identity(1, 2),
+            Metadata::new(FileType::Directory, 0).with_identity(1, 3),
+        );
+        let dentries = Dentries::default();
+        let dentry = dentries.child(&dentries.root(), "dir");
+        dentry.d_add(None);
+        dentry.d_add(Some(Inode::from(&first)));
+        dentry.d_add(Some(Inode::from(&second)));
+        assert_eq!(
+            dentry.d_inode().as_deref(),
+            Some(&Inode::from(&first)),
+            "Dentry::d_add after a negative lookup and then a positive one must keep the first \
+             inode recorded"
+        );
+    }
+
     // The Filesystem answers by path, so only the dentry the removal marked
     // keeps the make from landing in the directory made in its place.
     // @behavior RT-159
@@ -435,7 +449,7 @@ mod tests {
                 Ok(Vec::new()),
                 Some(FilesystemError::NotFound)
             ),
-            "vfs::filename_mkdiratand Path::entries through a directory vfs::filename_rmdirremoved, over \
+            "vfs::filename_mkdirat and Path::entries through a directory vfs::filename_rmdir removed, over \
              a Filesystem answering by path, must answer NotFound and list nothing, and make \
              nothing in the directory made in its place"
         );
@@ -454,7 +468,7 @@ mod tests {
         assert_eq!(
             vfs::filename_mkdirat(&dir, "made"),
             Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
-            "vfs::filename_mkdiratthrough a directory opened beneath one Mount, once vfs::filename_rmdir\
+            "vfs::filename_mkdirat through a directory opened beneath one Mount, once vfs::filename_rmdir \
              removed it beneath another Mount of the same Filesystem, must answer NotFound"
         );
     }

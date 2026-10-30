@@ -65,7 +65,7 @@ Each part owns one concern, and its dependencies on other kobako parts may only 
 | `kobako-wasmtime` | one engine behind that contract | runtime, transport |
 | `kobako` | the Rust host model: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
 | `lib/` | the Ruby host model and its own dialect | the native ext |
-| `ext/` | the magnus bridge from Ruby values to the driver's envelopes and an `Inode` | runtime, transport, wasmtime |
+| `ext/` | the magnus bridge from Ruby values to the driver's envelopes and an `InodeOperations` | runtime, transport, wasmtime |
 | `kobako-core` | the guest ABI: `Guest`, `export_guest!`, the dispatch proxy | transport |
 | `kobako-mruby` | the mruby guest model: `MrbGuest` flows and the bridge gem | core, transport, codec *(optional)* |
 | `kobako-io` · `-regexp` · `-json` | capability gems: guest-local behaviour, no wire | none |

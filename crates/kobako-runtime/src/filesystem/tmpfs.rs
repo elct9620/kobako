@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::SystemTime;
 
 use super::path::{ancestors, name, normalize_seed};
-use super::{DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions};
-use crate::vfs::{Dentry, Identity};
+use super::{DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions};
+use crate::vfs::{Dentry, Inode};
 use whiteout::Whiteout;
 
 mod tmpfile;
@@ -461,7 +461,7 @@ impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Tmpfs {
     }
 }
 
-impl Inode for Tmpfs {
+impl InodeOperations for Tmpfs {
     fn open(
         &self,
         dentry: &Dentry,
@@ -489,7 +489,7 @@ impl Inode for Tmpfs {
     }
 
     /// A Tmpfs holds no links to refuse.
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
         Ok(Arc::new(self.beneath(self.dir.directory(&dentry.name())?)))
     }
 
@@ -506,11 +506,13 @@ impl Inode for Tmpfs {
         }
     }
 
-    /// A Tmpfs matches names byte for byte, and records what a directory
-    /// standing at the name is, as tmpfs's lookup hands `d_add` its inode.
+    /// A Tmpfs matches names byte for byte, and records what stands at the
+    /// name, as tmpfs's lookup hands `d_add` its inode.
     fn lookup(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        if let Ok(Node::Directory(dir)) = self.dir.get(&dentry.name()) {
-            dentry.d_instantiate(Identity::of(&dir.metadata(self.tree.dev)));
+        match self.symlink_metadata(dentry) {
+            Ok(found) => dentry.d_add(Some(Inode::from(&found))),
+            Err(FilesystemError::NotFound) => dentry.d_add(None),
+            Err(err) => return Err(err),
         }
         Ok(dentry.name())
     }
@@ -521,14 +523,12 @@ impl Inode for Tmpfs {
     /// name here, as NFS compares the handle a fresh lookup finds. One the
     /// runtime learned nothing of has nothing to compare.
     fn d_revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
-        let Some(identity) = dentry.identity() else {
+        let Some(identity) = dentry.d_inode().and_then(|inode| inode.identity()) else {
             return Ok(true);
         };
-        Ok(match self.dir.get(&dentry.name()) {
-            Ok(Node::Directory(dir)) => {
-                Identity::of(&dir.metadata(self.tree.dev)) == Some(identity)
-            }
-            Ok(_) | Err(_) => false,
+        Ok(match self.symlink_metadata(dentry) {
+            Ok(found) => Inode::from(&found).identity() == Some(identity),
+            Err(_) => false,
         })
     }
 
@@ -590,7 +590,7 @@ impl Inode for Tmpfs {
     fn rename(
         &self,
         from: &Dentry,
-        to_dir: &dyn Inode,
+        to_dir: &dyn InodeOperations,
         to: &Dentry,
     ) -> Result<(), FilesystemError> {
         let target = (to_dir as &dyn Any)

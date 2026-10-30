@@ -34,7 +34,7 @@ pub enum Access {
 
 /// The files and directories beneath one directory, as the `*at` calls
 /// reach them from a directory descriptor: a Mount's root, or a directory
-/// opened beneath it, which answers as an Inode of its own. One may
+/// opened beneath it, which answers through operations of its own. One may
 /// wrap another and answer by delegating, so it sees every call on the
 /// way through, and wraps each directory it opens as well. A directory it
 /// opens keeps its identity its own while it is open, as an open
@@ -51,7 +51,7 @@ pub enum Access {
 /// to stand for another entry. Every Invocation reaches the same Filesystem;
 /// one that should start afresh is handed in its place for that
 /// Invocation.
-pub trait Inode: Any + Send + Sync {
+pub trait InodeOperations: Any + Send + Sync {
     /// Open the file `dentry` names as `options` asks, creating or
     /// truncating it where they say to; `FilesystemLoop` for a link
     /// standing there, as `O_NOFOLLOW` refuses one, since the runtime
@@ -66,7 +66,7 @@ pub trait Inode: Any + Send + Sync {
     /// one: `NotADirectory` where anything else stands, and
     /// `FilesystemLoop` for a link standing there, as `O_NOFOLLOW` refuses
     /// one, since the runtime follows a link itself.
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError>;
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError>;
 
     /// What this directory, which `dentry` names, reports of itself, as
     /// `getattr` is handed the path it answers for.
@@ -115,8 +115,12 @@ pub trait Inode: Any + Send + Sync {
     /// Linux's VFS does before `inode_operations.rename`. It hands only a
     /// `to_dir` of the same Mount, so it is of this Filesystem's own type,
     /// and one that is not answers `CrossesDevices`.
-    fn rename(&self, from: &Dentry, to_dir: &dyn Inode, to: &Dentry)
-        -> Result<(), FilesystemError>;
+    fn rename(
+        &self,
+        from: &Dentry,
+        to_dir: &dyn InodeOperations,
+        to: &Dentry,
+    ) -> Result<(), FilesystemError>;
 }
 
 /// One open file. The runtime keeps its position, so every read and write
@@ -153,7 +157,7 @@ pub trait File: Send {
     }
 }
 
-/// How `Inode::open` opens a file.
+/// How `InodeOperations::open` opens a file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct OpenOptions {

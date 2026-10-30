@@ -9,6 +9,7 @@
 
 mod dentry;
 mod filesystem;
+mod inode;
 #[cfg(test)]
 pub(crate) mod kern_path;
 mod namei;
@@ -23,7 +24,6 @@ mod utimes;
 use crate::filesystem::FilesystemError;
 use crate::mount::Denial;
 
-pub(crate) use dentry::Identity;
 pub(crate) use namei::{
     lookup_one, start_renaming, vfs_create, vfs_link, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink,
     vfs_whiteout, RenameFlag,
@@ -32,6 +32,7 @@ pub(crate) use rwsem::{Inline, RwSemaphore, RwSemaphoreGuard};
 
 pub use dentry::Dentry;
 pub use filesystem::Filesystem;
+pub use inode::{Identity, Inode};
 pub use namei::{
     do_file_open, filename_mkdirat, filename_renameat2, filename_rmdir, filename_unlinkat,
 };

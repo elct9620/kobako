@@ -7,7 +7,7 @@ use super::dentry::Dentry;
 use super::namei::down_read;
 use super::times::mask_times;
 use super::Error;
-use crate::filesystem::{DirEntry, FilesystemError, Inode, Metadata};
+use crate::filesystem::{DirEntry, FilesystemError, InodeOperations, Metadata};
 use crate::mount::Mount;
 use crate::profile::Profile;
 
@@ -20,7 +20,7 @@ pub struct Path {
     /// removed.
     dentry: Arc<Dentry>,
     /// The directory itself, which a call reaches wherever it moved.
-    dir: Arc<dyn Inode>,
+    dir: Arc<dyn InodeOperations>,
     /// The isolation the invocation holding it runs under, which decides
     /// whether the times a Filesystem reports reach the guest.
     profile: Profile,
@@ -38,7 +38,11 @@ impl Path {
     }
 
     /// This Path standing in `dir`, opened beneath it as `dentry`.
-    pub(crate) fn with_directory(&self, dir: Arc<dyn Inode>, dentry: Arc<Dentry>) -> Self {
+    pub(crate) fn with_directory(
+        &self,
+        dir: Arc<dyn InodeOperations>,
+        dentry: Arc<Dentry>,
+    ) -> Self {
         Self {
             mount: self.mount.clone(),
             dentry,
@@ -61,7 +65,7 @@ impl Path {
     }
 
     /// The directory itself, where a call through it starts.
-    pub(crate) fn dir(&self) -> &Arc<dyn Inode> {
+    pub(crate) fn dir(&self) -> &Arc<dyn InodeOperations> {
         &self.dir
     }
 
@@ -85,7 +89,11 @@ impl Path {
         }
         let filesystem = self.mount.filesystem();
         let dentries = filesystem.dentries();
-        if dentries.d_unlinked(&self.dentry) || self.dentry.identity().is_none() {
+        let told_apart = self
+            .dentry
+            .d_inode()
+            .is_some_and(|inode| inode.answers_by_path() || inode.identity().is_some());
+        if dentries.d_unlinked(&self.dentry) || !told_apart {
             return Err(FilesystemError::NotFound.into());
         }
         let mut above = Vec::new();

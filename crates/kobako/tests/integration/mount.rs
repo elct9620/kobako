@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::common::real_sandbox;
 use kobako::filesystem::{
-    DirEntry, File, FileType, FilesystemError, Inode, Metadata, OpenOptions, Tmpfs,
+    DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions, Tmpfs,
 };
 use kobako::msgpack::Value;
 use kobako::{Access, Dentry, Error, Filesystem, Policy, Profile, Sandbox};
@@ -253,7 +253,7 @@ impl File for NoteFile {
     }
 }
 
-impl Inode for OneNote {
+impl InodeOperations for OneNote {
     fn open(
         &self,
         dentry: &Dentry,
@@ -276,7 +276,7 @@ impl Inode for OneNote {
         }
     }
 
-    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn Inode>, FilesystemError> {
+    fn open_dir(&self, dentry: &Dentry) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
         match dentry.name().as_str() {
             "note.txt" => Err(FilesystemError::NotADirectory),
             _ => Err(FilesystemError::NotFound),
@@ -315,7 +315,7 @@ impl Inode for OneNote {
     fn rename(
         &self,
         _from: &Dentry,
-        _to_dir: &dyn Inode,
+        _to_dir: &dyn InodeOperations,
         _to: &Dentry,
     ) -> Result<(), FilesystemError> {
         Err(FilesystemError::ReadOnlyFilesystem)
