@@ -8,7 +8,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::filesystem::{File, FilesystemError, Metadata};
+use crate::filesystem::{FileOperations, FilesystemError, Metadata};
 use crate::profile::Profile;
 
 /// `metadata` as an invocation running under `profile` sees it.
@@ -27,7 +27,10 @@ pub(crate) fn mask_times(metadata: Metadata, profile: Profile) -> Metadata {
 }
 
 /// `file` as an invocation running under `profile` sees it.
-pub(crate) fn mask_file_times(file: Box<dyn File>, profile: Profile) -> Box<dyn File> {
+pub(crate) fn mask_file_times(
+    file: Box<dyn FileOperations>,
+    profile: Profile,
+) -> Box<dyn FileOperations> {
     match profile {
         Profile::Permissive => file,
         Profile::Hermetic => Box::new(Hermetic(file)),
@@ -35,35 +38,35 @@ pub(crate) fn mask_file_times(file: Box<dyn File>, profile: Profile) -> Box<dyn 
 }
 
 /// A file read by a hermetic invocation.
-struct Hermetic(Box<dyn File>);
+struct Hermetic(Box<dyn FileOperations>);
 
-impl File for Hermetic {
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.read_at(buf, offset)
+impl FileOperations for Hermetic {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.read(buf, offset)
     }
 
-    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.write_at(buf, offset)
+    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.write(buf, offset)
     }
 
     fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
         self.0.append(buf)
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        Ok(mask_times(self.0.metadata()?, Profile::Hermetic))
+    fn getattr(&self) -> Result<Metadata, FilesystemError> {
+        Ok(mask_times(self.0.getattr()?, Profile::Hermetic))
     }
 
-    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.0.set_len(len)
+    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.0.truncate(len)
     }
 
-    fn sync(&mut self) -> Result<(), FilesystemError> {
-        self.0.sync()
+    fn fsync(&mut self) -> Result<(), FilesystemError> {
+        self.0.fsync()
     }
 
-    fn close(self: Box<Self>) -> Result<(), FilesystemError> {
-        self.0.close()
+    fn release(self: Box<Self>) -> Result<(), FilesystemError> {
+        self.0.release()
     }
 }
 
@@ -83,7 +86,7 @@ mod tests {
     }
 
     /// Write `name` beneath `start`, answering the file still open.
-    fn write(start: &Path, name: &str) -> Box<dyn File> {
+    fn write(start: &Path, name: &str) -> Box<dyn FileOperations> {
         let how = OpenHow {
             write: true,
             create: true,
@@ -92,7 +95,7 @@ mod tests {
         let Ok(FileDescription::File(mut file)) = vfs::do_file_open(start, name, &how, true) else {
             panic!("{name} must open as a file");
         };
-        file.write_at(b"x", 0).expect("the file must take a write");
+        file.write(b"x", 0).expect("the file must take a write");
         file
     }
 
@@ -128,10 +131,10 @@ mod tests {
         assert_eq!(
             (
                 times(&vfs::vfs_fstatat(&start, "file", true).expect("the file must stand")),
-                times(&file.metadata().expect("the open file must report")),
+                times(&file.getattr().expect("the open file must report")),
             ),
             (epoch, epoch),
-            "vfs::vfs_fstatat of a written file, and File::metadata of it opened through vfs::do_file_open, \
+            "vfs::vfs_fstatat of a written file, and FileOperations::getattr of it opened through vfs::do_file_open, \
              beneath a Path on the strongest posture must report each time as the Unix epoch"
         );
     }

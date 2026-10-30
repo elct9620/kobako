@@ -21,7 +21,8 @@ use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
 use super::{
-    DirEntry, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
+    OpenOptions,
 };
 use crate::vfs::{Dentry, Identity, Inode};
 
@@ -279,7 +280,11 @@ fn unix_time(seconds: i64, nanoseconds: i64) -> Option<std::time::SystemTime> {
 }
 
 /// Open `name` in `dir` as `options` asks.
-fn open_in(dir: &Dir, name: &str, options: &OpenOptions) -> Result<Box<dyn File>, FilesystemError> {
+fn open_in(
+    dir: &Dir,
+    name: &str,
+    options: &OpenOptions,
+) -> Result<Box<dyn FileOperations>, FilesystemError> {
     // The host creates only for a writer, so a file already there is
     // opened as asked rather than for writing it was never given.
     if options.create && !(options.create_new || options.write || options.truncate) {
@@ -386,7 +391,7 @@ impl InodeOperations for Bind {
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         Some(self.at(dentry, |dir, name| open_in(dir, name, options)))
     }
 
@@ -394,7 +399,7 @@ impl InodeOperations for Bind {
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         Some(self.at(dentry, |dir, name| open_in(dir, name, options)))
     }
 
@@ -454,13 +459,13 @@ struct BindFile {
     file: std::fs::File,
 }
 
-impl File for BindFile {
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+impl FileOperations for BindFile {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
         self.file.seek(SeekFrom::Start(offset)).map_err(to_error)?;
         self.file.read(buf).map_err(to_error)
     }
 
-    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
         self.file.seek(SeekFrom::Start(offset)).map_err(to_error)?;
         self.file.write(buf).map_err(to_error)
     }
@@ -493,17 +498,17 @@ impl File for BindFile {
         Ok((end.map_err(to_error)? - written as u64, written))
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self) -> Result<Metadata, FilesystemError> {
         Ok(to_metadata(
             cap_std::fs::Metadata::from_file(&self.file).map_err(to_error)?,
         ))
     }
 
-    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
+    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
         self.file.set_len(len).map_err(to_error)
     }
 
-    fn sync(&mut self) -> Result<(), FilesystemError> {
+    fn fsync(&mut self) -> Result<(), FilesystemError> {
         self.file.sync_all().map_err(to_error)
     }
 }
@@ -758,7 +763,7 @@ mod tests {
             )
             .expect("the host file must open");
         let mut buf = [0; 16];
-        let read = file.read_at(&mut buf, 0).expect("the host file must read");
+        let read = file.read(&mut buf, 0).expect("the host file must read");
         assert_eq!(
             &buf[..read],
             b"a,b",
@@ -789,7 +794,7 @@ mod tests {
                 },
             )
             .expect("a new file must be created")
-            .write_at(b"written", 0)
+            .write(b"written", 0)
             .expect("the write must land");
         assert_eq!(
             fs::read(host.0.join("out.txt")).expect("the host file must exist"),
@@ -1155,7 +1160,7 @@ mod tests {
                 written.iter().filter(|&&b| b == b'b').count()
             ),
             (10_000, 10_000),
-            "two handles appending to one host file through a Bind's File::append must each \
+            "two handles appending to one host file through a Bind's FileOperations::append must each \
              keep every byte"
         );
     }

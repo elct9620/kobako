@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use kobako_runtime::filesystem::{DirEntry, File};
+use kobako_runtime::filesystem::{DirEntry, FileOperations};
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::Path;
@@ -35,7 +35,7 @@ pub(crate) struct OpenDirectory {
 }
 
 pub(crate) struct OpenFile {
-    pub(crate) file: Box<dyn File>,
+    pub(crate) file: Box<dyn FileOperations>,
     pub(crate) position: u64,
     pub(crate) append: bool,
     pub(crate) readable: bool,

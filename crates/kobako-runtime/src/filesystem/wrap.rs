@@ -5,7 +5,9 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use super::{DirEntry, File, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions};
+use super::{
+    DirEntry, FileOperations, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+};
 use crate::vfs::Dentry;
 
 /// What a test changes of the Filesystem beneath it.
@@ -39,7 +41,7 @@ pub(crate) trait Hook: Send + Sync + 'static {
         inner: &dyn InodeOperations,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         inner.open(dentry, options)
     }
 
@@ -48,7 +50,7 @@ pub(crate) trait Hook: Send + Sync + 'static {
         inner: &dyn InodeOperations,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         inner.create(dentry, options)
     }
 
@@ -131,7 +133,7 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         self.hook.open(self.inner.as_ref(), dentry, options)
     }
 
@@ -139,7 +141,7 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         self.hook.create(self.inner.as_ref(), dentry, options)
     }
 

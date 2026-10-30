@@ -9,7 +9,8 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::Access;
 use kobako_runtime::filesystem::{
-    DirEntry, File, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
+    DirEntry, FileOperations, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+    Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
@@ -70,7 +71,7 @@ fn contents<F: InodeOperations>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
         panic!("the file must exist");
     };
     let mut buf = vec![0; 64];
-    let read = file.read_at(&mut buf, 0).expect("the file must read");
+    let read = file.read(&mut buf, 0).expect("the file must read");
     buf.truncate(read);
     buf
 }
@@ -569,8 +570,8 @@ impl<W> WrapsFiles<W> {
 
 impl<W, F> InodeOperations for WrapsFiles<W>
 where
-    W: Fn(Box<dyn File>) -> F + Send + Sync + 'static,
-    F: File + 'static,
+    W: Fn(Box<dyn FileOperations>) -> F + Send + Sync + 'static,
+    F: FileOperations + 'static,
 {
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         self.inner.getattr(dentry)
@@ -590,18 +591,18 @@ where
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         let opened = self.inner.open(dentry, options)?;
-        Some(opened.map(|file| Box::new((self.wrap)(file)) as Box<dyn File>))
+        Some(opened.map(|file| Box::new((self.wrap)(file)) as Box<dyn FileOperations>))
     }
 
     fn create(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         let made = self.inner.create(dentry, options)?;
-        Some(made.map(|file| Box::new((self.wrap)(file)) as Box<dyn File>))
+        Some(made.map(|file| Box::new((self.wrap)(file)) as Box<dyn FileOperations>))
     }
 
     fn entries(&self, dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>> {
@@ -610,30 +611,30 @@ where
 }
 
 struct CountedFile {
-    file: Box<dyn File>,
+    file: Box<dyn FileOperations>,
     reads: Arc<AtomicUsize>,
 }
 
-impl File for CountedFile {
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+impl FileOperations for CountedFile {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
         self.reads.fetch_add(1, Ordering::Relaxed);
-        self.file.read_at(buf, offset)
+        self.file.read(buf, offset)
     }
 
-    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.file.write_at(buf, offset)
+    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.file.write(buf, offset)
     }
 
     fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
         self.file.append(buf)
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.file.metadata()
+    fn getattr(&self) -> Result<Metadata, FilesystemError> {
+        self.file.getattr()
     }
 
-    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.file.set_len(len)
+    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.file.truncate(len)
     }
 }
 
@@ -665,56 +666,56 @@ fn a_read_of_a_length_asks_the_filesystem_once() {
 
 /// An open file whose Filesystem refuses to release it, as a database
 /// refusing the commit a close stands for.
-struct RefusesClose(Box<dyn File>);
+struct RefusesClose(Box<dyn FileOperations>);
 
-impl File for RefusesClose {
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.read_at(buf, offset)
+impl FileOperations for RefusesClose {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.read(buf, offset)
     }
 
-    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.write_at(buf, offset)
+    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.write(buf, offset)
     }
 
     fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
         self.0.append(buf)
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.0.metadata()
+    fn getattr(&self) -> Result<Metadata, FilesystemError> {
+        self.0.getattr()
     }
 
-    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.0.set_len(len)
+    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.0.truncate(len)
     }
 
-    fn close(self: Box<Self>) -> Result<(), FilesystemError> {
+    fn release(self: Box<Self>) -> Result<(), FilesystemError> {
         Err(FilesystemError::PermissionDenied)
     }
 }
 
 /// An open file whose every read fails in a way no error code names.
-struct FailsReads(Box<dyn File>);
+struct FailsReads(Box<dyn FileOperations>);
 
-impl File for FailsReads {
-    fn read_at(&mut self, _buf: &mut [u8], _offset: u64) -> Result<usize, FilesystemError> {
+impl FileOperations for FailsReads {
+    fn read(&mut self, _buf: &mut [u8], _offset: u64) -> Result<usize, FilesystemError> {
         Err(FilesystemError::Other("the disk went away".to_string()))
     }
 
-    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.write_at(buf, offset)
+    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.write(buf, offset)
     }
 
     fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
         self.0.append(buf)
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.0.metadata()
+    fn getattr(&self) -> Result<Metadata, FilesystemError> {
+        self.0.getattr()
     }
 
-    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.0.set_len(len)
+    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.0.truncate(len)
     }
 }
 
@@ -756,27 +757,27 @@ fn a_close_the_filesystem_refuses_fails_the_scripts_close() {
 
 /// An open file taking at most three bytes per write, as a Filesystem a
 /// Host App writes in Ruby may.
-struct WritesInParts(Box<dyn File>);
+struct WritesInParts(Box<dyn FileOperations>);
 
-impl File for WritesInParts {
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.read_at(buf, offset)
+impl FileOperations for WritesInParts {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.read(buf, offset)
     }
 
-    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.write_at(&buf[..buf.len().min(3)], offset)
+    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.write(&buf[..buf.len().min(3)], offset)
     }
 
     fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
         self.0.append(&buf[..buf.len().min(3)])
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.0.metadata()
+    fn getattr(&self) -> Result<Metadata, FilesystemError> {
+        self.0.getattr()
     }
 
-    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.0.set_len(len)
+    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.0.truncate(len)
     }
 }
 
@@ -936,29 +937,29 @@ fn a_write_lands_whole_when_the_filesystem_takes_it_in_parts() {
 
 /// An open file reporting a length it does not hold, so a script meets a
 /// file of several GiB without the test allocating one.
-struct ReportsLen(Box<dyn File>, u64);
+struct ReportsLen(Box<dyn FileOperations>, u64);
 
-impl File for ReportsLen {
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.read_at(buf, offset)
+impl FileOperations for ReportsLen {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.read(buf, offset)
     }
 
-    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.0.write_at(buf, offset)
+    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.0.write(buf, offset)
     }
 
     fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
         self.0.append(buf)
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        let mut metadata = self.0.metadata()?;
+    fn getattr(&self) -> Result<Metadata, FilesystemError> {
+        let mut metadata = self.0.getattr()?;
         metadata.len = self.1;
         Ok(metadata)
     }
 
-    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.0.set_len(len)
+    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.0.truncate(len)
     }
 }
 

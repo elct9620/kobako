@@ -11,7 +11,8 @@ use kobako_runtime::filesystem::Access;
 #[cfg(unix)]
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::{
-    File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions, Overlay, Tmpfs,
+    FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+    Overlay, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
@@ -544,7 +545,7 @@ fn contents(root: &Path, path: &str) -> Option<Vec<u8>> {
         return None;
     };
     let mut buf = vec![0; 64];
-    let read = file.read_at(&mut buf, 0).ok()?;
+    let read = file.read(&mut buf, 0).ok()?;
     buf.truncate(read);
     Some(buf)
 }
@@ -1238,8 +1239,8 @@ fn a_directory_beneath_a_mount_with_a_policy_does_not_move() {
 struct AppendedMeanwhile;
 
 struct AppendedMeanwhileFile {
-    file: Box<dyn File>,
-    other: std::sync::Mutex<Box<dyn File>>,
+    file: Box<dyn FileOperations>,
+    other: std::sync::Mutex<Box<dyn FileOperations>>,
 }
 
 impl AppendedMeanwhileFile {
@@ -1252,25 +1253,25 @@ impl AppendedMeanwhileFile {
     }
 }
 
-impl File for AppendedMeanwhileFile {
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.file.read_at(buf, offset)
+impl FileOperations for AppendedMeanwhileFile {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.file.read(buf, offset)
     }
 
-    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.file.write_at(buf, offset)
+    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.file.write(buf, offset)
     }
 
     /// The length is read before the other writer appends, so a write
     /// placed by it lands over what the other wrote.
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        let metadata = self.file.metadata()?;
+    fn getattr(&self) -> Result<Metadata, FilesystemError> {
+        let metadata = self.file.getattr()?;
         self.other_appends()?;
         Ok(metadata)
     }
 
-    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.file.set_len(len)
+    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.file.truncate(len)
     }
 
     fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
@@ -1285,7 +1286,7 @@ impl Hook for AppendedMeanwhile {
         inner: &dyn InodeOperations,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         let writes = build_options(|options| options.write = true);
         let file = match inner.open(dentry, options)? {
             Ok(file) => file,
@@ -2129,7 +2130,7 @@ impl Hook for ChangesNothing {
         _inner: &dyn InodeOperations,
         _dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         None
     }
 

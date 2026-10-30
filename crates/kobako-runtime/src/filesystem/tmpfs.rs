@@ -9,7 +9,8 @@ use std::time::SystemTime;
 
 use super::path::{ancestors, name, normalize_seed};
 use super::{
-    DirEntry, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
+    OpenOptions,
 };
 use crate::vfs::{Dentry, Identity, Inode};
 use whiteout::Whiteout;
@@ -502,7 +503,7 @@ impl Tmpfs {
         Ok(())
     }
 
-    fn create_at(&self, name: &str) -> Result<Box<dyn File>, FilesystemError> {
+    fn create_at(&self, name: &str) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let data = Content::create(&self.tree.space)?;
         self.dir.state().insert(name, Node::File(data.clone()));
         Ok(Box::new(TmpfsFile { data }))
@@ -552,7 +553,7 @@ impl InodeOperations for Tmpfs {
         &self,
         dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         Some(self.create_at(&dentry.name()))
     }
 
@@ -608,7 +609,7 @@ impl InodeOperations for TmpfsRegular {
         &self,
         _dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         if options.truncate {
             if let Err(err) = lock(&self.data).resize(0) {
                 return Some(Err(err));
@@ -654,8 +655,8 @@ pub(crate) struct TmpfsFile {
     data: Arc<Mutex<Content>>,
 }
 
-impl File for TmpfsFile {
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+impl FileOperations for TmpfsFile {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
         let data = &lock(&self.data).bytes;
         let start = usize::try_from(offset)
             .unwrap_or(usize::MAX)
@@ -665,7 +666,7 @@ impl File for TmpfsFile {
         Ok(read)
     }
 
-    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
         let start = usize::try_from(offset).map_err(|_| FilesystemError::InvalidInput)?;
         write(&mut lock(&self.data), buf, start)
     }
@@ -678,11 +679,11 @@ impl File for TmpfsFile {
         Ok((start as u64, write(&mut data, buf, start)?))
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self) -> Result<Metadata, FilesystemError> {
         Ok(lock(&self.data).metadata())
     }
 
-    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
+    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
         let len = usize::try_from(len).map_err(|_| FilesystemError::InvalidInput)?;
         lock(&self.data).resize(len)
     }
@@ -709,7 +710,7 @@ mod tests {
             )
             .expect("the file must open");
         let mut buf = vec![0; 64];
-        let read = file.read_at(&mut buf, 0).expect("the file must read");
+        let read = file.read(&mut buf, 0).expect("the file must read");
         buf.truncate(read);
         buf
     }
@@ -801,7 +802,7 @@ mod tests {
                 },
             )
             .expect("a new file must be created");
-        file.write_at(b"kept", 0).expect("the write must land");
+        file.write(b"kept", 0).expect("the write must land");
         drop(file);
         assert_eq!(
             read_all(&tmpfs, "notes.txt"),
@@ -838,7 +839,7 @@ mod tests {
         );
     }
 
-    fn writable(fs: &KernPath, path: &str) -> Box<dyn File> {
+    fn writable(fs: &KernPath, path: &str) -> Box<dyn FileOperations> {
         fs.open(
             path,
             &OpenOptions {
@@ -857,11 +858,11 @@ mod tests {
         let tmpfs = at(tmpfs.with_size(Some(4)));
         assert_eq!(
             (
-                writable(&tmpfs, "file").write_at(b"four", 1),
+                writable(&tmpfs, "file").write(b"four", 1),
                 read_all(&tmpfs, "file")
             ),
             (Err(FilesystemError::StorageFull), b"x".to_vec()),
-            "a write growing a Tmpfs's files past its limit through TmpfsFile::write_at must \
+            "a write growing a Tmpfs's files past its limit through TmpfsFile::write must \
              answer StorageFull and leave the file as it was"
         );
     }
@@ -872,11 +873,11 @@ mod tests {
         let tmpfs = at([("file", "")].into_iter().collect());
         assert_eq!(
             (
-                writable(&tmpfs, "file").write_at(b"", 1000),
+                writable(&tmpfs, "file").write(b"", 1000),
                 read_all(&tmpfs, "file")
             ),
             (Ok(0), Vec::new()),
-            "an empty write past the end through TmpfsFile::write_at must answer 0 and leave \
+            "an empty write past the end through TmpfsFile::write must answer 0 and leave \
              the file empty"
         );
     }
@@ -888,7 +889,7 @@ mod tests {
         let mut file = writable(&tmpfs, "file");
         let mib_64 = 64 * 1024 * 1024;
         assert_eq!(
-            (file.set_len(mib_64), file.set_len(mib_64 + 1)),
+            (file.truncate(mib_64), file.truncate(mib_64 + 1)),
             (Ok(()), Err(FilesystemError::StorageFull)),
             "a Tmpfs given no limit through Tmpfs::new must hold 64 MiB and refuse a byte more"
         );
@@ -899,7 +900,7 @@ mod tests {
     fn a_tmpfs_without_a_size_grows_past_the_default() {
         let tmpfs = at(Tmpfs::new().with_size(None));
         assert_eq!(
-            writable(&tmpfs, "file").set_len(Tmpfs::DEFAULT_SIZE as u64 + 1),
+            writable(&tmpfs, "file").truncate(Tmpfs::DEFAULT_SIZE as u64 + 1),
             Ok(()),
             "a Tmpfs given no limit through Tmpfs::with_size(None) must grow past 64 MiB"
         );
@@ -910,11 +911,11 @@ mod tests {
     fn a_removed_file_returns_its_space() {
         let tmpfs = at(Tmpfs::new().with_size(Some(4)));
         writable(&tmpfs, "first")
-            .write_at(b"four", 0)
+            .write(b"four", 0)
             .expect("the first file must fit");
         tmpfs.remove_file("first").expect("the file must remove");
         assert_eq!(
-            writable(&tmpfs, "second").write_at(b"four", 0),
+            writable(&tmpfs, "second").write(b"four", 0),
             Ok(4),
             "the space a file removed through Tmpfs::remove_file held must be free for the next"
         );
@@ -931,8 +932,8 @@ mod tests {
         let unallocatable = isize::MAX as u64 + 1;
         assert_eq!(
             (
-                file.set_len(unallocatable),
-                file.write_at(b"x", unallocatable),
+                file.truncate(unallocatable),
+                file.write(b"x", unallocatable),
                 read_all(&tmpfs, "file")
             ),
             (
@@ -940,7 +941,7 @@ mod tests {
                 Err(FilesystemError::StorageFull),
                 b"x".to_vec()
             ),
-            "a length no allocator can hand out through TmpfsFile::set_len and write_at must \
+            "a length no allocator can hand out through TmpfsFile::truncate and write_at must \
              answer StorageFull rather than abort"
         );
     }
@@ -1269,11 +1270,11 @@ mod tests {
             ..OpenOptions::default()
         };
         let mut file = tmpfs.open("file", &options).expect("the file must be made");
-        file.write_at(b"ab", 0).expect("the file must take a write");
-        let made = file.metadata().expect("the file must report");
-        file.read_at(&mut [0; 1], 0).expect("the file must read");
+        file.write(b"ab", 0).expect("the file must take a write");
+        let made = file.getattr().expect("the file must report");
+        file.read(&mut [0; 1], 0).expect("the file must read");
         std::thread::sleep(std::time::Duration::from_millis(10));
-        file.write_at(b"c", 0)
+        file.write(b"c", 0)
             .expect("the file must take a write within its length");
         let written = tmpfs.symlink_metadata("file").expect("the file must stand");
         assert_eq!(

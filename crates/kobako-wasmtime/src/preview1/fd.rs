@@ -219,13 +219,13 @@ pub(crate) fn allocate(table: &mut Descriptors, fd: u32) -> Answer {
 
 pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
     match table.remove(fd).ok_or(Errno::Badf)? {
-        Descriptor::File(open) => Ok(open.file.close()?),
+        Descriptor::File(open) => Ok(open.file.release()?),
         _ => Ok(()),
     }
 }
 
 pub(crate) fn sync(table: &mut Descriptors, fd: u32) -> Answer {
-    Ok(file(table, fd)?.file.sync()?)
+    Ok(file(table, fd)?.file.fsync()?)
 }
 
 pub(crate) fn fdstat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, out: u32) -> Answer {
@@ -306,7 +306,7 @@ pub(crate) fn filestat_get(
             write_filestat(mem, out, FILETYPE_UNKNOWN, 0, 0)
         }
         Descriptor::Directory(dir) => write_metadata(mem, out, dir.path.metadata()?),
-        Descriptor::File(file) => write_metadata(mem, out, file.file.metadata()?),
+        Descriptor::File(file) => write_metadata(mem, out, file.file.getattr()?),
     }
 }
 
@@ -321,7 +321,7 @@ pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> 
     if !file.writable {
         return Err(Errno::Inval.into());
     }
-    Ok(file.file.set_len(refuse_negative(size)?)?)
+    Ok(file.file.truncate(refuse_negative(size)?)?)
 }
 
 /// A Filesystem keeps no timestamps of the guest's choosing, so setting
@@ -350,7 +350,7 @@ pub(crate) fn pread(
         return Err(Errno::Badf.into());
     }
     let offset = refuse_reading_past_largest_offset(refuse_negative(offset)?, len)?;
-    let read = file.file.read_at(mem.bytes_mut(ptr, len)?, offset)?;
+    let read = file.file.read(mem.bytes_mut(ptr, len)?, offset)?;
     mem.write_u32(nread, read as u32)
 }
 
@@ -413,7 +413,7 @@ pub(crate) fn pwrite(
         file.file.append(buf)?.1
     } else {
         file.file
-            .write_at(trim_to_largest_offset(buf, offset)?, offset)?
+            .write(trim_to_largest_offset(buf, offset)?, offset)?
     };
     mem.write_u32(nwritten, written as u32)
 }
@@ -442,7 +442,7 @@ pub(crate) fn read(
                 return Err(Errno::Badf.into());
             }
             let at = refuse_reading_past_largest_offset(file.position, len)?;
-            let read = file.file.read_at(buf, at)?;
+            let read = file.file.read(buf, at)?;
             file.position += read as u64;
             read
         }
@@ -536,7 +536,7 @@ pub(crate) fn seek(
     let base = match whence {
         0 => 0,
         1 => file.position,
-        _ => file.file.metadata()?.len,
+        _ => file.file.getattr()?.len,
     };
     // Linux holds an offset in a signed 64-bit `off_t`, past which a seek
     // is `OVERFLOW` rather than a position a write could wrap around.
@@ -573,7 +573,7 @@ pub(crate) fn write(
                 file.file.append(buf)?
             } else {
                 let buf = trim_to_largest_offset(buf, file.position)?;
-                (file.position, file.file.write_at(buf, file.position)?)
+                (file.position, file.file.write(buf, file.position)?)
             };
             file.position = at.checked_add(written as u64).ok_or(Errno::Fbig)?;
             written
@@ -618,7 +618,7 @@ mod tests {
     //! does, so its Filesystem learns of the close and may refuse it.
     use std::sync::Arc;
 
-    use kobako_runtime::filesystem::{Access, File, FilesystemError, Metadata, Tmpfs};
+    use kobako_runtime::filesystem::{Access, FileOperations, FilesystemError, Metadata, Tmpfs};
     use kobako_runtime::mount::Mount;
     use kobako_runtime::profile::Profile;
     use kobako_runtime::vfs::Filesystem;
@@ -631,12 +631,12 @@ mod tests {
     /// A file whose Filesystem refuses to release it.
     struct RefusesClose;
 
-    impl File for RefusesClose {
-        fn read_at(&mut self, _buf: &mut [u8], _offset: u64) -> Result<usize, FilesystemError> {
+    impl FileOperations for RefusesClose {
+        fn read(&mut self, _buf: &mut [u8], _offset: u64) -> Result<usize, FilesystemError> {
             Ok(0)
         }
 
-        fn write_at(&mut self, buf: &[u8], _offset: u64) -> Result<usize, FilesystemError> {
+        fn write(&mut self, buf: &[u8], _offset: u64) -> Result<usize, FilesystemError> {
             Ok(buf.len())
         }
 
@@ -644,15 +644,15 @@ mod tests {
             Ok((0, buf.len()))
         }
 
-        fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        fn getattr(&self) -> Result<Metadata, FilesystemError> {
             Err(FilesystemError::Unsupported)
         }
 
-        fn set_len(&mut self, _len: u64) -> Result<(), FilesystemError> {
+        fn truncate(&mut self, _len: u64) -> Result<(), FilesystemError> {
             Ok(())
         }
 
-        fn close(self: Box<Self>) -> Result<(), FilesystemError> {
+        fn release(self: Box<Self>) -> Result<(), FilesystemError> {
             Err(FilesystemError::PermissionDenied)
         }
     }

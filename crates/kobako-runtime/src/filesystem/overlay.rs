@@ -18,8 +18,8 @@ use std::any::Any;
 use std::sync::Arc;
 
 use super::{
-    DirEntry, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
-    Tmpfs,
+    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
+    OpenOptions, Tmpfs,
 };
 use crate::vfs::{Blocking, Dentry, Filesystem, Inode};
 use stack::OverlayFs;
@@ -135,7 +135,7 @@ impl Overlay {
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         Some(
             self.fs
                 .parent(dentry)
@@ -180,7 +180,7 @@ impl InodeOperations for Overlay {
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         self.open_at(dentry, options)
     }
 
@@ -188,7 +188,7 @@ impl InodeOperations for Overlay {
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         self.open_at(dentry, options)
     }
 
@@ -259,7 +259,7 @@ mod tests {
         kern_path(filesystem.clone())
     }
 
-    fn open_to_read(fs: &KernPath, path: &str) -> Box<dyn File> {
+    fn open_to_read(fs: &KernPath, path: &str) -> Box<dyn FileOperations> {
         fs.open(
             path,
             &OpenOptions {
@@ -270,9 +270,9 @@ mod tests {
         .expect("the file must open to read")
     }
 
-    fn read_from(file: &mut dyn File) -> Vec<u8> {
+    fn read_from(file: &mut dyn FileOperations) -> Vec<u8> {
         let mut buf = vec![0; 64];
-        let read = file.read_at(&mut buf, 0).expect("the file must read");
+        let read = file.read(&mut buf, 0).expect("the file must read");
         buf.truncate(read);
         buf
     }
@@ -291,7 +291,7 @@ mod tests {
                 ..OpenOptions::default()
             },
         )?
-        .write_at(contents, 0)
+        .write(contents, 0)
         .map(drop)
     }
 
@@ -1640,7 +1640,7 @@ mod tests {
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
             Some(self.root.open(&folded(dentry), options))
         }
 
@@ -1648,7 +1648,7 @@ mod tests {
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
             Some(self.root.open(&folded(dentry), options))
         }
 
@@ -1961,7 +1961,7 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
             if !self.opening.swap(true, Ordering::SeqCst) {
                 thread::sleep(Duration::from_millis(100));
             }

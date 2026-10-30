@@ -26,7 +26,7 @@ use std::sync::Arc;
 use super::inode::{ovl_inode, OverlayInode};
 use super::path::OverlayPath;
 
-use super::super::{File, FileType, FilesystemError, Metadata};
+use super::super::{FileOperations, FileType, FilesystemError, Metadata};
 use crate::vfs::{Blocking, Dentry, Filesystem, Inline};
 
 /// The directories of the upper Tmpfs holding the view's changes and the
@@ -122,17 +122,20 @@ fn sole_layer(level: &Level) -> Option<(usize, &OverlayPath)> {
     }
 }
 
-fn copy_whole(source: &mut dyn File, target: &mut dyn File) -> Result<(), FilesystemError> {
+fn copy_whole(
+    source: &mut dyn FileOperations,
+    target: &mut dyn FileOperations,
+) -> Result<(), FilesystemError> {
     let mut buf = vec![0; 64 * 1024];
     let mut offset = 0;
     loop {
-        let read = source.read_at(&mut buf, offset)?;
+        let read = source.read(&mut buf, offset)?;
         if read == 0 {
             return Ok(());
         }
         let mut written = 0;
         while written < read {
-            match target.write_at(&buf[written..read], offset + written as u64)? {
+            match target.write(&buf[written..read], offset + written as u64)? {
                 0 => {
                     return Err(FilesystemError::Other(
                         "a copy up's write wrote nothing".to_string(),

@@ -4,7 +4,7 @@
 //! in the workdir and exchanged into place, so it lands whole or not at
 //! all.
 
-use super::super::super::{File, FileType, FilesystemError, OpenOptions};
+use super::super::super::{FileOperations, FileType, FilesystemError, OpenOptions};
 use super::super::file::reader;
 use super::super::path::OverlayPath;
 use super::{
@@ -190,7 +190,7 @@ impl OverlayFs {
         dir: &ViewDir,
         child: &Dentry,
         options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let name = &child.name();
         let changes = options.write || options.truncate;
         let level = dir.level();
@@ -224,7 +224,7 @@ impl OverlayFs {
         dir: &ViewDir,
         name: &str,
         options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let level = dir.level();
         match self.lookup(&level, name)? {
             Some(_) if options.create_new => Err(FilesystemError::AlreadyExists),

@@ -24,7 +24,8 @@ use super::rwsem::RwSemaphoreGuard;
 use super::times::mask_file_times;
 use super::Error;
 use crate::filesystem::{
-    Access, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+    Access, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
+    OpenOptions,
 };
 use crate::mount::Mount;
 
@@ -256,7 +257,7 @@ pub(crate) fn d_getattr(dentry: &Dentry) -> Result<Metadata, FilesystemError> {
 pub(crate) fn d_open(
     dentry: &Dentry,
     options: &OpenOptions,
-) -> Result<Box<dyn File>, FilesystemError> {
+) -> Result<Box<dyn FileOperations>, FilesystemError> {
     match dentry.d_inode() {
         Some(inode) => inode.ops().open(dentry, options).unwrap_or_else(|| {
             Err(match inode.kind() {
@@ -980,7 +981,7 @@ pub(crate) fn vfs_create(
     dir: &Dentry,
     child: &Dentry,
     options: &OpenOptions,
-) -> Result<Box<dyn File>, FilesystemError> {
+) -> Result<Box<dyn FileOperations>, FilesystemError> {
     may_create_dentry(dir, kind_at(inode, child)?)?;
     let options = OpenOptions {
         create_new: true,
@@ -1122,8 +1123,8 @@ mod tests {
     use std::time::Duration;
 
     use crate::filesystem::{
-        Access, DirEntry, File, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
-        Tmpfs,
+        Access, DirEntry, FileOperations, FilesystemError, InodeOperations, Lookup, Metadata,
+        OpenOptions, Tmpfs,
     };
     use crate::mount::{Mount, Policy};
     use crate::profile::Profile;
@@ -1166,7 +1167,7 @@ mod tests {
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
             self.tmpfs.create(dentry, options)
         }
 
@@ -1238,7 +1239,7 @@ mod tests {
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
             Some(self.root.open(&folded(dentry), options))
         }
 
@@ -1246,7 +1247,7 @@ mod tests {
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
             Some(self.root.open(&folded(dentry), options))
         }
 

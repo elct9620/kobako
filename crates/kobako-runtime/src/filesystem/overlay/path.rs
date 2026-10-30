@@ -14,7 +14,8 @@ use std::sync::Arc;
 
 use super::super::tmpfs::TmpfsFile;
 use super::super::{
-    DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions, Tmpfs,
+    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions,
+    Tmpfs,
 };
 use crate::vfs::{
     d_get_link, d_getattr, d_open, lookup_one, lookup_slow, start_renaming, vfs_create, vfs_link,
@@ -158,7 +159,7 @@ impl OverlayPath {
         &self,
         name: &str,
         options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let _held = self.shared()?;
         d_open(&*self.looked_up(name)?, options)
     }
@@ -169,7 +170,7 @@ impl OverlayPath {
         &self,
         name: &str,
         options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let _held = self.exclusive()?;
         vfs_create(
             self.dir.as_ref(),

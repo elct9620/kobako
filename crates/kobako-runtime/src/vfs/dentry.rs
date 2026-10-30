@@ -295,8 +295,8 @@ mod tests {
 
     use super::{Dentries, Dentry};
     use crate::filesystem::{
-        Access, DirEntry, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
-        OpenOptions, Tmpfs,
+        Access, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup,
+        Metadata, OpenOptions, Tmpfs,
     };
     use crate::mount::Mount;
     use crate::profile::Profile;
@@ -326,7 +326,7 @@ mod tests {
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
             Some(self.root.open(&dentry.path_raw(), options))
         }
 
@@ -334,7 +334,7 @@ mod tests {
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
             Some(self.root.open(&dentry.path_raw(), options))
         }
 

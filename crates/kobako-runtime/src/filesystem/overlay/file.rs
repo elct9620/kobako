@@ -6,7 +6,7 @@
 
 use std::sync::{Arc, PoisonError};
 
-use super::super::{File, FilesystemError, Metadata};
+use super::super::{FileOperations, FilesystemError, Metadata};
 use super::inode::{ovl_inode, ReaderGuard};
 use crate::vfs::Dentry;
 
@@ -14,9 +14,9 @@ use crate::vfs::Dentry;
 /// that reads the copy once a copy up makes one, as overlayfs's `ovl_open`
 /// hands out a file over the real one.
 pub(super) fn reader(
-    file: Box<dyn File>,
+    file: Box<dyn FileOperations>,
     dentry: &Dentry,
-) -> Result<Box<dyn File>, FilesystemError> {
+) -> Result<Box<dyn FileOperations>, FilesystemError> {
     let inode = ovl_inode(dentry, || Ok(Vec::new()))?;
     Ok(Box::new(OverlayFile {
         file,
@@ -27,7 +27,7 @@ pub(super) fn reader(
 
 /// A lower Layer's file open to read, as overlayfs's `struct ovl_file`.
 struct OverlayFile {
-    file: Box<dyn File>,
+    file: Box<dyn FileOperations>,
     /// The entry's dentry, held while the file is open, as a `struct
     /// file` holds its `f_path`, so a copy up of the entry finds the state
     /// this file reads.
@@ -36,42 +36,42 @@ struct OverlayFile {
     inode: ReaderGuard,
 }
 
-impl File for OverlayFile {
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+impl FileOperations for OverlayFile {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
         match self.inode.copy() {
             Some(copy) => copy
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .read_at(buf, offset),
-            None => self.file.read_at(buf, offset),
+                .read(buf, offset),
+            None => self.file.read(buf, offset),
         }
     }
 
     /// A file open to read takes no write, so the lower Layer's file
     /// answers it.
-    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
-        self.file.write_at(buf, offset)
+    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+        self.file.write(buf, offset)
     }
 
     fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError> {
         self.file.append(buf)
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self) -> Result<Metadata, FilesystemError> {
         match self.inode.copy() {
             Some(copy) => copy
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .metadata(),
-            None => self.file.metadata(),
+                .getattr(),
+            None => self.file.getattr(),
         }
     }
 
-    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
-        self.file.set_len(len)
+    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
+        self.file.truncate(len)
     }
 
-    fn close(self: Box<Self>) -> Result<(), FilesystemError> {
-        self.file.close()
+    fn release(self: Box<Self>) -> Result<(), FilesystemError> {
+        self.file.release()
     }
 }

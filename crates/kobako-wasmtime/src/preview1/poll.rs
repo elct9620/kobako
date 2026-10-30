@@ -102,7 +102,7 @@ fn read_subscription(invocation: &Invocation, mem: &GuestMemory, sub: u32) -> An
         TAG_FD_READ => match descriptor(invocation, mem, sub)? {
             Descriptor::Stdin(_) => Kind::FdRead { hangup: false },
             Descriptor::File(file) => Kind::FdRead {
-                hangup: file.file.metadata()?.len <= file.position,
+                hangup: file.file.getattr()?.len <= file.position,
             },
             Descriptor::Channel(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },

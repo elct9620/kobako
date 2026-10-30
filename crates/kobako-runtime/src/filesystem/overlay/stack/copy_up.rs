@@ -97,7 +97,7 @@ impl OverlayFs {
         )?;
         let mut copy = target_dir.tmpfile()?;
         copy_whole(source.as_mut(), &mut copy)?;
-        let lower = source.metadata()?;
+        let lower = source.getattr()?;
         copy.set_times(lower.accessed, lower.modified);
         let parent_times = target_dir.metadata()?;
         target_dir.link(&copy, &name)?;

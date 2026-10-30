@@ -55,7 +55,7 @@ Each row is one seam a third party can fill, with the endpoint it sits on.
 | The whole guest | `impl kobako_core::Guest` + `export_guest!` | guest | replaceable · methods append-only |
 | Wasm engine | `impl Runtime`, handed to `Sandbox::with_runtime` | Rust host SDK | replaceable |
 | Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | a host frontend of your own | replaceable |
-| Filesystem | `impl InodeOperations` + `File`, behind a Mount | Rust host SDK | replaceable · methods append-only |
+| Filesystem | `impl InodeOperations` + `FileOperations`, behind a Mount | Rust host SDK | replaceable · methods append-only |
 | Lock wait | `impl Blocking`, handed to `Filesystem::with_blocking` or `Overlay::with_blocking` | a host frontend of your own | replaceable · methods append-only |
 
 The types those seams carry, by grade:
@@ -338,7 +338,7 @@ with its identity, or a Policy cannot tell a directory from one made in its plac
 
 ### Filesystem Obligations
 
-Only `getattr` and the `File` methods are required. An operation an entry lacks answers
+Only `getattr` and the `FileOperations` methods are required. An operation an entry lacks answers
 `None`, as a NULL in Linux's `inode_operations`, and the runtime answers for it as Linux's
 VFS does. One wrapping another forwards those it keeps.
 
@@ -349,7 +349,7 @@ VFS does. One wrapping another forwards those it keeps.
 | `get_link` | a link followed only within the directory a descriptor opened | EINVAL |
 | `create` | a file made under the directory's lock | EACCES |
 | `mkdir`, `rmdir`, `unlink`, `rename` | a change made under the directory's lock | EPERM |
-| `File::append` | another writer's append from landing over this one | `Unsupported`, which it answers itself |
+| `FileOperations::append` | another writer's append from landing over this one | `Unsupported`, which it answers itself |
 
 An Overlay waits for a copy up's lock through `Blocking`. A frontend whose threads share a
 lock of their own gives that lock up inside `wait`, as Ruby gives up the GVL.

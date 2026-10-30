@@ -96,7 +96,7 @@ pub trait InodeOperations: Any + Send + Sync {
         &self,
         _dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         None
     }
 
@@ -107,7 +107,7 @@ pub trait InodeOperations: Any + Send + Sync {
         &self,
         _dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         None
     }
 
@@ -152,10 +152,10 @@ pub trait InodeOperations: Any + Send + Sync {
 
 /// One open file. The runtime keeps its position, so every read and write
 /// names the offset it starts at.
-pub trait File: Send {
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError>;
+pub trait FileOperations: Send {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError>;
 
-    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError>;
+    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError>;
 
     /// Write `buf` at the file's end as it stands when the write lands,
     /// answering the offset it landed at and how much was written. It
@@ -164,22 +164,25 @@ pub trait File: Send {
     /// its end and write there in one step answers `Unsupported`.
     fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError>;
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError>;
+    /// What the open file is, and its length, even once its name is gone,
+    /// as a host answers `fstat` through the descriptor it holds.
+    fn getattr(&self) -> Result<Metadata, FilesystemError>;
 
-    /// Truncate or extend the file to `len` bytes, extending with zeros.
-    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError>;
+    /// Truncate or extend the file to `len` bytes, extending with zeros, as
+    /// `ftruncate` reaches through the file a host holds.
+    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError>;
 
     /// Make what was written durable. The default has nothing to flush,
     /// which is the truthful answer of a file with no durability of its
     /// own.
-    fn sync(&mut self) -> Result<(), FilesystemError> {
+    fn fsync(&mut self) -> Result<(), FilesystemError> {
         Ok(())
     }
 
     /// Release the file once the guest closes it, answering whether what
     /// it held was kept. The default has nothing to release; a file the
     /// guest never closes is dropped instead.
-    fn close(self: Box<Self>) -> Result<(), FilesystemError> {
+    fn release(self: Box<Self>) -> Result<(), FilesystemError> {
         Ok(())
     }
 }

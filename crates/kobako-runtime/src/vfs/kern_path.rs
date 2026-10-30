@@ -15,7 +15,8 @@ use super::namei::{
 use super::path::Path;
 use super::{Error, Filesystem};
 use crate::filesystem::{
-    Access, DirEntry, File, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions,
+    Access, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Metadata,
+    OpenOptions,
 };
 use crate::mount::Mount;
 use crate::profile::Profile;
@@ -50,7 +51,7 @@ impl KernPath {
         &self,
         path: &str,
         options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let mut nd = self.resolve(path)?;
         let child = nd.child()?;
         match nd.found() {

@@ -12,13 +12,13 @@ use std::any::Any;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use super::super::{File, FilesystemError, OpenOptions};
+use super::super::{FileOperations, FilesystemError, OpenOptions};
 use super::path::OverlayPath;
 use super::stack::Level;
 use crate::vfs::{Dentry, RwSemaphore};
 
 /// A copy a file open to read reads once a copy up made it.
-pub(super) type Copy = Arc<Mutex<Box<dyn File>>>;
+pub(super) type Copy = Arc<Mutex<Box<dyn FileOperations>>>;
 
 /// One entry of the view.
 pub(super) struct OverlayInode {

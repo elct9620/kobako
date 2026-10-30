@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use crate::common::real_sandbox;
 use kobako::filesystem::{
-    DirEntry, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
-    Tmpfs,
+    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
+    OpenOptions, Tmpfs,
 };
 use kobako::msgpack::Value;
 use kobako::{Access, Dentry, Error, Filesystem, Inode, Policy, Profile, Sandbox};
@@ -229,15 +229,15 @@ struct OneNote(&'static [u8]);
 
 struct NoteFile(&'static [u8]);
 
-impl File for NoteFile {
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+impl FileOperations for NoteFile {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
         let rest = self.0.get(offset as usize..).unwrap_or_default();
         let read = rest.len().min(buf.len());
         buf[..read].copy_from_slice(&rest[..read]);
         Ok(read)
     }
 
-    fn write_at(&mut self, _buf: &[u8], _offset: u64) -> Result<usize, FilesystemError> {
+    fn write(&mut self, _buf: &[u8], _offset: u64) -> Result<usize, FilesystemError> {
         Err(FilesystemError::ReadOnlyFilesystem)
     }
 
@@ -245,11 +245,11 @@ impl File for NoteFile {
         Err(FilesystemError::ReadOnlyFilesystem)
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self) -> Result<Metadata, FilesystemError> {
         Ok(Metadata::new(FileType::File, self.0.len() as u64))
     }
 
-    fn set_len(&mut self, _len: u64) -> Result<(), FilesystemError> {
+    fn truncate(&mut self, _len: u64) -> Result<(), FilesystemError> {
         Err(FilesystemError::ReadOnlyFilesystem)
     }
 }
@@ -280,14 +280,14 @@ struct Note(&'static [u8]);
 
 impl InodeOperations for Note {
     fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        NoteFile(self.0).metadata()
+        NoteFile(self.0).getattr()
     }
 
     fn open(
         &self,
         _dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         Some(Ok(Box::new(NoteFile(self.0))))
     }
 }

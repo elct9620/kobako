@@ -4,7 +4,7 @@
 use super::namei::{d_can_lookup, down_read, Nameidata};
 use super::path::Path;
 use super::Error;
-use crate::filesystem::{File, FilesystemError};
+use crate::filesystem::{FileOperations, FilesystemError};
 
 /// How to open a path, as Linux's `struct open_how` carries `openat2`'s
 /// flags.
@@ -29,7 +29,7 @@ pub struct OpenHow {
 /// descriptor refers to.
 pub enum FileDescription {
     Directory(Path),
-    File(Box<dyn File>),
+    File(Box<dyn FileOperations>),
 }
 
 /// The directory `nd` ends at, opened now, as Linux's `vfs_open` holds
