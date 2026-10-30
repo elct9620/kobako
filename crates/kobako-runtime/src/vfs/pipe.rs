@@ -15,17 +15,12 @@ use super::path::Path;
 use crate::filesystem::{
     FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Metadata,
 };
-use crate::profile::Profile;
 use crate::vfs::Filesystem;
 
 /// The one Filesystem every pipe stands on, as Linux's `pipe_mnt`. No guest
 /// path reaches it: a pipe is only ever open.
-static PIPE_MNT: LazyLock<Path> = LazyLock::new(|| {
-    Path::root(
-        &VfsMount::kern_mount(Filesystem::new(Arc::new(PipeFs))),
-        Profile::Permissive,
-    )
-});
+static PIPE_MNT: LazyLock<Path> =
+    LazyLock::new(|| Path::root(&VfsMount::kern_mount(Filesystem::new(Arc::new(PipeFs)))));
 
 /// Each pipe's name on pipefs, which no guest ever reads.
 static PIPE_NAME: AtomicU64 = AtomicU64::new(0);

@@ -66,7 +66,7 @@ pub(crate) fn filestat_get(
     } else {
         vfs::vfs_fstatat(table.cred(), dir, &path, false)?
     };
-    write_metadata(mem, out, metadata)
+    write_metadata(table, mem, out, metadata)
 }
 
 pub(crate) fn filestat_set_times(

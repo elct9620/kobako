@@ -22,7 +22,6 @@ mod pipe;
 mod rwsem;
 mod seqlock;
 mod stat;
-mod times;
 mod utimes;
 
 use crate::filesystem::FilesystemError;

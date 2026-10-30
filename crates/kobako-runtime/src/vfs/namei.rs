@@ -1140,7 +1140,6 @@ mod tests {
         Lookup, Metadata, OpenOptions, Tmpfs,
     };
     use crate::mount::{Mount, Policy};
-    use crate::profile::Profile;
     use crate::vfs::kern_path::{kern_path, KernPath};
     use crate::vfs::{self, Blocking, Dentry, Filesystem, Inode, OpenHow, Path};
 
@@ -1332,7 +1331,7 @@ mod tests {
     fn root_of(filesystem: Arc<Filesystem>) -> Path {
         let mount =
             Mount::new("/data", filesystem, Access::ReadWrite).expect("/data is a guest path");
-        Path::root(mount.mnt(), Profile::Permissive)
+        Path::root(mount.mnt())
     }
 
     fn open_dir(start: &Path, path: &str) -> Path {
@@ -1470,7 +1469,7 @@ mod tests {
         let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
             .expect("/data is a guest path")
             .with_policy(Arc::new(policy));
-        let root = Path::root(mount.mnt(), Profile::Permissive);
+        let root = Path::root(mount.mnt());
         let cred = crate::security::prepare_creds([&mount]);
         let opener = {
             let (root, cred) = (root.clone(), cred.clone());

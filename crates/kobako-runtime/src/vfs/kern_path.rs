@@ -19,7 +19,6 @@ use crate::filesystem::{
     OpenOptions,
 };
 use crate::mount::Mount;
-use crate::profile::Profile;
 
 /// A directory of a Filesystem reached through the VFS.
 #[derive(Clone)]
@@ -29,7 +28,7 @@ pub(crate) struct KernPath(Path);
 pub(crate) fn kern_path(filesystem: Arc<dyn InodeOperations>) -> KernPath {
     let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
         .expect("/data is a guest path");
-    KernPath(Path::root(mount.mnt(), Profile::Permissive))
+    KernPath(Path::root(mount.mnt()))
 }
 
 fn to_filesystem_error(error: Error) -> FilesystemError {

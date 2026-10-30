@@ -1201,7 +1201,7 @@ mod tests {
             super::super::Access::ReadWrite,
         )
         .expect("/data is a guest path");
-        let root = crate::vfs::Path::root(mount.mnt(), crate::profile::Profile::Permissive);
+        let root = crate::vfs::Path::root(mount.mnt());
         *interleave.overlay.lock().unwrap() = Some(root.clone());
         let removed = crate::vfs::filename_rmdir(&Arc::default(), &root, "dir").is_ok();
         interleave
@@ -1266,7 +1266,7 @@ mod tests {
             super::super::Access::ReadWrite,
         )
         .expect("/data is a guest path");
-        let root = crate::vfs::Path::root(mount.mnt(), crate::profile::Profile::Permissive);
+        let root = crate::vfs::Path::root(mount.mnt());
         *layer.overlay.lock().unwrap() = Some(root.clone());
         crate::vfs::vfs_fstatat(&Arc::default(), &root, "note", false)
             .expect("the outer call must answer");
@@ -1547,7 +1547,7 @@ mod tests {
             let mount =
                 crate::mount::Mount::new("/data", filesystem, super::super::Access::ReadWrite)
                     .expect("/data is a guest path");
-            crate::vfs::Path::root(mount.mnt(), crate::profile::Profile::Permissive)
+            crate::vfs::Path::root(mount.mnt())
         };
         (root(Filesystem::new(Arc::new(overlay))), root(upper))
     }

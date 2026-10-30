@@ -6,6 +6,7 @@ mod wrap;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::Access;
 #[cfg(unix)]
@@ -37,7 +38,7 @@ fn host<F: InodeOperations>(filesystem: &Arc<F>) -> Path {
         Access::ReadWrite,
     )
     .expect("/data is a guest path");
-    Path::root(mount.mnt(), Profile::Permissive)
+    Path::root(mount.mnt())
 }
 
 /// The names `filesystem`'s root holds, as the host lists them.
@@ -48,7 +49,7 @@ fn host_entries<F: InodeOperations>(filesystem: &Arc<F>) -> Result<Vec<String>, 
         Access::ReadWrite,
     )
     .expect("/data is a guest path");
-    let mut root = vfs::File::root(mount.mnt(), Arc::default(), Profile::Permissive)?;
+    let mut root = vfs::File::root(mount.mnt(), Arc::default())?;
     Ok(root
         .iterate_dir()?
         .into_iter()
@@ -85,6 +86,7 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "fd_prestat_dir_name" (func $prestat_name (param i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_open" (func $open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_filestat_get" (func $stat (param i32 i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_filestat_get" (func $fstat (param i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_read" (func $read (param i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_remove_directory" (func $rmdir (param i32 i32 i32) (result i32)))
@@ -178,6 +180,14 @@ const PROBE_WAT: &str = r#"
   ;; Stat the path with the given lookupflags into 384.
   (func (export "stat_flagged") (param $path i32) (param $len i32) (param $flags i32) (result i32)
     (call $stat (i32.const 3) (local.get $flags) (local.get $path) (local.get $len) (i32.const 384)))
+
+  ;; Open the path read-only and stat what is open into 384.
+  (func (export "stat_opened") (param $path i32) (param $len i32) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open (i32.const 3) (i32.const 0) (local.get $path) (local.get $len)
+      (i32.const 0) (i64.const 2097154) (i64.const 0) (i32.const 0) (i32.const 128)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $fstat (i32.load (i32.const 128)) (i32.const 384)))
 
   ;; Change the root `.` at 740.
   (func (export "remove_root") (result i32)
@@ -439,6 +449,15 @@ impl Guest {
 
     /// A guest holding at most `open_file_limit` descriptors at once.
     fn with_open_file_limit(open_file_limit: Option<usize>, grants: &[Grant]) -> Self {
+        Self::build(open_file_limit, Profile::Hermetic, grants)
+    }
+
+    /// A guest on `profile`.
+    fn on_posture(profile: Profile, grants: &[Grant]) -> Self {
+        Self::build(None, profile, grants)
+    }
+
+    fn build(open_file_limit: Option<usize>, profile: Profile, grants: &[Grant]) -> Self {
         let engine = shared_engine().expect("shared engine must be constructible");
         let config = Config {
             timeout: None,
@@ -447,7 +466,7 @@ impl Guest {
             stdout_limit: None,
             stderr_limit: None,
             open_file_limit,
-            profile: Profile::Hermetic,
+            profile,
         };
         let wasi = Wasi::for_invocation(&config, &[], grants).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
@@ -540,6 +559,36 @@ impl Guest {
             at += 24 + len;
         }
         names
+    }
+
+    /// What `path_filestat_get` answers for `path` with `flags`.
+    fn stat_flagged(&mut self, path: (i32, i32), flags: i32) -> i32 {
+        self.instance
+            .get_typed_func::<(i32, i32, i32), i32>(&mut self.store, "stat_flagged")
+            .expect("probe export must resolve")
+            .call(&mut self.store, (path.0, path.1, flags))
+            .expect("probe call must not trap")
+    }
+
+    /// The `u64` the last stat placed at `field` of its `filestat`.
+    fn stat_field(&mut self, field: usize) -> u64 {
+        let memory = self
+            .instance
+            .get_memory(&mut self.store, "memory")
+            .expect("probe exports its memory");
+        let at = 384 + field;
+        u64::from_le_bytes(memory.data(&self.store)[at..at + 8].try_into().unwrap())
+    }
+
+    /// The `atim`, `mtim`, and `ctim` the last stat placed at 384.
+    fn stat_times(&mut self) -> [u64; 3] {
+        [40, 48, 56].map(|field| self.stat_field(field))
+    }
+
+    /// The times `stat_flagged` answers for `path`.
+    fn times_of_path(&mut self, path: (i32, i32)) -> [u64; 3] {
+        assert_eq!(self.stat_flagged(path, 0), 0, "the stat must succeed");
+        self.stat_times()
     }
 
     /// The bytes the last read placed at 512.
@@ -892,7 +941,7 @@ fn a_directory_moved_beneath_another_mount_of_its_instance_is_reached_beneath_a_
             .expect("/data is a guest path");
         let mut guest = Guest::new(&[Grant::Mount(mount.clone().with_policy(policy))]);
         assert_eq!(guest.call_bare("open_dir"), 0, "dir must open");
-        let other = Path::root(mount.mnt(), Profile::Permissive);
+        let other = Path::root(mount.mnt());
         vfs::filename_renameat2(&Arc::default(), &other, "dir", &other, "moved")
             .expect("the directory must move");
         vfs::filename_mkdirat(&Arc::default(), &other, "dir")
@@ -1443,6 +1492,79 @@ fn a_stat_following_no_link_reports_the_link_itself() {
         [(0, FILETYPE_REGULAR_FILE), (0, FILETYPE_SYMBOLIC_LINK)],
         "path_filestat_get of a host link beneath a Bind Mount through preview1 must report \
          the file it points to when following links, and a symbolic link when following none"
+    );
+}
+
+// A host link reports the length of where it points, so only the Wasm
+// Driver keeps that length from the guest.
+// @behavior RT-173
+#[cfg(unix)]
+#[test]
+fn a_link_reports_no_size_however_its_filesystem_sizes_it() {
+    let (host, mut guest) = mount_link("link-size", |target| {
+        std::fs::write(target, "granted").expect("the host file must be written")
+    });
+    let answered = guest.stat_flagged(FILE, 0);
+    let size = guest.stat_field(32);
+    let _ = std::fs::remove_dir_all(&host);
+    assert_eq!(
+        (answered, size),
+        (0, 0),
+        "path_filestat_get following no link of a host link beneath a Bind Mount through \
+         preview1 must report a size of zero"
+    );
+}
+
+/// One Tmpfs read-write, as an invocation on each posture is handed it.
+fn tmpfs_grant(tmpfs: &Arc<Tmpfs>) -> [Grant; 1] {
+    [grant(tmpfs.clone(), Access::ReadWrite, None)]
+}
+
+// @behavior RT-156
+#[test]
+fn the_weaker_posture_sees_the_times_a_filesystem_keeps() {
+    let mut guest = Guest::on_posture(Profile::Permissive, &tmpfs_grant(&Arc::new(Tmpfs::new())));
+    let before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("the host clock stands past the epoch")
+        .as_nanos() as u64;
+    assert_eq!(guest.call("write_file", FILE), 0, "the write must succeed");
+    assert!(
+        guest.times_of_path(FILE)[1] >= before,
+        "path_filestat_get of a file written beneath a Mount through preview1 on the weaker \
+         posture must report a modification time no earlier than the write"
+    );
+}
+
+// A Tmpfs records the host's real time, so only the posture's view turns it
+// into the epoch.
+// @behavior RT-157
+#[test]
+fn the_strongest_posture_sees_every_time_at_the_unix_epoch() {
+    let mut guest = Guest::on_posture(Profile::Hermetic, &tmpfs_grant(&Arc::new(Tmpfs::new())));
+    assert_eq!(guest.call("write_file", FILE), 0, "the write must succeed");
+    let path = guest.times_of_path(FILE);
+    assert_eq!(guest.call("stat_opened", FILE), 0, "the stat must succeed");
+    assert_eq!(
+        (path, guest.stat_times()),
+        ([0; 3], [0; 3]),
+        "path_filestat_get and fd_filestat_get of a written file through preview1 on the \
+         strongest posture must report each time as the Unix epoch"
+    );
+}
+
+// @behavior RT-158
+#[test]
+fn a_time_another_posture_wrote_reaches_the_strongest_posture_as_the_epoch() {
+    let tmpfs = Arc::new(Tmpfs::new());
+    let mut writer = Guest::on_posture(Profile::Permissive, &tmpfs_grant(&tmpfs));
+    assert_eq!(writer.call("write_file", FILE), 0, "the write must succeed");
+    let mut reader = Guest::on_posture(Profile::Hermetic, &tmpfs_grant(&tmpfs));
+    assert_eq!(
+        reader.times_of_path(FILE),
+        [0; 3],
+        "path_filestat_get through preview1 on the strongest posture, of a file the weaker \
+         posture wrote into the same Tmpfs, must report each time as the Unix epoch"
     );
 }
 

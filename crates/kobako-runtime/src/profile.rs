@@ -6,6 +6,10 @@
 //! actually built, and the frontend refuses a declaration below the
 //! request — so the request is also the floor.
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::filesystem::Metadata;
+
 /// The ordered isolation ladder a runtime builds one rung of.
 ///
 /// `Hermetic` is the full ambient-denial posture: ambient time and
@@ -27,6 +31,27 @@
 pub enum Profile {
     Permissive,
     Hermetic,
+}
+
+impl Profile {
+    /// `metadata` as a guest on this posture sees it. A Filesystem records
+    /// the host's real time whatever the invocation writing to it runs
+    /// under, so one shared across invocations keeps one record; a hermetic
+    /// guest sees every time at the Unix epoch, where its wall clock stands,
+    /// so a time a write left behind is no clock it can read.
+    pub fn mask_times(self, metadata: Metadata) -> Metadata {
+        match self {
+            Self::Permissive => metadata,
+            Self::Hermetic => {
+                let epoch = |time: Option<SystemTime>| time.map(|_| UNIX_EPOCH);
+                metadata.with_times(
+                    epoch(metadata.accessed),
+                    epoch(metadata.modified),
+                    epoch(metadata.changed),
+                )
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -14,7 +14,6 @@ use kobako_runtime::filesystem::{
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
-use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{self, Dentry, Filesystem, OpenHow, Path};
 use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Outcome, Preamble};
@@ -59,7 +58,7 @@ fn note_tmpfs() -> Arc<Tmpfs> {
 fn host<F: InodeOperations>(filesystem: &Arc<F>) -> Path {
     let mount = Mount::new("/data", Filesystem::new(filesystem.clone()), Access::Read)
         .expect("/data is a guest path");
-    Path::root(mount.mnt(), Profile::Permissive)
+    Path::root(mount.mnt())
 }
 
 fn contents<F: InodeOperations>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {

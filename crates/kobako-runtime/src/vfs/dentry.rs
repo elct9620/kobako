@@ -314,7 +314,6 @@ mod tests {
         Metadata, OpenOptions, Tmpfs,
     };
     use crate::mount::Mount;
-    use crate::profile::Profile;
     use crate::vfs::kern_path::{kern_path, KernPath};
     use crate::vfs::{self, File, Filesystem, Identity, Inode, OpenHow, Path};
 
@@ -403,7 +402,7 @@ mod tests {
     fn root_of(filesystem: &Arc<Filesystem>) -> Path {
         let mount = Mount::new("/data", filesystem.clone(), Access::ReadWrite)
             .expect("/data is a guest path");
-        Path::root(mount.mnt(), Profile::Permissive)
+        Path::root(mount.mnt())
     }
 
     fn open_dir(start: &Path, path: &str) -> Path {

@@ -156,16 +156,27 @@ fn to_filetype(file_type: FileType) -> u8 {
     }
 }
 
-/// A `filestat` for what a Filesystem reports a path names: named once
-/// where it keeps no count of names, and at time zero where it keeps no
-/// time.
-pub(crate) fn write_metadata(mem: &mut GuestMemory, out: u32, metadata: Metadata) -> Answer {
+/// A `filestat` for what a Filesystem reports a path names, as the guest
+/// holding `table` sees it: named once where it keeps no count of names, at
+/// time zero where it keeps no time, and with no size for a link, so
+/// nothing of where it points reaches the guest.
+pub(crate) fn write_metadata(
+    table: &Descriptors,
+    mem: &mut GuestMemory,
+    out: u32,
+    metadata: Metadata,
+) -> Answer {
+    let metadata = table.profile().mask_times(metadata);
+    let len = match metadata.file_type {
+        FileType::Symlink => 0,
+        _ => metadata.len,
+    };
     write_filestat(
         mem,
         out,
         to_filetype(metadata.file_type),
         metadata.nlink.unwrap_or(1),
-        metadata.len,
+        len,
     )?;
     for (offset, time) in [
         (40, metadata.accessed),
@@ -298,8 +309,8 @@ pub(crate) fn filestat_get(
     out: u32,
 ) -> Answer {
     match descriptor(table, fd)? {
-        Descriptor::Directory(dir) => write_metadata(mem, out, dir.file.getattr()?),
-        Descriptor::File(file) => write_metadata(mem, out, file.getattr()?),
+        Descriptor::Directory(dir) => write_metadata(table, mem, out, dir.file.getattr()?),
+        Descriptor::File(file) => write_metadata(table, mem, out, file.getattr()?),
     }
 }
 
@@ -651,7 +662,7 @@ mod tests {
         .expect("/data is a guest path");
         let mut how = OpenHow::default();
         how.read = true;
-        let start = Path::root(mount.mnt(), Profile::Hermetic);
+        let start = Path::root(mount.mnt());
         Descriptor::File(
             vfs::do_file_open(&Arc::default(), &start, "file", &how, true)
                 .unwrap_or_else(|_| panic!("the file must open")),

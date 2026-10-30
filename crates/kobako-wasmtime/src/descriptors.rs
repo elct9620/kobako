@@ -34,14 +34,16 @@ pub(crate) struct Descriptors {
     limit: Option<usize>,
     /// Who the guest's calls are made for, as a task holds its `cred`.
     cred: Arc<Cred>,
+    /// The isolation the guest runs under, which decides what it sees of
+    /// the times a Filesystem reports.
+    profile: Profile,
 }
 
 impl Descriptors {
     /// The table every invocation starts from: stdin, then the two
     /// Channels, then one preopen per Mount from descriptor 3. It holds at
     /// most `limit` descriptors, those included, as a process's
-    /// `RLIMIT_NOFILE` counts every one it holds. Each Mount is seen as an
-    /// invocation running under `profile` sees it.
+    /// `RLIMIT_NOFILE` counts every one it holds.
     pub(crate) fn new(
         stdin: File,
         stdout: File,
@@ -60,7 +62,7 @@ impl Descriptors {
             used.insert(
                 fd,
                 Descriptor::Directory(OpenDirectory {
-                    file: File::root(mount.mnt(), cred.clone(), profile)?,
+                    file: File::root(mount.mnt(), cred.clone())?,
                     preopen: Some(mount.at().to_string()),
                 }),
             );
@@ -70,12 +72,18 @@ impl Descriptors {
             free: BTreeSet::new(),
             limit,
             cred,
+            profile,
         })
     }
 
     /// Who the guest's calls are made for.
     pub(crate) fn cred(&self) -> &Arc<Cred> {
         &self.cred
+    }
+
+    /// The isolation the guest runs under.
+    pub(crate) fn profile(&self) -> Profile {
+        self.profile
     }
 
     pub(crate) fn get(&self, fd: u32) -> Option<&Descriptor> {

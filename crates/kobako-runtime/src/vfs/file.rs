@@ -9,12 +9,10 @@ use super::mount::VfsMount;
 use super::namei::{d_getattr, down_read};
 use super::openat2::OpenHow;
 use super::path::Path;
-use super::times::mask_times;
 use super::Error;
 use crate::filesystem::{
     DirEntry, FileOperations, FilesystemError, Iattr, Kiocb, Metadata, OpenOptions,
 };
-use crate::profile::Profile;
 
 /// What an open file was opened for and what it can do, as Linux's `fmode_t`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,14 +119,9 @@ impl File {
         self.mode = FMode(access | FMode::STREAM.0);
     }
 
-    /// The root of `mnt` opened as a directory for `cred`, for an invocation
-    /// running under `profile`.
-    pub fn root(
-        mnt: &Arc<VfsMount>,
-        cred: Arc<Cred>,
-        profile: Profile,
-    ) -> Result<Self, FilesystemError> {
-        Self::directory(Path::root(mnt, profile), cred)
+    /// The root of `mnt` opened as a directory for `cred`.
+    pub fn root(mnt: &Arc<VfsMount>, cred: Arc<Cred>) -> Result<Self, FilesystemError> {
+        Self::directory(Path::root(mnt), cred)
     }
 
     /// Where it was opened; a call relative to it starts here.
@@ -228,10 +221,7 @@ impl File {
                 self.cred.security_path_walk(&self.path)?;
                 self.path.metadata()
             }
-            false => Ok(mask_times(
-                d_getattr(self.path.dentry())?,
-                self.path.profile(),
-            )),
+            false => Ok(d_getattr(self.path.dentry())?),
         }
     }
 

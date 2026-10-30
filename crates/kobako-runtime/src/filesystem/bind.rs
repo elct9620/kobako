@@ -630,7 +630,6 @@ mod tests {
     #[test]
     fn a_directory_remade_by_the_host_leaves_the_moved_ones_descriptor_alive() {
         use crate::mount::Mount;
-        use crate::profile::Profile;
         use crate::vfs::{self, OpenHow};
         let host = HostDir::new("remade");
         fs::create_dir_all(host.0.join("a")).expect("the host directory must be made");
@@ -639,7 +638,7 @@ mod tests {
         ));
         let mount = Mount::new("/data", filesystem, super::super::Access::ReadWrite)
             .expect("/data is a guest path");
-        let root = vfs::Path::root(mount.mnt(), Profile::Permissive);
+        let root = vfs::Path::root(mount.mnt());
         let how = OpenHow {
             directory: true,
             ..OpenHow::default()
@@ -682,7 +681,6 @@ mod tests {
     #[test]
     fn a_walk_through_a_held_directory_the_host_moved_reaches_nothing_the_policy_refuses() {
         use crate::mount::Mount;
-        use crate::profile::Profile;
         use crate::vfs::{self, OpenHow};
         let host = HostDir::new("held-ancestor");
         fs::create_dir_all(host.0.join("a/d")).expect("the host tree must be made");
@@ -694,7 +692,7 @@ mod tests {
         let mount = Mount::new("/data", filesystem, super::super::Access::Read)
             .expect("/data is a guest path")
             .with_policy(Arc::new(RefusesRefused));
-        let root = vfs::Path::root(mount.mnt(), Profile::Permissive);
+        let root = vfs::Path::root(mount.mnt());
         let cred = crate::security::prepare_creds([&mount]);
         let directory = OpenHow {
             directory: true,
@@ -723,7 +721,6 @@ mod tests {
     fn each_holding_five_bytes(host: &HostDir) -> [(&'static str, crate::vfs::Path); 3] {
         use crate::filesystem::{Access, Overlay, Tmpfs};
         use crate::mount::Mount;
-        use crate::profile::Profile;
         use crate::vfs::Filesystem;
         fs::write(host.0.join("f"), "hello").expect("the host file must be written");
         let tmpfs = || [("f", "hello")].into_iter().collect::<Tmpfs>();
@@ -735,7 +732,7 @@ mod tests {
         let root = |filesystem: Arc<dyn InodeOperations>| {
             let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
                 .expect("/data is a guest path");
-            crate::vfs::Path::root(mount.mnt(), Profile::Permissive)
+            crate::vfs::Path::root(mount.mnt())
         };
         [
             ("Tmpfs", root(Arc::new(tmpfs()))),
@@ -842,7 +839,6 @@ mod tests {
     fn an_overlay_takes_afresh_a_name_its_bind_layer_no_longer_holds() {
         use crate::filesystem::{Access, Overlay, Tmpfs};
         use crate::mount::Mount;
-        use crate::profile::Profile;
         use crate::vfs::{self, Filesystem, OpenHow};
         let host = HostDir::new("overlay-replaced");
         fs::create_dir(host.0.join("a")).expect("the host directory must be made");
@@ -853,7 +849,7 @@ mod tests {
         let overlay = Overlay::new(vec![lower], Some(upper)).expect("the Overlay must stack");
         let mount = Mount::new("/data", Filesystem::new(Arc::new(overlay)), Access::Read)
             .expect("/data is a guest path");
-        let root = vfs::Path::root(mount.mnt(), Profile::Permissive);
+        let root = vfs::Path::root(mount.mnt());
         let directory = OpenHow {
             directory: true,
             ..OpenHow::default()
