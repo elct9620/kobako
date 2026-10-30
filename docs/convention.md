@@ -152,13 +152,13 @@ Where a file goes follows How We Work in `AGENTS.md`, and so does a test's asser
 
 ## Fixed Names
 
-These names come from another side, and step 1 keeps each as that side spells it. The side is the layer a name stands at. The standard library's file functions wrap system calls, a layer above the VFS, so the VFS spells its names as Linux does.
+These names come from another side, and step 1 keeps each as that side spells it. The side is the layer a name stands at. The standard library's file functions wrap system calls, a layer above the VFS, so the VFS spells its names as Linux does. A type drops the prefix C needs for want of one, so `d_revalidate` is `DentryOperations::revalidate`. A function with no type to hang from keeps its whole name.
 
 | Side | As in |
 |---|---|
 | Rust API Guidelines | `new`, `try_`, `as_`, `into_`, `_mut`, a getter without `get_`, a trait such as `Blocking` |
 | Rust standard library | `OpenOptions`, `Metadata`, `DirEntry` |
-| Linux, for the VFS and a Filesystem's operations; a type drops the prefix C needs for want of one | `filename_mkdirat`, `vfs_mkdir`, `DentryOperations::revalidate` for `d_revalidate` |
+| Linux, for the VFS and a Filesystem's operations | `filename_mkdirat`, `vfs_mkdir`, `DentryOperations::revalidate` |
 | Ruby and its hooks | `method_missing`, `respond_to_missing?`, `LocalJumpError`, `ThreadError` |
 | magnus and beni | `funcall`, `define_method` |
 | WASI and POSIX | `fd_readdir`, `PATH_MAX`, `ELOOP` |
