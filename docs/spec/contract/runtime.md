@@ -19,6 +19,7 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/snapshot.rs`
 - `crates/kobako-runtime/src/vfs.rs`
 - `crates/kobako-runtime/src/vfs/dentry.rs`
+- `crates/kobako-runtime/src/vfs/file.rs`
 - `crates/kobako-runtime/src/vfs/filesystem.rs`
 - `crates/kobako-runtime/src/vfs/inode.rs`
 - `crates/kobako-runtime/src/vfs/namei.rs`
@@ -570,13 +571,163 @@ impl Path {
 }
 ```
 
-## `Path::entries`
+## `File`
 
-The entries of the directory, without `.` or `..`.
+One open file or directory, as Linux's `struct file`. It holds where it was
+opened, what answers for it, and what each descriptor of it shares.
 
 ```rust
-impl Path {
-    pub fn entries(&self) -> Result<Vec<DirEntry>, Error> {}
+pub struct File {}
+```
+
+## `File::root`
+
+The root of a Mount opened as a directory, for an invocation at one isolation
+posture.
+
+```rust
+impl File {
+    pub fn root(mount: Mount, profile: Profile) -> Result<Self, FilesystemError> {}
+}
+```
+
+## `File::path`
+
+Where it was opened. A call relative to it starts here.
+
+```rust
+impl File {
+    pub fn path(&self) -> &Path {}
+}
+```
+
+## `File::is_directory`
+
+Whether it is a directory.
+
+```rust
+impl File {
+    pub fn is_directory(&self) -> bool {}
+}
+```
+
+## `File::readable`
+
+Whether it was opened to read.
+
+```rust
+impl File {
+    pub fn readable(&self) -> bool {}
+}
+```
+
+## `File::writable`
+
+Whether it was opened to write.
+
+```rust
+impl File {
+    pub fn writable(&self) -> bool {}
+}
+```
+
+## `File::append`
+
+Whether each write lands at the end.
+
+```rust
+impl File {
+    pub fn append(&self) -> bool {}
+}
+```
+
+## `File::set_append`
+
+Set whether each write lands at the end.
+
+```rust
+impl File {
+    pub fn set_append(&mut self, append: bool) {}
+}
+```
+
+## `File::pos`
+
+Where the next read or write lands.
+
+```rust
+impl File {
+    pub fn pos(&self) -> u64 {}
+}
+```
+
+## `File::set_pos`
+
+Set where the next read or write lands.
+
+```rust
+impl File {
+    pub fn set_pos(&mut self, pos: u64) {}
+}
+```
+
+## `File::f_op`
+
+What answers for it.
+
+```rust
+impl File {
+    pub fn f_op(&mut self) -> &mut dyn FileOperations {}
+}
+```
+
+## `File::getattr`
+
+What it reports of itself.
+
+```rust
+impl File {
+    pub fn getattr(&self) -> Result<Metadata, Error> {}
+}
+```
+
+## `File::iterate_dir`
+
+The entries of the directory, without `.` or `..`, none once it was removed.
+
+```rust
+impl File {
+    pub fn iterate_dir(&mut self) -> Result<Vec<DirEntry>, Error> {}
+}
+```
+
+## `File::take_listing`
+
+The entries a listing began with, once one is under way.
+
+```rust
+impl File {
+    pub fn take_listing(&mut self) -> Option<Vec<DirEntry>> {}
+}
+```
+
+## `File::keep_listing`
+
+Hold the entries a listing began with for its next step.
+
+```rust
+impl File {
+    pub fn keep_listing(&mut self, listing: Vec<DirEntry>) {}
+}
+```
+
+## `File::release`
+
+Release it once the last descriptor closes.
+
+```rust
+impl File {
+    pub fn release(self) -> Result<(), FilesystemError> {}
 }
 ```
 
@@ -588,21 +739,13 @@ How to open a path, as `openat2` takes its flags.
 pub struct OpenHow {}
 ```
 
-## `FileDescription`
-
-What an open reached: a directory or a file.
-
-```rust
-pub enum FileDescription {}
-```
-
 ## `do_file_open`
 
 Open a path beneath a directory, as Linux's `do_file_open` serves `openat`.
 Where the caller has no descriptor left, it answers too many open files.
 
 ```rust
-pub fn do_file_open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<FileDescription, Error> {}
+pub fn do_file_open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<File, Error> {}
 ```
 
 ## `filename_mkdirat`
@@ -763,8 +906,8 @@ pub trait InodeOperations {
 
 ## `InodeOperations::open`
 
-Open this file, truncating it where the options say to. The runtime refuses a
-directory and a link before it asks.
+Open this entry, truncating a file where the options say to. A directory opens
+to be listed. The runtime refuses a link before it asks.
 
 ```rust
 pub trait InodeOperations {
@@ -780,16 +923,6 @@ it answers permission denied.
 ```rust
 pub trait InodeOperations {
     fn create(&self, _dentry: &Dentry, _options: &OpenOptions) -> Option<Result<Box<dyn FileOperations>, FilesystemError>>;
-}
-```
-
-## `InodeOperations::entries`
-
-The entries of this directory. An entry without it answers not a directory.
-
-```rust
-pub trait InodeOperations {
-    fn entries(&self, _dentry: &Dentry) -> Option<Result<Vec<DirEntry>, FilesystemError>>;
 }
 ```
 
@@ -852,7 +985,8 @@ pub enum Lookup {}
 ## `FileOperations`
 
 What one open file answers, as Linux's `file_operations`. The runtime keeps its
-position, so each read and write names its offset.
+position, so each read and write names its offset. An operation a file lacks
+answers as Linux's VFS answers for a NULL in the table.
 
 ```rust
 pub trait FileOperations {}
@@ -864,7 +998,7 @@ Read from an offset into the buffer, answering how much was read.
 
 ```rust
 pub trait FileOperations {
-    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError>;
+    fn read(&mut self, _buf: &mut [u8], _offset: u64) -> Result<usize, FilesystemError>;
 }
 ```
 
@@ -874,7 +1008,7 @@ Write the buffer at an offset, answering how much was written.
 
 ```rust
 pub trait FileOperations {
-    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError>;
+    fn write(&mut self, _buf: &[u8], _offset: u64) -> Result<usize, FilesystemError>;
 }
 ```
 
@@ -886,7 +1020,7 @@ take both steps as one answers `Unsupported`.
 
 ```rust
 pub trait FileOperations {
-    fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError>;
+    fn append(&mut self, _buf: &[u8]) -> Result<(u64, usize), FilesystemError>;
 }
 ```
 
@@ -906,7 +1040,18 @@ Truncate or extend the file, extending with zeros.
 
 ```rust
 pub trait FileOperations {
-    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError>;
+    fn truncate(&mut self, _len: u64) -> Result<(), FilesystemError>;
+}
+```
+
+## `FileOperations::iterate_shared`
+
+The entries of this directory, without `.` or `..`. A file without it answers
+not a directory.
+
+```rust
+pub trait FileOperations {
+    fn iterate_shared(&mut self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError>;
 }
 ```
 
