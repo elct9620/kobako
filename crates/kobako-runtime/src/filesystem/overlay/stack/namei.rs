@@ -5,7 +5,11 @@ use std::sync::Arc;
 
 use super::super::super::{FileType, FilesystemError, Metadata};
 use super::{entry, layer_dir, shows_below, sole_layer, Level, OverlayFs};
-use crate::vfs::Inode;
+use crate::vfs::Dentry;
+
+/// What the view shows at a name, and the Layer's dentry anything but a
+/// directory answers through.
+type Shown = (Metadata, Option<Arc<Dentry>>);
 
 impl OverlayFs {
     /// Each Layer's directory the directory `name` in `level` stands for,
@@ -135,15 +139,35 @@ impl OverlayFs {
         self.merge_identity(level, name, index, found)
     }
 
-    /// What the one Layer `level` shows records at `name`, as overlayfs
-    /// leaves a directory one layer shows unmerged, so it asks nothing more
-    /// of that Layer; `None` where `level` spans more than one.
-    pub(in super::super) fn sole_inode(
+    /// As `symlink_metadata`, beside the Layer's dentry anything but a
+    /// directory answers through.
+    pub(in super::super) fn shown_at(
         &self,
         level: &Level,
         name: &str,
-    ) -> Option<Result<Option<Arc<Inode>>, FilesystemError>> {
-        sole_layer(level).map(|(_, dir)| dir.inode_at(name))
+    ) -> Result<Option<Shown>, FilesystemError> {
+        let Some((index, found)) = self.lookup(level, name)? else {
+            return Ok(None);
+        };
+        let real = match found.file_type {
+            FileType::Directory => None,
+            _ => Some(layer_dir(&level[index])?.real(name)?),
+        };
+        Ok(Some((
+            self.merge_identity(level, name, index, found)?,
+            real,
+        )))
+    }
+
+    /// The dentry the one Layer `level` shows holds at `name`, as overlayfs
+    /// leaves a directory one layer shows unmerged, so it asks nothing more
+    /// of that Layer; `None` where `level` spans more than one.
+    pub(in super::super) fn sole_real(
+        &self,
+        level: &Level,
+        name: &str,
+    ) -> Option<Result<Arc<Dentry>, FilesystemError>> {
+        sole_layer(level).map(|(_, dir)| dir.real(name))
     }
 
     /// `name` spelled as the topmost Layer showing it stores it, the

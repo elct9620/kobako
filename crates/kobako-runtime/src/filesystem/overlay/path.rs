@@ -19,8 +19,8 @@ use super::super::{
 };
 use crate::vfs::{
     d_get_link, d_getattr, d_open, lookup_one, lookup_slow, start_renaming, vfs_create, vfs_link,
-    vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, vfs_whiteout, Dentry, Filesystem, Inode,
-    RenameFlag, RwSemaphoreGuard,
+    vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, vfs_whiteout, Dentry, Filesystem, RenameFlag,
+    RwSemaphoreGuard,
 };
 
 /// The attribute marking a directory opaque, and its value, as
@@ -226,12 +226,6 @@ impl OverlayPath {
     pub(super) fn lookup(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.shared()?;
         Ok(lookup_slow(&self.filesystem, self.dir.as_ref(), &self.dentry, name)?.0)
-    }
-
-    /// What this directory records at `name`, `None` where nothing stands.
-    pub(super) fn inode_at(&self, name: &str) -> Result<Option<Arc<Inode>>, FilesystemError> {
-        let _held = self.shared()?;
-        Ok(self.looked_up(name)?.inode())
     }
 
     pub(super) fn read_link(&self, name: &str) -> Result<String, FilesystemError> {

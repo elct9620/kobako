@@ -31,9 +31,9 @@ pub(super) struct OverlayInode {
     /// opens its copy only while one is.
     readers: AtomicUsize,
     copy: Mutex<Option<Copy>>,
-    /// The Layer's dentry this file was opened through, or was copied up
-    /// to, as `struct ovl_entry` holds the real dentries, so the entry
-    /// answers from it even once its name is gone from the view.
+    /// The Layer's dentry a lookup found this file at, or a copy up made,
+    /// as `struct ovl_entry` holds the real dentries, so the entry answers
+    /// from it even once its name is gone from the view.
     real: Mutex<Option<Arc<Dentry>>>,
 }
 
@@ -42,6 +42,16 @@ fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl OverlayInode {
+    fn new(level: Level, real: Option<Arc<Dentry>>) -> Self {
+        Self {
+            level: Mutex::new(level),
+            lock: RwSemaphore::default(),
+            readers: AtomicUsize::new(0),
+            copy: Mutex::new(None),
+            real: Mutex::new(real),
+        }
+    }
+
     pub(super) fn level(&self) -> Level {
         lock(&self.level).clone()
     }
@@ -53,13 +63,9 @@ impl OverlayInode {
         lock(&self.level)[into] = Some(dir.clone());
     }
 
-    /// The Layer's dentry this file answers through, once it was opened.
+    /// The Layer's dentry this file answers through.
     pub(super) fn real(&self) -> Option<Arc<Dentry>> {
         lock(&self.real).clone()
-    }
-
-    pub(super) fn set_real(&self, real: Arc<Dentry>) {
-        *lock(&self.real) = Some(real);
     }
 
     /// The copy a copy up made, once one did for a file read here.
@@ -78,7 +84,7 @@ impl OverlayInode {
     /// directory; a file opened to read here reads the copy from now on,
     /// as overlayfs's open file reaches the upper inode.
     pub(super) fn copied_up(&self, dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
-        self.set_real(dir.real(name)?);
+        *lock(&self.real) = Some(dir.real(name)?);
         if self.readers.load(Ordering::SeqCst) == 0 {
             return Ok(());
         }
@@ -123,14 +129,16 @@ pub(super) fn ovl_inode(
     if let Some(kept) = inode.private().get() {
         return Ok(downcast(kept.clone()));
     }
-    let made: Arc<dyn Any + Send + Sync> = Arc::new(OverlayInode {
-        level: Mutex::new(init()?),
-        lock: RwSemaphore::default(),
-        readers: AtomicUsize::new(0),
-        copy: Mutex::new(None),
-        real: Mutex::new(None),
-    });
+    let made: Arc<dyn Any + Send + Sync> = Arc::new(OverlayInode::new(init()?, None));
     Ok(downcast(inode.private().get_or_init(|| made).clone()))
+}
+
+/// Keep on `inode` the Layer's dentry its lookup found, as `ovl_lookup` keeps
+/// each real dentry.
+pub(super) fn ovl_inode_real(inode: &Inode, real: Arc<Dentry>) {
+    inode
+        .private()
+        .get_or_init(|| Arc::new(OverlayInode::new(Vec::new(), Some(real))));
 }
 
 /// The state `inode` keeps, where it keeps any.

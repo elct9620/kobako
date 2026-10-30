@@ -6,7 +6,6 @@
 
 use super::super::super::{FileOperations, FileType, FilesystemError, OpenOptions};
 use super::super::file::reader;
-use super::super::inode::ovl_inode;
 use super::super::path::OverlayPath;
 use super::{
     cleanup, cleanup_whiteouts, entry, holds, layer_dir, opaque_inside, Level, OverlayFs, ViewDir,
@@ -182,22 +181,6 @@ impl OverlayFs {
             None if upper_holds => cleanup(layer_dir(&level[0])?, name),
             None => Err(FilesystemError::NotFound),
         }
-    }
-
-    /// Record on `child`'s inode the Layer's dentry standing at its name, as
-    /// `ovl_lookup` keeps each real dentry.
-    pub(in super::super) fn record_real(
-        &self,
-        dir: &ViewDir,
-        child: &Dentry,
-    ) -> Result<(), FilesystemError> {
-        let name = child.name();
-        let level = dir.level();
-        if let Some((index, _)) = self.lookup(&level, &name)? {
-            let real = layer_dir(&level[index])?.real(&name)?;
-            ovl_inode(child, || Ok(Vec::new()))?.set_real(real);
-        }
-        Ok(())
     }
 
     /// Open the file `child` names in `dir`. A lower Layer's file opened to

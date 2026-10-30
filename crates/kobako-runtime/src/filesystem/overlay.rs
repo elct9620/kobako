@@ -22,7 +22,7 @@ use super::{
     Lookup, Metadata, OpenOptions, Tmpfs,
 };
 use crate::vfs::{d_getattr, d_lookup_inode, Blocking, Dentry, Filesystem, Inode};
-use inode::ovl_inode_kept;
+use inode::{ovl_inode_kept, ovl_inode_real};
 use stack::OverlayFs;
 
 /// Read-only lower Layers under an upper Tmpfs, stacked into one
@@ -94,9 +94,8 @@ impl Overlay {
 }
 
 impl Overlay {
-    /// The Layer's dentry the entry `dentry` answers through once a file was
-    /// opened there, and the inode the view recorded, as `ovl_getattr` asks
-    /// the real path.
+    /// The Layer's dentry the entry `dentry` answers through, and the inode
+    /// the view recorded, as `ovl_getattr` asks the real path.
     fn real_of(&self, dentry: &Dentry) -> Option<(Arc<Dentry>, Arc<Inode>)> {
         let inode = dentry.inode()?;
         let real = ovl_inode_kept(&inode)?.real()?;
@@ -110,17 +109,25 @@ impl Overlay {
         if stored != name {
             return Ok(Lookup::Spelled(stored));
         }
-        if let Some(recorded) = self.fs.sole_inode(&level, &name) {
-            return Ok(match recorded? {
-                Some(inode) => Lookup::Found(inode.with_ops(Arc::new(self.clone()))),
-                None => Lookup::Absent,
-            });
+        if let Some(real) = self.fs.sole_real(&level, &name) {
+            let real = real?;
+            let Some(found) = real.inode() else {
+                return Ok(Lookup::Absent);
+            };
+            let inode = found.with_ops(Arc::new(self.clone()));
+            if inode.kind() != FileType::Directory {
+                ovl_inode_real(&inode, real);
+            }
+            return Ok(Lookup::Found(inode));
         }
-        match self.fs.symlink_metadata(&level, &name) {
-            Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone())))),
-            Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
-            Err(err) => Err(err),
+        let Some((found, real)) = self.fs.shown_at(&level, &name)? else {
+            return Ok(Lookup::Absent);
+        };
+        let inode = Inode::new(&found, Arc::new(self.clone()));
+        if let Some(real) = real {
+            ovl_inode_real(&inode, real);
         }
+        Ok(Lookup::Found(inode))
     }
 
     fn rename_to(
@@ -149,25 +156,15 @@ impl Overlay {
         Some(self.open_file(dentry, options))
     }
 
-    /// Open the file `dentry` names and keep the Layer's dentry it answers
-    /// through. One standing already is asked before the open, as the Layer
-    /// may hand the next lookup a dentry of its own once the file is open;
-    /// one this made is recorded after, as `->create` calls `d_instantiate`.
+    /// Open the file `dentry` names. What this made is recorded after, as
+    /// `->create` calls `d_instantiate`.
     fn open_file(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let dir = self.fs.parent(dentry)?;
-        let stood = dentry.inode().is_some();
-        if stood {
-            self.fs.record_real(&dir, dentry)?;
-        }
-        let file = self.fs.open(&dir, dentry, options)?;
-        if !stood {
-            d_lookup_inode(self, dentry)?;
-            self.fs.record_real(&dir, dentry)?;
-        }
+        let file = self.fs.open(&self.fs.parent(dentry)?, dentry, options)?;
+        d_lookup_inode(self, dentry)?;
         Ok(file)
     }
 }
@@ -207,15 +204,12 @@ impl InodeOperations for Overlay {
         if is_dir {
             return self.fs.dir_metadata(&self.fs.dir(dentry)?.level());
         }
-        if let Some((real, inode)) = self.real_of(dentry) {
-            let found = d_getattr(&real)?;
-            return Ok(match inode.identity() {
-                Some(identity) => identity.onto(found),
-                None => found,
-            });
-        }
-        self.fs
-            .symlink_metadata(&self.fs.parent(dentry)?.level(), &dentry.name())
+        let (real, inode) = self.real_of(dentry).ok_or(FilesystemError::NotFound)?;
+        let found = d_getattr(&real)?;
+        Ok(match inode.identity() {
+            Some(identity) => identity.onto(found),
+            None => found,
+        })
     }
 
     fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
