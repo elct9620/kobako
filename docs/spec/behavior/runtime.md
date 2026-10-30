@@ -1461,7 +1461,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a read-write Mount whose Policy allows every change |
-| When | the guest waits to write a file open to read, and sizes one open to write |
+| When | it waits to write a file open to read, and sizes one open to write |
 | Then | the wait is ready and the file is sized, the Policy unasked by either |
 
 ## `RT-140` A link leading out of an opened directory is not permitted
