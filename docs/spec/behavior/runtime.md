@@ -1032,7 +1032,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest opens each with `O_CREAT` and no write |
 | Then | the file opens, and the directory answers EISDIR |
 
-## `RT-104` A seek past the largest offset overflows
+## `RT-104` A seek past the largest offset is invalid
 
 | Attribute | Value |
 | --- | --- |
@@ -1042,7 +1042,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | an invocation handed a Mount holding a file |
 | When | the guest seeks the open file past the largest signed 64-bit offset |
-| Then | the seek answers EOVERFLOW |
+| Then | the seek answers EINVAL, as Linux does |
 
 ## `RT-105` A file moved beneath itself is no directory
 
@@ -1325,7 +1325,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest opens the directory and reads its descriptor's rights |
 | Then | the rights hold no `fd_write`, as wasmtime-wasi answers |
 
-## `RT-129` A descriptor that would not block is unsupported
+## `RT-129` A descriptor may ask not to block
 
 | Attribute | Value |
 | --- | --- |
@@ -1335,9 +1335,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | an invocation handed a Mount holding `file.txt` |
 | When | the guest opens `file.txt` not to block, or sets an open one not to |
-| Then | each call answers ENOTSUP |
+| Then | each call succeeds and the descriptor reports it, as Linux takes it on a file |
 
-## `RT-130` An advice past the largest signed offset is invalid
+## `RT-130` An advice for a length past the largest signed offset is invalid
 
 | Attribute | Value |
 | --- | --- |
@@ -1346,8 +1346,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an invocation holding a file open beneath a Mount |
-| When | the guest advises on an offset or a length past the largest signed 64-bit one |
-| Then | each advice answers EINVAL |
+| When | the guest advises on a length past the largest signed 64-bit offset, or from past it |
+| Then | the first advice answers EINVAL, and the second succeeds, as Linux does |
 
 ## `RT-131` A lone wait on a CPU-time clock is invalid
 
@@ -1399,7 +1399,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest unlinks each, and a missing name, named with a trailing slash |
 | Then | the directory answers EISDIR, the missing name ENOENT, the rest ENOTDIR, and all stay |
 
-## `RT-135` A wait to write a file answers by what its Mount permits
+## `RT-135` A wait to write a file is ready whatever its Mount permits
 
 | Attribute | Value |
 | --- | --- |
@@ -1409,7 +1409,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | an invocation holding files open only to read beneath a read-write and a read-only Mount |
 | When | the guest waits to write to each |
-| Then | the first is ready and the second answers EPERM, as wasmtime-wasi answers by its preopen |
+| Then | each is ready, as Linux answers for a file with no poll of its own |
 
 ## `RT-136` A read whose end passes the largest signed offset is invalid
 
@@ -1456,7 +1456,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a read-only Mount whose Policy allows every change |
+| Given | a read-write Mount whose Policy allows every change |
 | When | the guest waits to write a file opened to read, and sizes one opened to write |
 | Then | the wait is ready and the file is sized, the Policy unasked by either |
 
@@ -1959,3 +1959,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file opened beneath a Mount through the runtime, with no Driver in front of it |
 | When | a caller reads or writes it against its mode, or past the largest signed 64-bit offset |
 | Then | the first answers EBADF and the second EINVAL, and the Filesystem is not asked |
+
+## `RT-181` An allocation refuses in Linux's order
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-180` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file opened to read, a file opened to write, and a pipe's write end |
+| When | a caller allocates no bytes on the first, then some on each |
+| Then | the calls answer EINVAL, EBADF, ENOTSUP, and ESPIPE |

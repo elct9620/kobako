@@ -2,6 +2,7 @@
 //! for it, and what each descriptor of it shares, so any ABI a Driver encodes
 //! holds the same open file.
 
+use std::ops::BitOr;
 use std::sync::Arc;
 
 use super::cred::Cred;
@@ -52,6 +53,38 @@ impl FMode {
     }
 }
 
+/// What a file would find ready, as Linux's `__poll_t`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PollMask(u8);
+
+impl PollMask {
+    /// A read would not wait, as `EPOLLIN`.
+    pub const IN: Self = Self(1);
+    /// A write would not wait, as `EPOLLOUT`.
+    pub const OUT: Self = Self(1 << 1);
+
+    /// Whether this holds all of `mask`.
+    pub fn contains(self, mask: Self) -> bool {
+        self.0 & mask.0 == mask.0
+    }
+}
+
+impl BitOr for PollMask {
+    type Output = Self;
+
+    fn bitor(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+/// Where a seek counts from, as Linux's `SEEK_*`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Whence {
+    Set,
+    Cur,
+    End,
+}
+
 /// One open file or directory, as a descriptor refers to it.
 pub struct File {
     /// Where it was opened, as `f_path`; it follows the name wherever it
@@ -66,6 +99,9 @@ pub struct File {
     mode: FMode,
     /// Whether each write lands at the end, as `O_APPEND` in `f_flags`.
     append: bool,
+    /// Whether it asked not to wait, as `O_NONBLOCK` in `f_flags`. Nothing
+    /// here waits, so it only reports back.
+    nonblock: bool,
     /// Where the next read or write lands, as `f_pos`.
     pos: u64,
     /// The entries a listing began with, held until it reaches its end, so
@@ -88,6 +124,7 @@ impl File {
             directory: false,
             mode: FMode::of(how),
             append: how.append,
+            nonblock: how.nonblock,
             pos: 0,
             listing: None,
         }
@@ -137,7 +174,8 @@ impl File {
     }
 
     /// What it was opened for.
-    pub fn mode(&self) -> FMode {
+    #[cfg(test)]
+    pub(crate) fn mode(&self) -> FMode {
         self.mode
     }
 
@@ -156,17 +194,69 @@ impl File {
         self.append
     }
 
-    pub fn set_append(&mut self, append: bool) {
+    /// Whether it asked not to wait.
+    pub fn nonblock(&self) -> bool {
+        self.nonblock
+    }
+
+    /// Change the flags an open file may change, as `fcntl`'s `setfl` takes
+    /// only `SETFL_MASK`.
+    pub fn setfl(&mut self, append: bool, nonblock: bool) {
         self.append = append;
+        self.nonblock = nonblock;
     }
 
-    /// Where the next read or write lands.
-    pub fn pos(&self) -> u64 {
-        self.pos
-    }
-
-    pub fn set_pos(&mut self, pos: u64) {
+    /// Move its position, answering where it now stands, as `vfs_llseek` and
+    /// `generic_file_llseek_size` do.
+    pub fn llseek(&mut self, offset: i64, whence: Whence) -> Result<u64, Error> {
+        if !self.mode.contains(FMode::LSEEK) {
+            return Err(FilesystemError::NotSeekable.into());
+        }
+        let base = match whence {
+            Whence::Set => 0,
+            Whence::Cur => self.pos,
+            Whence::End => self.getattr()?.len,
+        };
+        let pos = base
+            .checked_add_signed(offset)
+            .filter(|pos| *pos <= MAX_OFFSET)
+            .ok_or(FilesystemError::InvalidInput)?;
         self.pos = pos;
+        Ok(pos)
+    }
+
+    /// Take a hint about `len` bytes, as `generic_fadvise` refuses a pipe and
+    /// a negative length and ignores the rest. Every Filesystem is still
+    /// correct without one.
+    pub fn fadvise(&self, _offset: u64, len: u64) -> Result<(), FilesystemError> {
+        if self.is_stream() {
+            return Err(FilesystemError::NotSeekable);
+        }
+        match len > MAX_OFFSET {
+            true => Err(FilesystemError::InvalidInput),
+            false => Ok(()),
+        }
+    }
+
+    /// Reserve `len` bytes from `offset`, as `vfs_fallocate` refuses in this
+    /// order before it asks `f_op->fallocate`.
+    pub fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), FilesystemError> {
+        if offset > MAX_OFFSET || len == 0 || len > MAX_OFFSET {
+            return Err(FilesystemError::InvalidInput);
+        }
+        self.may_write()?;
+        if self.is_stream() {
+            return Err(FilesystemError::NotSeekable);
+        }
+        if offset + len > MAX_OFFSET {
+            return Err(FilesystemError::FileTooLarge);
+        }
+        self.ops.fallocate(offset, len)
+    }
+
+    /// What a call would find ready, as `vfs_poll` asks `f_op->poll`.
+    pub fn poll(&self) -> PollMask {
+        self.ops.poll(self.mode)
     }
 
     /// Whether it reads and writes what comes next, with no position.
@@ -337,7 +427,7 @@ impl File {
 
 #[cfg(test)]
 mod tests {
-    use super::super::do_file_open;
+    use super::super::{create_pipe_files, do_file_open, PipeInodeInfo};
     use super::*;
     use crate::filesystem::Tmpfs;
     use crate::mount::{Access, Mount};
@@ -387,12 +477,35 @@ mod tests {
         );
     }
 
+    // @behavior RT-181
+    #[test]
+    fn an_allocation_refuses_in_linuxs_order() {
+        let (_, mut pipe) = create_pipe_files(&PipeInodeInfo::new(1));
+        assert_eq!(
+            (
+                open(true, false).fallocate(0, 0),
+                open(true, false).fallocate(0, 1),
+                open(false, true).fallocate(0, 1),
+                pipe.fallocate(0, 1),
+            ),
+            (
+                Err(FilesystemError::InvalidInput),
+                Err(FilesystemError::BadDescriptor),
+                Err(FilesystemError::Unsupported),
+                Err(FilesystemError::NotSeekable),
+            ),
+            "File::fallocate must answer an empty range EINVAL, a file not open to write EBADF, \
+             a file without fallocate ENOTSUP, and a pipe ESPIPE, as vfs_fallocate does"
+        );
+    }
+
     // @behavior RT-180
     #[test]
     fn an_open_file_refuses_a_call_ending_past_the_largest_offset() {
         let mut buf = [0; 2];
         let mut file = open(true, true);
-        file.set_pos(MAX_OFFSET - 1);
+        file.llseek(MAX_OFFSET as i64 - 1, Whence::Set)
+            .unwrap_or_else(|_| panic!("the largest offset must be one a file can stand at"));
         assert_eq!(
             (
                 file.read(&mut buf),

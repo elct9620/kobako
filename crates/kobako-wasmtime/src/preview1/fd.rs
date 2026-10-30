@@ -8,7 +8,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{FileType, Metadata};
-use kobako_runtime::vfs::File;
+use kobako_runtime::vfs::{File, Whence};
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
@@ -71,24 +71,6 @@ fn file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
     }
 }
 
-/// A call about a position in a file: a file has one, a pipe has none, and
-/// a directory is no stream at all.
-fn seekable(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
-    match file(table, fd)? {
-        file if file.is_stream() => Err(Errno::Spipe.into()),
-        file => Ok(file),
-    }
-}
-
-/// An offset or size `pread`, `pwrite`, or `ftruncate` names, which Linux
-/// reads as a signed `off_t` and refuses once negative.
-fn refuse_negative(offset: u64) -> Answer<u64> {
-    if offset > i64::MAX as u64 {
-        return Err(Errno::Inval.into());
-    }
-    Ok(offset)
-}
-
 /// A call any file or directory answers, which preview1 refuses for
 /// stdio.
 fn file_or_directory(table: &Descriptors, fd: u32) -> Answer {
@@ -148,19 +130,12 @@ pub(crate) fn check_fstflags(flags: Fstflags) -> Answer {
     Ok(())
 }
 
-/// The hints preview1 offers about a file. A Filesystem that ignores them
-/// is still correct, so they succeed over a range Linux takes.
 pub(crate) fn advise(table: &mut Descriptors, fd: u32, offset: u64, len: u64) -> Answer {
-    seekable(table, fd)?;
-    refuse_negative(offset)?;
-    refuse_negative(len).map(drop)
+    Ok(file(table, fd)?.fadvise(offset, len)?)
 }
 
-/// A Filesystem has no room to reserve ahead of a write, so allocating it
-/// is unsupported rather than answered as done.
-pub(crate) fn allocate(table: &mut Descriptors, fd: u32) -> Answer {
-    seekable(table, fd)?;
-    Err(Errno::Notsup.into())
+pub(crate) fn allocate(table: &mut Descriptors, fd: u32, offset: u64, len: u64) -> Answer {
+    Ok(file(table, fd)?.fallocate(offset, len)?)
 }
 
 pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
@@ -206,10 +181,9 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
             if !file.writable() {
                 rights -= Rights::FD_WRITE;
             }
-            let flags = match file.append() {
-                true => Fdflags::APPEND,
-                false => Fdflags::empty(),
-            };
+            let mut flags = Fdflags::empty();
+            flags.set(Fdflags::APPEND, file.append());
+            flags.set(Fdflags::NONBLOCK, file.nonblock());
             (Filetype::RegularFile, flags, rights, rights)
         }
     };
@@ -221,18 +195,11 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
     })
 }
 
-/// Only appending can change once a file is open; the sync flags are
-/// `INVAL`, as in wasmtime-wasi, and a file never stops blocking, so
-/// asking it to is unsupported.
 pub(crate) fn fdstat_set_flags(table: &mut Descriptors, fd: u32, flags: Fdflags) -> Answer {
-    let file = file(table, fd)?;
-    if flags.intersects(Fdflags::DSYNC | Fdflags::RSYNC | Fdflags::SYNC) {
-        return Err(Errno::Inval.into());
-    }
-    if flags.contains(Fdflags::NONBLOCK) {
-        return Err(Errno::Notsup.into());
-    }
-    file.set_append(flags.contains(Fdflags::APPEND));
+    file(table, fd)?.setfl(
+        flags.contains(Fdflags::APPEND),
+        flags.contains(Fdflags::NONBLOCK),
+    );
     Ok(())
 }
 
@@ -422,24 +389,16 @@ pub(crate) fn seek(
     offset: i64,
     whence: types::Whence,
 ) -> Answer<u64> {
-    let file = seekable(table, fd)?;
-    let base = match whence {
-        types::Whence::Set => 0,
-        types::Whence::Cur => file.pos(),
-        types::Whence::End => file.getattr()?.len,
+    let whence = match whence {
+        types::Whence::Set => Whence::Set,
+        types::Whence::Cur => Whence::Cur,
+        types::Whence::End => Whence::End,
     };
-    // Linux holds an offset in a signed 64-bit `off_t`, past which a seek
-    // is `OVERFLOW` rather than a position a write could wrap around.
-    let position = base.checked_add_signed(offset).ok_or(Errno::Inval)?;
-    if position > i64::MAX as u64 {
-        return Err(Errno::Overflow.into());
-    }
-    file.set_pos(position);
-    Ok(position)
+    Ok(file(table, fd)?.llseek(offset, whence)?)
 }
 
 pub(crate) fn tell(table: &mut Descriptors, fd: u32) -> Answer<u64> {
-    Ok(seekable(table, fd)?.pos())
+    Ok(file(table, fd)?.llseek(0, Whence::Cur)?)
 }
 
 pub(crate) fn write(
@@ -460,7 +419,10 @@ mod tests {
     //! does, so its Filesystem learns of the close and may refuse it.
     use std::sync::Arc;
 
-    use super::{filestat_set_size, renumber, seekable, sync, Answer, Errno};
+    use super::{
+        fdstat_get, fdstat_set_flags, filestat_set_size, renumber, sync, tell, Answer, Errno,
+        Fdflags,
+    };
     use crate::descriptors::{Descriptor, Descriptors};
     use kobako_runtime::filesystem::{
         FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
@@ -497,8 +459,8 @@ mod tests {
             [
                 errno(sync(&mut table, 1)),
                 errno(filestat_set_size(&mut table, 1, 0)),
-                errno(seekable(&mut table, 0).map(drop)),
-                errno(seekable(&mut table, 1).map(drop)),
+                errno(tell(&mut table, 0)),
+                errno(tell(&mut table, 1)),
             ],
             [
                 Some(Errno::Inval),
@@ -567,6 +529,28 @@ mod tests {
             errno(sync(&mut table, fd)),
             Some(Errno::Inval),
             "fd_sync on a file whose Filesystem has no fsync must answer EINVAL"
+        );
+    }
+
+    // @behavior RT-129
+    #[test]
+    fn a_file_set_not_to_block_reports_it() {
+        let mut table = standard_streams();
+        let fd = table.push(open_file()).expect("a descriptor to set");
+        let flags = |table: &Descriptors| {
+            fdstat_get(table, fd)
+                .unwrap_or_else(|_| panic!("the file must report its flags"))
+                .fs_flags
+        };
+        assert!(
+            fdstat_set_flags(&mut table, fd, Fdflags::NONBLOCK | Fdflags::SYNC).is_ok(),
+            "fd_fdstat_set_flags asking not to block and to sync must succeed, as Linux's setfl"
+        );
+        assert_eq!(
+            flags(&table),
+            Fdflags::NONBLOCK,
+            "fd_fdstat_get after fd_fdstat_set_flags must report not blocking and, as Linux's \
+             setfl ignores it, no sync"
         );
     }
 

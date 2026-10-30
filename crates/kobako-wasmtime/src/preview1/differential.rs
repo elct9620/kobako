@@ -391,8 +391,10 @@ fn answered_as_a_linux_pipe(call: &str, fd: i32) -> Option<i32> {
     const ERRNO_NOTDIR: i32 = 54;
     const ERRNO_SPIPE: i32 = 70;
     match (call, fd) {
-        ("fd_advise" | "fd_allocate", 0..=2) => Some(ERRNO_SPIPE),
-        ("fd_sync" | "fd_datasync" | "fd_filestat_set_size", 0..=2) => Some(ERRNO_INVAL),
+        ("fd_advise", 0..=2) => Some(ERRNO_SPIPE),
+        ("fd_allocate" | "fd_sync" | "fd_datasync" | "fd_filestat_set_size", 0..=2) => {
+            Some(ERRNO_INVAL)
+        }
         ("fd_fdstat_set_flags" | "fd_filestat_get", 0..=2) => Some(ERRNO_SUCCESS),
         ("path_open", 0..=2) => Some(ERRNO_NOTDIR),
         ("fd_pread" | "fd_pread_far", 1 | 2) => Some(ERRNO_SPIPE),

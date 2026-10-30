@@ -25,7 +25,7 @@ pub use overlay::Overlay;
 pub use tmpfs::{SeedError, Tmpfs};
 
 use crate::locking::Deadlock;
-use crate::vfs::{Dentry, Inode};
+use crate::vfs::{Dentry, FMode, Inode, PollMask};
 
 /// What one name in a directory turned out to be, as `->lookup` answers.
 pub enum Lookup {
@@ -231,6 +231,19 @@ pub trait FileOperations: Send {
     /// without it answers `NotADirectory`, as Linux's `iterate_dir` does.
     fn iterate_shared(&mut self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
         Err(FilesystemError::NotADirectory)
+    }
+
+    /// Reserve `len` bytes from `offset`, as `f_op->fallocate` does. A file
+    /// without it refuses as Linux's `vfs_fallocate` refuses one without it.
+    fn fallocate(&mut self, _offset: u64, _len: u64) -> Result<(), FilesystemError> {
+        Err(FilesystemError::Unsupported)
+    }
+
+    /// What a call would find ready on this end, opened for `mode`, as
+    /// `f_op->poll` answers. A file without it is always ready, as Linux's
+    /// `vfs_poll` answers `DEFAULT_POLLMASK`.
+    fn poll(&self, _mode: FMode) -> PollMask {
+        PollMask::IN | PollMask::OUT
     }
 
     /// Make what was written durable. A file with nothing to flush answers

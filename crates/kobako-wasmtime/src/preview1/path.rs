@@ -89,15 +89,12 @@ pub(crate) fn open(
         Descriptor::Directory(dir) => dir.file.path(),
         Descriptor::File(_) => return Err(Errno::Notdir.into()),
     };
-    // A Filesystem makes no write durable on its own schedule, and every
-    // call waits for its answer, so an open asking otherwise is
-    // unsupported rather than quietly granted.
-    if flags.fdflags.intersects(
-        types::Fdflags::DSYNC
-            | types::Fdflags::RSYNC
-            | types::Fdflags::SYNC
-            | types::Fdflags::NONBLOCK,
-    ) {
+    // A Filesystem makes no write durable on its own schedule, so an open
+    // asking otherwise is unsupported rather than quietly granted.
+    if flags
+        .fdflags
+        .intersects(types::Fdflags::DSYNC | types::Fdflags::RSYNC | types::Fdflags::SYNC)
+    {
         return Err(Errno::Notsup.into());
     }
     let oflags = flags.oflags;
@@ -115,6 +112,7 @@ pub(crate) fn open(
     how.directory = oflags.contains(types::Oflags::DIRECTORY);
     how.follow = flags.dirflags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     how.append = flags.fdflags.contains(types::Fdflags::APPEND);
+    how.nonblock = flags.fdflags.contains(types::Fdflags::NONBLOCK);
     let file = vfs::do_file_open(table.cred(), dir, &path, &how, !table.is_full())?;
     let descriptor = match file.is_directory() {
         true => Descriptor::Directory(OpenDirectory {

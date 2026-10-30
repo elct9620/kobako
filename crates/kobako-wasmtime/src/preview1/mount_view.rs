@@ -410,7 +410,6 @@ const DIR_FILE: (i32, i32) = (1030, 12);
 const DIR_AS_DIRECTORY: (i32, i32) = (1050, 4);
 #[cfg(unix)]
 const GONE_AS_DIRECTORY: (i32, i32) = (1060, 5);
-const ERRNO_OVERFLOW: i32 = 61;
 const ERRNO_EXIST: i32 = 20;
 const OFLAGS_EXCL: i32 = 1 << 2;
 
@@ -2027,13 +2026,13 @@ fn a_create_through_a_trailing_slash_answers_eisdir_before_following_a_link() {
 // the cap keeps the position from reaching it.
 // @behavior RT-104
 #[test]
-fn a_seek_past_the_largest_offset_overflows() {
+fn a_seek_past_the_largest_offset_is_invalid() {
     let answer = Guest::new(&[grant(file_and_directory(), Access::Read, None)])
         .call_bare("seek_past_the_largest_offset");
     assert_eq!(
-        answer, ERRNO_OVERFLOW,
+        answer, ERRNO_INVAL,
         "fd_seek past the largest signed 64-bit offset of a file beneath a Mount through \
-         preview1 must answer EOVERFLOW, as Linux does"
+         preview1 must answer EINVAL, as Linux does"
     );
 }
 
@@ -2078,17 +2077,17 @@ fn a_read_whose_end_passes_the_largest_signed_offset_is_invalid() {
 // two answers apart.
 // @behavior RT-135
 #[test]
-fn a_wait_to_write_a_file_answers_by_what_its_mount_permits() {
+fn a_wait_to_write_a_file_is_ready_whatever_its_mount_permits() {
     let wait = |access| {
         Guest::new(&[grant(file_and_directory(), access, None)])
             .call_at("poll_write_with", RIGHTS_FD_READ)
     };
     assert_eq!(
         (wait(Access::ReadWrite), wait(Access::Read)),
-        (0, ERRNO_PERM),
+        (0, 0),
         "poll_oneoff waiting to write a file opened only to read through preview1 must be ready \
-         beneath a read-write Mount and answer EPERM beneath a read-only one, as wasmtime-wasi \
-         answers by its preopen"
+         beneath a read-write and a read-only Mount alike, as Linux's vfs_poll answers a file \
+         with no poll of its own"
     );
 }
 
@@ -2324,7 +2323,7 @@ fn a_write_ending_past_the_largest_signed_offset_is_invalid() {
 
 // @behavior RT-130
 #[test]
-fn an_advice_past_the_largest_signed_offset_is_invalid() {
+fn an_advice_for_a_length_past_the_largest_signed_offset_is_invalid() {
     let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
     assert_eq!(
         (
@@ -2332,17 +2331,18 @@ fn an_advice_past_the_largest_signed_offset_is_invalid() {
             guest.call_at("advise_for", 1 << 63),
             guest.call_at("advise_for", 0)
         ),
-        (ERRNO_INVAL, ERRNO_INVAL, 0),
-        "fd_advise from or for past the largest signed 64-bit offset of a Tmpfs file beneath a \
-         Mount through preview1 must answer EINVAL, as an advice within it succeeds"
+        (0, ERRNO_INVAL, 0),
+        "fd_advise of a Tmpfs file beneath a Mount through preview1 must answer EINVAL for a \
+         length past the largest signed 64-bit offset, and succeed from any offset, as Linux's \
+         generic_fadvise does"
     );
 }
 
 // The open asks to read only, so nothing else the open could refuse
-// stands in for the refusal of not blocking.
+// stands in for a refusal of not blocking.
 // @behavior RT-129
 #[test]
-fn a_descriptor_that_would_not_block_is_unsupported() {
+fn a_descriptor_may_ask_not_to_block() {
     let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
     assert_eq!(
         (
@@ -2350,9 +2350,10 @@ fn a_descriptor_that_would_not_block_is_unsupported() {
             guest.call_bare("set_nonblocking"),
             guest.call_flagged(FILE, 0, 0)
         ),
-        (ERRNO_NOTSUP, ERRNO_NOTSUP, 0),
+        (0, 0, 0),
         "path_open asking not to block and fd_fdstat_set_flags setting an open file not to \
-         block, beneath a Mount through preview1, must answer ENOTSUP"
+         block, beneath a Mount through preview1, must succeed, as Linux takes O_NONBLOCK on a \
+         file"
     );
 }
 

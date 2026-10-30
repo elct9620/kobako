@@ -32,7 +32,7 @@ pub(crate) use namei::{
 
 pub use cred::{Cred, SecurityOperations};
 pub use dentry::Dentry;
-pub use file::{FMode, File};
+pub use file::{FMode, File, PollMask, Whence};
 pub use filesystem::Filesystem;
 pub use inode::{Identity, Inode};
 pub use mount::{Access, Denial, VfsMount};

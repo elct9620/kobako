@@ -111,10 +111,12 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         &mut self,
         memory: &mut wiggle::GuestMemory<'_>,
         fd: types::Fd,
-        _offset: types::Filesize,
-        _len: types::Filesize,
+        offset: types::Filesize,
+        len: types::Filesize,
     ) -> Answer {
-        self.answer(memory, |_, inv| fd::allocate(table(inv), fd.into()))
+        self.answer(memory, |_, inv| {
+            fd::allocate(table(inv), fd.into(), offset, len)
+        })
     }
 
     fn fd_close(&mut self, memory: &mut wiggle::GuestMemory<'_>, fd: types::Fd) -> Answer {

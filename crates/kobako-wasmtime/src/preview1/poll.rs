@@ -10,6 +10,7 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
+use kobako_runtime::vfs::PollMask;
 use wiggle::{GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
@@ -28,11 +29,7 @@ struct Subscription {
 enum Kind {
     /// A clock, as the nanoseconds left before it fires.
     Clock(u64),
-    /// A descriptor to read; `hangup` when a file has nothing left past
-    /// its position.
-    FdRead {
-        hangup: bool,
-    },
+    FdRead,
     FdWrite,
 }
 
@@ -56,7 +53,7 @@ pub(crate) fn poll_oneoff(
 
     let clocks = subscriptions.iter().filter_map(|sub| match sub.kind {
         Kind::Clock(left) => Some(left),
-        Kind::FdRead { .. } | Kind::FdWrite => None,
+        Kind::FdRead | Kind::FdWrite => None,
     });
     let waited = if clocks.clone().count() == subscriptions.len() {
         let soonest = clocks.min().unwrap_or(0);
@@ -70,7 +67,7 @@ pub(crate) fn poll_oneoff(
     for sub in &subscriptions {
         let (ready, nbytes) = match sub.kind {
             Kind::Clock(left) => (left <= waited, 0),
-            Kind::FdRead { .. } | Kind::FdWrite => (true, 1),
+            Kind::FdRead | Kind::FdWrite => (true, 1),
         };
         if ready {
             mem.write(events.add(written)?, event(sub, nbytes))?;
@@ -88,22 +85,14 @@ fn read_subscription(
     let sub = mem.read(sub)?;
     let kind = match sub.u {
         SubscriptionU::Clock(clock) => read_clock(invocation, &clock)?,
-        SubscriptionU::FdRead(subscribed) => match descriptor(invocation, subscribed)? {
-            Descriptor::File(file) if file.is_stream() && file.readable() => {
-                Kind::FdRead { hangup: false }
-            }
-            Descriptor::File(file) if !file.is_stream() => Kind::FdRead {
-                hangup: file.getattr()?.len <= file.pos(),
-            },
-            Descriptor::File(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
-        },
-        SubscriptionU::FdWrite(subscribed) => match descriptor(invocation, subscribed)? {
-            Descriptor::File(file) if file.is_stream() && file.writable() => Kind::FdWrite,
-            Descriptor::File(file) if file.is_stream() => return Err(Errno::Badf.into()),
-            Descriptor::File(file) if !file.path().mnt().is_readonly() => Kind::FdWrite,
-            Descriptor::File(_) => return Err(Errno::Perm.into()),
-            Descriptor::Directory(_) => return Err(Errno::Badf.into()),
-        },
+        SubscriptionU::FdRead(subscribed) => {
+            ready(invocation, subscribed, PollMask::IN)?;
+            Kind::FdRead
+        }
+        SubscriptionU::FdWrite(subscribed) => {
+            ready(invocation, subscribed, PollMask::OUT)?;
+            Kind::FdWrite
+        }
     };
     Ok(Subscription {
         userdata: sub.userdata,
@@ -111,15 +100,24 @@ fn read_subscription(
     })
 }
 
-fn descriptor(
+/// Hold a subscription to what its descriptor would find ready. A pipe's end
+/// is never ready for what the other end does, and nothing here would wake a
+/// wait on it, so that is `BADF` rather than a wait that never ends.
+fn ready(
     invocation: &Invocation,
     subscribed: types::SubscriptionFdReadwrite,
-) -> Answer<&Descriptor> {
-    invocation
-        .wasi()
-        .descriptors()
-        .get(subscribed.file_descriptor.into())
-        .ok_or_else(|| Errno::Badf.into())
+    event: PollMask,
+) -> Answer {
+    let table = invocation.wasi().descriptors();
+    let file = match table.get(subscribed.file_descriptor.into()) {
+        Some(Descriptor::File(file)) => file,
+        Some(Descriptor::Directory(dir)) => &dir.file,
+        None => return Err(Errno::Badf.into()),
+    };
+    match file.poll().contains(event) {
+        true => Ok(()),
+        false => Err(Errno::Badf.into()),
+    }
 }
 
 /// A clock, read against the guest's own clocks. Only the realtime and
@@ -159,17 +157,18 @@ fn wait(invocation: &Invocation, nanos: u64) -> Answer {
 }
 
 fn event(sub: &Subscription, nbytes: u64) -> types::Event {
-    let (type_, flags) = match sub.kind {
-        Kind::Clock(_) => (Eventtype::Clock, Eventrwflags::empty()),
-        Kind::FdRead { hangup: true } => (Eventtype::FdRead, Eventrwflags::FD_READWRITE_HANGUP),
-        Kind::FdRead { hangup: false } => (Eventtype::FdRead, Eventrwflags::empty()),
-        Kind::FdWrite => (Eventtype::FdWrite, Eventrwflags::empty()),
-    };
     types::Event {
         userdata: sub.userdata,
         error: Errno::Success,
-        type_,
-        fd_readwrite: types::EventFdReadwrite { nbytes, flags },
+        type_: match sub.kind {
+            Kind::Clock(_) => Eventtype::Clock,
+            Kind::FdRead => Eventtype::FdRead,
+            Kind::FdWrite => Eventtype::FdWrite,
+        },
+        fd_readwrite: types::EventFdReadwrite {
+            nbytes,
+            flags: Eventrwflags::empty(),
+        },
     }
 }
 

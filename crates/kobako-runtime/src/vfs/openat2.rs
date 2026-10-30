@@ -26,6 +26,8 @@ pub struct OpenHow {
     pub follow: bool,
     /// Land each write at the end, as `O_APPEND` does.
     pub append: bool,
+    /// Ask not to wait, as `O_NONBLOCK` does.
+    pub nonblock: bool,
 }
 
 /// The directory `nd` ends at, opened now, as Linux's `vfs_open` holds

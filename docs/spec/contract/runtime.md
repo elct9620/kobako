@@ -766,33 +766,134 @@ impl File {
 }
 ```
 
-## `File::set_append`
+## `File::nonblock`
 
-Set whether each write lands at the end.
+Whether it asked not to wait.
 
 ```rust
 impl File {
-    pub fn set_append(&mut self, append: bool) {}
+    pub fn nonblock(&self) -> bool {}
 }
 ```
 
-## `File::pos`
+## `File::setfl`
 
-Where the next read or write lands.
+Change the flags an open file may change, as `fcntl` takes only `SETFL_MASK`.
 
 ```rust
 impl File {
-    pub fn pos(&self) -> u64 {}
+    pub fn setfl(&mut self, append: bool, nonblock: bool) {}
 }
 ```
 
-## `File::set_pos`
+## `Whence`
 
-Set where the next read or write lands.
+Where a seek counts from, as Linux's `SEEK_*`.
+
+```rust
+pub enum Whence {
+    Set,
+    Cur,
+    End,
+}
+```
+
+## `File::llseek`
+
+Move its position and answer where it stands, as `vfs_llseek` does.
 
 ```rust
 impl File {
-    pub fn set_pos(&mut self, pos: u64) {}
+    pub fn llseek(&mut self, offset: i64, whence: Whence) -> Result<u64, Error> {}
+}
+```
+
+## `File::fadvise`
+
+Take a hint about a range, as `generic_fadvise` refuses a pipe and a negative
+length.
+
+```rust
+impl File {
+    pub fn fadvise(&self, _offset: u64, len: u64) -> Result<(), FilesystemError> {}
+}
+```
+
+## `File::fallocate`
+
+Reserve a range, as `vfs_fallocate` refuses before it asks the file.
+
+```rust
+impl File {
+    pub fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), FilesystemError> {}
+}
+```
+
+## `PollMask`
+
+What a file would find ready, as Linux's `__poll_t`.
+
+```rust
+pub struct PollMask(u8);
+```
+
+## `PollMask::contains`
+
+Whether this holds all of another.
+
+```rust
+impl PollMask {
+    pub fn contains(self, mask: Self) -> bool {}
+}
+```
+
+## `File::poll`
+
+What a call would find ready, as `vfs_poll` asks the file.
+
+```rust
+impl File {
+    pub fn poll(&self) -> PollMask {}
+}
+```
+
+## `File::may_read`
+
+Whether a read may reach it, as `vfs_read` reads `f_mode` before the buffer.
+
+```rust
+impl File {
+    pub fn may_read(&self) -> Result<(), FilesystemError> {}
+}
+```
+
+## `File::may_write`
+
+Whether a write may reach it, as `vfs_write` reads `f_mode` before the buffer.
+
+```rust
+impl File {
+    pub fn may_write(&self) -> Result<(), FilesystemError> {}
+}
+```
+
+## `File::may_pread`
+
+Whether a read from an offset may reach it, as `pread` refuses first.
+
+```rust
+impl File {
+    pub fn may_pread(&self, pos: u64) -> Result<(), FilesystemError> {}
+}
+```
+
+## `File::may_pwrite`
+
+Whether a write at an offset may reach it, as `pwrite` refuses first.
+
+```rust
+impl File {
+    pub fn may_pwrite(&self, pos: u64) -> Result<(), FilesystemError> {}
 }
 ```
 
@@ -924,16 +1025,6 @@ Whether this holds all of another.
 ```rust
 impl FMode {
     pub fn contains(self, mode: Self) -> bool {}
-}
-```
-
-## `File::mode`
-
-What it was opened for and what it can do.
-
-```rust
-impl File {
-    pub fn mode(&self) -> FMode {}
 }
 ```
 
@@ -1367,6 +1458,27 @@ not a directory.
 ```rust
 pub trait FileOperations {
     fn iterate_shared(&mut self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError>;
+}
+```
+
+## `FileOperations::fallocate`
+
+Reserve a range. A file without it answers `Unsupported`, as `vfs_fallocate` does.
+
+```rust
+pub trait FileOperations {
+    fn fallocate(&mut self, _offset: u64, _len: u64) -> Result<(), FilesystemError>;
+}
+```
+
+## `FileOperations::poll`
+
+What a call would find ready on this end. A file without it is always ready, as
+`vfs_poll` answers.
+
+```rust
+pub trait FileOperations {
+    fn poll(&self, _mode: FMode) -> PollMask;
 }
 ```
 

@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use super::dentry::Dentry;
-use super::file::File;
+use super::file::{FMode, File, PollMask};
 use super::inode::Inode;
 use super::mount::VfsMount;
 use super::openat2::OpenHow;
@@ -109,6 +109,15 @@ impl FileOperations for AnonPipe {
         }
         Ok(take)
     }
+
+    /// Each end is ready for what it was opened for, as `pipe_poll` reads
+    /// `f_mode`; nothing here waits for the other end.
+    fn poll(&self, mode: FMode) -> PollMask {
+        match mode.contains(FMode::READ) {
+            true => PollMask::IN,
+            false => PollMask::OUT,
+        }
+    }
 }
 
 /// The read and the write end of `pipe`, as Linux's `create_pipe_files` opens
@@ -195,7 +204,7 @@ mod tests {
         let (reader, writer) = create_pipe_files(&PipeInodeInfo::new(1));
         for end in [reader, writer] {
             assert!(
-                end.is_stream() && !end.mode().contains(super::super::FMode::LSEEK),
+                end.is_stream() && !end.mode().contains(FMode::LSEEK),
                 "create_pipe_files must open each end as a stream with no position"
             );
         }
