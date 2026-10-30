@@ -682,13 +682,65 @@ impl File {
 }
 ```
 
-## `File::ops`
+## `File::read`
 
-What answers for it.
+Read from its position, moving it past what was read.
 
 ```rust
 impl File {
-    pub fn ops(&mut self) -> &mut dyn FileOperations {}
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, FilesystemError> {}
+}
+```
+
+## `File::pread`
+
+Read from an offset, leaving its position.
+
+```rust
+impl File {
+    pub fn pread(&mut self, buf: &mut [u8], pos: u64) -> Result<usize, FilesystemError> {}
+}
+```
+
+## `File::write`
+
+Write at its position, moving it past what was written. Opened to append, it
+lands at the end.
+
+```rust
+impl File {
+    pub fn write(&mut self, buf: &[u8]) -> Result<usize, FilesystemError> {}
+}
+```
+
+## `File::pwrite`
+
+Write at an offset, leaving its position. Opened to append, it lands at the end.
+
+```rust
+impl File {
+    pub fn pwrite(&mut self, buf: &[u8], pos: u64) -> Result<usize, FilesystemError> {}
+}
+```
+
+## `File::fsync`
+
+Make what was written durable.
+
+```rust
+impl File {
+    pub fn fsync(&mut self) -> Result<(), FilesystemError> {}
+}
+```
+
+## `File::is_stream`
+
+Whether it reads and writes what comes next, with no position, as a pipe's ends
+do.
+
+```rust
+impl File {
+    pub fn is_stream(&self) -> bool {}
 }
 ```
 
@@ -771,17 +823,6 @@ impl File {
 }
 ```
 
-## `File::kiocb`
-
-A call landing at an offset of this file, at its end where it was opened to
-append.
-
-```rust
-impl File {
-    pub fn kiocb(&self, pos: u64) -> Kiocb {}
-}
-```
-
 ## `File::close`
 
 Close it once the last descriptor goes, answering what its flush answers.
@@ -792,52 +833,51 @@ impl File {
 }
 ```
 
-## `PipeReader`
+## `PipeInodeInfo`
 
-The read end of a pipe holding fixed bytes, as an invocation's standard input
-reads the Preamble.
+What a pipe holds: what was written, up to a capacity. An invocation's standard
+input reads the Preamble from one, and each Channel's capture is one.
 
 ```rust
-pub struct PipeReader {}
+pub struct PipeInodeInfo {}
 ```
 
-## `PipeReader::new`
+## `PipeInodeInfo::new`
 
-A pipe holding these bytes.
+An empty pipe holding at most this capacity's bytes.
 
 ```rust
-impl PipeReader {
-    pub fn new(bytes: Vec<u8>) -> Self {}
+impl PipeInodeInfo {
+    pub fn new(capacity: usize) -> Arc<Self> {}
 }
 ```
 
-## `PipeWriter`
+## `PipeInodeInfo::filled`
 
-The write end of a pipe holding at most a capacity's bytes. Each clone writes
-into one buffer, as a Channel's capture does.
-
-```rust
-pub struct PipeWriter {}
-```
-
-## `PipeWriter::new`
-
-A pipe holding at most this capacity's bytes.
+A pipe already holding these bytes, with no room for more.
 
 ```rust
-impl PipeWriter {
-    pub fn new(capacity: usize) -> Self {}
+impl PipeInodeInfo {
+    pub fn filled(bytes: Vec<u8>) -> Arc<Self> {}
 }
 ```
 
-## `PipeWriter::contents`
+## `PipeInodeInfo::contents`
 
 What was written so far.
 
 ```rust
-impl PipeWriter {
+impl PipeInodeInfo {
     pub fn contents(&self) -> Vec<u8> {}
 }
+```
+
+## `create_pipe_files`
+
+The read and the write end of a pipe, each an open file with no position.
+
+```rust
+pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {}
 ```
 
 ## `OpenHow`

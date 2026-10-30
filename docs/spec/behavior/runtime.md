@@ -1911,3 +1911,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a file whose Filesystem has no operation to sync it |
 | When | the guest syncs the file |
 | Then | the call answers EINVAL |
+
+## `RT-177` A standard stream answers as a pipe does
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-176` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding its standard streams |
+| When | the guest syncs one, sizes one, and calls about the position of each |
+| Then | the first two answer EINVAL, and the calls about a position answer ESPIPE |
+
+## `RT-178` A standard stream takes no offset
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-177` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding its standard input and output |
+| When | the guest reads at an offset from each, and writes at an offset to each |
+| Then | each call answers ESPIPE |
