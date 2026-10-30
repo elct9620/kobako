@@ -470,17 +470,17 @@ mod tests {
                 vfs::filename_mkdirat(&Arc::default(), &dir, "made"),
                 File::directory(dir.clone(), Arc::default())
                     .expect("the directory must open")
-                    .iterate_dir(),
+                    .iterate_dir(&mut vfs::DirContext::new(0, &mut |_| true)),
                 kern_path(tmpfs.clone()).symlink_metadata("dir/made").err()
             ),
             (
                 Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
-                Ok(Vec::new()),
+                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
                 Some(FilesystemError::NotFound)
             ),
             "vfs::filename_mkdirat and File::iterate_dir through a directory vfs::filename_rmdir removed, over \
-             a Filesystem answering by path, must answer NotFound and list nothing, and make \
-             nothing in the directory made in its place"
+             a Filesystem answering by path, must each answer NotFound, as Linux asks \
+             IS_DEADDIR, and make nothing in the directory made in its place"
         );
     }
 

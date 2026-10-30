@@ -1703,7 +1703,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a directory opened beneath a Mount, over a Filesystem answering each call by its path |
 | When | it is removed, another made in its place, and a make goes through it |
-| Then | the make answers not found, a listing through it is empty, and nothing is made |
+| Then | the make and a listing through it answer not found, and nothing is made |
 
 ## `RT-160` A directory removed beneath one Mount is removed beneath another of its instance
 
@@ -1971,3 +1971,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file opened to read, a file opened to write, and a pipe's write end |
 | When | a caller allocates no bytes on the first, then some on each |
 | Then | the calls answer EINVAL, EBADF, ENOTSUP, and ESPIPE |
+
+## `RT-182` A listing hands `.` and `..` first and goes on where it stopped
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-107`, `RT-180` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory opened through the runtime, with no Driver in front of it |
+| When | a caller lists it, stops early, and lists it again from where it stopped |
+| Then | `.` and `..` come first, and each entry carries the position after it |

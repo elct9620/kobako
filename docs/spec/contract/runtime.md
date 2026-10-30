@@ -980,33 +980,41 @@ impl File {
 }
 ```
 
+## `DirEmit`
+
+One entry a listing hands its actor, as `dir_emit` does.
+
+```rust
+pub struct DirEmit {}
+```
+
+## `DirContext`
+
+A listing under way, as `struct dir_context`. It holds where the listing stands
+and who takes each entry.
+
+```rust
+pub struct DirContext {}
+```
+
+## `DirContext::new`
+
+A listing from a position, each entry going to an actor.
+
+```rust
+impl DirContext {
+    pub fn new(pos: u64, actor: &'a mut dyn FnMut(&DirEmit<'_>) -> bool) -> Self {}
+}
+```
+
 ## `File::iterate_dir`
 
-The entries of the directory, without `.` or `..`, none once it was removed.
+Hand a listing the entries of the directory from its position, `.` and `..`
+first, until its actor stops. A removed directory answers not found.
 
 ```rust
 impl File {
-    pub fn iterate_dir(&mut self) -> Result<Vec<DirEntry>, Error> {}
-}
-```
-
-## `File::take_listing`
-
-The entries a listing began with, once one is under way.
-
-```rust
-impl File {
-    pub fn take_listing(&mut self) -> Option<Vec<DirEntry>> {}
-}
-```
-
-## `File::keep_listing`
-
-Hold the entries a listing began with for its next step.
-
-```rust
-impl File {
-    pub fn keep_listing(&mut self, listing: Vec<DirEntry>) {}
+    pub fn iterate_dir(&mut self, ctx: &mut DirContext<'_>) -> Result<(), Error> {}
 }
 ```
 

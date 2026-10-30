@@ -12,7 +12,7 @@ use super::openat2::OpenHow;
 use super::path::Path;
 use super::Error;
 use crate::filesystem::{
-    DirEntry, FileOperations, FilesystemError, Iattr, Kiocb, Metadata, OpenOptions,
+    DirEntry, FileOperations, FileType, FilesystemError, Iattr, Kiocb, Metadata, OpenOptions,
 };
 
 /// The largest offset a file holds, where Linux's signed `loff_t` ends.
@@ -83,6 +83,29 @@ pub enum Whence {
     Set,
     Cur,
     End,
+}
+
+/// One entry a listing hands its actor, as `dir_emit` does.
+#[non_exhaustive]
+pub struct DirEmit<'a> {
+    pub name: &'a str,
+    pub file_type: FileType,
+    /// The position a listing going on from just after this entry starts at.
+    pub next: u64,
+}
+
+/// A listing under way, as Linux's `struct dir_context`: where it stands and
+/// who takes each entry, answering whether to go on.
+pub struct DirContext<'a> {
+    pos: u64,
+    actor: &'a mut dyn FnMut(&DirEmit<'_>) -> bool,
+}
+
+impl<'a> DirContext<'a> {
+    /// A listing from `pos`, each entry going to `actor`.
+    pub fn new(pos: u64, actor: &'a mut dyn FnMut(&DirEmit<'_>) -> bool) -> Self {
+        Self { pos, actor }
+    }
 }
 
 /// One open file or directory, as a descriptor refers to it.
@@ -394,28 +417,66 @@ impl File {
             .unwrap_or(Err(FilesystemError::InvalidInput))
     }
 
-    /// The entries of the directory, without `.` or `..`; none once it was
-    /// removed, as Linux lists a dead directory.
-    pub fn iterate_dir(&mut self) -> Result<Vec<DirEntry>, Error> {
+    /// Hand `ctx` the entries of the directory from its position, `.` and `..`
+    /// first as `dir_emit_dots` emits them, until its actor stops, moving it
+    /// past each. A listing from the start reads the directory; one going on
+    /// reads the entries that listing began with, so a caller reading in small
+    /// steps costs one listing, not one per step. A removed directory answers
+    /// not found, as `iterate_dir` asks `IS_DEADDIR`.
+    pub fn iterate_dir(&mut self, ctx: &mut DirContext<'_>) -> Result<(), Error> {
+        let listing = match self.listing.take() {
+            Some(listing) if ctx.pos != 0 && !self.path.dentry().is_deaddir() => listing,
+            _ => self.read_entries()?,
+        };
+        let stopped = {
+            let entries = [(".", FileType::Directory), ("..", FileType::Directory)]
+                .into_iter()
+                .chain(
+                    listing
+                        .iter()
+                        .map(|entry| (entry.name.as_str(), entry.file_type)),
+                );
+            let skip = usize::try_from(ctx.pos).unwrap_or(usize::MAX);
+            let mut stopped = false;
+            for (index, (name, file_type)) in entries.enumerate().skip(skip) {
+                let next = index as u64 + 1;
+                let emit = DirEmit {
+                    name,
+                    file_type,
+                    next,
+                };
+                if !(ctx.actor)(&emit) {
+                    stopped = true;
+                    break;
+                }
+                ctx.pos = next;
+            }
+            stopped
+        };
+        if stopped {
+            self.listing = Some(listing);
+        }
+        Ok(())
+    }
+
+    /// The entries of the directory, under its lock shared as `iterate_dir`
+    /// holds it, so a removal through the VFS lands before or after them.
+    fn read_entries(&mut self) -> Result<Vec<DirEntry>, Error> {
         self.cred.security_path_walk(&self.path)?;
         let dentry = self.path.dentry().clone();
-        // A listing holds the directory shared, as Linux's `iterate_dir`
-        // does, so a removal through the VFS lands before or after it.
         let _held = dentry.inode_lock_shared()?;
         if dentry.is_deaddir() {
-            return Ok(Vec::new());
+            return Err(FilesystemError::NotFound.into());
         }
         Ok(self.ops.iterate_shared(&dentry)?)
     }
 
-    /// The entries a listing began with, once one is under way.
-    pub fn take_listing(&mut self) -> Option<Vec<DirEntry>> {
-        self.listing.take()
-    }
-
-    /// Hold the entries a listing began with for its next step.
-    pub fn keep_listing(&mut self, listing: Vec<DirEntry>) {
-        self.listing = Some(listing);
+    /// What its Filesystem lists, with nothing the VFS adds, for a test of
+    /// what the Filesystem answers beneath the VFS.
+    #[cfg(test)]
+    pub(crate) fn iterate_shared(&mut self) -> Result<Vec<DirEntry>, FilesystemError> {
+        let dentry = self.path.dentry().clone();
+        self.ops.iterate_shared(&dentry)
     }
 
     /// Close it once the last descriptor goes, answering what its flush
@@ -474,6 +535,39 @@ mod tests {
             ),
             "File::write and pwrite on a file opened to read, and File::read and pread on one \
              opened to write, must answer EBADF, as vfs_read and vfs_write do"
+        );
+    }
+
+    /// What a listing of the root from `pos` hands an actor taking `room`
+    /// entries, as the name and the position after each.
+    fn list(file: &mut File, pos: u64, room: usize) -> Vec<(String, u64)> {
+        let mut seen = Vec::new();
+        let mut actor = |emit: &DirEmit<'_>| {
+            seen.push((emit.name.to_string(), emit.next));
+            seen.len() < room
+        };
+        file.iterate_dir(&mut DirContext::new(pos, &mut actor))
+            .unwrap_or_else(|_| panic!("the directory must list"));
+        seen
+    }
+
+    // @behavior RT-182
+    #[test]
+    fn a_listing_hands_the_dots_first_and_goes_on_where_it_stopped() {
+        let tmpfs: Arc<Tmpfs> = Arc::new([("a", "x"), ("b", "y")].into_iter().collect());
+        let mount = Mount::new("/data", Filesystem::new(tmpfs), Access::ReadWrite)
+            .expect("/data is a guest path");
+        let mut root = File::root(mount.mnt(), Arc::default())
+            .unwrap_or_else(|_| panic!("the root must open"));
+        let entry = |name: &str, next| (name.to_string(), next);
+        assert_eq!(
+            (list(&mut root, 0, 3), list(&mut root, 2, 9)),
+            (
+                vec![entry(".", 1), entry("..", 2), entry("a", 3)],
+                vec![entry("a", 3), entry("b", 4)],
+            ),
+            "File::iterate_dir must hand `.` and `..` ahead of the entries, each with the \
+             position after it, and go on from any of those positions"
         );
     }
 

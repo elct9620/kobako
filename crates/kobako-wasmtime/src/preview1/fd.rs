@@ -8,7 +8,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{FileType, Metadata};
-use kobako_runtime::vfs::{File, Whence};
+use kobako_runtime::vfs::{DirContext, DirEmit, File, Whence};
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
@@ -315,11 +315,32 @@ fn dirent_header(d_next: u64, name: &str, filetype: Filetype) -> Answer<Vec<u8>>
     Ok(header)
 }
 
-/// A directory's entries as preview1 `dirent`s, `.` and `..` first, from
-/// the `cookie`th on, cut off where the buffer ends. A listing from the
-/// start reads the directory; one going on reads the entries that listing
-/// began with, so a guest reading in small steps costs one listing, not one
-/// per step.
+/// One entry as a preview1 `dirent` at `used` bytes into the buffer, cut off
+/// where it ends, answering whether the buffer has room left.
+fn write_dirent(
+    mem: &mut GuestMemory<'_, '_>,
+    buf: (GuestPtr<u8>, u32),
+    used: &mut u32,
+    emit: &DirEmit<'_>,
+) -> Answer<bool> {
+    let (start, capacity) = buf;
+    let header = dirent_header(emit.next, emit.name, to_filetype(emit.file_type))?;
+    for part in [&header[..], emit.name.as_bytes()] {
+        let room = (capacity - *used) as usize;
+        let take = part.len().min(room);
+        if take > 0 {
+            mem.write_bytes(start.add(*used)?, &part[..take])?;
+        }
+        *used += take as u32;
+        if *used == capacity {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// A directory's entries from the `cookie`th on, cut off where the buffer
+/// ends.
 pub(crate) fn readdir(
     table: &mut Descriptors,
     mem: &mut GuestMemory<'_, '_>,
@@ -332,39 +353,22 @@ pub(crate) fn readdir(
         Descriptor::Directory(dir) => dir,
         _ => return Err(Errno::Badf.into()),
     };
-    let skip = usize::try_from(cookie).map_err(|_| Errno::Overflow)?;
-    let listing = match dir.file.take_listing() {
-        Some(listing) if cookie != 0 => listing,
-        _ => dir.file.iterate_dir()?,
-    };
-    let entries = [(".", Filetype::Directory), ("..", Filetype::Directory)]
-        .into_iter()
-        .chain(
-            listing
-                .iter()
-                .map(|entry| (entry.name.as_str(), to_filetype(entry.file_type))),
-        );
     let mut used: u32 = 0;
-    let mut full = false;
-    'entries: for (index, (name, filetype)) in entries.enumerate().skip(skip) {
-        let header = dirent_header(index as u64 + 1, name, filetype)?;
-        for part in [&header[..], name.as_bytes()] {
-            let room = (capacity - used) as usize;
-            let take = part.len().min(room);
-            if take > 0 {
-                mem.write_bytes(start.add(used)?, &part[..take])?;
-            }
-            used += take as u32;
-            if used == capacity {
-                full = true;
-                break 'entries;
-            }
+    let mut failed = None;
+    let mut actor = |emit: &DirEmit<'_>| match write_dirent(mem, (start, capacity), &mut used, emit)
+    {
+        Ok(room) => room,
+        Err(error) => {
+            failed = Some(error);
+            false
         }
+    };
+    dir.file
+        .iterate_dir(&mut DirContext::new(cookie, &mut actor))?;
+    match failed {
+        Some(error) => Err(error),
+        None => Ok(used),
     }
-    if full {
-        dir.file.keep_listing(listing);
-    }
-    Ok(used)
 }
 
 /// preview1 renumbering closes `to` as `fd_close` does, answering a close

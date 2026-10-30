@@ -112,9 +112,7 @@ impl KernPath {
     }
 
     pub(crate) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        File::directory(self.0.clone(), Arc::default())?
-            .iterate_dir()
-            .map_err(to_filesystem_error)
+        File::directory(self.0.clone(), Arc::default())?.iterate_shared()
     }
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {

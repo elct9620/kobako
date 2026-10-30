@@ -49,11 +49,12 @@ fn host_entries<F: InodeOperations>(filesystem: &Arc<F>) -> Result<Vec<String>, 
     )
     .expect("/data is a guest path");
     let mut root = vfs::File::root(mount.mnt(), Arc::default())?;
-    Ok(root
-        .iterate_dir()?
-        .into_iter()
-        .map(|entry| entry.name)
-        .collect())
+    let mut names = Vec::new();
+    root.iterate_dir(&mut vfs::DirContext::new(2, &mut |emit| {
+        names.push(emit.name.to_string());
+        true
+    }))?;
+    Ok(names)
 }
 
 const ERRNO_ACCES: i32 = 2;
