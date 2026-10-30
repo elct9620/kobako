@@ -1439,3 +1439,11 @@ both live in the upper and never show, so no name is reserved
 | Given | a guest holding a directory open through an Overlay over a Bind |
 | When | the host replaces the directory with another holding a file, and the guest reads that file |
 | Then | the read answers what the host wrote |
+
+## `FS-140` A file with nothing to flush syncs
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs file, and an Overlay's file open to read from a Tmpfs Layer |
+| When | each file is synced |
+| Then | each sync succeeds |

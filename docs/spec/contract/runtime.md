@@ -1139,7 +1139,8 @@ pub trait FileOperations {
 
 ## `FileOperations::fsync`
 
-Make what was written durable. The default has nothing to flush.
+Make what was written durable. A file with nothing to flush answers success
+itself; one without it refuses as invalid input.
 
 ```rust
 pub trait FileOperations {

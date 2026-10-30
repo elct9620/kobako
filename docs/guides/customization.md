@@ -349,6 +349,7 @@ VFS does. One wrapping another forwards those it keeps.
 | `get_link` | a link followed only within the directory a descriptor opened | EINVAL |
 | `create` | a file made under the directory's lock | EACCES |
 | `FileOperations::iterate_shared` | a directory listed from what its `open` made | ENOTDIR |
+| `FileOperations::fsync` | what was written made durable; answer `Ok` with nothing to flush | EINVAL |
 | `mkdir`, `rmdir`, `unlink`, `rename` | a change made under the directory's lock | EPERM |
 | `FileOperations::append` | another writer's append from landing over this one | `Unsupported`, which it answers itself |
 

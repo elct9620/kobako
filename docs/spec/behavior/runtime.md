@@ -1899,3 +1899,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Mount whose Filesystem has no operation to make, remove, or move a name |
 | When | the guest makes a directory, makes a file, removes a directory, removes a file, and renames a file |
 | Then | the calls answer EPERM, EACCES, EPERM, EPERM, and EPERM |
+
+## `RT-176` The runtime refuses a sync of a file without one
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-175` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a file whose Filesystem has no operation to sync it |
+| When | the guest syncs the file |
+| Then | the call answers EINVAL |
