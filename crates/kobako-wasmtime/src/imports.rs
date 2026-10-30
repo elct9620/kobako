@@ -5,12 +5,14 @@
 //! calling Store, never from a Runtime, so the wiring is the same for
 //! every Sandbox and `crate::instance_pre` can cache what it resolves.
 
-use wasmtime::{Caller, Linker};
+use wasmtime::{AsContextMut, Caller, Linker};
 use wasmtime_wasi::p1;
 
 use crate::cache::shared_engine;
+use crate::guest::Guest;
 use crate::invocation::Invocation;
-use crate::{dispatch, preview1};
+use crate::preview1;
+use kobako_runtime::endpoint::{self, UpcallEnd, ABANDONED};
 use kobako_runtime::error::SetupError;
 
 pub(crate) fn linker() -> Result<Linker<Invocation>, SetupError> {
@@ -27,7 +29,7 @@ pub(crate) fn linker() -> Result<Linker<Invocation>, SetupError> {
     .map_err(|e| SetupError::Dead(format!("failed to set up the WASI runtime: {e}")))?;
 
     // `__kobako_upcall`, `(ptr: i32, len: i32) -> i64` per
-    // docs/wire/abi.md § ABI Signatures; `dispatch::handle` owns what it
+    // docs/wire/abi.md § ABI Signatures; `endpoint::handle` owns what it
     // answers.
     linker
         .func_wrap(
@@ -37,7 +39,12 @@ pub(crate) fn linker() -> Result<Linker<Invocation>, SetupError> {
              req_ptr: i32,
              req_len: i32|
              -> wasmtime::Result<i64> {
-                dispatch::handle(&mut caller, req_ptr, req_len)
+                let mut guest = Guest(caller.as_context_mut());
+                endpoint::handle(&mut guest, req_ptr, req_len).map_err(|end| match end {
+                    UpcallEnd::Fault(trap) => trap,
+                    UpcallEnd::Abandoned => wasmtime::Error::msg(ABANDONED),
+                    UpcallEnd::Unwritable(reason) => wasmtime::Error::msg(reason),
+                })
             },
         )
         .map_err(|e| SetupError::Dead(format!("failed to set up the host callback bridge: {e}")))?;

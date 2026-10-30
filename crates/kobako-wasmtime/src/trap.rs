@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use wasmtime::{Store, StoreHookState, UpdateDeadline};
 
 use crate::invocation::Invocation;
-use crate::limiter::MemoryLimitTrap;
+use kobako_runtime::endpoint::MemoryLimitExceeded;
 use kobako_runtime::error::{SetupError, Trap};
 
 /// Marker error returned from the epoch-deadline callback when the
@@ -78,7 +78,7 @@ pub(crate) fn cap_trap(err: &wasmtime::Error) -> Option<Trap> {
     if let Some(t) = err.downcast_ref::<TimeoutTrap>() {
         Some(Trap::Timeout(t.to_string()))
     } else {
-        err.downcast_ref::<MemoryLimitTrap>()
+        err.downcast_ref::<MemoryLimitExceeded>()
             .map(|t| Trap::MemoryLimit(t.to_string()))
     }
 }
@@ -107,7 +107,7 @@ pub(crate) fn instantiate_err(err: wasmtime::Error) -> SetupError {
 #[cfg(test)]
 mod tests {
     use super::{other_trap_message, to_trap, TimeoutTrap, NO_TIMEOUT_EPOCH_DELTA};
-    use crate::limiter::MemoryLimitTrap;
+    use kobako_runtime::endpoint::MemoryLimitExceeded;
     use kobako_runtime::error::Trap;
 
     // The no-timeout priming delta is added to the engine's current
@@ -137,7 +137,7 @@ mod tests {
     // @behavior OC-033
     #[test]
     fn to_trap_routes_memory_limit_trap_to_memory_limit() {
-        let trap = MemoryLimitTrap::new(1 << 20, 1 << 19);
+        let trap = MemoryLimitExceeded::new(1 << 20, 1 << 19);
         let expected = trap.to_string();
         let err = wasmtime::Error::new(trap);
         assert!(matches!(to_trap(err), Trap::MemoryLimit(msg) if msg == expected));

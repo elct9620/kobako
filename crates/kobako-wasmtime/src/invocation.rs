@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use kobako_runtime::dispatch::DispatchHandler;
+use kobako_runtime::endpoint::{Calls, MemoryCap, ABANDONED};
 
 use crate::exports::Exports;
 use crate::limiter::MemoryLimiter;
@@ -31,14 +32,12 @@ use crate::wasi::Wasi;
 /// the mutation surface stays narrow.
 pub(crate) struct Invocation {
     wasi: Wasi,
-    on_dispatch: Option<Arc<dyn DispatchHandler>>,
+    calls: Calls<wasmtime::Error>,
     deadline: Option<Instant>,
     limiter: MemoryLimiter,
     wall_entry: Option<Instant>,
     wall_time: Duration,
-    reentry_trap: Option<wasmtime::Error>,
     exports: Option<Exports>,
-    open_calls: u32,
     hostcall_fuel: usize,
 }
 
@@ -46,14 +45,12 @@ impl Invocation {
     pub(crate) fn new(memory_limit: Option<usize>, wasi: Wasi) -> Self {
         Self {
             wasi,
-            on_dispatch: None,
+            calls: Calls::default(),
             deadline: None,
-            limiter: MemoryLimiter::new(memory_limit),
+            limiter: MemoryLimiter(MemoryCap::new(memory_limit)),
             wall_entry: None,
             wall_time: Duration::ZERO,
-            reentry_trap: None,
             exports: None,
-            open_calls: 0,
             hostcall_fuel: 0,
         }
     }
@@ -78,49 +75,20 @@ impl Invocation {
         self.exports.clone()
     }
 
-    /// The first trap wins: the upcall import ends the invocation with it,
-    /// so the trap keeps its own kind.
-    pub(crate) fn record_reentry_trap(&mut self, trap: wasmtime::Error) {
-        self.reentry_trap.get_or_insert(trap);
-    }
-
-    /// Once a callback into the guest has trapped, the guest is past
-    /// resuming.
-    pub(crate) fn reentry_trapped(&self) -> bool {
-        self.reentry_trap.is_some()
-    }
-
-    pub(crate) fn take_reentry_trap(&mut self) -> Option<wasmtime::Error> {
-        self.reentry_trap.take()
-    }
-
-    /// Count a Call the host is about to answer and name its frame, as the
-    /// guest counts the Calls it has open.
-    pub(crate) fn open_call(&mut self) -> u32 {
-        self.open_calls += 1;
-        self.open_calls - 1
-    }
-
-    pub(crate) fn close_call(&mut self) {
-        self.open_calls -= 1;
+    /// The state of the Calls open on this instance.
+    pub(crate) fn calls_mut(&mut self) -> &mut Calls<wasmtime::Error> {
+        &mut self.calls
     }
 
     pub(crate) fn bind_on_dispatch(&mut self, handler: Arc<dyn DispatchHandler>) {
-        self.on_dispatch = Some(handler);
-    }
-
-    /// A clone, so the borrow on the `Caller` is released and the
-    /// dispatcher can re-borrow it to write the Reply.
-    pub(crate) fn on_dispatch(&self) -> Option<Arc<dyn DispatchHandler>> {
-        self.on_dispatch.clone()
+        self.calls.bind(handler);
     }
 
     /// The trap ending an invocation its host gave up on.
     pub(crate) fn abandonment(&self) -> Option<wasmtime::Error> {
-        self.on_dispatch
-            .as_ref()
-            .is_some_and(|handler| handler.abandoned())
-            .then(|| wasmtime::Error::msg("the host abandoned the invocation"))
+        self.calls
+            .abandoned()
+            .then(|| wasmtime::Error::msg(ABANDONED))
     }
 
     pub(crate) fn wasi(&self) -> &Wasi {
@@ -147,13 +115,13 @@ impl Invocation {
     /// image's initial allocation and the high-water mark of earlier
     /// invocations do not consume the budget.
     pub(crate) fn arm_memory_cap(&mut self, baseline: usize) {
-        self.limiter.activate(baseline);
+        self.limiter.0.activate(baseline);
     }
 
     /// Disarmed once the export returns, so post-run host bookkeeping such
     /// as reading the answer back is not charged to the script.
     pub(crate) fn disarm_memory_cap(&mut self) {
-        self.limiter.deactivate();
+        self.limiter.0.deactivate();
     }
 
     /// Stamped right before the guest export call, so the bracket matches
@@ -173,6 +141,6 @@ impl Invocation {
     }
 
     pub(crate) fn memory_peak(&self) -> usize {
-        self.limiter.peak()
+        self.limiter.0.peak()
     }
 }

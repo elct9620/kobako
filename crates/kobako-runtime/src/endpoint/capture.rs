@@ -1,15 +1,14 @@
 //! Per-channel stdout / stderr capture sizing and clipping.
 //!
-//! Two pure helpers shared by the run path: one
-//! sizes the per-run `MemoryOutputPipe`, the other clips a captured
-//! snapshot back to the configured cap and reports whether the cap was
-//! exceeded. Kept channel-agnostic (a function of `cap`, not of which
-//! channel) so a regression that only breaks one channel cannot sneak
-//! through the test that pins them.
+//! Two pure helpers shared by the run path: one sizes the per-run pipe, the
+//! other clips a captured snapshot back to the configured cap and reports
+//! whether the cap was exceeded. Kept channel-agnostic (a function of `cap`,
+//! not of which channel) so a regression that only breaks one channel cannot
+//! sneak through the test that pins them.
 
 /// One byte past the cap, so "wrote exactly cap" and "exceeded cap" stay
 /// distinguishable.
-pub(crate) fn pipe_capacity(cap: Option<usize>) -> usize {
+pub fn pipe_capacity(cap: Option<usize>) -> usize {
     match cap {
         Some(c) => c.saturating_add(1),
         None => usize::MAX,
@@ -18,7 +17,7 @@ pub(crate) fn pipe_capacity(cap: Option<usize>) -> usize {
 
 /// Takes the snapshot by value and truncates in place, so the readback
 /// costs one copy out of the pipe rather than two.
-pub(crate) fn clip_capture(mut raw: Vec<u8>, cap: Option<usize>) -> (Vec<u8>, bool) {
+pub fn clip_capture(mut raw: Vec<u8>, cap: Option<usize>) -> (Vec<u8>, bool) {
     match cap {
         Some(c) if raw.len() > c => {
             raw.truncate(c);

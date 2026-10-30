@@ -13,6 +13,7 @@
 //! so the engine stays swappable.
 
 pub mod dispatch;
+pub mod endpoint;
 pub mod error;
 pub mod filesystem;
 pub mod grant;

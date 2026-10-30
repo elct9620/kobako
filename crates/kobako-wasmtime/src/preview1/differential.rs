@@ -311,8 +311,8 @@ struct Oracle {
 
 fn through_wasmtime_wasi(call: &str, fd: i32, limit: Option<usize>) -> Observation {
     let engine = shared_engine().expect("shared engine must be constructible");
-    let stdout = MemoryOutputPipe::new(crate::capture::pipe_capacity(limit));
-    let stderr = MemoryOutputPipe::new(crate::capture::pipe_capacity(limit));
+    let stdout = MemoryOutputPipe::new(kobako_runtime::endpoint::pipe_capacity(limit));
+    let stderr = MemoryOutputPipe::new(kobako_runtime::endpoint::pipe_capacity(limit));
     let ctx = WasiCtxBuilder::new()
         .stdin(MemoryInputPipe::new(stdin_bytes()))
         .stdout(stdout.clone())

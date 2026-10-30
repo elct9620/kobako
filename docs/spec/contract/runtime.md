@@ -7,6 +7,11 @@ Guest through these, so an engine answering them serves either.
 ## Includes
 
 - `crates/kobako-runtime/src/dispatch.rs`
+- `crates/kobako-runtime/src/endpoint.rs`
+- `crates/kobako-runtime/src/endpoint/capture.rs`
+- `crates/kobako-runtime/src/endpoint/dispatch.rs`
+- `crates/kobako-runtime/src/endpoint/invoke.rs`
+- `crates/kobako-runtime/src/endpoint/memory_cap.rs`
 - `crates/kobako-runtime/src/error.rs`
 - `crates/kobako-runtime/src/filesystem.rs`
 - `crates/kobako-runtime/src/filesystem/bind.rs`
@@ -206,6 +211,270 @@ against it.
 
 ```rust
 pub enum Profile {}
+```
+
+## `GuestInstance`
+
+One guest instance as the host ABI endpoint drives it. A Driver implements it
+over its Engine's memory and exports.
+
+```rust
+pub trait GuestInstance {}
+```
+
+## `GuestInstance::calls`
+
+The state of the Calls open on this instance.
+
+```rust
+pub trait GuestInstance {
+    fn calls(&mut self) -> &mut Calls<Self::Fault>;
+}
+```
+
+## `GuestInstance::memory`
+
+The guest's linear memory.
+
+```rust
+pub trait GuestInstance {
+    fn memory(&mut self) -> Option<&mut [u8]>;
+}
+```
+
+## `GuestInstance::alloc`
+
+Allocate through `__kobako_alloc`, answering the address.
+
+```rust
+pub trait GuestInstance {
+    fn alloc(&mut self, len: u32) -> Option<Result<u32, Self::Fault>>;
+}
+```
+
+## `GuestInstance::downcall`
+
+Call `__kobako_downcall`, answering the packed place of its answer.
+
+```rust
+pub trait GuestInstance {
+    fn downcall(&mut self, ptr: i32, len: i32) -> Option<Result<u64, Self::Fault>>;
+}
+```
+
+## `GuestInstance::cap_trap`
+
+The cap a fault carries, if one of the invocation's caps fired.
+
+```rust
+pub trait GuestInstance {
+    fn cap_trap(fault: &Self::Fault) -> Option<Trap>;
+}
+```
+
+## `Calls`
+
+The state of the Calls open on one instance, which a Driver keeps for it.
+
+```rust
+pub struct Calls<F> {}
+```
+
+## `Calls::bind`
+
+Have a handler answer the Calls on this instance.
+
+```rust
+impl Calls {
+    pub fn bind(&mut self, handler: Arc<dyn DispatchHandler>) {}
+}
+```
+
+## `Calls::abandoned`
+
+Whether the host gave up on the invocation, which ends at the next host call.
+
+```rust
+impl Calls {
+    pub fn abandoned(&self) -> bool {}
+}
+```
+
+## `UpcallEnd`
+
+How an upcall ends an invocation instead of answering.
+
+```rust
+pub enum UpcallEnd<F> {
+    Fault(F),
+    Abandoned,
+    Unwritable(&'static str),
+}
+```
+
+## `handle`
+
+Answer one `__kobako_upcall` call, or say what ends the invocation instead.
+
+```rust
+pub fn handle<G: GuestInstance>(guest: &mut G, req_ptr: i32, req_len: i32) -> Result<i64, UpcallEnd<G::Fault>> {}
+```
+
+## `ABANDONED`
+
+The message of the trap ending an invocation its host gave up on.
+
+```rust
+pub const ABANDONED: &str = "the host abandoned the invocation";
+```
+
+## `RUNTIME_INCOMPATIBLE`
+
+The message for a required guest export that is absent or mistyped.
+
+```rust
+pub const RUNTIME_INCOMPATIBLE: &str = "the Sandbox runtime is incompatible; rebuild it against the kobako version in use";
+```
+
+## `stdin_content`
+
+What the guest reads from stdin: the Preamble behind its length prefix.
+
+```rust
+pub fn stdin_content(preamble: &[u8]) -> Result<Vec<u8>, &'static str> {}
+```
+
+## `request_of`
+
+The downcall an entry is.
+
+```rust
+pub fn request_of(entry: Entry<'_>) -> Vec<u8> {}
+```
+
+## `write_request`
+
+Write a request into a guest buffer, answering where.
+
+```rust
+pub fn write_request<G: GuestInstance>(guest: &mut G, envelope: &[u8]) -> Result<(i32, i32), InvokeError> {}
+```
+
+## `read_outcome`
+
+Read the Outcome a downcall answered with.
+
+```rust
+pub fn read_outcome<G: GuestInstance>(guest: &mut G, packed: u64) -> Result<Outcome, Trap> {}
+```
+
+## `read_compile_reply`
+
+Read the answer a compile downcall gave.
+
+```rust
+pub fn read_compile_reply<G: GuestInstance>(guest: &mut G, packed: u64) -> Result<CompileReply, Trap> {}
+```
+
+## `compiled_bytecodes`
+
+What a compile answered to replay in place of the source snippets, where it can
+be replayed.
+
+```rust
+pub fn compiled_bytecodes(preamble: &Preamble, reply: CompileReply) -> Option<Vec<Vec<u8>>> {}
+```
+
+## `pipe_capacity`
+
+The size of a capture pipe, one byte past its cap.
+
+```rust
+pub fn pipe_capacity(cap: Option<usize>) -> usize {}
+```
+
+## `clip_capture`
+
+A captured channel clipped back to its cap, and whether it passed it.
+
+```rust
+pub fn clip_capture(mut raw: Vec<u8>, cap: Option<usize>) -> (Vec<u8>, bool) {}
+```
+
+## `MemoryCap`
+
+The budget one invocation's memory grows against.
+
+```rust
+pub struct MemoryCap {}
+```
+
+## `MemoryCap::new`
+
+A budget of a cap, or of none.
+
+```rust
+impl MemoryCap {
+    pub fn new(max_memory: Option<usize>) -> Self {}
+}
+```
+
+## `MemoryCap::activate`
+
+Arm the cap for one invocation from the memory it starts with.
+
+```rust
+impl MemoryCap {
+    pub fn activate(&mut self, baseline: usize) {}
+}
+```
+
+## `MemoryCap::deactivate`
+
+Disarm the cap once the export returns.
+
+```rust
+impl MemoryCap {
+    pub fn deactivate(&mut self) {}
+}
+```
+
+## `MemoryCap::peak`
+
+The most the invocation's memory grew.
+
+```rust
+impl MemoryCap {
+    pub fn peak(&self) -> usize {}
+}
+```
+
+## `MemoryCap::growing`
+
+Charge a growth, refusing one past the cap.
+
+```rust
+impl MemoryCap {
+    pub fn growing(&mut self, desired: usize) -> Result<(), MemoryLimitExceeded> {}
+}
+```
+
+## `MemoryLimitExceeded`
+
+A growth past the per-invocation memory cap.
+
+```rust
+pub struct MemoryLimitExceeded {}
+```
+
+## `MemoryLimitExceeded::new`
+
+The growth to a size past a limit.
+
+```rust
+impl MemoryLimitExceeded {
+    pub fn new(desired: usize, limit: usize) -> Self {}
+}
 ```
 
 ## `Profile::guest_metadata`

@@ -9,7 +9,7 @@ use wasmtime_wasi::WasiCtxBuilder;
 use crate::ambient::{self, Clocks};
 use crate::config::Config;
 use crate::descriptors::Descriptors;
-use crate::{capture, guest_mem};
+use kobako_runtime::endpoint;
 use kobako_runtime::error::Trap;
 use std::sync::Arc;
 
@@ -17,7 +17,6 @@ use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{create_pipe_files, PipeInodeInfo};
-use kobako_transport::abi::FRAME_LEN_SIZE;
 
 /// One instance's WASI context: its descriptor table, the clocks its
 /// waits pass on, and the capture pipes stdout and stderr write into, so
@@ -82,17 +81,11 @@ impl Wasi {
         profile: Profile,
         mounts: Vec<Mount>,
     ) -> Result<Self, Trap> {
-        // The Preamble carries the same 16 MiB cap as a downcall request
-        // (`io::write_request`): past it, the length prefix would silently wrap.
-        guest_mem::checked_payload_len(preamble.len())
-            .map_err(|msg| Trap::Other(msg.to_string()))?;
+        let stdin_content =
+            endpoint::stdin_content(preamble).map_err(|msg| Trap::Other(msg.to_string()))?;
 
-        let mut stdin_content: Vec<u8> = Vec::with_capacity(FRAME_LEN_SIZE + preamble.len());
-        stdin_content.extend_from_slice(&(preamble.len() as u32).to_be_bytes());
-        stdin_content.extend_from_slice(preamble);
-
-        let stdout = PipeInodeInfo::new(capture::pipe_capacity(stdout_limit));
-        let stderr = PipeInodeInfo::new(capture::pipe_capacity(stderr_limit));
+        let stdout = PipeInodeInfo::new(endpoint::pipe_capacity(stdout_limit));
+        let stderr = PipeInodeInfo::new(endpoint::pipe_capacity(stderr_limit));
 
         // stdio lives in kobako's descriptor table, which answers every
         // call that reads a descriptor (`crate::preview1`); the builder

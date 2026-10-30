@@ -49,6 +49,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-runtime/src/vfs/dentry.rs`
 - `crates/kobako-runtime/src/vfs/file.rs`
 - `crates/kobako-runtime/src/vfs/utimes.rs`
+- `crates/kobako-runtime/src/endpoint.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/descriptors.rs`
 - `crates/kobako-wasmtime/src/cache.rs`
@@ -2081,3 +2082,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding as many descriptors as it may |
 | When | it opens a path that names nothing |
 | Then | the open answers EMFILE, as Linux reserves a descriptor first |
+
+## `RT-191` The host ABI endpoint needs nothing of an Engine
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-180` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest instance made of a plain buffer, with no Engine behind it |
+| When | the endpoint writes a request and answers an upcall through it |
+| Then | the request lands in its memory, and the Reply is written back for it to read |

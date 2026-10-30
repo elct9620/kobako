@@ -61,8 +61,8 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/parity/test_seal.rb`
 - `test/parity/test_flags.rb`
 - `test/unit/values/test_capture.rb`
-- `crates/kobako-wasmtime/src/capture.rs`
-- `crates/kobako-wasmtime/src/limiter.rs`
+- `crates/kobako-runtime/src/endpoint/capture.rs`
+- `crates/kobako-runtime/src/endpoint/memory_cap.rs`
 - `crates/kobako-wasmtime/src/trap.rs`
 - `crates/kobako/src/sandbox.rs`
 - `crates/kobako/src/snippet.rs`

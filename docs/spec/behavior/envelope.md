@@ -36,8 +36,8 @@ These rules let every other undefined value be a refusal. The extension point is
 
 - `crates/kobako-transport/src/abi.rs`
 - `crates/kobako-transport/src/envelope/*.rs`
-- `crates/kobako-wasmtime/src/guest_mem.rs`
-- `crates/kobako-wasmtime/src/driver.rs`
+- `crates/kobako-runtime/src/endpoint/buffer.rs`
+- `crates/kobako-runtime/src/endpoint/invoke.rs`
 - `wasm/kobako-core/src/preamble.rs`
 - `crates/kobako/src/snippet.rs`
 - `crates/kobako/src/catalog.rs`
