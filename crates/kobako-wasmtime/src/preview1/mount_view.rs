@@ -1187,7 +1187,7 @@ fn a_policy_cannot_widen_a_mounts_access() {
             guest.call("write_file", FILE),
             contents(&host(&tmpfs), "file.txt")
         ),
-        (69, None),
+        (ERRNO_ROFS, None),
         "a write a Policy allows beneath a read-only Mount through preview1 must answer EROFS \
          and leave nothing behind"
     );
@@ -1419,12 +1419,7 @@ fn stat_link(
     let answers = stats
         .iter()
         .map(|&(path, flags)| {
-            let errno = guest
-                .instance
-                .get_typed_func::<(i32, i32, i32), i32>(&mut guest.store, "stat_flagged")
-                .expect("probe export must resolve")
-                .call(&mut guest.store, (path.0, path.1, flags))
-                .expect("probe call must not trap");
+            let errno = guest.stat_flagged(path, flags);
             let memory = guest
                 .instance
                 .get_memory(&mut guest.store, "memory")
@@ -1452,12 +1447,7 @@ fn a_guest_sees_a_fifo_as_of_an_unknown_type_and_cannot_open_it() {
     assert!(made.success(), "the FIFO must be made");
     let directory = Bind::new(&host).expect("the host directory must open");
     let mut guest = Guest::new(&[grant(Arc::new(directory), Access::Read, None)]);
-    let stat = guest
-        .instance
-        .get_typed_func::<(i32, i32, i32), i32>(&mut guest.store, "stat_flagged")
-        .expect("probe export must resolve")
-        .call(&mut guest.store, (FILE.0, FILE.1, 0))
-        .expect("probe call must not trap");
+    let stat = guest.stat_flagged(FILE, 0);
     let filestat = guest
         .instance
         .get_memory(&mut guest.store, "memory")
