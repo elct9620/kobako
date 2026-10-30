@@ -16,7 +16,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{
-    DirEntry, File, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
+    OpenOptions,
 };
 use kobako_runtime::vfs::{Dentry, Inode};
 
@@ -214,7 +215,7 @@ impl RubyFilesystem {
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Result<Box<dyn File>, FilesystemError> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let path = dentry.path_raw();
         ask(
             self.object,
@@ -222,7 +223,7 @@ impl RubyFilesystem {
             FilesystemError::Unsupported,
             |ruby, fs| {
                 let file: Value = fs.funcall("open", (path, to_flags(ruby, options)?))?;
-                Ok(Box::new(RubyFile::pin(ruby, file)) as Box<dyn File>)
+                Ok(Box::new(RubyFile::pin(ruby, file)) as Box<dyn FileOperations>)
             },
         )
     }
@@ -287,7 +288,7 @@ impl InodeOperations for RubyFilesystem {
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         Some(self.open_at(dentry, options))
     }
 
@@ -295,7 +296,7 @@ impl InodeOperations for RubyFilesystem {
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn File>, FilesystemError>> {
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         Some(self.open_at(dentry, options))
     }
 
@@ -360,14 +361,14 @@ impl RubyFile {
 
     /// Ask the file to close, a file lacking `close` having nothing to
     /// release.
-    fn release(&mut self) -> Result<(), FilesystemError> {
+    fn close(&mut self) -> Result<(), FilesystemError> {
         self.closed = true;
         change_if_answered(self.file.get(), "close")
     }
 }
 
-impl File for RubyFile {
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
+impl FileOperations for RubyFile {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError> {
         ask(
             self.file.get(),
             "pread",
@@ -388,7 +389,7 @@ impl File for RubyFile {
         )
     }
 
-    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
+    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError> {
         ask(
             self.file.get(),
             "pwrite",
@@ -424,7 +425,7 @@ impl File for RubyFile {
         })
     }
 
-    fn metadata(&self) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self) -> Result<Metadata, FilesystemError> {
         ask(
             self.file.get(),
             "size",
@@ -433,7 +434,7 @@ impl File for RubyFile {
         )
     }
 
-    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError> {
+    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
         change(
             self.file.get(),
             "truncate",
@@ -443,12 +444,12 @@ impl File for RubyFile {
     }
 
     /// A file lacking `fsync` has nothing of its own to flush.
-    fn sync(&mut self) -> Result<(), FilesystemError> {
+    fn fsync(&mut self) -> Result<(), FilesystemError> {
         change_if_answered(self.file.get(), "fsync")
     }
 
-    fn close(mut self: Box<Self>) -> Result<(), FilesystemError> {
-        self.release()
+    fn release(mut self: Box<Self>) -> Result<(), FilesystemError> {
+        self.close()
     }
 }
 
@@ -456,7 +457,7 @@ impl File for RubyFile {
 impl Drop for RubyFile {
     fn drop(&mut self) {
         if !self.closed {
-            let _ = self.release();
+            let _ = self.close();
         }
     }
 }
