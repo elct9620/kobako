@@ -7,11 +7,8 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use bytes::Bytes;
-use kobako_runtime::filesystem::{FileType, Metadata};
+use kobako_runtime::filesystem::{FileOperations, FileType, Metadata};
 use kobako_runtime::vfs::File;
-use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
-use wasmtime_wasi::p2::{InputStream, OutputStream, StreamError};
 
 use super::args::{
     self, FDFLAGS_APPEND, FDFLAGS_NONBLOCK, FDFLAGS_SYNCHRONIZED, RIGHTS_FD_READ, RIGHTS_FD_WRITE,
@@ -74,10 +71,6 @@ const PREOPEN_INHERITING: u64 = PREOPEN_RIGHTS
     | RIGHTS_FD_ALLOCATE
     | RIGHTS_FD_FILESTAT_SET_SIZE
     | RIGHTS_POLL_FD_READWRITE;
-
-/// The most bytes one write moves into a capture pipe at a time, the
-/// preview2 `blocking-write-and-flush` limit wasmtime-wasi writes under.
-const WRITE_CHUNK: usize = 4096;
 
 /// The size of one `dirent` header ahead of its name.
 const DIRENT_SIZE: u32 = 24;
@@ -429,13 +422,8 @@ pub(crate) fn read(
 ) -> Answer {
     let (ptr, len) = mem.first_non_empty_buffer(iovs.0, iovs.1)?;
     let read = match descriptor_mut(table, fd)? {
-        Descriptor::Stdin(pipe) => {
-            // Bounded before stdin is drained, so a trap takes no bytes.
-            mem.bytes(ptr, len)?;
-            let bytes = read_stdin(pipe, len as usize)?;
-            mem.write(ptr, &bytes)?;
-            bytes.len()
-        }
+        // Bounded before stdin is drained, so a trap takes no bytes.
+        Descriptor::Stdin(pipe) => pipe.read(mem.bytes_mut(ptr, len)?, 0)?,
         Descriptor::File(file) => {
             // Bounded before the access is checked, as wasmtime-wasi bounds
             // it before the host refuses the read.
@@ -564,7 +552,7 @@ pub(crate) fn write(
 ) -> Answer {
     let (ptr, len) = mem.first_non_empty_buffer(ciovs.0, ciovs.1)?;
     let written = match descriptor_mut(table, fd)? {
-        Descriptor::Channel(pipe) => write_channel(pipe, mem.bytes(ptr, len)?)?,
+        Descriptor::Channel(pipe) => pipe.write(mem.bytes(ptr, len)?, 0)?,
         Descriptor::File(file) => {
             // Bounded before the access is checked, as in `pwrite`.
             let buf = mem.bytes(ptr, len)?;
@@ -586,53 +574,24 @@ pub(crate) fn write(
     mem.write_u32(nwritten, written as u32)
 }
 
-/// A zero-length read of a stdin that still holds bytes is `INTR`, and one
-/// of a drained stdin reads nothing, as wasmtime-wasi's blocking read
-/// answers them.
-fn read_stdin(pipe: &mut MemoryInputPipe, len: usize) -> Answer<Vec<u8>> {
-    match pipe.read(len) {
-        Ok(bytes) if bytes.is_empty() => Err(Errno::Intr.into()),
-        Ok(bytes) => Ok(bytes.to_vec()),
-        Err(StreamError::Closed) => Ok(Vec::new()),
-        Err(_) => Err(Errno::Io.into()),
-    }
-}
-
-/// Fill the capture pipe as far as it holds. A pipe that fills before the
-/// bytes run out answers `IO`, though what fit is kept: the cap one past
-/// the configured limit is how a capture learns it was truncated.
-fn write_channel(pipe: &mut MemoryOutputPipe, bytes: &[u8]) -> Answer<usize> {
-    for chunk in bytes.chunks(WRITE_CHUNK) {
-        let mut rest = chunk;
-        while !rest.is_empty() {
-            let permit = pipe.check_write().map_err(|_| Errno::Io)?;
-            let (now, later) = rest.split_at(rest.len().min(permit));
-            pipe.write(Bytes::copy_from_slice(now))
-                .map_err(|_| Errno::Io)?;
-            rest = later;
-        }
-    }
-    Ok(bytes.len())
-}
-
 #[cfg(test)]
 mod tests {
     //! Witness that renumbering onto an open file closes it as `fd_close`
     //! does, so its Filesystem learns of the close and may refuse it.
     use std::sync::Arc;
 
+    use super::renumber;
+    use crate::descriptors::{Descriptor, Descriptors};
+    use crate::preview1::errno::{Errno, Failure};
     use kobako_runtime::filesystem::{
         Access, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
         OpenOptions,
     };
     use kobako_runtime::mount::Mount;
     use kobako_runtime::profile::Profile;
-    use kobako_runtime::vfs::{self, Dentry, Filesystem, Inode, OpenHow, Path};
-    use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
-
-    use super::renumber;
-    use crate::descriptors::{Descriptor, Descriptors};
-    use crate::preview1::errno::{Errno, Failure};
+    use kobako_runtime::vfs::{
+        self, Dentry, Filesystem, Inode, OpenHow, Path, PipeReader, PipeWriter,
+    };
 
     /// A file whose Filesystem refuses to release it.
     struct RefusesClose;
@@ -685,9 +644,9 @@ mod tests {
     #[test]
     fn renumbering_onto_an_open_file_closes_it_first() {
         let mut table = Descriptors::new(
-            MemoryInputPipe::new(Vec::new()),
-            MemoryOutputPipe::new(1),
-            MemoryOutputPipe::new(1),
+            PipeReader::new(Vec::new()),
+            PipeWriter::new(1),
+            PipeWriter::new(1),
             Vec::new(),
             None,
             Profile::Hermetic,

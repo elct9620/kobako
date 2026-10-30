@@ -16,6 +16,7 @@ pub(crate) mod kern_path;
 mod namei;
 mod openat2;
 mod path;
+mod pipe;
 mod rwsem;
 mod seqlock;
 mod stat;
@@ -40,6 +41,7 @@ pub use namei::{
 };
 pub use openat2::OpenHow;
 pub use path::Path;
+pub use pipe::{PipeReader, PipeWriter};
 pub use rwsem::Blocking;
 pub use stat::{do_readlinkat, vfs_fstatat};
 pub use utimes::do_utimes;

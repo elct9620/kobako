@@ -4,7 +4,6 @@
 //! invocation was handed.
 
 use wasmtime_wasi::p1::WasiP1Ctx;
-use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::WasiCtxBuilder;
 
 use crate::ambient::{self, Clocks};
@@ -15,6 +14,7 @@ use kobako_runtime::error::Trap;
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
+use kobako_runtime::vfs::{PipeReader, PipeWriter};
 use kobako_transport::abi::FRAME_LEN_SIZE;
 
 /// One instance's WASI context: its descriptor table, the clocks its
@@ -24,8 +24,8 @@ pub(crate) struct Wasi {
     ctx: WasiP1Ctx,
     descriptors: Descriptors,
     clocks: Clocks,
-    stdout: MemoryOutputPipe,
-    stderr: MemoryOutputPipe,
+    stdout: PipeWriter,
+    stderr: PipeWriter,
 }
 
 impl Wasi {
@@ -89,14 +89,14 @@ impl Wasi {
         stdin_content.extend_from_slice(&(preamble.len() as u32).to_be_bytes());
         stdin_content.extend_from_slice(preamble);
 
-        let stdout = MemoryOutputPipe::new(capture::pipe_capacity(stdout_limit));
-        let stderr = MemoryOutputPipe::new(capture::pipe_capacity(stderr_limit));
+        let stdout = PipeWriter::new(capture::pipe_capacity(stdout_limit));
+        let stderr = PipeWriter::new(capture::pipe_capacity(stderr_limit));
 
         // stdio lives in kobako's descriptor table, which answers every
         // call that reads a descriptor (`crate::preview1`); the builder
         // keeps only what the remaining imports read.
         let descriptors = Descriptors::new(
-            MemoryInputPipe::new(stdin_content),
+            PipeReader::new(stdin_content),
             stdout.clone(),
             stderr.clone(),
             mounts,
@@ -153,11 +153,11 @@ impl Wasi {
     }
 
     pub(crate) fn stdout_bytes(&self) -> Vec<u8> {
-        self.stdout.contents().to_vec()
+        self.stdout.contents()
     }
 
     pub(crate) fn stderr_bytes(&self) -> Vec<u8> {
-        self.stderr.contents().to_vec()
+        self.stderr.contents()
     }
 }
 

@@ -11,15 +11,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use kobako_runtime::filesystem::FilesystemError;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::File;
-use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
+use kobako_runtime::vfs::{File, PipeReader, PipeWriter};
 
 /// What one descriptor stands for.
 pub(crate) enum Descriptor {
     /// Descriptor 0, carrying the Preamble.
-    Stdin(MemoryInputPipe),
+    Stdin(PipeReader),
     /// Descriptor 1 or 2, a capture pipe the guest writes a Channel into.
-    Channel(MemoryOutputPipe),
+    Channel(PipeWriter),
     /// A directory beneath a Mount; a preopen is the Mount's own root.
     Directory(OpenDirectory),
     File(File),
@@ -43,9 +42,9 @@ impl Descriptors {
     /// `RLIMIT_NOFILE` counts every one it holds. Each Mount is seen as an
     /// invocation running under `profile` sees it.
     pub(crate) fn new(
-        stdin: MemoryInputPipe,
-        stdout: MemoryOutputPipe,
-        stderr: MemoryOutputPipe,
+        stdin: PipeReader,
+        stdout: PipeWriter,
+        stderr: PipeWriter,
         mounts: Vec<Mount>,
         limit: Option<usize>,
         profile: Profile,

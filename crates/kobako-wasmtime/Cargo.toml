@@ -52,14 +52,10 @@ wasmtime = { version = "50.0.0", default-features = false, features = [
     "wat",
 ] }
 # wasmtime-wasi answers the preview1 calls that read no descriptor
-# (args, environ, clocks, random) and supplies the memory pipes the
-# capture channels write into; kobako answers every call that reads its
-# own descriptor table. `p1` is the only feature kobako asks for; it
+# (args, environ, clocks, random); kobako answers every call that reads
+# its own descriptor table. `p1` is the only feature kobako asks for; it
 # enables `p2` itself, while `p0` and `p3` stay off.
 wasmtime-wasi = { version = "50.0.0", default-features = false, features = ["p1"] }
-# bytes is the buffer type wasmtime-wasi's stream traits take, for the
-# capture pipes kobako's own preview1 imports write into.
-bytes = "1.11"
 # sha2 keys the on-disk compiled-module cache by Guest Binary content
 # (see cache.rs); a collision would load the wrong artifact, so the
 # hash must be cryptographic.
