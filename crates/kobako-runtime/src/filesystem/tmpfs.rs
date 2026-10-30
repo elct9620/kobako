@@ -9,8 +9,8 @@ use std::time::SystemTime;
 
 use super::path::{ancestors, name, normalize_seed};
 use super::{
-    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
-    OpenOptions,
+    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup,
+    Metadata, OpenOptions,
 };
 use crate::vfs::{Dentry, Identity, Inode};
 use whiteout::Whiteout;
@@ -540,19 +540,8 @@ impl InodeOperations for Tmpfs {
         Some(Ok(Lookup::Found(Inode::new(&metadata, ops))))
     }
 
-    /// A Tmpfs handed to more than one Filesystem instance changes through
-    /// each, behind the others' dentries, so a dentry recording an identity
-    /// is valid only while that entry stands at its name here, as NFS
-    /// compares the handle a fresh lookup finds. One recording none has
-    /// nothing to compare.
-    fn d_revalidate(&self, dentry: &Dentry) -> Option<Result<bool, FilesystemError>> {
-        let Some(identity) = dentry.d_inode().and_then(|inode| inode.identity()) else {
-            return Some(Ok(true));
-        };
-        Some(Ok(match self.dir.get(&dentry.name()) {
-            Ok(node) => Identity::of(&self.node_metadata(&node)) == Some(identity),
-            Err(_) => false,
-        }))
+    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
+        Some(Arc::new(TmpfsDentry))
     }
 
     fn create(
@@ -619,6 +608,31 @@ impl FileOperations for TmpfsDir {
 }
 
 /// A file of a Tmpfs.
+/// A Tmpfs handed to more than one Filesystem instance changes through each,
+/// behind the others' dentries, so a dentry recording an identity is valid
+/// only while that entry stands at its name here, as NFS compares the handle
+/// a fresh lookup finds. One recording none has nothing to compare.
+pub(super) struct TmpfsDentry;
+
+impl DentryOperations for TmpfsDentry {
+    fn revalidate(
+        &self,
+        dir: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Result<bool, FilesystemError> {
+        let Some(identity) = dentry.d_inode().and_then(|inode| inode.identity()) else {
+            return Ok(true);
+        };
+        let Some(dir) = (dir as &dyn Any).downcast_ref::<Tmpfs>() else {
+            return Ok(true);
+        };
+        Ok(match dir.dir.get(&dentry.name()) {
+            Ok(node) => Identity::of(&dir.node_metadata(&node)) == Some(identity),
+            Err(_) => false,
+        })
+    }
+}
+
 struct TmpfsRegular {
     data: Arc<Mutex<Content>>,
 }

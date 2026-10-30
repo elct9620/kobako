@@ -93,10 +93,9 @@ impl Path {
         if dentries.d_unlinked(&self.dentry) || !told_apart {
             return Err(FilesystemError::NotFound.into());
         }
-        // No `d_revalidate` means a name stays valid, as Linux's d_op does.
-        if filesystem.root().d_revalidate(&self.dentry).is_none() {
+        let Some(ops) = self.dentry.ops() else {
             return Ok(());
-        }
+        };
         let mut above = Vec::new();
         let mut at = Some(parent);
         while let Some(next) = at {
@@ -122,7 +121,7 @@ impl Path {
                 _ => return Err(FilesystemError::NotFound.into()),
             };
         }
-        if dir.d_revalidate(&self.dentry).unwrap_or(Ok(true))? {
+        if ops.revalidate(dir.as_ref(), &self.dentry)? {
             return Ok(());
         }
         dentries.d_invalidate(&self.dentry);

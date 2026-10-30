@@ -18,8 +18,8 @@ use std::any::Any;
 use std::sync::Arc;
 
 use super::{
-    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
-    OpenOptions, Tmpfs,
+    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup,
+    Metadata, OpenOptions, Tmpfs,
 };
 use crate::vfs::{Blocking, Dentry, Filesystem, Inode};
 use stack::OverlayFs;
@@ -144,11 +144,32 @@ impl Overlay {
     }
 }
 
+/// A name stays valid while every Layer's dentry for it does, as
+/// `ovl_dentry_revalidate` asks each real dentry. Layers hold such a dentry
+/// only for what the view keeps open.
+impl DentryOperations for Overlay {
+    fn revalidate(
+        &self,
+        _dir: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Result<bool, FilesystemError> {
+        let name = dentry.name();
+        for layer in self.fs.parent(dentry)?.level().iter().flatten() {
+            if !layer.revalidate_real(&name)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+}
+
 /// Every entry of the view answers through the Overlay, finding what a call
-/// is about through the dentry it is handed. A change made to a Layer
-/// outside the Overlay is undefined, as overlayfs leaves it, so a name the
-/// runtime holds stays valid and it has no `d_revalidate`.
+/// is about through the dentry it is handed.
 impl InodeOperations for Overlay {
+    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
+        Some(Arc::new(self.clone()))
+    }
+
     /// A directory reports its merged Layers; any other entry the Layer its
     /// name is found in.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {

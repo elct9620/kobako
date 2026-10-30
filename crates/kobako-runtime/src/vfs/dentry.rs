@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use super::inode::Inode;
 use super::rwsem::RwSemaphore;
 use super::seqlock::SeqLock;
+use crate::filesystem::DentryOperations;
 use crate::hashtable::Hashtable;
 
 /// Every move of a dentry, as Linux's `rename_lock`, so a walk up its
@@ -31,6 +32,9 @@ pub struct Dentry {
     /// What the Filesystem keeps on the name, set once, as Linux's
     /// `d_fsdata` holds a filesystem's own state for a dentry.
     d_fsdata: OnceLock<Arc<dyn Any + Send + Sync>>,
+    /// What answers about this name, as `d_alloc` copies `s_d_op` from the
+    /// super block.
+    ops: Option<Arc<dyn DentryOperations>>,
 }
 
 struct State {
@@ -46,7 +50,11 @@ struct State {
 }
 
 impl Dentry {
-    fn new(parent: Option<Arc<Dentry>>, name: &str) -> Arc<Self> {
+    fn new(
+        parent: Option<Arc<Dentry>>,
+        name: &str,
+        ops: Option<Arc<dyn DentryOperations>>,
+    ) -> Arc<Self> {
         Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 parent,
@@ -57,7 +65,14 @@ impl Dentry {
             rwsem: RwSemaphore::default(),
             this: this.clone(),
             d_fsdata: OnceLock::new(),
+            ops,
         })
+    }
+
+    /// What answers about this name, the same for every dentry of one
+    /// Filesystem.
+    pub fn ops(&self) -> Option<&Arc<dyn DentryOperations>> {
+        self.ops.as_ref()
     }
 
     /// The directory above, `None` for the root, as Linux's `dget_parent`
@@ -163,6 +178,7 @@ impl Dentry {
 /// above it and its name there.
 pub(crate) struct Dentries {
     root: Arc<Dentry>,
+    ops: Option<Arc<dyn DentryOperations>>,
     /// The directories held, by the directory above and the name there, as
     /// Linux's `dentry_hashtable` keeps them.
     hashtable: Mutex<Hashtable<(usize, String), Dentry>>,
@@ -172,16 +188,15 @@ fn key(parent: &Arc<Dentry>, name: &str) -> (usize, String) {
     (Arc::as_ptr(parent) as usize, name.to_string())
 }
 
-impl Default for Dentries {
-    fn default() -> Self {
+impl Dentries {
+    pub(crate) fn new(ops: Option<Arc<dyn DentryOperations>>) -> Self {
         Self {
-            root: Dentry::new(None, ""),
+            root: Dentry::new(None, "", ops.clone()),
+            ops,
             hashtable: Mutex::default(),
         }
     }
-}
 
-impl Dentries {
     fn hashtable(&self) -> MutexGuard<'_, Hashtable<(usize, String), Dentry>> {
         self.hashtable
             .lock()
@@ -196,7 +211,7 @@ impl Dentries {
     /// dentry for it, as `d_alloc` makes one.
     pub(crate) fn child(&self, parent: &Arc<Dentry>, name: &str) -> Arc<Dentry> {
         self.hashtable().get_or_insert_with(key(parent, name), || {
-            Dentry::new(Some(parent.clone()), name)
+            Dentry::new(Some(parent.clone()), name, self.ops.clone())
         })
     }
 
@@ -411,7 +426,7 @@ mod tests {
             Metadata::new(FileType::Directory, 0).with_identity(1, 2),
             Metadata::new(FileType::Directory, 0).with_identity(1, 3),
         );
-        let dentries = Dentries::default();
+        let dentries = Dentries::new(None);
         let dentry = dentries.child(&dentries.root(), "dir");
         dentry.d_add(None);
         dentry.d_add(Some(Inode::new(&first, ops.clone())));
@@ -475,7 +490,7 @@ mod tests {
 
     #[test]
     fn an_exchange_swaps_two_dentries_and_kills_neither() {
-        let dentries = super::Dentries::default();
+        let dentries = super::Dentries::new(None);
         let root = dentries.root();
         let a = dentries.child(&root, "a");
         let b = dentries.child(&dentries.child(&root, "d"), "b");
@@ -510,7 +525,7 @@ mod tests {
         #[test]
         #[ignore = "a stress witness; run by rake crates:stress"]
         fn a_path_asked_while_directories_above_it_move_names_one_that_stood() {
-            let dentries = Arc::new(Dentries::default());
+            let dentries = Arc::new(Dentries::new(None));
             let root = dentries.root();
             let (x, y) = (dentries.child(&root, "x"), dentries.child(&root, "y"));
             let leaf = dentries.child(&dentries.child(&x, "b"), "leaf");

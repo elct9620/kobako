@@ -31,7 +31,7 @@ impl Filesystem {
     /// The instance `root` answers for, each call waiting for a
     /// directory's lock through `blocking`.
     pub fn with_blocking(root: Arc<dyn InodeOperations>, blocking: Arc<dyn Blocking>) -> Arc<Self> {
-        let dentries = Dentries::default();
+        let dentries = Dentries::new(root.dentry_ops());
         dentries.root().d_add(Some(Inode::root(root.clone())));
         Arc::new(Self {
             root,

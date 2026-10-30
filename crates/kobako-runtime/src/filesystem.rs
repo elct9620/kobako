@@ -17,6 +17,7 @@ pub(crate) mod wrap;
 
 use std::any::Any;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 pub use crate::vfs::Blocking;
@@ -74,11 +75,10 @@ pub trait InodeOperations: Any + Send + Sync {
         None
     }
 
-    /// Whether `dentry`, a name in this directory the runtime still holds,
-    /// names what it recorded, as `d_revalidate` answers; `false` has the
-    /// runtime drop it and take the name afresh. A Filesystem changed only
-    /// through the runtime need not have it, as Linux's need no `d_op`.
-    fn d_revalidate(&self, _dentry: &Dentry) -> Option<Result<bool, FilesystemError>> {
+    /// What every dentry of this Filesystem answers through, asked of its
+    /// root once, as a driver's `fill_super` calls `set_default_d_op`. A
+    /// Filesystem changed only through the runtime need not have one.
+    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
         None
     }
 
@@ -143,6 +143,20 @@ pub trait InodeOperations: Any + Send + Sync {
     ) -> Option<Result<(), FilesystemError>> {
         None
     }
+}
+
+/// What a Filesystem answers about a name rather than an entry, as Linux's
+/// `dentry_operations`: a name may stand for nothing, so no inode can answer
+/// for it.
+pub trait DentryOperations: Send + Sync {
+    /// Whether `dentry`, a name the runtime still holds in `dir`, names what
+    /// it recorded, as `d_revalidate` answers; `false` has the runtime drop
+    /// it and take the name afresh.
+    fn revalidate(
+        &self,
+        dir: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Result<bool, FilesystemError>;
 }
 
 /// One open file. The runtime keeps its position, so every read and write

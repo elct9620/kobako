@@ -11,8 +11,8 @@ use kobako_runtime::filesystem::Access;
 #[cfg(unix)]
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::{
-    FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
-    Overlay, Tmpfs,
+    DentryOperations, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
+    OpenOptions, Overlay, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Mount, Policy};
@@ -954,11 +954,7 @@ impl Hook for ReusesInodes {
         }))
     }
 
-    fn d_revalidate(
-        &self,
-        _inner: &dyn InodeOperations,
-        _dentry: &Dentry,
-    ) -> Option<Result<bool, FilesystemError>> {
+    fn dentry_ops(&self, _inner: &dyn InodeOperations) -> Option<Arc<dyn DentryOperations>> {
         None
     }
 

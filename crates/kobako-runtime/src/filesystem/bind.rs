@@ -21,8 +21,8 @@ use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
 use super::{
-    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
-    OpenOptions,
+    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup,
+    Metadata, OpenOptions,
 };
 use crate::vfs::{Dentry, Identity, Inode};
 
@@ -111,7 +111,7 @@ impl Bind {
 
     /// What stands at the name `dentry` carries, spelled as the host spells
     /// it, as a lookup hands `d_splice_alias` the inode it found, so
-    /// `d_revalidate` can tell a dentry the host replaced behind the
+    /// `revalidate` can tell a dentry the host replaced behind the
     /// runtime's back. That costs one host stat a name.
     fn lookup_at(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         self.at(dentry, |dir, name| {
@@ -132,7 +132,7 @@ impl Bind {
 
     /// Whether the entry `dentry` recorded still stands where the dentry
     /// does, walked to from the root by the names it stands at.
-    fn revalidate(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
+    fn stands_as_recorded(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
         let Some(identity) = dentry.d_inode().and_then(|inode| inode.identity()) else {
             return Ok(true);
         };
@@ -345,6 +345,20 @@ fn open_in(
     }))
 }
 
+/// The host may move or remake what a dentry names behind the runtime's
+/// back, so a dentry recording an identity is valid only while the same
+/// entry stands at the path it stands for, as NFS compares the handle a
+/// fresh lookup finds. One recording none has nothing to compare.
+impl DentryOperations for Bind {
+    fn revalidate(
+        &self,
+        _dir: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Result<bool, FilesystemError> {
+        self.stands_as_recorded(dentry)
+    }
+}
+
 impl InodeOperations for Bind {
     /// A directory answers from its own descriptor, which follows it
     /// wherever it moves and keeps its inode taken while it is open; any
@@ -367,12 +381,8 @@ impl InodeOperations for Bind {
         Some(self.lookup_at(dentry))
     }
 
-    /// The host may move or remake what a dentry names behind the runtime's
-    /// back, so a dentry recording an identity is valid only while the same
-    /// entry stands at the path it stands for, as NFS compares the handle a
-    /// fresh lookup finds. One recording none has nothing to compare.
-    fn d_revalidate(&self, dentry: &Dentry) -> Option<Result<bool, FilesystemError>> {
-        Some(self.revalidate(dentry))
+    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
+        Some(Arc::new(self.clone()))
     }
 
     /// A target that is no valid UTF-8 answers `IllegalSequence`, as a
@@ -648,6 +658,53 @@ mod tests {
             Some(vfs::Error::Filesystem(FilesystemError::NotFound)),
             "vfs::do_file_open beneath a Bind Mount with a Policy, through a directory the host moved \
              beneath a refused path while a descriptor beneath it was held, must answer NotFound"
+        );
+    }
+
+    // The guest's descriptor of `a` keeps the Overlay's dentry and the
+    // Bind's, whose host directory the host then moved aside; only the
+    // Overlay asking the Bind's dentry drops its own for the `a` remade there.
+    // @behavior FS-139
+    #[cfg(unix)]
+    #[test]
+    fn an_overlay_takes_afresh_a_name_its_bind_layer_no_longer_holds() {
+        use crate::filesystem::{Access, Overlay, Tmpfs};
+        use crate::mount::Mount;
+        use crate::profile::Profile;
+        use crate::vfs::{self, Filesystem, OpenHow};
+        let host = HostDir::new("overlay-replaced");
+        fs::create_dir(host.0.join("a")).expect("the host directory must be made");
+        let lower = Filesystem::new(Arc::new(
+            Bind::new(&host.0).expect("the host directory must open"),
+        ));
+        let upper = Filesystem::new(Arc::new(Tmpfs::new()));
+        let overlay = Overlay::new(vec![lower], Some(upper)).expect("the Overlay must stack");
+        let mount = Mount::new("/data", Filesystem::new(Arc::new(overlay)), Access::Read)
+            .expect("/data is a guest path");
+        let root = vfs::Path::root(mount, Profile::Permissive);
+        let directory = OpenHow {
+            directory: true,
+            ..OpenHow::default()
+        };
+        let Ok(_held) = vfs::do_file_open(&root, "a", &directory, true) else {
+            panic!("a must open");
+        };
+        fs::rename(host.0.join("a"), host.0.join("aside")).expect("the host must move a");
+        fs::create_dir(host.0.join("a")).expect("the host must remake a");
+        fs::write(host.0.join("a/f"), "new").expect("the host file must be written");
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let Ok(mut file) = vfs::do_file_open(&root, "a/f", &read, true) else {
+            panic!("a/f must open through the directory the host remade");
+        };
+        let mut buf = [0; 3];
+        assert_eq!(
+            (file.f_op().read(&mut buf, 0), &buf),
+            (Ok(3), b"new"),
+            "vfs::do_file_open through an Overlay over a Bind whose host replaced a directory \
+             a descriptor holds must read the file standing there now"
         );
     }
 

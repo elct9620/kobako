@@ -3,9 +3,13 @@
 //! wrapped too, as a Filesystem wrapping another must.
 
 use std::any::Any;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
-use super::{FileOperations, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions};
+use super::{
+    DentryOperations, FileOperations, FilesystemError, InodeOperations, Lookup, Metadata,
+    OpenOptions,
+};
 use crate::vfs::Dentry;
 
 /// What a test changes of the Filesystem beneath it.
@@ -24,14 +28,6 @@ pub(crate) trait Hook: Send + Sync + 'static {
         dentry: &Dentry,
     ) -> Option<Result<Lookup, FilesystemError>> {
         inner.lookup(dentry)
-    }
-
-    fn d_revalidate(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Option<Result<bool, FilesystemError>> {
-        inner.d_revalidate(dentry)
     }
 
     fn open(
@@ -99,6 +95,25 @@ impl<H: Hook> Wrap<H> {
     }
 }
 
+/// `ops`, handed the directory a `Wrap<H>` wraps.
+struct WrapDentry<H> {
+    ops: Arc<dyn DentryOperations>,
+    hook: PhantomData<H>,
+}
+
+impl<H: Hook> DentryOperations for WrapDentry<H> {
+    fn revalidate(
+        &self,
+        dir: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Result<bool, FilesystemError> {
+        let dir = (dir as &dyn Any)
+            .downcast_ref::<Wrap<H>>()
+            .map_or(dir, |wrap| wrap.inner.as_ref());
+        self.ops.revalidate(dir, dentry)
+    }
+}
+
 impl<H: Hook> InodeOperations for Wrap<H> {
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         self.hook.getattr(self.inner.as_ref(), dentry)
@@ -115,8 +130,12 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         }))
     }
 
-    fn d_revalidate(&self, dentry: &Dentry) -> Option<Result<bool, FilesystemError>> {
-        self.hook.d_revalidate(self.inner.as_ref(), dentry)
+    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
+        let ops = self.inner.dentry_ops()?;
+        Some(Arc::new(WrapDentry::<H> {
+            ops,
+            hook: PhantomData,
+        }))
     }
 
     fn open(

@@ -191,7 +191,11 @@ pub(crate) fn lookup_one(
 ) -> Result<Arc<Dentry>, FilesystemError> {
     let dentries = filesystem.dentries();
     if let Some(held) = dentries.d_lookup(parent, name) {
-        if inode.d_revalidate(&held).unwrap_or(Ok(true))? {
+        let valid = match held.ops() {
+            Some(ops) => ops.revalidate(inode, &held)?,
+            None => true,
+        };
+        if valid {
             return Ok(held);
         }
         dentries.d_invalidate(&held);
@@ -1121,8 +1125,8 @@ mod tests {
     use std::time::Duration;
 
     use crate::filesystem::{
-        Access, DirEntry, FileOperations, FilesystemError, InodeOperations, Lookup, Metadata,
-        OpenOptions, Tmpfs,
+        Access, DentryOperations, DirEntry, FileOperations, FilesystemError, InodeOperations,
+        Lookup, Metadata, OpenOptions, Tmpfs,
     };
     use crate::mount::{Mount, Policy};
     use crate::profile::Profile;
@@ -1142,7 +1146,20 @@ mod tests {
         removed: Option<Hook>,
         making: Option<Hook>,
         renames: AtomicUsize,
-        stale: AtomicBool,
+        stale: Arc<AtomicBool>,
+    }
+
+    /// Every held dentry stale once its flag is set, and valid until then.
+    struct HookedDentry(Arc<AtomicBool>);
+
+    impl DentryOperations for HookedDentry {
+        fn revalidate(
+            &self,
+            _dir: &dyn InodeOperations,
+            _dentry: &Dentry,
+        ) -> Result<bool, FilesystemError> {
+            Ok(!self.0.load(Ordering::SeqCst))
+        }
     }
 
     impl InodeOperations for HookedTmpfs {
@@ -1154,11 +1171,8 @@ mod tests {
             self.tmpfs.lookup(dentry)
         }
 
-        fn d_revalidate(&self, dentry: &Dentry) -> Option<Result<bool, FilesystemError>> {
-            if self.stale.load(Ordering::SeqCst) {
-                return Some(Ok(false));
-            }
-            self.tmpfs.d_revalidate(dentry)
+        fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
+            Some(Arc::new(HookedDentry(self.stale.clone())))
         }
 
         fn create(
@@ -1360,7 +1374,7 @@ mod tests {
         vfs::filename_rmdir(&root, "d").expect("the directory must go");
         assert!(
             !held.dentry().is_dead(),
-            "vfs::filename_rmdir of a name whose held dentry InodeOperations::d_revalidate answers stale must \
+            "vfs::filename_rmdir of a name whose held dentry DentryOperations::revalidate answers stale must \
              leave that dentry alive"
         );
     }

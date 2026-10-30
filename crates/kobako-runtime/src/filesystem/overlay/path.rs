@@ -50,6 +50,16 @@ impl OverlayPath {
         lookup_one(&self.filesystem, self.dir.as_ref(), &self.dentry, name)
     }
 
+    /// Whether the dentry this Layer holds for `name`, if it holds one, still
+    /// names what it recorded, as `ovl_revalidate_real` asks the real dentry.
+    pub(super) fn revalidate_real(&self, name: &str) -> Result<bool, FilesystemError> {
+        let held = self.filesystem.dentries().d_lookup(&self.dentry, name);
+        match held.as_ref().and_then(|held| Some((held, held.ops()?))) {
+            Some((held, ops)) => ops.revalidate(self.dir.as_ref(), held),
+            None => Ok(true),
+        }
+    }
+
     /// The dentry of `name` as this directory stores it, what stands there
     /// recorded on it. The caller holds this directory's lock.
     fn looked_up(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
