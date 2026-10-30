@@ -768,7 +768,7 @@ directory and a link before it asks.
 
 ```rust
 pub trait InodeOperations {
-    fn open(&self, _dentry: &Dentry, _options: &OpenOptions) -> Option<Result<Box<dyn File>, FilesystemError>>;
+    fn open(&self, _dentry: &Dentry, _options: &OpenOptions) -> Option<Result<Box<dyn FileOperations>, FilesystemError>>;
 }
 ```
 
@@ -779,7 +779,7 @@ it answers permission denied.
 
 ```rust
 pub trait InodeOperations {
-    fn create(&self, _dentry: &Dentry, _options: &OpenOptions) -> Option<Result<Box<dyn File>, FilesystemError>>;
+    fn create(&self, _dentry: &Dentry, _options: &OpenOptions) -> Option<Result<Box<dyn FileOperations>, FilesystemError>>;
 }
 ```
 
@@ -849,85 +849,85 @@ stored under another spelling.
 pub enum Lookup {}
 ```
 
-## `File`
+## `FileOperations`
 
-One open file. The engine keeps its position, so each read and write names its
-offset.
+What one open file answers, as Linux's `file_operations`. The runtime keeps its
+position, so each read and write names its offset.
 
 ```rust
-pub trait File {}
+pub trait FileOperations {}
 ```
 
-## `File::read_at`
+## `FileOperations::read`
 
 Read from an offset into the buffer, answering how much was read.
 
 ```rust
-pub trait File {
-    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError>;
+pub trait FileOperations {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, FilesystemError>;
 }
 ```
 
-## `File::write_at`
+## `FileOperations::write`
 
 Write the buffer at an offset, answering how much was written.
 
 ```rust
-pub trait File {
-    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError>;
+pub trait FileOperations {
+    fn write(&mut self, buf: &[u8], offset: u64) -> Result<usize, FilesystemError>;
 }
 ```
 
-## `File::append`
+## `FileOperations::append`
 
 Write the buffer at the file's end as it stands when the write lands. It
 answers the offset it landed at and how much was written. A file that cannot
 take both steps as one answers `Unsupported`.
 
 ```rust
-pub trait File {
+pub trait FileOperations {
     fn append(&mut self, buf: &[u8]) -> Result<(u64, usize), FilesystemError>;
 }
 ```
 
-## `File::metadata`
+## `FileOperations::getattr`
 
-What the open file is, and its length.
+What the open file is, and its length, even once its name is gone.
 
 ```rust
-pub trait File {
-    fn metadata(&self) -> Result<Metadata, FilesystemError>;
+pub trait FileOperations {
+    fn getattr(&self) -> Result<Metadata, FilesystemError>;
 }
 ```
 
-## `File::set_len`
+## `FileOperations::truncate`
 
 Truncate or extend the file, extending with zeros.
 
 ```rust
-pub trait File {
-    fn set_len(&mut self, len: u64) -> Result<(), FilesystemError>;
+pub trait FileOperations {
+    fn truncate(&mut self, len: u64) -> Result<(), FilesystemError>;
 }
 ```
 
-## `File::sync`
+## `FileOperations::fsync`
 
 Make what was written durable. The default has nothing to flush.
 
 ```rust
-pub trait File {
-    fn sync(&mut self) -> Result<(), FilesystemError>;
+pub trait FileOperations {
+    fn fsync(&mut self) -> Result<(), FilesystemError>;
 }
 ```
 
-## `File::close`
+## `FileOperations::release`
 
 Release the file once the guest closes it, answering whether what it held was
 kept. The default has nothing to release.
 
 ```rust
-pub trait File {
-    fn close(self: Box<Self>) -> Result<(), FilesystemError>;
+pub trait FileOperations {
+    fn release(self: Box<Self>) -> Result<(), FilesystemError>;
 }
 ```
 
