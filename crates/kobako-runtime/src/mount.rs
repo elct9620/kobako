@@ -23,8 +23,6 @@ pub trait Policy: Send + Sync {
 #[derive(Clone)]
 pub struct Mount {
     at: String,
-    access: Access,
-    filesystem: Arc<Filesystem>,
     policy: Option<Arc<dyn Policy>>,
     mnt: Arc<VfsMount>,
 }
@@ -69,9 +67,7 @@ impl Mount {
         }
         Ok(Self {
             at,
-            access,
-            mnt: VfsMount::new(filesystem.clone(), access == Access::Read),
-            filesystem,
+            mnt: VfsMount::new(filesystem, access == Access::Read),
             policy: None,
         })
     }
@@ -102,12 +98,6 @@ impl Mount {
 
     /// The Filesystem instance this Mount places.
     pub fn filesystem(&self) -> &Arc<Filesystem> {
-        &self.filesystem
-    }
-
-    /// Whether a change beneath this Mount may be allowed at all. A Policy is
-    /// not asked, and can only refuse more.
-    pub fn allows_writes(&self) -> bool {
-        self.access == Access::ReadWrite
+        self.mnt.filesystem()
     }
 }
