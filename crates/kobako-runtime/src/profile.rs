@@ -10,7 +10,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::filesystem::Metadata;
+use crate::filesystem::{FileType, Metadata};
 use crate::vfs::Identity;
 
 /// The ordered isolation ladder a runtime builds one rung of.
@@ -54,13 +54,17 @@ impl Profile {
         }
     }
 
-    /// `metadata` as a guest on this posture sees it. A Filesystem records
-    /// the host's real time whatever the invocation writing to it runs
-    /// under, so one shared across invocations keeps one record; a hermetic
-    /// guest sees every time at the Unix epoch, where its wall clock stands,
-    /// so a time a write left behind is no clock it can read.
-    pub fn mask_times(self, metadata: Metadata) -> Metadata {
-        match self {
+    /// `metadata` as a guest on this posture sees it, whichever ABI a Driver
+    /// encodes it into. A Filesystem records the host's real time whatever
+    /// the invocation writing to it runs under, so one shared across
+    /// invocations keeps one record; a hermetic guest sees every time at the
+    /// Unix epoch, where its wall clock stands, so a time a write left behind
+    /// is no clock it can read. A link reports no size, so nothing of where it
+    /// points reaches the guest, and an entry is told apart only by what
+    /// `guest_ino` answers.
+    pub fn guest_metadata(self, metadata: Metadata) -> Metadata {
+        let ino = self.guest_ino(Identity::of(&metadata));
+        let masked = match self {
             Self::Permissive => metadata,
             Self::Hermetic => {
                 let epoch = |time: Option<SystemTime>| time.map(|_| UNIX_EPOCH);
@@ -70,6 +74,13 @@ impl Profile {
                     epoch(metadata.changed),
                 )
             }
+        };
+        Metadata {
+            len: match masked.file_type {
+                FileType::Symlink => 0,
+                _ => masked.len,
+            },
+            ..masked.with_identity(0, ino)
         }
     }
 }
@@ -77,6 +88,36 @@ impl Profile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The Driver only encodes this, so another Driver shows the same, and a
+    // guest reads a link's size and a time here or nowhere.
+    // @behavior RT-173 RT-183
+    #[test]
+    fn a_guest_sees_no_size_for_a_link_and_only_what_its_posture_allows() {
+        let reported = Metadata::new(FileType::Symlink, 42)
+            .with_identity(7, 9)
+            .with_times(Some(SystemTime::now()), None, None);
+        let (hermetic, permissive) = (
+            Profile::Hermetic.guest_metadata(reported),
+            Profile::Permissive.guest_metadata(reported),
+        );
+        assert_eq!(
+            (
+                hermetic.len,
+                permissive.len,
+                hermetic.ino,
+                hermetic.accessed
+            ),
+            (0, 0, 0, Some(UNIX_EPOCH)),
+            "Profile::guest_metadata of a link must report no size on any posture, and at the \
+             hermetic rung no inode number and every time at the Unix epoch"
+        );
+        assert!(
+            permissive.ino != 0 && permissive.ino != 9 && permissive.accessed == reported.accessed,
+            "Profile::guest_metadata at the permissive rung must hash the inode number and keep \
+             the time"
+        );
+    }
 
     // @behavior RT-014
     #[test]

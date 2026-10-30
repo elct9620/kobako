@@ -1578,8 +1578,8 @@ fn a_stat_following_no_link_reports_the_link_itself() {
     );
 }
 
-// A host link reports the length of where it points, so only the Wasm
-// Driver keeps that length from the guest.
+// A host link reports the length of where it points, so only what the runtime
+// shows a guest keeps that length from it.
 // @behavior RT-173
 #[cfg(unix)]
 #[test]

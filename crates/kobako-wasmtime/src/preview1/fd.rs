@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{FileType, Iattr, Metadata, SetTime};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{self, DirContext, DirEmit, File, Identity, Whence};
+use kobako_runtime::vfs::{self, DirContext, DirEmit, File, Whence};
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
@@ -96,21 +96,16 @@ fn to_filetype(file_type: FileType) -> Filetype {
 }
 
 /// A `filestat` for what a Filesystem reports a path names, as the guest
-/// holding `table` sees it: named once where it keeps no count of names, at
-/// time zero where it keeps no time, and with no size for a link, so
-/// nothing of where it points reaches the guest.
+/// holding `table` sees it: named once where it keeps no count of names, and
+/// at time zero where it keeps no time.
 pub(crate) fn filestat(table: &Descriptors, metadata: Metadata) -> types::Filestat {
-    let ino = table.profile().guest_ino(Identity::of(&metadata));
-    let metadata = table.profile().mask_times(metadata);
+    let metadata = table.profile().guest_metadata(metadata);
     types::Filestat {
-        dev: 0,
-        ino,
+        dev: metadata.dev,
+        ino: metadata.ino,
         filetype: to_filetype(metadata.file_type),
         nlink: metadata.nlink.unwrap_or(1),
-        size: match metadata.file_type {
-            FileType::Symlink => 0,
-            _ => metadata.len,
-        },
+        size: metadata.len,
         atim: timestamp(metadata.accessed),
         mtim: timestamp(metadata.modified),
         ctim: timestamp(metadata.changed),

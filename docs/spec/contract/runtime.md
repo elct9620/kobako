@@ -208,14 +208,14 @@ against it.
 pub enum Profile {}
 ```
 
-## `Profile::mask_times`
+## `Profile::guest_metadata`
 
-What a Filesystem reports, as a Guest on one posture sees it. A Driver shows
-no time the posture denies.
+What a Filesystem reports, as a Guest on one posture sees it, whichever ABI a
+Driver encodes it into. A Driver shows only this.
 
 ```rust
 impl Profile {
-    pub fn mask_times(self, metadata: Metadata) -> Metadata {}
+    pub fn guest_metadata(self, metadata: Metadata) -> Metadata {}
 }
 ```
 
