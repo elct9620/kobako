@@ -11,8 +11,8 @@ use crate::vfs::{Filesystem, VfsMount};
 
 pub use crate::vfs::Denial;
 
-/// The Host App's decision for one path a guest opens or changes, made in
-/// a Mount's access's place.
+/// The Host App's decision for one path a guest opens or changes, made after
+/// a Mount's access allows it, so it can only refuse more.
 pub trait Policy: Send + Sync {
     /// Whether the guest may reach `path`, the absolute guest path, with
     /// `access`.
@@ -77,11 +77,10 @@ impl Mount {
         })
     }
 
-    /// This Mount with `policy` deciding each open and each change in its
-    /// access's place.
+    /// This Mount with `policy` also judging each open and each change its
+    /// access allows; it can only refuse more, as an LSM can.
     pub fn with_policy(self, policy: Arc<dyn Policy>) -> Self {
         Self {
-            mnt: VfsMount::new(self.filesystem.clone(), false),
             policy: Some(policy),
             ..self
         }
@@ -107,10 +106,9 @@ impl Mount {
         &self.filesystem
     }
 
-    /// Whether a change beneath this Mount may be allowed at all: it was made
-    /// to be written, or a Policy decides each change in its access's place.
-    /// The Policy itself is not asked.
+    /// Whether a change beneath this Mount may be allowed at all. A Policy is
+    /// not asked, and can only refuse more.
     pub fn allows_writes(&self) -> bool {
-        self.policy.is_some() || self.access == Access::ReadWrite
+        self.access == Access::ReadWrite
     }
 }

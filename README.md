@@ -207,7 +207,7 @@ sandbox.eval('File.write("/tmp/scratch", "x")') { |ctx| ctx.mount("/tmp", Kobako
 
 Every invocation reaches the same Filesystem, so the last line starts empty with a Tmpfs of its own.
 
-A block decides each open and each change that reaches the Mount in the access's place, asked at most once for each. A falsy answer or a `StandardError` fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run. A mount may sit inside another, and the guest reaches the innermost one.
+A block judges each open and each change the access allows, asked at most once for each, and can only refuse more. A falsy answer or a `StandardError` fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run. A mount may sit inside another, and the guest reaches the innermost one.
 
 #### Tmpfs Bounds
 

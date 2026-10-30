@@ -52,7 +52,7 @@ fn to_access(access: Value) -> Result<Access, MagnusError> {
     }
 }
 
-/// A mount's block, asked in its access's place. A block raising a
+/// A mount's block, asked what its access allows. A block raising a
 /// StandardError refuses, so the guest's open fails and its script goes
 /// on; anything else it raises is held for the host.
 struct RubyPolicy {

@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# E2E — a rename beneath a Sandbox#mount, reached through the real Guest
-# Binary's File.
+# E2E — a rename, and a change a block cannot allow, beneath a Sandbox#mount,
+# reached through the real Guest Binary's File.
 class TestE2EMountRename < Minitest::Test
   include E2eGuestHelper
 
@@ -46,6 +46,20 @@ class TestE2EMountRename < Minitest::Test
     assert_equal [:refused, true, false], sandbox.eval(script).value,
                  "File.rename from a Sandbox#mount into the one it is nested in must raise Errno::EXDEV " \
                  "and leave the file where it was"
+  end
+
+  # A block is asked only for what the access allows, so one answering truthy
+  # for everything is never asked about the change.
+  # @behavior MT-028
+  def test_a_block_cannot_make_a_read_only_mount_writable
+    asked = []
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                             .mount("/data", Kobako::Filesystem::Tmpfs.new) { |_path, access| asked << access }
+    answer = sandbox.eval('begin; File.write("/data/new", "x"); rescue Errno::EROFS; :refused; end').value
+
+    assert_equal [:refused, []], [answer, asked],
+                 "File.write through a read-only Sandbox#mount with a block answering truthy must raise " \
+                 "Errno::EROFS without asking the block about the change"
   end
 
   # Without a block the move judges no path the block could have refused.

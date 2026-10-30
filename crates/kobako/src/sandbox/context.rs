@@ -58,7 +58,7 @@ impl Context<'_> {
         self.replace_mount(Mount::new(at, filesystem, access)?)
     }
 
-    /// `mount` with a `policy` deciding in the access's place, as
+    /// `mount`, read-write, with a `policy` judging each call, as
     /// `Sandbox::mount_with_policy` takes it.
     pub fn mount_with_policy(
         &mut self,

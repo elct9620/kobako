@@ -85,9 +85,9 @@ module Kobako
     # +:read_write+; a write beneath a read-only mount fails as
     # <tt>Errno::EROFS</tt> in the guest. Returns +self+.
     #
-    # A given block decides, in +access+'s place, each open and each change
-    # that reaches the mount, asked at most once for each with the guest path
-    # and +:read+ or +:read_write+. A falsy answer,
+    # A given block judges each open and each change +access+ allows, asked at
+    # most once for each with the guest path and +:read+ or +:read_write+, and
+    # can only refuse more. A falsy answer,
     # or a StandardError, fails that call as <tt>Errno::EACCES</tt> in the
     # guest and leaves the script running.
     #

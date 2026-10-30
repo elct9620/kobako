@@ -203,9 +203,9 @@ impl Sandbox {
         self.register_mount(Mount::new(at, filesystem, access)?)
     }
 
-    /// `mount` with a `policy` deciding each open and each change in the
-    /// access's place; a refusal fails that call as `Errno::EACCES` in the
-    /// guest and leaves the script running.
+    /// `mount`, read-write, with a `policy` judging each open and each change;
+    /// a refusal fails that call as `Errno::EACCES` in the guest and leaves the
+    /// script running.
     pub fn mount_with_policy(
         &mut self,
         at: &str,

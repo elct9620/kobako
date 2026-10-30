@@ -1130,15 +1130,18 @@ fn a_policy_refusing_an_open_answers_access_denied() {
 
 // @behavior RT-081
 #[test]
-fn a_policy_decides_in_the_place_of_a_mounts_access() {
+fn a_policy_cannot_widen_a_mounts_access() {
     let tmpfs = Arc::new(Tmpfs::new());
     let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
     let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::Read, Some(policy))]);
-    assert_eq!(guest.call("write_file", FILE), 0, "the write must succeed");
     assert_eq!(
-        contents(&host(&tmpfs), "file.txt").as_deref(),
-        Some(&b"hello"[..]),
-        "a write a Policy allows beneath a read-only Mount through preview1 must land"
+        (
+            guest.call("write_file", FILE),
+            contents(&host(&tmpfs), "file.txt")
+        ),
+        (69, None),
+        "a write a Policy allows beneath a read-only Mount through preview1 must answer EROFS \
+         and leave nothing behind"
     );
 }
 
@@ -2012,7 +2015,7 @@ impl Policy for RecordsAsks {
 }
 
 // The Mount is made read-only, as a Ruby mount with a block is by default,
-// so only the Policy standing in its access's place lets either through.
+// so only a Mount allowing writes lets either through.
 // Each Policy is asked only by the open before the call, so a wait or a size
 // asking it as well adds an ask the literal lists below do not hold.
 // @behavior RT-139
@@ -2022,7 +2025,7 @@ fn a_mount_whose_policy_decides_may_be_written() {
         let policy = Arc::new(RecordsAsks::default());
         let errno = Guest::new(&[grant(
             file_and_directory(),
-            Access::Read,
+            Access::ReadWrite,
             Some(policy.clone() as Arc<dyn Policy>),
         )])
         .call_at(name, rights);
@@ -2038,7 +2041,7 @@ fn a_mount_whose_policy_decides_may_be_written() {
             (0, vec![("/data/file.txt".to_owned(), Access::Read)]),
             (0, vec![("/data/file.txt".to_owned(), Access::ReadWrite)]),
         ),
-        "through preview1 beneath a read-only Mount whose Policy allows every change, \
+        "through preview1 beneath a read-write Mount whose Policy allows every change, \
          poll_oneoff waiting to write a file opened only to read must be ready, and \
          fd_filestat_set_size on a file opened to write must size it, the Policy asked \
          only by each open"
@@ -2054,7 +2057,7 @@ fn a_policy_is_asked_once_for_an_open_that_may_create_as_what_it_does() {
         let policy = Arc::new(RecordsAsks::default());
         let errno = Guest::new(&[grant(
             file_and_directory(),
-            Access::Read,
+            Access::ReadWrite,
             Some(policy.clone() as Arc<dyn Policy>),
         )])
         .call_flagged(path, OFLAGS_CREAT, 0);

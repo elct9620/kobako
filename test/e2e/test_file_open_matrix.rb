@@ -91,7 +91,8 @@ class TestE2EFileOpenMatrix < Minitest::Test
 
   # @behavior FL-034
   def test_a_block_allowing_every_change_answers_as_cruby_does
-    assert_equal as_bind(READ_WRITE, block: true), up_to_refusal(answers(directory) { |_path, _access| true }),
+    assert_equal as_bind(READ_WRITE, block: true),
+                 up_to_refusal(answers(directory, access: :read_write) { |_path, _access| true }),
                  "File.open beneath a Sandbox#mount block allowing every change must answer as CRuby does " \
                  "over a read-write Linux directory, but for the rules its host imposes"
   end
@@ -101,7 +102,7 @@ class TestE2EFileOpenMatrix < Minitest::Test
   # @behavior FL-034
   def test_a_block_allowing_only_reads_refuses_each_change_as_eacces
     assert_equal as_bind(READ_ONLY.map { |line| line.gsub("EROFS", "EACCES") }, block: true),
-                 answers(directory) { |_path, access| access == :read },
+                 answers(directory, access: :read_write) { |_path, access| access == :read },
                  "File.open beneath a Sandbox#mount block allowing only reads must answer EACCES where CRuby " \
                  "over a read-only Linux directory answers EROFS"
   end
