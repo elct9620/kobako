@@ -909,7 +909,7 @@ mod tests {
                 read_all(&tmpfs, "file")
             ),
             (Err(FilesystemError::StorageFull), b"x".to_vec()),
-            "a write growing a Tmpfs's files past its limit through TmpfsFile::write must \
+            "a write growing a Tmpfs's files past its limit through TmpfsFile::write_iter must \
              answer StorageFull and leave the file as it was"
         );
     }
@@ -924,7 +924,7 @@ mod tests {
                 read_all(&tmpfs, "file")
             ),
             (Ok(0), Vec::new()),
-            "an empty write past the end through TmpfsFile::write must answer 0 and leave \
+            "an empty write past the end through TmpfsFile::write_iter must answer 0 and leave \
              the file empty"
         );
     }
@@ -992,7 +992,7 @@ mod tests {
                 Err(FilesystemError::StorageFull),
                 b"x".to_vec()
             ),
-            "a length no allocator can hand out through TmpfsFile::truncate and write_at must \
+            "a length no allocator can hand out through TmpfsRegular::setattr and TmpfsFile::write_iter must \
              answer StorageFull rather than abort"
         );
     }

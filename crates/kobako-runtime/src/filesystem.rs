@@ -2,8 +2,8 @@
 //! guest makes beneath that Mount's path.
 //!
 //! A runtime owns the descriptors and path resolution, and the Mount
-//! decides access; an `Inode` only answers for the files and directories
-//! themselves, so a third party brings one without implementing any of
+//! decides access; `InodeOperations` only answer for the files and directories
+//! themselves, so a third party brings them without implementing any of
 //! that. A runtime asks a directory about one name at a time, carried by
 //! the `Dentry` the VFS made for it, as Linux hands a filesystem's
 //! `inode_operations` a dentry: never `.`, `..`, or a name holding `/`.

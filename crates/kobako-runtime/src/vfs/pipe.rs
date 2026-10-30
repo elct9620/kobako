@@ -13,7 +13,6 @@ use super::openat2::OpenHow;
 use super::path::Path;
 use crate::filesystem::{
     Access, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Metadata,
-    OpenOptions,
 };
 use crate::mount::Mount;
 use crate::profile::Profile;
@@ -38,14 +37,6 @@ struct PipeFs;
 impl InodeOperations for PipeFs {
     fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         Ok(Metadata::new(FileType::Unknown, 0))
-    }
-
-    fn open(
-        &self,
-        _dentry: &Dentry,
-        _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        None
     }
 }
 

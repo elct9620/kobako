@@ -91,7 +91,7 @@ mod tests {
                 times(&file.getattr().expect("the open file must report")),
             ),
             (epoch, epoch),
-            "vfs::vfs_fstatat of a written file, and FileOperations::getattr of it opened through vfs::do_file_open, \
+            "vfs::vfs_fstatat of a written file, and File::getattr of it opened through vfs::do_file_open, \
              beneath a Path on the strongest posture must report each time as the Unix epoch"
         );
     }

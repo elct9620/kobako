@@ -1399,7 +1399,7 @@ mod tests {
                 written.iter().filter(|&&b| b == b'b').count()
             ),
             (10_000, 10_000),
-            "two handles appending to one host file through a Bind's FileOperations::append must each \
+            "two handles appending to one host file through a Bind's FileOperations::write_iter must each \
              keep every byte"
         );
     }
