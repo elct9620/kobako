@@ -40,9 +40,15 @@ module TestPaths
 
   # Remove +dir+ once nothing mounts it. A Bind holds the directories it
   # opened until its Filesystem is collected, and Windows refuses to remove
-  # a directory still open, so the collector runs first.
-  def remove_host_directory(dir)
+  # a directory still open, so the collector runs first. One collection need
+  # not reach it, as Ruby's collector keeps whatever the machine stack still
+  # appears to point at, so a refusal asks again a few times.
+  def remove_host_directory(dir, attempts: 5)
     GC.start
     FileUtils.remove_entry(dir)
+  rescue Errno::EACCES
+    attempts -= 1
+    retry if attempts.positive?
+    raise
   end
 end
