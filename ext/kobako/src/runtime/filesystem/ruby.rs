@@ -55,11 +55,12 @@ impl RubyFilesystem {
             FilesystemError::Unsupported,
             |_, fs| {
                 let stat: Value = fs.funcall("stat", (path,))?;
-                let metadata = if stat.funcall::<_, _, bool>("directory?", ())? {
-                    Metadata::new(FileType::Directory, 0)
+                let file_type = if stat.funcall::<_, _, bool>("directory?", ())? {
+                    FileType::Directory
                 } else {
-                    Metadata::new(FileType::File, stat.funcall("size", ())?)
+                    FileType::File
                 };
+                let metadata = Metadata::new(file_type, stat.funcall("size", ())?);
                 // A stat names its identity as `File::Stat` does; without a
                 // `dev` the Filesystem stands for a device of its own, so it
                 // shares an identity with no other Filesystem.

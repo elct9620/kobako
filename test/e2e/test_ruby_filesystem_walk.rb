@@ -28,7 +28,7 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
 
     def stat(path)
       @asked << path
-      return Stat.new(directory: true, size: 0, ino: 1) if ["", "a", "a/b", "a/b/c"].include?(path)
+      return Stat.new(directory: true, size: 7, ino: 1) if ["", "a", "a/b", "a/b/c"].include?(path)
       raise Errno::ENOENT, path unless path == "a/b/c/note.txt"
 
       Stat.new(directory: false, size: 4, ino: 2)
@@ -47,5 +47,16 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
     assert_equal ["a/b/c/note.txt"], filesystem.asked,
                  "a file three directories deep read through Sandbox#mount of a Ruby Filesystem must ask its stat " \
                  "about the file alone"
+  end
+
+  # @behavior RF-026
+  def test_a_directory_reports_the_size_its_stat_answers
+    size = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                          .mount("/data", DeepFilesystem.new, access: :read)
+                          .eval('File.size("/data/a/b")').value
+
+    assert_equal 7, size,
+                 "File.size of a directory a Ruby Filesystem holds, mounted by Sandbox#mount, must answer the " \
+                 "size its stat answers"
   end
 end
