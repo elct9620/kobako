@@ -755,7 +755,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest opens that path |
 | Then | the open answers that access is denied |
 
-## `RT-081` A Policy decides in the place of a Mount's access
+## `RT-081` A Policy cannot widen a Mount's access
 
 | Attribute | Value |
 | --- | --- |
@@ -765,7 +765,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | an invocation handed a read-only Mount whose Policy allows writing |
 | When | the guest creates and writes a file beneath it |
-| Then | the Filesystem holds that file with what was written |
+| Then | the call answers EROFS, and the Filesystem holds nothing |
 
 ## `RT-082` Every invocation reaches the Filesystem its Mount holds
 

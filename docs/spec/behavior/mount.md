@@ -12,7 +12,7 @@ each invocation ─ Grants ─> runtime ─ preopen ─> guest File
 
 A mount is a registration, so it is refused once the Sandbox is sealed. A path means one mount, as Docker refuses a duplicate mount point. A mount may sit inside another, and the guest reaches the innermost one. A Context replaces a mount but never adds one.
 
-A mount's block decides in the access's place, at most once per open or change. Its refusal reaches the guest as a denied call and leaves the run going. A block raising a StandardError refuses the same way. Anything else it raises belongs to the host.
+A mount's block judges what the access allows, at most once per open or change. Its refusal reaches the guest as a denied call and leaves the run going. A block raising a StandardError refuses the same way. Anything else it raises belongs to the host.
 
 ```
 block answers truthy        -> the call proceeds
@@ -331,3 +331,15 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Sandbox with a writable Tmpfs at `/data`, and another nested at `/data/inner` |
 | When | the script renames `/data/inner/note` to `/data/note` |
 | Then | it raises `Errno::EXDEV`, and the note stays where it was |
+
+## `MT-028` A mount's block cannot make a read-only mount writable
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-081` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose read-only mount has a block answering truthy for everything |
+| When | the script writes a file beneath it |
+| Then | it raises `Errno::EROFS`, and the block is not asked about the change |

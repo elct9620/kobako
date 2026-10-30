@@ -312,7 +312,7 @@ One of the two streams guest code writes to: output and error. Each is captured 
 
 ### Mount
 
-The Grant placing a Filesystem at a guest path. It allows reading, or reading and writing, and a Policy may decide in that access's place. The Mount decides, so the Filesystem behind it need not.
+The Grant placing a Filesystem at a guest path. It allows reading, or reading and writing, and a Policy may refuse more of that. The Mount decides, so the Filesystem behind it need not.
 
 ```
 Mount -> at a guest path, read or read-write, or a Policy -> a Filesystem
@@ -320,7 +320,7 @@ Mount -> at a guest path, read or read-write, or a Policy -> a Filesystem
 
 ### Policy
 
-The Host App's decision on each path a guest opens or changes beneath a Mount. It decides in the Mount's access's place. It judges the guest's path as the Filesystem spells it, so a directory beneath it does not move. In Ruby it is the block a mount is given.
+The Host App's decision on each path a guest opens or changes beneath a Mount. It is asked after the Mount's access allows the call, and can only refuse more. It judges the guest's path as the Filesystem spells it, so a directory beneath it does not move. In Ruby it is the block a mount is given.
 
 ```
 open or change at a path ─> Policy ─┬─ allows -> the call proceeds

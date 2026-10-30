@@ -282,7 +282,7 @@ pub struct MountPathError {}
 
 ## `Mount::with_policy`
 
-Let a Policy decide each open and each change in the access's place.
+Let a Policy also judge each open and each change the access allows.
 
 ```rust
 impl Mount {
@@ -1129,8 +1129,8 @@ pub enum Access {}
 
 ## `Policy`
 
-The Host App's decision for each path the Guest opens or changes, made in a
-Mount's access's place.
+The Host App's decision for each path the Guest opens or changes, made after a
+Mount's access allows it.
 
 ```rust
 pub trait Policy {}

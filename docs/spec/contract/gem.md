@@ -49,7 +49,7 @@ end
 
 ## `Kobako::Sandbox#mount`
 
-Mount a Filesystem at a guest path, its block deciding in the access's place.
+Mount a Filesystem at a guest path, its block refusing what the access allows.
 
 ```ruby
 module Kobako
