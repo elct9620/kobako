@@ -1424,7 +1424,7 @@ mod tests {
             .expect("the remover must not panic")
             .expect("the removal must succeed");
         assert_eq!(
-            vfs::filename_mkdirat(&Arc::default(),&dir, "inner"),
+            vfs::filename_mkdirat(&Arc::default(), &dir, "inner"),
             Ok(()),
             "vfs::filename_mkdirat through a directory vfs::filename_mkdirat made while vfs::filename_rmdir \
              removed the one in its place must make into the directory made"
@@ -1514,7 +1514,7 @@ mod tests {
             .expect("the directory beneath it must be made");
         assert_eq!(
             (
-                vfs::filename_renameat2(&Arc::default(),&root, "a", &root, "a/b/a"),
+                vfs::filename_renameat2(&Arc::default(), &root, "a", &root, "a/b/a"),
                 hooked.renames.load(Ordering::SeqCst)
             ),
             (
@@ -1547,7 +1547,7 @@ mod tests {
         let path = root_of(Filesystem::new(Arc::new(hooked)));
         root.set(path.clone()).ok();
         assert_eq!(
-            vfs::filename_mkdirat(&Arc::default(),&path, "made"),
+            vfs::filename_mkdirat(&Arc::default(), &path, "made"),
             Err(vfs::Error::Filesystem(FilesystemError::Deadlock)),
             "vfs::filename_mkdirat called by a Filesystem's own create_dir on the directory the outer \
              vfs::filename_mkdirat holds must answer Deadlock"

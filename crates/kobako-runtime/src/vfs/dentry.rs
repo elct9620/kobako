@@ -461,7 +461,7 @@ mod tests {
             .expect("an entry must be made in it");
         assert_eq!(
             (
-                vfs::filename_mkdirat(&Arc::default(),&dir, "made"),
+                vfs::filename_mkdirat(&Arc::default(), &dir, "made"),
                 File::directory(dir.clone(), Arc::default())
                     .expect("the directory must open")
                     .iterate_dir(),
@@ -490,7 +490,7 @@ mod tests {
         vfs::filename_mkdirat(&Arc::default(), &second, "dir")
             .expect("another directory must be made");
         assert_eq!(
-            vfs::filename_mkdirat(&Arc::default(),&dir, "made"),
+            vfs::filename_mkdirat(&Arc::default(), &dir, "made"),
             Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
             "vfs::filename_mkdirat through a directory opened beneath one Mount, once vfs::filename_rmdir \
              removed it beneath another Mount of the same Filesystem, must answer NotFound"

@@ -1210,7 +1210,7 @@ mod tests {
             (
                 removed,
                 *interleave.finished_inside.lock().unwrap(),
-                crate::vfs::vfs_fstatat(&Arc::default(),&root, "dir/new", false).is_ok()
+                crate::vfs::vfs_fstatat(&Arc::default(), &root, "dir/new", false).is_ok()
             ),
             (true, Some(false), false),
             "a create through vfs::do_file_open into an Overlay directory vfs::filename_rmdir is removing must \
