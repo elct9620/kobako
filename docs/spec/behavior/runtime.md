@@ -899,7 +899,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an invocation handed a read-write Mount |
-| When | the guest opens a path as a directory while asking to create, or opens a file as one |
+| When | the guest opens a directory while asking to create, or opens a file as one |
 | Then | the first answers EINVAL, and the second ENOTDIR, and nothing is made |
 
 ## `RT-093` A rename of a file onto a path ending in a slash is not a directory
@@ -1350,7 +1350,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an invocation holding a file open beneath a Mount |
-| When | the guest advises on a length past the largest signed 64-bit offset, or from past it |
+| When | the guest advises on a length past the largest offset, or from past it |
 | Then | the first advice answers EINVAL, and the second succeeds, as Linux does |
 
 ## `RT-131` A lone wait on a CPU-time clock is invalid
@@ -1960,8 +1960,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a file opened beneath a Mount through the runtime, with no Driver in front of it |
-| When | a caller reads or writes it against its mode, or past the largest signed 64-bit offset |
+| Given | a file opened beneath a Mount, with no Driver in front of it |
+| When | a caller reads or writes it against its mode, or past the largest offset |
 | Then | the first answers EBADF and the second EINVAL, and the Filesystem is not asked |
 
 ## `RT-181` An allocation refuses in Linux's order
@@ -2057,7 +2057,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a Mount whose Filesystem makes no links |
-| When | a guest links a missing name, or links or symlinks onto a name, or onto a free one |
+| When | a guest links a missing name, or links to a taken or a free name |
 | Then | the calls answer ENOENT, EEXIST, and EPERM, and nothing is made |
 
 ## `RT-189` A new descriptor takes the lowest closed number
@@ -2094,7 +2094,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a guest instance made of a plain buffer, with no Engine behind it |
 | When | the endpoint writes a request and answers an upcall through it |
-| Then | the request lands in its memory, and the Reply is written back for it to read |
+| Then | the request lands in its memory, and the Reply is written back there |
 
 ## `RT-192` Only what kobako refuses fails wasi-testsuite
 
