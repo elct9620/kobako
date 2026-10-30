@@ -12,9 +12,9 @@
 name = "kobako"
 version = "0.19.0"
 edition = "2021"
-# The default engine's wasmtime sets the floor; the crate itself needs
-# 1.86 for the trait-upcasting `Sandbox::resolve` relies on.
-rust-version = "1.96"
+# The toolchain the default engine is built and tested on; the crate itself
+# needs 1.86 for the trait-upcasting `Sandbox::resolve` relies on.
+rust-version = "1.98"
 description = "kobako host SDK — run untrusted mruby in an in-process Wasm sandbox."
 license = "Apache-2.0"
 repository = "https://github.com/elct9620/kobako"
