@@ -63,8 +63,9 @@ pub trait InodeOperations: Any + Send + Sync {
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
 
     /// Apply `attr` to this entry, even once its name is gone and only an
-    /// open file holds it, as `ftruncate` reaches `->setattr`. An entry
-    /// without it refuses as invalid input.
+    /// open file holds it, as `ftruncate` and `utimensat` reach `->setattr`.
+    /// An entry without it refuses a size as invalid input and times as
+    /// unsupported.
     fn setattr(&self, _dentry: &Dentry, _attr: &Iattr) -> Option<Result<(), FilesystemError>> {
         None
     }
@@ -167,13 +168,37 @@ pub trait DentryOperations: Send + Sync {
 pub struct Iattr {
     /// The length to truncate or extend a file to, extending with zeros.
     pub size: Option<u64>,
+    /// The access and modification times to set.
+    pub atime: Option<SetTime>,
+    pub mtime: Option<SetTime>,
 }
 
 impl Iattr {
     /// A change truncating or extending a file to `len`.
     pub fn size(len: u64) -> Self {
-        Self { size: Some(len) }
+        Self {
+            size: Some(len),
+            atime: None,
+            mtime: None,
+        }
     }
+
+    /// A change setting the times named, leaving any other as it stands.
+    pub fn times(atime: Option<SetTime>, mtime: Option<SetTime>) -> Self {
+        Self {
+            size: None,
+            atime,
+            mtime,
+        }
+    }
+}
+
+/// A time a change sets, as Linux's `ATTR_ATIME` names the moment it lands and
+/// `ATTR_ATIME_SET` the time it carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SetTime {
+    Now,
+    At(SystemTime),
 }
 
 /// Where one read or write lands, and where the file left off once it did,

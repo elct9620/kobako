@@ -2,11 +2,12 @@
 //! resolves the path, asks the Mount, and asks the Filesystem. Links are no
 //! Filesystem's to make, so those calls are unsupported.
 
+use kobako_runtime::filesystem::Iattr;
 use kobako_runtime::vfs::{self, OpenHow};
 use wiggle::GuestPtr;
 
 use super::errno::{Answer, Errno};
-use super::fd::{check_fstflags, filestat};
+use super::fd::filestat;
 use super::memory::GuestMemory;
 use super::types;
 use crate::descriptors::{Descriptor, Descriptors};
@@ -56,12 +57,17 @@ pub(crate) fn filestat_set_times(
     table: &Descriptors,
     mem: &GuestMemory<'_, '_>,
     fd: u32,
+    flags: types::Lookupflags,
     path: GuestPtr<str>,
-    fst_flags: types::Fstflags,
+    times: Option<Iattr>,
 ) -> Answer {
-    check_fstflags(fst_flags)?;
     let dir = directory(table, fd)?;
-    Ok(vfs::do_utimes(table.cred(), dir, &mem.path(path)?)?)
+    let path = mem.path(path)?;
+    let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
+    match times {
+        Some(times) => Ok(vfs::do_utimes(table.cred(), dir, &path, follow, &times)?),
+        None => Ok(()),
+    }
 }
 
 /// A Filesystem holds no links, and answering as if one were made would

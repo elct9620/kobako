@@ -5,11 +5,11 @@
 //! directory or a file beneath a Mount, the runtime's open file holds the
 //! position and the Filesystem answers; the rights stay here.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use kobako_runtime::filesystem::{FileType, Metadata};
+use kobako_runtime::filesystem::{FileType, Iattr, Metadata, SetTime};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{DirContext, DirEmit, File, Identity, Whence};
+use kobako_runtime::vfs::{self, DirContext, DirEmit, File, Identity, Whence};
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
@@ -126,15 +126,23 @@ fn timestamp(time: Option<SystemTime>) -> u64 {
         })
 }
 
-/// Setting a timestamp and setting it to now are exclusive: asking both is
-/// `INVAL`.
-pub(crate) fn check_fstflags(flags: Fstflags) -> Answer {
-    if flags.contains(Fstflags::ATIM | Fstflags::ATIM_NOW)
-        || flags.contains(Fstflags::MTIM | Fstflags::MTIM_NOW)
-    {
-        return Err(Errno::Inval.into());
-    }
-    Ok(())
+/// The times `flags` ask to set, `None` where they ask none, as `utimensat`
+/// returns before it looks at anything. Setting a timestamp and setting it to
+/// now are exclusive: asking both is `INVAL`.
+pub(crate) fn times_asked(
+    atim: types::Timestamp,
+    mtim: types::Timestamp,
+    flags: Fstflags,
+) -> Answer<Option<Iattr>> {
+    let time = |at, set, now| match (flags.contains(set), flags.contains(now)) {
+        (true, true) => Err(Errno::Inval),
+        (true, false) => Ok(Some(SetTime::At(UNIX_EPOCH + Duration::from_nanos(at)))),
+        (false, true) => Ok(Some(SetTime::Now)),
+        (false, false) => Ok(None),
+    };
+    let atime = time(atim, Fstflags::ATIM, Fstflags::ATIM_NOW)?;
+    let mtime = time(mtim, Fstflags::MTIM, Fstflags::MTIM_NOW)?;
+    Ok((atime.is_some() || mtime.is_some()).then(|| Iattr::times(atime, mtime)))
 }
 
 pub(crate) fn advise(table: &mut Descriptors, fd: u32, offset: u64, len: u64) -> Answer {
@@ -216,12 +224,19 @@ pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> 
     Ok(file(table, fd)?.truncate(size)?)
 }
 
-/// A Filesystem keeps no timestamps of the guest's choosing, so setting
-/// them is unsupported rather than silently ignored.
-pub(crate) fn filestat_set_times(table: &Descriptors, fd: u32, flags: Fstflags) -> Answer {
-    check_fstflags(flags)?;
-    file_or_directory(table, fd)?;
-    Err(Errno::Notsup.into())
+pub(crate) fn filestat_set_times(
+    table: &Descriptors,
+    fd: u32,
+    atim: types::Timestamp,
+    mtim: types::Timestamp,
+    flags: Fstflags,
+) -> Answer {
+    let times = times_asked(atim, mtim, flags)?;
+    let file = &descriptor(table, fd)?.file;
+    match times {
+        Some(times) => Ok(vfs::vfs_utimes(table.cred(), file.path(), &times)?),
+        None => Ok(()),
+    }
 }
 
 pub(crate) fn pread(
@@ -413,8 +428,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        fdstat_get, fdstat_set_flags, filestat_set_size, renumber, seek, sync, tell, Answer, Errno,
-        Fdflags,
+        fdstat_get, fdstat_set_flags, filestat_set_size, filestat_set_times, renumber, seek, sync,
+        tell, Answer, Errno, Fdflags, Fstflags,
     };
     use crate::descriptors::{Descriptor, Descriptors};
     use crate::preview1::memory::GuestMemory;
@@ -579,6 +594,42 @@ mod tests {
             (Some(Errno::Badf), Some(Errno::Badf)),
             "fd_tell and fd_seek on a directory through preview1 must answer EBADF, as \
              wasi-testsuite requires"
+        );
+    }
+
+    // @behavior RT-186 RT-187
+    #[test]
+    fn setting_a_descriptors_times_answers_as_a_paths_do() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(HoldsRefusesClose)),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let table = Descriptors::new(
+            create_pipe_files(&PipeInodeInfo::filled(Vec::new())).0,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            vec![mount],
+            None,
+            Profile::Hermetic,
+        )
+        .unwrap_or_else(|_| panic!("the table must make"));
+        assert_eq!(
+            (
+                errno(filestat_set_times(&table, 3, 0, 0, Fstflags::MTIM)),
+                errno(filestat_set_times(&table, 3, 0, 0, Fstflags::empty())),
+                errno(filestat_set_times(
+                    &table,
+                    3,
+                    0,
+                    0,
+                    Fstflags::MTIM | Fstflags::MTIM_NOW
+                )),
+            ),
+            (Some(Errno::Rofs), None, Some(Errno::Inval)),
+            "fd_filestat_set_times beneath a read-only Mount through preview1 must answer EROFS, \
+             a call asking no time must succeed, and one asking a time and now EINVAL"
         );
     }
 

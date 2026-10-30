@@ -43,7 +43,7 @@ pub use openat2::OpenHow;
 pub use path::Path;
 pub use pipe::{create_pipe_files, PipeInodeInfo};
 pub use stat::{do_readlinkat, vfs_fstatat};
-pub use utimes::do_utimes;
+pub use utimes::{do_utimes, vfs_utimes};
 
 /// Linux's limits on a path, its terminating NUL counted, and on one name
 /// within it.

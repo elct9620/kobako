@@ -48,6 +48,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-runtime/src/vfs/namei.rs`
 - `crates/kobako-runtime/src/vfs/dentry.rs`
 - `crates/kobako-runtime/src/vfs/file.rs`
+- `crates/kobako-runtime/src/vfs/utimes.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/cache.rs`
 - `crates/kobako-wasmtime/src/abi.rs`
@@ -2019,3 +2020,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation holding a file open beneath a Mount |
 | When | the guest makes a path call starting from that descriptor |
 | Then | the call answers ENOTDIR, as Linux refuses the walk |
+
+## `RT-186` Setting times asks the Mount, then the Policy, then the entry
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-175` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an entry beneath a Mount, through a path or a descriptor alike |
+| When | a caller sets its times |
+| Then | a read-only Mount answers EROFS, a Policy EACCES, and an entry lacking `setattr` ENOTSUP |
+
+## `RT-187` A call asking no time succeeds
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-186` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an entry beneath a read-only Mount |
+| When | a caller sets its times, naming none |
+| Then | the call succeeds, as `utimensat` returns before it looks at anything |

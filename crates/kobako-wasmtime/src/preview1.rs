@@ -183,12 +183,12 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         &mut self,
         memory: &mut wiggle::GuestMemory<'_>,
         fd: types::Fd,
-        _atim: types::Timestamp,
-        _mtim: types::Timestamp,
+        atim: types::Timestamp,
+        mtim: types::Timestamp,
         fst_flags: types::Fstflags,
     ) -> Answer {
         self.answer(memory, |_, inv| {
-            fd::filestat_set_times(table(inv), fd.into(), fst_flags)
+            fd::filestat_set_times(table(inv), fd.into(), atim, mtim, fst_flags)
         })
     }
 
@@ -333,14 +333,15 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         &mut self,
         memory: &mut wiggle::GuestMemory<'_>,
         fd: types::Fd,
-        _flags: types::Lookupflags,
+        flags: types::Lookupflags,
         path: GuestPtr<str>,
-        _atim: types::Timestamp,
-        _mtim: types::Timestamp,
+        atim: types::Timestamp,
+        mtim: types::Timestamp,
         fst_flags: types::Fstflags,
     ) -> Answer {
         self.answer(memory, |mem, inv| {
-            path::filestat_set_times(table(inv), mem, fd.into(), path, fst_flags)
+            let times = fd::times_asked(atim, mtim, fst_flags)?;
+            path::filestat_set_times(table(inv), mem, fd.into(), flags, path, times)
         })
     }
 

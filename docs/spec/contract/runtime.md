@@ -1187,7 +1187,37 @@ pub fn do_readlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Strin
 Refuse setting timestamps as unsupported once the path is known to stand.
 
 ```rust
-pub fn do_utimes(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {}
+pub fn do_utimes(cred: &Arc<Cred>, start: &Path, path: &str, follow: bool, times: &Iattr) -> Result<(), Error> {}
+```
+
+## `vfs_utimes`
+
+Set times on what a Path names, as Linux's `vfs_utimes` does for a path and a
+descriptor alike. An entry without `setattr` answers unsupported.
+
+```rust
+pub fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), Error> {}
+```
+
+## `Iattr::times`
+
+A change setting the times named, leaving any other as it stands.
+
+```rust
+impl Iattr {
+    pub fn times(atime: Option<SetTime>, mtime: Option<SetTime>) -> Self {}
+}
+```
+
+## `SetTime`
+
+A time a change sets, either the moment it lands or the time it carries.
+
+```rust
+pub enum SetTime {
+    Now,
+    At(SystemTime),
+}
 ```
 
 ## `PATH_MAX`

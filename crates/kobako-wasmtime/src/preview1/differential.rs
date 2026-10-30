@@ -395,7 +395,9 @@ fn answered_as_a_linux_pipe(call: &str, fd: i32) -> Option<i32> {
         ("fd_allocate" | "fd_sync" | "fd_datasync" | "fd_filestat_set_size", 0..=2) => {
             Some(ERRNO_INVAL)
         }
-        ("fd_fdstat_set_flags" | "fd_filestat_get", 0..=2) => Some(ERRNO_SUCCESS),
+        ("fd_fdstat_set_flags" | "fd_filestat_get" | "fd_filestat_set_times", 0..=2) => {
+            Some(ERRNO_SUCCESS)
+        }
         ("fd_readdir" | "fd_readdir_far", 0..=2) => Some(ERRNO_NOTDIR),
         (
             "path_create_directory"
