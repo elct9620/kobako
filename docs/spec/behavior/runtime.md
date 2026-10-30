@@ -1776,7 +1776,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a directory is made through the runtime |
 | Then | the inner make answers EDEADLK |
 
-## `RT-166` A call waiting for a directory's lock waits through its Filesystem's Blocking
+## `RT-166` A call waiting for a directory's lock waits through the registered Blocking
 
 | Attribute | Value |
 | --- | --- |
@@ -1784,7 +1784,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Filesystem instance given a Blocking, one thread changing a directory |
+| Given | a Blocking registered, one thread changing a directory |
 | When | another thread makes a call on the same directory |
 | Then | the call waits through that Blocking, then answers |
 

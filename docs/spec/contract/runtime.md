@@ -16,6 +16,7 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/mount.rs`
 - `crates/kobako-runtime/src/profile.rs`
 - `crates/kobako-runtime/src/runtime.rs`
+- `crates/kobako-runtime/src/sched.rs`
 - `crates/kobako-runtime/src/security.rs`
 - `crates/kobako-runtime/src/snapshot.rs`
 - `crates/kobako-runtime/src/vfs.rs`
@@ -29,7 +30,6 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/vfs/openat2.rs`
 - `crates/kobako-runtime/src/vfs/path.rs`
 - `crates/kobako-runtime/src/vfs/pipe.rs`
-- `crates/kobako-runtime/src/vfs/rwsem.rs`
 - `crates/kobako-runtime/src/vfs/stat.rs`
 - `crates/kobako-runtime/src/vfs/utimes.rs`
 - `crates/kobako-runtime/src/yielder.rs`
@@ -337,17 +337,6 @@ The instance a Filesystem's root answers for.
 ```rust
 impl Filesystem {
     pub fn new(root: Arc<dyn InodeOperations>) -> Arc<Self> {}
-}
-```
-
-## `Filesystem::with_blocking`
-
-The instance a Filesystem's root answers for, each call waiting for a
-directory's lock through the given Blocking.
-
-```rust
-impl Filesystem {
-    pub fn with_blocking(root: Arc<dyn InodeOperations>, blocking: Arc<dyn Blocking>) -> Arc<Self> {}
 }
 ```
 
@@ -1662,21 +1651,19 @@ impl Overlay {
 }
 ```
 
-## `Overlay::with_blocking`
+## `register_blocking`
 
-This Overlay waiting for a copy up's lock through the given Blocking.
+Have every thread of the process wait through the given Blocking. A second
+registration is handed back.
 
 ```rust
-impl Overlay {
-    pub fn with_blocking(self, blocking: Arc<dyn Blocking>) -> Self {}
-}
+pub fn register_blocking(blocking: Box<dyn Blocking>) -> Result<(), Box<dyn Blocking>> {}
 ```
 
 ## `Blocking`
 
-How a thread waits for a lock another thread holds: a directory's, or an
-Overlay's. A frontend whose threads share a lock of their own gives it up
-for the wait.
+How a thread waits for a lock another thread holds. A frontend whose threads
+share a lock of their own gives it up for the wait.
 
 ```rust
 pub trait Blocking: Send + Sync {}

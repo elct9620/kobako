@@ -414,7 +414,7 @@ both live in the upper and never show, so no name is reserved
 | When | the Layer's calls back are made |
 | Then | the read answers, and the change answers a deadlock rather than waiting |
 
-## `FS-039` A contended copy up waits through the Overlay's Blocking
+## `FS-039` A contended copy up waits through the registered Blocking
 
 | Attribute | Value |
 | --- | --- |
@@ -422,7 +422,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay given a Blocking, one thread copying a lower file up |
+| Given | a Blocking registered, one thread copying a lower file up through an Overlay |
 | When | another thread writes the same file |
 | Then | it waits through the Blocking, then lands |
 
