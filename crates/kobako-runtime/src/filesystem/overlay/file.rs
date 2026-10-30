@@ -1,8 +1,8 @@
 //! A lower Layer's file open to read, which reads the copy once a copy up
 //! makes one, as overlayfs's open file reaches the upper inode its copy
 //! up made. overlayfs keeps that inode through its own inode, even once
-//! removed; a Filesystem here hands out no inode of a file, so the copy is
-//! opened as the copy up makes it and held on the file's entry instead.
+//! removed; a Layer's file is reached by name here, so the copy is opened as
+//! the copy up makes it and held on the file's own inode instead.
 
 use std::sync::{Arc, PoisonError};
 

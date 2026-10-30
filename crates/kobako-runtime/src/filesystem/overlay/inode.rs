@@ -1,11 +1,11 @@
-//! The entries of an Overlay's view as it keeps them on their dentries,
-//! as overlayfs keeps an `ovl_inode` for each: a directory's Layers'
+//! The entries of an Overlay's view as it keeps them on their inodes, as
+//! overlayfs keeps an `ovl_inode` for each: a directory's Layers'
 //! directories, the lock a copy up of the entry holds, and the copy a file
 //! open to read reads once a copy up made one.
 //!
-//! The runtime holds one dentry for each entry it reaches, so every handle
+//! The runtime records one inode for each dentry it reaches, so every handle
 //! of an entry reaches the same state, and a removal or a replacement
-//! through the runtime leaves the next lookup a dentry, and so a state, of
+//! through the runtime leaves the next lookup an inode, and so a state, of
 //! its own.
 
 use std::any::Any;
@@ -98,13 +98,15 @@ impl Drop for ReaderGuard {
     }
 }
 
-/// The state `dentry` keeps, made from the level `init` finds where it
-/// keeps none yet, as overlayfs's `ovl_get_inode` finds or makes one.
+/// The state the entry `dentry` records keeps, made from the level `init`
+/// finds where it keeps none yet, as overlayfs's `ovl_get_inode` finds or
+/// makes one. A dentry recording nothing names no entry to keep it for.
 pub(super) fn ovl_inode(
     dentry: &Dentry,
     init: impl FnOnce() -> Result<Level, FilesystemError>,
 ) -> Result<Arc<OverlayInode>, FilesystemError> {
-    if let Some(kept) = dentry.d_fsdata().get() {
+    let inode = dentry.d_inode().ok_or(FilesystemError::NotFound)?;
+    if let Some(kept) = inode.i_private().get() {
         return Ok(downcast(kept.clone()));
     }
     let made: Arc<dyn Any + Send + Sync> = Arc::new(OverlayInode {
@@ -113,10 +115,10 @@ pub(super) fn ovl_inode(
         readers: AtomicUsize::new(0),
         copy: Mutex::new(None),
     });
-    Ok(downcast(dentry.d_fsdata().get_or_init(|| made).clone()))
+    Ok(downcast(inode.i_private().get_or_init(|| made).clone()))
 }
 
 fn downcast(kept: Arc<dyn Any + Send + Sync>) -> Arc<OverlayInode> {
     kept.downcast()
-        .expect("an Overlay's dentry keeps an Overlay's state")
+        .expect("an Overlay's inode keeps an Overlay's state")
 }

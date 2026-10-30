@@ -1,7 +1,8 @@
 //! What a name stands for, apart from where it stands, as Linux's
 //! `struct inode` is what a dentry is instantiated with.
 
-use std::sync::Arc;
+use std::any::Any;
+use std::sync::{Arc, OnceLock};
 
 use crate::filesystem::{FileType, InodeOperations, Metadata};
 
@@ -26,8 +27,7 @@ impl Identity {
 
 /// One entry of a Filesystem, as a lookup finds it for the runtime to record
 /// on the dentry naming it: what it is, and what answers for it, as Linux's
-/// inode carries `i_mode`, `i_ino`, and `i_op`. The operations keep whatever
-/// the Filesystem keeps for the entry, as `i_private` holds it.
+/// inode carries `i_mode`, `i_ino`, and `i_op`.
 pub struct Inode {
     /// What kind of entry it is; `None` for one its Filesystem answers for
     /// by path.
@@ -35,6 +35,10 @@ pub struct Inode {
     /// `None` where the Filesystem names no inode number.
     identity: Option<Identity>,
     ops: Arc<dyn InodeOperations>,
+    /// What the Filesystem keeps on the entry once it needs it, set once,
+    /// as Linux's `i_private`, reached the same however its operations are
+    /// wrapped.
+    i_private: OnceLock<Arc<dyn Any + Send + Sync>>,
 }
 
 impl Inode {
@@ -44,6 +48,7 @@ impl Inode {
             kind: Some(metadata.file_type),
             identity: Identity::of(metadata),
             ops,
+            i_private: OnceLock::new(),
         }
     }
 
@@ -55,6 +60,7 @@ impl Inode {
             kind: None,
             identity: None,
             ops,
+            i_private: OnceLock::new(),
         }
     }
 
@@ -65,6 +71,7 @@ impl Inode {
             kind: self.kind,
             identity: self.identity,
             ops,
+            i_private: OnceLock::new(),
         }
     }
 
@@ -74,6 +81,7 @@ impl Inode {
             kind: Some(FileType::Directory),
             identity: None,
             ops,
+            i_private: OnceLock::new(),
         }
     }
 
@@ -93,5 +101,11 @@ impl Inode {
     /// What answers for the entry, as Linux's `i_op`.
     pub fn ops(&self) -> &Arc<dyn InodeOperations> {
         &self.ops
+    }
+
+    /// What the Filesystem keeps on the entry, set once, as Linux's
+    /// `i_private`.
+    pub fn i_private(&self) -> &OnceLock<Arc<dyn Any + Send + Sync>> {
+        &self.i_private
     }
 }
