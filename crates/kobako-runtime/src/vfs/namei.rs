@@ -699,6 +699,76 @@ fn may_open(cred: &Cred, existing: Option<FileType>, how: &OpenHow) -> Result<()
     }
 }
 
+/// Give what `old_path` beneath `old_start` names another name at `new_path`
+/// beneath `new_start`, as Linux's `filename_linkat` walks to the first, then
+/// to where the second is made, and refuses a move across mounts once it knows
+/// nothing stands there. A link at the end of `old_path` is followed where
+/// `follow` asks.
+pub fn filename_linkat(
+    cred: &Arc<Cred>,
+    old_start: &Path,
+    old_path: &str,
+    new_start: &Path,
+    new_path: &str,
+    follow: bool,
+) -> Result<(), Error> {
+    let mut old = filename_lookup(cred, old_start, old_path, follow, false)?;
+    old.check_directory()?;
+    let kind = old.kind()?;
+    old.check(Access::ReadWrite)?;
+    let new = filename_lookup(cred, new_start, new_path, false, false)?;
+    new.check(Access::ReadWrite)?;
+    refuse_root(&new.name, FilesystemError::AlreadyExists)?;
+    let target = match old.name.is_empty() {
+        true => old.dentry().clone(),
+        false => old.walked()?,
+    };
+    let _held = new.dentry().inode_lock()?;
+    let child = new.child()?;
+    let dir = new.base();
+    Ok(vfs_link(dir.as_ref(), new.dentry(), &child, || {
+        refuse_trailing_slash(&new)?;
+        if !Arc::ptr_eq(old_start.mnt(), new_start.mnt()) {
+            return Err(FilesystemError::CrossesDevices);
+        }
+        if kind == FileType::Directory {
+            return Err(FilesystemError::NotPermitted);
+        }
+        dir.link(&target, &child)
+            .unwrap_or(Err(FilesystemError::NotPermitted))
+    })?)
+}
+
+/// Make the link `path` beneath `start` names, pointing at `target`, as
+/// Linux's `filename_symlinkat` does.
+pub fn filename_symlinkat(
+    cred: &Arc<Cred>,
+    target: &str,
+    start: &Path,
+    path: &str,
+) -> Result<(), Error> {
+    let nd = filename_lookup(cred, start, path, false, false)?;
+    nd.check(Access::ReadWrite)?;
+    refuse_root(&nd.name, FilesystemError::AlreadyExists)?;
+    let _held = nd.dentry().inode_lock()?;
+    let child = nd.child()?;
+    let dir = nd.base();
+    Ok(vfs_link(dir.as_ref(), nd.dentry(), &child, || {
+        refuse_trailing_slash(&nd)?;
+        dir.symlink(&child, target)
+            .unwrap_or(Err(FilesystemError::NotPermitted))
+    })?)
+}
+
+/// Refuse a name to make that asks for a directory, as Linux's
+/// `filename_create` finds nothing there to be one.
+fn refuse_trailing_slash(nd: &Nameidata) -> Result<(), FilesystemError> {
+    match nd.names_directory {
+        true => Err(FilesystemError::NotFound),
+        false => Ok(()),
+    }
+}
+
 /// Make the directory `path` beneath `start`. A trailing `/` asks for the
 /// directory being made, so it is no refusal here, as `mkdir(2)` takes it.
 pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {

@@ -349,7 +349,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         &mut self,
         memory: &mut wiggle::GuestMemory<'_>,
         old_fd: types::Fd,
-        _old_flags: types::Lookupflags,
+        old_flags: types::Lookupflags,
         old_path: GuestPtr<str>,
         new_fd: types::Fd,
         new_path: GuestPtr<str>,
@@ -360,6 +360,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
                 mem,
                 (old_fd.into(), old_path),
                 (new_fd.into(), new_path),
+                old_flags,
             )
         })
     }
@@ -396,11 +397,11 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         memory: &mut wiggle::GuestMemory<'_>,
         fd: types::Fd,
         path: GuestPtr<str>,
-        _buf: GuestPtr<u8>,
-        _buf_len: types::Size,
+        buf: GuestPtr<u8>,
+        buf_len: types::Size,
     ) -> Answer<types::Size> {
         self.answer(memory, |mem, inv| {
-            path::readlink(table(inv), mem, fd.into(), path)
+            path::readlink(table(inv), mem, fd.into(), path, buf, buf_len)
         })
     }
 

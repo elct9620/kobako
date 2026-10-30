@@ -121,6 +121,20 @@ pub trait InodeOperations: Any + Send + Sync {
         None
     }
 
+    /// Give the entry `old` names another name, the one `dentry` carries in
+    /// this directory. Without it the runtime answers `NotPermitted`, as
+    /// Linux's `vfs_link` answers EPERM.
+    fn link(&self, _old: &Dentry, _dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        None
+    }
+
+    /// Make the link `dentry` names in this directory, pointing at `target`.
+    /// Without it the runtime answers `NotPermitted`, as Linux's
+    /// `vfs_symlink` answers EPERM.
+    fn symlink(&self, _dentry: &Dentry, _target: &str) -> Option<Result<(), FilesystemError>> {
+        None
+    }
+
     /// Remove the empty directory `dentry` names in this one.
     fn rmdir(&self, _dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
         None

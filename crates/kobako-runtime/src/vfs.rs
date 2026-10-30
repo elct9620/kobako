@@ -37,7 +37,8 @@ pub use filesystem::Filesystem;
 pub use inode::{Identity, Inode};
 pub use mount::{Access, Denial, VfsMount};
 pub use namei::{
-    do_file_open, filename_mkdirat, filename_renameat2, filename_rmdir, filename_unlinkat,
+    do_file_open, filename_linkat, filename_mkdirat, filename_renameat2, filename_rmdir,
+    filename_symlinkat, filename_unlinkat,
 };
 pub use openat2::OpenHow;
 pub use path::Path;

@@ -1,6 +1,5 @@
 //! The 10 `path_*` calls. Each hands the call to the runtime's VFS, which
-//! resolves the path, asks the Mount, and asks the Filesystem. Links are no
-//! Filesystem's to make, so those calls are unsupported.
+//! resolves the path, asks the Mount, and asks the Filesystem.
 
 use kobako_runtime::filesystem::Iattr;
 use kobako_runtime::vfs::{self, OpenHow};
@@ -70,19 +69,25 @@ pub(crate) fn filestat_set_times(
     }
 }
 
-/// A Filesystem holds no links, and answering as if one were made would
-/// leave the guest believing it was.
 pub(crate) fn link(
     table: &Descriptors,
     mem: &GuestMemory<'_, '_>,
     old: (u32, GuestPtr<str>),
     new: (u32, GuestPtr<str>),
+    flags: types::Lookupflags,
 ) -> Answer {
-    directory(table, old.0)?;
-    directory(table, new.0)?;
-    mem.path(old.1)?;
-    mem.path(new.1)?;
-    Err(Errno::Notsup.into())
+    let from = directory(table, old.0)?;
+    let to = directory(table, new.0)?;
+    let (old_path, new_path) = (mem.path(old.1)?, mem.path(new.1)?);
+    let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
+    Ok(vfs::filename_linkat(
+        table.cred(),
+        from,
+        &old_path,
+        to,
+        &new_path,
+        follow,
+    )?)
 }
 
 pub(crate) fn open(
@@ -124,13 +129,28 @@ pub(crate) fn open(
 
 pub(crate) fn readlink(
     table: &Descriptors,
-    mem: &GuestMemory<'_, '_>,
+    mem: &mut GuestMemory<'_, '_>,
     fd: u32,
     path: GuestPtr<str>,
+    buf: GuestPtr<u8>,
+    buf_len: types::Size,
 ) -> Answer<types::Size> {
     let dir = directory(table, fd)?;
-    vfs::do_readlinkat(table.cred(), dir, &mem.path(path)?)?;
-    Err(Errno::Notsup.into())
+    let target = vfs::do_readlinkat(table.cred(), dir, &mem.path(path)?)?;
+    write_link(mem, &target, buf, buf_len)
+}
+
+/// As much of where a link points as the buffer holds, as `readlink` cuts it
+/// off there without saying so.
+fn write_link(
+    mem: &mut GuestMemory<'_, '_>,
+    target: &str,
+    buf: GuestPtr<u8>,
+    buf_len: types::Size,
+) -> Answer<types::Size> {
+    let take = target.len().min(buf_len as usize);
+    mem.write_bytes(buf, &target.as_bytes()[..take])?;
+    Ok(take as u32)
 }
 
 pub(crate) fn remove_directory(
@@ -161,7 +181,6 @@ pub(crate) fn rename(
     )?)
 }
 
-/// A Filesystem holds no links to make.
 pub(crate) fn symlink(
     table: &Descriptors,
     mem: &GuestMemory<'_, '_>,
@@ -169,10 +188,9 @@ pub(crate) fn symlink(
     fd: u32,
     new_path: GuestPtr<str>,
 ) -> Answer {
-    directory(table, fd)?;
-    mem.path(old_path)?;
-    mem.path(new_path)?;
-    Err(Errno::Notsup.into())
+    let dir = directory(table, fd)?;
+    let (target, path) = (mem.path(old_path)?, mem.path(new_path)?);
+    Ok(vfs::filename_symlinkat(table.cred(), &target, dir, &path)?)
 }
 
 pub(crate) fn unlink_file(
@@ -183,4 +201,27 @@ pub(crate) fn unlink_file(
 ) -> Answer {
     let dir = directory(table, fd)?;
     Ok(vfs::filename_unlinkat(table.cred(), dir, &mem.path(path)?)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Every Invocation holds to the hook refusing a readlink, so no guest call
+    // reaches this; only the encoding itself can witness it.
+    #[test]
+    fn a_link_is_cut_off_where_the_buffer_ends() {
+        let mut bytes = [0u8; 8];
+        let answered = {
+            let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+            let mut mem = GuestMemory::new(&mut memory, 64);
+            write_link(&mut mem, "target", GuestPtr::new(2), 3)
+                .unwrap_or_else(|_| panic!("the link must write"))
+        };
+        assert_eq!(
+            (answered, &bytes),
+            (3, b"\0\0tar\0\0\0"),
+            "where a link points through path_readlink must fill the buffer and answer what fit"
+        );
+    }
 }

@@ -1726,6 +1726,42 @@ fn an_unlink_with_a_trailing_slash_answers_for_the_name_itself() {
     );
 }
 
+// @behavior RT-188
+#[test]
+fn a_name_no_filesystem_makes_is_answered_by_what_stands() {
+    let tmpfs = tmpfs_with("file.txt", "granted");
+    let mount = Mount::new("/data", Filesystem::new(tmpfs.clone()), Access::ReadWrite)
+        .expect("/data is a guest path");
+    let root = vfs::Path::root(mount.mnt());
+    let cred = Arc::default();
+    let link = |old, new| vfs::filename_linkat(&cred, &root, old, &root, new, false);
+    let symlink = |new| vfs::filename_symlinkat(&cred, "target", &root, new);
+    let refused = |error| Err(vfs::Error::Filesystem(error));
+    assert_eq!(
+        (
+            link("missing", "new"),
+            link("file.txt", "file.txt"),
+            link("file.txt", "new"),
+            symlink("file.txt"),
+            symlink("new"),
+        ),
+        (
+            refused(FilesystemError::NotFound),
+            refused(FilesystemError::AlreadyExists),
+            refused(FilesystemError::NotPermitted),
+            refused(FilesystemError::AlreadyExists),
+            refused(FilesystemError::NotPermitted),
+        ),
+        "vfs::filename_linkat and filename_symlinkat over a Filesystem making no links must \
+         answer ENOENT for a missing source, EEXIST for a name that stands, and otherwise EPERM"
+    );
+    assert_eq!(
+        host_entries(&tmpfs).expect("the root must list"),
+        vec!["file.txt".to_string()],
+        "a refused link must make nothing"
+    );
+}
+
 // @behavior RT-099
 #[test]
 fn an_allocation_for_a_file_beneath_a_mount_is_unsupported() {

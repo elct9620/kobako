@@ -2044,3 +2044,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an entry beneath a read-only Mount |
 | When | a caller sets its times, naming none |
 | Then | the call succeeds, as `utimensat` returns before it looks at anything |
+
+## `RT-188` A link no Filesystem makes is answered by what stands
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-175` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount whose Filesystem makes no links |
+| When | a guest links a missing name, or links or symlinks onto a name, or onto a free one |
+| Then | the calls answer ENOENT, EEXIST, and EPERM, and nothing is made |

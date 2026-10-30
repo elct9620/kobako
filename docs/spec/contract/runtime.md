@@ -1131,6 +1131,44 @@ Where the caller has no descriptor left, it answers too many open files.
 pub fn do_file_open(cred: &Arc<Cred>, start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<File, Error> {}
 ```
 
+## `filename_linkat`
+
+Give what a path names another name, as Linux's `filename_linkat` serves
+`linkat`.
+
+```rust
+pub fn filename_linkat(cred: &Arc<Cred>, old_start: &Path, old_path: &str, new_start: &Path, new_path: &str, follow: bool) -> Result<(), Error> {}
+```
+
+## `filename_symlinkat`
+
+Make a link at a path, as Linux's `filename_symlinkat` serves `symlinkat`.
+
+```rust
+pub fn filename_symlinkat(cred: &Arc<Cred>, target: &str, start: &Path, path: &str) -> Result<(), Error> {}
+```
+
+## `InodeOperations::link`
+
+Give an entry another name in this directory. Without it the runtime answers
+`NotPermitted`.
+
+```rust
+pub trait InodeOperations {
+    fn link(&self, _old: &Dentry, _dentry: &Dentry) -> Option<Result<(), FilesystemError>>;
+}
+```
+
+## `InodeOperations::symlink`
+
+Make a link in this directory. Without it the runtime answers `NotPermitted`.
+
+```rust
+pub trait InodeOperations {
+    fn symlink(&self, _dentry: &Dentry, _target: &str) -> Option<Result<(), FilesystemError>>;
+}
+```
+
 ## `filename_mkdirat`
 
 Make a directory at a path beneath a directory, as Linux's `filename_mkdirat`
