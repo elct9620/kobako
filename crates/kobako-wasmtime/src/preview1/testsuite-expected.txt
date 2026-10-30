@@ -1,0 +1,8 @@
+fd_filestat_set   # no built-in Filesystem keeps a time the guest sets
+nofollow_errors   # no built-in Filesystem makes a link
+path_exists       # no built-in Filesystem makes a link
+path_filestat     # no built-in Filesystem keeps a time the guest sets
+path_link         # no built-in Filesystem makes a link
+readlink          # no built-in Filesystem makes a link
+symlink_create    # no built-in Filesystem makes a link
+symlink_filestat  # no built-in Filesystem makes a link

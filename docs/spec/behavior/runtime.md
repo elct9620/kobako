@@ -52,6 +52,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-runtime/src/endpoint.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/descriptors.rs`
+- `crates/kobako-wasmtime/src/preview1/testsuite.rs`
 - `crates/kobako-wasmtime/src/cache.rs`
 - `crates/kobako-wasmtime/src/abi.rs`
 - `crates/kobako-wasmtime/src/wasi.rs`
@@ -2094,3 +2095,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest instance made of a plain buffer, with no Engine behind it |
 | When | the endpoint writes a request and answers an upcall through it |
 | Then | the request lands in its memory, and the Reply is written back for it to read |
+
+## `RT-192` Only what kobako refuses fails wasi-testsuite
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-186`, `RT-188` |
+
+| Step | Statement |
+| --- | --- |
+| Given | wasi-testsuite's prebuilt preview1 tests, each over a Bind of its own directory |
+| When | each runs through the preview1 imports |
+| Then | only the tests needing a link made or a time set fail |

@@ -12,6 +12,9 @@
 #                               in an optimized build, where a race lands
 #                               often enough to be caught in seconds. Not
 #                               in the release gate.
+#   * `rake crates:testsuite` — fetches wasi-testsuite at a pinned commit and
+#                               holds preview1 to it. Not in the release gate,
+#                               which reaches no network.
 #   * `rake coverage:crates`  — the same suite under `cargo llvm-cov`. Lives
 #                               in the `coverage:` namespace with the other
 #                               line-coverage reports, but here beside the
@@ -117,6 +120,29 @@ def crates_graph_violation(probe)
   end
 end
 
+WASI_TESTSUITE_REPOSITORY = "https://github.com/WebAssembly/wasi-testsuite.git"
+# The prod/testsuite-base commit whose prebuilt preview1 tests the expected
+# failures in crates/kobako-wasmtime/src/preview1/testsuite-expected.txt name.
+WASI_TESTSUITE_COMMIT = "9d84631e427729802085c3d172d0a63cd360a1fa"
+WASI_TESTSUITE_DIR = File.expand_path("../tmp/wasi-testsuite", __dir__)
+
+def fetch_wasi_testsuite
+  marker = File.join(WASI_TESTSUITE_DIR, ".git", WASI_TESTSUITE_COMMIT)
+  return if File.exist?(marker)
+
+  rm_rf WASI_TESTSUITE_DIR
+  mkdir_p WASI_TESTSUITE_DIR
+  Dir.chdir(WASI_TESTSUITE_DIR) { checkout_wasi_testsuite }
+  touch marker
+end
+
+def checkout_wasi_testsuite
+  sh "git", "init", "-q"
+  sh "git", "sparse-checkout", "set", "tests/rust/testsuite/wasm32-wasip1"
+  sh "git", "fetch", "-q", "--depth", "1", WASI_TESTSUITE_REPOSITORY, WASI_TESTSUITE_COMMIT
+  sh "git", "checkout", "-q", "FETCH_HEAD"
+end
+
 namespace :crates do
   desc "cargo test every member of the crates/ workspace"
   task :test do
@@ -128,6 +154,14 @@ namespace :crates do
   task :stress do
     abort "cargo not on PATH; install Rust toolchain to run crates:stress" unless KobakoWasm.cargo_available?
     sh "cargo", "test", "--manifest-path", CRATES_MANIFEST, "--workspace", "--release", "--", "--ignored", "stress::"
+  end
+
+  desc "Fetch wasi-testsuite and hold preview1 to it in an optimized build (not in release gate)"
+  task :testsuite do
+    abort "cargo not on PATH; install Rust toolchain to run crates:testsuite" unless KobakoWasm.cargo_available?
+    fetch_wasi_testsuite
+    sh "cargo", "test", "--manifest-path", CRATES_MANIFEST, "-p", "kobako-wasmtime", "--release", "--lib", "--",
+       "--ignored", "testsuite::"
   end
 
   desc "Check each published host crate's build graph leaves out what its seam promises to"

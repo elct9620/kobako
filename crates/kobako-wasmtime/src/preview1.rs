@@ -21,6 +21,8 @@ mod sock;
 mod differential;
 #[cfg(test)]
 mod mount_view;
+#[cfg(test)]
+mod testsuite;
 
 use wasmtime::Linker;
 use wiggle::GuestPtr;
