@@ -338,7 +338,8 @@ with its identity, or a Policy cannot tell a directory from one made in its plac
 
 ### Filesystem Obligations
 
-Only `getattr` and the `FileOperations` methods are required. An operation an entry lacks answers
+Only `getattr` is required. It answers for an entry an open file still holds once its name is
+gone, so a Filesystem keeps what that takes on the `Inode`. An operation an entry lacks answers
 `None`, as a NULL in Linux's `inode_operations`, and the runtime answers for it as Linux's
 VFS does. One wrapping another forwards those it keeps.
 
@@ -348,6 +349,8 @@ VFS does. One wrapping another forwards those it keeps.
 | `dentry_ops` | a held dentry dropped once its name stands for another entry, through `DentryOperations::revalidate` | valid, as nothing changes it outside the runtime |
 | `get_link` | a link followed only within the directory a descriptor opened | EINVAL |
 | `create` | a file made under the directory's lock | EACCES |
+| `setattr` | a file sized through what holds it | EINVAL |
+| `FileOperations::read_iter`, `write_iter` | a file's bytes, moving `Kiocb::pos` past what they took | EINVAL |
 | `FileOperations::iterate_shared` | a directory listed from what its `open` made | ENOTDIR |
 | `FileOperations::fsync` | what was written made durable; answer `Ok` with nothing to flush | EINVAL |
 | `mkdir`, `rmdir`, `unlink`, `rename` | a change made under the directory's lock | EPERM |

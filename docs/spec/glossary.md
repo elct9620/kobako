@@ -367,7 +367,7 @@ The runtime records on the Dentry the Inode a lookup finds, as Linux's `d_add` d
 
 ### Open File
 
-What a descriptor refers to, as Linux's `struct file`. It holds where it was opened, what answers for it, its position, and what it was opened for. A Driver's table holds it, so every ABI shares one.
+What a descriptor refers to, as Linux's `struct file`. It holds where it was opened, what answers for it, its position, and what it was opened for. A Driver's table holds it, so every ABI shares one. Each standard stream is one too, an end of a pipe with no position.
 
 ### Path
 
