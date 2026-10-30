@@ -472,6 +472,16 @@ impl Inode {
 }
 ```
 
+## `Inode::i_private`
+
+What the Filesystem keeps on the entry, set once.
+
+```rust
+impl Inode {
+    pub fn i_private(&self) -> &OnceLock<Arc<dyn Any + Send + Sync>> {}
+}
+```
+
 ## `Inode::answers_by_path`
 
 Whether its Filesystem answers for the entry by the path each call names.
