@@ -376,24 +376,24 @@ impl Dentry {
 }
 ```
 
-## `Dentry::d_add`
+## `Dentry::add`
 
 Record what a lookup found at the name, none where nothing stands. A Dentry
 already naming something keeps it.
 
 ```rust
 impl Dentry {
-    pub fn d_add(&self, inode: Option<Inode>) {}
+    pub fn add(&self, inode: Option<Inode>) {}
 }
 ```
 
-## `Dentry::d_inode`
+## `Dentry::inode`
 
 What the name stands for, none while nothing was recorded.
 
 ```rust
 impl Dentry {
-    pub fn d_inode(&self) -> Option<Arc<Inode>> {}
+    pub fn inode(&self) -> Option<Arc<Inode>> {}
 }
 ```
 
@@ -407,13 +407,13 @@ impl Dentry {
 }
 ```
 
-## `Dentry::d_fsdata`
+## `Dentry::fsdata`
 
 What the Filesystem keeps on the name, set once.
 
 ```rust
 impl Dentry {
-    pub fn d_fsdata(&self) -> &OnceLock<Arc<dyn Any + Send + Sync>> {}
+    pub fn fsdata(&self) -> &OnceLock<Arc<dyn Any + Send + Sync>> {}
 }
 ```
 
@@ -484,13 +484,13 @@ impl Inode {
 }
 ```
 
-## `Inode::i_private`
+## `Inode::private`
 
 What the Filesystem keeps on the entry, set once.
 
 ```rust
 impl Inode {
-    pub fn i_private(&self) -> &OnceLock<Arc<dyn Any + Send + Sync>> {}
+    pub fn private(&self) -> &OnceLock<Arc<dyn Any + Send + Sync>> {}
 }
 ```
 
@@ -682,13 +682,13 @@ impl File {
 }
 ```
 
-## `File::f_op`
+## `File::ops`
 
 What answers for it.
 
 ```rust
 impl File {
-    pub fn f_op(&mut self) -> &mut dyn FileOperations {}
+    pub fn ops(&mut self) -> &mut dyn FileOperations {}
 }
 ```
 
