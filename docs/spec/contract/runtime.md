@@ -16,9 +16,12 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/mount.rs`
 - `crates/kobako-runtime/src/profile.rs`
 - `crates/kobako-runtime/src/runtime.rs`
+- `crates/kobako-runtime/src/security.rs`
 - `crates/kobako-runtime/src/snapshot.rs`
 - `crates/kobako-runtime/src/vfs.rs`
+- `crates/kobako-runtime/src/vfs/cred.rs`
 - `crates/kobako-runtime/src/vfs/dentry.rs`
+- `crates/kobako-runtime/src/vfs/mount.rs`
 - `crates/kobako-runtime/src/vfs/file.rs`
 - `crates/kobako-runtime/src/vfs/filesystem.rs`
 - `crates/kobako-runtime/src/vfs/inode.rs`
@@ -524,6 +527,16 @@ impl Inode {
 }
 ```
 
+## `Mount::mnt`
+
+The Filesystem as the runtime walks it.
+
+```rust
+impl Mount {
+    pub fn mnt(&self) -> &Arc<VfsMount> {}
+}
+```
+
 ## `Mount::allows_writes`
 
 Whether a change beneath the Mount may be allowed at all, without asking
@@ -537,7 +550,7 @@ impl Mount {
 
 ## `Denial`
 
-Why a Mount refused a call: a change beneath a read-only Mount, or its Policy.
+Why a call was refused: a change beneath a read-only mount, or a security hook.
 
 ```rust
 pub enum Denial {}
@@ -553,22 +566,156 @@ pub struct Path {}
 
 ## `Path::root`
 
-The root of a Mount for an invocation running under a Profile, where each
-of its descriptors starts.
+The root of a mounted Filesystem for an invocation running under a Profile,
+where each of its descriptors starts.
 
 ```rust
 impl Path {
-    pub fn root(mount: Mount, profile: Profile) -> Self {}
+    pub fn root(mnt: &Arc<VfsMount>, profile: Profile) -> Self {}
 }
 ```
 
-## `Path::mount`
+## `Path::mnt`
 
-The Mount the directory stands beneath.
+What the entry is mounted on.
 
 ```rust
 impl Path {
-    pub fn mount(&self) -> &Arc<Mount> {}
+    pub fn mnt(&self) -> &Arc<VfsMount> {}
+}
+```
+
+## `VfsMount`
+
+A Filesystem as the runtime walks it, knowing nothing of where a guest finds it.
+
+```rust
+pub struct VfsMount {}
+```
+
+## `VfsMount::new`
+
+A Filesystem mounted, allowing only reads where asked.
+
+```rust
+impl VfsMount {
+    pub fn new(filesystem: Arc<Filesystem>, read_only: bool) -> Arc<Self> {}
+}
+```
+
+## `VfsMount::filesystem`
+
+The Filesystem instance mounted.
+
+```rust
+impl VfsMount {
+    pub fn filesystem(&self) -> &Arc<Filesystem> {}
+}
+```
+
+## `VfsMount::is_readonly`
+
+Whether a change beneath it is refused.
+
+```rust
+impl VfsMount {
+    pub fn is_readonly(&self) -> bool {}
+}
+```
+
+## `Cred`
+
+Who a call is made for, one per Invocation, holding its registered security modules.
+
+```rust
+pub struct Cred {}
+```
+
+## `Cred::new`
+
+One with these security modules registered.
+
+```rust
+impl Cred {
+    pub fn new(security: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {}
+}
+```
+
+## `prepare_creds`
+
+The Cred an Invocation over these Mounts runs with: kobako's own rules, then each
+Mount's Policy.
+
+```rust
+pub fn prepare_creds<'a>(mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cred> {}
+```
+
+## `SecurityOperations`
+
+What a security module answers. A hook a module lacks allows the call, and a
+module can only refuse.
+
+```rust
+pub trait SecurityOperations: Send + Sync {}
+```
+
+## `SecurityOperations::inode_permission`
+
+Whether a path beneath a mount may be reached with an access.
+
+```rust
+pub trait SecurityOperations {
+    fn inode_permission(&self, _mnt: &Arc<VfsMount>, _path: &dyn Fn() -> String, _access: Access) -> Result<(), Denial>;
+}
+```
+
+## `SecurityOperations::file_open`
+
+Whether a file of a kind may be opened.
+
+```rust
+pub trait SecurityOperations {
+    fn file_open(&self, _kind: FileType) -> Result<(), FilesystemError>;
+}
+```
+
+## `SecurityOperations::inode_readlink`
+
+Whether where a link points may be read.
+
+```rust
+pub trait SecurityOperations {
+    fn inode_readlink(&self) -> Result<(), FilesystemError>;
+}
+```
+
+## `SecurityOperations::inode_follow_link`
+
+Whether a walk beneath a mount may follow a link.
+
+```rust
+pub trait SecurityOperations {
+    fn inode_follow_link(&self, _mnt: &Arc<VfsMount>) -> Result<(), FilesystemError>;
+}
+```
+
+## `SecurityOperations::path_rename`
+
+Whether an entry beneath a mount may move.
+
+```rust
+pub trait SecurityOperations {
+    fn path_rename(&self, _mnt: &Arc<VfsMount>, _is_dir: bool) -> Result<(), FilesystemError>;
+}
+```
+
+## `SecurityOperations::path_walk`
+
+Whether a call may start from a Path.
+
+```rust
+pub trait SecurityOperations {
+    fn path_walk(&self, _path: &Path) -> Result<(), Error>;
 }
 ```
 
@@ -593,12 +740,12 @@ pub struct File {}
 
 ## `File::root`
 
-The root of a Mount opened as a directory, for an invocation at one isolation
-posture.
+The root of a mounted Filesystem opened as a directory for a Cred, for an
+invocation at one isolation posture.
 
 ```rust
 impl File {
-    pub fn root(mount: Mount, profile: Profile) -> Result<Self, FilesystemError> {}
+    pub fn root(mnt: &Arc<VfsMount>, cred: Arc<Cred>, profile: Profile) -> Result<Self, FilesystemError> {}
 }
 ```
 
@@ -894,7 +1041,7 @@ Open a path beneath a directory, as Linux's `do_file_open` serves `openat`.
 Where the caller has no descriptor left, it answers too many open files.
 
 ```rust
-pub fn do_file_open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<File, Error> {}
+pub fn do_file_open(cred: &Arc<Cred>, start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<File, Error> {}
 ```
 
 ## `filename_mkdirat`
@@ -903,7 +1050,7 @@ Make a directory at a path beneath a directory, as Linux's `filename_mkdirat`
 serves `mkdirat`.
 
 ```rust
-pub fn filename_mkdirat(start: &Path, path: &str) -> Result<(), Error> {}
+pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {}
 ```
 
 ## `filename_rmdir`
@@ -911,7 +1058,7 @@ pub fn filename_mkdirat(start: &Path, path: &str) -> Result<(), Error> {}
 Remove the empty directory at a path beneath a directory.
 
 ```rust
-pub fn filename_rmdir(start: &Path, path: &str) -> Result<(), Error> {}
+pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {}
 ```
 
 ## `filename_unlinkat`
@@ -919,7 +1066,7 @@ pub fn filename_rmdir(start: &Path, path: &str) -> Result<(), Error> {}
 Remove the file at a path beneath a directory.
 
 ```rust
-pub fn filename_unlinkat(start: &Path, path: &str) -> Result<(), Error> {}
+pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {}
 ```
 
 ## `filename_renameat2`
@@ -927,7 +1074,7 @@ pub fn filename_unlinkat(start: &Path, path: &str) -> Result<(), Error> {}
 Move an entry within one Mount.
 
 ```rust
-pub fn filename_renameat2(from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<(), Error> {}
+pub fn filename_renameat2(cred: &Arc<Cred>, from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<(), Error> {}
 ```
 
 ## `vfs_fstatat`
@@ -936,15 +1083,16 @@ What a path names, a link at its end followed where asked and reported as
 itself otherwise.
 
 ```rust
-pub fn vfs_fstatat(start: &Path, path: &str, follow: bool) -> Result<Metadata, Error> {}
+pub fn vfs_fstatat(cred: &Arc<Cred>, start: &Path, path: &str, follow: bool) -> Result<Metadata, Error> {}
 ```
 
 ## `do_readlinkat`
 
-Refuse reading a link as unsupported once the path is known to stand.
+Where a link points, asked of the security hooks first. kobako's own rules refuse
+it as unsupported.
 
 ```rust
-pub fn do_readlinkat(start: &Path, path: &str) -> Result<(), Error> {}
+pub fn do_readlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<String, Error> {}
 ```
 
 ## `do_utimes`
@@ -952,7 +1100,7 @@ pub fn do_readlinkat(start: &Path, path: &str) -> Result<(), Error> {}
 Refuse setting timestamps as unsupported once the path is known to stand.
 
 ```rust
-pub fn do_utimes(start: &Path, path: &str) -> Result<(), Error> {}
+pub fn do_utimes(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {}
 ```
 
 ## `PATH_MAX`
