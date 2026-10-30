@@ -1,19 +1,27 @@
 //! Looking at what stands at a path, as Linux's `fstatat` and
 //! `readlinkat` do.
 
-use super::namei::{filename_lookup, names_directory};
+use std::sync::Arc;
+
+use super::cred::Cred;
+use super::namei::{d_get_link, filename_lookup, names_directory};
 use super::path::Path;
 use super::times::mask_times;
 use super::Error;
-use crate::filesystem::{FileType, FilesystemError, Metadata};
+use crate::filesystem::{FileType, Metadata};
 
 /// What `path` beneath `start` names, as Linux's `vfs_fstatat` answers: a
 /// link at its end followed where `follow` asks, and otherwise reported as
 /// itself unless a trailing `/` asks for the directory it leads to, as
 /// `AT_SYMLINK_NOFOLLOW` leaves one.
-pub fn vfs_fstatat(start: &Path, path: &str, follow: bool) -> Result<Metadata, Error> {
+pub fn vfs_fstatat(
+    cred: &Arc<Cred>,
+    start: &Path,
+    path: &str,
+    follow: bool,
+) -> Result<Metadata, Error> {
     let follow = follow || names_directory(path);
-    let mut nd = filename_lookup(start, path, follow, false)?;
+    let mut nd = filename_lookup(cred, start, path, follow, false)?;
     // A link the walk did not follow at the end is one swapped in since,
     // so it is reported as itself rather than followed.
     nd.check_directory()?;
@@ -29,11 +37,13 @@ fn hide_link(metadata: Metadata) -> Metadata {
     }
 }
 
-/// A guest never reads where a link points, so reading one is
-/// unsupported once the path is known to stand.
-pub fn do_readlinkat(start: &Path, path: &str) -> Result<(), Error> {
-    filename_lookup(start, path, false, false)?.check_directory()?;
-    Err(FilesystemError::Unsupported.into())
+/// Where the link at `path` beneath `start` points, asked of the security
+/// hook first, as `vfs_readlink` follows `security_inode_readlink`.
+pub fn do_readlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<String, Error> {
+    let mut nd = filename_lookup(cred, start, path, false, false)?;
+    nd.check_directory()?;
+    cred.security_inode_readlink()?;
+    Ok(d_get_link(&*nd.child()?)?)
 }
 
 /// Only a unix host lets a test make a link.
@@ -60,7 +70,12 @@ mod tests {
         let bind = Bind::new(&host).expect("the host directory must open");
         let mount = Mount::new("/data", Filesystem::new(Arc::new(bind)), Access::Read)
             .expect("/data is a guest path");
-        let found = vfs::vfs_fstatat(&Path::root(mount, Profile::Permissive), "link", false);
+        let found = vfs::vfs_fstatat(
+            &Arc::default(),
+            &Path::root(mount.mnt(), Profile::Permissive),
+            "link",
+            false,
+        );
         let _ = fs::remove_dir_all(&host);
         assert_eq!(
             found.map(|metadata| (metadata.file_type, metadata.len)),

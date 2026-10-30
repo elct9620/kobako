@@ -29,7 +29,7 @@ pub(crate) struct KernPath(Path);
 pub(crate) fn kern_path(filesystem: Arc<dyn InodeOperations>) -> KernPath {
     let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
         .expect("/data is a guest path");
-    KernPath(Path::root(mount, Profile::Permissive))
+    KernPath(Path::root(mount.mnt(), Profile::Permissive))
 }
 
 fn to_filesystem_error(error: Error) -> FilesystemError {
@@ -44,7 +44,7 @@ impl KernPath {
     /// `path` resolved beneath this directory, a link at its end left as
     /// it stands.
     fn resolve(&self, path: &str) -> Result<Nameidata, FilesystemError> {
-        filename_lookup(&self.0, path, false, false).map_err(to_filesystem_error)
+        filename_lookup(&Arc::default(), &self.0, path, false, false).map_err(to_filesystem_error)
     }
 
     pub(crate) fn open(
@@ -110,7 +110,7 @@ impl KernPath {
     }
 
     pub(crate) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        File::directory(self.0.clone())?
+        File::directory(self.0.clone(), Arc::default())?
             .iterate_dir()
             .map_err(to_filesystem_error)
     }
@@ -124,23 +124,13 @@ impl KernPath {
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let nd = self.resolve(path)?;
         let child = nd.child()?;
-        vfs_rmdir(
-            nd.mount.filesystem(),
-            nd.base().as_ref(),
-            nd.dentry(),
-            &child,
-        )
+        vfs_rmdir(nd.mnt.filesystem(), nd.base().as_ref(), nd.dentry(), &child)
     }
 
     pub(crate) fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
         let nd = self.resolve(path)?;
         let child = nd.child()?;
-        vfs_unlink(
-            nd.mount.filesystem(),
-            nd.base().as_ref(),
-            nd.dentry(),
-            &child,
-        )
+        vfs_unlink(nd.mnt.filesystem(), nd.base().as_ref(), nd.dentry(), &child)
     }
 
     /// Move `from` beneath this directory to `to` beneath `to_dir`,
@@ -162,7 +152,7 @@ impl KernPath {
         }
         let (old_inode, new_inode) = (source.base().as_ref(), target.base().as_ref());
         vfs_rename(
-            source.mount.filesystem(),
+            source.mnt.filesystem(),
             (old_inode, source.dentry(), &old),
             (new_inode, target.dentry(), &new),
             None,

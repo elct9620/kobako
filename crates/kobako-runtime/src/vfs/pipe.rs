@@ -9,12 +9,12 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use super::dentry::Dentry;
 use super::file::File;
 use super::inode::Inode;
+use super::mount::VfsMount;
 use super::openat2::OpenHow;
 use super::path::Path;
 use crate::filesystem::{
-    Access, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Metadata,
+    FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Metadata,
 };
-use crate::mount::Mount;
 use crate::profile::Profile;
 use crate::vfs::Filesystem;
 
@@ -22,8 +22,7 @@ use crate::vfs::Filesystem;
 /// path reaches it: a pipe is only ever open.
 static PIPE_MNT: LazyLock<Path> = LazyLock::new(|| {
     Path::root(
-        Mount::new("/", Filesystem::new(Arc::new(PipeFs)), Access::ReadWrite)
-            .expect("/ is a guest path"),
+        &VfsMount::kern_mount(Filesystem::new(Arc::new(PipeFs))),
         Profile::Permissive,
     )
 });
@@ -121,13 +120,14 @@ impl FileOperations for AnonPipe {
 /// both on one inode. Neither takes a position.
 pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
     let name = PIPE_NAME.fetch_add(1, Ordering::Relaxed).to_string();
-    let dentries = PIPE_MNT.mount().filesystem().dentries();
+    let dentries = PIPE_MNT.mnt().filesystem().dentries();
     let dentry = dentries.child(PIPE_MNT.dentry(), &name);
     let found = Metadata::new(FileType::Unknown, 0);
     dentry.add(Some(Inode::new(&found, Arc::new(PipeFs))));
     let end = |how: OpenHow| {
         let mut file = File::new(
             PIPE_MNT.with_dentry(dentry.clone()),
+            Arc::default(),
             Box::new(AnonPipe(pipe.clone())),
             &how,
         );

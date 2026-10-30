@@ -7,11 +7,13 @@
 //! before a fresh one is taken.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use kobako_runtime::filesystem::FilesystemError;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::File;
+use kobako_runtime::security::prepare_creds;
+use kobako_runtime::vfs::{Cred, File};
 
 /// What one descriptor stands for.
 pub(crate) enum Descriptor {
@@ -22,13 +24,16 @@ pub(crate) enum Descriptor {
 
 pub(crate) struct OpenDirectory {
     pub(crate) file: File,
-    pub(crate) preopen: bool,
+    /// The guest path a preopen names; a Mount's own root has one.
+    pub(crate) preopen: Option<String>,
 }
 
 pub(crate) struct Descriptors {
     used: BTreeMap<u32, Descriptor>,
     free: BTreeSet<u32>,
     limit: Option<usize>,
+    /// Who the guest's calls are made for, as a task holds its `cred`.
+    cred: Arc<Cred>,
 }
 
 impl Descriptors {
@@ -50,12 +55,13 @@ impl Descriptors {
             (1, Descriptor::File(stdout)),
             (2, Descriptor::File(stderr)),
         ]);
-        for (fd, mount) in (3..).zip(mounts) {
+        let cred = prepare_creds(&mounts);
+        for (fd, mount) in (3..).zip(&mounts) {
             used.insert(
                 fd,
                 Descriptor::Directory(OpenDirectory {
-                    file: File::root(mount, profile)?,
-                    preopen: true,
+                    file: File::root(mount.mnt(), cred.clone(), profile)?,
+                    preopen: Some(mount.at().to_string()),
                 }),
             );
         }
@@ -63,7 +69,13 @@ impl Descriptors {
             used,
             free: BTreeSet::new(),
             limit,
+            cred,
         })
+    }
+
+    /// Who the guest's calls are made for.
+    pub(crate) fn cred(&self) -> &Arc<Cred> {
+        &self.cred
     }
 
     pub(crate) fn get(&self, fd: u32) -> Option<&Descriptor> {

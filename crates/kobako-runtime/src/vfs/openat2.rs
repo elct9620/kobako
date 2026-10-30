@@ -34,12 +34,12 @@ pub(crate) fn vfs_open(start: &Path, nd: Nameidata) -> Result<File, Error> {
     let dentry = match nd.name.as_str() {
         "" => nd.dentry().clone(),
         _ => {
-            let _held = down_read(&nd.mount, nd.dentry())?;
+            let _held = down_read(&nd.mnt, nd.dentry())?;
             let dentry = nd.walked()?;
             let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
             d_can_lookup(inode.ops(), &dentry)?;
             dentry
         }
     };
-    Ok(File::directory(start.with_dentry(dentry))?)
+    Ok(File::directory(start.with_dentry(dentry), nd.cred.clone())?)
 }

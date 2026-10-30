@@ -639,21 +639,21 @@ mod tests {
         ));
         let mount = Mount::new("/data", filesystem, super::super::Access::ReadWrite)
             .expect("/data is a guest path");
-        let root = vfs::Path::root(mount, Profile::Permissive);
+        let root = vfs::Path::root(mount.mnt(), Profile::Permissive);
         let how = OpenHow {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(opened) = vfs::do_file_open(&root, "a", &how, true) else {
+        let Ok(opened) = vfs::do_file_open(&Arc::default(), &root, "a", &how, true) else {
             panic!("the directory must open");
         };
         let held = opened.path();
         fs::rename(host.0.join("a"), host.0.join("moved")).expect("the host must move it");
         fs::create_dir(host.0.join("a")).expect("the host must remake it");
-        vfs::filename_rmdir(&root, "a").expect("the new directory must go");
+        vfs::filename_rmdir(&Arc::default(), &root, "a").expect("the new directory must go");
         assert_eq!(
             (
-                vfs::filename_mkdirat(held, "made"),
+                vfs::filename_mkdirat(&Arc::default(),held, "made"),
                 host.0.join("moved/made").is_dir()
             ),
             (Ok(()), true),
@@ -694,12 +694,13 @@ mod tests {
         let mount = Mount::new("/data", filesystem, super::super::Access::Read)
             .expect("/data is a guest path")
             .with_policy(Arc::new(RefusesRefused));
-        let root = vfs::Path::root(mount, Profile::Permissive);
+        let root = vfs::Path::root(mount.mnt(), Profile::Permissive);
+        let cred = crate::security::prepare_creds([&mount]);
         let directory = OpenHow {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(_held) = vfs::do_file_open(&root, "a/d", &directory, true) else {
+        let Ok(_held) = vfs::do_file_open(&cred, &root, "a/d", &directory, true) else {
             panic!("a/d must open");
         };
         fs::rename(host.0.join("a"), host.0.join("refused/a")).expect("the host must move a");
@@ -709,7 +710,7 @@ mod tests {
             ..OpenHow::default()
         };
         assert_eq!(
-            vfs::do_file_open(&root, "a/d/secret", &read, true).err(),
+            vfs::do_file_open(&cred, &root, "a/d/secret", &read, true).err(),
             Some(vfs::Error::Filesystem(FilesystemError::NotFound)),
             "vfs::do_file_open beneath a Bind Mount with a Policy, through a directory the host moved \
              beneath a refused path while a descriptor beneath it was held, must answer NotFound"
@@ -734,7 +735,7 @@ mod tests {
         let root = |filesystem: Arc<dyn InodeOperations>| {
             let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
                 .expect("/data is a guest path");
-            crate::vfs::Path::root(mount, Profile::Permissive)
+            crate::vfs::Path::root(mount.mnt(), Profile::Permissive)
         };
         [
             ("Tmpfs", root(Arc::new(tmpfs()))),
@@ -759,10 +760,10 @@ mod tests {
             ..OpenHow::default()
         };
         for (name, root) in each_holding_five_bytes(&host) {
-            let Ok(mut file) = vfs::do_file_open(&root, "f", &read, true) else {
+            let Ok(mut file) = vfs::do_file_open(&Arc::default(), &root, "f", &read, true) else {
                 panic!("{name}'s f must open");
             };
-            vfs::filename_unlinkat(&root, "f").expect("the name must go");
+            vfs::filename_unlinkat(&Arc::default(), &root, "f").expect("the name must go");
             let mut buf = [0; 5];
             assert_eq!(
                 (
@@ -788,10 +789,10 @@ mod tests {
             ..OpenHow::default()
         };
         for (name, root) in each_holding_five_bytes(&host) {
-            let Ok(mut file) = vfs::do_file_open(&root, "f", &write, true) else {
+            let Ok(mut file) = vfs::do_file_open(&Arc::default(), &root, "f", &write, true) else {
                 panic!("{name}'s f must open");
             };
-            vfs::filename_unlinkat(&root, "f").expect("the name must go");
+            vfs::filename_unlinkat(&Arc::default(), &root, "f").expect("the name must go");
             assert_eq!(
                 (file.truncate(2), file.getattr().map(|found| found.len).ok()),
                 (Ok(()), Some(2)),
@@ -814,14 +815,14 @@ mod tests {
             read: true,
             ..OpenHow::default()
         };
-        let Ok(file) = vfs::do_file_open(&root, "f", &read, true) else {
+        let Ok(file) = vfs::do_file_open(&Arc::default(), &root, "f", &read, true) else {
             panic!("f must open");
         };
         fs::rename(host.0.join("f"), host.0.join("aside")).expect("the host must move f");
         fs::write(host.0.join("f"), "longer!").expect("the host must remake f");
         assert_eq!(
             (
-                vfs::vfs_fstatat(&root, "f", true)
+                vfs::vfs_fstatat(&Arc::default(), &root, "f", true)
                     .map(|found| found.len)
                     .ok(),
                 file.getattr().map(|found| found.len).ok()
@@ -852,12 +853,12 @@ mod tests {
         let overlay = Overlay::new(vec![lower], Some(upper)).expect("the Overlay must stack");
         let mount = Mount::new("/data", Filesystem::new(Arc::new(overlay)), Access::Read)
             .expect("/data is a guest path");
-        let root = vfs::Path::root(mount, Profile::Permissive);
+        let root = vfs::Path::root(mount.mnt(), Profile::Permissive);
         let directory = OpenHow {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(_held) = vfs::do_file_open(&root, "a", &directory, true) else {
+        let Ok(_held) = vfs::do_file_open(&Arc::default(), &root, "a", &directory, true) else {
             panic!("a must open");
         };
         fs::rename(host.0.join("a"), host.0.join("aside")).expect("the host must move a");
@@ -867,7 +868,7 @@ mod tests {
             read: true,
             ..OpenHow::default()
         };
-        let Ok(mut file) = vfs::do_file_open(&root, "a/f", &read, true) else {
+        let Ok(mut file) = vfs::do_file_open(&Arc::default(), &root, "a/f", &read, true) else {
             panic!("a/f must open through the directory the host remade");
         };
         let mut buf = [0; 3];

@@ -16,9 +16,11 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use super::cred::Cred;
 use super::dentry::Dentry;
 use super::file::File;
 use super::filesystem::Filesystem;
+use super::mount::VfsMount;
 use super::openat2::{vfs_open, OpenHow};
 use super::path::Path;
 use super::rwsem::RwSemaphoreGuard;
@@ -27,7 +29,6 @@ use crate::filesystem::{
     Access, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
     OpenOptions,
 };
-use crate::mount::Mount;
 
 use super::{NAME_MAX, PATH_MAX};
 
@@ -44,12 +45,12 @@ pub(crate) fn names_directory(path: &str) -> bool {
 /// it stands in, the names still to walk, and the last name, empty for
 /// the directory itself, left for the call to act on.
 pub(crate) struct Nameidata {
-    pub(crate) mount: Arc<Mount>,
+    pub(crate) mnt: Arc<VfsMount>,
+    pub(crate) cred: Arc<Cred>,
     /// Each directory from the one the walk started from, which no `..`
     /// climbs above, down to the one it stands in.
     frames: Vec<Frame>,
     pending: VecDeque<Part>,
-    follows_links: bool,
     links: usize,
     pub(crate) name: String,
     /// The dentry the walk looked `name` up on, kept for as long as the
@@ -99,7 +100,7 @@ impl Nameidata {
     /// The dentry of `name` in the directory the walk stands in.
     fn child_of(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
         lookup_one(
-            self.mount.filesystem(),
+            self.mnt.filesystem(),
             self.base().as_ref(),
             self.dentry(),
             name,
@@ -111,7 +112,7 @@ impl Nameidata {
     /// caller holds that directory's lock.
     fn lookup_slow(&self, name: &str) -> Result<(String, Arc<Dentry>), FilesystemError> {
         lookup_slow(
-            self.mount.filesystem(),
+            self.mnt.filesystem(),
             self.base().as_ref(),
             self.dentry(),
             name,
@@ -124,7 +125,7 @@ impl Nameidata {
     pub(crate) fn found(&mut self) -> Result<Metadata, FilesystemError> {
         if self.found.is_none() {
             let parent = self.dentry().clone();
-            self.found = Some(down_read(&self.mount, &parent).and_then(|_held| {
+            self.found = Some(down_read(&self.mnt, &parent).and_then(|_held| {
                 let child = self.walked()?;
                 self.look_up(&child)
             }));
@@ -172,9 +173,16 @@ impl Nameidata {
         names.join("/")
     }
 
-    /// Ask the Mount whether the guest may reach the path with `access`.
+    /// Whether the guest may reach the path with `access`: a change asks the
+    /// mount first, then the security hook, as Linux's `mnt_want_write` comes
+    /// before `security_path_*`.
     pub(crate) fn check(&self, access: Access) -> Result<(), Error> {
-        Ok(self.mount.check(|| self.dentry_path(), access)?)
+        if access == Access::ReadWrite {
+            self.mnt.mnt_want_write()?;
+        }
+        Ok(self
+            .cred
+            .security_inode_permission(&self.mnt, &|| self.dentry_path(), access)?)
     }
 }
 
@@ -313,19 +321,19 @@ struct Frame {
 /// directory it looks a name up in, so no change through the VFS lands
 /// between the name's dentry and what the Filesystem answers for it.
 pub(crate) fn down_read<'a>(
-    mount: &Mount,
+    mnt: &VfsMount,
     dentry: &'a Dentry,
 ) -> Result<RwSemaphoreGuard<'a>, FilesystemError> {
-    dentry.rwsem.down_read(mount.filesystem().blocking())
+    dentry.rwsem.down_read(mnt.filesystem().blocking())
 }
 
 /// Hold `dentry`'s directory lock exclusive, as Linux holds a directory
 /// while a name in it is made, removed, or moved.
 fn down_write<'a>(
-    mount: &Mount,
+    mnt: &VfsMount,
     dentry: &'a Dentry,
 ) -> Result<RwSemaphoreGuard<'a>, FilesystemError> {
-    dentry.rwsem.down_write(mount.filesystem().blocking())
+    dentry.rwsem.down_write(mnt.filesystem().blocking())
 }
 
 /// Refuse what a directory just stepped into, or just opened for a
@@ -348,7 +356,7 @@ impl Nameidata {
     /// one or the walk fails beneath it.
     fn walk_component(&mut self, part: Part, dot: bool) -> Result<(), Error> {
         let parent = self.dentry().clone();
-        let _held = down_read(&self.mount, &parent)?;
+        let _held = down_read(&self.mnt, &parent)?;
         let (name, dentry) = self.lookup_slow(&part.name)?;
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
@@ -374,9 +382,7 @@ impl Nameidata {
     /// Walk on through where the link `dentry` names points, before
     /// whatever is left of the path.
     fn pick_link(&mut self, dentry: &Dentry) -> Result<(), Error> {
-        if !self.follows_links {
-            return Err(FilesystemError::FilesystemLoop.into());
-        }
+        self.cred.security_inode_follow_link(&self.mnt)?;
         self.links += 1;
         if self.links > MAXSYMLINKS {
             return Err(FilesystemError::FilesystemLoop.into());
@@ -416,7 +422,7 @@ impl Nameidata {
     /// A final `.` after `name` stands in it, which must be a directory
     /// and no link.
     fn stays_in(&self, name: &str) -> Result<(), Error> {
-        let _held = down_read(&self.mount, self.dentry())?;
+        let _held = down_read(&self.mnt, self.dentry())?;
         match d_getattr(&self.lookup_slow(name)?.1)?.file_type {
             FileType::Directory => Ok(()),
             FileType::Symlink => Err(FilesystemError::FilesystemLoop.into()),
@@ -494,12 +500,13 @@ impl Nameidata {
 /// too; one pointing at nothing is `FilesystemLoop` to a call that
 /// `creates`, since what it would create could lie outside `start`.
 pub(crate) fn filename_lookup(
+    cred: &Arc<Cred>,
     start: &Path,
     path: &str,
     follow: bool,
     creates: bool,
 ) -> Result<Nameidata, Error> {
-    start.revalidate_path()?;
+    cred.security_path_walk(start)?;
     if path.is_empty() {
         return Err(FilesystemError::NotFound.into());
     }
@@ -507,7 +514,8 @@ pub(crate) fn filename_lookup(
         return Err(Error::Escape);
     }
     let mut nd = Nameidata {
-        mount: start.mount().clone(),
+        mnt: start.mnt().clone(),
+        cred: cred.clone(),
         frames: vec![Frame {
             dir: start.dir(),
             name: String::new(),
@@ -515,7 +523,6 @@ pub(crate) fn filename_lookup(
             through_link: false,
         }],
         pending: parts(path, false),
-        follows_links: start.mount().follows_links(),
         links: 0,
         name: String::new(),
         last: None,
@@ -528,7 +535,7 @@ pub(crate) fn filename_lookup(
     let mut followed = false;
     while let Some(name) = last.as_ref().filter(|_| follow) {
         let parent = nd.dentry().clone();
-        let held = down_read(&nd.mount, &parent)?;
+        let held = down_read(&nd.mnt, &parent)?;
         let (stored, dentry) = nd.lookup_slow(&name.name)?;
         let looked_up = d_getattr(&dentry);
         if !matches!(&looked_up, Ok(metadata) if metadata.file_type == FileType::Symlink) {
@@ -545,7 +552,7 @@ pub(crate) fn filename_lookup(
     if found.is_none() {
         if let Some(part) = last {
             let parent = nd.dentry().clone();
-            let _held = down_read(&nd.mount, &parent)?;
+            let _held = down_read(&nd.mnt, &parent)?;
             let (stored, dentry) = nd.lookup_slow(&part.name)?;
             nd.name = stored;
             nd.last = Some(dentry);
@@ -589,17 +596,23 @@ pub(crate) fn filename_lookup(
 /// walks to the last name and `do_open` opens it. `room` says whether the
 /// caller has a descriptor left to hand the guest; without one the open
 /// answers `TooManyOpenFiles` once the path is known to stand.
-pub fn do_file_open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<File, Error> {
+pub fn do_file_open(
+    cred: &Arc<Cred>,
+    start: &Path,
+    path: &str,
+    how: &OpenHow,
+    room: bool,
+) -> Result<File, Error> {
     // A path ending in `/` asks for a directory, which cannot be created
     // as a file. Linux answers it once the names before the last are
     // walked, before it would follow a link standing at the last.
     if path.ends_with('/') && how.create {
-        filename_lookup(start, path, false, how.create)?;
+        filename_lookup(cred, start, path, false, how.create)?;
         return Err(FilesystemError::IsADirectory.into());
     }
     // A trailing `/` resolves a link standing there, as Linux's `open` does.
     let follow = how.follow || names_directory(path);
-    let mut nd = filename_lookup(start, path, follow, how.create)?;
+    let mut nd = filename_lookup(cred, start, path, follow, how.create)?;
     // A create finds what stands at the name under the directory's lock it
     // creates under, and holds it until the file is open, as Linux's
     // `lookup_open` does, so nothing made or removed in between changes
@@ -607,7 +620,7 @@ pub fn do_file_open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Resu
     let parent = nd.dentry().clone();
     let _held = match how.create {
         true => {
-            let held = down_write(&nd.mount, &parent)?;
+            let held = down_write(&nd.mnt, &parent)?;
             nd.found = Some(nd.child().and_then(|child| nd.look_up(&child)));
             Some(held)
         }
@@ -624,7 +637,7 @@ pub fn do_file_open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Resu
         Err(FilesystemError::NotFound) => None,
         Err(err) => return Err(err.into()),
     };
-    refuse_what_stands(existing, how)?;
+    refuse_what_stands(cred, existing, how)?;
     // Creating changes the Mount only where nothing stands yet, so the
     // Mount judges the open once, knowing what it does.
     let changes = how.write || how.truncate || (how.create && existing.is_none());
@@ -656,14 +669,14 @@ pub fn do_file_open(start: &Path, path: &str, how: &OpenHow, room: bool) -> Resu
                 true => vfs_create(nd.base().as_ref(), nd.dentry(), &child, &options)?,
                 false => d_open(&child, &options)?,
             };
-            Ok(File::new(start.with_dentry(child), f_op, how))
+            Ok(File::new(start.with_dentry(child), cred.clone(), f_op, how))
         }
     }
 }
 
 /// What stands at the path answers before any access is judged, as Linux's
 /// `do_open` answers it on a read-only mount.
-fn refuse_what_stands(existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
+fn refuse_what_stands(cred: &Cred, existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
     let refusal = match existing {
         None if !how.create => Some(FilesystemError::NotFound),
         Some(_) if how.create && how.exclusive => Some(FilesystemError::AlreadyExists),
@@ -674,38 +687,37 @@ fn refuse_what_stands(existing: Option<FileType>, how: &OpenHow) -> Result<(), E
     };
     match refusal {
         Some(error) => Err(error.into()),
-        None => may_open(existing, how),
+        None => may_open(cred, existing, how),
     }
 }
 
 /// Refuse to open what stands at the path as Linux's `may_open` does: a
-/// directory for writing, and a device, as every Mount is `nodev`. A FIFO
-/// or a socket, which Linux opens, is refused too, as the runtime keeps no
-/// peer for either.
-fn may_open(existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
+/// directory for writing, then whatever a security hook refuses.
+fn may_open(cred: &Cred, existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
     match existing {
         Some(FileType::Directory) if how.write || how.truncate => {
             Err(FilesystemError::IsADirectory.into())
         }
-        Some(FileType::Unknown) => Err(FilesystemError::PermissionDenied.into()),
-        _ => Ok(()),
+        Some(kind) => Ok(cred.security_file_open(kind)?),
+        None => Ok(()),
     }
 }
 
 /// Make the directory `path` beneath `start`. A trailing `/` asks for the
 /// directory being made, so it is no refusal here, as `mkdir(2)` takes it.
-pub fn filename_mkdirat(start: &Path, path: &str) -> Result<(), Error> {
-    let nd = filename_lookup(start, path, false, false)?;
+pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
+    let nd = filename_lookup(cred, start, path, false, false)?;
     nd.check(Access::ReadWrite)?;
     refuse_root(&nd.name, FilesystemError::AlreadyExists)?;
-    let _held = down_write(&nd.mount, nd.dentry())?;
+    let _held = down_write(&nd.mnt, nd.dentry())?;
     let child = nd.child()?;
     Ok(vfs_mkdir(nd.base().as_ref(), nd.dentry(), &child)?)
 }
 
 /// Remove the empty directory `path` beneath `start`.
-pub fn filename_rmdir(start: &Path, path: &str) -> Result<(), Error> {
+pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
     refuse_dot_end(
+        cred,
         start,
         path,
         [
@@ -713,13 +725,13 @@ pub fn filename_rmdir(start: &Path, path: &str) -> Result<(), Error> {
             FilesystemError::DirectoryNotEmpty,
         ],
     )?;
-    let mut nd = filename_lookup(start, path, false, false)?;
+    let mut nd = filename_lookup(cred, start, path, false, false)?;
     nd.check(Access::ReadWrite)?;
     nd.check_directory()?;
     refuse_root(&nd.name, FilesystemError::InvalidInput)?;
-    let _parent = down_write(&nd.mount, nd.dentry())?;
+    let _parent = down_write(&nd.mnt, nd.dentry())?;
     Ok(vfs_rmdir(
-        nd.mount.filesystem(),
+        nd.mnt.filesystem(),
         nd.base().as_ref(),
         nd.dentry(),
         &nd.child()?,
@@ -729,14 +741,14 @@ pub fn filename_rmdir(start: &Path, path: &str) -> Result<(), Error> {
 /// Remove the file `path` beneath `start`. Linux's `unlink` follows no
 /// link at the end, so a trailing `/` is answered by the name itself: no
 /// file removes as a directory.
-pub fn filename_unlinkat(start: &Path, path: &str) -> Result<(), Error> {
-    let mut nd = filename_lookup(start, path, false, false)?;
+pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
+    let mut nd = filename_lookup(cred, start, path, false, false)?;
     nd.check(Access::ReadWrite)?;
     nd.check_directory()?;
     refuse_root(&nd.name, FilesystemError::IsADirectory)?;
-    let _parent = down_write(&nd.mount, nd.dentry())?;
+    let _parent = down_write(&nd.mnt, nd.dentry())?;
     Ok(vfs_unlink(
-        nd.mount.filesystem(),
+        nd.mnt.filesystem(),
         nd.base().as_ref(),
         nd.dentry(),
         &nd.child()?,
@@ -748,16 +760,17 @@ pub fn filename_unlinkat(start: &Path, path: &str) -> Result<(), Error> {
 /// mounted devices. A directory moves only beneath a Mount that allows it,
 /// as Linux's `security_path_rename` asks before the move.
 pub fn filename_renameat2(
+    cred: &Arc<Cred>,
     from: &Path,
     from_path: &str,
     to: &Path,
     to_path: &str,
 ) -> Result<(), Error> {
     let busy = [FilesystemError::ResourceBusy, FilesystemError::ResourceBusy];
-    refuse_dot_end(from, from_path, busy.clone())?;
-    refuse_dot_end(to, to_path, busy)?;
-    let mut source = filename_lookup(from, from_path, false, false)?;
-    let mut target = filename_lookup(to, to_path, false, false)?;
+    refuse_dot_end(cred, from, from_path, busy.clone())?;
+    refuse_dot_end(cred, to, to_path, busy)?;
+    let mut source = filename_lookup(cred, from, from_path, false, false)?;
+    let mut target = filename_lookup(cred, to, to_path, false, false)?;
     refuse_root(&source.name, FilesystemError::ResourceBusy)?;
     refuse_root(&target.name, FilesystemError::ResourceBusy)?;
     // A trailing `/` on either side asks that the source be a directory,
@@ -771,7 +784,7 @@ pub fn filename_renameat2(
     if !onto_itself {
         target.check_directory()?;
     }
-    if !Arc::ptr_eq(from.mount(), to.mount()) {
+    if !Arc::ptr_eq(from.mnt(), to.mnt()) {
         return Err(FilesystemError::CrossesDevices.into());
     }
     source.check(Access::ReadWrite)?;
@@ -784,7 +797,7 @@ pub fn filename_renameat2(
         return Ok(());
     }
     let (old, new) = (source.child()?, target.child()?);
-    let filesystem = from.mount().filesystem();
+    let filesystem = from.mnt().filesystem();
     let (old_dir, new_dir) = (source.dentry(), target.dentry());
     // What stands at the source, and which directory stands beneath the
     // other, hold still once both are held, so each is asked then, as
@@ -794,9 +807,7 @@ pub fn filename_renameat2(
     if names_directory && !is_dir {
         return Err(FilesystemError::NotADirectory.into());
     }
-    if is_dir && !from.mount().moves_directories() {
-        return Err(FilesystemError::CrossesDevices.into());
-    }
+    cred.security_path_rename(from.mnt(), is_dir)?;
     let (old_inode, new_inode) = (source.base().as_ref(), target.base().as_ref());
     Ok(vfs_rename(
         filesystem,
@@ -1084,6 +1095,7 @@ fn may_delete_dentry(
 /// one that is not the last name, so a missing or non-directory parent
 /// answers as itself.
 fn refuse_dot_end(
+    cred: &Arc<Cred>,
     start: &Path,
     path: &str,
     [dot, dotdot]: [FilesystemError; 2],
@@ -1096,7 +1108,7 @@ fn refuse_dot_end(
         _ => return Ok(()),
     };
     if !parent.is_empty()
-        && filename_lookup(start, parent, true, false)?
+        && filename_lookup(cred, start, parent, true, false)?
             .found()?
             .file_type
             != FileType::Directory
@@ -1320,7 +1332,7 @@ mod tests {
     fn root_of(filesystem: Arc<Filesystem>) -> Path {
         let mount =
             Mount::new("/data", filesystem, Access::ReadWrite).expect("/data is a guest path");
-        Path::root(mount, Profile::Permissive)
+        Path::root(mount.mnt(), Profile::Permissive)
     }
 
     fn open_dir(start: &Path, path: &str) -> Path {
@@ -1328,7 +1340,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        match vfs::do_file_open(start, path, &how, true) {
+        match vfs::do_file_open(&Arc::default(), start, path, &how, true) {
             Ok(dir) => dir.path().clone(),
             Err(_) => panic!("{path} must open as a directory"),
         }
@@ -1351,7 +1363,7 @@ mod tests {
             ..OpenHow::default()
         };
         assert_eq!(
-            vfs::do_file_open(&root, "w", &how, true).err(),
+            vfs::do_file_open(&crate::security::prepare_creds([]), &root, "w", &how, true).err(),
             Some(vfs::Error::Filesystem(FilesystemError::PermissionDenied)),
             "a character device through vfs::do_file_open must answer PermissionDenied"
         );
@@ -1369,8 +1381,8 @@ mod tests {
         let root = root_of(Filesystem::new(hooked.clone()));
         let held = open_dir(&root, "d");
         hooked.stale.store(true, Ordering::SeqCst);
-        vfs::filename_unlinkat(&root, "d/keep").expect("the file must go");
-        vfs::filename_rmdir(&root, "d").expect("the directory must go");
+        vfs::filename_unlinkat(&Arc::default(), &root, "d/keep").expect("the file must go");
+        vfs::filename_rmdir(&Arc::default(), &root, "d").expect("the directory must go");
         assert!(
             !held.dentry().is_dead(),
             "vfs::filename_rmdir of a name whose held dentry DentryOperations::revalidate answers stale must \
@@ -1395,15 +1407,16 @@ mod tests {
             ..HookedTmpfs::default()
         };
         let root = root_of(Filesystem::new(Arc::new(hooked)));
-        vfs::filename_mkdirat(&root, "d").expect("the directory must be made");
+        vfs::filename_mkdirat(&Arc::default(), &root, "d").expect("the directory must be made");
         let remover = {
             let root = root.clone();
-            thread::spawn(move || vfs::filename_rmdir(&root, "d"))
+            thread::spawn(move || vfs::filename_rmdir(&Arc::default(), &root, "d"))
         };
         removing
             .recv()
             .expect("the removal must reach the Filesystem");
-        vfs::filename_mkdirat(&root, "d").expect("another directory must be made in its place");
+        vfs::filename_mkdirat(&Arc::default(), &root, "d")
+            .expect("another directory must be made in its place");
         let dir = open_dir(&root, "d");
         made.send(()).ok();
         remover
@@ -1411,7 +1424,7 @@ mod tests {
             .expect("the remover must not panic")
             .expect("the removal must succeed");
         assert_eq!(
-            vfs::filename_mkdirat(&dir, "inner"),
+            vfs::filename_mkdirat(&Arc::default(),&dir, "inner"),
             Ok(()),
             "vfs::filename_mkdirat through a directory vfs::filename_mkdirat made while vfs::filename_rmdir \
              removed the one in its place must make into the directory made"
@@ -1457,21 +1470,22 @@ mod tests {
         let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
             .expect("/data is a guest path")
             .with_policy(Arc::new(policy));
-        let root = Path::root(mount, Profile::Permissive);
+        let root = Path::root(mount.mnt(), Profile::Permissive);
+        let cred = crate::security::prepare_creds([&mount]);
         let opener = {
-            let root = root.clone();
+            let (root, cred) = (root.clone(), cred.clone());
             thread::spawn(move || {
                 let how = OpenHow {
                     write: true,
                     create: true,
                     ..OpenHow::default()
                 };
-                vfs::do_file_open(&root, "f", &how, true).map(drop)
+                vfs::do_file_open(&cred, &root, "f", &how, true).map(drop)
             })
         };
         reaching.recv().expect("the open must reach the Policy");
         let remover = thread::spawn(move || {
-            let answer = vfs::filename_unlinkat(&root, "f");
+            let answer = vfs::filename_unlinkat(&cred, &root, "f");
             removed.send(()).ok();
             answer
         });
@@ -1495,11 +1509,12 @@ mod tests {
     fn a_directory_moved_beneath_itself_is_refused_whatever_its_filesystem() {
         let hooked = Arc::new(HookedTmpfs::default());
         let root = root_of(Filesystem::new(hooked.clone()));
-        vfs::filename_mkdirat(&root, "a").expect("the directory must be made");
-        vfs::filename_mkdirat(&root, "a/b").expect("the directory beneath it must be made");
+        vfs::filename_mkdirat(&Arc::default(), &root, "a").expect("the directory must be made");
+        vfs::filename_mkdirat(&Arc::default(), &root, "a/b")
+            .expect("the directory beneath it must be made");
         assert_eq!(
             (
-                vfs::filename_renameat2(&root, "a", &root, "a/b/a"),
+                vfs::filename_renameat2(&Arc::default(),&root, "a", &root, "a/b/a"),
                 hooked.renames.load(Ordering::SeqCst)
             ),
             (
@@ -1518,7 +1533,11 @@ mod tests {
         let hooked = HookedTmpfs {
             making: Some(Box::new({
                 let root = root.clone();
-                move || match vfs::filename_mkdirat(root.get().expect("the root is set"), "other") {
+                move || match vfs::filename_mkdirat(
+                    &Arc::default(),
+                    root.get().expect("the root is set"),
+                    "other",
+                ) {
                     Err(vfs::Error::Filesystem(err)) => Err(err),
                     _ => Ok(()),
                 }
@@ -1528,7 +1547,7 @@ mod tests {
         let path = root_of(Filesystem::new(Arc::new(hooked)));
         root.set(path.clone()).ok();
         assert_eq!(
-            vfs::filename_mkdirat(&path, "made"),
+            vfs::filename_mkdirat(&Arc::default(),&path, "made"),
             Err(vfs::Error::Filesystem(FilesystemError::Deadlock)),
             "vfs::filename_mkdirat called by a Filesystem's own create_dir on the directory the outer \
              vfs::filename_mkdirat holds must answer Deadlock"
@@ -1560,15 +1579,15 @@ mod tests {
             ..HookedTmpfs::default()
         };
         let root = root_of(Filesystem::with_blocking(Arc::new(hooked), counts.clone()));
-        vfs::filename_mkdirat(&root, "d").expect("the directory must be made");
+        vfs::filename_mkdirat(&Arc::default(), &root, "d").expect("the directory must be made");
         let remover = {
             let root = root.clone();
-            thread::spawn(move || vfs::filename_rmdir(&root, "d"))
+            thread::spawn(move || vfs::filename_rmdir(&Arc::default(), &root, "d"))
         };
         removing
             .recv()
             .expect("the removal must reach the Filesystem");
-        let made = vfs::filename_mkdirat(&root, "e");
+        let made = vfs::filename_mkdirat(&Arc::default(), &root, "e");
         remover
             .join()
             .expect("the remover must not panic")
@@ -1611,12 +1630,14 @@ mod tests {
         let root = root_of(Filesystem::with_blocking(Arc::new(folds), counts.clone()));
         let mover = {
             let root = root.clone();
-            thread::spawn(move || vfs::filename_renameat2(&root, "dir/f", &root, "dir/g"))
+            thread::spawn(move || {
+                vfs::filename_renameat2(&Arc::default(), &root, "dir/f", &root, "dir/g")
+            })
         };
         // Bounded, so a move that never reaches the Filesystem fails the
         // assertion rather than hanging the test.
         reaching.recv_timeout(Duration::from_secs(5)).ok();
-        let removed = vfs::filename_unlinkat(&root, "DIR/F");
+        let removed = vfs::filename_unlinkat(&Arc::default(), &root, "DIR/F");
         let moved = mover.join().expect("the mover must not panic");
         assert_eq!(
             (moved, removed, counts.0.load(Ordering::SeqCst) > 0),

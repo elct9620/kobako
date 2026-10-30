@@ -39,7 +39,7 @@ mod tests {
     fn path_over(tmpfs: Arc<dyn InodeOperations>, profile: Profile) -> Path {
         let mount = Mount::new("/data", Filesystem::new(tmpfs), Access::ReadWrite)
             .expect("/data is a guest path");
-        Path::root(mount, profile)
+        Path::root(mount.mnt(), profile)
     }
 
     /// Write `name` beneath `start`, answering the file still open.
@@ -49,7 +49,7 @@ mod tests {
             create: true,
             ..OpenHow::default()
         };
-        let Ok(mut file) = vfs::do_file_open(start, name, &how, true) else {
+        let Ok(mut file) = vfs::do_file_open(&Arc::default(), start, name, &how, true) else {
             panic!("{name} must open as a file");
         };
         file.write(b"x").expect("the file must take a write");
@@ -66,7 +66,7 @@ mod tests {
         let start = path_over(Arc::new(Tmpfs::new()), Profile::Permissive);
         let before = SystemTime::now();
         write(&start, "file");
-        let modified = vfs::vfs_fstatat(&start, "file", true)
+        let modified = vfs::vfs_fstatat(&Arc::default(), &start, "file", true)
             .expect("the file must stand")
             .modified
             .expect("a Tmpfs keeps a modification time");
@@ -87,7 +87,7 @@ mod tests {
         let epoch = [Some(UNIX_EPOCH); 3];
         assert_eq!(
             (
-                times(&vfs::vfs_fstatat(&start, "file", true).expect("the file must stand")),
+                times(&vfs::vfs_fstatat(&Arc::default(),&start, "file", true).expect("the file must stand")),
                 times(&file.getattr().expect("the open file must report")),
             ),
             (epoch, epoch),
@@ -103,7 +103,7 @@ mod tests {
         write(&path_over(tmpfs.clone(), Profile::Permissive), "file");
         let hermetic = path_over(tmpfs, Profile::Hermetic);
         assert_eq!(
-            times(&vfs::vfs_fstatat(&hermetic, "file", true).expect("the file must stand")),
+            times(&vfs::vfs_fstatat(&Arc::default(),&hermetic, "file", true).expect("the file must stand")),
             [Some(UNIX_EPOCH); 3],
             "vfs::vfs_fstatat beneath a Path on the strongest posture, of a file the weaker posture \
              wrote into the same Tmpfs, must report each time as the Unix epoch"

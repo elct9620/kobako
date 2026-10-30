@@ -1153,7 +1153,7 @@ mod tests {
                     create: true,
                     ..crate::vfs::OpenHow::default()
                 };
-                let _ = crate::vfs::do_file_open(&overlay, "dir/new", &how, true);
+                let _ = crate::vfs::do_file_open(&Arc::default(), &overlay, "dir/new", &how, true);
                 marker.store(1, Ordering::SeqCst);
             });
             let deadline = Instant::now() + Duration::from_millis(200);
@@ -1201,9 +1201,9 @@ mod tests {
             super::super::Access::ReadWrite,
         )
         .expect("/data is a guest path");
-        let root = crate::vfs::Path::root(mount, crate::profile::Profile::Permissive);
+        let root = crate::vfs::Path::root(mount.mnt(), crate::profile::Profile::Permissive);
         *interleave.overlay.lock().unwrap() = Some(root.clone());
-        let removed = crate::vfs::filename_rmdir(&root, "dir").is_ok();
+        let removed = crate::vfs::filename_rmdir(&Arc::default(), &root, "dir").is_ok();
         interleave
             .other
             .lock()
@@ -1216,7 +1216,7 @@ mod tests {
             (
                 removed,
                 *interleave.finished_inside.lock().unwrap(),
-                crate::vfs::vfs_fstatat(&root, "dir/new", false).is_ok()
+                crate::vfs::vfs_fstatat(&Arc::default(),&root, "dir/new", false).is_ok()
             ),
             (true, Some(false), false),
             "a create through vfs::do_file_open into an Overlay directory vfs::filename_rmdir is removing must \
@@ -1243,8 +1243,9 @@ mod tests {
                 let reentering = self.overlay.lock().unwrap().take();
                 if let Some(overlay) = reentering {
                     *self.answer.lock().unwrap() = Some((
-                        crate::vfs::vfs_fstatat(&overlay, &dentry.name(), false).is_ok(),
-                        crate::vfs::filename_mkdirat(&overlay, "made"),
+                        crate::vfs::vfs_fstatat(&Arc::default(), &overlay, &dentry.name(), false)
+                            .is_ok(),
+                        crate::vfs::filename_mkdirat(&Arc::default(), &overlay, "made"),
                     ));
                 }
                 inner.getattr(dentry)
@@ -1265,9 +1266,10 @@ mod tests {
             super::super::Access::ReadWrite,
         )
         .expect("/data is a guest path");
-        let root = crate::vfs::Path::root(mount, crate::profile::Profile::Permissive);
+        let root = crate::vfs::Path::root(mount.mnt(), crate::profile::Profile::Permissive);
         *layer.overlay.lock().unwrap() = Some(root.clone());
-        crate::vfs::vfs_fstatat(&root, "note", false).expect("the outer call must answer");
+        crate::vfs::vfs_fstatat(&Arc::default(), &root, "note", false)
+            .expect("the outer call must answer");
         let answers = layer.answer.lock().unwrap().take();
         assert_eq!(
             answers,
@@ -1545,7 +1547,7 @@ mod tests {
             let mount =
                 crate::mount::Mount::new("/data", filesystem, super::super::Access::ReadWrite)
                     .expect("/data is a guest path");
-            crate::vfs::Path::root(mount, crate::profile::Profile::Permissive)
+            crate::vfs::Path::root(mount.mnt(), crate::profile::Profile::Permissive)
         };
         (root(Filesystem::new(Arc::new(overlay))), root(upper))
     }
@@ -1567,16 +1569,16 @@ mod tests {
             let moved = moved.clone();
             thread::spawn(move || {
                 while !moved.load(Ordering::SeqCst) {
-                    let _ = crate::vfs::filename_rmdir(&upper, "upper/a/b");
+                    let _ = crate::vfs::filename_rmdir(&Arc::default(), &upper, "upper/a/b");
                 }
             })
         };
         let (done, finished) = std::sync::mpsc::channel();
         thread::spawn(move || {
             for _ in 0..500 {
-                crate::vfs::filename_renameat2(&overlay, "a/b/c", &overlay, "a/c")
+                crate::vfs::filename_renameat2(&Arc::default(), &overlay, "a/b/c", &overlay, "a/c")
                     .expect("the file must move up");
-                crate::vfs::filename_renameat2(&overlay, "a/c", &overlay, "a/b/c")
+                crate::vfs::filename_renameat2(&Arc::default(), &overlay, "a/c", &overlay, "a/b/c")
                     .expect("the file must move back");
             }
             let _ = done.send(());
@@ -1606,17 +1608,18 @@ mod tests {
             let stop = stop.clone();
             thread::spawn(move || {
                 while !stop.load(Ordering::SeqCst) {
-                    let _ = crate::vfs::filename_mkdirat(&overlay, "a/b");
-                    let _ = crate::vfs::filename_rmdir(&overlay, "a/b");
+                    let _ = crate::vfs::filename_mkdirat(&Arc::default(), &overlay, "a/b");
+                    let _ = crate::vfs::filename_rmdir(&Arc::default(), &overlay, "a/b");
                 }
             })
         };
         let mut lost = 0;
         for _ in 0..100_000 {
-            if crate::vfs::filename_mkdirat(&upper, "upper/a/b/made").is_ok() {
-                match crate::vfs::vfs_fstatat(&upper, "upper/a/b/made", false) {
+            if crate::vfs::filename_mkdirat(&Arc::default(), &upper, "upper/a/b/made").is_ok() {
+                match crate::vfs::vfs_fstatat(&Arc::default(), &upper, "upper/a/b/made", false) {
                     Ok(_) => {
-                        let _ = crate::vfs::filename_rmdir(&upper, "upper/a/b/made");
+                        let _ =
+                            crate::vfs::filename_rmdir(&Arc::default(), &upper, "upper/a/b/made");
                     }
                     Err(_) => lost += 1,
                 }

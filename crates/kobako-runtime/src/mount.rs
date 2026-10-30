@@ -7,7 +7,9 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::filesystem::Access;
-use crate::vfs::Filesystem;
+use crate::vfs::{Filesystem, VfsMount};
+
+pub use crate::vfs::Denial;
 
 /// The Host App's decision for one path a guest opens or changes, made in
 /// a Mount's access's place.
@@ -15,15 +17,6 @@ pub trait Policy: Send + Sync {
     /// Whether the guest may reach `path`, the absolute guest path, with
     /// `access`.
     fn allows(&self, path: &str, access: Access) -> bool;
-}
-
-/// Why a Mount refused a call.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Denial {
-    /// A change beneath a Mount allowing only reads.
-    ReadOnly,
-    /// The Mount's Policy said no.
-    Refused,
 }
 
 /// A Filesystem instance at an absolute guest path. Its path bounds what a
@@ -34,6 +27,7 @@ pub struct Mount {
     access: Access,
     filesystem: Arc<Filesystem>,
     policy: Option<Arc<dyn Policy>>,
+    mnt: Arc<VfsMount>,
 }
 
 /// A path no Mount can stand at: one that is not an absolute guest path.
@@ -77,6 +71,7 @@ impl Mount {
         Ok(Self {
             at,
             access,
+            mnt: VfsMount::new(filesystem.clone(), access == Access::Read),
             filesystem,
             policy: None,
         })
@@ -86,9 +81,20 @@ impl Mount {
     /// access's place.
     pub fn with_policy(self, policy: Arc<dyn Policy>) -> Self {
         Self {
+            mnt: VfsMount::new(self.filesystem.clone(), false),
             policy: Some(policy),
             ..self
         }
+    }
+
+    /// The Filesystem as the VFS walks it.
+    pub fn mnt(&self) -> &Arc<VfsMount> {
+        &self.mnt
+    }
+
+    /// The Policy deciding beneath this Mount, once one was given.
+    pub(crate) fn policy(&self) -> Option<&Arc<dyn Policy>> {
+        self.policy.as_ref()
     }
 
     /// The absolute guest path the Filesystem appears at.
@@ -106,63 +112,5 @@ impl Mount {
     /// The Policy itself is not asked.
     pub fn allows_writes(&self) -> bool {
         self.policy.is_some() || self.access == Access::ReadWrite
-    }
-
-    /// The absolute guest path `path`, relative to this Mount's root,
-    /// stands for.
-    fn guest_path(&self, path: &str) -> String {
-        match (self.at.as_str(), path) {
-            (at, "") => at.to_string(),
-            ("/", path) => format!("/{path}"),
-            (at, path) => format!("{at}/{path}"),
-        }
-    }
-
-    /// Whether the guest may reach a path beneath this Mount with
-    /// `access`. A Policy judges the path `dentry_path` answers, relative
-    /// to this Mount's root and spelled as the Filesystem stores its names,
-    /// so a host folding case or Unicode form cannot hand it one spelling
-    /// of an entry it refuses by another.
-    pub(crate) fn check(
-        &self,
-        dentry_path: impl FnOnce() -> String,
-        access: Access,
-    ) -> Result<(), Denial> {
-        match &self.policy {
-            Some(policy) => {
-                if policy.allows(&self.guest_path(&dentry_path()), access) {
-                    Ok(())
-                } else {
-                    Err(Denial::Refused)
-                }
-            }
-            None if access == Access::ReadWrite && self.access == Access::Read => {
-                Err(Denial::ReadOnly)
-            }
-            None => Ok(()),
-        }
-    }
-
-    /// Whether a Policy judges paths beneath this Mount, so a call through
-    /// a directory opened beneath it first confirms the directory still
-    /// stands at the path the Policy would judge.
-    pub(crate) fn judges_paths(&self) -> bool {
-        self.policy.is_some()
-    }
-
-    /// Whether a directory may move beneath this Mount. Under a Policy it
-    /// may not: everything beneath it would take paths the Policy never
-    /// judged, so a move is refused as one across devices and the guest
-    /// copies entry by entry instead, as Landlock refuses such a move.
-    pub(crate) fn moves_directories(&self) -> bool {
-        self.policy.is_none()
-    }
-
-    /// Whether a path beneath this Mount may pass through a link the
-    /// Filesystem holds. Under a Policy it may not: the link leads to a
-    /// path the Policy never judged, so the call is refused as one past
-    /// too many links.
-    pub(crate) fn follows_links(&self) -> bool {
-        self.policy.is_none()
     }
 }

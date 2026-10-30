@@ -2,6 +2,10 @@
 //! for it, and what each descriptor of it shares, so any ABI a Driver encodes
 //! holds the same open file.
 
+use std::sync::Arc;
+
+use super::cred::Cred;
+use super::mount::VfsMount;
 use super::namei::{d_getattr, down_read};
 use super::openat2::OpenHow;
 use super::path::Path;
@@ -10,7 +14,6 @@ use super::Error;
 use crate::filesystem::{
     DirEntry, FileOperations, FilesystemError, Iattr, Kiocb, Metadata, OpenOptions,
 };
-use crate::mount::Mount;
 use crate::profile::Profile;
 
 /// What an open file was opened for and what it can do, as Linux's `fmode_t`.
@@ -53,6 +56,8 @@ pub struct File {
     /// Where it was opened, as `f_path`; it follows the name wherever it
     /// moves.
     path: Path,
+    /// Who opened it, as `f_cred`.
+    cred: Arc<Cred>,
     /// What answers for it, as `f_op`.
     ops: Box<dyn FileOperations>,
     directory: bool,
@@ -68,10 +73,16 @@ pub struct File {
 }
 
 impl File {
-    /// The file `ops` answers for, opened at `path` as `how` asks.
-    pub(super) fn new(path: Path, ops: Box<dyn FileOperations>, how: &OpenHow) -> Self {
+    /// The file `ops` answers for, opened at `path` for `cred` as `how` asks.
+    pub(super) fn new(
+        path: Path,
+        cred: Arc<Cred>,
+        ops: Box<dyn FileOperations>,
+        how: &OpenHow,
+    ) -> Self {
         Self {
             path,
+            cred,
             ops,
             directory: false,
             mode: FMode::of(how),
@@ -85,7 +96,7 @@ impl File {
     /// `f_op->open`. A directory without `open` opens as Linux's opens with
     /// no `f_op->open`, and refuses a listing as one with no
     /// `iterate_shared`.
-    pub(super) fn directory(path: Path) -> Result<Self, FilesystemError> {
+    pub(super) fn directory(path: Path, cred: Arc<Cred>) -> Result<Self, FilesystemError> {
         struct Unlistable;
         impl FileOperations for Unlistable {}
 
@@ -100,7 +111,7 @@ impl File {
         };
         Ok(Self {
             directory: true,
-            ..Self::new(path, ops, &OpenHow::default())
+            ..Self::new(path, cred, ops, &OpenHow::default())
         })
     }
 
@@ -110,10 +121,14 @@ impl File {
         self.mode = FMode(access | FMode::STREAM.0);
     }
 
-    /// The root of `mount` opened as a directory, for an invocation running
-    /// under `profile`.
-    pub fn root(mount: Mount, profile: Profile) -> Result<Self, FilesystemError> {
-        Self::directory(Path::root(mount, profile))
+    /// The root of `mnt` opened as a directory for `cred`, for an invocation
+    /// running under `profile`.
+    pub fn root(
+        mnt: &Arc<VfsMount>,
+        cred: Arc<Cred>,
+        profile: Profile,
+    ) -> Result<Self, FilesystemError> {
+        Self::directory(Path::root(mnt, profile), cred)
     }
 
     /// Where it was opened; a call relative to it starts here.
@@ -209,7 +224,10 @@ impl File {
     /// What it reports of itself, as `vfs_getattr` answers.
     pub fn getattr(&self) -> Result<Metadata, Error> {
         match self.directory {
-            true => self.path.metadata(),
+            true => {
+                self.cred.security_path_walk(&self.path)?;
+                self.path.metadata()
+            }
             false => Ok(mask_times(
                 d_getattr(self.path.dentry())?,
                 self.path.profile(),
@@ -234,11 +252,11 @@ impl File {
     /// The entries of the directory, without `.` or `..`; none once it was
     /// removed, as Linux lists a dead directory.
     pub fn iterate_dir(&mut self) -> Result<Vec<DirEntry>, Error> {
-        self.path.revalidate_path()?;
+        self.cred.security_path_walk(&self.path)?;
         let dentry = self.path.dentry().clone();
         // A listing holds the directory shared, as Linux's `iterate_dir`
         // does, so a removal through the VFS lands before or after it.
-        let _held = down_read(self.path.mount(), &dentry)?;
+        let _held = down_read(self.path.mnt(), &dentry)?;
         if dentry.is_dead() {
             return Ok(Vec::new());
         }

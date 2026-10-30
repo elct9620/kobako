@@ -7,12 +7,14 @@
 //! before the Filesystem is asked, so a Filesystem of a third party's
 //! checks neither.
 
+mod cred;
 mod dentry;
 mod file;
 mod filesystem;
 mod inode;
 #[cfg(test)]
 pub(crate) mod kern_path;
+mod mount;
 mod namei;
 mod openat2;
 mod path;
@@ -24,7 +26,6 @@ mod times;
 mod utimes;
 
 use crate::filesystem::FilesystemError;
-use crate::mount::Denial;
 
 pub(crate) use namei::{
     d_get_link, d_getattr, d_lookup_inode, d_open, lookup_one, lookup_slow, start_renaming,
@@ -32,10 +33,12 @@ pub(crate) use namei::{
 };
 pub(crate) use rwsem::{Inline, RwSemaphore, RwSemaphoreGuard};
 
+pub use cred::{Cred, SecurityOperations};
 pub use dentry::Dentry;
 pub use file::{FMode, File};
 pub use filesystem::Filesystem;
 pub use inode::{Identity, Inode};
+pub use mount::{Denial, VfsMount};
 pub use namei::{
     do_file_open, filename_mkdirat, filename_renameat2, filename_rmdir, filename_unlinkat,
 };

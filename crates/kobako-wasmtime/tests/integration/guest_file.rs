@@ -59,13 +59,14 @@ fn note_tmpfs() -> Arc<Tmpfs> {
 fn host<F: InodeOperations>(filesystem: &Arc<F>) -> Path {
     let mount = Mount::new("/data", Filesystem::new(filesystem.clone()), Access::Read)
         .expect("/data is a guest path");
-    Path::root(mount, Profile::Permissive)
+    Path::root(mount.mnt(), Profile::Permissive)
 }
 
 fn contents<F: InodeOperations>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
     let mut how = OpenHow::default();
     how.read = true;
-    let Ok(mut file) = vfs::do_file_open(&host(filesystem), path, &how, true) else {
+    let Ok(mut file) = vfs::do_file_open(&Arc::default(), &host(filesystem), path, &how, true)
+    else {
         panic!("the file must exist");
     };
     let mut buf = vec![0; 64];
@@ -412,7 +413,7 @@ fn an_exclusive_open_without_create_makes_no_file() {
     assert_eq!(
         (
             answer,
-            vfs::vfs_fstatat(&host(&tmpfs), "lock", false).is_err()
+            vfs::vfs_fstatat(&Arc::default(), &host(&tmpfs), "lock", false).is_err()
         ),
         (Err("Errno::ENOENT".to_string()), true),
         "File.open with RDONLY | EXCL of a path nothing is at through the bundled guest must \

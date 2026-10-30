@@ -20,6 +20,7 @@ mod hashtable;
 pub mod mount;
 pub mod profile;
 pub mod runtime;
+pub mod security;
 pub mod snapshot;
 pub mod vfs;
 pub mod yielder;

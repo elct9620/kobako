@@ -109,10 +109,9 @@ fn read_subscription(invocation: &Invocation, mem: &GuestMemory, sub: u32) -> An
             Descriptor::File(_) | Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },
         TAG_FD_WRITE => match descriptor(invocation, mem, sub)? {
-            Descriptor::File(file) if file.is_stream() && !file.writable() => {
-                return Err(Errno::Badf.into())
-            }
-            Descriptor::File(file) if file.path().mount().allows_writes() => Kind::FdWrite,
+            Descriptor::File(file) if file.is_stream() && file.writable() => Kind::FdWrite,
+            Descriptor::File(file) if file.is_stream() => return Err(Errno::Badf.into()),
+            Descriptor::File(file) if !file.path().mnt().is_readonly() => Kind::FdWrite,
             Descriptor::File(_) => return Err(Errno::Perm.into()),
             Descriptor::Directory(_) => return Err(Errno::Badf.into()),
         },

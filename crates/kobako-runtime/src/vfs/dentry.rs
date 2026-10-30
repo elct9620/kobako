@@ -403,7 +403,7 @@ mod tests {
     fn root_of(filesystem: &Arc<Filesystem>) -> Path {
         let mount = Mount::new("/data", filesystem.clone(), Access::ReadWrite)
             .expect("/data is a guest path");
-        Path::root(mount, Profile::Permissive)
+        Path::root(mount.mnt(), Profile::Permissive)
     }
 
     fn open_dir(start: &Path, path: &str) -> Path {
@@ -411,7 +411,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        match vfs::do_file_open(start, path, &how, true) {
+        match vfs::do_file_open(&Arc::default(), start, path, &how, true) {
             Ok(dir) => dir.path().clone(),
             Err(_) => panic!("{path} must open as a directory"),
         }
@@ -447,14 +447,16 @@ mod tests {
         let tmpfs: Arc<Tmpfs> = Arc::new([("dir/keep", "x")].into_iter().collect());
         let root = root_of(&by_path(&tmpfs));
         let dir = open_dir(&root, "dir");
-        vfs::filename_unlinkat(&root, "dir/keep").expect("the file must go");
-        vfs::filename_rmdir(&root, "dir").expect("the directory must go");
-        vfs::filename_mkdirat(&root, "dir").expect("another directory must be made");
-        vfs::filename_mkdirat(&root, "dir/other").expect("an entry must be made in it");
+        vfs::filename_unlinkat(&Arc::default(), &root, "dir/keep").expect("the file must go");
+        vfs::filename_rmdir(&Arc::default(), &root, "dir").expect("the directory must go");
+        vfs::filename_mkdirat(&Arc::default(), &root, "dir")
+            .expect("another directory must be made");
+        vfs::filename_mkdirat(&Arc::default(), &root, "dir/other")
+            .expect("an entry must be made in it");
         assert_eq!(
             (
-                vfs::filename_mkdirat(&dir, "made"),
-                File::directory(dir.clone())
+                vfs::filename_mkdirat(&Arc::default(),&dir, "made"),
+                File::directory(dir.clone(), Arc::default())
                     .expect("the directory must open")
                     .iterate_dir(),
                 kern_path(tmpfs.clone()).symlink_metadata("dir/made").err()
@@ -477,11 +479,12 @@ mod tests {
         let instance = by_path(&tmpfs);
         let (first, second) = (root_of(&instance), root_of(&instance));
         let dir = open_dir(&first, "dir");
-        vfs::filename_unlinkat(&second, "dir/keep").expect("the file must go");
-        vfs::filename_rmdir(&second, "dir").expect("the directory must go");
-        vfs::filename_mkdirat(&second, "dir").expect("another directory must be made");
+        vfs::filename_unlinkat(&Arc::default(), &second, "dir/keep").expect("the file must go");
+        vfs::filename_rmdir(&Arc::default(), &second, "dir").expect("the directory must go");
+        vfs::filename_mkdirat(&Arc::default(), &second, "dir")
+            .expect("another directory must be made");
         assert_eq!(
-            vfs::filename_mkdirat(&dir, "made"),
+            vfs::filename_mkdirat(&Arc::default(),&dir, "made"),
             Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
             "vfs::filename_mkdirat through a directory opened beneath one Mount, once vfs::filename_rmdir \
              removed it beneath another Mount of the same Filesystem, must answer NotFound"

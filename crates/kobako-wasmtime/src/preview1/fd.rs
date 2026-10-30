@@ -15,7 +15,7 @@ use super::args::{
 };
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
-use crate::descriptors::{Descriptor, Descriptors};
+use crate::descriptors::{Descriptor, Descriptors, OpenDirectory};
 
 /// `fdstat` / `filestat` filetypes.
 const FILETYPE_UNKNOWN: u8 = 0;
@@ -228,7 +228,7 @@ pub(crate) fn fdstat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, ou
             };
             (FILETYPE_UNKNOWN, 0, rights, rights)
         }
-        Descriptor::Directory(dir) if dir.preopen => {
+        Descriptor::Directory(dir) if dir.preopen.is_some() => {
             (FILETYPE_DIRECTORY, 0, PREOPEN_RIGHTS, PREOPEN_INHERITING)
         }
         Descriptor::Directory(_) => {
@@ -341,13 +341,12 @@ pub(crate) fn pread(
 
 pub(crate) fn prestat_get(table: &Descriptors, mem: &mut GuestMemory, fd: u32, out: u32) -> Answer {
     match descriptor(table, fd)? {
-        Descriptor::Directory(dir) if dir.preopen => {
+        Descriptor::Directory(OpenDirectory {
+            preopen: Some(at), ..
+        }) => {
             GuestMemory::check_aligned(out, 4)?;
             mem.write_u8(out, 0)?;
-            mem.write_u32(
-                GuestMemory::field(out, 4)?,
-                dir.file.path().mount().at().len() as u32,
-            )
+            mem.write_u32(GuestMemory::field(out, 4)?, at.len() as u32)
         }
         _ => Err(Errno::Badf.into()),
     }
@@ -361,8 +360,10 @@ pub(crate) fn prestat_dir_name(
     path_len: u32,
 ) -> Answer {
     match descriptor(table, fd)? {
-        Descriptor::Directory(dir) if dir.preopen => {
-            let name = dir.file.path().mount().at().as_bytes();
+        Descriptor::Directory(OpenDirectory {
+            preopen: Some(at), ..
+        }) => {
+            let name = at.as_bytes();
             if name.len() > path_len as usize {
                 return Err(Errno::Nametoolong.into());
             }
@@ -650,9 +651,9 @@ mod tests {
         .expect("/data is a guest path");
         let mut how = OpenHow::default();
         how.read = true;
-        let start = Path::root(mount, Profile::Hermetic);
+        let start = Path::root(mount.mnt(), Profile::Hermetic);
         Descriptor::File(
-            vfs::do_file_open(&start, "file", &how, true)
+            vfs::do_file_open(&Arc::default(), &start, "file", &how, true)
                 .unwrap_or_else(|_| panic!("the file must open")),
         )
     }
