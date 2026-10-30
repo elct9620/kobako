@@ -208,6 +208,17 @@ against it.
 pub enum Profile {}
 ```
 
+## `Profile::mask_times`
+
+What a Filesystem reports, as a Guest on one posture sees it. A Driver shows
+no time the posture denies.
+
+```rust
+impl Profile {
+    pub fn mask_times(self, metadata: Metadata) -> Metadata {}
+}
+```
+
 ## `Trap`
 
 Why the engine stopped the Guest.
@@ -566,12 +577,11 @@ pub struct Path {}
 
 ## `Path::root`
 
-The root of a mounted Filesystem for an invocation running under a Profile,
-where each of its descriptors starts.
+The root of a mounted Filesystem, where each of its descriptors starts.
 
 ```rust
 impl Path {
-    pub fn root(mnt: &Arc<VfsMount>, profile: Profile) -> Self {}
+    pub fn root(mnt: &Arc<VfsMount>) -> Self {}
 }
 ```
 
@@ -740,12 +750,11 @@ pub struct File {}
 
 ## `File::root`
 
-The root of a mounted Filesystem opened as a directory for a Cred, for an
-invocation at one isolation posture.
+The root of a mounted Filesystem opened as a directory for a Cred.
 
 ```rust
 impl File {
-    pub fn root(mnt: &Arc<VfsMount>, cred: Arc<Cred>, profile: Profile) -> Result<Self, FilesystemError> {}
+    pub fn root(mnt: &Arc<VfsMount>, cred: Arc<Cred>) -> Result<Self, FilesystemError> {}
 }
 ```
 
