@@ -12,7 +12,7 @@ use super::inode::Inode;
 use super::seqlock::SeqLock;
 use crate::filesystem::{DentryOperations, FilesystemError};
 use crate::hashtable::Hashtable;
-use crate::locking::{RwSemaphore, RwSemaphoreGuard};
+use crate::locking::RwSemaphoreGuard;
 
 /// Every move of a dentry, as Linux's `rename_lock`, so a walk up its
 /// parents answers where the dentry stood at one instant.
@@ -22,8 +22,6 @@ static RENAME_LOCK: SeqLock = SeqLock::new();
 /// one, so a Filesystem reads the name a call is about from it.
 pub struct Dentry {
     state: Mutex<State>,
-    /// The lock calls on the names in this directory run under.
-    rwsem: Arc<RwSemaphore>,
     /// This dentry, for whoever is handed it to keep, as Linux's `dget`
     /// takes a reference to any dentry it is handed.
     this: Weak<Dentry>,
@@ -39,9 +37,6 @@ struct State {
     /// The directory above, `None` for the root.
     parent: Option<Arc<Dentry>>,
     name: String,
-    /// Whether the directory was removed or replaced through the VFS, as
-    /// Linux marks such a directory dead.
-    dead: bool,
     /// What the name stands for once a lookup found it, `None` while the
     /// dentry is negative.
     inode: Option<Arc<Inode>>,
@@ -57,10 +52,8 @@ impl Dentry {
             state: Mutex::new(State {
                 parent,
                 name: name.to_string(),
-                dead: false,
                 inode: None,
             }),
-            rwsem: Arc::default(),
             this: this.clone(),
             fsdata: OnceLock::new(),
             ops,
@@ -122,27 +115,29 @@ impl Dentry {
         })
     }
 
-    /// Hold this directory shared, as Linux's `inode_lock_shared` holds the
-    /// directory it looks a name up in, so no change through the VFS lands
-    /// between the name's dentry and what the Filesystem answers for it.
+    /// Hold the directory this names shared, as
+    /// `inode_lock_shared(d_inode(dentry))`.
     pub(crate) fn inode_lock_shared(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
-        Ok(self.rwsem.down_read()?)
+        self.inode().ok_or(FilesystemError::NotFound)?.lock_shared()
     }
 
-    /// Hold this directory exclusive, as Linux's `inode_lock` holds a
-    /// directory while a name in it is made, removed, or moved.
+    /// Hold the directory this names exclusive, as
+    /// `inode_lock(d_inode(dentry))`.
     pub(crate) fn inode_lock(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
-        Ok(self.rwsem.down_write()?)
+        self.inode().ok_or(FilesystemError::NotFound)?.lock()
     }
 
-    pub(crate) fn is_dead(&self) -> bool {
-        self.state().dead
+    /// Whether the directory this names was removed or replaced, as
+    /// `IS_DEADDIR(d_inode(dentry))`.
+    pub(crate) fn is_deaddir(&self) -> bool {
+        self.inode().is_some_and(|inode| inode.is_deaddir())
     }
 
-    /// The directory was removed or replaced, so nothing is made in it any
-    /// more, as Linux sets `S_DEAD` on such a directory's inode.
-    pub(crate) fn mark_dead(&self) {
-        self.state().dead = true;
+    /// Mark the directory this names removed or replaced.
+    pub(super) fn mark_dead(&self) {
+        if let Some(inode) = self.inode() {
+            inode.mark_dead();
+        }
     }
 
     /// What the name stands for, `None` while the dentry is negative, as
@@ -509,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn an_exchange_swaps_two_dentries_and_kills_neither() {
+    fn an_exchange_swaps_two_dentries() {
         let dentries = super::Dentries::new(None);
         let root = dentries.root();
         let a = dentries.child(&root, "a");
@@ -519,12 +514,11 @@ mod tests {
             (
                 a.path_raw(),
                 b.path_raw(),
-                a.is_dead() || b.is_dead(),
                 Arc::ptr_eq(&dentries.child(&root, "a"), &b)
             ),
-            ("d/b".to_string(), "a".to_string(), false, true),
-            "Dentries::d_exchange must hand each dentry the other's name, keep both alive, and \
-             find each by its new name"
+            ("d/b".to_string(), "a".to_string(), true),
+            "Dentries::d_exchange must hand each dentry the other's name, and find each by \
+             its new name"
         );
     }
 

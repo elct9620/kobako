@@ -2,9 +2,11 @@
 //! `struct inode` is what a dentry is instantiated with.
 
 use std::any::Any;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use crate::filesystem::{FileType, InodeOperations, Metadata};
+use crate::filesystem::{FileType, FilesystemError, InodeOperations, Metadata};
+use crate::locking::{RwSemaphore, RwSemaphoreGuard};
 
 /// What a directory is, apart from where it stands: the device and inode
 /// numbers its Filesystem names it by, as Linux reads `i_ino` and `s_dev`.
@@ -43,38 +45,63 @@ pub struct Inode {
     /// as Linux's `i_private`, reached the same however its operations are
     /// wrapped.
     private: OnceLock<Arc<dyn Any + Send + Sync>>,
+    /// The lock calls on the entry run under, as Linux's `i_rwsem`.
+    rwsem: Arc<RwSemaphore>,
+    /// Whether the directory was removed or replaced through the VFS, as
+    /// Linux sets `S_DEAD` in `i_flags`.
+    dead: AtomicBool,
 }
 
 impl Inode {
     /// The entry `metadata` reports, answered for by `ops`.
     pub fn new(metadata: &Metadata, ops: Arc<dyn InodeOperations>) -> Self {
-        Self {
-            kind: metadata.file_type,
-            identity: Identity::of(metadata),
-            ops,
-            private: OnceLock::new(),
-        }
+        Self::of_kind(metadata.file_type, Identity::of(metadata), ops)
     }
 
     /// This entry answered for by `ops`, as a Filesystem wrapping another
     /// wraps each entry that one's lookup finds.
     pub fn with_ops(&self, ops: Arc<dyn InodeOperations>) -> Self {
-        Self {
-            kind: self.kind,
-            identity: self.identity,
-            ops,
-            private: OnceLock::new(),
-        }
+        Self::of_kind(self.kind, self.identity, ops)
     }
 
     /// The root of a Filesystem, which a lookup never finds.
     pub(super) fn root(ops: Arc<dyn InodeOperations>) -> Self {
+        Self::of_kind(FileType::Directory, None, ops)
+    }
+
+    fn of_kind(kind: FileType, identity: Option<Identity>, ops: Arc<dyn InodeOperations>) -> Self {
         Self {
-            kind: FileType::Directory,
-            identity: None,
+            kind,
+            identity,
             ops,
             private: OnceLock::new(),
+            rwsem: Arc::default(),
+            dead: AtomicBool::new(false),
         }
+    }
+
+    /// Hold it shared, as Linux's `inode_lock_shared` holds the directory it
+    /// looks a name up in, so no change through the VFS lands between the
+    /// name's dentry and what the Filesystem answers for it.
+    pub(super) fn lock_shared(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
+        Ok(self.rwsem.down_read()?)
+    }
+
+    /// Hold it exclusive, as Linux's `inode_lock` holds a directory while a
+    /// name in it is made, removed, or moved.
+    pub(super) fn lock(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
+        Ok(self.rwsem.down_write()?)
+    }
+
+    /// Whether the directory was removed or replaced, as `IS_DEADDIR`.
+    pub(super) fn is_deaddir(&self) -> bool {
+        self.dead.load(Ordering::SeqCst)
+    }
+
+    /// The directory was removed or replaced, so nothing is made in it any
+    /// more.
+    pub(super) fn mark_dead(&self) {
+        self.dead.store(true, Ordering::SeqCst);
     }
 
     pub fn kind(&self) -> FileType {

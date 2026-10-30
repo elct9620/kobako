@@ -20,6 +20,7 @@ use super::cred::Cred;
 use super::dentry::Dentry;
 use super::file::File;
 use super::filesystem::Filesystem;
+use super::inode::Inode;
 use super::mount::{Access, VfsMount};
 use super::openat2::{vfs_open, OpenHow};
 use super::path::Path;
@@ -581,7 +582,7 @@ pub(crate) fn filename_lookup(
     }
     // A directory removed through the VFS holds no name any more, as
     // Linux's lookup in a dead directory finds nothing.
-    if !nd.name.is_empty() && nd.dentry().is_dead() {
+    if !nd.name.is_empty() && nd.dentry().is_deaddir() {
         return Err(FilesystemError::NotFound.into());
     }
     Ok(nd)
@@ -876,10 +877,50 @@ pub(crate) fn start_renaming(
     Ok(held)
 }
 
+/// Hold what a move of `old` to `new` changes besides their directories, as
+/// Linux's `vfs_rename` does: a directory only where it leaves its parent, or
+/// is replaced, since what else names it does not change; the rest in the
+/// order `lock_two_nondirectories` keeps.
+fn lock_moved(
+    (old, is_dir): (&Dentry, bool),
+    (new, new_is_dir): (&Dentry, bool),
+    same_dir: bool,
+    flag: Option<RenameFlag>,
+) -> Result<Vec<RwSemaphoreGuard>, FilesystemError> {
+    let (source, target) = (old.inode(), new.inode());
+    let lock_old_subdir = !same_dir;
+    let lock_new_subdir = !same_dir || flag != Some(RenameFlag::Exchange);
+    let locks = match (is_dir, new_is_dir) {
+        (true, _) => [
+            source.filter(|_| lock_old_subdir),
+            target.filter(|_| !new_is_dir || lock_new_subdir),
+        ],
+        (false, true) => [target.filter(|_| lock_new_subdir), source],
+        (false, false) => return lock_two_nondirectories(source, target),
+    };
+    locks
+        .into_iter()
+        .flatten()
+        .map(|inode| inode.lock())
+        .collect()
+}
+
+/// Hold two entries that are no directories, lowest address first and one
+/// only once, as Linux's `lock_two_nondirectories`.
+fn lock_two_nondirectories(
+    first: Option<Arc<Inode>>,
+    second: Option<Arc<Inode>>,
+) -> Result<Vec<RwSemaphoreGuard>, FilesystemError> {
+    let mut inodes: Vec<_> = first.into_iter().chain(second).collect();
+    inodes.sort_by_key(Arc::as_ptr);
+    inodes.dedup_by(|a, b| Arc::ptr_eq(a, b));
+    inodes.iter().map(|inode| inode.lock()).collect()
+}
+
 /// Move `old` in its directory to `new` in its own through `rename`, the
 /// Filesystem's call, as Linux's `vfs_rename` does once `start_renaming`
-/// holds both directories: each name held while it moves, and its dentry
-/// following it. What stands on each side is checked first, as
+/// holds both directories: what moves held as `lock_moved` says, and its
+/// dentry following it. What stands on each side is checked first, as
 /// `vfs_rename` asks `may_delete_dentry` and `may_create_dentry`, and a
 /// `NoReplace` move onto a name taken is refused, as the exclusive lookup
 /// before it refuses one. A directory replaced at `new` is gone for whoever
@@ -892,8 +933,6 @@ pub(crate) fn vfs_rename(
     flag: Option<RenameFlag>,
     rename: impl FnOnce() -> Result<(), FilesystemError>,
 ) -> Result<(), FilesystemError> {
-    let _old = old.inode_lock()?;
-    let _new = new.inode_lock()?;
     let moving = kind_at(old_inode, old)?;
     let is_dir = moving == Some(FileType::Directory);
     may_delete_dentry(old_dir, moving, is_dir)?;
@@ -907,6 +946,12 @@ pub(crate) fn vfs_rename(
         }
         (target, _) => may_delete_dentry(new_dir, target, is_dir)?,
     }
+    let _held = lock_moved(
+        (old, is_dir),
+        (new, target == Some(FileType::Directory)),
+        Arc::ptr_eq(old_dir, new_dir),
+        flag,
+    )?;
     rename()?;
     let dentries = filesystem.dentries();
     if flag == Some(RenameFlag::Exchange) {
@@ -932,8 +977,8 @@ pub(crate) fn vfs_rmdir(
     dir: &Arc<Dentry>,
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
-    let _victim = victim.inode_lock()?;
     may_delete_dentry(dir, kind_at(inode, victim)?, true)?;
+    let _victim = victim.inode_lock()?;
     inode
         .rmdir(victim)
         .unwrap_or(Err(FilesystemError::NotPermitted))?;
@@ -952,8 +997,10 @@ pub(crate) fn vfs_unlink(
     dir: &Dentry,
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
-    let _victim = victim.inode_lock()?;
     may_delete_dentry(dir, kind_at(inode, victim)?, false)?;
+    // A name the directory stores under another spelling records nothing
+    // here to hold.
+    let _victim = victim.inode().map(|target| target.lock()).transpose()?;
     inode
         .unlink(victim)
         .unwrap_or(Err(FilesystemError::NotPermitted))?;
@@ -1043,7 +1090,7 @@ fn may_create_dentry(dir: &Dentry, child: Option<FileType>) -> Result<(), Filesy
     if child.is_some() {
         return Err(FilesystemError::AlreadyExists);
     }
-    if dir.is_dead() {
+    if dir.is_deaddir() {
         return Err(FilesystemError::NotFound);
     }
     Ok(())
@@ -1065,7 +1112,7 @@ fn may_delete_dentry(
         (false, true) => return Err(FilesystemError::IsADirectory),
         _ => {}
     }
-    if dir.is_dead() {
+    if dir.is_deaddir() {
         return Err(FilesystemError::NotFound);
     }
     Ok(())
@@ -1136,6 +1183,7 @@ mod tests {
         tmpfs: Tmpfs,
         removed: Option<Hook>,
         making: Option<Hook>,
+        renaming: Option<Hook>,
         renames: AtomicUsize,
         stale: Arc<AtomicBool>,
     }
@@ -1208,6 +1256,12 @@ mod tests {
             to: &Dentry,
         ) -> Option<Result<(), FilesystemError>> {
             self.renames.fetch_add(1, Ordering::SeqCst);
+            if let Some(Err(err)) = self.renaming.as_ref().map(|renaming| renaming()) {
+                return Some(Err(err));
+            }
+            let to_dir = (to_dir as &dyn std::any::Any)
+                .downcast_ref::<Self>()
+                .map_or(to_dir, |hooked| &hooked.tmpfs);
             self.tmpfs.rename(from, to_dir, to)
         }
     }
@@ -1353,7 +1407,7 @@ mod tests {
         vfs::filename_unlinkat(&Arc::default(), &root, "d/keep").expect("the file must go");
         vfs::filename_rmdir(&Arc::default(), &root, "d").expect("the directory must go");
         assert!(
-            !held.dentry().is_dead(),
+            !held.dentry().is_deaddir(),
             "vfs::filename_rmdir of a name whose held dentry DentryOperations::revalidate answers stale must \
              leave that dentry alive"
         );
@@ -1520,6 +1574,55 @@ mod tests {
             Err(vfs::Error::Filesystem(FilesystemError::Deadlock)),
             "vfs::filename_mkdirat called by a Filesystem's own create_dir on the directory the outer \
              vfs::filename_mkdirat holds must answer Deadlock"
+        );
+    }
+
+    // The make starts from a descriptor already standing in `b`, so only the
+    // move holding `b` itself, not the directory above it, keeps the make out.
+    // Landing there would leave `b` not empty and refuse the move.
+    // @behavior RT-179
+    #[test]
+    fn a_directory_a_move_replaces_makes_nothing_more() {
+        let counts = count_waits();
+        let (renamed, renaming) = mpsc::channel();
+        let renamed = Mutex::new(renamed);
+        let hooked = HookedTmpfs {
+            tmpfs: [("a/keep", "x")].into_iter().collect(),
+            renaming: Some(Box::new({
+                let counts = counts.clone();
+                move || {
+                    renamed.lock().expect("unpoisoned").send(()).ok();
+                    // Bounded, so a make that never waits fails the assertion
+                    // rather than hanging the test.
+                    for _ in 0..2000 {
+                        if counts.load(Ordering::SeqCst) > 0 {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    Ok(())
+                }
+            })),
+            ..HookedTmpfs::default()
+        };
+        let root = root_of(Filesystem::new(Arc::new(hooked)));
+        vfs::filename_mkdirat(&Arc::default(), &root, "b").expect("the directory must be made");
+        let replaced = open_dir(&root, "b");
+        let mover = {
+            let root = root.clone();
+            thread::spawn(move || vfs::filename_renameat2(&Arc::default(), &root, "a", &root, "b"))
+        };
+        renaming.recv().expect("the move must reach the Filesystem");
+        let made = vfs::filename_mkdirat(&Arc::default(), &replaced, "made");
+        let moved = mover.join().expect("the mover must not panic");
+        assert_eq!(
+            (made, moved),
+            (
+                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
+                Ok(())
+            ),
+            "vfs::filename_mkdirat through a directory vfs::filename_renameat2 is replacing must \
+             wait for the move, answer NotFound, and leave the move to succeed"
         );
     }
 

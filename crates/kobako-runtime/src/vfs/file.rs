@@ -247,7 +247,7 @@ impl File {
         // A listing holds the directory shared, as Linux's `iterate_dir`
         // does, so a removal through the VFS lands before or after it.
         let _held = dentry.inode_lock_shared()?;
-        if dentry.is_dead() {
+        if dentry.is_deaddir() {
             return Ok(Vec::new());
         }
         Ok(self.ops.iterate_shared(&dentry)?)
