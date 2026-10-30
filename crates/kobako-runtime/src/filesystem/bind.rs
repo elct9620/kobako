@@ -663,7 +663,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(opened) = vfs::do_file_open(&Arc::default(), &root, "a", &how, true) else {
+        let Ok(opened) = vfs::do_file_open(&Arc::default(), &root, "a", &how) else {
             panic!("the directory must open");
         };
         let held = opened.path();
@@ -718,7 +718,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(_held) = vfs::do_file_open(&cred, &root, "a/d", &directory, true) else {
+        let Ok(_held) = vfs::do_file_open(&cred, &root, "a/d", &directory) else {
             panic!("a/d must open");
         };
         fs::rename(host.0.join("a"), host.0.join("refused/a")).expect("the host must move a");
@@ -728,7 +728,7 @@ mod tests {
             ..OpenHow::default()
         };
         assert_eq!(
-            vfs::do_file_open(&cred, &root, "a/d/secret", &read, true).err(),
+            vfs::do_file_open(&cred, &root, "a/d/secret", &read).err(),
             Some(vfs::Error::Filesystem(FilesystemError::NotFound)),
             "vfs::do_file_open beneath a Bind Mount with a Policy, through a directory the host moved \
              beneath a refused path while a descriptor beneath it was held, must answer NotFound"
@@ -777,7 +777,7 @@ mod tests {
             ..OpenHow::default()
         };
         for (name, root) in each_holding_five_bytes(&host) {
-            let Ok(mut file) = vfs::do_file_open(&Arc::default(), &root, "f", &read, true) else {
+            let Ok(mut file) = vfs::do_file_open(&Arc::default(), &root, "f", &read) else {
                 panic!("{name}'s f must open");
             };
             vfs::filename_unlinkat(&Arc::default(), &root, "f").expect("the name must go");
@@ -806,7 +806,7 @@ mod tests {
             ..OpenHow::default()
         };
         for (name, root) in each_holding_five_bytes(&host) {
-            let Ok(mut file) = vfs::do_file_open(&Arc::default(), &root, "f", &write, true) else {
+            let Ok(mut file) = vfs::do_file_open(&Arc::default(), &root, "f", &write) else {
                 panic!("{name}'s f must open");
             };
             vfs::filename_unlinkat(&Arc::default(), &root, "f").expect("the name must go");
@@ -832,7 +832,7 @@ mod tests {
             read: true,
             ..OpenHow::default()
         };
-        let Ok(file) = vfs::do_file_open(&Arc::default(), &root, "f", &read, true) else {
+        let Ok(file) = vfs::do_file_open(&Arc::default(), &root, "f", &read) else {
             panic!("f must open");
         };
         fs::rename(host.0.join("f"), host.0.join("aside")).expect("the host must move f");
@@ -874,7 +874,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(_held) = vfs::do_file_open(&Arc::default(), &root, "a", &directory, true) else {
+        let Ok(_held) = vfs::do_file_open(&Arc::default(), &root, "a", &directory) else {
             panic!("a must open");
         };
         fs::rename(host.0.join("a"), host.0.join("aside")).expect("the host must move a");
@@ -884,7 +884,7 @@ mod tests {
             read: true,
             ..OpenHow::default()
         };
-        let Ok(mut file) = vfs::do_file_open(&Arc::default(), &root, "a/f", &read, true) else {
+        let Ok(mut file) = vfs::do_file_open(&Arc::default(), &root, "a/f", &read) else {
             panic!("a/f must open through the directory the host remade");
         };
         let mut buf = [0; 3];

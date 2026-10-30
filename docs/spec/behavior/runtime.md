@@ -50,6 +50,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-runtime/src/vfs/file.rs`
 - `crates/kobako-runtime/src/vfs/utimes.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
+- `crates/kobako-wasmtime/src/descriptors.rs`
 - `crates/kobako-wasmtime/src/cache.rs`
 - `crates/kobako-wasmtime/src/abi.rs`
 - `crates/kobako-wasmtime/src/wasi.rs`
@@ -2056,3 +2057,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Mount whose Filesystem makes no links |
 | When | a guest links a missing name, or links or symlinks onto a name, or onto a free one |
 | Then | the calls answer ENOENT, EEXIST, and EPERM, and nothing is made |
+
+## `RT-189` A new descriptor takes the lowest closed number
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-075` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest that closed two descriptors, and holds a higher one |
+| When | it opens three files |
+| Then | the first two take the closed numbers, lowest first, and the third a fresh one |
+
+## `RT-190` A full descriptor table answers EMFILE whatever the path names
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-200` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding as many descriptors as it may |
+| When | it opens a path that names nothing |
+| Then | the open answers EMFILE, as Linux reserves a descriptor first |

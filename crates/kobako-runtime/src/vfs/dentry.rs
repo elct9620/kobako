@@ -423,7 +423,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        match vfs::do_file_open(&Arc::default(), start, path, &how, true) {
+        match vfs::do_file_open(&Arc::default(), start, path, &how) {
             Ok(dir) => dir.path().clone(),
             Err(_) => panic!("{path} must open as a directory"),
         }

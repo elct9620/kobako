@@ -613,7 +613,7 @@ impl Guest {
 fn contents(root: &Path, path: &str) -> Option<Vec<u8>> {
     let mut how = OpenHow::default();
     how.read = true;
-    let Ok(mut file) = vfs::do_file_open(&Arc::default(), root, path, &how, true) else {
+    let Ok(mut file) = vfs::do_file_open(&Arc::default(), root, path, &how) else {
         return None;
     };
     let mut buf = vec![0; 64];
@@ -627,7 +627,7 @@ fn overwrite(root: &Path, path: &str) {
     let mut how = OpenHow::default();
     (how.write, how.create) = (true, true);
     assert!(
-        vfs::do_file_open(&Arc::default(), root, path, &how, true).is_ok(),
+        vfs::do_file_open(&Arc::default(), root, path, &how).is_ok(),
         "the file must be made"
     );
 }
@@ -1177,6 +1177,23 @@ fn a_directory_without_an_identity_is_not_reached_again_beneath_a_policy() {
         (0, ERRNO_NOENT),
         "path_filestat_get through a directory descriptor beneath a Mount with a Policy, over a \
          Filesystem reporting no identity, through preview1 must answer ENOENT"
+    );
+}
+
+// The table holds the three standard descriptors and the preopen alone, so a
+// missing path could only answer EMFILE by asking the table first.
+// @behavior RT-190
+#[test]
+fn a_full_table_answers_emfile_whatever_the_path_names() {
+    let mut guest = Guest::with_open_file_limit(
+        Some(4),
+        &[grant(file_and_directory(), Access::ReadWrite, None)],
+    );
+    assert_eq!(
+        guest.call("read_file", THROUGH_MISSING),
+        ERRNO_MFILE,
+        "path_open of a missing path through preview1 with no descriptor left must answer \
+         EMFILE, as Linux's FD_ADD takes one first"
     );
 }
 

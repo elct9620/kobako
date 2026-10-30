@@ -573,14 +573,8 @@ mod tests {
             write,
             ..OpenHow::default()
         };
-        do_file_open(
-            &Arc::default(),
-            &Path::root(mount.mnt()),
-            "file.txt",
-            &how,
-            true,
-        )
-        .unwrap_or_else(|_| panic!("file.txt must open"))
+        do_file_open(&Arc::default(), &Path::root(mount.mnt()), "file.txt", &how)
+            .unwrap_or_else(|_| panic!("file.txt must open"))
     }
 
     // No Driver stands in front of these calls, so the file itself is what
@@ -767,14 +761,8 @@ mod tests {
                 sync,
                 ..OpenHow::default()
             };
-            do_file_open(
-                &Arc::default(),
-                &Path::root(mount.mnt()),
-                "file",
-                &how,
-                true,
-            )
-            .unwrap_or_else(|_| panic!("the file must open"))
+            do_file_open(&Arc::default(), &Path::root(mount.mnt()), "file", &how)
+                .unwrap_or_else(|_| panic!("the file must open"))
         };
         let mut plain = open(false);
         let mut synced = open(true);

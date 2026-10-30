@@ -1146,7 +1146,7 @@ mod tests {
                     create: true,
                     ..crate::vfs::OpenHow::default()
                 };
-                let _ = crate::vfs::do_file_open(&Arc::default(), &overlay, "dir/new", &how, true);
+                let _ = crate::vfs::do_file_open(&Arc::default(), &overlay, "dir/new", &how);
                 marker.store(1, Ordering::SeqCst);
             });
             let deadline = Instant::now() + Duration::from_millis(200);

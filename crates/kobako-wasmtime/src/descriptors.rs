@@ -3,8 +3,8 @@
 //!
 //! kobako answers every preview1 call that reads this table, so the guest
 //! sees one table and no call falls through to a second one that
-//! disagrees. Numbering follows wasmtime-wasi's: a closed number is reused
-//! before a fresh one is taken.
+//! disagrees. Numbering follows Linux's `alloc_fd`: the lowest closed number
+//! is reused before a fresh one is taken.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -116,13 +116,13 @@ impl Descriptors {
         self.limit.is_some_and(|limit| self.used.len() >= limit)
     }
 
-    /// Add `descriptor` under the highest freed number, or the one past
+    /// Add `descriptor` under the lowest freed number, or the one past
     /// the highest in use; `None` when the table is full.
     pub(crate) fn push(&mut self, descriptor: Descriptor) -> Option<u32> {
         if self.is_full() {
             return None;
         }
-        let fd = match self.free.pop_last() {
+        let fd = match self.free.pop_first() {
             Some(fd) => fd,
             None => match self.used.last_key_value() {
                 Some((last, _)) => last.checked_add(1)?,
@@ -131,5 +131,48 @@ impl Descriptors {
         };
         self.used.insert(fd, descriptor);
         Some(fd)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kobako_runtime::vfs::{create_pipe_files, PipeInodeInfo};
+
+    fn pipe_end() -> File {
+        create_pipe_files(&PipeInodeInfo::new(1)).1
+    }
+
+    // @behavior RT-189
+    #[test]
+    fn a_new_descriptor_takes_the_lowest_closed_number() {
+        let mut table = Descriptors::new(
+            pipe_end(),
+            pipe_end(),
+            pipe_end(),
+            Vec::new(),
+            None,
+            Profile::Hermetic,
+        )
+        .unwrap_or_else(|_| panic!("a table holding no Mount must make"));
+        let mut open = || {
+            table
+                .push(Descriptor::of(pipe_end()))
+                .expect("a table with no limit takes every descriptor")
+        };
+        let numbers = [open(), open(), open()];
+        assert_eq!(numbers, [3, 4, 5], "descriptors must number from 3");
+        table.remove(3);
+        table.remove(4);
+        assert_eq!(
+            (
+                table.push(Descriptor::of(pipe_end())),
+                table.push(Descriptor::of(pipe_end())),
+                table.push(Descriptor::of(pipe_end())),
+            ),
+            (Some(3), Some(4), Some(6)),
+            "path_open's descriptors must take the lowest closed number first, as Linux's alloc_fd \
+             does, and then the one past the highest"
+        );
     }
 }

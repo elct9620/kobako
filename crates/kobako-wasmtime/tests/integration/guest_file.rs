@@ -63,8 +63,7 @@ fn host<F: InodeOperations>(filesystem: &Arc<F>) -> Path {
 fn contents<F: InodeOperations>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
     let mut how = OpenHow::default();
     how.read = true;
-    let Ok(mut file) = vfs::do_file_open(&Arc::default(), &host(filesystem), path, &how, true)
-    else {
+    let Ok(mut file) = vfs::do_file_open(&Arc::default(), &host(filesystem), path, &how) else {
         panic!("the file must exist");
     };
     let mut buf = vec![0; 64];

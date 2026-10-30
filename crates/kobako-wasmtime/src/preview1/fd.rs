@@ -528,7 +528,7 @@ mod tests {
         how.read = true;
         let start = Path::root(mount.mnt());
         Descriptor::of(
-            vfs::do_file_open(&Arc::default(), &start, "file", &how, true)
+            vfs::do_file_open(&Arc::default(), &start, "file", &how)
                 .unwrap_or_else(|_| panic!("the file must open")),
         )
     }

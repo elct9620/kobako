@@ -589,15 +589,14 @@ pub(crate) fn filename_lookup(
 }
 
 /// Open `path` beneath `start` as `how` asks, as Linux's `do_file_open`
-/// walks to the last name and `do_open` opens it. `room` says whether the
-/// caller has a descriptor left to hand the guest; without one the open
-/// answers `TooManyOpenFiles` once the path is known to stand.
+/// walks to the last name and `do_open` opens it. It hands no descriptor out,
+/// as whoever holds a table of them reserves one first, as Linux's `FD_ADD`
+/// does.
 pub fn do_file_open(
     cred: &Arc<Cred>,
     start: &Path,
     path: &str,
     how: &OpenHow,
-    room: bool,
 ) -> Result<File, Error> {
     build_open_flags(how)?;
     // A path ending in `/` asks for a directory, which cannot be created
@@ -626,9 +625,6 @@ pub fn do_file_open(
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
     nd.check_directory()?;
-    if !room {
-        return Err(FilesystemError::TooManyOpenFiles.into());
-    }
     let existing = match nd.kind() {
         Ok(kind) => Some(kind),
         Err(FilesystemError::NotFound) => None,
@@ -1434,7 +1430,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        match vfs::do_file_open(&Arc::default(), start, path, &how, true) {
+        match vfs::do_file_open(&Arc::default(), start, path, &how) {
             Ok(dir) => dir.path().clone(),
             Err(_) => panic!("{path} must open as a directory"),
         }
@@ -1457,7 +1453,7 @@ mod tests {
             ..OpenHow::default()
         };
         assert_eq!(
-            vfs::do_file_open(&crate::security::prepare_creds([]), &root, "w", &how, true).err(),
+            vfs::do_file_open(&crate::security::prepare_creds([]), &root, "w", &how).err(),
             Some(vfs::Error::Filesystem(FilesystemError::PermissionDenied)),
             "a character device through vfs::do_file_open must answer PermissionDenied"
         );
@@ -1574,7 +1570,7 @@ mod tests {
                     create: true,
                     ..OpenHow::default()
                 };
-                vfs::do_file_open(&cred, &root, "f", &how, true).map(drop)
+                vfs::do_file_open(&cred, &root, "f", &how).map(drop)
             })
         };
         reaching.recv().expect("the open must reach the Policy");

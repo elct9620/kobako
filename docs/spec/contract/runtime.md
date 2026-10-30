@@ -1135,10 +1135,10 @@ pub struct OpenHow {}
 ## `do_file_open`
 
 Open a path beneath a directory, as Linux's `do_file_open` serves `openat`.
-Where the caller has no descriptor left, it answers too many open files.
+It hands no descriptor out, so a caller holding a table reserves one first.
 
 ```rust
-pub fn do_file_open(cred: &Arc<Cred>, start: &Path, path: &str, how: &OpenHow, room: bool) -> Result<File, Error> {}
+pub fn do_file_open(cred: &Arc<Cred>, start: &Path, path: &str, how: &OpenHow) -> Result<File, Error> {}
 ```
 
 ## `filename_linkat`

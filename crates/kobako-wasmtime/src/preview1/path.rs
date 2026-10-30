@@ -99,6 +99,11 @@ pub(crate) fn open(
 ) -> Answer<types::Fd> {
     let path = mem.path(path)?;
     let dir = directory(table, fd)?;
+    // A descriptor is reserved before anything is opened, as Linux's `FD_ADD`
+    // takes one first, so a full table answers whatever the path names.
+    if table.is_full() {
+        return Err(Errno::Mfile.into());
+    }
     let oflags = flags.oflags;
     let mut how = OpenHow::default();
     how.read = flags.rights_base.contains(types::Rights::FD_READ);
@@ -113,7 +118,7 @@ pub(crate) fn open(
     how.sync = flags
         .fdflags
         .intersects(types::Fdflags::DSYNC | types::Fdflags::RSYNC | types::Fdflags::SYNC);
-    let file = vfs::do_file_open(table.cred(), dir, &path, &how, !table.is_full())?;
+    let file = vfs::do_file_open(table.cred(), dir, &path, &how)?;
     Ok(table.push(Descriptor::of(file)).ok_or(Errno::Mfile)?.into())
 }
 
