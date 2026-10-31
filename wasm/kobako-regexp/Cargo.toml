@@ -34,9 +34,10 @@ fancy-regex = { version = "0.20", default-features = false, features = ["std"] }
 lru = "0.19.0"
 
 [features]
-# Unicode property classes (`\p{...}`) and case-insensitive matching.
-# fancy-regex's `unicode` feature is coarse: with it OFF the engine rejects
-# every `(?i)` pattern — even ASCII — so a guest that uses `/i` needs it ON.
+# Unicode property classes (`\p{...}`), case-insensitive matching and word
+# boundaries. fancy-regex's `unicode` feature is coarse: with it OFF every
+# `(?i)` pattern and `\b` is refused — even ASCII — so a guest using either
+# needs it ON.
 # ASCII `\d` / `\w` / `\s` are rewritten to explicit classes either way. The
 # kobako-wasm shell enables it so `/i` patterns work on the bundled guest.
 unicode = ["fancy-regex/unicode"]

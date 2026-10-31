@@ -56,6 +56,32 @@ class TestRegexpUnicodeGate < Minitest::Test
                  "a /i pattern through #eval on the full variant must raise RegexpError beside JSON"
   end
 
+  # The engine answers a word boundary with a trap inside a look-behind, so the
+  # look-behind forms prove the refusal happens before the engine runs.
+  # @behavior RX-277
+  def test_a_word_boundary_is_rejected_without_unicode
+    ['/\bfoo/', '/\Bo/', '/(?<=\b)a/', '/(?<!\b)o/'].each do |pattern|
+      assert_equal "RegexpError", eval_no_unicode(
+        "begin; #{pattern}.match('x'); 'no-error'; rescue RegexpError; 'RegexpError'; end"
+      ), "#{pattern} through #eval on the no-unicode variant must raise RegexpError, not trap"
+    end
+  end
+
+  # @behavior RX-278
+  def test_a_backspace_class_stands_without_unicode
+    assert_equal "\b", eval_no_unicode('/[\b]/.match("\b")[0]'),
+                 "\\b inside a class through #eval on the no-unicode variant must still match a backspace"
+  end
+
+  # @behavior RX-279
+  def test_a_word_boundary_answers_on_the_unicode_variant
+    unicode = TestPaths.data("kobako+regexp-unicode.wasm")
+    require_guest_binary!(unicode, build: "bundle exec rake wasm:build:regexp_unicode")
+
+    assert_equal "a", Kobako::Sandbox.new(wasm_path: unicode).eval('/(?<=\b)a/.match("x a")[0]').value,
+                 "a word boundary inside a look-behind through #eval on the unicode variant must match"
+  end
+
   private
 
   def eval_no_unicode(code)

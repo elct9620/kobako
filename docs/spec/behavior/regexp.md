@@ -1513,3 +1513,39 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code compiles a pattern calling a name several groups share |
 | Then | a `RegexpError` is raised |
+
+## `RX-277` Without the Unicode build a word boundary is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-093`, `RX-216` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built without Unicode support |
+| When | guest code compiles and uses a pattern with a word boundary |
+| Then | a pattern error is raised |
+
+## `RX-278` A backspace class stands without the Unicode build
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-277` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built without Unicode support |
+| When | guest code matches a character class holding the backspace escape |
+| Then | it answers the backspace |
+
+## `RX-279` The Unicode build answers a word boundary
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-277` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches a pattern with a word boundary inside a look-behind |
+| Then | it answers the match |

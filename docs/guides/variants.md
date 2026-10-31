@@ -38,7 +38,8 @@ Each variant names the capabilities it adds beyond the base.
 | json | `kobako+json.wasm` | JSON parse / generate |
 | full | `kobako+full.wasm` | ASCII Regexp + JSON |
 
-Choose `regexp-unicode` when guest code needs case-insensitive patterns.
+Choose `regexp-unicode` when guest code needs case-insensitive patterns or
+word boundaries.
 [regexp](../spec/behavior/regexp.md) states what each ASCII variant
 refuses.
 

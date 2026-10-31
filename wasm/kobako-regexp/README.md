@@ -41,12 +41,13 @@ Each row names what holds for a guest's patterns or subjects.
 |---|---|
 | Unicode property classes (`\p{...}`) | need the `unicode` feature |
 | Case-insensitive matching | needs the `unicode` feature |
+| Word boundaries (`\b` / `\B`) | need the `unicode` feature |
 | ASCII `\d` / `\w` / `\s` | rewritten to explicit classes either way |
 | Subject encoding | UTF-8; an invalid subject is treated as empty |
 | Backtracking | past the engine's limit raises `RegexpError` |
 
 fancy-regex's flag is coarse, so with `unicode` off every `(?i)` pattern
-is rejected, and a guest using `/i` needs it on. A subject that is not
+and word boundary is rejected, and a guest using either needs it on. A subject that is not
 valid UTF-8 never matches and never crashes. Byte-oriented matching is
 out of scope.
 

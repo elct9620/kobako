@@ -77,6 +77,12 @@ fn rewrite_piece(
     match piece {
         Piece::Text(text) | Piece::NamedGroup { text, .. } => out.push_str(text),
         Piece::PlainGroup => out.push_str(if named { "(?:" } else { "(" }),
+        Piece::Escape {
+            letter: 'b' | 'B',
+            in_class: false,
+        } if !cfg!(feature = "unicode") => {
+            return Err("a word boundary needs the Unicode build".to_string());
+        }
         Piece::Escape { letter, in_class } => match ascii_class(letter, in_class) {
             Some(replacement) => out.push_str(replacement),
             None => {
@@ -360,8 +366,9 @@ mod tests {
     // @behavior RX-174
     #[test]
     fn leaves_non_shorthand_escapes_untouched() {
-        assert_eq!(translated(r"\bword\b", 0), r"(?m)\bword\b");
+        assert_eq!(translated(r"\Aword\z", 0), r"(?m)\Aword\z");
         assert_eq!(translated(r"a\.b", 0), r"(?m)a\.b");
+        assert_eq!(translated(r"[\b]", 0), r"(?m)[\b]");
     }
 
     // @behavior RX-273
