@@ -4,10 +4,10 @@ require "test_helper"
 
 # The Unicode gate distinguishes the two regexp variants.
 # fancy-regex's Unicode support is coarse: with it off the engine rejects
-# every case-insensitive pattern. These scenarios drive the no-unicode
-# +regexp+ Guest Binary to pin that the gate is closed there — a guest that
-# needs +/i+ must pick the unicode variant — while ASCII matching, which is
-# rewritten to explicit classes regardless, still works.
+# every case-insensitive pattern and word boundary. These scenarios drive the
+# no-unicode +regexp+ Guest Binary to pin that the gate is closed there — a
+# guest that needs +/i+ or +\b+ must pick the unicode variant — while ASCII
+# matching, which is rewritten to explicit classes regardless, still works.
 class TestRegexpUnicodeGate < Minitest::Test
   include GuestGuard
 

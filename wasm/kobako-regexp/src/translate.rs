@@ -2,11 +2,10 @@
 //! `fancy-regex` (regex-crate) dialect.
 //!
 //! These are pure string transforms with no mruby dependency, so they are
-//! unit-tested directly on the host. Three Ruby↔regex-crate mismatches drive
-//! the work: Ruby's `^` / `$` always match per line (regex needs the `m`
-//! flag), Ruby `/m` means DOTALL (regex spells that `s`), and Ruby's
-//! `\d` / `\w` / `\s` are ASCII while the regex crate's are Unicode — so the
-//! shorthand classes are rewritten to explicit ASCII ranges.
+//! unit-tested directly on the host. They carry what MRI reads differently
+//! from the engine: per-line anchors, `/m` as DOTALL, ASCII shorthand classes,
+//! and how named groups capture and are referred to. What the engine cannot
+//! answer as MRI would is refused here rather than answered differently.
 
 /// MRI `Regexp` option bits. The Rust gem exposes these rather than
 /// the engine's internal mask, so `Regexp#options` reads back as MRI does.
@@ -43,7 +42,7 @@ pub(crate) fn build_pattern(source: &str, options: i64) -> Result<String, String
     }
     out.push(')');
     let extended = options & EXTENDED != 0;
-    let names = declared_names(source, extended);
+    let names = collect_names(source, extended);
     for piece in Pieces::new(source, extended) {
         rewrite_piece(piece, &names, &mut out)?;
     }
@@ -52,7 +51,7 @@ pub(crate) fn build_pattern(source: &str, options: i64) -> Result<String, String
 
 /// Each capture name with its group numbers. A named group makes every plain
 /// group non-capturing, so only named groups count.
-fn declared_names(source: &str, extended: bool) -> Vec<(&str, Vec<usize>)> {
+fn collect_names(source: &str, extended: bool) -> Vec<(&str, Vec<usize>)> {
     let mut names: Vec<(&str, Vec<usize>)> = Vec::new();
     let mut number = 0;
     for piece in Pieces::new(source, extended) {
@@ -100,7 +99,7 @@ fn rewrite_piece(
             if named && is_group_number(name) {
                 return Err(NUMBERED_REFERENCE.to_string());
             }
-            match (kind, shared_numbers(names, name)) {
+            match (kind, find_shared_numbers(names, name)) {
                 ('g', Some(_)) => return Err(format!("multiplex definition name <{name}> call")),
                 (_, Some(numbers)) => push_each_group(numbers, out),
                 _ => out.push_str(text),
@@ -113,7 +112,7 @@ fn rewrite_piece(
 
 const NUMBERED_REFERENCE: &str = "numbered backref/call is not allowed. (use name)";
 
-fn shared_numbers<'n>(names: &'n [(&str, Vec<usize>)], name: &str) -> Option<&'n [usize]> {
+fn find_shared_numbers<'n>(names: &'n [(&str, Vec<usize>)], name: &str) -> Option<&'n [usize]> {
     names
         .iter()
         .find(|(existing, numbers)| *existing == name && numbers.len() > 1)
@@ -192,7 +191,7 @@ impl<'a> Pieces<'a> {
         let in_class = self.class_depth > 0;
         if !in_class {
             if matches!(letter, 'k' | 'g') {
-                if let Some((name, len)) = delimited(&after[1..]) {
+                if let Some((name, len)) = read_delimited(&after[1..]) {
                     let text = self.take(2 + len);
                     return Piece::NamedReference {
                         text,
@@ -228,7 +227,7 @@ impl<'a> Pieces<'a> {
             return Piece::NumberedCondition(self.take(3));
         }
         if !option.starts_with("<=") && !option.starts_with("<!") {
-            if let Some((name, len)) = delimited(option) {
+            if let Some((name, len)) = read_delimited(option) {
                 let text = self.take(2 + len);
                 return Piece::NamedGroup { text, name };
             }
@@ -266,7 +265,7 @@ impl<'a> Iterator for Pieces<'a> {
 }
 
 /// The name in `<name>` or `'name'`, with the length the delimiters span.
-fn delimited(text: &str) -> Option<(&str, usize)> {
+fn read_delimited(text: &str) -> Option<(&str, usize)> {
     let close = match text.chars().next()? {
         '<' => '>',
         '\'' => '\'',
@@ -313,18 +312,18 @@ mod tests {
     // @behavior RX-168
     #[test]
     fn pattern_always_enables_multiline_for_ruby_anchors() {
-        assert_eq!(translated("abc", 0), "(?m)abc");
+        assert_eq!(translate("abc", 0), "(?m)abc");
     }
 
     // @behavior RX-169
     #[test]
     fn pattern_maps_options_to_inline_flags() {
-        assert_eq!(translated("abc", IGNORECASE), "(?mi)abc");
-        assert_eq!(translated("abc", EXTENDED), "(?mx)abc");
+        assert_eq!(translate("abc", IGNORECASE), "(?mi)abc");
+        assert_eq!(translate("abc", EXTENDED), "(?mx)abc");
         // Ruby /m is DOTALL, which the regex crate spells `s`.
-        assert_eq!(translated("abc", MULTILINE), "(?ms)abc");
+        assert_eq!(translate("abc", MULTILINE), "(?ms)abc");
         assert_eq!(
-            translated("abc", IGNORECASE | EXTENDED | MULTILINE),
+            translate("abc", IGNORECASE | EXTENDED | MULTILINE),
             "(?mixs)abc"
         );
     }
@@ -332,18 +331,18 @@ mod tests {
     // @behavior RX-170
     #[test]
     fn rewrites_shorthand_classes_outside_a_class() {
-        assert_eq!(translated(r"\d+", 0), r"(?m)[0-9]+");
-        assert_eq!(translated(r"\w", 0), r"(?m)[0-9A-Za-z_]");
-        assert_eq!(translated(r"\D", 0), r"(?m)[^0-9]");
-        assert_eq!(translated(r"\s", 0), r"(?m)[\x20\t\n\x0b\x0c\r]");
+        assert_eq!(translate(r"\d+", 0), r"(?m)[0-9]+");
+        assert_eq!(translate(r"\w", 0), r"(?m)[0-9A-Za-z_]");
+        assert_eq!(translate(r"\D", 0), r"(?m)[^0-9]");
+        assert_eq!(translate(r"\s", 0), r"(?m)[\x20\t\n\x0b\x0c\r]");
     }
 
     // @behavior RX-171
     #[test]
     fn rewrites_shorthand_inside_a_character_class() {
-        assert_eq!(translated(r"[\d]", 0), r"(?m)[0-9]");
-        assert_eq!(translated(r"[a\dz]", 0), r"(?m)[a0-9z]");
-        assert_eq!(translated(r"[^\d]", 0), r"(?m)[^0-9]");
+        assert_eq!(translate(r"[\d]", 0), r"(?m)[0-9]");
+        assert_eq!(translate(r"[a\dz]", 0), r"(?m)[a0-9z]");
+        assert_eq!(translate(r"[^\d]", 0), r"(?m)[^0-9]");
     }
 
     // @behavior RX-172
@@ -351,31 +350,31 @@ mod tests {
     fn keeps_negated_shorthand_inside_a_class_as_unicode() {
         // `[\D]` / `[\W]` / `[\S]` keep the engine's
         // Unicode category semantics rather than the ASCII rewrite.
-        assert_eq!(translated(r"[\D]", 0), r"(?m)[\D]");
-        assert_eq!(translated(r"[\W]", 0), r"(?m)[\W]");
-        assert_eq!(translated(r"[\S]", 0), r"(?m)[\S]");
+        assert_eq!(translate(r"[\D]", 0), r"(?m)[\D]");
+        assert_eq!(translate(r"[\W]", 0), r"(?m)[\W]");
+        assert_eq!(translate(r"[\S]", 0), r"(?m)[\S]");
     }
 
     // @behavior RX-173
     #[test]
     fn leaves_an_escaped_backslash_as_a_literal() {
         // `\\d` is a literal backslash then `d`, not a shorthand class.
-        assert_eq!(translated(r"\\d", 0), r"(?m)\\d");
+        assert_eq!(translate(r"\\d", 0), r"(?m)\\d");
     }
 
     // @behavior RX-174
     #[test]
     fn leaves_non_shorthand_escapes_untouched() {
-        assert_eq!(translated(r"\Aword\z", 0), r"(?m)\Aword\z");
-        assert_eq!(translated(r"a\.b", 0), r"(?m)a\.b");
-        assert_eq!(translated(r"[\b]", 0), r"(?m)[\b]");
+        assert_eq!(translate(r"\Aword\z", 0), r"(?m)\Aword\z");
+        assert_eq!(translate(r"a\.b", 0), r"(?m)a\.b");
+        assert_eq!(translate(r"[\b]", 0), r"(?m)[\b]");
     }
 
     // @behavior RX-273
     #[test]
     fn counts_only_what_really_opens_a_group() {
         let names = |source, options| {
-            declared_names(source, options & EXTENDED != 0)
+            collect_names(source, options & EXTENDED != 0)
                 .into_iter()
                 .map(|(name, numbers)| (name.to_string(), numbers))
                 .collect::<Vec<_>>()
@@ -393,12 +392,12 @@ mod tests {
     #[test]
     fn rewrites_a_backreference_by_a_shared_name_from_its_last_group() {
         assert_eq!(
-            translated(r"(?<n>a)(b)(?<m>c)(?<n>d)\k<n>\k'n'\k<m>", 0),
+            translate(r"(?<n>a)(b)(?<m>c)(?<n>d)\k<n>\k'n'\k<m>", 0),
             r"(?m)(?<n>a)(?:b)(?<m>c)(?<n>d)(?>\3|\1)(?>\3|\1)\k<m>"
         );
     }
 
-    fn translated(source: &str, options: i64) -> String {
+    fn translate(source: &str, options: i64) -> String {
         build_pattern(source, options).expect("the pattern is not refused")
     }
 }
