@@ -2328,3 +2328,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a directory |
 | When | the guest opens it asking not to wait and to sync |
 | Then | the open file reports both flags |
+
+## `RT-211` A move acts on what stands at its names once it holds them
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-078`, `RT-120` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount with a Policy, and a move whose source another move takes away after the walk |
+| When | the first move holds both directories |
+| Then | it answers ENOENT, and nothing else moves |
