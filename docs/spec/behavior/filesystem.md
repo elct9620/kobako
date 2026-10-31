@@ -1584,3 +1584,16 @@ both live in the upper and never show, so no name is reserved
 | Given | a guest holding a Bind's directory open, and walks past the bound since |
 | When | the host moves that directory |
 | Then | a call through the descriptor still reaches the directory it opened |
+
+## `FS-153` A Bind on Windows refuses a name Windows reads as another
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-029` |
+| relates | `RT-120` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind on Windows |
+| When | a guest names a stream, a device, a wildcard, or a name ending in a dot or a space |
+| Then | the call is refused as invalid input, and a Policy judges no other spelling of an entry |
