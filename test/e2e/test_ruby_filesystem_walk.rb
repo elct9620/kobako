@@ -105,4 +105,36 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
                  "File#size and File.size through Sandbox#mount of a Ruby Filesystem must answer the open " \
                  "file's size and the path's stat, and File#size must still answer once the name is removed"
   end
+
+  # A directory that becomes a file under the same inode number once a file in
+  # it opens, while still answering for the name beneath it.
+  class KindChangingFilesystem
+    def open(_path, _flags)
+      @replaced = true
+      StringIO.new(+"held")
+    end
+
+    def stat(path)
+      case path
+      when "" then Stat.new(true, 0, 1)
+      when "dir" then Stat.new(!@replaced, 0, 2)
+      when "dir/inner" then Stat.new(false, 4, 3)
+      else raise Errno::ENOENT, path
+      end
+    end
+  end
+
+  # The open file keeps the dentry of +dir+ alive past the change, and +stat+
+  # still answers beneath it, so only comparing the kind stops the walk there.
+  # @behavior RF-035
+  def test_a_name_whose_kind_changed_is_found_afresh
+    exists = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                            .mount("/data", KindChangingFilesystem.new, access: :read)
+                            .eval('held = File.open("/data/dir/inner"); [File.exist?("/data/dir/inner"), held.read]')
+                            .value
+
+    assert_equal [false, "held"], exists,
+                 "File.exist? through Sandbox#mount of a Ruby Filesystem whose directory's stat now answers a file " \
+                 "under the same ino must not walk through it, while a file already open still reads"
+  end
 end

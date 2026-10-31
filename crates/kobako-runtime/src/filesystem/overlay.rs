@@ -2504,6 +2504,52 @@ mod tests {
         );
     }
 
+    /// Refuses every open, as a Layer whose directory cannot open does.
+    struct RefusesOpen;
+
+    impl Hook for RefusesOpen {
+        fn open(
+            &self,
+            _inner: &dyn InodeOperations,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            Err(FilesystemError::PermissionDenied)
+        }
+    }
+
+    // A host removing a Bind's directory cannot witness this, as the fid the
+    // lookup took still opens it, so a Layer refuses instead.
+    // @behavior FS-166
+    #[test]
+    fn a_directory_a_layer_cannot_open_answers_why() {
+        use crate::mount::{Access, Mount};
+        use crate::vfs::{self, OpenHow};
+        let lower: Arc<dyn InodeOperations> = tmpfs_with("top/file", "lower");
+        let overlay = over(
+            Arc::new(Wrap::new(lower, Arc::new(RefusesOpen))),
+            Arc::new(Tmpfs::new()),
+        );
+        let mount = Mount::new("/data", Filesystem::new(Arc::new(overlay)), Access::Read)
+            .expect("/data is a guest path");
+        let directory = OpenHow {
+            directory: true,
+            ..OpenHow::default()
+        };
+        let answer = vfs::do_file_open(
+            &Arc::default(),
+            &vfs::Path::root(mount.mnt()),
+            "top",
+            &directory,
+        );
+        assert_eq!(
+            answer.err(),
+            Some(vfs::Error::Filesystem(FilesystemError::PermissionDenied)),
+            "vfs::do_file_open of an Overlay's directory whose Layer refuses its open must answer \
+             what the Layer answered"
+        );
+    }
+
     // @behavior FS-080
     #[test]
     fn a_file_gone_during_a_rename_answers_not_found() {
