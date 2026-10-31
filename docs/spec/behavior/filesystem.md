@@ -1657,3 +1657,27 @@ both live in the upper and never show, so no name is reserved
 | Given | a held file of a lower Layer, removed through an Overlay, whose name another file took |
 | When | a time is set through the held file |
 | Then | the call answers EROFS, and the lower Layer is not asked |
+
+## `FS-159` A whiteout in a directory one Layer shows names nothing
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-019` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay holding, as a lower Layer, an earlier Overlay's upper with a whiteout in it |
+| When | the guest stats that name, in a directory only that Layer shows |
+| Then | it answers ENOENT, as the listing shows nothing there |
+
+## `FS-160` A lower directory answers that it cannot move before its target is read
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-043` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lower Layer holds a directory, and another holding entries |
+| When | the first is renamed onto the second |
+| Then | the rename answers EXDEV rather than ENOTEMPTY |
