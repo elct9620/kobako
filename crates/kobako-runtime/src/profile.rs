@@ -119,6 +119,26 @@ mod tests {
         );
     }
 
+    // A guest reads the count on any ABI, so the count starts in the runtime
+    // rather than in what a Driver encodes.
+    // @behavior RT-193
+    #[test]
+    fn an_entry_whose_filesystem_keeps_no_count_is_named_once() {
+        let reported = Metadata::new(FileType::File, 0);
+        assert_eq!(
+            (
+                Profile::Hermetic.guest_metadata(reported).nlink,
+                Profile::Permissive.guest_metadata(reported).nlink,
+                Profile::Permissive
+                    .guest_metadata(reported.with_nlink(3))
+                    .nlink,
+            ),
+            (1, 1, 3),
+            "Profile::guest_metadata of an entry reporting no count must show one name on each \
+             posture, and of one reporting three must show three"
+        );
+    }
+
     // @behavior RT-014
     #[test]
     fn a_declaration_satisfies_any_floor_at_or_below_it() {

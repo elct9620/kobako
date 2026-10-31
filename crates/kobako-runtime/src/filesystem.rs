@@ -343,9 +343,9 @@ pub struct Metadata {
     /// Policy a descriptor of it reaches nothing.
     pub dev: u64,
     pub ino: u64,
-    /// How many names the entry has, as `st_nlink` counts; `None` where
-    /// the Filesystem keeps no count.
-    pub nlink: Option<u64>,
+    /// How many names the entry has, as `st_nlink` counts; one where the
+    /// Filesystem keeps no count, as Linux starts every inode.
+    pub nlink: u64,
     /// When the entry was last read, written, or changed, as `st_atime`,
     /// `st_mtime`, and `st_ctime` record; `None` where the Filesystem keeps
     /// no such time.
@@ -355,14 +355,14 @@ pub struct Metadata {
 }
 
 impl Metadata {
-    /// Metadata reporting no identity, link count, or time.
+    /// Metadata named once, reporting no identity or time.
     pub fn new(file_type: FileType, len: u64) -> Self {
         Self {
             file_type,
             len,
             dev: 0,
             ino: 0,
-            nlink: None,
+            nlink: 1,
             accessed: None,
             modified: None,
             changed: None,
@@ -376,10 +376,7 @@ impl Metadata {
 
     /// This metadata counting `nlink` names.
     pub fn with_nlink(self, nlink: u64) -> Self {
-        Self {
-            nlink: Some(nlink),
-            ..self
-        }
+        Self { nlink, ..self }
     }
 
     /// This metadata recording when the entry was last read, written, and

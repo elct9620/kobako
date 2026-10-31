@@ -95,15 +95,14 @@ fn to_filetype(file_type: FileType) -> Filetype {
 }
 
 /// A `filestat` for what a Filesystem reports a path names, as the guest
-/// holding `table` sees it: named once where it keeps no count of names, and
-/// at time zero where it keeps no time.
+/// holding `table` sees it, at time zero where it keeps no time.
 pub(crate) fn filestat(table: &Descriptors, metadata: Metadata) -> types::Filestat {
     let metadata = table.profile().guest_metadata(metadata);
     types::Filestat {
         dev: metadata.dev,
         ino: metadata.ino,
         filetype: to_filetype(metadata.file_type),
-        nlink: metadata.nlink.unwrap_or(1),
+        nlink: metadata.nlink,
         size: metadata.len,
         atim: timestamp(metadata.accessed),
         mtim: timestamp(metadata.modified),

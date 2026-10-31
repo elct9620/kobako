@@ -2133,7 +2133,7 @@ mod tests {
                 merged.modified == modified(&upper, "upper/dir"),
                 merged.modified == modified(&lower, "dir"),
             ),
-            (Some(1), true, false),
+            (1, true, false),
             "Overlay::metadata of a directory two Layers hold, written last in the upper, must \
              count one name and report the upper Layer's times"
         );

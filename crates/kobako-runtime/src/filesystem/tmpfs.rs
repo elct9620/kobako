@@ -275,8 +275,7 @@ impl Content {
     fn metadata(&self) -> Metadata {
         self.times.report(
             Metadata::new(FileType::File, self.bytes.len() as u64)
-                .with_identity(self.dev, self.ino)
-                .with_nlink(1),
+                .with_identity(self.dev, self.ino),
         )
     }
 
@@ -482,7 +481,7 @@ impl Tmpfs {
         match node {
             Node::File(data) => lock(data).metadata(),
             Node::Directory(dir) => dir.metadata(self.tree.dev),
-            Node::Whiteout { .. } => Metadata::new(FileType::Unknown, 0).with_nlink(1),
+            Node::Whiteout { .. } => Metadata::new(FileType::Unknown, 0),
         }
     }
 
@@ -693,7 +692,7 @@ struct TmpfsWhiteout;
 
 impl InodeOperations for TmpfsWhiteout {
     fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        Ok(Metadata::new(FileType::Unknown, 0).with_nlink(1))
+        Ok(Metadata::new(FileType::Unknown, 0))
     }
 }
 
@@ -1383,7 +1382,7 @@ mod tests {
         };
         assert_eq!(
             (nlink("dir"), nlink("dir/file")),
-            (Some(4), Some(1)),
+            (4, 1),
             "Tmpfs::metadata of a directory holding a file and two directories must count four \
              names, and of the file one"
         );

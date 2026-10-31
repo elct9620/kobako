@@ -2107,3 +2107,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | wasi-testsuite's prebuilt preview1 tests, each over a Bind of its own directory |
 | When | each runs through the preview1 imports |
 | Then | only the tests needing a link made or a time set fail |
+
+## `RT-193` An entry whose Filesystem keeps no count of names is named once
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-127` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem reporting no count of names for an entry |
+| When | a guest on either posture reads what the entry reports |
+| Then | it reads one name |
