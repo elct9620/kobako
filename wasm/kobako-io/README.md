@@ -22,7 +22,7 @@ only through wasi-libc, so any guest shell can compose it.
 
 ```toml
 [dependencies]
-kobako-io = "0.19.0" # x-release-please-version
+kobako-io = "0.20.0" # x-release-please-version
 ```
 
 ```rust

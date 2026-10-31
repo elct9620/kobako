@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.19.0...kobako-io-v0.20.0) (2026-10-31)
+
+
+### Features
+
+* **io:** add File::Stat and the calls built on one ([c7174e6](https://github.com/elct9620/kobako/commit/c7174e6d43ffc9aa6503d237d7e08a3e4e0df9ab))
+
 ## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.18.0...kobako-io-v0.19.0) (2026-10-26)
 
 

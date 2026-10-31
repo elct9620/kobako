@@ -50,8 +50,8 @@ and emits the wasm exports:
 crate-type = ["cdylib"]
 
 [dependencies]
-kobako-mruby = { version = "0.19.0", features = ["msgpack"] } # x-release-please-version
-kobako-core = "0.19.0" # x-release-please-version
+kobako-mruby = { version = "0.20.0", features = ["msgpack"] } # x-release-please-version
+kobako-core = "0.20.0" # x-release-please-version
 ```
 
 The shell brings its own `beni`, on the series `kobako-mruby` depends on,
