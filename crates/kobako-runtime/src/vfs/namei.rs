@@ -24,7 +24,7 @@ use super::super_block::SuperBlock;
 use super::{Error, FileType, FilesystemError, Metadata};
 use crate::locking::RwSemaphoreGuard;
 
-use super::{NAME_MAX, PATH_MAX};
+use super::PATH_MAX;
 
 /// The most links one walk follows, as Linux's.
 const MAXSYMLINKS: usize = 40;
@@ -336,9 +336,6 @@ impl Nameidata {
     /// Walk every pending name but the last, which is left to act on.
     fn link_path_walk(&mut self, mut last: Option<Part>) -> Result<Option<Part>, Error> {
         while let Some(part) = self.pending.pop_front() {
-            if part.name.len() > NAME_MAX {
-                return Err(FilesystemError::InvalidFilename.into());
-            }
             let trailing = !part.from_link
                 && self
                     .pending
@@ -400,9 +397,8 @@ fn getname(path: &str) -> Result<(), FilesystemError> {
 /// `path`, beneath `start`. An empty path names nothing; an absolute path
 /// or a `..` above `start` itself is not the caller's to reach; a `..` or a
 /// final `.` after a component that is missing, no directory, or a link is
-/// `NotFound`, `NotADirectory`, or what the security hooks answer. A name past
-/// `NAME_MAX` is `InvalidFilename`. Where `follow` asks, a link at the end is
-/// followed too.
+/// `NotFound`, `NotADirectory`, or what the security hooks answer. Where
+/// `follow` asks, a link at the end is followed too.
 pub(crate) fn filename_lookup(
     cred: &Arc<Cred>,
     start: &Path,

@@ -19,7 +19,7 @@ use kobako_runtime::filesystem::{
     DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
     Kiocb, Lookup, Metadata, OpenOptions,
 };
-use kobako_runtime::vfs::{Dentry, Identity, Inode};
+use kobako_runtime::vfs::{Dentry, Identity, Inode, NAME_MAX};
 
 use crate::runtime::pinned_value::PinnedValue;
 use crate::runtime::{escape, gvl};
@@ -347,6 +347,9 @@ impl InodeOperations for RubyFilesystem {
     /// A Ruby object matches names exactly, as its contract asks. A lookup
     /// asks its `stat` what stands at the name, as FUSE asks its daemon.
     fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        if dentry.name().len() > NAME_MAX {
+            return Some(Err(FilesystemError::InvalidFilename));
+        }
         Some(match self.stat(dentry.path_raw()) {
             Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(*self)))),
             Err(FilesystemError::NotFound) => Ok(Lookup::Absent),

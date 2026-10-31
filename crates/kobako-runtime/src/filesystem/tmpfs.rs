@@ -12,7 +12,7 @@ use super::{
     DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
     Kiocb, Lookup, Metadata, OpenOptions,
 };
-use crate::vfs::{Dentry, Identity, Inode};
+use crate::vfs::{Dentry, Identity, Inode, NAME_MAX};
 use whiteout::Whiteout;
 
 mod tmpfile;
@@ -585,9 +585,14 @@ impl InodeOperations for Tmpfs {
         Ok(self.dir.metadata(self.tree.dev))
     }
 
-    /// A Tmpfs matches names byte for byte and holds no links.
+    /// A Tmpfs matches names byte for byte and holds no links, and refuses a
+    /// name past `NAME_MAX`, as `simple_lookup` does.
     fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-        let node = match self.dir.get(&dentry.name()) {
+        let name = dentry.name();
+        if name.len() > NAME_MAX {
+            return Some(Err(FilesystemError::InvalidFilename));
+        }
+        let node = match self.dir.get(&name) {
             Ok(node) => node,
             Err(FilesystemError::NotFound) => return Some(Ok(Lookup::Absent)),
             Err(err) => return Some(Err(err)),
@@ -806,6 +811,26 @@ impl FileOperations for TmpfsFile {
 mod tests {
     use super::*;
     use crate::vfs::kern_path::{kern_path, KernPath};
+
+    // Linux's VFS sets no limit on one name, so this is the Tmpfs's own.
+    // @behavior FS-154
+    #[test]
+    fn a_name_past_its_limit_is_too_long_for_a_tmpfs() {
+        let fs = kern_path(Arc::new(Tmpfs::new()));
+        let options = OpenOptions {
+            write: true,
+            create: true,
+            ..OpenOptions::default()
+        };
+        assert!(
+            fs.open(&"x".repeat(NAME_MAX), &options).is_ok()
+                && matches!(
+                    fs.symlink_metadata(&"x".repeat(NAME_MAX + 1)),
+                    Err(FilesystemError::InvalidFilename)
+                ),
+            "a name of NAME_MAX bytes must land in a Tmpfs, and one past it answer ENAMETOOLONG"
+        );
+    }
 
     // The space a Tmpfs counts is what bounds the host's memory, and a count
     // alone cannot tell, so only what the file still holds on to can.
